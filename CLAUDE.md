@@ -9,6 +9,8 @@
 - `docs/00-plan-overview.md` — 全体アーキテクチャ・フェーズ計画・DB設計・命名規約
 - `docs/01-plan-colorme.md` — カラーミーショップAPI仕様とアダプタ実装計画
 - `docs/02-plan-makeshop.md` — MakeShop API（GraphQL）仕様とアダプタ実装計画
+- `docs/03-design-decisions.md` — 確定した設計判断・詳細設計（**00〜02と矛盾する場合はこちらを優先**）
+- `docs/10-tasks.md` — 実装タスクWBS（タスクの進行管理台帳。各セッションはここから着手タスクを選ぶ）
 
 ## 識別子・命名規約
 
