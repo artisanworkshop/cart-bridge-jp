@@ -169,10 +169,10 @@ cbjp_logs      (id, job_id, level, message, context_json, created_at)
 
 | # | 項目 | 影響 | 対応 |
 |---|---|---|---|
-| 1 | カラーミー: 商品POST/PUTで画像登録可否 | Phase 3のUX | swagger.json精査+テストショップ実測 |
+| 1 | カラーミー: 商品POST/PUTで画像登録可否 | Phase 4のUX | swagger.json精査+テストショップ実測 |
 | 2 | MakeShop: レート制限値 | JobRunner設計 | FAQ/問い合わせで確認 |
 | 3 | MakeShop: API自社利用登録の条件（プラン・費用） | 利用者の前提条件 | 公式に確認しREADMEに明記 |
-| 4 | MakeShop: createProductの画像入力形式 | Phase 3 | GraphQLスキーマ精査+実測 |
+| 4 | MakeShop: createProductの画像入力形式 | Phase 4 | GraphQLスキーマ精査+実測 |
 | 5 | カラーミー: 受注POSTの必須項目と決済/配送ID参照 | 受注移行 | テストショップ実測 |
 | 6 | 大規模ショップ（商品1万点超）のジョブ実行時間 | 全Phase | カーソル分割+Action Schedulerの並列度調整 |
 | 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 | テストショップ実測 |

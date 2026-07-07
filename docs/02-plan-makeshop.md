@@ -14,7 +14,7 @@
 | レート制限 | **要確認**（FAQ/サポートで確認し、確定までRateLimiterは60req/分に設定） |
 | Webhook | アプリ公開時のみ必須（install/uninstall等）。自社利用の移行プラグインでは不要 |
 
-> 設計メモ: 無料版はショップオーナー自身が「API自社利用登録」で取得した永続トークン+エンドポイントURLを設定画面に貼り付ける方式。アプリストア公開する場合はSSOフロー+Webhookの実装が別途必要（Phase 5以降で検討）。
+> 設計メモ: 無料版はショップオーナー自身が「API自社利用登録」で取得した永続トークン+エンドポイントURLを設定画面に貼り付ける方式。アプリストア公開する場合はSSOフロー+Webhookの実装が別途必要（Phase 6以降で検討）。
 
 ## 2. 利用するQuery/Mutation対応表（shop admin API）
 
@@ -110,7 +110,7 @@ Woo→MakeShop方向は `updateOrderDeliveryStatus`（未配送/配送指示/配
 5. [ ] Transformer4種 + フィクスチャテスト
 6. [ ] `fetch*` 実装 → 既存Importerに結合し MakeShop→Woo インポート成立（アダプタパターンの検証マイルストーン）
 7. [ ] 実ショップでインポートE2E
-8. [ ] `push*` 実装（Phase 3）: カテゴリ自動作成 → 商品upsert → 会員upsert → 注文作成（決済なしモード）→ 在庫更新
+8. [ ] `push*` 実装（Phase 4）: カテゴリ自動作成 → 商品upsert → 会員upsert → 注文作成（決済なしモード）→ 在庫更新
 9. [ ] 大量データ時の `importProductBulk` 経路（任意）
 
 ## 7. カラーミーとの差分まとめ（アダプタ設計の検証観点）
