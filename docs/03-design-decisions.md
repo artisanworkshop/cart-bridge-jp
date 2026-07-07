@@ -221,7 +221,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 
 ## 6. 管理画面・REST API 設計
 
-### REST ルート（namespace: `cbjp/v1`、permission: `manage_woocommerce` + nonce）
+### REST ルート（namespace: `cbjp/v1`、permission: 特記なき限り `manage_woocommerce` + nonce）
 
 | Method | Route | 用途 |
 |---|---|---|
@@ -230,12 +230,16 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | DELETE | `/connections/{platform}` | 接続解除（トークン削除） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
 | GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base） |
+| GET | `/connect/{platform}/callback` | OAuthコールバック（ASP側に登録する公開URL。**permission例外**: `__return_true` + state検証必須。詳細は下記） |
 | POST | `/runs` | 移行実行の開始 `{type, platform, entities[]}` |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
+
+nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
+ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
 
 ### OAuth コールバック（カラーミー・BASE共通）
 
