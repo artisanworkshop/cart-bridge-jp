@@ -68,7 +68,7 @@ Adapters/Base/
 
 ### Capabilities宣言
 
-```php
+```text
 canCreateCategory:  true      // 3階層まで
 canCreateOrder:     false     // 注文作成APIなし（受注はインポート専用）
 canFetchCustomers:  false     // 顧客一覧APIなし（受注から抽出）
