@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-07-06
+最終更新: 2026-07-07
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -45,12 +45,12 @@
   - `Logger`（cbjp_logsへの書込 + WC_Loggerミラー。個人情報禁止ルールをdocblockに明記）
   - `HttpClient`（リトライ+指数バックオフ、Retry-After対応、ApiException）
   - `RateLimiter`（トークンバケット、$wpdbによる原子的更新）
-  - `TokenStore`（sodium暗号化、復号失敗時の再接続要求状態、末尾4桁マスク取得）
+  - `TokenStore`（sodium暗号化、**構造化ペイロード access/refresh/expires_at + リフレッシュ排他ロック=D13**、復号失敗・refresh失効時の再接続要求状態、末尾4桁マスク取得）
   - 各クラスのユニットテスト（HTTPは `pre_http_request` フィルターでモック）
 
 - [ ] **P0-5: Canonicalモデル + アダプタIF**
   - `Canonical\*` 8種（Product/Category/Tag/Customer/Order/Stock/Coupon/Review。readonly、`toArray/fromArray`、checksum算出用の正規化JSON）
-  - `Adapters\`: `PlatformAdapter`（03 §2 確定版）、`Capabilities`、`Cursor`、`Page`、`PushResult`、`ConnectionResult`、`ConnectionField`、`UnsupportedOperationException`
+  - `Adapters\`: `PlatformAdapter`（03 §2 確定版）、`Capabilities`（`canFetchCustomers` 含む）、`Cursor`、`Page`、`PushResult`、`ConnectionResult`、`ConnectionField`、`UnsupportedOperationException`
   - `AdapterRegistry`（フィルター `cbjp/adapters/register` で登録。Pro拡張ポイント）
   - Canonicalモデルのシリアライズ往復・checksumのユニットテスト
 
@@ -104,26 +104,45 @@
 
 ---
 
-## Phase 3: Woo → ASP エクスポート
+## Phase 3: BASE → Woo インポート
 
-- [ ] **E3-1: マッピングUI**（カテゴリ: カラーミーは既存選択・MakeShopは自動作成 / 決済・配送・注文ステータス対応表）
-- [ ] **E3-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run）
-- [ ] **E3-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像不可なら画像URL一覧CSV出力フロー）
-- [ ] **E3-4: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
-- [ ] **E3-5: importProductBulk 経路**（1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
+> 前提: BASE Developersアプリ登録済み・テストショップあり（D2）。詳細は `04-plan-base.md`。
+> BASE固有の制約: 顧客一覧API・注文作成API・クーポンAPIなし。トークンは1時間期限+リフレッシュ30日ローテーション（D13）。
 
----
-
-## Phase 4: 仕上げ・公開
-
-- [ ] **R4-1: 全件E2Eリハーサル**（両ASPのテストショップで実データ移行、往復移行のデータ欠損確認）
-- [ ] **R4-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
-- [ ] **R4-3: readme.txt + アセット**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及）
-- [ ] **R4-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過。参考スキル: wp-org-release）
-- [ ] **R4-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
+- [ ] **B3-0: フィクスチャ収集 + 仕様実測**
+  - テストショップにサンプルデータ（バリエーション商品・複数カテゴリ商品・各決済の受注・一部発送の受注）を登録
+  - items / items/detail / categories / item_categories / orders / orders/detail / users/me の実レスポンスを `tests/fixtures/base/` に保存
+  - **要検証#9（redirect_uriのhttps要否）/#10（発送ステータス集約規則）/#11（エラー形式・レート制限挙動）/#12（費用・スコープ承認）をここで確定** → 03 §9 と Capabilities を更新
+- [ ] **B3-1: BaseOAuth**（認可URL生成、callback REST（カラーミーと共通基盤）、**リフレッシュ+ローテーション+排他ロック**、TokenStore統合）+ ユニットテスト
+- [ ] **B3-2: BaseClient**（GET/POST、**HTTP 400のレート制限コード判別**、期限切れ時の自動リフレッシュ、RateLimiter統合）+ ユニットテスト
+- [ ] **B3-3: 接続ウィザードUI**（client_id/secret入力 → 認可 → users/me接続テスト。code手動貼付フォールバック）
+- [ ] **B3-4: Transformer**（Product/Order/Category + **CustomerExtractor**（受注購入者のemail名寄せ=D12）。フィクスチャベースのユニットテスト）
+- [ ] **B3-5: BaseAdapter.fetch\* + Importer結合**（カーソル=offset、受注は一覧→詳細の2段取得、dry-run動作確認）
+- [ ] **B3-6: 実ショップE2E**（商品・受注・顧客抽出の冪等性確認）
 
 ---
 
-## Phase 5（Pro・将来、設計のみ）
+## Phase 4: Woo → ASP エクスポート
+
+- [ ] **E4-1: マッピングUI**（カテゴリ: カラーミーは既存選択・MakeShop/BASEは自動作成（BASEは3階層まで） / 決済・配送・注文ステータス対応表）
+- [ ] **E4-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run）
+- [ ] **E4-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像不可なら画像URL一覧CSV出力フロー）
+- [ ] **E4-4: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
+- [ ] **E4-5: BASE push\***（カテゴリ自動作成→商品upsert→画像add_image(URL方式・**要検証#13**)→在庫edit_stock。**1日1,000件制限の分割実行**、バリエーション1軸化・絵文字除去のdry-run警告。受注・顧客は対象外）
+- [ ] **E4-6: importProductBulk 経路**（MakeShop 1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
+
+---
+
+## Phase 5: 仕上げ・公開
+
+- [ ] **R5-1: 全件E2Eリハーサル**（3ASPのテストショップで実データ移行、往復移行のデータ欠損確認）
+- [ ] **R5-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
+- [ ] **R5-3: readme.txt + アセット**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及）
+- [ ] **R5-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過。参考スキル: wp-org-release）
+- [ ] **R5-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
+
+---
+
+## Phase 6（Pro・将来、設計のみ）
 
 - 無料版には `cbjp/sync/*` フックのみ用意（P0-6 の JobManager 実装時に拡張ポイントを設けること）

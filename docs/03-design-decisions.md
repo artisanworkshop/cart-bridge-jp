@@ -1,16 +1,16 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-07-06
+最終更新: 2026-07-07
 
 `00-plan-overview.md` を具体化した実装設計。00〜02 と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07）
 
 | # | 論点 | 決定 |
 |---|---|---|
 | D1 | 最初の開発範囲 | Phase 0 のみを最初のマイルストーンとする |
-| D2 | API資格情報 | カラーミー: デベロッパー登録・テストショップ・アプリ登録済み / MakeShop: 自社利用登録・エンドポイント・永続トークン取得済み。**要検証事項は各Phaseの最初のタスクで実測して確定する** |
+| D2 | API資格情報 | カラーミー: デベロッパー登録・テストショップ・アプリ登録済み / MakeShop: 自社利用登録・エンドポイント・永続トークン取得済み / BASE: BASE Developersアプリ登録済み・テストショップあり（2026-07-07確認）。**要検証事項は各Phaseの最初のタスクで実測して確定する** |
 | D3 | タスク管理 | `docs/10-tasks.md` のWBSで管理（GitHub Issuesは使わない） |
 | D4 | CI | GitHub Actions を Phase 0 で構築（リモート: `artisanworkshop/cart-bridge-jp`） |
 | D5 | インターフェース範囲 | クーポン・タグ（カラーミーのグループ）・レビュー（MakeShop）を**オプショナルエンティティとして Phase 0 のIFに組み込む**（実装は後Phase） |
@@ -19,6 +19,9 @@
 | D8 | ブランチ運用 | `main` をデフォルトに、フェーズ/タスクごとに `feat/xxx` ブランチ → PR → CI通過でマージ。既存の `trunk` ブランチは `main` に統合して廃止 |
 | D9 | 作者表記 | Author: Artisan Workshop（GitHub org と一致。Author URI は実装時に実URLを確認） |
 | D10 | 受注明細の未マッチ商品 | Woo側に商品が無い明細は**カスタム行**（注文時商品名・単価・数量をそのまま）として作成し、元商品IDをメタ保存。スキップしない |
+| D11 | BASE対応の追加 | 対応プラットフォームに **BASE を追加**し、**Phase 3（MakeShopの次）**でインポートを実装。エクスポートはAPIが許す範囲（商品・カテゴリ・在庫のみ）で Phase 4 に含める。**v1.0公開はBASE込み**（フェーズ構成: 0基盤→1カラーミー→2MakeShop→3BASE→4エクスポート→5公開）。詳細は `04-plan-base.md` |
+| D12 | BASEの顧客移行方式 | BASEには顧客一覧APIが無いため、**受注インポート時に購入者情報からemail名寄せで顧客を生成**（オプション、デフォルトON。初回作成のみで上書きしない）。単独の顧客エンティティとしてはUIに出さない（`canFetchCustomers: false`） |
+| D13 | 有効期限付きトークン対応 | BASEのアクセストークン1時間+リフレッシュトークン30日ローテーションに対応するため、**TokenStoreはPhase 0から構造化ペイロード（access/refresh/expires_at）+リフレッシュ排他ロックを前提に設計**する（§4参照。カラーミー/MakeShopは単一トークンとして同構造に格納） |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -28,7 +31,7 @@
 namespace CartBridgeJP\Adapters;
 
 interface PlatformAdapter {
-    public function id(): string;                     // 'colorme' | 'makeshop'
+    public function id(): string;                     // 'colorme' | 'makeshop' | 'base'
     public function label(): string;
     public function capabilities(): Capabilities;
     public function testConnection(): ConnectionResult;
@@ -62,14 +65,15 @@ interface PlatformAdapter {
 final class Capabilities {
     public function __construct(
         public readonly bool $canCreateCategory,
-        public readonly bool $canCreateOrder,
+        public readonly bool $canCreateOrder,     // base: false（注文作成APIなし）
+        public readonly bool $canFetchCustomers,  // colorme/makeshop: true / base: false（受注から抽出=D12）
         public readonly bool $canUpdateCustomer,
-        public readonly bool $canPushImages,      // 要検証#1/#4の結果で確定
+        public readonly bool $canPushImages,      // 要検証#1/#4の結果で確定。base: true（URL指定方式）
         public readonly bool $canCreateCoupon,
-        public readonly bool $hasCoupons,         // colorme: true（読取のみ）/ makeshop: true
-        public readonly bool $hasTags,            // colorme: true（groups）/ makeshop: false
-        public readonly bool $hasReviews,         // colorme: false / makeshop: true
-        public readonly bool $hasVariants,
+        public readonly bool $hasCoupons,         // colorme: true（読取のみ）/ makeshop: true / base: false
+        public readonly bool $hasTags,            // colorme: true（groups）/ makeshop: false / base: false
+        public readonly bool $hasReviews,         // colorme: false / makeshop: true / base: false
+        public readonly bool $hasVariants,        // base: true（ただし1軸のみ）
         public readonly int  $rateLimitPerMinute,
     ) {}
 }
@@ -80,7 +84,7 @@ UI・JobManager は capability が false のエンティティを選択肢から
 
 ### 値オブジェクト仕様
 
-- **`Cursor`**: 不透明なペイロード `array<string,mixed>`（colorme: `['offset' => int]`、makeshop: ページング仕様確定後に定義）。`toJson()/fromJson()` で `cbjp_jobs.cursor_json` に永続化。初回は `Cursor::start()`。
+- **`Cursor`**: 不透明なペイロード `array<string,mixed>`（colorme: `['offset' => int]`、makeshop: ページング仕様確定後に定義、base: `['offset' => int]`（limit最大100）。`toJson()/fromJson()` で `cbjp_jobs.cursor_json` に永続化。初回は `Cursor::start()`。
 - **`Page`**: `items: array`（Canonical配列）、`nextCursor: ?Cursor`（null = 終端）、`total: ?int`（取得可能な場合のみ。進捗率表示用）。
 - **`PushResult`**: `remoteId: string`、`operation: 'created'|'updated'|'skipped'`、`warnings: string[]`。
 - **`ConnectionResult`**: `ok: bool`、`shopName: ?string`、`message: ?string`（失敗理由。トークン等の機密を含めない）。
@@ -102,7 +106,7 @@ CREATE TABLE {$prefix}cbjp_jobs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   run_id CHAR(36) NOT NULL,                 -- 1回の移行実行（複数エンティティ）を束ねるUUID
   type VARCHAR(20) NOT NULL,                -- 'import' | 'export' | 'dry_run'
-  platform VARCHAR(20) NOT NULL,            -- 'colorme' | 'makeshop'
+  platform VARCHAR(20) NOT NULL,            -- 'colorme' | 'makeshop' | 'base'
   entity VARCHAR(20) NOT NULL,              -- 'product'|'category'|'tag'|'customer'|'order'|'stock'|'coupon'|'review'
   status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- 下記ステートマシン参照
   cursor_json TEXT NULL,
@@ -165,7 +169,11 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - 暗号化: `sodium_crypto_secretbox`（PHP 7.2+ 標準バンドルのため fallback 不要。念のため activation 時に `function_exists('sodium_crypto_secretbox')` を検査し、無ければ管理画面通知）
 - 鍵導出: `sodium_crypto_generichash( AUTH_KEY . AUTH_SALT, '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES )`
 - nonce は保存ごとにランダム生成し `base64( nonce . ciphertext )` をオプション `cbjp_token_{platform}`（autoload無効）に保存
-- `AUTH_KEY` 変更等で復号失敗した場合は例外にせず「再接続が必要」状態を返し、UIで再接続を促す
+- **保存単位は構造化ペイロード（D13）**: `{access_token, refresh_token?, expires_at?, extras?}` のJSONを暗号化。
+  カラーミー（無期限）/ MakeShop（永続）は `refresh_token`/`expires_at` なしで同構造に格納
+- **リフレッシュ排他ロック**: 有効期限付きトークン（BASE）の更新は `$wpdb` の原子的UPDATE（GET_LOCKまたはオプションCAS）で排他し、
+  ローテーション式refresh_tokenの二重更新による失効を防ぐ。更新後は新しいaccess/refresh両方を即時上書き保存
+- `AUTH_KEY` 変更等で復号失敗した場合、およびリフレッシュトークン失効（BASE: 30日超の放置）の場合は例外にせず「再接続が必要」状態を返し、UIで再接続を促す
 - 画面表示は末尾4文字のみ（`****abcd`）
 
 ### HttpClient
@@ -173,6 +181,8 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - `wp_remote_request` ラッパー。タイムアウト30秒、`User-Agent: CartBridgeJP/{ver}`
 - リトライ: 429/5xx/接続タイムアウトで指数バックオフ+ジッター（1s→2s→4s、最大3回）。`Retry-After` ヘッダーがあれば優先
 - 4xx（429以外）はリトライせず `ApiException`（platform固有のエラー配列→メッセージ変換はアダプタ側Client担当）
+- **例外**: BASEはレート制限超過を **HTTP 400** + エラーコード `hour_api_limit`/`day_api_limit` で返すため、
+  「このレスポンスはレート制限か」の判定をアダプタ側Clientがフックできる拡張ポイント（コールバックまたはoverride）を設ける
 - 全リクエストは呼び出し前に RateLimiter の許可を取る
 
 ### RateLimiter
@@ -206,7 +216,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 
 ### 税の扱い
 
-カラーミー・MakeShopとも価格は税込。インポート開始前に Woo の
+カラーミー・MakeShop・BASEとも価格は税込（BASEは `item_tax_type` で軽減税率商品を判別可能。extrasに保存）。インポート開始前に Woo の
 `woocommerce_prices_include_tax` が `no` の場合は dry-run 警告に含める（自動変更はしない）。
 
 ## 6. 管理画面・REST API 設計
@@ -216,10 +226,10 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | Method | Route | 用途 |
 |---|---|---|
 | GET | `/connections` | 全プラットフォームの接続状態一覧 |
-| PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme: client_id+secret） |
+| PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme・base: client_id+secret） |
 | DELETE | `/connections/{platform}` | 接続解除（トークン削除） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
-| GET | `/connections/colorme/authorize-url` | OAuth認可URL取得 |
+| GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base） |
 | POST | `/runs` | 移行実行の開始 `{type, platform, entities[]}` |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
@@ -227,12 +237,13 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
 
-### カラーミー OAuth コールバック
+### OAuth コールバック（カラーミー・BASE共通）
 
-- コールバックURL: `{site_url}/wp-json/cbjp/v1/connect/colorme/callback`（ユーザーがカラーミーのアプリ登録画面に登録する。設定画面にコピー用で表示）
+- コールバックURL: `{site_url}/wp-json/cbjp/v1/connect/{platform}/callback`（ユーザーが各ASPのアプリ登録画面に登録する。設定画面にコピー用で表示）
 - `state` = ワンタイムトークン（transient、10分、管理ユーザーIDに紐付け）で CSRF 対策。`permission_callback` は `__return_true` とし、state 検証を必須にする
 - code→トークン交換後、管理画面（接続タブ）へリダイレクト
-- **フォールバック**: ローカル開発（http://localhost:8888）でカラーミー側がhttpsリダイレクトURIを要求する場合に備え、「認可後のURLからcodeを手動貼り付け」する入力欄も用意（要検証#7）
+- **フォールバック**: ローカル開発（http://localhost:8888）でASP側がhttpsリダイレクトURIを要求する場合に備え、「認可後のURLからcodeを手動貼り付け」する入力欄も用意（要検証#7/#9。BASEの認可コード有効期限は約1時間なので手動貼付でも運用可能）
+- BASE固有: トークン交換・リフレッシュ時に `redirect_uri` パラメータが**毎回必須**（BaseOAuthで保持）
 
 ### React アプリ（src/）
 
@@ -246,7 +257,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 ```php
 /**
  * Plugin Name: Cart Bridge JP – Migrate & Sync for WooCommerce
- * Description: Migrate and sync products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop) and WooCommerce.
+ * Description: Migrate and sync products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
  * Version: 0.1.0
  * Requires at least: 6.5
  * Requires PHP: 8.1
@@ -285,5 +296,10 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-7）で計測 | 未 |
 | 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | 未 |
 | 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | Phase 2 タスク M2-0 | 未 |
+| 9 | BASE: リダイレクトURIのhttps要否・localhost可否 | Phase 3 タスク B3-0 | 未 |
+| 10 | BASE: 明細単位発送ステータスの注文全体への集約規則（dispatch_statusの実値一覧含む） | Phase 3 タスク B3-0 | 未 |
+| 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | Phase 3 タスク B3-0 | 未 |
+| 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | Phase 3 タスク B3-0（公式FAQ確認） | 未 |
+| 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
