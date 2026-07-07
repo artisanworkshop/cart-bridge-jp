@@ -1,10 +1,10 @@
 # Cart Bridge JP 全体開発計画
 
-最終更新: 2026-07-06
+最終更新: 2026-07-07
 
 ## 1. プロダクト概要
 
-日本のASPカート（カラーミーショップ・MakeShop、将来他ASP）とWooCommerce間の**双方向データ移行**（無料版）と**継続同期**（Pro版・将来）を提供するWordPressプラグイン。
+日本のASPカート（カラーミーショップ・MakeShop・BASE、将来他ASP）とWooCommerce間の**双方向データ移行**（無料版）と**継続同期**（Pro版・将来）を提供するWordPressプラグイン。
 
 - 配布: wordpress.org（無料版）+ 有料アドオン（別プラグイン、将来）
 - 無料版スコープ: 一括インポート/エクスポート（商品・カテゴリ・顧客・受注・在庫）
@@ -12,20 +12,21 @@
 
 ## 2. 対応プラットフォームとAPI概要比較
 
-| 項目 | カラーミーショップ | MakeShop |
-|---|---|---|
-| API形式 | REST + JSON（OpenAPI定義あり） | GraphQL |
-| 認証 | OAuth2認可コード（トークン無期限） | 永続トークン（API自社利用登録）/ SSO一時トークン |
-| レート制限 | 120req/分/トークン（目安） | 要確認 |
-| 商品 | GET/POST/PUT（DELETE不可） | Query/Mutation（create/update/delete、CSV一括登録も可） |
-| カテゴリ | GETのみ（**作成不可**） | 取得/作成/更新可 |
-| 顧客 | GET/POST/PUT（DELETE不可） | 取得/登録/更新/削除/パスワード更新/ポイント更新 |
-| 受注 | GET/POST/PUT+キャンセル（DELETE不可） | 取得/登録/キャンセル/属性変更/配送ステータス変更 |
-| クーポン | GETのみ | CRUD可 |
-| 在庫 | GET（更新は商品PUT経由） | 取得/更新（バリエーション在庫含む） |
-| Webhook | なし | あり（アプリ向け: install/uninstall/決済） |
+| 項目 | カラーミーショップ | MakeShop | BASE |
+|---|---|---|---|
+| API形式 | REST + JSON（OpenAPI定義あり） | GraphQL | REST + JSON（β版） |
+| 認証 | OAuth2認可コード（トークン無期限） | 永続トークン（API自社利用登録）/ SSO一時トークン | OAuth2認可コード（**アクセストークン1時間+リフレッシュ30日ローテーション**） |
+| レート制限 | 120req/分/トークン（目安） | 要確認 | 5,000req/時（超過は**HTTP 400**）+ 商品登録1,000件/日 |
+| 商品 | GET/POST/PUT（DELETE不可） | Query/Mutation（create/update/delete、CSV一括登録も可） | GET/add/edit（deleteあり・不使用）。画像はURL指定で登録可 |
+| カテゴリ | GETのみ（**作成不可**） | 取得/作成/更新可 | 取得/作成/更新可（**3階層まで**） |
+| 顧客 | GET/POST/PUT（DELETE不可） | 取得/登録/更新/削除/パスワード更新/ポイント更新 | **APIなし**（受注詳細の購入者情報から抽出のみ） |
+| 受注 | GET/POST/PUT+キャンセル（DELETE不可） | 取得/登録/キャンセル/属性変更/配送ステータス変更 | 取得+発送ステータス変更のみ（**新規作成不可**） |
+| クーポン | GETのみ | CRUD可 | APIなし |
+| 在庫 | GET（更新は商品PUT経由） | 取得/更新（バリエーション在庫含む） | 商品GET経由 / edit_stockで更新 |
+| バリエーション | 2軸 | 2軸（縦横） | **1軸のみ** |
+| Webhook | なし | あり（アプリ向け: install/uninstall/決済） | なし |
 
-詳細は `01-plan-colorme.md` / `02-plan-makeshop.md` を参照。
+詳細は `01-plan-colorme.md` / `02-plan-makeshop.md` / `04-plan-base.md` を参照。
 
 ## 3. アーキテクチャ
 
@@ -50,7 +51,7 @@ Admin UI (React/TS) ──REST──> Admin\RestController
 namespace CartBridgeJP\Adapters;
 
 interface PlatformAdapter {
-    public function id(): string;                     // 'colorme' | 'makeshop'
+    public function id(): string;                     // 'colorme' | 'makeshop' | 'base'
     public function label(): string;
     public function capabilities(): Capabilities;     // 下記参照
     public function testConnection(): ConnectionResult;
@@ -126,27 +127,33 @@ cbjp_logs      (id, job_id, level, message, context_json, created_at)
 
 `02-plan-makeshop.md` 参照。GraphQLクライアント + 永続トークン接続。Phase 1のImporterを再利用しアダプタ追加のみで動くことを確認（アーキテクチャ検証を兼ねる）。
 
-### Phase 3: Woo → カラーミー / Woo → MakeShop エクスポート
+### Phase 3: BASE → Woo インポート
 
-- カテゴリマッピングUI（カラーミーは作成不可のため既存カテゴリ選択、MakeShopは自動作成可）
+`04-plan-base.md` 参照。OAuthリフレッシュトークン対応（1時間期限+30日ローテーション）。
+顧客は受注購入者からのemail名寄せ抽出（顧客一覧APIなし）。クーポン・タグ・レビューは対象外。
+
+### Phase 4: Woo → ASP エクスポート
+
+- カテゴリマッピングUI（カラーミーは作成不可のため既存カテゴリ選択、MakeShop/BASEは自動作成可。BASEは3階層まで）
 - 商品・顧客・受注のエクスポート。SKU/email突合でupsert
-- 画像: 各ASPのcanPushImages検証結果に応じ、不可の場合はCSV+画像一括登録の代替フロー案内
+  - BASEは商品・カテゴリ・在庫のみ（受注作成・顧客APIなし）。商品登録1,000件/日の分割実行、バリエーション1軸化の警告
+- 画像: 各ASPのcanPushImages検証結果に応じ、不可の場合はCSV+画像一括登録の代替フロー案内（BASEはURL指定登録が可能）
 
-### Phase 4: 仕上げ・公開
+### Phase 5: 仕上げ・公開
 
 - 全件E2E（テストショップで実データ移行リハーサル）
 - readme.txt、スクリーンショット、wordpress.org申請（スラッグ `cart-bridge-jp`）
-- WooCommerce is a trademark of Automattic の表記、カラーミー/MakeShopは本文中で「対応プラットフォーム」として言及（名称・スラッグに商標を含めない）
+- WooCommerce is a trademark of Automattic の表記、カラーミー/MakeShop/BASEは本文中で「対応プラットフォーム」として言及（名称・スラッグに商標を含めない）
 
-### Phase 5（Pro・将来）: 継続同期
+### Phase 6（Pro・将来）: 継続同期
 
-- Action Schedulerによる定期差分同期（updated_atベース + checksum）
+- Action Schedulerによる定期差分同期（updated_atベース + checksum。BASEはWebhookがないためポーリングのみ）
 - 在庫双方向同期、競合解決ポリシー（マスター指定）
 - 無料版には `cbjp/sync/*` フックのみ用意しPro側から接続
 
 ## 5. 管理画面UI構成
 
-1. **接続管理**: プラットフォーム追加（カラーミー: OAuthウィザード / MakeShop: トークン+エンドポイント入力）、接続テスト
+1. **接続管理**: プラットフォーム追加（カラーミー/BASE: OAuthウィザード / MakeShop: トークン+エンドポイント入力）、接続テスト
 2. **インポート**: エンティティ選択 → dry-runプレビュー（件数・警告一覧）→ 実行 → 進捗バー（RESTポーリング）→ 結果レポート
 3. **エクスポート**: 同上 + マッピング設定（カテゴリ/決済方法/配送方法/注文ステータス）
 4. **ログ**: ジョブ履歴・エラー詳細・再実行ボタン
@@ -162,12 +169,20 @@ cbjp_logs      (id, job_id, level, message, context_json, created_at)
 
 | # | 項目 | 影響 | 対応 |
 |---|---|---|---|
-| 1 | カラーミー: 商品POST/PUTで画像登録可否 | Phase 3のUX | swagger.json精査+テストショップ実測 |
+| 1 | カラーミー: 商品POST/PUTで画像登録可否 | Phase 4のUX | swagger.json精査+テストショップ実測 |
 | 2 | MakeShop: レート制限値 | JobRunner設計 | FAQ/問い合わせで確認 |
 | 3 | MakeShop: API自社利用登録の条件（プラン・費用） | 利用者の前提条件 | 公式に確認しREADMEに明記 |
-| 4 | MakeShop: createProductの画像入力形式 | Phase 3 | GraphQLスキーマ精査+実測 |
+| 4 | MakeShop: createProductの画像入力形式 | Phase 4 | GraphQLスキーマ精査+実測 |
 | 5 | カラーミー: 受注POSTの必須項目と決済/配送ID参照 | 受注移行 | テストショップ実測 |
 | 6 | 大規模ショップ（商品1万点超）のジョブ実行時間 | 全Phase | カーソル分割+Action Schedulerの並列度調整 |
+| 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 | テストショップ実測 |
+| 8 | MakeShop: searchProduct等のページング方式 | Phase 2 | リファレンス精査+実測 |
+| 9 | BASE: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 3 | テストショップ実測 |
+| 10 | BASE: 明細単位発送ステータスの注文全体への集約規則 | 受注移行 | テストショップ実測（一部発送の受注を作成） |
+| 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-After有無） | Phase 3 | 実測 |
+| 12 | BASE: API利用費用・スコープ承認フロー | READMEの前提条件記載 | 公式FAQ確認（登録済みのため契約内容を記録） |
+
+（#7以降の確定状況は `03-design-decisions.md` §9 のトラッカーで管理）
 
 ## 8. ディレクトリ構成
 
@@ -178,13 +193,17 @@ cart-bridge-jp/
 ├── docs/
 │   ├── 00-plan-overview.md
 │   ├── 01-plan-colorme.md
-│   └── 02-plan-makeshop.md
+│   ├── 02-plan-makeshop.md
+│   ├── 03-design-decisions.md
+│   ├── 04-plan-base.md
+│   └── 10-tasks.md
 ├── includes/
 │   ├── Core/                   # Plugin, Activator, Uninstaller, Container
 │   ├── Adapters/
 │   │   ├── PlatformAdapter.php, Capabilities.php, Cursor.php, Page.php
 │   │   ├── ColorMe/            # ColorMeAdapter, ColorMeClient, OAuth, 変換クラス
-│   │   └── MakeShop/           # MakeShopAdapter, GraphQLClient, 変換クラス
+│   │   ├── MakeShop/           # MakeShopAdapter, GraphQLClient, 変換クラス
+│   │   └── Base/               # BaseAdapter, BaseClient, BaseOAuth, 変換クラス
 │   ├── Canonical/              # CanonicalProduct 等
 │   ├── Sync/                   # JobManager, Importer, Exporter, MappingRepository
 │   ├── Woo/                    # WooRepository（WC CRUDラッパー、画像sideload）
