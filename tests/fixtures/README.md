@@ -44,7 +44,7 @@ tests/fixtures/
 grep -rEo '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' tests/fixtures/ | grep -vE 'example\.(com|jp)'
 
 # トークンらしき長い英数字列がないか（swagger.json はAPI定義ファイルのため除外）
-grep -rEl '[A-Za-z0-9_-]{32,}' tests/fixtures/ --include='*.json' --exclude=swagger.json
+grep -rEl --include='*.json' --exclude=swagger.json '[A-Za-z0-9_-]{32,}' tests/fixtures/
 ```
 
 最後に `git diff --staged` で実データの残存がないか目視確認してからコミットする。
