@@ -1,11 +1,11 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-07-07
+最終更新: 2026-07-08
 
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -22,6 +22,10 @@
 | D11 | BASE対応の追加 | 対応プラットフォームに **BASE を追加**し、**Phase 3（MakeShopの次）**でインポートを実装。エクスポートはAPIが許す範囲（商品・カテゴリ・在庫のみ）で Phase 4 に含める。**v1.0公開はBASE込み**（フェーズ構成: 0基盤→1カラーミー→2MakeShop→3BASE→4エクスポート→5公開）。詳細は `04-plan-base.md` |
 | D12 | BASEの顧客移行方式 | BASEには顧客一覧APIが無いため、**受注インポート時に購入者情報からemail名寄せで顧客を生成**（オプション、デフォルトON。初回作成のみで上書きしない）。単独の顧客エンティティとしてはUIに出さない（`canFetchCustomers: false`） |
 | D13 | 有効期限付きトークン対応 | BASEのアクセストークン1時間+リフレッシュトークン30日ローテーションに対応するため、**TokenStoreはPhase 0から構造化ペイロード（access/refresh/expires_at）+リフレッシュ排他ロックを前提に設計**する（§4参照。カラーミー/MakeShopは単一トークンとして同構造に格納） |
+| D14 | ビジネスモデル | 無料版=挙動確認用（**dry-runは全量無料**+実移行はサンプルのみ）。Pro版=買切り**「移行プロジェクトライセンス」**: サイト数無制限・**初回アクティベーションから3ヶ月**のアップデート&サポート・認証済みサイトは期限後も永続動作（新規サイト認証と更新のみ不可）・価格 ¥19,800 前後・自社サイト直販（**WooCommerce API Manager**）・返金保証なし（無料版で事前検証可能なことを明記）。**継続同期（Pro同期）は販売しない**。詳細は §10.1 |
+| D15 | 無料版の実行上限 | **最新受注10件起点のサンプル移行**: サンプル受注に紐づく商品（ハードキャップ50件）・顧客（最大10件）・受注10件のみ実インポート/エクスポート可。カテゴリ/タグは全量無料。上限はサーバーサイド（JobManager）で強制し、`cbjp/limits/{entity}` フィルター（総称表記: `cbjp/limits/*`）でPro版が解除。詳細は §10.2 |
+| D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
+| D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -48,6 +52,11 @@ interface PlatformAdapter {
     public function fetchStocks( Cursor $cursor ): Page;     // Page<CanonicalStock>
     public function fetchCoupons( Cursor $cursor ): Page;    // Page<CanonicalCoupon>
     public function fetchReviews( Cursor $cursor ): Page;    // Page<CanonicalReview>（makeshopのみ）
+
+    // 無料版サンプル選定・ID指定取得（D15。詳細は§10.2。API対応可否は要検証#14/#15）
+    public function fetchLatestOrders( int $limit ): array;                          // CanonicalOrder[]（新しい順）
+    public function fetchProductByRemoteId( string $remoteId ): ?CanonicalProduct;   // 404はnull
+    public function fetchCustomerByRemoteId( string $remoteId ): ?CanonicalCustomer; // base: UnsupportedOperationException（D12）
 
     // 書き込み（capabilityで不可のものは UnsupportedOperationException）
     public function pushProduct( CanonicalProduct $p, ?string $remoteId ): PushResult;
@@ -237,6 +246,9 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
+| GET | `/limits` | 無料版上限・使用状況・Pro解除状態（アップセル表示用。D15/§10.2） |
+| POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。D16/§10.3） |
+| POST | `/tools/rebuild-mappings` | SKU/email/注文番号メタの突合による mappings 再構築（D16/§10.3） |
 
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
@@ -252,7 +264,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 ### React アプリ（src/）
 
 - `@wordpress/scripts` ビルド、TypeScript strict、`@wordpress/components` + `@wordpress/api-fetch`
-- ルーティングは単一管理ページ内のタブ切替（Connections / Import / Export / Logs）。URLは `#/import` 形式
+- ルーティングは単一管理ページ内のタブ切替（Connections / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16、`/tools/*` ルート）を配置
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
 - UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）
 
@@ -297,7 +309,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 3 | MakeShop: 自社利用登録の条件（プラン・費用） | 取得済みのため契約内容をREADME用に記録（M2-0） | 未 |
 | 4 | MakeShop: createProduct の画像入力形式 | Phase 2 タスク M2-0 | 未 |
 | 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | Phase 4 タスク E4-3（テストショップ実測） | 未 |
-| 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-7）で計測 | 未 |
+| 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-8）で計測 | 未 |
 | 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | 未 |
 | 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | Phase 2 タスク M2-0 | 未 |
 | 9 | BASE: リダイレクトURIのhttps要否・localhost可否 | Phase 3 タスク B3-0 | 未 |
@@ -305,5 +317,86 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | Phase 3 タスク B3-0 | 未 |
 | 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | Phase 3 タスク B3-0（公式FAQ確認） | 未 |
 | 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
+| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | 未 |
+| 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / M2-0 / B3-0 | 未 |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
+
+## 10. 無料版制限・Pro版ライセンス設計（D14〜D17）
+
+### 10.1 ビジネスモデル・ライセンス（D14）
+
+無料版の役割は「自分のショップのデータで挙動確認ができること」に限定し、本番利用は Pro 版に誘導する。
+
+- **無料版**（wordpress.org 配布）: dry-run は全エンティティ全量無料（変換結果・警告のプレビューが購入判断材料）。実インポート/エクスポートは §10.2 のサンプル上限内のみ
+- **Pro版**（別プラグイン・自社サイト直販）: 「移行プロジェクトライセンス」として販売
+  - サイト数無制限 / **初回アクティベーション時点から3ヶ月**のアップデート・メールサポート
+  - 期限後: **認証済みサイトは永続動作**。新規サイトのライセンス認証とアップデート取得のみ不可（＝新規案件では買い直し）
+  - 価格: ¥19,800 前後 / 返金保証なし（無料版で事前検証可能なことを販売ページに明記）
+  - 販売基盤: 自社WooCommerceサイト + **WooCommerce API Manager**（アクティベーションAPI・アップデート配信）。
+    有効期限の起点を「購入時」でなく「初回アクティベーション時」にする点はカスタマイズポイント
+  - 適格請求書（インボイス）対応は販売サイト側で行う（本体プラグインのスコープ外）
+  - 期限切れ後の再購入導線（リピート割引・プラグイン内販促通知）は**実装しない**
+- **継続同期（定期差分同期・在庫双方向同期）は販売しない**。`cbjp/sync/*` フックの提供予定も廃止
+- Pro版の解除機構: wordpress.org 規約上、無料版内に鍵付きコードを同梱できないため、
+  Pro は別プラグインが `cbjp/limits/*` フィルターで上限を解除する構成とする（無料版に Pro 固有コードを含めない方針は維持）
+
+### 10.2 無料版の実行上限とサンプリング（D15）
+
+**エンティティ別上限**（インポート/エクスポート共通。dry-run は全量無料）:
+
+| エンティティ | 無料版の実行上限 |
+|---|---|
+| カテゴリ / タグ | 全量（サンプル商品の検証に必須のため制限しない） |
+| 受注 | 最新10件（サンプル） |
+| 顧客 | サンプル受注の購入者（最大10件） |
+| 商品 | サンプル受注に含まれる商品（**ハードキャップ50件**） |
+| 在庫 | サンプル商品分のみ |
+| レビュー | サンプル商品に紐づくもののみ |
+| クーポン | 最新10件 |
+
+**サンプル選定ロジック（SampleSelector）**:
+
+1. 実行開始時に `fetchLatestOrders(10)` で最新受注10件を取得
+2. 明細から商品 remote_id、購入者（email / remote_id）を抽出し重複排除（ゲスト購入は顧客枠にカウントしない）
+3. サンプルセットをオプション `cbjp_sample_{platform}`（autoload無効）に保存。再実行は同一セットの upsert
+4. 商品・顧客は **ID指定取得**（`fetchProductByRemoteId` / `fetchCustomerByRemoteId`）で取り込む
+   （全量カーソル走査してスキップする方式はレート制限を浪費するため不採用）。
+   カテゴリ/タグ/クーポンは通常のカーソル走査。
+   **在庫はサンプル商品のID指定取得の結果（CanonicalProduct.stock）から書き込み**、`fetchStocks` の全量走査は無料版では使わない
+5. **フォールバック**: 受注0件のショップ・受注エンティティ未選択時は「各エンティティ10件」。
+   受注が10件未満なら全受注 + 残枠を商品・顧客で補完。
+   **「最新10件」の並び順定義**: 受注は新しい順（`fetchLatestOrders`）。商品・顧客・クーポンは
+   APIが新しい順ソートを指定できる場合のみ新しい順、できない場合は**API標準順の先頭10件**とする
+   （通常カーソルの先頭ページで代用。ソート指定可否は要検証#14で各ASP・各エンティティについて確定）
+6. エッジケース: 削除済み商品の明細は404→警告+カスタム行（D10）/ バリエーションは親商品で1件 /
+   BASE は顧客のID指定取得なし→サンプル受注10件分の購入者から生成（D12）
+7. サンプルのやり直しは「サンプルクリーンアップ（§10.3）→ 再選定」で行う。
+   **クリーンアップせずに再選定は不可**（mappings累積カウントと商品ハードキャップの整合を守るため。UIでもこの順序を強制する）
+8. **エクスポート側の選定**: Woo→ASPも同基準で、**Woo側の最新受注10件**（`wc_get_orders` の日付降順）を起点に
+   紐づく商品・顧客をサンプルとする。フォールバック規則も同様（Woo側は日付ソートが常に可能）
+
+**上限の強制**: UI ではなく `Sync\JobManager` がサーバーサイドで強制する。累積カウントは
+`cbjp_mappings` の件数（platform + entity_type）を正とし、再実行で上限が加算されない。
+上限値は `cbjp/limits/{entity}` フィルターで提供し、Pro プラグインが解除する
+（実際のフック名は `cbjp/limits/product` のようにエンティティごと。本ドキュメント群で `cbjp/limits/*` とあるのはその総称）。
+
+### 10.3 Pro本移行時の重複防止・ツール（D16）
+
+- **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
+  **開始時に選択した上書きポリシー**（既存を更新 / 既存はスキップ。デフォルト: 更新）に従い、未取込分のみ新規作成。
+  dry-run で「新規◯件・更新◯件・スキップ◯件」を事前表示する
+- **リンク再構築ツール**（`POST /tools/rebuild-mappings`）: 再インストール・DB移設等で mappings が失われた場合に、
+  SKU（商品）/ email（顧客）/ `_cbjp_remote_order_number` メタ（受注）で既存Wooデータと突合して mappings を再構築
+- **サンプルクリーンアップツール**（`POST /tools/sample-cleanup`）: 無料版サンプル由来のWooデータと対応 mappings を一括削除。
+  対象は mappings の記録に基づき、実行前に削除件数を表示して確認を取る（本移行前のリセット・サンプル再選定に使用）
+- **アップセル表示**: dry-run で総数が判明するため、上限到達時に
+  「移行対象◯件のうち10件を無料版で移行済み。残り◯件は Pro 版で移行できます」と具体数で表示（`GET /limits`）
+
+### 10.4 付帯機能（D17）
+
+- **dry-runレポートのCSVダウンロード**: 変換結果・警告（未マッピング決済方法、SKU重複、バリエーション軸超過等）を全量出力
+- **移行後検証レポート**: エンティティ別件数と受注合計金額の ASP / Woo 突合を実行結果画面に表示
+- **301リダイレクトCSV**（Pro機能・Pro側で実装）: 旧商品URL→新商品URLの対応表を mappings から生成
+- **エクスポート実行前の本番書込み警告**: 無料版のサンプル10件でも ASP 本番環境に書き込むため、
+  実行前に確認ダイアログでテストショップの利用を推奨する
