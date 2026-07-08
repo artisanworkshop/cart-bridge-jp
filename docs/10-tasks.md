@@ -13,6 +13,8 @@
 4. **完了条件**: 各タスク記載の成果物 + `composer lint && composer analyze && composer test` が通ること（npm を含むタスクは `npm run lint && npm run build` も）
 5. PR 作成（gh コマンド）→ CI 通過 → マージ → 本ファイルのチェックボックスを更新
 6. 要検証事項（03 §9）が確定したら 03 と該当計画ドキュメントを更新
+7. フィクスチャ収集タスク（F1-0 / M2-0 / B3-0）では、コミット前に必ず
+   `tests/fixtures/README.md` の匿名化ルールを適用する（public リポジトリのため個人情報厳禁）
 
 ---
 

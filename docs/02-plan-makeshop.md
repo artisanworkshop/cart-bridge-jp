@@ -1,6 +1,6 @@
 # MakeShop アダプタ実装計画
 
-最終更新: 2026-07-06 / 対象: `includes/Adapters/MakeShop/`
+最終更新: 2026-07-08 / 対象: `includes/Adapters/MakeShop/`
 
 ## 1. API基本仕様
 
@@ -50,16 +50,20 @@ Adapters/MakeShop/
     └── CategoryTransformer.php
 ```
 
-### Capabilities宣言
+### Capabilities宣言（03 §2 の確定版コンストラクタに対応）
 
-```php
-canCreateCategory: true
-canCreateOrder:    true      // createOrder（決済なしデータ登録）
-canUpdateCustomer: true
-canPushImages:     false     // 暫定。要検証#4（createProductの画像入力形式）で更新
-canCreateCoupon:   true
-hasVariants:       true      // バリエーション在庫あり
-rateLimitPerMinute: 60       // 要確認#2の結果で更新
+```text
+canCreateCategory:  true
+canCreateOrder:     true      // createOrder（決済なしデータ登録）
+canFetchCustomers:  true
+canUpdateCustomer:  true
+canPushImages:      false     // 暫定。要検証#4（createProductの画像入力形式）で更新
+canCreateCoupon:    true
+hasCoupons:         true
+hasTags:            false
+hasReviews:         true      // searchReview（インポートのみ）
+hasVariants:        true      // バリエーション在庫あり
+rateLimitPerMinute: 60        // 要確認#2の結果で更新
 ```
 
 ## 4. データマッピングの要点

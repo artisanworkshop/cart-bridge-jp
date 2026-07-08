@@ -1,6 +1,6 @@
 # カラーミーショップ アダプタ実装計画
 
-最終更新: 2026-07-06 / 対象: `includes/Adapters/ColorMe/`
+最終更新: 2026-07-08 / 対象: `includes/Adapters/ColorMe/`
 
 ## 1. API基本仕様
 
@@ -57,15 +57,19 @@ Adapters/ColorMe/
 └── fixtures収集用のメモは tests/fixtures/colorme/ に置く
 ```
 
-### Capabilities宣言
+### Capabilities宣言（03 §2 の確定版コンストラクタに対応）
 
-```php
-canCreateCategory: false
-canCreateOrder:    true
-canUpdateCustomer: true
-canPushImages:     false  // 暫定。要検証#1の結果で更新
-canCreateCoupon:   false
-hasVariants:       true
+```text
+canCreateCategory:  false
+canCreateOrder:     true
+canFetchCustomers:  true
+canUpdateCustomer:  true
+canPushImages:      false     // 暫定。要検証#1の結果で更新
+canCreateCoupon:    false
+hasCoupons:         true      // 読取のみ（Woo側に再作成）
+hasTags:            true      // groups をタグとして扱う
+hasReviews:         false
+hasVariants:        true
 rateLimitPerMinute: 100
 ```
 
