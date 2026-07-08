@@ -43,8 +43,8 @@ tests/fixtures/
 # example.com/jp 以外のメールアドレスが残っていないか
 grep -rEo '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' tests/fixtures/ | grep -vE 'example\.(com|jp)'
 
-# トークンらしき長い英数字列がないか（swagger.json は除外して目視確認）
-grep -rEn '[A-Za-z0-9_-]{32,}' tests/fixtures/ --include='*.json' -l
+# トークンらしき長い英数字列がないか（swagger.json はAPI定義ファイルのため除外）
+grep -rEl '[A-Za-z0-9_-]{32,}' tests/fixtures/ --include='*.json' --exclude=swagger.json
 ```
 
 最後に `git diff --staged` で実データの残存がないか目視確認してからコミットする。
