@@ -23,14 +23,14 @@
 > ゴール: アダプタを1つも持たない状態で、テーブル・IF・Support層・ジョブ骨格・管理画面骨格・CIが揃い、
 > Phase 1 が「ColorMe ディレクトリを足すだけ」で始められる状態。
 
-- [ ] **P0-1: リポジトリ整備 + プラグインスケルトン**
+- [x] **P0-1: リポジトリ整備 + プラグインスケルトン**
   - `trunk` ブランチを `main` に統合し、以後 main をデフォルトに（`git branch -m` + `gh repo edit --default-branch main` 等）
   - `.gitignore`（node_modules, vendor, build, .wp-env.override.json 等）、`.editorconfig`
   - `cart-bridge-jp.php`（03 §7 のヘッダー、WooCommerce有効チェック、HPOS互換宣言）
   - `composer.json`（PSR-4: `CartBridgeJP\` → `includes/`）、`Core\Plugin`（シングルトン起動）、`Core\Activator`（03 §3 のDDLをdbDeltaで作成、DBバージョン管理）、`uninstall.php`
   - 成果物: wp-env上で有効化でき、3テーブルが作成される
 
-- [ ] **P0-2: 開発環境 + 品質ツール**
+- [x] **P0-2: 開発環境 + 品質ツール**
   - `.wp-env.json`（PHP 8.1、WooCommerce同梱、testsインスタンス）
   - `phpcs.xml.dist`（WordPress ruleset、PSR-4クラス名許容の調整）→ `composer lint`
   - `phpstan.neon.dist`（level 6、wordpress/woocommerceスタブ）→ `composer analyze`
@@ -38,25 +38,25 @@
   - `package.json` + `@wordpress/scripts` + TypeScript設定、空のエントリポイントがビルドできること
   - 参考スキル: wp-phpcs / wp-phpstan / wp-phpunit
 
-- [ ] **P0-3: GitHub Actions CI**
+- [x] **P0-3: GitHub Actions CI**
   - 03 §8 の3ジョブ（php-quality マトリクス / php-test / js）
   - main保護（PR必須・CI必須）の設定
   - 参考スキル: wp-github-actions
 
-- [ ] **P0-4: Support層**
+- [x] **P0-4: Support層**
   - `Logger`（cbjp_logsへの書込 + WC_Loggerミラー。個人情報禁止ルールをdocblockに明記）
   - `HttpClient`（リトライ+指数バックオフ、Retry-After対応、ApiException）
   - `RateLimiter`（トークンバケット、$wpdbによる原子的更新）
   - `TokenStore`（sodium暗号化、**構造化ペイロード access/refresh/expires_at + リフレッシュ排他ロック=D13**、復号失敗・refresh失効時の再接続要求状態、末尾4桁マスク取得）
   - 各クラスのユニットテスト（HTTPは `pre_http_request` フィルターでモック）
 
-- [ ] **P0-5: Canonicalモデル + アダプタIF**
+- [x] **P0-5: Canonicalモデル + アダプタIF**
   - `Canonical\*` 8種（Product/Category/Tag/Customer/Order/Stock/Coupon/Review。readonly、`toArray/fromArray`、checksum算出用の正規化JSON）
   - `Adapters\`: `PlatformAdapter`（03 §2 確定版。**サンプル選定用の `fetchLatestOrders` / `fetchProductByRemoteId` / `fetchCustomerByRemoteId` を含む=D15**）、`Capabilities`（`canFetchCustomers` 含む）、`Cursor`、`Page`、`PushResult`、`ConnectionResult`、`ConnectionField`、`UnsupportedOperationException`
   - `AdapterRegistry`（フィルター `cbjp/adapters/register` で登録。Pro拡張ポイント）
   - Canonicalモデルのシリアライズ往復・checksumのユニットテスト
 
-- [ ] **P0-6: Sync層骨格（ジョブ基盤）**
+- [x] **P0-6: Sync層骨格（ジョブ基盤）**
   - `Sync\JobRepository` / `MappingRepository` / `LogRepository`（$wpdb + prepare）
   - `Sync\JobManager`（startRun、ステートマシン、Action Schedulerエンキュー、1アクション=1ページのループ、エンティティ直列実行、同時実行ガード）
   - `Sync\Importer`（fetch→変換→書込のパイプライン。書込先は `WooWriter` IFにし、`DryRunReporter` と差し替え可能に）
@@ -64,7 +64,7 @@
   - ログ30日保持の日次クリーンアップ
   - モックアダプタ（テスト用フィクスチャを返すだけ）でジョブが完走・再開できるユニットテスト（**上限強制・サンプル選定・フォールバックのテスト含む**）
 
-- [ ] **P0-7: 管理画面骨格 + REST骨格**
+- [x] **P0-7: 管理画面骨格 + REST骨格**
   - `Admin\Menu`（WooCommerce配下にページ登録）、`Admin\Assets`
   - `Admin\RestController`（03 §6 のルート定義。connections/runs/logs/limits は P0-6 のリポジトリと接続、未実装部分は501）
   - React アプリ骨格: タブ5つ（Connections/Import/Export/Logs/Tools）、api-fetch セットアップ、Connections タブは AdapterRegistry 由来の一覧を表示（アダプタ0件の空状態。Tools タブは空の骨格のみ・実装は F1-7）
