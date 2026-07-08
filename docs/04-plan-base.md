@@ -18,7 +18,7 @@
 | トークンURL | `POST /1/oauth/token`（`authorization_code` / `refresh_token` グラント） |
 | スコープ | `read_users read_users_mail read_items read_orders write_items write_orders`（`read_savings` は移行用途では不要。`read_users` はデフォルト付与） |
 | レート制限 | **5,000リクエスト/時・100,000リクエスト/日**（毎時00分リセット）。超過時は **HTTP 400** + エラーコード `hour_api_limit` / `day_api_limit`（**429ではない**）。加えて商品登録（items/add）は **1日1,000件** 上限（`exceed_daily_limit`） |
-| Webhook | **なし**（公式ヘルプが明言）。Pro版の継続同期はポーリング（`modified` / `start_ordered`）方式になる |
+| Webhook | **なし**（公式ヘルプが明言。参考: 変更検知が必要になる場合は `modified` / `start_ordered` によるポーリングのみ。なお継続同期は販売しない=D14） |
 
 ### OAuth接続フロー（リフレッシュ対応が必須）
 

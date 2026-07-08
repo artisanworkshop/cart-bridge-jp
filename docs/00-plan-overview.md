@@ -48,6 +48,9 @@ Admin UI (React/TS) ──REST──> Admin\RestController
 
 ### 3.2 PlatformAdapter インターフェース
 
+> **注**: 本節は初期構想。**確定版のIFは `03-design-decisions.md` §2**（オプショナルエンティティ=D5、
+> サンプル選定用メソッド=D15 を含む）を参照。
+
 ```php
 namespace CartBridgeJP\Adapters;
 
