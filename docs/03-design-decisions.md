@@ -272,8 +272,8 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 ```php
 /**
- * Plugin Name: Cart Bridge JP – Migrate & Sync for WooCommerce
- * Description: Migrate and sync products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
+ * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
+ * Description: Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
  * Version: 0.1.0
  * Requires at least: 6.5
  * Requires PHP: 8.1

@@ -1,6 +1,6 @@
-# Cart Bridge JP – Migrate & Sync for WooCommerce
+# Cart Bridge JP – Migrate for WooCommerce
 
-日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行および同期を行うWordPressプラグイン。
+日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。無料版は挙動確認用サンプル移行、Pro版（別プラグイン）で無制限化する（`docs/03-design-decisions.md` D14）。
 
 ## 開発計画ドキュメント（必読）
 
@@ -17,7 +17,7 @@
 
 | 項目 | 値 |
 |---|---|
-| プラグイン名 | Cart Bridge JP – Migrate & Sync for WooCommerce |
+| プラグイン名 | Cart Bridge JP – Migrate for WooCommerce |
 | スラッグ / テキストドメイン | `cart-bridge-jp` |
 | PHP名前空間 | `CartBridgeJP\`（PSR-4、`includes/` 配下） |
 | 関数・フック接頭辞 | `cbjp_` / フィルターは `cbjp/{domain}/{action}` 形式 |
