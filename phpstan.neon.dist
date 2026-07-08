@@ -1,0 +1,18 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 6
+    paths:
+        - includes
+        - cart-bridge-jp.php
+        - uninstall.php
+    scanDirectories:
+        - includes
+    bootstrapFiles:
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
+    ignoreErrors:
+        # wp-config.php で定義されるランタイム定数のためスタブに存在しない。
+        - '#Constant AUTH_(KEY|SALT) not found\.#'
+        # cart-bridge-jp.php で define() されるプラグイン定数。ファイル横断のconst解決をphpstanが行えないため無視する。
+        - '#Constant CBJP_(VERSION|FILE|PATH|URL) not found\.#'

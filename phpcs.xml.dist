@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<ruleset name="Cart Bridge JP">
+	<description>WordPress Coding Standards for Cart Bridge JP.</description>
+
+	<file>.</file>
+
+	<exclude-pattern>/vendor/*</exclude-pattern>
+	<exclude-pattern>/node_modules/*</exclude-pattern>
+	<exclude-pattern>/build/*</exclude-pattern>
+	<exclude-pattern>/tests/fixtures/*</exclude-pattern>
+	<exclude-pattern>/languages/*</exclude-pattern>
+
+	<arg value="sp"/>
+	<arg name="basepath" value="."/>
+	<arg name="colors"/>
+	<arg name="extensions" value="php"/>
+	<arg name="parallel" value="8"/>
+
+	<rule ref="WordPress-Extra">
+		<!-- includes/ 配下は PSR-4 のクラス名ファイル（ClassName.php）を使うため、WP標準の class-name.php 規約は適用しない。 -->
+		<exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+		<exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
+		<!-- PHP 8.1+ 前提のため短縮配列構文を許可する。 -->
+		<exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
+		<!-- 例外メッセージは内部ログ・catch側での利用が前提でHTML出力ではないため、エスケープ要求の対象外とする。 -->
+		<exclude name="WordPress.Security.EscapeOutput.ExceptionNotEscaped"/>
+		<!-- CLAUDE.md の規約でフィルター名は cbjp/{domain}/{action} 形式（スラッシュ区切り）と定めているため。 -->
+		<exclude name="WordPress.NamingConventions.ValidHookName.UseUnderscores"/>
+		<exclude name="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound"/>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="cbjp_"/>
+				<element value="CBJP_"/>
+				<element value="CartBridgeJP"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.WP.Capabilities">
+		<properties>
+			<!-- WooCommerce が登録するcapability。WP core のsniffには未知として扱われるため明示する。 -->
+			<property name="custom_capabilities" type="array">
+				<element value="manage_woocommerce"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="cart-bridge-jp"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="PHPCompatibilityWP"/>
+	<config name="testVersion" value="8.1-"/>
+	<config name="minimum_supported_wp_version" value="6.5"/>
+</ruleset>
