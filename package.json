@@ -4,6 +4,9 @@
 	"version": "0.1.0",
 	"description": "Admin UI for Cart Bridge JP – Migrate for WooCommerce.",
 	"license": "GPL-2.0-or-later",
+	"engines": {
+		"npm": ">=11"
+	},
 	"scripts": {
 		"start": "wp-scripts start",
 		"build": "wp-scripts build",
