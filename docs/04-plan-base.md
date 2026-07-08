@@ -1,6 +1,6 @@
 # BASE アダプタ実装計画
 
-最終更新: 2026-07-07 / 対象: `includes/Adapters/Base/`
+最終更新: 2026-07-08 / 対象: `includes/Adapters/Base/`
 
 > BASE API は「β版」と明記されており仕様変更の可能性がある。実装時は必ず
 > https://docs.thebase.in/api/ で最新仕様を再確認すること。

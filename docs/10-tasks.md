@@ -67,7 +67,7 @@
 - [ ] **P0-7: 管理画面骨格 + REST骨格**
   - `Admin\Menu`（WooCommerce配下にページ登録）、`Admin\Assets`
   - `Admin\RestController`（03 §6 のルート定義。connections/runs/logs/limits は P0-6 のリポジトリと接続、未実装部分は501）
-  - React アプリ骨格: タブ4つ（Connections/Import/Export/Logs）、api-fetch セットアップ、Connections タブは AdapterRegistry 由来の一覧を表示（アダプタ0件の空状態）
+  - React アプリ骨格: タブ5つ（Connections/Import/Export/Logs/Tools）、api-fetch セットアップ、Connections タブは AdapterRegistry 由来の一覧を表示（アダプタ0件の空状態。Tools タブは空の骨格のみ・実装は F1-7）
   - i18n: `wp_set_script_translations` 設定
 
 **Phase 0 完了チェック**: モックアダプタを登録すると管理画面に接続カードが出て、
