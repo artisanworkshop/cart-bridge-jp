@@ -12,12 +12,12 @@ namespace CartBridgeJP\Adapters;
  * （colorme/base: `['offset' => int]`、makeshopはページング仕様確定後に定義）。
  * `cbjp_jobs.cursor_json` に永続化する。
  */
-final class Cursor {
+final readonly class Cursor {
 
 	/**
 	 * @param array<string,mixed> $payload
 	 */
-	public function __construct( public readonly array $payload = [] ) {}
+	public function __construct( public array $payload = [] ) {}
 
 	public static function start(): self {
 		return new self();

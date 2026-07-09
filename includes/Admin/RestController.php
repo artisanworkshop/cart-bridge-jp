@@ -9,12 +9,10 @@ namespace CartBridgeJP\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Support\TokenStore;
-use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
-use CartBridgeJP\Sync\NotImplementedWriter;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use Throwable;
 use WP_Error;
@@ -253,7 +251,14 @@ final class RestController {
 		try {
 			$result = $adapter->test_connection();
 		} catch ( Throwable $exception ) {
-			return new WP_Error( 'cbjp_connection_test_failed', $exception->getMessage(), [ 'status' => 500 ] );
+			return new WP_Error(
+				'cbjp_connection_test_failed',
+				__( 'Connection test failed.', 'cart-bridge-jp' ),
+				[
+					'status' => 500,
+					'detail' => $exception->getMessage(),
+				]
+			);
 		}
 
 		return rest_ensure_response(
@@ -270,7 +275,7 @@ final class RestController {
 		$platform = (string) $request->get_param( 'platform' );
 		$entities = (array) ( $request->get_param( 'entities' ) ?? [] );
 
-		if ( 'dry_run' !== $type ) {
+		if ( JobManager::TYPE_DRY_RUN !== $type ) {
 			return new WP_Error(
 				'cbjp_not_implemented',
 				__( 'Only dry-run is supported until platform adapters ship in Phase 1.', 'cart-bridge-jp' ),
@@ -279,11 +284,22 @@ final class RestController {
 		}
 
 		try {
-			$run_id = $this->job_manager()->start_run( $type, $platform, array_map( 'strval', $entities ) );
-		} catch ( RunAlreadyInProgressException $exception ) {
-			return new WP_Error( 'cbjp_run_in_progress', $exception->getMessage(), [ 'status' => 409 ] );
+			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
+		} catch ( RunAlreadyInProgressException ) {
+			return new WP_Error(
+				'cbjp_run_in_progress',
+				__( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
+			);
 		} catch ( Throwable $exception ) {
-			return new WP_Error( 'cbjp_invalid_run', $exception->getMessage(), [ 'status' => 400 ] );
+			return new WP_Error(
+				'cbjp_invalid_run',
+				__( 'The run request is invalid.', 'cart-bridge-jp' ),
+				[
+					'status' => 400,
+					'detail' => $exception->getMessage(),
+				]
+			);
 		}
 
 		return rest_ensure_response( [ 'run_id' => $run_id ] );
@@ -349,11 +365,9 @@ final class RestController {
 			return new WP_Error( 'cbjp_job_not_found', __( 'Job not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
 		}
 
-		if ( JobRepository::STATUS_FAILED !== $job['status'] ) {
+		if ( ! JobManager::create()->retry( $id ) ) {
 			return new WP_Error( 'cbjp_invalid_job_state', __( 'Only failed jobs can be retried.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
 		}
-
-		$repository->update_status( $id, JobRepository::STATUS_PENDING );
 
 		return rest_ensure_response(
 			[
@@ -378,37 +392,41 @@ final class RestController {
 		return rest_ensure_response( $logs );
 	}
 
+	/**
+	 * 無料版上限・使用状況・Pro解除状態（アップセル表示用、D15/§10.2）。
+	 * `platform` は任意: 指定時は使用状況（mappings累積カウント）と残数を含める。
+	 */
 	public function get_limits( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = (string) ( $request->get_param( 'platform' ) ?? '' );
 
-		if ( '' === $platform || ! AdapterRegistry::has( $platform ) ) {
+		if ( '' !== $platform && ! AdapterRegistry::has( $platform ) ) {
 			return $this->unknown_platform_error( $platform );
 		}
 
 		$mappings = new MappingRepository();
 		$limits   = new LimitPolicy( $mappings );
 
-		$result = [];
+		$entities = [];
 
 		foreach ( self::ENTITY_TYPES as $entity ) {
-			$result[ $entity ] = [
-				'limit'     => $limits->limit_for( $entity ),
-				'used'      => $mappings->count( $platform, $entity ),
-				'remaining' => $limits->remaining( $platform, $entity ),
+			$limit = $limits->limit_for( $entity );
+
+			$entities[ $entity ] = [
+				'limit'     => $limit,
+				'unlocked'  => null === $limit,
+				'used'      => '' !== $platform ? $mappings->count( $platform, $entity ) : null,
+				'remaining' => '' !== $platform ? $limits->remaining( $platform, $entity ) : null,
 			];
 		}
 
-		return rest_ensure_response( $result );
-	}
+		// 全エンティティが解除済み＝Pro解除状態。
+		$all_unlocked = ! in_array( false, array_column( $entities, 'unlocked' ), true );
 
-	private function job_manager(): JobManager {
-		$mappings = new MappingRepository();
-
-		return new JobManager(
-			new JobRepository(),
-			new LimitPolicy( $mappings ),
-			new Importer( $mappings ),
-			new NotImplementedWriter()
+		return rest_ensure_response(
+			[
+				'unlocked' => $all_unlocked,
+				'entities' => $entities,
+			]
 		);
 	}
 

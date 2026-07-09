@@ -10,7 +10,7 @@ namespace CartBridgeJP\Sync;
 /**
  * `WooWriter::write()` の結果。
  */
-final class WriteResult {
+final readonly class WriteResult {
 
 	public const OPERATION_CREATED = 'created';
 	public const OPERATION_UPDATED = 'updated';
@@ -21,8 +21,8 @@ final class WriteResult {
 	 * @param array<int,string>             $warnings
 	 */
 	public function __construct(
-		public readonly int $local_id,
-		public readonly string $operation,
-		public readonly array $warnings = []
+		public int $local_id,
+		public string $operation,
+		public array $warnings = []
 	) {}
 }

@@ -12,14 +12,18 @@ use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
 /**
  * 正規化されたタグモデル（カラーミーの「グループ」に相当）。
  */
-final class CanonicalTag implements CanonicalModel {
+final readonly class CanonicalTag implements CanonicalModel {
 
 	use ChecksumTrait;
 
 	public function __construct(
-		public readonly string $id,
-		public readonly string $name
+		public string $id,
+		public string $name
 	) {}
+
+	public function remote_id(): ?string {
+		return $this->id;
+	}
 
 	public function to_array(): array {
 		return [

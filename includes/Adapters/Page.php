@@ -12,16 +12,16 @@ use CartBridgeJP\Canonical\CanonicalModel;
 /**
  * fetch* メソッドが返す1ページ分の結果。
  */
-final class Page {
+final readonly class Page {
 
 	/**
 	 * @param array<int,CanonicalModel> $items
 	 * @param int|null                  $total 取得可能な場合のみ（進捗率表示用）。
 	 */
 	public function __construct(
-		public readonly array $items,
-		public readonly ?Cursor $next_cursor,
-		public readonly ?int $total = null
+		public array $items,
+		public ?Cursor $next_cursor,
+		public ?int $total = null
 	) {}
 
 	public function is_last_page(): bool {

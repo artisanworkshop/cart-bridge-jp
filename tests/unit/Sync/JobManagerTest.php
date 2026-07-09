@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
@@ -38,7 +39,9 @@ final class JobManagerTest extends WP_UnitTestCase {
 		remove_all_filters( 'cbjp/limits/product' );
 		remove_all_filters( 'cbjp/limits/customer' );
 		remove_all_filters( 'cbjp/limits/order' );
+		remove_all_filters( 'cbjp/limits/stock' );
 		AdapterRegistry::reset_cache();
+		delete_option( 'cbjp_sample_mock' );
 		parent::tear_down();
 	}
 
@@ -212,5 +215,134 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
 		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
+	}
+
+	public function test_free_tier_stock_import_derives_from_sample_products(): void {
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1', 7 ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+		];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
+		$manager->run_to_completion( $run_id );
+
+		// §10.2 #4: 全量走査せず、サンプル商品（p1）分の在庫のみ書き込まれる。
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'stock' ) );
+		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'stock', 'p1' ) );
+	}
+
+	public function test_pro_unlock_imports_all_stock_without_sample_filtering(): void {
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1' ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+		];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+
+		$this->register_adapter( products: $products, orders: $orders );
+
+		// Pro相当: 商品上限の解除でサンプリング自体が無効になる。
+		add_filter( 'cbjp/limits/product', static fn() => null );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
+		$manager->run_to_completion( $run_id );
+
+		$this->assertSame( 3, $this->mappings->count( 'mock', 'stock' ) );
+	}
+
+	public function test_rate_limit_exhaustion_pauses_the_job_instead_of_failing(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new RateLimitExhaustedException( 'mock' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$job    = $this->jobs->find_next_incomplete_for_run( $run_id );
+		$manager->process_job( (int) $job['id'] );
+
+		$paused_job = $this->jobs->find( (int) $job['id'] );
+		$this->assertSame( JobRepository::STATUS_PAUSED, $paused_job['status'] );
+	}
+
+	public function test_rerun_skips_unchanged_items_via_checksum(): void {
+		$categories = [
+			CanonicalFactory::category( 'c1', 'Category 1' ),
+			CanonicalFactory::category( 'c2', 'Category 2' ),
+		];
+		$this->register_adapter( categories: $categories );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$first_run = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$manager->run_to_completion( $first_run );
+		$this->assertCount( 2, $writer->writes );
+
+		$second_run = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$manager->run_to_completion( $second_run );
+
+		// checksum一致（変更なし）のため書込みは増えない（03 §5 冪等性）。
+		$this->assertCount( 2, $writer->writes );
+		$this->assertSame( 2, $this->mappings->count( 'mock', 'category' ) );
+
+		$second_job = $this->jobs->find_by_run( $second_run )[0];
+		$totals     = json_decode( (string) $second_job['totals_json'], true );
+		$this->assertSame( 2, $totals['skipped'] );
+	}
+
+	public function test_retry_requeues_a_failed_job(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new \RuntimeException( 'boom' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$job    = $this->jobs->find_next_incomplete_for_run( $run_id );
+		$job_id = (int) $job['id'];
+		$manager->process_job( $job_id );
+
+		$this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( $job_id )['status'] );
+
+		$this->assertTrue( $manager->retry( $job_id ) );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $job_id )['status'] );
+
+		if ( function_exists( 'as_has_scheduled_action' ) ) {
+			// 再エンキューされていること（retry_jobがpendingに戻すだけで放置しない）。
+			$this->assertTrue( as_has_scheduled_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' ) );
+		}
 	}
 }

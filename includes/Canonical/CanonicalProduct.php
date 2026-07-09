@@ -8,13 +8,15 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Canonical;
 
 use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
+use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
 
 /**
  * 正規化された商品モデル。価格は浮動小数点誤差を避けるため文字列で保持する。
  */
-final class CanonicalProduct implements CanonicalModel {
+final readonly class CanonicalProduct implements CanonicalModel {
 
 	use ChecksumTrait;
+	use RemoteIdFromExtrasTrait;
 
 	/**
 	 * @param array<int,array<string,mixed>> $images
@@ -24,18 +26,18 @@ final class CanonicalProduct implements CanonicalModel {
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。往復移行でのデータ欠損を防ぐ。
 	 */
 	public function __construct(
-		public readonly string $name,
-		public readonly ?string $sku,
-		public readonly string $price,
-		public readonly ?string $sale_price,
-		public readonly ?string $description,
-		public readonly array $images,
-		public readonly array $variants,
-		public readonly array $options,
-		public readonly array $category_refs,
-		public readonly ?int $stock,
-		public readonly string $status,
-		public readonly array $extras = []
+		public string $name,
+		public ?string $sku,
+		public string $price,
+		public ?string $sale_price,
+		public ?string $description,
+		public array $images,
+		public array $variants,
+		public array $options,
+		public array $category_refs,
+		public ?int $stock,
+		public string $status,
+		public array $extras = []
 	) {}
 
 	public function to_array(): array {

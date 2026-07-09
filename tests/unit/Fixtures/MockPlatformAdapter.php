@@ -35,16 +35,24 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 * @param array<int,CanonicalCustomer> $customers
 	 * @param array<int,CanonicalOrder>    $orders
 	 * @param array<int,CanonicalCategory> $categories
+	 * @param \Throwable|null              $fetch_failure 指定すると全fetch系メソッドがこの例外を投げる（障害シナリオのテスト用）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
 		private readonly array $customers = [],
 		private readonly array $orders = [],
-		private readonly array $categories = []
+		private readonly array $categories = [],
+		private readonly ?\Throwable $fetch_failure = null
 	) {}
 
 	public function id(): string {
 		return 'mock';
+	}
+
+	private function maybe_fail(): void {
+		if ( null !== $this->fetch_failure ) {
+			throw $this->fetch_failure;
+		}
 	}
 
 	public function label(): string {
@@ -64,10 +72,14 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function fetch_products( Cursor $cursor ): Page {
+		$this->maybe_fail();
+
 		return $this->paginate( $this->products, $cursor );
 	}
 
 	public function fetch_categories(): array {
+		$this->maybe_fail();
+
 		return $this->categories;
 	}
 

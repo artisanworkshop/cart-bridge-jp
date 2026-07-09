@@ -19,6 +19,15 @@ final class TokenStore {
 
 	private const LOCK_TTL_SECONDS = 30;
 
+	/**
+	 * 復号済みペイロードのインスタンス内キャッシュ。false = 未読込。
+	 * get()/needs_reconnect()/masked_access_token() の同一リクエスト内での
+	 * 復号（sodium + json_decode）重複を避ける。
+	 *
+	 * @var array<string,mixed>|null|false
+	 */
+	private array|null|false $payload_cache = false;
+
 	public function __construct( private readonly string $platform ) {}
 
 	/**
@@ -30,6 +39,7 @@ final class TokenStore {
 		}
 
 		update_option( $this->option_name(), $this->encrypt( (string) wp_json_encode( $payload ) ), false );
+		$this->payload_cache = $payload;
 	}
 
 	/**
@@ -37,6 +47,19 @@ final class TokenStore {
 	 *         復号失敗・未接続の場合は null（呼び出し側は「再接続が必要」として扱う）。
 	 */
 	public function get(): ?array {
+		if ( false !== $this->payload_cache ) {
+			return $this->payload_cache;
+		}
+
+		$this->payload_cache = $this->load_payload();
+
+		return $this->payload_cache;
+	}
+
+	/**
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>}|null
+	 */
+	private function load_payload(): ?array {
 		$stored = get_option( $this->option_name() );
 
 		if ( ! is_string( $stored ) || '' === $stored ) {
@@ -86,6 +109,7 @@ final class TokenStore {
 	public function delete(): void {
 		delete_option( $this->option_name() );
 		delete_option( $this->lock_option_name() );
+		$this->payload_cache = null;
 	}
 
 	/**

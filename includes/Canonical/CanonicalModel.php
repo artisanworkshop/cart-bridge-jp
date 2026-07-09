@@ -31,4 +31,11 @@ interface CanonicalModel {
 	 * `canonical_json()` の sha256。`cbjp_mappings.checksum` に保存し差分検出に使う。
 	 */
 	public function checksum(): string;
+
+	/**
+	 * リモート（ASP）側の一意識別子。`cbjp_mappings.remote_id` に使う。
+	 * 専用フィールドを持たないモデル（Product/Customer/Coupon/Review）は
+	 * アダプタが `extras['remote_id']` に格納した値を返し、未設定なら null。
+	 */
+	public function remote_id(): ?string;
 }

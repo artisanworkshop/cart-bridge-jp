@@ -12,7 +12,7 @@ use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
 /**
  * 正規化された在庫モデル。バリエーション在庫の場合は variant_ref を指定する。
  */
-final class CanonicalStock implements CanonicalModel {
+final readonly class CanonicalStock implements CanonicalModel {
 
 	use ChecksumTrait;
 
@@ -20,13 +20,17 @@ final class CanonicalStock implements CanonicalModel {
 	 * @param array<string,mixed> $extras ASP固有フィールドの退避先。
 	 */
 	public function __construct(
-		public readonly string $product_ref,
-		public readonly ?string $variant_ref,
-		public readonly ?string $sku,
-		public readonly ?int $quantity,
-		public readonly bool $in_stock,
-		public readonly array $extras = []
+		public string $product_ref,
+		public ?string $variant_ref,
+		public ?string $sku,
+		public ?int $quantity,
+		public bool $in_stock,
+		public array $extras = []
 	) {}
+
+	public function remote_id(): ?string {
+		return $this->variant_ref ?? $this->product_ref;
+	}
 
 	public function to_array(): array {
 		return [

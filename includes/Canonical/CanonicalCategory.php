@@ -12,16 +12,20 @@ use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
 /**
  * 正規化されたカテゴリモデル。
  */
-final class CanonicalCategory implements CanonicalModel {
+final readonly class CanonicalCategory implements CanonicalModel {
 
 	use ChecksumTrait;
 
 	public function __construct(
-		public readonly string $id,
-		public readonly string $name,
-		public readonly ?string $parent_id,
-		public readonly ?string $slug
+		public string $id,
+		public string $name,
+		public ?string $parent_id,
+		public ?string $slug
 	) {}
+
+	public function remote_id(): ?string {
+		return $this->id;
+	}
 
 	public function to_array(): array {
 		return [

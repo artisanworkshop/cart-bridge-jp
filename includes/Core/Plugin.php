@@ -12,14 +12,9 @@ namespace CartBridgeJP\Core;
 use CartBridgeJP\Admin\Assets;
 use CartBridgeJP\Admin\Menu;
 use CartBridgeJP\Admin\RestController;
-use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
-use CartBridgeJP\Sync\JobRepository;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\LogCleanup;
 use CartBridgeJP\Sync\LogRepository;
-use CartBridgeJP\Sync\MappingRepository;
-use CartBridgeJP\Sync\NotImplementedWriter;
 
 /**
  * 各レイヤーのフックを配線して起動する。
@@ -51,6 +46,12 @@ final class Plugin {
 
 		load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
 
+		// プラグイン更新時はactivation hookが発火しないため、管理画面アクセス時に
+		// DBスキーマバージョンを比較して必要ならマイグレーションする。
+		add_action( 'admin_init', [ Activator::class, 'maybe_upgrade' ] );
+
+		add_action( 'admin_notices', [ $this, 'render_missing_sodium_notice' ] );
+
 		$menu = new Menu();
 		add_action( 'admin_menu', [ $menu, 'register' ] );
 
@@ -67,7 +68,7 @@ final class Plugin {
 		add_action(
 			JobManager::ACTION_HOOK,
 			function ( int $job_id ) {
-				$this->job_manager()->process_job( $job_id );
+				JobManager::create()->process_job( $job_id );
 			}
 		);
 
@@ -87,17 +88,17 @@ final class Plugin {
 	}
 
 	/**
-	 * dry-run専用の JobManager。実移行の書込みは Phase 1 の Woo\WooRepository を待つ
-	 * （`NotImplementedWriter` は import/export では呼ばれない。REST層が501を返すため）。
+	 * sodium拡張なしのPHPビルド（--without-sodium）向けの管理画面通知（03 §4）。
+	 * TokenStoreの暗号化が動作しないため、接続前に環境の問題を知らせる。
 	 */
-	private function job_manager(): JobManager {
-		$mappings = new MappingRepository();
+	public function render_missing_sodium_notice(): void {
+		if ( function_exists( 'sodium_crypto_secretbox' ) || ! current_user_can( 'activate_plugins' ) ) {
+			return;
+		}
 
-		return new JobManager(
-			new JobRepository(),
-			new LimitPolicy( $mappings ),
-			new Importer( $mappings ),
-			new NotImplementedWriter()
+		printf(
+			'<div class="notice notice-error"><p>%s</p></div>',
+			esc_html__( 'Cart Bridge JP requires the PHP sodium extension to store API credentials securely. Please contact your hosting provider.', 'cart-bridge-jp' )
 		);
 	}
 }

@@ -10,29 +10,28 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
-use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Canonical\CanonicalModel;
-use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
-use CartBridgeJP\Canonical\CanonicalTag;
 use RuntimeException;
 
 /**
  * fetch → 書込 → mappings upsert のパイプライン。
  *
- * remote_id の取り方は本クラスの規約: category/tagは`id`、orderは`number`、
- * stockは`variant_ref ?? product_ref`、それ以外（product/customer/coupon/review）は
- * `extras['remote_id']`（アダプタ実装がここに格納する。D5のextras退避規約に準拠）。
+ * リモートIDは `CanonicalModel::remote_id()` から取得する（Product/Customer/Coupon/Review は
+ * アダプタが `extras['remote_id']` に格納する契約。null の場合はアダプタ実装バグとして例外）。
  *
  * 無料版サンプル選定（D15）: product/customer はID指定取得（`run_sample_page`）、
- * それ以外はカーソル走査（`run_page`）で、stock/reviewはサンプル商品への紐付けで絞り込む。
+ * stock はサンプル商品のID指定取得結果から導出（`run_sample_stock_page`、§10.2 #4）、
+ * review はカーソル走査＋サンプル商品メンバーシップで絞り込む（`run_page` の $sample）。
  */
 final class Importer {
 
 	public function __construct( private readonly MappingRepository $mappings ) {}
 
 	/**
-	 * カーソル走査エンティティ（category/tag/order/coupon/stock/review）を1ページ処理する。
+	 * カーソル走査エンティティを1ページ処理する。$sample が渡された場合は
+	 * サンプル商品に紐づくアイテムのみを取り込む（呼び出し側=JobManagerが対象エンティティを判断する）。
 	 *
 	 * @return array{next_cursor:?Cursor,total:?int,totals:array<string,int>}
 	 */
@@ -47,15 +46,7 @@ final class Importer {
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items(
-			$adapter,
-			$writer,
-			$entity,
-			$items,
-			$is_dry_run,
-			$limit_policy,
-			$this->needs_sample_membership_filter( $entity ) ? $sample : null
-		);
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample );
 
 		return [
 			'next_cursor' => $next_cursor,
@@ -76,8 +67,8 @@ final class Importer {
 
 		foreach ( $remote_ids as $remote_id ) {
 			$item = match ( $entity ) {
-				'product'  => $adapter->fetch_product_by_remote_id( $remote_id ),
-				'customer' => $adapter->fetch_customer_by_remote_id( $remote_id ),
+				'product'  => $adapter->fetch_product_by_remote_id( (string) $remote_id ),
+				'customer' => $adapter->fetch_customer_by_remote_id( (string) $remote_id ),
 				default    => throw new RuntimeException( "Entity \"{$entity}\" does not support sample ID fetch." ),
 			};
 
@@ -87,6 +78,35 @@ final class Importer {
 		}
 
 		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null ) ];
+	}
+
+	/**
+	 * 無料版の在庫取込（§10.2 #4）: `fetchStocks` の全量走査はレート制限を浪費するため使わず、
+	 * サンプル商品のID指定取得結果（CanonicalProduct.stock）から在庫を導出して書き込む。
+	 *
+	 * @param array<int,string> $product_remote_ids
+	 * @return array{totals:array<string,int>}
+	 */
+	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run ): array {
+		$items = [];
+
+		foreach ( $product_remote_ids as $remote_id ) {
+			$product = $adapter->fetch_product_by_remote_id( (string) $remote_id );
+
+			if ( null === $product ) {
+				continue;
+			}
+
+			$items[] = new CanonicalStock(
+				(string) $remote_id,
+				null,
+				$product->sku,
+				$product->stock,
+				null === $product->stock || $product->stock > 0
+			);
+		}
+
+		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null ) ];
 	}
 
 	/**
@@ -112,21 +132,44 @@ final class Importer {
 
 		$platform = $adapter->id();
 
-		foreach ( $items as $item ) {
+		// ページ内アイテムの既存mapping（local_id/checksum）を一括プリロードし、
+		// アイテム毎のSELECTを避ける。dry-runでも読み取り専用で使い、新規/更新/スキップを分類する（D16）。
+		$remote_ids = array_map(
+			fn( CanonicalModel $item ): string => $this->remote_id_of( $entity, $item ),
+			$items
+		);
+		$existing   = $this->mappings->find_many( $platform, $entity, $remote_ids );
+
+		// 残枠はページ開始時に一度だけ解決する（アイテム毎のCOUNT(*)を避ける）。
+		// 上限は新規作成のみを対象とし、既存mappingの更新は阻まない（D16の上書きポリシー前提）。
+		$remaining = ( null !== $limit_policy ) ? $limit_policy->remaining( $platform, $entity ) : null;
+
+		foreach ( $items as $index => $item ) {
 			++$totals['processed'];
 
-			if ( null !== $sample && ! in_array( $this->sample_match_key( $entity, $item ), $sample->product_remote_ids, true ) ) {
+			if ( null !== $sample && ! in_array( $this->sample_match_key( $item ), $sample->product_remote_ids, true ) ) {
 				++$totals['skipped'];
 				continue;
 			}
 
-			if ( ! $is_dry_run && null !== $limit_policy && $limit_policy->is_exceeded( $platform, $entity ) ) {
+			$remote_id         = $remote_ids[ $index ];
+			$row               = $existing[ $remote_id ] ?? null;
+			$existing_local_id = $row['local_id'] ?? null;
+
+			// checksum一致＝変更なしはスキップする（03 §5 冪等性）。
+			if ( null !== $row && null !== $row['checksum'] && $row['checksum'] === $item->checksum() ) {
 				++$totals['skipped'];
 				continue;
 			}
 
-			$remote_id         = $this->remote_id_of( $entity, $item );
-			$existing_local_id = $is_dry_run ? null : $this->mappings->find_local_id( $platform, $entity, $remote_id );
+			if ( ! $is_dry_run && null === $existing_local_id && null !== $remaining ) {
+				if ( $remaining <= 0 ) {
+					++$totals['skipped'];
+					continue;
+				}
+
+				--$remaining;
+			}
 
 			$result = $writer->write( $entity, $item, $existing_local_id );
 
@@ -170,37 +213,24 @@ final class Importer {
 		return [ $page->items, $page->next_cursor, $page->total ];
 	}
 
-	private function needs_sample_membership_filter( string $entity ): bool {
-		return in_array( $entity, [ 'stock', 'review' ], true );
-	}
-
-	private function sample_match_key( string $entity, CanonicalModel $item ): string {
-		if ( $item instanceof CanonicalStock ) {
+	/**
+	 * サンプル商品メンバーシップの照合キー（stock/review用）。
+	 */
+	private function sample_match_key( CanonicalModel $item ): string {
+		if ( $item instanceof CanonicalStock || $item instanceof CanonicalReview ) {
 			return $item->product_ref;
 		}
 
-		return (string) ( $item->extras['product_ref'] ?? '' );
+		return '';
 	}
 
 	private function remote_id_of( string $entity, CanonicalModel $item ): string {
-		if ( $item instanceof CanonicalCategory || $item instanceof CanonicalTag ) {
-			return $item->id;
+		$remote_id = $item->remote_id();
+
+		if ( null === $remote_id ) {
+			throw new RuntimeException( "Adapter returned a \"{$entity}\" item without a remote id (extras['remote_id'] is required)." );
 		}
 
-		if ( $item instanceof CanonicalOrder ) {
-			return $item->number;
-		}
-
-		if ( $item instanceof CanonicalStock ) {
-			return $item->variant_ref ?? $item->product_ref;
-		}
-
-		$remote_id = $item->extras['remote_id'] ?? null;
-
-		if ( null === $remote_id || '' === $remote_id ) {
-			throw new RuntimeException( "Missing extras['remote_id'] for entity \"{$entity}\"." );
-		}
-
-		return (string) $remote_id;
+		return $remote_id;
 	}
 }

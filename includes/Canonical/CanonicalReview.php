@@ -8,25 +8,27 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Canonical;
 
 use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
+use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
 
 /**
  * 正規化されたレビューモデル（MakeShopのみ対応）。
  */
-final class CanonicalReview implements CanonicalModel {
+final readonly class CanonicalReview implements CanonicalModel {
 
 	use ChecksumTrait;
+	use RemoteIdFromExtrasTrait;
 
 	/**
 	 * @param array<string,mixed> $extras ASP固有フィールドの退避先。
 	 */
 	public function __construct(
-		public readonly string $product_ref,
-		public readonly ?string $author_name,
-		public readonly ?int $rating,
-		public readonly ?string $title,
-		public readonly ?string $content,
-		public readonly ?string $created_at,
-		public readonly array $extras = []
+		public string $product_ref,
+		public ?string $author_name,
+		public ?int $rating,
+		public ?string $title,
+		public ?string $content,
+		public ?string $created_at,
+		public array $extras = []
 	) {}
 
 	public function to_array(): array {

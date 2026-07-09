@@ -12,7 +12,7 @@ use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
 /**
  * 正規化された受注モデル。金額はASP側の値をそのまま保持し、Wooに再計算させない（D10）。
  */
-final class CanonicalOrder implements CanonicalModel {
+final readonly class CanonicalOrder implements CanonicalModel {
 
 	use ChecksumTrait;
 
@@ -24,17 +24,21 @@ final class CanonicalOrder implements CanonicalModel {
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。
 	 */
 	public function __construct(
-		public readonly string $number,
-		public readonly string $status,
-		public readonly ?string $customer_ref,
-		public readonly array $line_items,
-		public readonly array $shipping,
-		public readonly array $payment,
-		public readonly array $totals,
-		public readonly string $placed_at,
-		public readonly ?string $note,
-		public readonly array $extras = []
+		public string $number,
+		public string $status,
+		public ?string $customer_ref,
+		public array $line_items,
+		public array $shipping,
+		public array $payment,
+		public array $totals,
+		public string $placed_at,
+		public ?string $note,
+		public array $extras = []
 	) {}
+
+	public function remote_id(): ?string {
+		return $this->number;
+	}
 
 	public function to_array(): array {
 		return [

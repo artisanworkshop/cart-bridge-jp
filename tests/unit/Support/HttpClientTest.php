@@ -110,8 +110,8 @@ final class HttpClientTest extends WP_UnitTestCase {
 			3
 		);
 
-		$client = $this->make_client();
-		$client->set_rate_limit_detector(
+		$client = new HttpClient(
+			new RateLimiter( 'test-http-' . wp_generate_uuid4(), 1000 ),
 			static fn( int $status, array $headers, string $body ): bool =>
 				400 === $status && str_contains( $body, 'hour_api_limit' )
 		);
@@ -120,5 +120,71 @@ final class HttpClientTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $result['status'] );
 		$this->assertSame( 2, $call_count );
+	}
+
+	public function test_http_date_retry_after_falls_back_gracefully(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				if ( 1 === $call_count ) {
+					return [
+						'response' => [ 'code' => 429 ],
+						// RFC 9110 HTTP-date形式（過去日時 → 待機0秒として解釈される）。
+						'headers'  => [ 'retry-after' => gmdate( 'D, d M Y H:i:s', time() - 10 ) . ' GMT' ],
+						'body'     => '',
+					];
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => '{}',
+				];
+			},
+			10,
+			3
+		);
+
+		$result = $this->make_client()->request( 'GET', 'https://example.test/api' );
+
+		$this->assertSame( 200, $result['status'] );
+		$this->assertSame( 2, $call_count );
+	}
+
+	public function test_excessive_retry_after_throws_instead_of_blocking_the_worker(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				return [
+					'response' => [ 'code' => 429 ],
+					'headers'  => [ 'retry-after' => '86400' ],
+					'body'     => '',
+				];
+			},
+			10,
+			3
+		);
+
+		$started = microtime( true );
+
+		try {
+			$this->make_client()->request( 'GET', 'https://example.test/api' );
+			$this->fail( 'Expected ApiException was not thrown.' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 429, $exception->status_code() );
+			$this->assertTrue( $exception->is_rate_limited() );
+		}
+
+		// 上限超のRetry-After指示ではリトライ待機せず即座に例外になること。
+		$this->assertLessThan( 2.0, microtime( true ) - $started );
+		$this->assertSame( 1, $call_count );
 	}
 }

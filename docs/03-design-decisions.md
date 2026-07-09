@@ -246,7 +246,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
-| GET | `/limits` | 無料版上限・使用状況・Pro解除状態（アップセル表示用。D15/§10.2） |
+| GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す |
 | POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。D16/§10.3） |
 | POST | `/tools/rebuild-mappings` | SKU/email/注文番号メタの突合による mappings 再構築（D16/§10.3） |
 

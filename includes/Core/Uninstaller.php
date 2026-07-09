@@ -42,13 +42,21 @@ final class Uninstaller {
 		delete_option( Activator::DB_VERSION_OPTION );
 		delete_option( self::DELETE_DATA_OPTION );
 
-		$prefix = $wpdb->esc_like( $wpdb->prefix . 'cbjp_' ) . '%';
+		// オプション名はテーブルと異なり素の `cbjp_` 接頭辞で保存している
+		// （cbjp_token_{platform} / cbjp_sample_{platform} / cbjp_rate_limit_{platform} 等）。
+		$pattern = $wpdb->esc_like( 'cbjp_' ) . '%';
 
-		$wpdb->query(
+		$option_names = $wpdb->get_col(
 			$wpdb->prepare(
-				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-				$prefix
+				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
+				$pattern
 			)
 		);
+
+		// 生SQLのDELETEはオブジェクトキャッシュを無効化しないため、delete_option() で1件ずつ削除する
+		// （永続オブジェクトキャッシュ環境でトークン等が残留しないように）。
+		foreach ( $option_names as $option_name ) {
+			delete_option( (string) $option_name );
+		}
 	}
 }

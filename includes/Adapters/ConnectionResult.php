@@ -10,12 +10,12 @@ namespace CartBridgeJP\Adapters;
 /**
  * `testConnection()` の結果。失敗理由にトークン等の機密情報を含めないこと。
  */
-final class ConnectionResult {
+final readonly class ConnectionResult {
 
 	public function __construct(
-		public readonly bool $ok,
-		public readonly ?string $shop_name = null,
-		public readonly ?string $message = null
+		public bool $ok,
+		public ?string $shop_name = null,
+		public ?string $message = null
 	) {}
 
 	public static function success( ?string $shop_name = null ): self {

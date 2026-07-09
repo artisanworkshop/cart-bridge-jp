@@ -15,6 +15,9 @@ namespace CartBridgeJP\Sync;
 final class LimitPolicy {
 
 	/**
+	 * §10.2 のエンティティ別上限表。null は数値上限なし。
+	 * stock/review はサンプル商品へのメンバーシップで制限される（数値上限なし）ため null。
+	 *
 	 * @var array<string,int|null>
 	 */
 	private const DEFAULT_LIMITS = [
@@ -23,9 +26,9 @@ final class LimitPolicy {
 		'product'  => 50,
 		'customer' => 10,
 		'order'    => 10,
-		'stock'    => 50,
+		'stock'    => null,
 		'coupon'   => 10,
-		'review'   => 50,
+		'review'   => null,
 	];
 
 	public function __construct( private readonly MappingRepository $mappings ) {}

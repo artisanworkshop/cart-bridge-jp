@@ -10,7 +10,7 @@ namespace CartBridgeJP\Adapters;
 /**
  * push* メソッドの結果。
  */
-final class PushResult {
+final readonly class PushResult {
 
 	public const OPERATION_CREATED = 'created';
 	public const OPERATION_UPDATED = 'updated';
@@ -21,8 +21,8 @@ final class PushResult {
 	 * @param array<int,string>             $warnings
 	 */
 	public function __construct(
-		public readonly string $remote_id,
-		public readonly string $operation,
-		public readonly array $warnings = []
+		public string $remote_id,
+		public string $operation,
+		public array $warnings = []
 	) {}
 }

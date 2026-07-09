@@ -19,21 +19,22 @@ final class HttpClient {
 	private const MAX_RETRIES             = 3;
 
 	/**
-	 * BASEのHTTP400レート制限のように、標準の429判定では検知できないケースを
-	 * アダプタ側Clientが差し替えるための拡張ポイント。
-	 *
-	 * @var (callable(int, array<string,string>, string): bool)|null
+	 * Retry-After指示を尊重する上限秒数。これを超える指示はリトライせず即例外にする
+	 * （Action Schedulerワーカーを長時間ブロックしない）。
 	 */
-	private $rate_limit_detector = null;
-
-	public function __construct( private readonly RateLimiter $rate_limiter ) {}
+	private const MAX_RETRY_AFTER_SECONDS = 60;
 
 	/**
-	 * @param callable(int $status_code, array<string,string> $headers, string $body): bool $detector
+	 * $rate_limit_detector: BASEのHTTP400レート制限のように、標準の429判定では検知できない
+	 * ケースをアダプタ側Clientが差し替えるための拡張ポイント。プラットフォーム固有の設定のため
+	 * コンストラクタで固定する（クライアント共有時に他プラットフォームへ漏れる事故を防ぐ）。
+	 *
+	 * @param (\Closure(int, array<string,string>, string): bool)|null $rate_limit_detector
 	 */
-	public function set_rate_limit_detector( callable $detector ): void {
-		$this->rate_limit_detector = $detector;
-	}
+	public function __construct(
+		private readonly RateLimiter $rate_limiter,
+		private readonly ?\Closure $rate_limit_detector = null
+	) {}
 
 	/**
 	 * @param array<string,mixed> $args wp_remote_request() に渡す追加引数（headers/body等）。
@@ -80,8 +81,10 @@ final class HttpClient {
 			$is_rate_limited = $this->is_rate_limited( $status, $headers, $body );
 
 			if ( $is_rate_limited || $status >= 500 ) {
-				if ( $attempt < self::MAX_RETRIES ) {
-					$this->sleep_with_backoff( $attempt, $this->retry_after_seconds( $headers ) );
+				$retry_after = $this->retry_after_seconds( $headers );
+
+				if ( $attempt < self::MAX_RETRIES && ( null === $retry_after || $retry_after <= self::MAX_RETRY_AFTER_SECONDS ) ) {
+					$this->sleep_with_backoff( $attempt, $retry_after );
 					++$attempt;
 					continue;
 				}
@@ -124,6 +127,9 @@ final class HttpClient {
 	}
 
 	/**
+	 * Retry-After ヘッダーを秒数に解釈する。RFC 9110 は秒数と HTTP-date の両形式を許容する。
+	 * 解釈できない値は null（指数バックオフにフォールバック）。
+	 *
 	 * @param array<string,string> $headers
 	 */
 	private function retry_after_seconds( array $headers ): ?int {
@@ -131,7 +137,19 @@ final class HttpClient {
 			return null;
 		}
 
-		return max( 0, (int) $headers['retry-after'] );
+		$value = trim( $headers['retry-after'] );
+
+		if ( is_numeric( $value ) ) {
+			return max( 0, (int) $value );
+		}
+
+		$timestamp = strtotime( $value );
+
+		if ( false === $timestamp ) {
+			return null;
+		}
+
+		return max( 0, $timestamp - time() );
 	}
 
 	private function is_retryable_wp_error( WP_Error $error ): bool {

@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Adapters;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
 
 final class AdapterRegistryTest extends WP_UnitTestCase {
@@ -31,14 +32,14 @@ final class AdapterRegistryTest extends WP_UnitTestCase {
 		add_filter(
 			'cbjp/adapters/register',
 			static function ( array $adapters ) {
-				$adapters['stub'] = new StubPlatformAdapter();
+				$adapters['mock'] = new MockPlatformAdapter();
 
 				return $adapters;
 			}
 		);
 		AdapterRegistry::reset_cache();
 
-		$this->assertTrue( AdapterRegistry::has( 'stub' ) );
-		$this->assertInstanceOf( PlatformAdapter::class, AdapterRegistry::get( 'stub' ) );
+		$this->assertTrue( AdapterRegistry::has( 'mock' ) );
+		$this->assertInstanceOf( PlatformAdapter::class, AdapterRegistry::get( 'mock' ) );
 	}
 }

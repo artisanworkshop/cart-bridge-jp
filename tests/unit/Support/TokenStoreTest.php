@@ -58,8 +58,12 @@ final class TokenStoreTest extends WP_UnitTestCase {
 
 		update_option( 'cbjp_token_' . $platform, 'not-a-valid-ciphertext' );
 
-		$this->assertTrue( $store->needs_reconnect() );
-		$this->assertNull( $store->get() );
+		// 復号失敗は別リクエスト（別インスタンス）で顕在化するシナリオのため、
+		// インスタンス内キャッシュを持たない新しいストアで検証する。
+		$fresh_store = new TokenStore( $platform );
+
+		$this->assertTrue( $fresh_store->needs_reconnect() );
+		$this->assertNull( $fresh_store->get() );
 	}
 
 	public function test_is_expired_reflects_expires_at(): void {

@@ -59,6 +59,43 @@ final class MappingRepository {
 		return null === $value ? null : (int) $value;
 	}
 
+	/**
+	 * ページ内アイテムの既存mappingを一括で取得する（アイテム毎のSELECTを避ける）。
+	 *
+	 * @param array<int,string> $remote_ids
+	 * @return array<string,array{local_id:int,checksum:?string}> remote_id をキーとするマップ。
+	 */
+	public function find_many( string $platform, string $entity_type, array $remote_ids ): array {
+		global $wpdb;
+
+		if ( [] === $remote_ids ) {
+			return [];
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $remote_ids ), '%s' ) );
+
+		$rows = $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $remote_ids の要素数分の%sを動的生成しており、置換数はプレースホルダー数と一致する。
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名と%sプレースホルダー列のみの埋め込み。値はプレースホルダー経由。
+				"SELECT remote_id, local_id, checksum FROM {$this->table()} WHERE platform = %s AND entity_type = %s AND remote_id IN ({$placeholders})",
+				array_merge( [ $platform, $entity_type ], $remote_ids )
+			),
+			ARRAY_A
+		);
+
+		$map = [];
+
+		foreach ( $rows as $row ) {
+			$map[ (string) $row['remote_id'] ] = [
+				'local_id' => (int) $row['local_id'],
+				'checksum' => null !== $row['checksum'] ? (string) $row['checksum'] : null,
+			];
+		}
+
+		return $map;
+	}
+
 	public function find_checksum( string $platform, string $entity_type, string $remote_id ): ?string {
 		global $wpdb;
 

@@ -38,6 +38,9 @@ final class LimitPolicyTest extends WP_UnitTestCase {
 		$this->assertSame( 10, $this->limits->limit_for( 'customer' ) );
 		$this->assertSame( 10, $this->limits->limit_for( 'order' ) );
 		$this->assertSame( 10, $this->limits->limit_for( 'coupon' ) );
+		// stock/review はサンプル商品へのメンバーシップで制限され、数値上限は持たない（§10.2）。
+		$this->assertNull( $this->limits->limit_for( 'stock' ) );
+		$this->assertNull( $this->limits->limit_for( 'review' ) );
 	}
 
 	public function test_is_exceeded_becomes_true_once_the_limit_is_reached(): void {

@@ -12,20 +12,20 @@ namespace CartBridgeJP\Adapters;
  * UI・JobManagerは false のエンティティ/操作を選択肢から除外し、
  * アダプタ側も非対応メソッドで UnsupportedOperationException を投げる（防御の二重化）。
  */
-final class Capabilities {
+final readonly class Capabilities {
 
 	public function __construct(
-		public readonly bool $can_create_category,
-		public readonly bool $can_create_order,
-		public readonly bool $can_fetch_customers,
-		public readonly bool $can_update_customer,
-		public readonly bool $can_push_images,
-		public readonly bool $can_create_coupon,
-		public readonly bool $has_coupons,
-		public readonly bool $has_tags,
-		public readonly bool $has_reviews,
-		public readonly bool $has_variants,
-		public readonly int $rate_limit_per_minute
+		public bool $can_create_category,
+		public bool $can_create_order,
+		public bool $can_fetch_customers,
+		public bool $can_update_customer,
+		public bool $can_push_images,
+		public bool $can_create_coupon,
+		public bool $has_coupons,
+		public bool $has_tags,
+		public bool $has_reviews,
+		public bool $has_variants,
+		public int $rate_limit_per_minute
 	) {}
 
 	/**

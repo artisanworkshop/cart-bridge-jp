@@ -10,7 +10,7 @@ namespace CartBridgeJP\Sync;
 /**
  * 無料版サンプル選定の結果（D15/§10.2）。
  */
-final class SampleSet {
+final readonly class SampleSet {
 
 	/**
 	 * @param array<int,string> $order_remote_ids
@@ -18,10 +18,10 @@ final class SampleSet {
 	 * @param array<int,string> $customer_refs
 	 */
 	public function __construct(
-		public readonly array $order_remote_ids,
-		public readonly array $product_remote_ids,
-		public readonly array $customer_refs,
-		public readonly bool $used_fallback
+		public array $order_remote_ids,
+		public array $product_remote_ids,
+		public array $customer_refs,
+		public bool $used_fallback
 	) {}
 
 	/**

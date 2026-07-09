@@ -52,10 +52,9 @@ final class SampleSelector {
 		$orders = $this->adapter->fetch_latest_orders( self::SAMPLE_ORDER_LIMIT );
 
 		if ( [] === $orders ) {
-			$sample = new SampleSet( [], [], [], true );
-			$this->persist( $platform, $sample );
-
-			return $sample;
+			// 空セットは永続化しない: 受注が入り次第、次回実行で再選定できるようにする
+			// （§10.2 #7 の「クリーンアップ→再選定」を経ずに空サンプルが固定されるのを防ぐ）。
+			return new SampleSet( [], [], [], true );
 		}
 
 		$order_remote_ids   = [];
@@ -80,10 +79,12 @@ final class SampleSelector {
 			}
 		}
 
+		// PHPは数値文字列の配列キーをintに正規化するため、array_keys() の結果を
+		// 明示的にstring化する（strict_types下のアダプタIFへ int が渡るのを防ぐ）。
 		$sample = new SampleSet(
-			$order_remote_ids,
-			array_slice( array_keys( $product_remote_ids ), 0, self::PRODUCT_HARD_CAP ),
-			array_slice( array_keys( $customer_refs ), 0, self::CUSTOMER_CAP ),
+			array_map( 'strval', $order_remote_ids ),
+			array_slice( array_map( 'strval', array_keys( $product_remote_ids ) ), 0, self::PRODUCT_HARD_CAP ),
+			array_slice( array_map( 'strval', array_keys( $customer_refs ) ), 0, self::CUSTOMER_CAP ),
 			count( $orders ) < self::SAMPLE_ORDER_LIMIT
 		);
 

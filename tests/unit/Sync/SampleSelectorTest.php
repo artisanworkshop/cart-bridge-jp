@@ -39,6 +39,36 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$this->assertSame( [], $sample->product_remote_ids );
 	}
 
+	public function test_empty_sample_is_not_persisted_so_a_later_run_reselects(): void {
+		$selector_without_orders = new SampleSelector( new MockPlatformAdapter( orders: [] ) );
+		$selector_without_orders->select_or_load( 'mock' );
+
+		// 空セットが固定されず、受注が入った後の実行では再選定されること。
+		$selector_with_orders = new SampleSelector(
+			new MockPlatformAdapter( orders: [ CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ) ] )
+		);
+		$sample               = $selector_with_orders->select_or_load( 'mock' );
+
+		$this->assertNotSame( [], $sample->order_remote_ids );
+		$this->assertSame( [ 'p1' ], $sample->product_remote_ids );
+	}
+
+	public function test_numeric_remote_ids_are_normalized_to_strings(): void {
+		// PHPは数値文字列の配列キーをintに正規化するため、明示的なstring化を検証する
+		// （strict_types下の fetch_product_by_remote_id(string) へ int が渡ると TypeError になる）。
+		$orders  = [ CanonicalFactory::order( '1001', '2002', [ '101', '102' ] ) ];
+		$adapter = new MockPlatformAdapter( orders: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ '101', '102' ], $sample->product_remote_ids );
+		$this->assertSame( [ '2002' ], $sample->customer_refs );
+
+		foreach ( $sample->product_remote_ids as $id ) {
+			$this->assertIsString( $id );
+		}
+	}
+
 	public function test_reselecting_reuses_the_persisted_sample_instead_of_calling_the_adapter_again(): void {
 		$orders   = [ CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ) ];
 		$adapter  = new MockPlatformAdapter( orders: $orders );

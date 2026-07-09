@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use RuntimeException;
 use Throwable;
 
@@ -22,13 +23,24 @@ final class JobManager {
 
 	public const ACTION_HOOK = 'cbjp_process_job';
 
+	public const TYPE_DRY_RUN = 'dry_run';
+	public const TYPE_IMPORT  = 'import';
+	public const TYPE_EXPORT  = 'export';
+
+	/**
+	 * レート制限枯渇で paused にしたジョブを再開するまでの待機秒数。
+	 */
+	private const PAUSED_RESUME_DELAY_SECONDS = 60;
+
 	/**
 	 * エンティティ実行順（`docs/03-design-decisions.md` §3）。
 	 */
 	private const ENTITY_ORDER = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
 
-	private const SAMPLE_DRIVEN_ENTITIES     = [ 'product', 'customer' ];
-	private const SAMPLE_MEMBERSHIP_FILTERED = [ 'stock', 'review' ];
+	/**
+	 * サンプルID指定取得で取り込むエンティティ（D15 §10.2 #4）。
+	 */
+	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
 
 	public function __construct(
 		private readonly JobRepository $jobs,
@@ -39,12 +51,32 @@ final class JobManager {
 	) {}
 
 	/**
+	 * 既定の配線でJobManagerを生成する共有ファクトリ。
+	 * `NotImplementedWriter` は Phase 1 の `Woo\WooRepository` までのプレースホルダー
+	 * （dry-run は内部で `DryRunReporter` に差し替わり、実移行はREST層が501を返すため到達しない）。
+	 */
+	public static function create( ?WooWriter $writer = null ): self {
+		$mappings = new MappingRepository();
+
+		return new self(
+			new JobRepository(),
+			new LimitPolicy( $mappings ),
+			new Importer( $mappings ),
+			$writer ?? new NotImplementedWriter()
+		);
+	}
+
+	/**
 	 * @param array<int,string> $entities
 	 *
 	 * @throws RunAlreadyInProgressException 同一プラットフォームで既に running のジョブがある場合。
 	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
+		if ( ! in_array( $type, [ self::TYPE_DRY_RUN, self::TYPE_IMPORT, self::TYPE_EXPORT ], true ) ) {
+			throw new RuntimeException( "Unknown run type: {$type}" );
+		}
+
 		if ( $this->jobs->has_running_job_for_platform( $platform ) ) {
 			throw new RunAlreadyInProgressException( $platform );
 		}
@@ -76,6 +108,24 @@ final class JobManager {
 	}
 
 	/**
+	 * 失敗ジョブを pending に戻し、Action Scheduler に再エンキューする。
+	 *
+	 * @return bool 対象ジョブが存在し、failed だった場合のみ true。
+	 */
+	public function retry( int $job_id ): bool {
+		$job = $this->jobs->find( $job_id );
+
+		if ( null === $job || JobRepository::STATUS_FAILED !== $job['status'] ) {
+			return false;
+		}
+
+		$this->jobs->update_status( $job_id, JobRepository::STATUS_PENDING );
+		$this->enqueue( $job_id );
+
+		return true;
+	}
+
+	/**
 	 * 1ページ処理する。Action Schedulerのアクションコールバック、またはテスト/同期実行から直接呼ばれる。
 	 */
 	public function process_job( int $job_id ): void {
@@ -89,7 +139,7 @@ final class JobManager {
 			return;
 		}
 
-		if ( JobRepository::STATUS_PENDING === $job['status'] ) {
+		if ( in_array( $job['status'], [ JobRepository::STATUS_PENDING, JobRepository::STATUS_PAUSED ], true ) ) {
 			$this->jobs->update_status( $job_id, JobRepository::STATUS_RUNNING );
 		}
 
@@ -114,12 +164,26 @@ final class JobManager {
 			return;
 		}
 
-		$is_dry_run = 'dry_run' === $job['type'];
+		$is_dry_run = self::TYPE_DRY_RUN === $job['type'];
 		$writer     = $is_dry_run ? new DryRunReporter() : $this->writer;
 		$entity     = $job['entity'];
 
 		try {
 			[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
+		} catch ( RateLimitExhaustedException ) {
+			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
+			$this->jobs->update_status( $job_id, JobRepository::STATUS_PAUSED );
+			$this->logger->warning(
+				'Job paused: rate limit exhausted.',
+				[
+					'platform' => $job['platform'],
+					'entity'   => $entity,
+					'job_id'   => $job_id,
+				]
+			);
+			$this->enqueue_delayed( $job_id, self::PAUSED_RESUME_DELAY_SECONDS );
+
+			return;
 		} catch ( Throwable $exception ) {
 			$this->jobs->mark_failed(
 				$job_id,
@@ -171,7 +235,11 @@ final class JobManager {
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
 	private function process_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $job, bool $is_dry_run ): array {
-		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_DRIVEN_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
+		// サンプリング（無料版）は商品上限の有無で判定する。stock/reviewの範囲は
+		// 「サンプル商品に紐づくもの」なので、商品上限が解除（Pro）されたら連動して解除される。
+		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( 'product' );
+
+		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
 			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false );
@@ -179,8 +247,16 @@ final class JobManager {
 			return [ $result['totals'], null ];
 		}
 
+		if ( 'stock' === $entity && $sampling_active ) {
+			// §10.2 #4: 在庫の全量走査はレート制限を浪費するため、サンプル商品のID指定取得から導出する。
+			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
+			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false );
+
+			return [ $result['totals'], null ];
+		}
+
 		$cursor       = Cursor::from_json( $job['cursor_json'] );
-		$sample       = ( ! $is_dry_run && in_array( $entity, self::SAMPLE_MEMBERSHIP_FILTERED, true ) )
+		$sample       = ( 'review' === $entity && $sampling_active )
 			? $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() )
 			: null;
 		$limit_policy = $is_dry_run ? null : $this->limits;
@@ -259,6 +335,12 @@ final class JobManager {
 	private function enqueue( int $job_id ): void {
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
 			as_enqueue_async_action( self::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' );
+		}
+	}
+
+	private function enqueue_delayed( int $job_id, int $delay_seconds ): void {
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			as_schedule_single_action( time() + $delay_seconds, self::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' );
 		}
 	}
 }

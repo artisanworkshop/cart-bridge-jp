@@ -8,26 +8,28 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Canonical;
 
 use CartBridgeJP\Canonical\Concerns\ChecksumTrait;
+use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
 
 /**
  * 正規化されたクーポンモデル。
  */
-final class CanonicalCoupon implements CanonicalModel {
+final readonly class CanonicalCoupon implements CanonicalModel {
 
 	use ChecksumTrait;
+	use RemoteIdFromExtrasTrait;
 
 	/**
 	 * @param 'fixed'|'percent'    $type
 	 * @param array<string,mixed> $extras ASP固有フィールドの退避先。
 	 */
 	public function __construct(
-		public readonly string $code,
-		public readonly string $type,
-		public readonly string $amount,
-		public readonly ?string $min_amount,
-		public readonly ?string $expires_at,
-		public readonly ?int $usage_limit,
-		public readonly array $extras = []
+		public string $code,
+		public string $type,
+		public string $amount,
+		public ?string $min_amount,
+		public ?string $expires_at,
+		public ?int $usage_limit,
+		public array $extras = []
 	) {}
 
 	public function to_array(): array {
