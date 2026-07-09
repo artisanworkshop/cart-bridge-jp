@@ -1,6 +1,6 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-07-08
+最終更新: 2026-07-09
 
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
@@ -275,8 +275,8 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
  * Description: Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
  * Version: 0.1.0
- * Requires at least: 6.5
- * Requires PHP: 8.1
+ * Requires at least: 6.9
+ * Requires PHP: 8.2
  * Requires Plugins: woocommerce
  * Author: Artisan Workshop
  * License: GPLv2 or later
@@ -284,7 +284,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
  * Text Domain: cart-bridge-jp
  * Domain Path: /languages
  *
- * WC requires at least: 8.0
+ * WC requires at least: 10.0
  */
 ```
 
@@ -296,7 +296,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 `.github/workflows/ci.yml` — push / PR（main宛）で実行:
 
-1. **php-quality**: PHP 8.1/8.2/8.3 マトリクスで `composer lint`（PHPCS）+ `composer analyze`（PHPStan level 6）
+1. **php-quality**: PHP 8.2/8.3 マトリクスで `composer lint`（PHPCS）+ `composer analyze`（PHPStan level 6）
 2. **php-test**: `wp-env` を起動して `composer test`（PHPUnit）
 3. **js**: `npm ci && npm run lint && npm run build`（tsc型チェック含む）
 

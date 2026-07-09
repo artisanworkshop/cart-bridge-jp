@@ -20,7 +20,7 @@
 		<!-- includes/ 配下は PSR-4 のクラス名ファイル（ClassName.php）を使うため、WP標準の class-name.php 規約は適用しない。 -->
 		<exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
 		<exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
-		<!-- PHP 8.1+ 前提のため短縮配列構文を許可する。 -->
+		<!-- PHP 8.2+ 前提のため短縮配列構文を許可する。 -->
 		<exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
 		<!-- 例外メッセージは内部ログ・catch側での利用が前提でHTML出力ではないため、エスケープ要求の対象外とする。 -->
 		<exclude name="WordPress.Security.EscapeOutput.ExceptionNotEscaped"/>
@@ -57,6 +57,6 @@
 	</rule>
 
 	<rule ref="PHPCompatibilityWP"/>
-	<config name="testVersion" value="8.1-"/>
-	<config name="minimum_supported_wp_version" value="6.5"/>
+	<config name="testVersion" value="8.2-"/>
+	<config name="minimum_supported_wp_version" value="6.9"/>
 </ruleset>

@@ -26,7 +26,7 @@
 
 ## 技術スタック・要件
 
-- PHP 8.1+ / WordPress 6.5+ / WooCommerce 8.0+
+- PHP 8.2+ / WordPress 6.9+ / WooCommerce 10.0+
 - **HPOS（High-Performance Order Storage）対応必須**。注文操作は必ずWooCommerce CRUD（`WC_Order`等）経由。`wp_posts`直接クエリ禁止
 - 管理画面UI: TypeScript + React（`@wordpress/scripts`、`@wordpress/components`）
 - 非同期処理: Action Scheduler（WooCommerce同梱）

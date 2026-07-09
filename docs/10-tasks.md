@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-07-08
+最終更新: 2026-07-09
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -31,7 +31,7 @@
   - 成果物: wp-env上で有効化でき、3テーブルが作成される
 
 - [x] **P0-2: 開発環境 + 品質ツール**
-  - `.wp-env.json`（PHP 8.1、WooCommerce同梱、testsインスタンス）
+  - `.wp-env.json`（PHP 8.2、WooCommerce同梱、testsインスタンス）
   - `phpcs.xml.dist`（WordPress ruleset、PSR-4クラス名許容の調整）→ `composer lint`
   - `phpstan.neon.dist`（level 6、wordpress/woocommerceスタブ）→ `composer analyze`
   - PHPUnit（wp-env のtestsインスタンスで実行する bootstrap）→ `composer test`、Activatorのテーブル作成テスト1本

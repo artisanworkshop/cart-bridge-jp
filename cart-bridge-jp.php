@@ -3,8 +3,8 @@
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
  * Description: Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
  * Version: 0.1.0
- * Requires at least: 6.5
- * Requires PHP: 8.1
+ * Requires at least: 6.9
+ * Requires PHP: 8.2
  * Requires Plugins: woocommerce
  * Author: Artisan Workshop
  * License: GPLv2 or later
@@ -12,7 +12,7 @@
  * Text Domain: cart-bridge-jp
  * Domain Path: /languages
  *
- * WC requires at least: 8.0
+ * WC requires at least: 10.0
  *
  * @package CartBridgeJP
  */
