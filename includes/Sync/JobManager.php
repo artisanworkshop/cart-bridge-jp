@@ -69,7 +69,7 @@ final class JobManager {
 	/**
 	 * @param array<int,string> $entities
 	 *
-	 * @throws RunAlreadyInProgressException 同一プラットフォームで既に running のジョブがある場合。
+	 * @throws RunAlreadyInProgressException 同一プラットフォームで進行中（pending/running/paused）のジョブがある場合。
 	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
@@ -77,7 +77,7 @@ final class JobManager {
 			throw new RuntimeException( "Unknown run type: {$type}" );
 		}
 
-		if ( $this->jobs->has_running_job_for_platform( $platform ) ) {
+		if ( $this->jobs->has_active_job_for_platform( $platform ) ) {
 			throw new RunAlreadyInProgressException( $platform );
 		}
 
@@ -217,12 +217,14 @@ final class JobManager {
 	/**
 	 * テスト・同期実行用: runが完了する（または安全上限に達する）までprocess_job()を繰り返す。
 	 * Action Schedulerのキュー実行を待たずに、resume可能性を含めて検証できる。
+	 * paused（レート制限枯渇）のジョブは即時再試行しても進捗しないため早期リターンし、
+	 * 再開タイミングは呼び出し側に委ねる（本番はenqueue_delayed()経由で再開される）。
 	 */
 	public function run_to_completion( string $run_id, int $max_actions = 1000 ): void {
 		for ( $i = 0; $i < $max_actions; $i++ ) {
 			$job = $this->jobs->find_next_incomplete_for_run( $run_id );
 
-			if ( null === $job ) {
+			if ( null === $job || JobRepository::STATUS_PAUSED === $job['status'] ) {
 				return;
 			}
 

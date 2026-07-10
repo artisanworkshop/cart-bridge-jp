@@ -31,6 +31,12 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	private const PAGE_SIZE = 2;
 
 	/**
+	 * fetch_products()/fetch_categories() の呼び出し回数。
+	 * paused時にJobManagerが空回りで再フェッチしていないことの検証に使う。
+	 */
+	public int $fetch_calls = 0;
+
+	/**
 	 * @param array<int,CanonicalProduct>  $products
 	 * @param array<int,CanonicalCustomer> $customers
 	 * @param array<int,CanonicalOrder>    $orders
@@ -72,12 +78,14 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function fetch_products( Cursor $cursor ): Page {
+		++$this->fetch_calls;
 		$this->maybe_fail();
 
 		return $this->paginate( $this->products, $cursor );
 	}
 
 	public function fetch_categories(): array {
+		++$this->fetch_calls;
 		$this->maybe_fail();
 
 		return $this->categories;

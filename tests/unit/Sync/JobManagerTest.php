@@ -260,6 +260,62 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$this->assertSame( 3, $this->mappings->count( 'mock', 'stock' ) );
 	}
 
+	public function test_starting_a_second_run_while_a_job_is_paused_throws(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new RateLimitExhaustedException( 'mock' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$job    = $this->jobs->find_next_incomplete_for_run( $run_id );
+		$manager->process_job( (int) $job['id'] );
+
+		// running が存在しない瞬間（paused のみ）でも、進行中runとして新規runをブロックする。
+		$this->assertSame( JobRepository::STATUS_PAUSED, $this->jobs->find( (int) $job['id'] )['status'] );
+
+		$this->expectException( RunAlreadyInProgressException::class );
+		$manager->start_run( 'import', 'mock', [ 'category' ] );
+	}
+
+	public function test_run_to_completion_returns_early_when_a_job_is_paused(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new RateLimitExhaustedException( 'mock' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$manager->run_to_completion( $run_id );
+
+		// paused → 即再実行のタイトループにならず、最初のpauseで停止すること。
+		$job = $this->jobs->find_by_run( $run_id )[0];
+		$this->assertSame( JobRepository::STATUS_PAUSED, $job['status'] );
+		$this->assertSame( 1, $adapter->fetch_calls );
+	}
+
 	public function test_rate_limit_exhaustion_pauses_the_job_instead_of_failing(): void {
 		$adapter = new MockPlatformAdapter(
 			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],

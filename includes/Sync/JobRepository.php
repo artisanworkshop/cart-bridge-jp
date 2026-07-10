@@ -117,15 +117,21 @@ final class JobRepository {
 		return null === $row ? null : $row;
 	}
 
-	public function has_running_job_for_platform( string $platform ): bool {
+	/**
+	 * 進行中（未終了 = pending/running/paused）のジョブが存在するか。
+	 * running のみを見ると、レート制限で paused 中のrunと重複して新規runを開始できてしまう。
+	 */
+	public function has_active_job_for_platform( string $platform ): bool {
 		global $wpdb;
 
 		$count = (int) $wpdb->get_var(
 			$wpdb->prepare(
 				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
-				"SELECT COUNT(*) FROM {$this->table()} WHERE platform = %s AND status = %s",
+				"SELECT COUNT(*) FROM {$this->table()} WHERE platform = %s AND status IN (%s, %s, %s)",
 				$platform,
-				self::STATUS_RUNNING
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED
 			)
 		);
 
