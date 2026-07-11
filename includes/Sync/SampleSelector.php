@@ -12,7 +12,7 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 /**
  * 無料版サンプル選定ロジック（D15/`docs/03-design-decisions.md` §10.2）。
  *
- * 最新受注10件（`fetchLatestOrders`）を起点に、明細の remote_product_id と
+ * 最新受注10件（`fetch_latest_orders`）を起点に、明細の remote_product_id と
  * 購入者（customer_ref）を抽出してサンプルセットを決定し、`cbjp_sample_{platform}`
  * （autoload無効）に保存する。再実行は同一セットを再利用する（クリーンアップ→再選定のみ変更可、§10.2 #7）。
  *
