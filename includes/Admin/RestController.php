@@ -383,9 +383,11 @@ final class RestController {
 		$requested_page = $request->get_param( 'page' );
 		$page           = max( 1, (int) ( $requested_page ? $requested_page : 1 ) );
 
+		// 空のクエリパラメータ（`?job_id=` / `?level=`）は「フィルタなし」として扱う
+		// （空文字を 0 / '' にキャストすると存在しない条件で全ログが除外されるため）。
 		$logs = ( new \CartBridgeJP\Sync\LogRepository() )->list(
-			null !== $job_id ? (int) $job_id : null,
-			null !== $level ? (string) $level : null,
+			null !== $job_id && '' !== $job_id ? (int) $job_id : null,
+			null !== $level && '' !== $level ? (string) $level : null,
 			$page
 		);
 
