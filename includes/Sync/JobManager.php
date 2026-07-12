@@ -246,7 +246,8 @@ final class JobManager {
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
 			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false );
 
-			return [ $result['totals'], null ];
+			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
+			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
 		}
 
 		if ( 'stock' === $entity && $sampling_active ) {
@@ -254,7 +255,7 @@ final class JobManager {
 			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false );
 
-			return [ $result['totals'], null ];
+			return [ array_merge( $result['totals'], [ 'total' => count( $sample->product_remote_ids ) ] ), null ];
 		}
 
 		$cursor       = Cursor::from_json( $job['cursor_json'] );
@@ -264,8 +265,13 @@ final class JobManager {
 		$limit_policy = $is_dry_run ? null : $this->limits;
 
 		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample );
+		$totals = $result['totals'];
 
-		return [ $result['totals'], $result['next_cursor'] ];
+		if ( null !== $result['total'] ) {
+			$totals['total'] = $result['total'];
+		}
+
+		return [ $totals, $result['next_cursor'] ];
 	}
 
 	private function complete_job_and_advance( int $job_id, string $run_id ): void {
@@ -328,6 +334,13 @@ final class JobManager {
 	 */
 	private function merge_totals( array $accumulated, array $page_totals ): array {
 		foreach ( $page_totals as $key => $value ) {
+			// `total` はアダプタが報告する全体件数（進捗率の分母）であり、ページ毎に
+			// 加算する値ではなく、これまでに報告された最大値を採用する。
+			if ( 'total' === $key ) {
+				$accumulated['total'] = max( $accumulated['total'] ?? 0, $value );
+				continue;
+			}
+
 			$accumulated[ $key ] = ( $accumulated[ $key ] ?? 0 ) + $value;
 		}
 

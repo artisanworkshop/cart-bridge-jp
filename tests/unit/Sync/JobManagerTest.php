@@ -151,6 +151,69 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$this->assertSame( JobRepository::STATUS_COMPLETED, $final_job['status'] );
 	}
 
+	public function test_totals_total_reflects_the_adapters_reported_count_not_a_sum_across_pages(): void {
+		// MockPlatformAdapterのページサイズは2件。5件投入して3ページに跨がせ、
+		// 各ページがtotal=5を報告する（ページ毎の単純合算だと15になってしまう）。
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1' ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+			CanonicalFactory::product( 'p4', 'SKU-4' ),
+			CanonicalFactory::product( 'p5', 'SKU-5' ),
+		];
+		$this->register_adapter( products: $products );
+
+		add_filter( 'cbjp/limits/product', static fn() => null );
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job    = $this->jobs->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		$this->assertSame( 5, $totals['total'] );
+	}
+
+	public function test_totals_total_is_set_from_the_sample_size_for_id_fetch_entities(): void {
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1' ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+		];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job    = $this->jobs->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		// 最新注文由来のサンプルはp1のみ（1件）。
+		$this->assertSame( 1, $totals['total'] );
+	}
+
+	public function test_totals_total_is_set_from_the_sample_size_for_stock_import(): void {
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1', 7 ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+		];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job    = $this->jobs->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		$this->assertSame( 1, $totals['total'] );
+	}
+
 	public function test_starting_a_second_run_while_one_is_in_progress_throws(): void {
 		$this->register_adapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
 
