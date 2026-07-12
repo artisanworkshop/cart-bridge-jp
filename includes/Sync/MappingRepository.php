@@ -29,9 +29,11 @@ final class MappingRepository {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- UNIQUEキーによるupsertはwpdb->replace/insertでは表現できないため直接クエリを使う。
 		$wpdb->query(
 			$wpdb->prepare(
+				// checksumがnull指定のとき文字列プレースホルダー経由では空文字列として書き込まれてしまうため、
+				// SQL側で空文字列を明示的にNULLへ変換する。この列にはハッシュ値のみが入り空文字列は使わない。
 				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
 				"INSERT INTO {$this->table()} (platform, entity_type, remote_id, local_id, checksum, synced_at)
-				 VALUES (%s, %s, %s, %d, %s, %s)
+				 VALUES (%s, %s, %s, %d, NULLIF(%s, ''), %s)
 				 ON DUPLICATE KEY UPDATE local_id = VALUES(local_id), checksum = VALUES(checksum), synced_at = VALUES(synced_at)",
 				$platform,
 				$entity_type,
