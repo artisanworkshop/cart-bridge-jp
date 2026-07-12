@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php-quality:
+    name: PHP quality (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: sodium, json, mysqli
+          coverage: none
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+
+      - name: PHPCS (WordPress Coding Standards)
+        run: composer lint
+
+      - name: PHPStan
+        run: composer analyze
+
+  php-test:
+    name: PHPUnit (wp-env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: sodium, json, mysqli
+          coverage: none
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Start wp-env
+        run: npx wp-env start
+
+      - name: Run PHPUnit
+        run: npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist"
+
+  js:
+    name: JS/TS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Lint (ESLint + tsc)
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

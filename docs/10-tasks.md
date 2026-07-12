@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-07-08
+最終更新: 2026-07-09
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -23,48 +23,48 @@
 > ゴール: アダプタを1つも持たない状態で、テーブル・IF・Support層・ジョブ骨格・管理画面骨格・CIが揃い、
 > Phase 1 が「ColorMe ディレクトリを足すだけ」で始められる状態。
 
-- [ ] **P0-1: リポジトリ整備 + プラグインスケルトン**
+- [x] **P0-1: リポジトリ整備 + プラグインスケルトン**
   - `trunk` ブランチを `main` に統合し、以後 main をデフォルトに（`git branch -m` + `gh repo edit --default-branch main` 等）
   - `.gitignore`（node_modules, vendor, build, .wp-env.override.json 等）、`.editorconfig`
   - `cart-bridge-jp.php`（03 §7 のヘッダー、WooCommerce有効チェック、HPOS互換宣言）
   - `composer.json`（PSR-4: `CartBridgeJP\` → `includes/`）、`Core\Plugin`（シングルトン起動）、`Core\Activator`（03 §3 のDDLをdbDeltaで作成、DBバージョン管理）、`uninstall.php`
   - 成果物: wp-env上で有効化でき、3テーブルが作成される
 
-- [ ] **P0-2: 開発環境 + 品質ツール**
-  - `.wp-env.json`（PHP 8.1、WooCommerce同梱、testsインスタンス）
+- [x] **P0-2: 開発環境 + 品質ツール**
+  - `.wp-env.json`（PHP 8.2、WooCommerce同梱、testsインスタンス）
   - `phpcs.xml.dist`（WordPress ruleset、PSR-4クラス名許容の調整）→ `composer lint`
   - `phpstan.neon.dist`（level 6、wordpress/woocommerceスタブ）→ `composer analyze`
   - PHPUnit（wp-env のtestsインスタンスで実行する bootstrap）→ `composer test`、Activatorのテーブル作成テスト1本
   - `package.json` + `@wordpress/scripts` + TypeScript設定、空のエントリポイントがビルドできること
   - 参考スキル: wp-phpcs / wp-phpstan / wp-phpunit
 
-- [ ] **P0-3: GitHub Actions CI**
+- [x] **P0-3: GitHub Actions CI**
   - 03 §8 の3ジョブ（php-quality マトリクス / php-test / js）
   - main保護（PR必須・CI必須）の設定
   - 参考スキル: wp-github-actions
 
-- [ ] **P0-4: Support層**
+- [x] **P0-4: Support層**
   - `Logger`（cbjp_logsへの書込 + WC_Loggerミラー。個人情報禁止ルールをdocblockに明記）
   - `HttpClient`（リトライ+指数バックオフ、Retry-After対応、ApiException）
   - `RateLimiter`（トークンバケット、$wpdbによる原子的更新）
   - `TokenStore`（sodium暗号化、**構造化ペイロード access/refresh/expires_at + リフレッシュ排他ロック=D13**、復号失敗・refresh失効時の再接続要求状態、末尾4桁マスク取得）
   - 各クラスのユニットテスト（HTTPは `pre_http_request` フィルターでモック）
 
-- [ ] **P0-5: Canonicalモデル + アダプタIF**
+- [x] **P0-5: Canonicalモデル + アダプタIF**
   - `Canonical\*` 8種（Product/Category/Tag/Customer/Order/Stock/Coupon/Review。readonly、`toArray/fromArray`、checksum算出用の正規化JSON）
   - `Adapters\`: `PlatformAdapter`（03 §2 確定版。**サンプル選定用の `fetchLatestOrders` / `fetchProductByRemoteId` / `fetchCustomerByRemoteId` を含む=D15**）、`Capabilities`（`canFetchCustomers` 含む）、`Cursor`、`Page`、`PushResult`、`ConnectionResult`、`ConnectionField`、`UnsupportedOperationException`
   - `AdapterRegistry`（フィルター `cbjp/adapters/register` で登録。Pro拡張ポイント）
   - Canonicalモデルのシリアライズ往復・checksumのユニットテスト
 
-- [ ] **P0-6: Sync層骨格（ジョブ基盤）**
+- [x] **P0-6: Sync層骨格（ジョブ基盤）**
   - `Sync\JobRepository` / `MappingRepository` / `LogRepository`（$wpdb + prepare）
   - `Sync\JobManager`（startRun、ステートマシン、Action Schedulerエンキュー、1アクション=1ページのループ、エンティティ直列実行、同時実行ガード）
   - `Sync\Importer`（fetch→変換→書込のパイプライン。書込先は `WooWriter` IFにし、`DryRunReporter` と差し替え可能に）
-  - **`Sync\LimitPolicy` + `Sync\SampleSelector`（D15/03 §10.2）**: `cbjp/limits/{entity}` フィルター、mappings累積カウントによるサーバーサイド強制、サンプルセットの保存（`cbjp_sample_{platform}`）とフォールバック規則
+  - **`Sync\LimitPolicy` + `Sync\SampleSelector`（D15/03 §10.2）**: `cbjp/limits/{entity}` フィルター、mappings累積カウントによるサーバーサイド強制、サンプルセットの保存（`cbjp_sample_{platform}`）とフォールバック規則（※§10.2 #5後半の「受注10件未満時の残枠を商品・顧客で補完」は実アダプタの一覧取得が必要なため F1-5 で実装。Phase 0 は `used_fallback` フラグまで）
   - ログ30日保持の日次クリーンアップ
   - モックアダプタ（テスト用フィクスチャを返すだけ）でジョブが完走・再開できるユニットテスト（**上限強制・サンプル選定・フォールバックのテスト含む**）
 
-- [ ] **P0-7: 管理画面骨格 + REST骨格**
+- [x] **P0-7: 管理画面骨格 + REST骨格**
   - `Admin\Menu`（WooCommerce配下にページ登録）、`Admin\Assets`
   - `Admin\RestController`（03 §6 のルート定義。connections/runs/logs/limits は P0-6 のリポジトリと接続、未実装部分は501）
   - React アプリ骨格: タブ5つ（Connections/Import/Export/Logs/Tools）、api-fetch セットアップ、Connections タブは AdapterRegistry 由来の一覧を表示（アダプタ0件の空状態。Tools タブは空の骨格のみ・実装は F1-7）
@@ -87,7 +87,7 @@
 - [ ] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。**要検証#7を確定**）
 - [ ] **F1-3: Transformer 4種+**（Product/Customer/Order/Category + Tag(groups)/Coupon読取。フィクスチャベースのユニットテスト。マッピング表は 01 §4）
 - [ ] **F1-4: WooRepository**（商品/カテゴリ/タグ/顧客/受注/在庫のupsert書込。画像sideload、受注は 03 §5 の詳細仕様・HPOS対応CRUDのみ使用）+ テスト
-- [ ] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**）
+- [ ] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**。§10.2 #5後半の受注10件未満時フォールバック補完の実装を含む）
 - [ ] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）
 - [ ] **F1-7: ツール + 検証レポート**（サンプルクリーンアップ / リンク再構築（`/tools/*` REST + UI、D16）、移行後検証レポート（件数・受注合計金額の突合表示、D17））
 - [ ] **F1-8: 実データE2E**（テストショップから商品100件・受注50件規模。中断→再開、再実行の冪等性、**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16**、実行時間計測=要検証#6）

@@ -1,0 +1,14 @@
+/**
+ * Cart Bridge JP admin app entry point.
+ */
+import { createRoot } from '@wordpress/element';
+import { configureApiFetch } from './api';
+import App from './App';
+
+configureApiFetch();
+
+const container = document.getElementById( 'cbjp-admin-app' );
+
+if ( container ) {
+	createRoot( container ).render( <App /> );
+}

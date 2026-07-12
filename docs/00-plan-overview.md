@@ -1,6 +1,6 @@
 # Cart Bridge JP 全体開発計画
 
-最終更新: 2026-07-08
+最終更新: 2026-07-09
 
 ## 1. プロダクト概要
 
@@ -117,7 +117,7 @@ cbjp_logs      (id, job_id, level, message, context_json, created_at)
 ### Phase 0: 基盤（最初のマイルストーン）
 
 1. プラグインスケルトン（メインファイル、Composer/PSR-4、activation hookでテーブル作成、HPOS互換宣言）
-2. `wp-env` セットアップ（`.wp-env.json`: WooCommerce同梱、PHP 8.1）
+2. `wp-env` セットアップ（`.wp-env.json`: WooCommerce同梱、PHP 8.2）
 3. CI用に PHPCS / PHPStan / PHPUnit の設定
 4. `Support\` 層: HttpClient（リトライ+指数バックオフ）、RateLimiter（トークンバケット）、TokenStore（暗号化: `sodium_crypto_secretbox` + AUTH_KEYベース）、Logger
 5. `PlatformAdapter` インターフェース・Canonicalモデル・Capabilities

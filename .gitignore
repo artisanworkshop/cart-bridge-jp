@@ -1,0 +1,27 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# Build output
+/build/
+
+# WordPress environment
+/.wp-env.override.json
+/.wp-env/
+
+# Composer
+composer.phar
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# PHPUnit / PHPCS caches
+.phpunit.result.cache
+.phpcs-cache
+
+# Env
+.env
+.env.local
