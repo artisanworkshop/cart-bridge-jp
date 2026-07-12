@@ -147,4 +147,24 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 404, $response->get_status() );
 		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
 	}
+
+	public function test_list_logs_treats_array_valued_query_params_as_no_filter(): void {
+		$logger = new \CartBridgeJP\Support\Logger();
+		$logger->info( 'first log entry' );
+		$logger->warning( 'second log entry' );
+
+		// job_id/level にargsスキーマの型検証がないため、`?job_id[]=1&job_id[]=2` のような
+		// 配列値が渡り得る。配列を(int)/(string)キャストして誤ったフィルタになっていないか検証する。
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/logs' );
+		$request->set_query_params(
+			[
+				'job_id' => [ '1', '2' ],
+				'level'  => [ 'info' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertCount( 2, $response->get_data() );
+	}
 }

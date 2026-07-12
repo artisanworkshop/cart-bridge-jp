@@ -382,9 +382,12 @@ final class RestController {
 	}
 
 	public function list_logs( WP_REST_Request $request ): WP_REST_Response {
-		$job_id         = $request->get_param( 'job_id' );
-		$level          = $request->get_param( 'level' );
-		$requested_page = $request->get_param( 'page' );
+		// `/logs` はargsスキーマを持たないため、job_id/level/pageは配列（例: `?job_id[]=1`）
+		// になり得る。スカラー以外は不正な指定として無視する（配列を(int)/(string)キャストすると
+		// 意図しないフィルタとして働き、全件除外やページ指定ミスにつながるため）。
+		$job_id         = $this->scalar_query_param( $request, 'job_id' );
+		$level          = $this->scalar_query_param( $request, 'level' );
+		$requested_page = $this->scalar_query_param( $request, 'page' );
 		$page           = max( 1, (int) ( $requested_page ? $requested_page : 1 ) );
 
 		// 空のクエリパラメータ（`?job_id=` / `?level=`）は「フィルタなし」として扱う
@@ -396,6 +399,16 @@ final class RestController {
 		);
 
 		return rest_ensure_response( $logs );
+	}
+
+	/**
+	 * argsスキーマ未定義のクエリパラメータをスカラー値としてのみ受け付ける。
+	 * 配列等の非スカラー値は「未指定」として扱う。
+	 */
+	private function scalar_query_param( WP_REST_Request $request, string $key ): string|int|float|bool|null {
+		$value = $request->get_param( $key );
+
+		return is_scalar( $value ) ? $value : null;
 	}
 
 	/**
