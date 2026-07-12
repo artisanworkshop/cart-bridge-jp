@@ -56,4 +56,18 @@ final class LoggerTest extends WP_UnitTestCase {
 
 		$this->assertNull( $row['context_json'] );
 	}
+
+	public function test_log_stores_null_job_id_as_null_not_zero(): void {
+		global $wpdb;
+
+		$logger = new Logger();
+		$logger->info( 'no job id here' );
+
+		$row = $wpdb->get_row(
+			"SELECT * FROM {$wpdb->prefix}cbjp_logs ORDER BY id DESC LIMIT 1",
+			ARRAY_A
+		);
+
+		$this->assertNull( $row['job_id'] );
+	}
 }
