@@ -132,4 +132,19 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 501, $response->get_status() );
 	}
+
+	public function test_start_run_returns_404_for_an_unknown_platform(): void {
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => 'not-a-real-platform',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
 }

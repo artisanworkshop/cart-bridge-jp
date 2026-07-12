@@ -283,6 +283,10 @@ final class RestController {
 			);
 		}
 
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
 		try {
 			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
 		} catch ( RunAlreadyInProgressException ) {
