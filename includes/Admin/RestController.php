@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
@@ -212,15 +213,21 @@ final class RestController {
 				'needs_reconnect'   => $token_store->needs_reconnect(),
 				'masked_token'      => $token_store->masked_access_token(),
 				'capabilities'      => $adapter->capabilities()->to_array(),
+				// connection_fields()は外部フィルター経由で登録され得るアダプタ（Pro拡張含む）の
+				// 実装依存であり、契約違反（ConnectionField以外の混入）でエンドポイント全体を
+				// 落とさないよう、AdapterRegistry::all()同様に防御的にフィルタする。
 				'connection_fields' => array_map(
-					static fn( $field ): array => [
+					static fn( ConnectionField $field ): array => [
 						'key'      => $field->key,
 						'label'    => $field->label,
 						'type'     => $field->type,
 						'required' => $field->required,
 						'help'     => $field->help,
 					],
-					$adapter->connection_fields()
+					array_filter(
+						$adapter->connection_fields(),
+						static fn( $field ): bool => $field instanceof ConnectionField
+					)
 				),
 			];
 		}

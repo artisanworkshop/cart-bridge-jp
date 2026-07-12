@@ -68,6 +68,28 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertFalse( $data[0]['connected'] );
 	}
 
+	public function test_get_connections_ignores_non_connection_field_entries_from_a_misbehaving_adapter(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				// 外部フィルター経由で登録されるアダプタ（Pro拡張含む）の契約違反シナリオ:
+				// connection_fields()がConnectionField以外を混入させても、エンドポイント全体を
+				// 落とさず、不正な要素だけを除外できることを検証する。
+				$adapters['mock'] = new MockPlatformAdapter( connection_fields_override: [ 'not-a-connection-field', null ] );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], $data[0]['connection_fields'] );
+	}
+
 	public function test_unauthenticated_request_is_forbidden(): void {
 		wp_set_current_user( 0 );
 
