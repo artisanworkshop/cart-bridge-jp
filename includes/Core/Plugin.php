@@ -92,7 +92,11 @@ final class Plugin {
 	 * TokenStoreの暗号化が動作しないため、接続前に環境の問題を知らせる。
 	 */
 	public function render_missing_sodium_notice(): void {
-		if ( function_exists( 'sodium_crypto_secretbox' ) || ! current_user_can( 'activate_plugins' ) ) {
+		// WordPress core は ext-sodium が無いホストでもsodium_compatポリフィルを読み込み、
+		// sodium_crypto_secretbox() 等のユーザーランド実装を提供してしまうため、
+		// function_exists() では常にtrueになりネイティブ拡張の有無を判定できない。
+		// extension_loaded() でネイティブ拡張自体の有無を見る。
+		if ( extension_loaded( 'sodium' ) || ! current_user_can( 'activate_plugins' ) ) {
 			return;
 		}
 
