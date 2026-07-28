@@ -78,6 +78,7 @@ final class Capabilities {
         public readonly bool $canFetchCustomers,  // colorme/makeshop: true / base: false（受注から抽出=D12）
         public readonly bool $canUpdateCustomer,
         public readonly bool $canPushImages,      // 要検証#1/#4の結果で確定。base: true（URL指定方式）
+                                                   // colorme: 接続先ショップのcontract_plan（shop.json）を見てプラン依存で算出（§9 #1）
         public readonly bool $canCreateCoupon,
         public readonly bool $hasCoupons,         // colorme: true（読取のみ）/ makeshop: true / base: false
         public readonly bool $hasTags,            // colorme: true（groups）/ makeshop: false / base: false
@@ -304,7 +305,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 | # | 項目 | 確定タイミング | 状態 |
 |---|---|---|---|
-| 1 | カラーミー: 商品POST/PUTの画像登録可否 | Phase 1 タスク F1-0（swagger精査+実測） | **済**: 不可（`productCreateRequest`/`productUpdateRequest`に画像フィールドなし。`canPushImages: false`確定） |
+| 1 | カラーミー: 商品POST/PUTの画像登録可否 | Phase 1 タスク F1-0（swagger精査+実測） | **済（プラン依存）**: `products.json`のcreate/update本体に画像フィールドはないが、専用エンドポイント`POST /v1/products/{product_id}/images`（マルチパート、`image`+`position`）が別途存在する。**ただしプレミアムプラン契約ショップのみ利用可**（レギュラープラン等は403想定・要実機確認）。`canPushImages`は固定falseではなく、`GET /shop.json`の`contract_plan`を見てプラン依存で判定する設計に変更（F1-5で実装、E4-3で画像push実装時に403時のCSVフォールバックへの切替を含める） |
 | 2 | MakeShop: レート制限値 | Phase 2 タスク M2-0（FAQ/問い合わせ） | 未 |
 | 3 | MakeShop: 自社利用登録の条件（プラン・費用） | 取得済みのため契約内容をREADME用に記録（M2-0） | 未 |
 | 4 | MakeShop: createProduct の画像入力形式 | Phase 2 タスク M2-0 | 未 |
@@ -317,7 +318,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | Phase 3 タスク B3-0 | 未 |
 | 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | Phase 3 タスク B3-0（公式FAQ確認） | 未 |
 | 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
-| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返る（実測確認）。MakeShop/BASEは未 |
+| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は`before`を過去方向へずらして複数回リクエストし、10件集まるか受注履歴が尽きるまで走査する実装が必要（単発リクエストでは不足しうる）。MakeShop/BASEは未 |
 | 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
@@ -359,7 +360,10 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 **サンプル選定ロジック（SampleSelector）**:
 
-1. 実行開始時に `fetchLatestOrders(10)` で最新受注10件を取得
+1. 実行開始時に `fetchLatestOrders(10)` で最新受注10件を取得。
+   カラーミーは一覧APIの日時範囲パラメータ省略時に検索対象が直近7日間へ暗黙的に絞られるため（§9 #14）、
+   `fetchLatestOrders` 実装は7日間で10件に満たない場合 `before` を過去方向へ広げて再取得を繰り返し、
+   10件集まるか受注履歴が尽きるまで走査すること（単発リクエストでは不足しうる）
 2. 明細から商品 remote_id、購入者（email / remote_id）を抽出し重複排除（ゲスト購入は顧客枠にカウントしない）
 3. サンプルセットをオプション `cbjp_sample_{platform}`（autoload無効）に保存。再実行は同一セットの upsert
 4. 商品・顧客は **ID指定取得**（`fetchProductByRemoteId` / `fetchCustomerByRemoteId`）で取り込む
