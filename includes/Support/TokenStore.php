@@ -11,8 +11,10 @@ namespace CartBridgeJP\Support;
  * プラットフォームのAPI資格情報を暗号化して保存する。
  *
  * - 暗号化: `sodium_crypto_secretbox`（鍵は AUTH_KEY/AUTH_SALT から導出）
- * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?}`（D13）。
- *   無期限トークン（カラーミー/MakeShop）も同構造に格納する
+ * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?, settings?}`（D13）。
+ *   無期限トークン（カラーミー/MakeShop）も同構造に格納する。`settings`はOAuth接続前のclient_id/secret等、
+ *   `extras`はOAuth完了後にアダプタが保存する付随情報（例: shop.jsonのcontract_plan）を想定した区分
+ * - `access_token`が空文字のpayload（`save_settings()`経由）は「設定済みだが未接続」を表す
  * - AUTH_KEY変更等による復号失敗、リフレッシュトークン失効時は例外にせず「再接続が必要」を意味する null を返す
  */
 final class TokenStore {
@@ -31,19 +33,49 @@ final class TokenStore {
 	public function __construct( private readonly string $platform ) {}
 
 	/**
-	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>} $payload
+	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>} $payload
 	 */
 	public function save( array $payload ): void {
 		if ( '' === $payload['access_token'] ) {
 			throw new \InvalidArgumentException( 'access_token is required.' );
 		}
 
+		$this->persist( $payload );
+	}
+
+	/**
+	 * OAuth前段階の接続設定（例: client_id/client_secret）を保存する。まだアクセストークンが
+	 * 存在しない接続でも呼べるよう、既存payloadの`settings`キーにのみマージする
+	 * （`access_token`が空のpayloadを許容する点が {@see self::save()} と異なる）。
+	 *
+	 * @param array<string,mixed> $settings
+	 */
+	public function save_settings( array $settings ): void {
+		$payload             = $this->get() ?? [ 'access_token' => '' ];
+		$payload['settings'] = array_merge( $payload['settings'] ?? [], $settings );
+
+		$this->persist( $payload );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	public function settings(): array {
+		$payload = $this->get();
+
+		return $payload['settings'] ?? [];
+	}
+
+	/**
+	 * @param array<string,mixed> $payload
+	 */
+	private function persist( array $payload ): void {
 		update_option( $this->option_name(), $this->encrypt( (string) wp_json_encode( $payload ) ), false );
 		$this->payload_cache = $payload;
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>}|null
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
 	 *         復号失敗・未接続の場合は null（呼び出し側は「再接続が必要」として扱う）。
 	 */
 	public function get(): ?array {
@@ -57,7 +89,7 @@ final class TokenStore {
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>}|null
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
 	 */
 	private function load_payload(): ?array {
 		$stored = get_option( $this->option_name() );
@@ -90,10 +122,14 @@ final class TokenStore {
 		return null === $this->get();
 	}
 
+	/**
+	 * アクセストークンを保有していれば true。`save_settings()` のみが呼ばれた
+	 * （client_id/secretは保存済みだがOAuth未完了の）状態は接続済みとみなさない。
+	 */
 	public function is_connected(): bool {
-		$stored = get_option( $this->option_name() );
+		$payload = $this->get();
 
-		return is_string( $stored ) && '' !== $stored;
+		return null !== $payload && '' !== $payload['access_token'];
 	}
 
 	public function is_expired(): bool {

@@ -239,7 +239,8 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme・base: client_id+secret） |
 | DELETE | `/connections/{platform}` | 接続解除（トークン削除） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
-| GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base） |
+| GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base）。`?mode=oob` でコード手動貼り付けフォールバック用URLを取得 |
+| POST | `/connections/{platform}/exchange-code` | OAuthコード手動貼り付けフォールバック（`{code}`。認証済み管理画面からの呼び出しのため通常のnonce+capability保護のみ。F1-2で追加） |
 | GET | `/connect/{platform}/callback` | OAuthコールバック（ASP側に登録する公開URL。**permission例外**: `__return_true` + state検証必須。詳細は下記） |
 | POST | `/runs` | 移行実行の開始 `{type, platform, entities[]}` |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |

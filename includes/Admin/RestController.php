@@ -8,6 +8,8 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
@@ -15,6 +17,7 @@ use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
+use RuntimeException;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
@@ -49,7 +52,7 @@ final class RestController {
 			[
 				[
 					'methods'             => 'PUT',
-					'callback'            => [ $this, 'not_implemented' ],
+					'callback'            => [ $this, 'save_connection' ],
 					'permission_callback' => [ $this, 'check_permission' ],
 				],
 				[
@@ -75,7 +78,20 @@ final class RestController {
 			'/connections/(?P<platform>[a-z0-9_-]+)/authorize-url',
 			[
 				'methods'             => 'GET',
-				'callback'            => [ $this, 'not_implemented' ],
+				'callback'            => [ $this, 'get_authorize_url' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+			]
+		);
+
+		// OAuthフローの「コード手動貼り付け」フォールバック（ローカル開発等、自動コールバックが
+		// 使えない環境向け。03 §6のOAuthコールバック節を参照。認証済み管理画面からの呼び出しのため
+		// 通常のnonce+capability保護でよく、独自のstate検証は不要）。
+		register_rest_route(
+			self::NAMESPACE,
+			'/connections/(?P<platform>[a-z0-9_-]+)/exchange-code',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'exchange_code' ],
 				'permission_callback' => [ $this, 'check_permission' ],
 			]
 		);
@@ -85,7 +101,7 @@ final class RestController {
 			'/connect/(?P<platform>[a-z0-9_-]+)/callback',
 			[
 				'methods'             => 'GET',
-				'callback'            => [ $this, 'not_implemented' ],
+				'callback'            => [ $this, 'handle_oauth_callback' ],
 				'permission_callback' => '__return_true',
 			]
 		);
@@ -247,6 +263,50 @@ final class RestController {
 		return rest_ensure_response( [ 'deleted' => true ] );
 	}
 
+	/**
+	 * 接続設定を保存する（makeshop: endpoint+token / colorme・base: client_id+secret。03 §6）。
+	 * アダプタが `connection_fields()` で宣言したキー（`oauth_button`型を除く）のみを受け付ける
+	 * （外部フィルター経由で登録され得るアダプタの契約違反への防御。§18のCLAUDE.md方針と同様）。
+	 */
+	public function save_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = (string) $request->get_param( 'platform' );
+		$adapter  = AdapterRegistry::get( $platform );
+
+		if ( null === $adapter ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$body = $request->get_params();
+
+		$allowed_keys = array_map(
+			static fn( ConnectionField $field ): string => $field->key,
+			array_filter(
+				$adapter->connection_fields(),
+				static fn( $field ): bool => $field instanceof ConnectionField && 'oauth_button' !== $field->type
+			)
+		);
+
+		$settings = [];
+
+		foreach ( $allowed_keys as $key ) {
+			if ( isset( $body[ $key ] ) && is_scalar( $body[ $key ] ) ) {
+				$settings[ $key ] = sanitize_text_field( (string) $body[ $key ] );
+			}
+		}
+
+		if ( [] === $settings ) {
+			return new WP_Error(
+				'cbjp_invalid_request',
+				__( 'No recognized connection fields were provided.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		( new TokenStore( $platform ) )->save_settings( $settings );
+
+		return rest_ensure_response( [ 'saved' => true ] );
+	}
+
 	public function test_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = (string) $request->get_param( 'platform' );
 		$adapter  = AdapterRegistry::get( $platform );
@@ -275,6 +335,125 @@ final class RestController {
 				'message'   => $result->message,
 			]
 		);
+	}
+
+	/**
+	 * OAuth型プラットフォーム（現状: colorme）の認可URLを返す。`mode=oob` はローカル開発等、
+	 * 自動コールバックのhttpsリダイレクトURIを用意できない環境向けのフォールバック
+	 * （要検証#7が未確定のため、自動リダイレクトが使えるかは環境依存。03 §9）。
+	 */
+	public function get_authorize_url( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = (string) $request->get_param( 'platform' );
+		$oauth    = $this->oauth_for( $platform );
+
+		if ( null === $oauth ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$is_oob       = 'oob' === $request->get_param( 'mode' );
+		$redirect_uri = $is_oob ? ColorMeOAuth::OOB_REDIRECT_URI : $this->oauth_callback_url( $platform );
+
+		try {
+			$url = $oauth->authorize_url( $redirect_uri, $is_oob ? null : get_current_user_id() );
+		} catch ( RuntimeException $exception ) {
+			return new WP_Error( 'cbjp_oauth_not_configured', $exception->getMessage(), [ 'status' => 400 ] );
+		}
+
+		return rest_ensure_response(
+			[
+				'url'          => $url,
+				'redirect_uri' => $redirect_uri,
+			]
+		);
+	}
+
+	/**
+	 * ASPからの外部リダイレクト（`__return_true`、nonce・capability対象外）。
+	 * `state` ワンタイムトークンのみで検証する（03 §6）。302 + Locationヘッダーで
+	 * 管理画面のConnectionsタブへ戻す（`exit`を伴う`wp_safe_redirect()`は使わず、
+	 * REST応答として返すことでユニットテスト可能にしている）。
+	 */
+	public function handle_oauth_callback( WP_REST_Request $request ): WP_REST_Response {
+		$platform = (string) $request->get_param( 'platform' );
+		$oauth    = $this->oauth_for( $platform );
+
+		if ( null === $oauth ) {
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => __( 'Unknown platform.', 'cart-bridge-jp' ) ] );
+		}
+
+		$code  = (string) ( $request->get_param( 'code' ) ?? '' );
+		$state = (string) ( $request->get_param( 'state' ) ?? '' );
+
+		if ( '' === $code || '' === $state || ! $oauth->verify_state( $state, get_current_user_id() ) ) {
+			return $this->redirect_to_connections(
+				[ 'cbjp_connect_error' => __( 'The connection request could not be verified. Please try again, or use the manual code entry fallback.', 'cart-bridge-jp' ) ]
+			);
+		}
+
+		try {
+			$oauth->exchange_code( $code, $this->oauth_callback_url( $platform ) );
+		} catch ( Throwable $exception ) {
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => $exception->getMessage() ] );
+		}
+
+		return $this->redirect_to_connections( [ 'cbjp_connected' => $platform ] );
+	}
+
+	/**
+	 * OAuthコード手動貼り付けフォールバック。認証済み管理画面からのPOSTのため
+	 * 通常のnonce+capability保護のみで、独自のstate検証は行わない。
+	 */
+	public function exchange_code( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = (string) $request->get_param( 'platform' );
+		$oauth    = $this->oauth_for( $platform );
+
+		if ( null === $oauth ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$input = (string) ( $request->get_param( 'code' ) ?? '' );
+
+		if ( '' === $input ) {
+			return new WP_Error(
+				'cbjp_invalid_request',
+				__( 'A code (or the authorization URL containing it) is required.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		try {
+			$oauth->exchange_code( $oauth->extract_code_from_input( $input ), ColorMeOAuth::OOB_REDIRECT_URI );
+		} catch ( Throwable $exception ) {
+			return new WP_Error( 'cbjp_oauth_exchange_failed', $exception->getMessage(), [ 'status' => 400 ] );
+		}
+
+		return rest_ensure_response( [ 'connected' => true ] );
+	}
+
+	/**
+	 * 登録済みプラットフォームのOAuthハンドラを返す。OAuth非対応（makeshop等）や未登録platformはnull。
+	 */
+	private function oauth_for( string $platform ): ?ColorMeOAuth {
+		return match ( $platform ) {
+			ColorMeAdapter::ID => ColorMeOAuth::for_platform(),
+			default => null,
+		};
+	}
+
+	private function oauth_callback_url( string $platform ): string {
+		return rest_url( self::NAMESPACE . '/connect/' . $platform . '/callback' );
+	}
+
+	/**
+	 * @param array<string,string> $query_args
+	 */
+	private function redirect_to_connections( array $query_args ): WP_REST_Response {
+		$url = add_query_arg( $query_args, admin_url( 'admin.php?page=' . Menu::PAGE_SLUG ) ) . '#/connections';
+
+		$response = new WP_REST_Response( null, 302 );
+		$response->header( 'Location', $url );
+
+		return $response;
 	}
 
 	public function start_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {

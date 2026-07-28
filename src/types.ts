@@ -29,3 +29,14 @@ export interface Connection {
 	capabilities: Capabilities;
 	connection_fields: ConnectionField[];
 }
+
+export interface AuthorizeUrlResponse {
+	url: string;
+	redirect_uri: string;
+}
+
+export interface TestConnectionResult {
+	ok: boolean;
+	shop_name: string | null;
+	message: string | null;
+}

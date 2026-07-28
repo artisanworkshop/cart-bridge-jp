@@ -9,6 +9,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Core;
 
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Admin\Assets;
 use CartBridgeJP\Admin\Menu;
 use CartBridgeJP\Admin\RestController;
@@ -51,6 +52,15 @@ final class Plugin {
 		add_action( 'admin_init', [ Activator::class, 'maybe_upgrade' ] );
 
 		add_action( 'admin_notices', [ $this, 'render_missing_sodium_notice' ] );
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ): array {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
 
 		$menu = new Menu();
 		add_action( 'admin_menu', [ $menu, 'register' ] );

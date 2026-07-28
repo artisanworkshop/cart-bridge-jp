@@ -14,6 +14,18 @@ use WP_UnitTestCase;
 
 final class AdapterRegistryTest extends WP_UnitTestCase {
 
+	/**
+	 * `Plugin::boot()` は実プロセスの `plugins_loaded` で一度だけ実行され、
+	 * 本物の ColorMeAdapter を `cbjp/adapters/register` に登録する。このテストは
+	 * 「何も登録されていない」状態を検証したいため、都度クリアして独立させる
+	 * （tear_downだけでは、このテストがクリア前に実行された場合に汚染された状態になる）。
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		remove_all_filters( 'cbjp/adapters/register' );
+		AdapterRegistry::reset_cache();
+	}
+
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
@@ -24,8 +36,8 @@ final class AdapterRegistryTest extends WP_UnitTestCase {
 		AdapterRegistry::reset_cache();
 
 		$this->assertSame( [], AdapterRegistry::all() );
-		$this->assertNull( AdapterRegistry::get( 'colorme' ) );
-		$this->assertFalse( AdapterRegistry::has( 'colorme' ) );
+		$this->assertNull( AdapterRegistry::get( 'not-a-real-platform' ) );
+		$this->assertFalse( AdapterRegistry::has( 'not-a-real-platform' ) );
 	}
 
 	public function test_registers_adapter_via_filter(): void {
