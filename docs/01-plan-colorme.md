@@ -64,8 +64,9 @@ canCreateCategory:  false
 canCreateOrder:     true
 canFetchCustomers:  true
 canUpdateCustomer:  true
-canPushImages:      plan依存  // 確定（要検証#1）。POST /v1/products/{product_id}/images は存在するがプレミアムプラン限定。
-                              // shop.json の contract_plan を見て動的判定（03 §9 #1 参照）
+canPushImages:      false     // 確定（要検証#1）。レギュラープラン等の既定値。POST /v1/products/{product_id}/images は
+                              // 存在するがプレミアムプラン限定のため、固定値ではなく shop.json の contract_plan を見て
+                              // 接続時に true/false を動的判定する（03 §9 #1 参照。ここでの表記は代表値）
 canCreateCoupon:    false
 hasCoupons:         true      // 読取のみ（Woo側に再作成）
 hasTags:            true      // groups をタグとして扱う
