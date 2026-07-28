@@ -107,14 +107,21 @@ final class ColorMeOAuth {
 
 	/**
 	 * 一度きりの検証（成功・失敗いずれの場合もtransientを消費する）。
+	 *
+	 * ASPからの外部リダイレクトで叩かれるコールバックはREST cookie認証のnonceを
+	 * 持たないため、WordPressは`get_current_user_id()`をリクエスト単位で0にリセットする
+	 * （`rest_cookie_check_errors()`）。よって「発行時の管理ユーザーIDと突き合わせる」検証は
+	 * 本番のコールバックで必ず失敗する。stateトークン自体が`get_authorize_url()`
+	 * （nonce+capability保護下）でのみ発行される一度きりの乱数のため、存在確認のみで
+	 * CSRF対策として十分である。
 	 */
-	public function verify_state( string $state, int $user_id ): bool {
+	public function verify_state( string $state ): bool {
 		$key         = $this->state_transient_key( $state );
 		$stored_user = get_transient( $key );
 
 		delete_transient( $key );
 
-		return false !== $stored_user && (int) $stored_user === $user_id;
+		return false !== $stored_user;
 	}
 
 	private function state_transient_key( string $state ): string {

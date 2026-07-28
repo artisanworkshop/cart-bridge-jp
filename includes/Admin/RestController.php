@@ -384,7 +384,7 @@ final class RestController {
 		$code  = (string) ( $request->get_param( 'code' ) ?? '' );
 		$state = (string) ( $request->get_param( 'state' ) ?? '' );
 
-		if ( '' === $code || '' === $state || ! $oauth->verify_state( $state, get_current_user_id() ) ) {
+		if ( '' === $code || '' === $state || ! $oauth->verify_state( $state ) ) {
 			return $this->redirect_to_connections(
 				[ 'cbjp_connect_error' => __( 'The connection request could not be verified. Please try again, or use the manual code entry fallback.', 'cart-bridge-jp' ) ]
 			);

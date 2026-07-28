@@ -71,25 +71,31 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $params );
 		$state = $params['state'];
 
-		$this->assertTrue( $oauth->verify_state( $state, 7 ) );
+		$this->assertTrue( $oauth->verify_state( $state ) );
 		// 一度きりの使い切りトークンのため、2回目は失敗する。
-		$this->assertFalse( $oauth->verify_state( $state, 7 ) );
+		$this->assertFalse( $oauth->verify_state( $state ) );
 	}
 
-	public function test_verify_state_fails_for_a_different_user(): void {
+	/**
+	 * 外部ASPからのコールバックはREST cookie認証のnonceを持たないため、
+	 * WordPressは`get_current_user_id()`を0にリセットする。stateの検証を
+	 * 「発行時の管理ユーザーID」に依存させると本番のコールバックが必ず失敗するため、
+	 * 検証はREST上のcurrent userとは独立に行う（stateトークンの存在確認のみ）。
+	 */
+	public function test_verify_state_succeeds_regardless_of_the_current_rest_user(): void {
 		[ $oauth ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
 
 		$url = $oauth->authorize_url( 'https://example.test/callback', 7 );
 		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $params );
 
-		$this->assertFalse( $oauth->verify_state( $params['state'], 999 ) );
+		$this->assertTrue( $oauth->verify_state( $params['state'] ) );
 	}
 
 	public function test_verify_state_fails_for_unknown_state(): void {
 		[ $oauth ] = $this->make_oauth();
 
-		$this->assertFalse( $oauth->verify_state( 'never-issued', 1 ) );
+		$this->assertFalse( $oauth->verify_state( 'never-issued' ) );
 	}
 
 	public function test_extract_code_from_input_accepts_a_raw_code(): void {
