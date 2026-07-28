@@ -175,6 +175,38 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$this->assertSame( 'my-client-secret', $payload['settings']['client_secret'] );
 	}
 
+	public function test_exchange_code_clears_stale_extras_from_a_previous_shop(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$token_store->save(
+			[
+				'access_token' => 'old-token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+				'settings'     => [
+					'client_id'     => 'my-client-id',
+					'client_secret' => 'my-client-secret',
+				],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [],
+				'body'     => wp_json_encode( [ 'access_token' => 'new-shop-token' ] ),
+			],
+			10,
+			3
+		);
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$payload = $token_store->get();
+		$this->assertSame( 'new-shop-token', $payload['access_token'] );
+		$this->assertArrayNotHasKey( 'extras', $payload );
+	}
+
 	public function test_exchange_code_translates_colorme_error_response(): void {
 		[ $oauth ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'wrong-secret' );

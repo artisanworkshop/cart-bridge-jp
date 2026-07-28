@@ -188,8 +188,10 @@ final class ColorMeOAuth {
 
 		// settings（client_id/secret）を含む既存payloadを保持したままaccess_tokenだけ更新する
 		// （save()は部分更新ではなく丸ごと置き換えのため、ここでマージしないと再接続に必要な
-		// client_id/secretが消えてしまう）。
+		// client_id/secretが消えてしまう）。ただしextras（shop.jsonから得た契約プラン等）は
+		// 別ショップへの再接続で古い値が残ると誤判定を招くため、新規トークン発行時に破棄する。
 		$existing = $this->token_store->get() ?? [];
+		unset( $existing['extras'] );
 
 		$this->token_store->save( array_merge( $existing, [ 'access_token' => $decoded['access_token'] ] ) );
 	}
