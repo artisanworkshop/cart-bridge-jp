@@ -40,6 +40,15 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$oauth->authorize_url( 'https://example.test/callback' );
 	}
 
+	public function test_authorize_url_throws_when_client_secret_missing(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$token_store->save_settings( [ 'client_id' => 'my-client-id' ] );
+
+		$this->expectException( \RuntimeException::class );
+
+		$oauth->authorize_url( 'https://example.test/callback' );
+	}
+
 	public function test_authorize_url_includes_client_id_scope_and_state(): void {
 		[ $oauth ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );

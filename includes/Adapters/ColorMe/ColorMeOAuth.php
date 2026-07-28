@@ -67,13 +67,15 @@ final class ColorMeOAuth {
 	}
 
 	/**
-	 * @throws \RuntimeException client_id が未設定の場合。
+	 * @throws \RuntimeException client_id/client_secret が未設定の場合。
 	 */
 	public function authorize_url( string $redirect_uri, ?int $state_user_id = null ): string {
-		$client_id = (string) ( $this->token_store->settings()['client_id'] ?? '' );
+		$settings      = $this->token_store->settings();
+		$client_id     = (string) ( $settings['client_id'] ?? '' );
+		$client_secret = (string) ( $settings['client_secret'] ?? '' );
 
-		if ( '' === $client_id ) {
-			throw new \RuntimeException( 'ColorMe client_id is not configured yet.' );
+		if ( '' === $client_id || '' === $client_secret ) {
+			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
 		$args = [
