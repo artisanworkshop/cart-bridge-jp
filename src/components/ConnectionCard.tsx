@@ -93,18 +93,31 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 	async function connect( mode: 'redirect' | 'oob' ) {
 		setBusy( mode );
 		setNotice( null );
+		// ポップアップブロッカー対策: window.open()はクリックのユーザー操作から
+		// 同期的に呼ぶ必要がある。await後に呼ぶとブラウザによってはブロックされ、
+		// window.open()がnullを返してもUIエラーが出ない。空ウィンドウを先に開いておき、
+		// URL取得後にそこへ遷移させる（noopener/noreferrerを付けるとハンドルを
+		// 後から取得できないため、遷移先が信頼済みのOAuth認可ページである前提で外す）。
+		const authWindow = window.open( '', '_blank' );
+
 		try {
 			const response = await apiFetch< AuthorizeUrlResponse >( {
 				path: `/cbjp/v1/connections/${
 					connection.platform
 				}/authorize-url${ 'oob' === mode ? '?mode=oob' : '' }`,
 			} );
-			window.open( response.url, '_blank', 'noopener,noreferrer' );
+
+			if ( authWindow ) {
+				authWindow.location.href = response.url;
+			} else {
+				window.open( response.url, '_blank', 'noopener,noreferrer' );
+			}
 
 			if ( 'oob' === mode ) {
 				setShowManualEntry( true );
 			}
 		} catch ( err ) {
+			authWindow?.close();
 			setNotice( { status: 'error', message: errorMessage( err ) } );
 		} finally {
 			setBusy( null );
