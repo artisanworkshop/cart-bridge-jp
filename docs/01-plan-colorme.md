@@ -64,7 +64,7 @@ canCreateCategory:  false
 canCreateOrder:     true
 canFetchCustomers:  true
 canUpdateCustomer:  true
-canPushImages:      plan依存  // 確定（要検証#1）。POST /v1/products/{id}/images は存在するがプレミアムプラン限定。
+canPushImages:      plan依存  // 確定（要検証#1）。POST /v1/products/{product_id}/images は存在するがプレミアムプラン限定。
                               // shop.json の contract_plan を見て動的判定（03 §9 #1 参照）
 canCreateCoupon:    false
 hasCoupons:         true      // 読取のみ（Woo側に再作成）
@@ -112,7 +112,7 @@ rateLimitPerMinute: 100
 ## 5. Woo → ColorMe エクスポートの制約と実装
 
 1. **カテゴリ作成不可**: 事前に `GET /categories.json` で取得し、Wooカテゴリとの対応をユーザーがUIで選択。未対応カテゴリの商品は警告付きでカテゴリ未設定として登録
-2. **画像**（要検証#1確定=プラン依存）: `POST /v1/products/{id}/images` はプレミアムプラン契約ショップのみ利用可。canPushImages=falseと判定された場合（レギュラープラン等）は、エクスポート結果に「画像URL一覧CSV」を出力し、カラーミー管理画面での一括登録手順を案内
+2. **画像**（要検証#1確定=プラン依存）: `POST /v1/products/{product_id}/images` はプレミアムプラン契約ショップのみ利用可。canPushImages=falseと判定された場合（レギュラープラン等）は、エクスポート結果に「画像URL一覧CSV」を出力し、カラーミー管理画面での一括登録手順を案内
 3. **受注エクスポート**: `POST /sales.json` の必須項目（customer_id, 決済ID, 配送ID等）をテストショップで実測してから実装。顧客が未存在なら先に顧客POST → customer_id取得 → 受注POST の順
 4. **削除不可**: Woo側で削除された商品は `display_state` 非公開への更新を提案（自動では行わない）
 
