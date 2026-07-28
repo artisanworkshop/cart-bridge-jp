@@ -64,7 +64,7 @@ canCreateCategory:  false
 canCreateOrder:     true
 canFetchCustomers:  true
 canUpdateCustomer:  true
-canPushImages:      false     // 暫定。要検証#1の結果で更新
+canPushImages:      false     // 確定（要検証#1）。productCreateRequest/productUpdateRequestに画像フィールドなし
 canCreateCoupon:    false
 hasCoupons:         true      // 読取のみ（Woo側に再作成）
 hasTags:            true      // groups をタグとして扱う

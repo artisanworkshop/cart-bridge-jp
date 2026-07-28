@@ -1,0 +1,49 @@
+{
+  "payments": [
+    {
+      "id": 1094475,
+      "account_id": "PA00000001",
+      "name": "商品代引き（ゆうパック・ゆうメール）",
+      "fee": 300,
+      "ip_code": null,
+      "make_date": 1783863475,
+      "update_date": 1783863475,
+      "order_end_note": null,
+      "memo": null,
+      "memo_mobile": null,
+      "sort": null,
+      "image_url": null,
+      "type": 0,
+      "display": true,
+      "use_mobile": true,
+      "cod": {
+        "changeable": false
+      }
+    },
+    {
+      "id": 1094978,
+      "account_id": "PA00000001",
+      "name": "銀行振込",
+      "fee": null,
+      "ip_code": null,
+      "make_date": 1785194917,
+      "update_date": 1785194917,
+      "order_end_note": null,
+      "memo": null,
+      "memo_mobile": null,
+      "sort": null,
+      "image_url": null,
+      "type": 1,
+      "display": true,
+      "use_mobile": true,
+      "financial": {
+        "name": "サンプル銀行",
+        "branch_number": null,
+        "branch_name": "本店",
+        "kouza_type": "saving",
+        "kouza_number": "1234567",
+        "kouza_name": "カ）サンプルショップ"
+      }
+    }
+  ]
+}

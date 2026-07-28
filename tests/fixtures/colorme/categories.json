@@ -1,0 +1,30 @@
+{
+  "categories": [
+    {
+      "id_big": 2993030,
+      "id_small": 0,
+      "account_id": "PA00000001",
+      "name": "初期カテゴリー",
+      "image_url": null,
+      "expl": "お申し込み時に自動で作成された初期カテゴリー",
+      "sort": null,
+      "display_state": "showing",
+      "make_date": 1783863475,
+      "update_date": 1783863475,
+      "children": []
+    },
+    {
+      "id_big": 2993032,
+      "id_small": 0,
+      "account_id": "PA00000001",
+      "name": "テストカテゴリ",
+      "image_url": null,
+      "expl": null,
+      "sort": 0,
+      "display_state": "showing",
+      "make_date": 1783865455,
+      "update_date": 1783865455,
+      "children": []
+    }
+  ]
+}

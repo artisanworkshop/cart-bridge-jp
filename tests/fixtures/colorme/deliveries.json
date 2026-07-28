@@ -1,0 +1,36 @@
+{
+  "deliveries": [
+    {
+      "id": 640580,
+      "account_id": "PA00000001",
+      "method_type": "yamato",
+      "name": "クロネコヤマト",
+      "image_url": null,
+      "charge_free_type": "not_free",
+      "charge_free_limit": null,
+      "tax_included": true,
+      "charge_type": "fixed",
+      "slip_number_use": true,
+      "slip_number_url": "https://member.kms.kuronekoyamato.co.jp/parcel/detail?pno=$SLIP_NUMBER$",
+      "memo": null,
+      "memo2": null,
+      "sort": null,
+      "display_state": "showing",
+      "preferred_date_use": true,
+      "preferred_period_use": true,
+      "unavailable_payment_ids": [],
+      "make_date": 1783863475,
+      "update_date": 1783863475,
+      "charge": {
+        "delivery_id": 640580,
+        "account_id": "PA00000001",
+        "charge_fixed": 1000,
+        "charge_ranges_by_price": [],
+        "charge_max_price": null,
+        "charge_ranges_by_area": [],
+        "charge_ranges_by_weight": [],
+        "charge_ranges_max_weight": []
+      }
+    }
+  ]
+}
