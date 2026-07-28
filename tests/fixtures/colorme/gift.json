@@ -1,0 +1,26 @@
+{
+  "gift": {
+    "account_id": "PA00000001",
+    "enabled": false,
+    "noshi": {
+      "enabled": false,
+      "text_enabled": false,
+      "types": [],
+      "comment": null,
+      "text_charge": null
+    },
+    "card": {
+      "enabled": false,
+      "text_enabled": null,
+      "types": [],
+      "comment": null
+    },
+    "wrapping": {
+      "enabled": false,
+      "types": [],
+      "comment": null
+    },
+    "make_date": 1783863475,
+    "update_date": 1783863475
+  }
+}

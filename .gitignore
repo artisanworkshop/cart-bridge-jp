@@ -25,3 +25,6 @@ composer.phar
 # Env
 .env
 .env.local
+
+# Local OAuth testing credentials (F1-0/M2-0/B3-0 fixture collection). Sample template is tracked.
+colorme.env

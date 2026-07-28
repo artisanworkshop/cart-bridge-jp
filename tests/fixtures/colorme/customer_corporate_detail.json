@@ -1,0 +1,33 @@
+{
+  "customer": {
+    "id": 174712086,
+    "account_id": "PA00000001",
+    "name": "鈴木 花子",
+    "furigana": "スズキ ハナコ",
+    "hojin": "株式会社サンプル",
+    "busho": "営業部",
+    "sex": null,
+    "birthday": null,
+    "postal": "1000002",
+    "pref_id": 13,
+    "pref_name": "東京都",
+    "address1": "東京都千代田区丸の内1-1-1",
+    "address2": "サンプルビル5F",
+    "mail": "hanako@example.com",
+    "tel": "03-0000-0001",
+    "fax": null,
+    "tel_mobile": null,
+    "memo": "",
+    "other": null,
+    "points": 0,
+    "member": false,
+    "sales_count": 0,
+    "receive_mail_magazine": null,
+    "answer_free_form1": null,
+    "answer_free_form2": null,
+    "answer_free_form3": null,
+    "make_date": 1783865514,
+    "update_date": 1783865514,
+    "membership": null
+  }
+}
