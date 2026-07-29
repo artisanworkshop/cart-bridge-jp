@@ -27,6 +27,7 @@ export interface Connection {
 	needs_reconnect: boolean;
 	masked_token: string | null;
 	capabilities: Capabilities;
+	callback_url: string | null;
 	connection_fields: ConnectionField[];
 }
 

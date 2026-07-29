@@ -217,6 +217,20 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 					</Notice>
 				) }
 
+				{ connection.callback_url && (
+					<TextControl
+						label={ __( 'Callback URL', 'cart-bridge-jp' ) }
+						help={ __(
+							"Register this exact URL as the app's redirect URI in the platform's developer console before connecting.",
+							'cart-bridge-jp'
+						) }
+						value={ connection.callback_url }
+						readOnly
+						onFocus={ ( event ) => event.target.select() }
+						onChange={ () => {} }
+					/>
+				) }
+
 				{ textFields.map( ( field ) => (
 					<TextControl
 						key={ field.key }

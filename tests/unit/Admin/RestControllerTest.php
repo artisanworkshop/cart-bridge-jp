@@ -75,6 +75,39 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertFalse( $data[0]['connected'] );
 	}
 
+	public function test_get_connections_omits_callback_url_for_non_oauth_platforms(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertNull( $data[0]['callback_url'] );
+	}
+
+	/**
+	 * ASP側のアプリ登録フォームに入力するコールバックURIは、client_id/secretの有無に
+	 * 関わらず算出できる静的な値のため、認証情報保存前（アプリ登録段階）から取得できる
+	 * ことを検証する（認可URL取得エンドポイントは認証情報必須のため、そちらでは提示できない）。
+	 */
+	public function test_get_connections_includes_callback_url_for_oauth_platforms_before_credentials_are_saved(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertStringContainsString( 'cbjp/v1/connect/colorme/callback', urldecode( (string) $data[0]['callback_url'] ) );
+	}
+
 	public function test_get_connections_ignores_non_connection_field_entries_from_a_misbehaving_adapter(): void {
 		add_filter(
 			'cbjp/adapters/register',
