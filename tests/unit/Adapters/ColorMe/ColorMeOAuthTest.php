@@ -63,6 +63,28 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'state=', $url );
 	}
 
+	public function test_authorize_url_separator_ignores_the_arg_separator_ini_setting(): void {
+		[ $oauth ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		// arg_separator.output=&amp; の環境では、セパレータ未指定のhttp_build_query()が
+		// `response_type=code&amp;client_id=...` を生成する。このURLはHTMLとしてでは
+		// なくJSのlocation.href経由でそのまま使われるため、`amp;client_id` という
+		// 壊れたパラメータ名で認可が必ず失敗する。iniに依存しないことを検証する。
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- ホスティング側ini設定の再現（finallyで復元）。
+		$previous = ini_set( 'arg_separator.output', '&amp;' );
+
+		try {
+			$url = $oauth->authorize_url( 'https://example.test/callback', 42 );
+		} finally {
+			// phpcs:ignore WordPress.PHP.IniSet.Risky -- テスト前の値へ復元。
+			ini_set( 'arg_separator.output', (string) $previous );
+		}
+
+		$this->assertStringNotContainsString( '&amp;', $url );
+		$this->assertStringContainsString( '&client_id=my-client-id', $url );
+	}
+
 	public function test_authorize_url_omits_state_when_no_user_id_given(): void {
 		[ $oauth ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );

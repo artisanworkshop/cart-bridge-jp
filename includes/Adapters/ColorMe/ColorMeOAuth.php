@@ -92,8 +92,9 @@ final class ColorMeOAuth {
 		}
 
 		// add_query_arg()は値をurlencodeしない（WP側の既知の挙動）ため、PHP標準の
-		// http_build_query()でクエリ文字列を組み立てる。
-		return self::AUTHORIZE_URL . '?' . http_build_query( $args );
+		// http_build_query()でクエリ文字列を組み立てる。セパレータは明示（ini設定
+		// arg_separator.output=&amp; の環境で `amp;client_id` になるのを防ぐ）。
+		return self::AUTHORIZE_URL . '?' . http_build_query( $args, '', '&' );
 	}
 
 	/**

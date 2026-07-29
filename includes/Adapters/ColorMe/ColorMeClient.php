@@ -111,7 +111,9 @@ final class ColorMeClient {
 		$url = rtrim( $this->base_url, '/' ) . '/' . ltrim( $path, '/' );
 
 		if ( [] !== $query ) {
-			$url .= '?' . http_build_query( $query );
+			// セパレータは明示（ini設定 arg_separator.output=&amp; の環境で
+			// `amp;offset` のような壊れたパラメータ名になるのを防ぐ）。
+			$url .= '?' . http_build_query( $query, '', '&' );
 		}
 
 		return $url;

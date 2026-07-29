@@ -57,6 +57,46 @@ final class ColorMeClientTest extends WP_UnitTestCase {
 		$this->assertNull( $captured['args']['body'] );
 	}
 
+	public function test_get_query_separator_ignores_the_arg_separator_ini_setting(): void {
+		$captured = null;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$captured ) {
+				$captured = $url;
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => '{"products":[]}',
+				];
+			},
+			10,
+			3
+		);
+
+		// arg_separator.output=&amp; の環境では、セパレータ未指定のhttp_build_query()が
+		// `limit=50&amp;offset=50` を生成し、ColorMe側に `amp;offset` という壊れた
+		// パラメータ名が届いてしまう。iniに依存せず常に `&` を使うことを検証する。
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- ホスティング側ini設定の再現（finallyで復元）。
+		$previous = ini_set( 'arg_separator.output', '&amp;' );
+
+		try {
+			$this->make_client()->get(
+				'products.json',
+				[
+					'limit'  => 50,
+					'offset' => 50,
+				]
+			);
+		} finally {
+			// phpcs:ignore WordPress.PHP.IniSet.Risky -- テスト前の値へ復元。
+			ini_set( 'arg_separator.output', (string) $previous );
+		}
+
+		$this->assertSame( 'https://api.shop-pro.jp/v1/products.json?limit=50&offset=50', $captured );
+	}
+
 	public function test_post_sends_json_encoded_body_with_content_type(): void {
 		$captured = null;
 
