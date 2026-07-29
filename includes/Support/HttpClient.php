@@ -45,6 +45,12 @@ final class HttpClient {
 	public function request( string $method, string $url, array $args = [] ): array {
 		$attempt = 0;
 
+		// POSTは「新規作成」であり、対象APIはべき等キーを提供しない。5xxや接続タイムアウトは
+		// リクエストが実際にサーバー側で処理済みかどうか判別できないため、盲目的にリトライすると
+		// リモート側にレコードが重複作成されうる。429（サーバーが未処理のまま拒否したことが確定）
+		// はPOSTでも安全にリトライしてよいため、この判定は5xx/タイムアウト系のみに適用する。
+		$retry_ambiguous_failures = 'POST' !== $method;
+
 		while ( true ) {
 			$this->rate_limiter->wait();
 
@@ -61,7 +67,7 @@ final class HttpClient {
 			);
 
 			if ( is_wp_error( $response ) ) {
-				if ( $attempt < self::MAX_RETRIES && $this->is_retryable_wp_error( $response ) ) {
+				if ( $retry_ambiguous_failures && $attempt < self::MAX_RETRIES && $this->is_retryable_wp_error( $response ) ) {
 					$this->sleep_with_backoff( $attempt, null );
 					++$attempt;
 					continue;
@@ -80,7 +86,7 @@ final class HttpClient {
 
 			$is_rate_limited = $this->is_rate_limited( $status, $headers, $body );
 
-			if ( $is_rate_limited || $status >= 500 ) {
+			if ( $is_rate_limited || ( $retry_ambiguous_failures && $status >= 500 ) ) {
 				$retry_after = $this->retry_after_seconds( $headers );
 
 				if ( $attempt < self::MAX_RETRIES && ( null === $retry_after || $retry_after <= self::MAX_RETRY_AFTER_SECONDS ) ) {

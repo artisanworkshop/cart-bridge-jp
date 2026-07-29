@@ -155,6 +155,124 @@ final class HttpClientTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $call_count );
 	}
 
+	public function test_post_does_not_retry_on_5xx_since_execution_is_ambiguous(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				return [
+					'response' => [ 'code' => 502 ],
+					'headers'  => [],
+					'body'     => '',
+				];
+			},
+			10,
+			3
+		);
+
+		try {
+			$this->make_client()->request( 'POST', 'https://example.test/api' );
+			$this->fail( 'Expected ApiException was not thrown.' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 502, $exception->status_code() );
+		}
+
+		// 5xxはサーバー側で実際に処理された可能性を排除できないため、POSTはリトライせず1回で諦める
+		// （対象APIにべき等キーがなく、盲目的な再送はリモート側の重複作成を招くため）。
+		$this->assertSame( 1, $call_count );
+	}
+
+	public function test_post_does_not_retry_on_connection_timeout(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				return new \WP_Error( 'http_request_timeout', 'connection timed out' );
+			},
+			10,
+			3
+		);
+
+		try {
+			$this->make_client()->request( 'POST', 'https://example.test/api' );
+			$this->fail( 'Expected ApiException was not thrown.' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 0, $exception->status_code() );
+		}
+
+		$this->assertSame( 1, $call_count );
+	}
+
+	public function test_post_still_retries_on_429_since_the_request_was_never_executed(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				if ( 1 === $call_count ) {
+					return [
+						'response' => [ 'code' => 429 ],
+						'headers'  => [ 'retry-after' => '0' ],
+						'body'     => '',
+					];
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => '{"ok":true}',
+				];
+			},
+			10,
+			3
+		);
+
+		$result = $this->make_client()->request( 'POST', 'https://example.test/api' );
+
+		$this->assertSame( 200, $result['status'] );
+		$this->assertSame( 2, $call_count );
+	}
+
+	public function test_get_still_retries_on_5xx(): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count ) {
+				++$call_count;
+
+				if ( 1 === $call_count ) {
+					return [
+						'response' => [ 'code' => 503 ],
+						'headers'  => [],
+						'body'     => '',
+					];
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => '{"ok":true}',
+				];
+			},
+			10,
+			3
+		);
+
+		$result = $this->make_client()->request( 'GET', 'https://example.test/api' );
+
+		$this->assertSame( 200, $result['status'] );
+		$this->assertSame( 2, $call_count );
+	}
+
 	public function test_excessive_retry_after_throws_instead_of_blocking_the_worker(): void {
 		$call_count = 0;
 
