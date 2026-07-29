@@ -333,6 +333,26 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'cbjp_connect_error', $headers['Location'] );
 	}
 
+	public function test_oauth_callback_treats_array_valued_query_params_as_missing(): void {
+		$this->register_colorme_adapter();
+
+		// このルートは`__return_true`+argsスキーマ未定義の公開エンドポイントのため、
+		// `?code[]=x&state[]=y` のような配列値が渡り得る。(string)キャストでの
+		// 「Array to string conversion」警告を起こさず、単に未指定として扱われることを検証する。
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$request->set_query_params(
+			[
+				'code'  => [ 'some-code' ],
+				'state' => [ 'some-state' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 302, $response->get_status() );
+		$headers = $response->get_headers();
+		$this->assertStringContainsString( 'cbjp_connect_error', $headers['Location'] );
+	}
+
 	public function test_oauth_callback_completes_the_connection_with_a_valid_state(): void {
 		$this->register_colorme_adapter();
 		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(

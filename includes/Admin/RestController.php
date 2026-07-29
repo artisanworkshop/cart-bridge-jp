@@ -381,8 +381,8 @@ final class RestController {
 			return $this->redirect_to_connections( [ 'cbjp_connect_error' => __( 'Unknown platform.', 'cart-bridge-jp' ) ] );
 		}
 
-		$code  = (string) ( $request->get_param( 'code' ) ?? '' );
-		$state = (string) ( $request->get_param( 'state' ) ?? '' );
+		$code  = (string) ( $this->scalar_query_param( $request, 'code' ) ?? '' );
+		$state = (string) ( $this->scalar_query_param( $request, 'state' ) ?? '' );
 
 		if ( '' === $code || '' === $state || ! $oauth->verify_state( $state ) ) {
 			return $this->redirect_to_connections(
