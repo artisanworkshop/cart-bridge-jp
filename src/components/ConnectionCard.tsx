@@ -109,6 +109,18 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 
 			if ( authWindow ) {
 				authWindow.location.href = response.url;
+
+				// 自動リダイレクトモードでは、認可完了後のコールバックは開いたポップアップ側で
+				// 遷移するため、元のタブ（このコンポーネント）はポップアップが閉じるまで
+				// 接続状態の変化を知る手段がない。ポーリングして閉じたら一覧を再取得する。
+				if ( 'redirect' === mode ) {
+					const poll = window.setInterval( () => {
+						if ( authWindow.closed ) {
+							window.clearInterval( poll );
+							onChange();
+						}
+					}, 1000 );
+				}
 			} else {
 				window.open( response.url, '_blank', 'noopener,noreferrer' );
 			}
