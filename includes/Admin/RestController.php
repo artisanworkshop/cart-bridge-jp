@@ -411,7 +411,7 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		$input = (string) ( $request->get_param( 'code' ) ?? '' );
+		$input = (string) ( $this->scalar_query_param( $request, 'code' ) ?? '' );
 
 		if ( '' === $input ) {
 			return new WP_Error(

@@ -315,6 +315,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 		remove_all_filters( 'pre_http_request' );
 	}
 
+	public function test_exchange_code_rejects_an_array_valued_code_param(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(
+			[
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'my-client-secret',
+			]
+		);
+
+		// このルートにはargsスキーマがないため、`code[]=x` のような配列値が渡り得る。
+		// (string)キャストでの「Array to string conversion」警告や"Array"という文字列の
+		// 送信を起こさず、「未指定」として400を返すことを検証する。
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/connections/colorme/exchange-code' );
+		$request->set_body_params( [ 'code' => [ 'x' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
 	public function test_oauth_callback_redirects_with_an_error_when_state_is_invalid(): void {
 		$this->register_colorme_adapter();
 
