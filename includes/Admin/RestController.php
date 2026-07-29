@@ -394,7 +394,11 @@ final class RestController {
 		$code  = (string) ( $this->scalar_query_param( $request, 'code' ) ?? '' );
 		$state = (string) ( $this->scalar_query_param( $request, 'state' ) ?? '' );
 
-		if ( '' === $code || '' === $state || ! $oauth->verify_state( $state ) ) {
+		// stateはcodeの有無より先に検証・消費する。ユーザーが認可を拒否した等の
+		// code無しコールバックでstateを放置すると、TTLが切れるまで再利用可能なまま残る。
+		$state_valid = '' !== $state && $oauth->verify_state( $state );
+
+		if ( '' === $code || ! $state_valid ) {
 			return $this->redirect_to_connections(
 				[ 'cbjp_connect_error' => __( 'The connection request could not be verified. Please try again, or use the manual code entry fallback.', 'cart-bridge-jp' ) ]
 			);

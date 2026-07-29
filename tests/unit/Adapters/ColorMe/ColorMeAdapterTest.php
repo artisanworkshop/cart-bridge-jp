@@ -103,6 +103,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'body'     => wp_json_encode(
 					[
 						'shop' => [
+							'id'            => 'PA000001',
 							'title'         => 'sample-shop',
 							'contract_plan' => 'premium',
 						],
@@ -118,6 +119,28 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertTrue( $result->ok );
 		$this->assertSame( 'sample-shop', $result->shop_name );
 		$this->assertTrue( $adapter->capabilities()->can_push_images );
+	}
+
+	public function test_connection_fails_when_shop_response_is_malformed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'a-valid-token' ] );
+
+		// プロキシ等がHTTP 200で想定外のJSONを返すケース。`shop.id` を含まない
+		// レスポンスを接続成功として扱わないことを検証する。
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [],
+				'body'     => '{}',
+			],
+			10,
+			3
+		);
+
+		$result = $adapter->test_connection();
+
+		$this->assertFalse( $result->ok );
 	}
 
 	public function test_connection_returns_failure_on_api_error(): void {

@@ -176,6 +176,10 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 
 	async function disconnect() {
 		setBusy( 'disconnect' );
+		// 切断後に「Connected.」等の古い成功表示がヘッダーの「Not connected」と
+		// 矛盾したまま残らないよう、ローカルのステータス表示を先にクリアする。
+		setNotice( null );
+		setTestResult( null );
 		try {
 			await apiFetch( {
 				path: `/cbjp/v1/connections/${ connection.platform }`,

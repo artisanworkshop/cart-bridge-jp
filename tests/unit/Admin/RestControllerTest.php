@@ -405,6 +405,44 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'cbjp_connect_error', $headers['Location'] );
 	}
 
+	public function test_oauth_callback_consumes_the_state_even_when_the_code_is_missing(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(
+			[
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'my-client-secret',
+			]
+		);
+
+		$authorize_request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' );
+		$authorize_response = $this->server->dispatch( $authorize_request );
+		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+
+		// ユーザーが認可を拒否した等でcode無しのコールバックが届いたケース。
+		// エラーにはなるが、このときstateがワンタイム消費されずTTLいっぱい
+		// 再利用可能なまま残らないことを検証する。
+		$denied_request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$denied_request->set_query_params( [ 'state' => $params['state'] ] );
+		$denied_response = $this->server->dispatch( $denied_request );
+
+		$this->assertSame( 302, $denied_response->get_status() );
+		$this->assertStringContainsString( 'cbjp_connect_error', $denied_response->get_headers()['Location'] );
+
+		// 同じstateをcode付きで再送しても、既に消費済みのため接続は成立しない。
+		$replay_request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$replay_request->set_query_params(
+			[
+				'code'  => 'some-code',
+				'state' => $params['state'],
+			]
+		);
+		$replay_response = $this->server->dispatch( $replay_request );
+
+		$this->assertSame( 302, $replay_response->get_status() );
+		$this->assertStringContainsString( 'cbjp_connect_error', $replay_response->get_headers()['Location'] );
+		$this->assertFalse( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
+	}
+
 	public function test_oauth_callback_completes_the_connection_with_a_valid_state(): void {
 		$this->register_colorme_adapter();
 		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(

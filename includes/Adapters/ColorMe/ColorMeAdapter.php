@@ -117,7 +117,15 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return ConnectionResult::failure( $exception->getMessage() );
 		}
 
-		if ( is_array( $shop ) && isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
+		// HTTP 200でも中身が想定形でない（プロキシ応答等）場合は成功扱いにしない。
+		// `id` はGET /shop.json のShopスキーマ必須フィールド。
+		if ( ! is_array( $shop ) || ! isset( $shop['id'] ) ) {
+			return ConnectionResult::failure(
+				__( 'The platform returned an unexpected response. Please try again.', 'cart-bridge-jp' )
+			);
+		}
+
+		if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
 			$extras = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
 
 			$this->token_store->save(
@@ -128,7 +136,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 			);
 		}
 
-		$shop_name = is_array( $shop ) && is_string( $shop['title'] ?? null ) && '' !== $shop['title']
+		$shop_name = is_string( $shop['title'] ?? null ) && '' !== $shop['title']
 			? $shop['title']
 			: null;
 
