@@ -129,20 +129,29 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// スキーマ上contract_planは必須ではないため、レスポンスに含まれない場合は
 		// 過去の値（例: premium）を破棄し、capabilities()が古い契約情報を
 		// 広告し続けないようにする。
-		$extras = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
-		unset( $extras['contract_plan'] );
+		//
+		// /shop.json の応答待ちの間にOAuthコールバックが新しいトークンを保存している
+		// 可能性があるため、テスト開始時の$payloadを丸ごと書き戻さず、最新の
+		// ペイロードを読み直してトークンが一致する場合のみextrasを更新する
+		// （並行する再認可をここで巻き戻さないように）。
+		$current = $this->token_store->get();
 
-		if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
-			$extras['contract_plan'] = $shop['contract_plan'];
+		if ( (string) ( $current['access_token'] ?? '' ) === $access_token ) {
+			$extras = is_array( $current['extras'] ?? null ) ? $current['extras'] : [];
+			unset( $extras['contract_plan'] );
+
+			if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
+				$extras['contract_plan'] = $shop['contract_plan'];
+			}
+
+			$current['extras'] = $extras;
+
+			if ( [] === $extras ) {
+				unset( $current['extras'] );
+			}
+
+			$this->token_store->save( $current );
 		}
-
-		$payload['extras'] = $extras;
-
-		if ( [] === $extras ) {
-			unset( $payload['extras'] );
-		}
-
-		$this->token_store->save( $payload );
 
 		$shop_name = is_string( $shop['title'] ?? null ) && '' !== $shop['title']
 			? $shop['title']
