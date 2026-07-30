@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
@@ -128,6 +129,36 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( [], $data[0]['connection_fields'] );
+	}
+
+	public function test_get_connections_reindexes_connection_fields_after_filtering(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				// 不正要素が有効なConnectionFieldの間に混在するケース。array_filter()が
+				// キーを保持したまま（0と2など）返すと、wp_json_encode()がJSON配列では
+				// なくオブジェクトとして直列化し、UI側のconnection_fields.filter()が
+				// クラッシュするため、連番へ詰め直されることを検証する。
+				$adapters['mock'] = new MockPlatformAdapter(
+					connection_fields_override: [
+						'not-a-connection-field',
+						new ConnectionField( 'api_token', 'API Token', 'password', true ),
+						null,
+					]
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 0 ], array_keys( $data[0]['connection_fields'] ) );
+		$this->assertSame( 'api_token', $data[0]['connection_fields'][0]['key'] );
 	}
 
 	public function test_unauthenticated_request_is_forbidden(): void {

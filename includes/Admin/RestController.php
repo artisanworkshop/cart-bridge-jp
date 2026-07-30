@@ -225,9 +225,14 @@ final class RestController {
 			// connection_fields()は外部フィルター経由で登録され得るアダプタ（Pro拡張含む）の
 			// 実装依存であり、契約違反（ConnectionField以外の混入）でエンドポイント全体を
 			// 落とさないよう、AdapterRegistry::all()同様に防御的にフィルタする。
-			$connection_fields = array_filter(
-				$adapter->connection_fields(),
-				static fn( $field ): bool => $field instanceof ConnectionField
+			// array_filter()はキーを保持するため、不正要素の除外で数値キーが飛ぶと
+			// wp_json_encode()がJSON配列ではなくオブジェクトとして直列化し、UI側の
+			// connection_fields.filter()がクラッシュする。array_values()で詰め直す。
+			$connection_fields = array_values(
+				array_filter(
+					$adapter->connection_fields(),
+					static fn( $field ): bool => $field instanceof ConnectionField
+				)
 			);
 			$has_oauth         = [] !== array_filter(
 				$connection_fields,
