@@ -299,9 +299,20 @@ final class RestController {
 		$settings = [];
 
 		foreach ( $allowed_keys as $key ) {
-			if ( isset( $body[ $key ] ) && is_scalar( $body[ $key ] ) ) {
-				$settings[ $key ] = sanitize_text_field( (string) $body[ $key ] );
+			if ( ! isset( $body[ $key ] ) || ! is_scalar( $body[ $key ] ) ) {
+				continue;
 			}
+
+			// client_secret等の資格情報は表示用テキストではなく不透明な値。
+			// sanitize_text_field()は%エンコード列（%3D等）やHTML風の文字列を
+			// 除去してしまい、正しく貼り付けたシークレットを壊すため使わない。
+			// 前後空白と制御文字の除去のみ行い、値そのものは保持する
+			// （エスケープは出力時に行う）。
+			$settings[ $key ] = (string) preg_replace(
+				'/[\x00-\x1F\x7F]/',
+				'',
+				trim( (string) $body[ $key ] )
+			);
 		}
 
 		if ( [] === $settings ) {

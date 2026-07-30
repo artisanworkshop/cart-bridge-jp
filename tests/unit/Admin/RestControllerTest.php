@@ -263,6 +263,31 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'unknown_field', $settings );
 	}
 
+	public function test_save_connection_preserves_opaque_credential_values(): void {
+		$this->register_colorme_adapter();
+
+		// 資格情報はプロバイダ発行の不透明な値であり、%エンコード列やHTML風の
+		// 文字列を含み得る。sanitize_text_field()はこれらを除去して正しい値を
+		// 壊すため、貼り付けた値がそのまま保存されることを検証する
+		// （前後空白のtrimのみ許容）。
+		$secret = 'ab%3Dcd<ef>&"quote"+/=';
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/connections/colorme' );
+		$request->set_body_params(
+			[
+				'client_id'     => ' my-client-id ',
+				'client_secret' => $secret,
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+
+		$settings = ( new TokenStore( ColorMeAdapter::ID ) )->settings();
+		$this->assertSame( 'my-client-id', $settings['client_id'] );
+		$this->assertSame( $secret, $settings['client_secret'] );
+	}
+
 	public function test_save_connection_returns_404_for_unknown_platform(): void {
 		$request  = new WP_REST_Request( 'PUT', '/cbjp/v1/connections/not-a-real-platform' );
 		$response = $this->server->dispatch( $request );
