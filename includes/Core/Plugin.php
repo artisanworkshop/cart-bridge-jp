@@ -55,7 +55,14 @@ final class Plugin {
 
 		add_filter(
 			'cbjp/adapters/register',
-			static function ( array $adapters ): array {
+			static function ( $adapters ): array {
+				// 型宣言でarrayを強制すると、先行する外部フィルターが不正値を返した
+				// 場合にTypeErrorで全アダプタ登録が落ちる（AdapterRegistry::all()の
+				// is_arrayフォールバックにも到達しない）。ここで正規化する（§8）。
+				if ( ! is_array( $adapters ) ) {
+					$adapters = [];
+				}
+
 				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
 
 				return $adapters;
