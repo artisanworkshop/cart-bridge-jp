@@ -319,6 +319,21 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $secret, $settings['client_secret'] );
 	}
 
+	public function test_get_connections_reports_saved_settings_before_oauth_completes(): void {
+		$this->register_colorme_adapter();
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+		$this->assertFalse( $data[0]['has_settings'] );
+
+		// client_id/secretを保存したがOAuthを完了していない状態。UIが資格情報の
+		// 削除操作を出せるよう、未接続でもhas_settingsで区別できることを検証する。
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings( [ 'client_id' => 'my-client-id' ] );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+		$this->assertTrue( $data[0]['has_settings'] );
+		$this->assertFalse( $data[0]['connected'] );
+	}
+
 	public function test_save_connection_returns_404_for_unknown_platform(): void {
 		$request  = new WP_REST_Request( 'PUT', '/cbjp/v1/connections/not-a-real-platform' );
 		$response = $this->server->dispatch( $request );

@@ -244,6 +244,9 @@ final class RestController {
 				'label'             => $adapter->label(),
 				'connected'         => $token_store->is_connected(),
 				'needs_reconnect'   => $token_store->needs_reconnect(),
+				// OAuth完了前にclient_id/secret等だけが保存されている状態。UI側は
+				// これを見て、未接続でも資格情報の削除操作を出せるようにする。
+				'has_settings'      => [] !== $token_store->settings(),
 				'masked_token'      => $token_store->masked_access_token(),
 				'capabilities'      => $adapter->capabilities()->to_array(),
 				// OAuth型アダプタ向け: ASP側アプリ登録フォームに入力するコールバックURI。

@@ -339,7 +339,12 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 					>
 						{ __( 'Test connection', 'cart-bridge-jp' ) }
 					</Button>{ ' ' }
-					{ connection.connected && (
+					{ /* 接続済みだけでなく、OAuth完了前にclient_id/secretだけを保存した
+					     状態（has_settings）や復号不能なトークンが残る状態
+					     （needs_reconnect）でも、保存済み資格情報を削除できるようにする。 */ }
+					{ ( connection.connected ||
+						connection.needs_reconnect ||
+						connection.has_settings ) && (
 						<Button
 							variant="tertiary"
 							isDestructive
@@ -347,7 +352,12 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 							disabled={ null !== busy }
 							onClick={ disconnect }
 						>
-							{ __( 'Disconnect', 'cart-bridge-jp' ) }
+							{ connection.connected
+								? __( 'Disconnect', 'cart-bridge-jp' )
+								: __(
+										'Clear saved credentials',
+										'cart-bridge-jp'
+								  ) }
 						</Button>
 					) }
 				</div>
