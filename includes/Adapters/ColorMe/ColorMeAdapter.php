@@ -125,16 +125,24 @@ final class ColorMeAdapter implements PlatformAdapter {
 			);
 		}
 
-		if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
-			$extras = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
+		// 成功した接続テストごとにcontract_planキャッシュを最新レスポンスへ同期する。
+		// スキーマ上contract_planは必須ではないため、レスポンスに含まれない場合は
+		// 過去の値（例: premium）を破棄し、capabilities()が古い契約情報を
+		// 広告し続けないようにする。
+		$extras = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
+		unset( $extras['contract_plan'] );
 
-			$this->token_store->save(
-				array_merge(
-					$payload,
-					[ 'extras' => array_merge( $extras, [ 'contract_plan' => $shop['contract_plan'] ] ) ]
-				)
-			);
+		if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
+			$extras['contract_plan'] = $shop['contract_plan'];
 		}
+
+		$payload['extras'] = $extras;
+
+		if ( [] === $extras ) {
+			unset( $payload['extras'] );
+		}
+
+		$this->token_store->save( $payload );
 
 		$shop_name = is_string( $shop['title'] ?? null ) && '' !== $shop['title']
 			? $shop['title']

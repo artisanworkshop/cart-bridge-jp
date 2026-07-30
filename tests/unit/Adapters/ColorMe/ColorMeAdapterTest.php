@@ -121,6 +121,42 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertTrue( $adapter->capabilities()->can_push_images );
 	}
 
+	public function test_connection_clears_the_cached_plan_when_the_response_omits_it(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'a-valid-token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		// contract_planはShopスキーマ上必須ではない。含まれない成功レスポンスの後も
+		// 過去のpremiumキャッシュが残ると、capabilities()が実際には確認できていない
+		// 画像アップロード対応を広告し続けるため、キャッシュが破棄されることを検証する。
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [],
+				'body'     => wp_json_encode(
+					[
+						'shop' => [
+							'id'    => 'PA000001',
+							'title' => 'sample-shop',
+						],
+					]
+				),
+			],
+			10,
+			3
+		);
+
+		$result = $adapter->test_connection();
+
+		$this->assertTrue( $result->ok );
+		$this->assertFalse( $adapter->capabilities()->can_push_images );
+	}
+
 	public function test_connection_fails_when_shop_response_is_malformed(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'a-valid-token' ] );
