@@ -89,6 +89,26 @@ final class TokenStore {
 	}
 
 	/**
+	 * インスタンスキャッシュとWPオプションキャッシュの両方を破棄して読み直す。
+	 *
+	 * 通常は {@see self::get()} で十分。別プロセス（OAuthコールバック等）が
+	 * このリクエストの処理中に保存した最新payloadと突き合わせる必要がある場合
+	 * （接続テスト後の書き戻し等）のみ使うこと。
+	 *
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
+	 */
+	public function refresh(): ?array {
+		wp_cache_delete( $this->option_name(), 'options' );
+		// オプション未作成時にget_option()が負キャッシュ（notoptions）へ登録するため、
+		// 別プロセスが新規作成したケースでも見えるよう併せて破棄する。
+		wp_cache_delete( 'notoptions', 'options' );
+
+		$this->payload_cache = $this->load_payload();
+
+		return $this->payload_cache;
+	}
+
+	/**
 	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
 	 */
 	private function load_payload(): ?array {

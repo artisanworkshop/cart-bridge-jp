@@ -122,7 +122,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	public function test_connection_does_not_restore_a_stale_token_when_reauthorized_mid_test(): void {
-		[ $adapter, $token_store ] = $this->make_adapter();
+		[ $adapter, $token_store, $platform ] = $this->make_adapter();
 		$token_store->save(
 			[
 				'access_token' => 'old-token',
@@ -131,12 +131,16 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		);
 
 		// /shop.json の応答待ちの間にOAuthコールバックが再認可を完了し、新しい
-		// トークンを保存したケースをHTTPモック内で再現する。テスト開始時に読んだ
-		// 古いペイロードを丸ごと書き戻して再認可を巻き戻さないことを検証する。
+		// トークンを保存したケースをHTTPモック内で再現する。本番のコールバックは
+		// 別リクエスト＝別TokenStoreインスタンスで保存するため、ここでも同一
+		// インスタンスのキャッシュを経由しない別インスタンスで保存する（同一
+		// インスタンスのsave()はキャッシュも更新してしまい、バグを検出できない）。
+		// テスト開始時に読んだ古いペイロードの丸ごと書き戻しで再認可を
+		// 巻き戻さないことを検証する。
 		add_filter(
 			'pre_http_request',
-			static function () use ( $token_store ) {
-				$token_store->save( [ 'access_token' => 'newly-issued-token' ] );
+			static function () use ( $platform ) {
+				( new TokenStore( $platform ) )->save( [ 'access_token' => 'newly-issued-token' ] );
 
 				return [
 					'response' => [ 'code' => 200 ],
@@ -158,7 +162,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$result = $adapter->test_connection();
 
 		$this->assertTrue( $result->ok );
-		$this->assertSame( 'newly-issued-token', $token_store->get()['access_token'] );
+		// 検証も新しいインスタンスで行う（アダプタ側インスタンスのキャッシュに
+		// 影響されず、実際に永続化されている値を見る）。
+		$this->assertSame( 'newly-issued-token', ( new TokenStore( $platform ) )->get()['access_token'] );
 	}
 
 	public function test_connection_clears_the_cached_plan_when_the_response_omits_it(): void {

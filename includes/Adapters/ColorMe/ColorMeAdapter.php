@@ -130,13 +130,15 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// 過去の値（例: premium）を破棄し、capabilities()が古い契約情報を
 		// 広告し続けないようにする。
 		//
-		// /shop.json の応答待ちの間にOAuthコールバックが新しいトークンを保存している
-		// 可能性があるため、テスト開始時の$payloadを丸ごと書き戻さず、最新の
-		// ペイロードを読み直してトークンが一致する場合のみextrasを更新する
-		// （並行する再認可をここで巻き戻さないように）。
-		$current = $this->token_store->get();
+		// /shop.json の応答待ちの間に、別リクエストのOAuthコールバックが新しい
+		// トークンを保存している可能性があるため、テスト開始時の$payloadを丸ごと
+		// 書き戻さず、キャッシュ（インスタンス内・WPオプション両方）をバイパスして
+		// 最新ペイロードを読み直し、トークンが一致する場合のみextrasを更新する
+		// （並行する再認可をここで巻き戻さないように）。get()ではテスト冒頭で
+		// 読んだインスタンスキャッシュが返るだけで読み直しにならない。
+		$current = $this->token_store->refresh();
 
-		if ( (string) ( $current['access_token'] ?? '' ) === $access_token ) {
+		if ( null !== $current && $current['access_token'] === $access_token ) {
 			$extras = is_array( $current['extras'] ?? null ) ? $current['extras'] : [];
 			unset( $extras['contract_plan'] );
 
