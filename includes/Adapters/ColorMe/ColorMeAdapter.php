@@ -135,7 +135,9 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// この場で組み立てると比較後の割り込みに勝てないため、TokenStore側の
 		// CAS（保存中のトークンがテストしたトークンと一致する場合のみ原子的に
 		// extrasを更新）に委ね、並行する再認可をここで巻き戻さないようにする。
-		$this->token_store->update_extras_if_token_matches(
+		// CASがfalseを返した場合はテスト対象のトークンが既に古い（別ショップの
+		// 可能性もある）ため、成功扱いにせず再テストを促す。
+		$still_current = $this->token_store->update_extras_if_token_matches(
 			$access_token,
 			static function ( array $extras ) use ( $shop ): array {
 				unset( $extras['contract_plan'] );
@@ -147,6 +149,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 				return $extras;
 			}
 		);
+
+		if ( ! $still_current ) {
+			return ConnectionResult::failure(
+				__( 'The connection changed while testing. Please try again.', 'cart-bridge-jp' )
+			);
+		}
 
 		$shop_name = is_string( $shop['title'] ?? null ) && '' !== $shop['title']
 			? $shop['title']

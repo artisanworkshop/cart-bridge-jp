@@ -121,7 +121,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertTrue( $adapter->capabilities()->can_push_images );
 	}
 
-	public function test_connection_does_not_restore_a_stale_token_when_reauthorized_mid_test(): void {
+	public function test_connection_reports_failure_and_does_not_restore_a_stale_token_when_reauthorized_mid_test(): void {
 		[ $adapter, $token_store, $platform ] = $this->make_adapter();
 		$token_store->save(
 			[
@@ -136,7 +136,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		// インスタンスのキャッシュを経由しない別インスタンスで保存する（同一
 		// インスタンスのsave()はキャッシュも更新してしまい、バグを検出できない）。
 		// テスト開始時に読んだ古いペイロードの丸ごと書き戻しで再認可を
-		// 巻き戻さないことを検証する。
+		// 巻き戻さないこと、かつ古いトークンでのテスト結果を成功として
+		// 報告しないことを検証する。
 		add_filter(
 			'pre_http_request',
 			static function () use ( $platform ) {
@@ -161,7 +162,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$result = $adapter->test_connection();
 
-		$this->assertTrue( $result->ok );
+		$this->assertFalse( $result->ok );
 		// 検証も新しいインスタンスで行う（アダプタ側インスタンスのキャッシュに
 		// 影響されず、実際に永続化されている値を見る）。
 		$this->assertSame( 'newly-issued-token', ( new TokenStore( $platform ) )->get()['access_token'] );
