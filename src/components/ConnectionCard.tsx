@@ -83,6 +83,10 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 				status: 'success',
 				message: __( 'Settings saved.', 'cart-bridge-jp' ),
 			} );
+			// has_settings等のメタデータを再取得する。これを怠ると、初回保存後も
+			// 親から渡るpropsが古いままで、OAuthを完了せず中断した場合に
+			// 「Clear saved credentials」ボタンが出ず資格情報を削除できない。
+			onChange();
 		} catch ( err ) {
 			setNotice( { status: 'error', message: errorMessage( err ) } );
 		} finally {
