@@ -131,29 +131,22 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// 広告し続けないようにする。
 		//
 		// /shop.json の応答待ちの間に、別リクエストのOAuthコールバックが新しい
-		// トークンを保存している可能性があるため、テスト開始時の$payloadを丸ごと
-		// 書き戻さず、キャッシュ（インスタンス内・WPオプション両方）をバイパスして
-		// 最新ペイロードを読み直し、トークンが一致する場合のみextrasを更新する
-		// （並行する再認可をここで巻き戻さないように）。get()ではテスト冒頭で
-		// 読んだインスタンスキャッシュが返るだけで読み直しにならない。
-		$current = $this->token_store->refresh();
+		// トークンを保存している可能性がある。「読み取り→比較→書き込み」を
+		// この場で組み立てると比較後の割り込みに勝てないため、TokenStore側の
+		// CAS（保存中のトークンがテストしたトークンと一致する場合のみ原子的に
+		// extrasを更新）に委ね、並行する再認可をここで巻き戻さないようにする。
+		$this->token_store->update_extras_if_token_matches(
+			$access_token,
+			static function ( array $extras ) use ( $shop ): array {
+				unset( $extras['contract_plan'] );
 
-		if ( null !== $current && $current['access_token'] === $access_token ) {
-			$extras = is_array( $current['extras'] ?? null ) ? $current['extras'] : [];
-			unset( $extras['contract_plan'] );
+				if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
+					$extras['contract_plan'] = $shop['contract_plan'];
+				}
 
-			if ( isset( $shop['contract_plan'] ) && is_string( $shop['contract_plan'] ) ) {
-				$extras['contract_plan'] = $shop['contract_plan'];
+				return $extras;
 			}
-
-			$current['extras'] = $extras;
-
-			if ( [] === $extras ) {
-				unset( $current['extras'] );
-			}
-
-			$this->token_store->save( $current );
-		}
+		);
 
 		$shop_name = is_string( $shop['title'] ?? null ) && '' !== $shop['title']
 			? $shop['title']

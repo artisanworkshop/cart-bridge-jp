@@ -89,23 +89,62 @@ final class TokenStore {
 	}
 
 	/**
-	 * インスタンスキャッシュとWPオプションキャッシュの両方を破棄して読み直す。
+	 * 保存中のaccess_tokenが$expected_tokenと一致する場合のみextrasを更新する（CAS）。
 	 *
-	 * 通常は {@see self::get()} で十分。別プロセス（OAuthコールバック等）が
-	 * このリクエストの処理中に保存した最新payloadと突き合わせる必要がある場合
-	 * （接続テスト後の書き戻し等）のみ使うこと。
+	 * 「読み取り→比較→書き込み」の系列を、別リクエストの保存（OAuth再認可等）と
+	 * 競合しても安全にするため、キャッシュを介さずDBから直接読み、読み取った
+	 * 暗号化blob自体を比較値としたUPDATEで原子的に書き込む。blobは保存ごとに
+	 * nonceが変わり一意なため、読み取り後に他の保存が割り込めば必ず不一致になり
+	 * 0行更新（＝何もしない）で終わる。
 	 *
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
+	 * @param callable(array<string,mixed>):array<string,mixed> $update 現在のextrasを受け取り新しいextrasを返す。
+	 * @return bool 書き込んだ場合true。トークン不一致・並行更新・未保存・復号失敗はfalse。
 	 */
-	public function refresh(): ?array {
+	public function update_extras_if_token_matches( string $expected_token, callable $update ): bool {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- CASの比較値となる現在のblobをキャッシュを介さず読む。
+		$stored = $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $this->option_name() )
+		);
+
+		if ( ! is_string( $stored ) || '' === $stored ) {
+			return false;
+		}
+
+		$plaintext = $this->decrypt( $stored );
+		$payload   = null === $plaintext ? null : json_decode( $plaintext, true );
+
+		if ( ! is_array( $payload ) || ( $payload['access_token'] ?? null ) !== $expected_token ) {
+			return false;
+		}
+
+		$extras            = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
+		$payload['extras'] = $update( $extras );
+
+		if ( [] === $payload['extras'] ) {
+			unset( $payload['extras'] );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 読み取ったblobとの一致を条件とする原子的なCAS書き込み。
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				$this->encrypt( (string) wp_json_encode( $payload ) ),
+				$this->option_name(),
+				$stored
+			)
+		);
+
+		if ( ! is_int( $updated ) || $updated < 1 ) {
+			return false;
+		}
+
+		// オプションAPIを迂回して直接書き込んだため、オプションキャッシュを破棄して整合させる。
 		wp_cache_delete( $this->option_name(), 'options' );
-		// オプション未作成時にget_option()が負キャッシュ（notoptions）へ登録するため、
-		// 別プロセスが新規作成したケースでも見えるよう併せて破棄する。
-		wp_cache_delete( 'notoptions', 'options' );
+		$this->payload_cache = $payload;
 
-		$this->payload_cache = $this->load_payload();
-
-		return $this->payload_cache;
+		return true;
 	}
 
 	/**
