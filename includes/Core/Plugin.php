@@ -9,6 +9,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Core;
 
+use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Admin\Assets;
 use CartBridgeJP\Admin\Menu;
@@ -68,6 +69,11 @@ final class Plugin {
 				return $adapters;
 			}
 		);
+
+		// ここより前に外部コードがAdapterRegistry::all()を呼んでいた場合、フィルター
+		// 登録前の結果がキャッシュに固定され、ColorMeがこのリクエストの間ずっと
+		// 見えなくなる。登録後にキャッシュを破棄して再評価させる。
+		AdapterRegistry::reset_cache();
 
 		$menu = new Menu();
 		add_action( 'admin_menu', [ $menu, 'register' ] );

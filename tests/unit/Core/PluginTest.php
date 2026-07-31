@@ -35,6 +35,23 @@ final class PluginTest extends WP_UnitTestCase {
 		parent::tear_down();
 	}
 
+	public function test_boot_resets_a_prematurely_populated_adapter_cache(): void {
+		// フィルター登録（boot）より前に外部コードがレジストリの一覧取得を行い、
+		// フィルター未登録の結果がキャッシュへ固定された状態を再現する。
+		remove_all_filters( 'cbjp/adapters/register' );
+		AdapterRegistry::reset_cache();
+		$this->assertSame( [], AdapterRegistry::all() );
+
+		$plugin = Plugin::instance();
+		$booted = new \ReflectionProperty( Plugin::class, 'booted' );
+		$booted->setValue( $plugin, false );
+		$plugin->boot();
+
+		// boot()が登録後にキャッシュを破棄しない場合、ここでは固定済みの空配列が
+		// 返り続け、ColorMeがリクエストの間ずっと見えない。
+		$this->assertArrayHasKey( ColorMeAdapter::ID, AdapterRegistry::all() );
+	}
+
 	public function test_colorme_registration_survives_a_misbehaving_earlier_filter(): void {
 		// 先行する外部フィルターが契約違反の非配列を返すシナリオ。登録クロージャが
 		// array型宣言のままだとTypeErrorで全アダプタ登録が落ちる（§8の信頼境界）。
