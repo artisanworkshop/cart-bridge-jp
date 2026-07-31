@@ -48,13 +48,41 @@ final class TokenStore {
 	 * 存在しない接続でも呼べるよう、既存payloadの`settings`キーにのみマージする
 	 * （`access_token`が空のpayloadを許容する点が {@see self::save()} と異なる）。
 	 *
+	 * この保存はトークン交換（{@see self::save_token_if_credentials_match()}）や
+	 * 接続テスト（{@see self::update_extras_if_token_matches()}）と同時に走る可能性がある。
+	 * 単純な「読み取り→マージ→書き込み」では、その間に別リクエストが保存した新しい
+	 * access_token/extrasを古いスナップショットで巻き戻してしまうため、他の書き込みと
+	 * 同じCASでマージする。オプション未作成（初回保存）はCASの前提（既存blobとの一致）に
+	 * 乗らないため、その場合のみ `add_option()`（既存なら書き込まない）で原子的に作成する。
+	 *
 	 * @param array<string,mixed> $settings
 	 */
 	public function save_settings( array $settings ): void {
-		$payload             = $this->get() ?? [ 'access_token' => '' ];
-		$payload['settings'] = array_merge( $payload['settings'] ?? [], $settings );
+		$merge = static function ( array $payload ) use ( $settings ): array {
+			$payload['settings'] = array_merge( $payload['settings'] ?? [], $settings );
 
-		$this->persist( $payload );
+			return $payload;
+		};
+
+		for ( $attempt = 0; $attempt < 3; $attempt++ ) {
+			if ( $this->compare_and_swap( $merge ) ) {
+				return;
+			}
+
+			if ( add_option(
+				$this->option_name(),
+				$this->encrypt( (string) wp_json_encode( $merge( [ 'access_token' => '' ] ) ) ),
+				'',
+				false
+			) ) {
+				$this->payload_cache = $merge( [ 'access_token' => '' ] );
+
+				return;
+			}
+		}
+
+		// 極めて稀な連続競合。取りこぼすよりは通常経路で反映する方を優先する。
+		$this->persist( $merge( $this->get() ?? [ 'access_token' => '' ] ) );
 	}
 
 	/**
