@@ -187,14 +187,22 @@ final class ColorMeOAuth {
 			throw new ApiException( 'ColorMe token exchange returned an unexpected response.', $response['status'] );
 		}
 
-		// settings（client_id/secret）を含む既存payloadを保持したままaccess_tokenだけ更新する
-		// （save()は部分更新ではなく丸ごと置き換えのため、ここでマージしないと再接続に必要な
-		// client_id/secretが消えてしまう）。ただしextras（shop.jsonから得た契約プラン等）は
-		// 別ショップへの再接続で古い値が残ると誤判定を招くため、新規トークン発行時に破棄する。
-		$existing = $this->token_store->get() ?? [];
-		unset( $existing['extras'] );
+		// トークンPOSTの往復中に管理者が資格情報を削除・変更している可能性がある。
+		// 交換開始時に読んだスナップショットを書き戻すと、削除済み資格情報の復活や
+		// 新しい設定の上書きが起きるため、TokenStore側のCAS（トークン取得に使った
+		// client_id/secretが現在も保存されている場合のみ原子的に保存。あわせて
+		// 前のショップのextrasを破棄）に委ねる。
+		$saved = $this->token_store->save_token_if_credentials_match(
+			$client_id,
+			$client_secret,
+			$decoded['access_token']
+		);
 
-		$this->token_store->save( array_merge( $existing, [ 'access_token' => $decoded['access_token'] ] ) );
+		if ( ! $saved ) {
+			throw new \RuntimeException(
+				'The stored credentials were changed or removed while the token exchange was in flight. Please try connecting again.'
+			);
+		}
 	}
 
 	/**

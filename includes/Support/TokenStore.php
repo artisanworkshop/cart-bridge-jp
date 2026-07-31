@@ -92,15 +92,71 @@ final class TokenStore {
 	 * 保存中のaccess_tokenが$expected_tokenと一致する場合のみextrasを更新する（CAS）。
 	 *
 	 * 「読み取り→比較→書き込み」の系列を、別リクエストの保存（OAuth再認可等）と
-	 * 競合しても安全にするため、キャッシュを介さずDBから直接読み、読み取った
-	 * 暗号化blob自体を比較値としたUPDATEで原子的に書き込む。blobは保存ごとに
-	 * nonceが変わり一意なため、読み取り後に他の保存が割り込めば必ず不一致になり
-	 * 0行更新（＝何もしない）で終わる。
+	 * 競合しても安全にするため、{@see self::compare_and_swap()} で原子的に書き込む。
 	 *
 	 * @param callable(array<string,mixed>):array<string,mixed> $update 現在のextrasを受け取り新しいextrasを返す。
 	 * @return bool 書き込んだ場合true。トークン不一致・並行更新・未保存・復号失敗はfalse。
 	 */
 	public function update_extras_if_token_matches( string $expected_token, callable $update ): bool {
+		return $this->compare_and_swap(
+			static function ( array $payload ) use ( $expected_token, $update ): ?array {
+				if ( ( $payload['access_token'] ?? null ) !== $expected_token ) {
+					return null;
+				}
+
+				$extras            = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
+				$payload['extras'] = $update( $extras );
+
+				if ( [] === $payload['extras'] ) {
+					unset( $payload['extras'] );
+				}
+
+				return $payload;
+			}
+		);
+	}
+
+	/**
+	 * 保存中のsettings（client_id/client_secret）がトークン取得に使った資格情報と
+	 * 一致する場合のみ、access_tokenを保存する（CAS）。
+	 *
+	 * OAuthのトークン交換はHTTP往復を挟むため、その間に管理者が資格情報を削除・
+	 * 変更している可能性がある。交換開始時のスナップショットを書き戻すと削除済み
+	 * 資格情報の復活や新しい設定の上書きが起きるため、原子的CASで書き込み、
+	 * 発行済みトークンの紐づく資格情報が現存しない場合は保存しない。
+	 * 保存時はextras（前のショップの契約プラン等）を破棄する。
+	 *
+	 * @return bool 書き込んだ場合true。資格情報の不一致・削除済み・並行更新はfalse。
+	 */
+	public function save_token_if_credentials_match( string $client_id, string $client_secret, string $access_token ): bool {
+		return $this->compare_and_swap(
+			static function ( array $payload ) use ( $client_id, $client_secret, $access_token ): ?array {
+				$settings = is_array( $payload['settings'] ?? null ) ? $payload['settings'] : [];
+
+				if ( ( $settings['client_id'] ?? null ) !== $client_id || ( $settings['client_secret'] ?? null ) !== $client_secret ) {
+					return null;
+				}
+
+				$payload['access_token'] = $access_token;
+				unset( $payload['extras'] );
+
+				return $payload;
+			}
+		);
+	}
+
+	/**
+	 * 現在のpayloadを読み、$mutateの返すpayloadへ原子的に置き換える（CAS）。
+	 *
+	 * キャッシュを介さずDBから直接読み、読み取った暗号化blob自体を比較値とした
+	 * UPDATEで書き込む。blobは保存ごとにnonceが変わり一意なため、読み取り後に
+	 * 他の保存が割り込めば必ず不一致になり、0行更新（＝何もしない）で終わる。
+	 *
+	 * @param callable(array<string,mixed>):(array<string,mixed>|null) $mutate 現在のpayloadを受け取り
+	 *        新しいpayloadを返す。nullを返すと保存せず中止する。
+	 * @return bool 書き込んだ場合true。未保存・復号失敗・$mutateの中止・並行更新はfalse。
+	 */
+	private function compare_and_swap( callable $mutate ): bool {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- CASの比較値となる現在のblobをキャッシュを介さず読む。
@@ -115,22 +171,21 @@ final class TokenStore {
 		$plaintext = $this->decrypt( $stored );
 		$payload   = null === $plaintext ? null : json_decode( $plaintext, true );
 
-		if ( ! is_array( $payload ) || ( $payload['access_token'] ?? null ) !== $expected_token ) {
+		if ( ! is_array( $payload ) ) {
 			return false;
 		}
 
-		$extras            = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
-		$payload['extras'] = $update( $extras );
+		$new_payload = $mutate( $payload );
 
-		if ( [] === $payload['extras'] ) {
-			unset( $payload['extras'] );
+		if ( null === $new_payload ) {
+			return false;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 読み取ったblobとの一致を条件とする原子的なCAS書き込み。
 		$updated = $wpdb->query(
 			$wpdb->prepare(
 				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
-				$this->encrypt( (string) wp_json_encode( $payload ) ),
+				$this->encrypt( (string) wp_json_encode( $new_payload ) ),
 				$this->option_name(),
 				$stored
 			)
@@ -142,7 +197,7 @@ final class TokenStore {
 
 		// オプションAPIを迂回して直接書き込んだため、オプションキャッシュを破棄して整合させる。
 		wp_cache_delete( $this->option_name(), 'options' );
-		$this->payload_cache = $payload;
+		$this->payload_cache = $new_payload;
 
 		return true;
 	}

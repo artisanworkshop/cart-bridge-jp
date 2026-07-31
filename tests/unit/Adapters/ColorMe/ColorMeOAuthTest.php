@@ -22,14 +22,14 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * @return array{0:ColorMeOAuth,1:TokenStore}
+	 * @return array{0:ColorMeOAuth,1:TokenStore,2:string}
 	 */
 	private function make_oauth(): array {
 		$platform    = 'test-colorme-oauth-' . wp_generate_uuid4();
 		$token_store = new TokenStore( $platform );
 		$http_client = new HttpClient( new RateLimiter( $platform, 1000 ) );
 
-		return [ new ColorMeOAuth( $token_store, $http_client ), $token_store ];
+		return [ new ColorMeOAuth( $token_store, $http_client ), $token_store, $platform ];
 	}
 
 	public function test_authorize_url_throws_when_client_id_missing(): void {
@@ -227,6 +227,78 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$payload = $token_store->get();
 		$this->assertSame( 'new-shop-token', $payload['access_token'] );
 		$this->assertArrayNotHasKey( 'extras', $payload );
+	}
+
+	public function test_exchange_code_does_not_recreate_credentials_deleted_mid_exchange(): void {
+		[ $oauth, , $platform ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		// トークンPOSTの応答待ちの間に、管理者が別リクエストで資格情報を削除した
+		// ケースをHTTPモック内で再現する（本番同様、別TokenStoreインスタンス経由）。
+		// 交換開始時のスナップショットの書き戻しで削除済み資格情報が復活しない
+		// ことを検証する。
+		add_filter(
+			'pre_http_request',
+			static function () use ( $platform ) {
+				( new TokenStore( $platform ) )->delete();
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => wp_json_encode( [ 'access_token' => 'issued-token' ] ),
+				];
+			},
+			10,
+			3
+		);
+
+		try {
+			$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+			$this->fail( 'Expected RuntimeException was not thrown.' );
+		} catch ( \RuntimeException $exception ) {
+			$this->assertStringContainsString( 'changed or removed', $exception->getMessage() );
+		}
+
+		$this->assertNull( ( new TokenStore( $platform ) )->get() );
+	}
+
+	public function test_exchange_code_does_not_clobber_credentials_replaced_mid_exchange(): void {
+		[ $oauth, , $platform ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		// トークンPOSTの応答待ちの間に、管理者が別の資格情報を保存し直したケース。
+		// 発行済みトークンは古いclient_id/secretに紐づくため、新しい設定へ
+		// マージ保存せず、交換をエラーとして扱うことを検証する。
+		add_filter(
+			'pre_http_request',
+			static function () use ( $platform ) {
+				( new TokenStore( $platform ) )->save_settings(
+					[
+						'client_id'     => 'replacement-client-id',
+						'client_secret' => 'replacement-client-secret',
+					]
+				);
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => wp_json_encode( [ 'access_token' => 'issued-token' ] ),
+				];
+			},
+			10,
+			3
+		);
+
+		try {
+			$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+			$this->fail( 'Expected RuntimeException was not thrown.' );
+		} catch ( \RuntimeException $exception ) {
+			$this->assertStringContainsString( 'changed or removed', $exception->getMessage() );
+		}
+
+		$payload = ( new TokenStore( $platform ) )->get();
+		$this->assertSame( '', $payload['access_token'] );
+		$this->assertSame( 'replacement-client-id', $payload['settings']['client_id'] );
 	}
 
 	public function test_exchange_code_translates_colorme_error_response(): void {
