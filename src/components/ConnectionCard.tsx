@@ -189,6 +189,10 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 				path: `/cbjp/v1/connections/${ connection.platform }`,
 				method: 'DELETE',
 			} );
+			// このマウント中に入力したclient_id/secretがローカルstateに残っていると、
+			// 削除後の次のSaveでそのまま再保存されてしまうため、入力値も破棄する。
+			setValues( {} );
+			setManualCode( '' );
 			onChange();
 		} catch ( err ) {
 			setNotice( { status: 'error', message: errorMessage( err ) } );
