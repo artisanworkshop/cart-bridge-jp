@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Notice, Spinner } from '@wordpress/components';
 import apiFetch from '../api';
@@ -53,13 +53,28 @@ export default function ConnectionsTab() {
 		readAndClearOAuthStatus()
 	);
 
+	// 保存直後の再読込と切断直後の再読込が重なると、後から届いた古い方の
+	// レスポンスが新しい状態を上書きしてしまう。最後に発行したリクエストの
+	// 結果だけを反映するよう、リクエストごとに世代番号を振って比較する。
+	const latestRequestId = useRef( 0 );
+
 	const loadConnections = useCallback( () => {
+		const requestId = ++latestRequestId.current;
+
 		return apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
 			.then( ( data ) => {
+				if ( requestId !== latestRequestId.current ) {
+					return;
+				}
+
 				setConnections( data );
 				setError( null );
 			} )
 			.catch( ( err: { message?: string } ) => {
+				if ( requestId !== latestRequestId.current ) {
+					return;
+				}
+
 				setError( err?.message ?? String( err ) );
 			} );
 	}, [] );
