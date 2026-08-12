@@ -53,7 +53,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 	public function capabilities(): Capabilities {
 		return new Capabilities(
 			false, // can_create_category: カテゴリはColorMe側で作成不可（01-plan §5）。
-			true,  // can_create_order
+			$this->is_premium_plan(), // can_create_order: `POST /v1/sales` はプレミアムプラン契約のショップのみ利用可（swagger.json）。
 			true,  // can_fetch_customers
 			true,  // can_update_customer
 			$this->can_push_images(),
@@ -72,6 +72,16 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * 未接続・未キャッシュの場合は安全側（false）に倒す。
 	 */
 	private function can_push_images(): bool {
+		return $this->is_premium_plan();
+	}
+
+	/**
+	 * `POST /v1/sales`（受注作成）はプレミアムプラン契約のショップのみ利用可
+	 * （`tests/fixtures/colorme/swagger.json` createSale説明）。
+	 * `test_connection()` が `shop.json` から取得・キャッシュした契約プランを見て動的に判定する。
+	 * 未接続・未キャッシュの場合は安全側（false）に倒す。
+	 */
+	private function is_premium_plan(): bool {
 		$extras = $this->token_store->get()['extras'] ?? [];
 
 		return is_array( $extras ) && 'premium' === ( $extras['contract_plan'] ?? null );

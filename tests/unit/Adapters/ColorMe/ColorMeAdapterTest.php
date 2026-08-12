@@ -57,12 +57,30 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertTrue( $adapter->capabilities()->can_push_images );
 	}
 
+	public function test_capabilities_defaults_can_create_order_to_false_when_plan_unknown(): void {
+		[ $adapter ] = $this->make_adapter();
+
+		$this->assertFalse( $adapter->capabilities()->can_create_order );
+	}
+
+	public function test_capabilities_allows_order_creation_only_on_premium_contract_plan(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->assertTrue( $adapter->capabilities()->can_create_order );
+	}
+
 	public function test_capabilities_static_values_match_01_plan_colorme(): void {
 		[ $adapter ]  = $this->make_adapter();
 		$capabilities = $adapter->capabilities();
 
 		$this->assertFalse( $capabilities->can_create_category );
-		$this->assertTrue( $capabilities->can_create_order );
 		$this->assertTrue( $capabilities->can_fetch_customers );
 		$this->assertTrue( $capabilities->can_update_customer );
 		$this->assertFalse( $capabilities->can_create_coupon );
