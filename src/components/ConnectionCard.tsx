@@ -100,9 +100,17 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 		// ポップアップブロッカー対策: window.open()はクリックのユーザー操作から
 		// 同期的に呼ぶ必要がある。await後に呼ぶとブラウザによってはブロックされ、
 		// window.open()がnullを返してもUIエラーが出ない。空ウィンドウを先に開いておき、
-		// URL取得後にそこへ遷移させる（noopener/noreferrerを付けるとハンドルを
-		// 後から取得できないため、遷移先が信頼済みのOAuth認可ページである前提で外す）。
+		// URL取得後にそこへ遷移させる。
 		const authWindow = window.open( '', '_blank' );
+
+		// reverse tabnabbing対策: authWindowはwindow.openerでこのタブ（wp-admin）への
+		// 参照を保持したまま外部の認可ページへ遷移する。遷移先やそのリダイレクト先が
+		// 侵害されていた場合、window.opener.location操作でこのタブをフィッシングページへ
+		// 誘導されうる。about:blankのうちにopenerを切り離す（ポーリング用のハンドル自体は
+		// 維持されるので、遷移先を信頼する前提を外しても閉鎖検知には影響しない）。
+		if ( authWindow ) {
+			authWindow.opener = null;
+		}
 
 		try {
 			const response = await apiFetch< AuthorizeUrlResponse >( {
@@ -126,7 +134,24 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 					}, 1000 );
 				}
 			} else {
-				window.open( response.url, '_blank', 'noopener,noreferrer' );
+				// 最初の空ポップアップも既にブロックされていた場合、await後のこの呼び出しは
+				// クリックのユーザー操作から時間が経っておりブロックされる可能性が高い。
+				// 戻り値を無視すると、ブロックされた場合にUIが何も反応せず止まって見える。
+				const fallbackWindow = window.open(
+					response.url,
+					'_blank',
+					'noopener,noreferrer'
+				);
+
+				if ( ! fallbackWindow ) {
+					setNotice( {
+						status: 'error',
+						message: __(
+							'Your browser blocked the authorization popup. Please allow popups for this site and try again.',
+							'cart-bridge-jp'
+						),
+					} );
+				}
 			}
 
 			if ( 'oob' === mode ) {
