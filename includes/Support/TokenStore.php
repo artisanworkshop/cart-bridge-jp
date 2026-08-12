@@ -22,6 +22,14 @@ final class TokenStore {
 	private const LOCK_TTL_SECONDS = 30;
 
 	/**
+	 * {@see self::compare_and_swap()} の結果種別。
+	 */
+	private const CAS_SAVED          = 0;
+	private const CAS_MUTATE_ABORTED = 1;
+	private const CAS_CONFLICT       = 2;
+	private const CAS_RETRY_ATTEMPTS = 3;
+
+	/**
 	 * 復号済みペイロードのインスタンス内キャッシュ。false = 未読込。
 	 * get()/needs_reconnect()/masked_access_token() の同一リクエスト内での
 	 * 復号（sodium + json_decode）重複を避ける。
@@ -64,8 +72,8 @@ final class TokenStore {
 			return $payload;
 		};
 
-		for ( $attempt = 0; $attempt < 3; $attempt++ ) {
-			if ( $this->compare_and_swap( $merge ) ) {
+		for ( $attempt = 0; $attempt < self::CAS_RETRY_ATTEMPTS; $attempt++ ) {
+			if ( self::CAS_SAVED === $this->compare_and_swap( $merge ) ) {
 				return;
 			}
 
@@ -126,7 +134,7 @@ final class TokenStore {
 	 * @return bool 書き込んだ場合true。トークン不一致・並行更新・未保存・復号失敗はfalse。
 	 */
 	public function update_extras_if_token_matches( string $expected_token, callable $update ): bool {
-		return $this->compare_and_swap(
+		return self::CAS_SAVED === $this->compare_and_swap(
 			static function ( array $payload ) use ( $expected_token, $update ): ?array {
 				if ( ( $payload['access_token'] ?? null ) !== $expected_token ) {
 					return null;
@@ -154,23 +162,36 @@ final class TokenStore {
 	 * 発行済みトークンの紐づく資格情報が現存しない場合は保存しない。
 	 * 保存時はextras（前のショップの契約プラン等）を破棄する。
 	 *
-	 * @return bool 書き込んだ場合true。資格情報の不一致・削除済み・並行更新はfalse。
+	 * このCASは、設定保存や接続テストのextras更新など無関係な同時書き込みとも
+	 * 衝突しうる。資格情報自体は一致しているのにその衝突だけで発行済みトークンを
+	 * 破棄すると管理者にOAuthのやり直しを強いてしまうため、資格情報の不一致
+	 * （中止）と単なる書き込み衝突（再試行可）を区別し、後者のみ有限回リトライする。
+	 *
+	 * @return bool 書き込んだ場合true。資格情報の不一致・削除済み・リトライ上限到達はfalse。
 	 */
 	public function save_token_if_credentials_match( string $client_id, string $client_secret, string $access_token ): bool {
-		return $this->compare_and_swap(
-			static function ( array $payload ) use ( $client_id, $client_secret, $access_token ): ?array {
-				$settings = is_array( $payload['settings'] ?? null ) ? $payload['settings'] : [];
+		$mutate = static function ( array $payload ) use ( $client_id, $client_secret, $access_token ): ?array {
+			$settings = is_array( $payload['settings'] ?? null ) ? $payload['settings'] : [];
 
-				if ( ( $settings['client_id'] ?? null ) !== $client_id || ( $settings['client_secret'] ?? null ) !== $client_secret ) {
-					return null;
-				}
-
-				$payload['access_token'] = $access_token;
-				unset( $payload['extras'] );
-
-				return $payload;
+			if ( ( $settings['client_id'] ?? null ) !== $client_id || ( $settings['client_secret'] ?? null ) !== $client_secret ) {
+				return null;
 			}
-		);
+
+			$payload['access_token'] = $access_token;
+			unset( $payload['extras'] );
+
+			return $payload;
+		};
+
+		for ( $attempt = 0; $attempt < self::CAS_RETRY_ATTEMPTS; $attempt++ ) {
+			$result = $this->compare_and_swap( $mutate );
+
+			if ( self::CAS_CONFLICT !== $result ) {
+				return self::CAS_SAVED === $result;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -182,9 +203,10 @@ final class TokenStore {
 	 *
 	 * @param callable(array<string,mixed>):(array<string,mixed>|null) $mutate 現在のpayloadを受け取り
 	 *        新しいpayloadを返す。nullを返すと保存せず中止する。
-	 * @return bool 書き込んだ場合true。未保存・復号失敗・$mutateの中止・並行更新はfalse。
+	 * @return int self::CAS_SAVED（書き込んだ）/ self::CAS_MUTATE_ABORTED（$mutateが中止）/
+	 *         self::CAS_CONFLICT（未保存・復号失敗・並行更新による衝突。呼び出し側の判断で再試行可）。
 	 */
-	private function compare_and_swap( callable $mutate ): bool {
+	private function compare_and_swap( callable $mutate ): int {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- CASの比較値となる現在のblobをキャッシュを介さず読む。
@@ -193,20 +215,20 @@ final class TokenStore {
 		);
 
 		if ( ! is_string( $stored ) || '' === $stored ) {
-			return false;
+			return self::CAS_CONFLICT;
 		}
 
 		$plaintext = $this->decrypt( $stored );
 		$payload   = null === $plaintext ? null : json_decode( $plaintext, true );
 
 		if ( ! is_array( $payload ) ) {
-			return false;
+			return self::CAS_CONFLICT;
 		}
 
 		$new_payload = $mutate( $payload );
 
 		if ( null === $new_payload ) {
-			return false;
+			return self::CAS_MUTATE_ABORTED;
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 読み取ったblobとの一致を条件とする原子的なCAS書き込み。
@@ -220,14 +242,14 @@ final class TokenStore {
 		);
 
 		if ( ! is_int( $updated ) || $updated < 1 ) {
-			return false;
+			return self::CAS_CONFLICT;
 		}
 
 		// オプションAPIを迂回して直接書き込んだため、オプションキャッシュを破棄して整合させる。
 		wp_cache_delete( $this->option_name(), 'options' );
 		$this->payload_cache = $new_payload;
 
-		return true;
+		return self::CAS_SAVED;
 	}
 
 	/**
