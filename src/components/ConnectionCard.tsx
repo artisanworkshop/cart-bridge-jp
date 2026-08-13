@@ -329,6 +329,12 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 										'cart-bridge-jp'
 									) }
 								</p>
+								<p>
+									{ __(
+										"The platform requires the authorization request's redirect URI to match the one registered for the app. Before using this manual link, change the app's registered redirect URI from the callback URL above to urn:ietf:wg:oauth:2.0:oob in the platform's developer console.",
+										'cart-bridge-jp'
+									) }
+								</p>
 								<Button
 									variant="secondary"
 									isBusy={ 'oob' === busy }
