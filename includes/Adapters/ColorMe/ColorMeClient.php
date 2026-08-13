@@ -33,7 +33,9 @@ final class ColorMeClient {
 	) {}
 
 	/**
-	 * 接続ごとに独立したレート制限バケットを持つインスタンスを生成する。
+	 * プラットフォーム単位で共有されるレート制限バケット（{@see RateLimiter}）を使う
+	 * インスタンスを生成する。現状ColorMe接続は同時に1つのみ保持するため、この
+	 * バケットは実質的にアクセストークン単位でもある。
 	 */
 	public static function for_access_token( string $access_token, string $base_url = self::DEFAULT_BASE_URL ): self {
 		return new self(
