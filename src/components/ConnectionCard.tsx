@@ -136,14 +136,24 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 			} else {
 				// 最初の空ポップアップも既にブロックされていた場合、await後のこの呼び出しは
 				// クリックのユーザー操作から時間が経っておりブロックされる可能性が高い。
-				// 戻り値を無視すると、ブロックされた場合にUIが何も反応せず止まって見える。
-				const fallbackWindow = window.open(
-					response.url,
-					'_blank',
-					'noopener,noreferrer'
-				);
+				// noopenerを付けるとブロックの成否に関わらずwindow.open()は常にnullを
+				// 返してしまい（ハンドルを渡さない仕様のため）、成功時も「ブロックされた」
+				// 扱いになる上、閉鎖ポーリングもできなくなる。ここではopenerは付けず、
+				// 生成できたハンドル側でopenerを切り離すことで両立させる。
+				const fallbackWindow = window.open( response.url, '_blank' );
 
-				if ( ! fallbackWindow ) {
+				if ( fallbackWindow ) {
+					fallbackWindow.opener = null;
+
+					if ( 'redirect' === mode ) {
+						const poll = window.setInterval( () => {
+							if ( fallbackWindow.closed ) {
+								window.clearInterval( poll );
+								onChange();
+							}
+						}, 1000 );
+					}
+				} else {
 					setNotice( {
 						status: 'error',
 						message: __(
