@@ -331,7 +331,15 @@ final class RestController {
 			);
 		}
 
-		( new TokenStore( $platform ) )->save_settings( $settings );
+		try {
+			( new TokenStore( $platform ) )->save_settings( $settings );
+		} catch ( RuntimeException $exception ) {
+			return new WP_Error(
+				'cbjp_save_conflict',
+				__( 'The connection settings changed while saving. Please try again.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
+			);
+		}
 
 		return rest_ensure_response( [ 'saved' => true ] );
 	}

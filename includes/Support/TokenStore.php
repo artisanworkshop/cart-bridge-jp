@@ -64,6 +64,8 @@ final class TokenStore {
 	 * 乗らないため、その場合のみ `add_option()`（既存なら書き込まない）で原子的に作成する。
 	 *
 	 * @param array<string,mixed> $settings
+	 * @throws \RuntimeException CASリトライが尽きるほどの連続した同時書き込み衝突が続いた場合
+	 *         （極めて稀）。呼び出し側に再試行を委ねる。
 	 */
 	public function save_settings( array $settings ): void {
 		$merge = static function ( array $payload ) use ( $settings ): array {
@@ -89,8 +91,10 @@ final class TokenStore {
 			}
 		}
 
-		// 極めて稀な連続競合。取りこぼすよりは通常経路で反映する方を優先する。
-		$this->persist( $merge( $this->get() ?? [ 'access_token' => '' ] ) );
+		// 極めて稀な連続競合。ここで無条件read-merge-writeへフォールバックするとCAS保証を
+		// 破り、この間に割り込んだ他の書き込み（トークン交換・接続テストのextras更新等）を
+		// 巻き戻しかねない。保存を諦めて呼び出し側に再試行を委ねる。
+		throw new \RuntimeException( 'Could not save settings due to repeated concurrent writes. Please try again.' );
 	}
 
 	/**
