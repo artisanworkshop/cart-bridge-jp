@@ -164,6 +164,19 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '9240', $order->line_items[0]['subtotal'] );
 	}
 
+	public function test_line_item_option_values_are_labeled_as_current_not_order_time(): void {
+		// swagger: option1_value/option2_valueは「最新の商品情報」。オプション名変更後は
+		// 購入時の選択と食い違いうるため、order-time相当の`option1_value`キーとして
+		// 誤解される名前を避け、current_接尾辞付きキーで明示する。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertArrayNotHasKey( 'option1_value', $order->line_items[0] );
+		$this->assertSame( 'S', $order->line_items[0]['option1_value_current'] );
+		$this->assertArrayHasKey( 'option2_value_current', $order->line_items[0] );
+	}
+
 	public function test_line_item_customizations_are_preserved(): void {
 		$raw                                 = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['details'][0]['customizations'] = [

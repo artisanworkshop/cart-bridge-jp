@@ -105,19 +105,23 @@ final class OrderTransformer {
 			}
 
 			$result[] = [
-				'remote_detail_id'    => Cast::to_string_or_null( $detail['id'] ?? null ),
-				'remote_product_id'   => Cast::to_string_or_null( $detail['product_id'] ?? null ),
-				'sku'                 => Cast::to_string_or_null( $detail['product_model_number'] ?? null ),
-				'name'                => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
-				'price'               => Cast::money( $detail['price_with_tax'] ?? null ),
-				'unit_price_excl_tax' => Cast::money( $detail['price'] ?? null ),
-				'quantity'            => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
-				'subtotal'            => Cast::money( $detail['subtotal_price'] ?? null ),
-				'option1_value'       => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
-				'option2_value'       => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
-				'tax_reduced'         => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
+				'remote_detail_id'      => Cast::to_string_or_null( $detail['id'] ?? null ),
+				'remote_product_id'     => Cast::to_string_or_null( $detail['product_id'] ?? null ),
+				'sku'                   => Cast::to_string_or_null( $detail['product_model_number'] ?? null ),
+				'name'                  => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
+				'price'                 => Cast::money( $detail['price_with_tax'] ?? null ),
+				'unit_price_excl_tax'   => Cast::money( $detail['price'] ?? null ),
+				'quantity'              => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
+				'subtotal'              => Cast::money( $detail['subtotal_price'] ?? null ),
+				// swagger: option1_value/option2_valueは「最新の商品情報」であり注文時点の値ではない
+				// （オプション名変更後は購入時の選択と食い違いうる）。注文時点の選択を表すのは
+				// `name`（pristine_product_full_name）のみのため、これらは変位判定用の参考値として
+				// current_ prefixを付けて明示的に区別する（D10: 明細は注文時の値を使う原則）。
+				'option1_value_current' => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
+				'option2_value_current' => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
+				'tax_reduced'           => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
 				// 刻印文字等、購入者が入力したカスタマイズ内容。案文構造がASP固有のため生のまま退避する。
-				'customizations'      => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
+				'customizations'        => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
 			];
 		}
 
