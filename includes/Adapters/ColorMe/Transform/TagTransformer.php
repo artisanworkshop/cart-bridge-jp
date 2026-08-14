@@ -12,7 +12,7 @@ use RuntimeException;
 
 /**
  * `GET /v1/groups.json` の1要素をWooのタグに対応する `CanonicalTag` へ変換する。
- * `parent_group_id`（グループの階層）は `CanonicalTag` が `(id, name)` のみのため
+ * `parent_group_id`（グループの階層）は `CanonicalTag` の主要フィールドに対応が無いため
  * 表現できない。Woo側では常にフラットなタグとして扱われる。
  */
 final class TagTransformer {
@@ -42,7 +42,8 @@ final class TagTransformer {
 
 		return new CanonicalTag(
 			$id,
-			Cast::to_string_or_null( $raw['name'] ?? null ) ?? ''
+			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
+			[ 'description' => Cast::sanitize_html( $raw['expl'] ?? null ) ]
 		);
 	}
 }

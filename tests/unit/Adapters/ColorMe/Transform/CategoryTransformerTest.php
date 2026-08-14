@@ -149,6 +149,27 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $categories[0]->extras['image_url'] );
 	}
 
+	public function test_sort_order_is_preserved_for_parent_and_child(): void {
+		$raw = [
+			'id_big'   => 100,
+			'name'     => '親カテゴリー',
+			'sort'     => 2,
+			'children' => [
+				[
+					'id_big'   => 100,
+					'id_small' => 1,
+					'name'     => '子カテゴリー',
+					'sort'     => 5,
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( 2, $categories[0]->extras['sort'] );
+		$this->assertSame( 5, $categories[1]->extras['sort'] );
+	}
+
 	public function test_child_category_description_and_image_are_preserved_independently(): void {
 		$raw = [
 			'id_big'   => 100,

@@ -236,6 +236,46 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'unavailable_for_split_order', $order->totals['tax_source'] );
 	}
 
+	public function test_split_order_zeroes_fee_and_discounts_instead_of_duplicating_the_parent_orders(): void {
+		// sale.fee/point_discount等はsegmentスキーマに対応フィールドが無く、分割前1回分の額
+		// でしかない。複数segmentをそれぞれ個別注文としてインポートすると同じ額が重複計上される
+		// ため、totals()・payment()どちらも0にする。
+		$raw = FixtureLoader::load( 'colorme', 'sale_daibiki_detail' )['sale'];
+		$this->assertSame( 300, $raw['fee'] );
+		$raw['segment'] = [
+			'id'                    => 1,
+			'splitted'              => true,
+			'product_total_price'   => 2000,
+			'delivery_total_charge' => 700,
+			'total_price'           => 2700,
+			'noshi_total_charge'    => 0,
+			'card_total_charge'     => 0,
+			'wrapping_total_charge' => 0,
+		];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '0', $order->totals['fee'] );
+		$this->assertSame( '0', $order->totals['discount_point'] );
+		$this->assertSame( '0', $order->totals['discount_gmo'] );
+		$this->assertSame( '0', $order->totals['discount_other'] );
+		$this->assertSame( '0', $order->payment['fee'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
+	public function test_non_split_order_tax_fallback_marks_itself_incomplete_when_totals_is_missing(): void {
+		// sale.totalsが欠損している場合の最後の手段sale.taxは商品分のみで送料分の税を含まない。
+		// 実額を捏造せず、tax_sourceで不完全である旨を明示する。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['totals'] );
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 280, $order->extras['product_tax'] );
+		$this->assertSame( '280', $order->totals['tax'] );
+		$this->assertSame( 'sale.tax_incomplete_excludes_shipping_tax', $order->totals['tax_source'] );
+	}
+
 	public function test_gmo_and_yahoo_point_activity_is_preserved_in_extras(): void {
 		$raw                         = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['granted_gmo_points']   = 10;

@@ -50,6 +50,17 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertNotNull( ( new TagTransformer() )->transform( $raw ) );
 	}
 
+	public function test_description_is_preserved_in_extras(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'showing';
+		$raw['expl']          = 'グループの説明文';
+
+		$tag = ( new TagTransformer() )->transform( $raw );
+
+		$this->assertNotNull( $tag );
+		$this->assertSame( 'グループの説明文', $tag->extras['description'] );
+	}
+
 	public function test_missing_id_throws_instead_of_yielding_empty_remote_id(): void {
 		// CanonicalTag::remote_id()は空文字を素通しするため、空文字のまま
 		// 通すとImporterが弾かず複数グループが同一remote_idに衝突する。

@@ -57,8 +57,9 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 			'tag'      => [
 				CanonicalTag::class,
 				[
-					'id'   => 'tag-1',
-					'name' => 'Tag 1',
+					'id'     => 'tag-1',
+					'name'   => 'Tag 1',
+					'extras' => [],
 				],
 			],
 			'customer' => [

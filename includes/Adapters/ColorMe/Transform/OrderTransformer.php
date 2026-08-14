@@ -195,6 +195,9 @@ final class OrderTransformer {
 
 	/**
 	 * `payments.json` の `fee` ではなく、実際にその受注へ課金された `sale.fee` を使う。
+	 * 分割受注では`segment`スキーマに対応フィールドが無く分割単位の実額が不明なため、
+	 * `totals()`の`fee`と同じく0にする（`sale.fee`は分割前1回分の額で、複数segmentに
+	 * そのまま転記すると重複計上になる）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
@@ -202,11 +205,12 @@ final class OrderTransformer {
 	private function payment( array $raw ): array {
 		$payment_id   = Cast::to_int_or_null( $raw['payment_id'] ?? null );
 		$payment_name = null !== $payment_id ? ( $this->payment_names[ $payment_id ] ?? null ) : null;
+		$fee          = $this->is_split( $raw ) ? 0 : ( Cast::to_int_or_null( $raw['fee'] ?? null ) ?? 0 );
 
 		return [
 			'method_id'   => Cast::to_string_or_null( $raw['payment_id'] ?? null ),
 			'method_name' => $payment_name,
-			'fee'         => Cast::money( $raw['fee'] ?? null ),
+			'fee'         => Cast::money( $fee ),
 		];
 	}
 
@@ -221,35 +225,37 @@ final class OrderTransformer {
 	 *
 	 * 分割受注（`segment.splitted === true`）の場合、商品・送料・熨斗等の合計は
 	 * `segment.*` がこの分割分の実額であり、トップレベルの `sale.*` は分割前の全体額のまま
-	 * のため使えない。`fee`/各種割引はsegment側に対応フィールドが無く分割単位の実額が
-	 * 不明なため、`sale.*` の値をそのまま使う（恒等式が崩れる場合は `residual` に表れる）。
-	 * 税額（`sale.tax`/`sale.totals`）も同様に分割前の全体額のままだが、`segment`スキーマには
-	 * 対応する税フィールドが無く分割単位の実額を導出できないため、`fee`等と違い「そのまま使う」
-	 * のではなく明示的に0 + `unavailable_for_split_order` とし、親受注の税額をそのまま
-	 * 転記してしまわないようにする（F1-6のdry-run警告で使う）。
+	 * のため使えない。`fee`/各種割引・税額（`sale.tax`/`sale.totals`）も同様に`segment`スキーマに
+	 * 対応フィールドが無く分割単位の実額を導出できない。この場合`sale.*`の値は「分割前の全体に
+	 * かかった1回分の額」であり、複数のsegmentをそれぞれ個別の注文としてインポートすると
+	 * 同じfee/割引が重複計上されてしまうため、`segment`が確定できた場合は`sale.*`をそのまま
+	 * 使わず明示的に0にする（既存フィクスチャで実測した`segment.total_price`は
+	 * `product_total_price + delivery_total_charge + gift_charges`のみで一致し、fee/discount/tax
+	 * を含まないことを確認済み。恒等式が崩れる場合は `residual` に表れる）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
 	 */
 	private function totals( array $raw ): array {
-		$amounts = $this->split_amounts( $raw );
+		$is_split = $this->is_split( $raw );
+		$amounts  = $this->split_amounts( $raw );
 
 		$subtotal       = Cast::to_int_or_null( $amounts['product_total_price'] ?? null ) ?? 0;
 		$shipping       = Cast::to_int_or_null( $amounts['delivery_total_charge'] ?? null ) ?? 0;
-		$fee            = Cast::to_int_or_null( $raw['fee'] ?? null ) ?? 0;
+		$fee            = $is_split ? 0 : Cast::to_int_or_null( $raw['fee'] ?? null ) ?? 0;
 		$noshi          = Cast::to_int_or_null( $amounts['noshi_total_charge'] ?? null ) ?? 0;
 		$card           = Cast::to_int_or_null( $amounts['card_total_charge'] ?? null ) ?? 0;
 		$wrapping       = Cast::to_int_or_null( $amounts['wrapping_total_charge'] ?? null ) ?? 0;
-		$discount_point = Cast::to_int_or_null( $raw['point_discount'] ?? null ) ?? 0;
-		$discount_gmo   = Cast::to_int_or_null( $raw['gmo_point_discount'] ?? null ) ?? 0;
-		$discount_other = Cast::to_int_or_null( $raw['other_discount'] ?? null ) ?? 0;
+		$discount_point = $is_split ? 0 : Cast::to_int_or_null( $raw['point_discount'] ?? null ) ?? 0;
+		$discount_gmo   = $is_split ? 0 : Cast::to_int_or_null( $raw['gmo_point_discount'] ?? null ) ?? 0;
+		$discount_other = $is_split ? 0 : Cast::to_int_or_null( $raw['other_discount'] ?? null ) ?? 0;
 		$total          = Cast::to_int_or_null( $amounts['total_price'] ?? null ) ?? 0;
 
 		$gift_charges = $noshi + $card + $wrapping;
 		$discount     = $discount_point + $discount_gmo + $discount_other;
 		$expected     = $subtotal + $shipping + $fee + $gift_charges - $discount;
 
-		[ $tax, $tax_normal, $tax_reduced, $tax_source ] = $this->tax( $raw, $this->is_split( $raw ) );
+		[ $tax, $tax_normal, $tax_reduced, $tax_source ] = $this->tax( $raw, $is_split );
 
 		$totals = [
 			'subtotal'       => Cast::money( $subtotal ),
@@ -297,9 +303,13 @@ final class OrderTransformer {
 			return [ $normal + $reduced, $normal, $reduced, 'sale.totals' ];
 		}
 
+		// `sale.totals`（nullable）が欠損している場合の最後の手段。`sale.tax`は商品分のみで
+		// 送料分の税を含まないため、送料に課税がある注文では実際より低い税額になる。
+		// 実額を捏造せず、欠損していない部分（商品分）だけを保持しつつ `tax_source` で
+		// 不完全である旨を明示し、F1-6のdry-run警告で使えるようにする。
 		$product_tax = Cast::to_int_or_null( $raw['tax'] ?? null ) ?? 0;
 
-		return [ $product_tax, $product_tax, 0, 'sale.tax' ];
+		return [ $product_tax, $product_tax, 0, 'sale.tax_incomplete_excludes_shipping_tax' ];
 	}
 
 	/**
