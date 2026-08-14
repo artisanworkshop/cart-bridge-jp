@@ -21,7 +21,7 @@ final readonly class CanonicalTag implements CanonicalModel {
 		public string $name
 	) {}
 
-	public function remote_id(): ?string {
+	public function remote_id(): string {
 		return $this->id;
 	}
 

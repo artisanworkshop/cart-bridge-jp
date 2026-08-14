@@ -23,7 +23,7 @@ final readonly class CanonicalCategory implements CanonicalModel {
 		public ?string $slug
 	) {}
 
-	public function remote_id(): ?string {
+	public function remote_id(): string {
 		return $this->id;
 	}
 

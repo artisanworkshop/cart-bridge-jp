@@ -30,7 +30,6 @@ final class AdapterRegistry {
 			 */
 			$adapters = apply_filters( 'cbjp/adapters/register', [] );
 			// 外部フィルター（Pro拡張含む）が配列以外を返す可能性への防御。
-			// @phpstan-ignore ternary.elseUnreachable (デフォルト引数から推論された静的型より、実行時のフィルター契約違反を優先して防御する)
 			self::$adapters = is_array( $adapters ) ? $adapters : [];
 		}
 
