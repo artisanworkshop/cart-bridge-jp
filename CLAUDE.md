@@ -80,6 +80,11 @@ npm run build                # 本番ビルド
 
 ## 作業の進め方
 
+- **`main`への直接push**: 開発・バグ対応は必ずPR経由（`/start-task`）。ドキュメントのみの変更
+  （`*.md`ファイルのみ。`composer.json`/`package.json`等の設定ファイルは含めない）に限り、
+  `main`への直接pushを許容する。GitHub側のブランチ保護は「PR必須」だが、パス単位の例外は
+  設定できず（クラシック保護・Rulesetsとも非対応）、管理者は元々バイパス可能なため、これは
+  GitHub側の強制ではなくClaude Codeが守る運用ルールである
 - 各フェーズ完了時に `composer lint && composer analyze && composer test` を通すこと
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）
