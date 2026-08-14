@@ -39,6 +39,18 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( true, $product->extras['stock_managed'] );
 	}
 
+	public function test_unlisted_flag_is_preserved_independently_of_display_state(): void {
+		$raw             = $this->product_fixture( 192616831 );
+		$raw['unlisted'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		// unlistedはdisplay_stateと独立: 「掲載中」のままpublishになるが、フラグはextrasに残す
+		// （F1-4がWooのカタログ可視性=hiddenへマッピングできるように）。
+		$this->assertSame( 'publish', $product->status );
+		$this->assertTrue( $product->extras['unlisted'] );
+	}
+
 	public function test_sku_falls_back_to_colorme_prefixed_id_when_model_number_missing(): void {
 		// フィクスチャ「フィクスチャ_オプション商品」はmodel_numberがnull。
 		$raw = $this->product_fixture( 192817398 );

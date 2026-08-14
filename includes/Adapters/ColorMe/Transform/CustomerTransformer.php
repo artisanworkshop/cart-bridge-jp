@@ -31,7 +31,7 @@ final class CustomerTransformer {
 			Cast::to_string_or_null( $raw['hojin'] ?? null ),
 			Cast::to_string_or_null( $raw['busho'] ?? null ),
 			$this->address( $raw ),
-			Cast::to_string_or_null( $raw['tel'] ?? null ),
+			Cast::first_non_empty( $raw['tel'] ?? null, $raw['tel_mobile'] ?? null ),
 			Cast::to_string_or_null( $raw['birthday'] ?? null ),
 			Cast::to_bool_or_null( $raw['receive_mail_magazine'] ?? null ),
 			Cast::to_string_or_null( $raw['other'] ?? null ),
@@ -46,13 +46,17 @@ final class CustomerTransformer {
 	 * @return array<string,mixed>
 	 */
 	private function address( array $raw ): array {
+		$pref_id = Cast::to_int_or_null( $raw['pref_id'] ?? null );
+
 		return [
 			'postal'    => Cast::to_string_or_null( $raw['postal'] ?? null ),
-			'pref_id'   => Cast::to_int_or_null( $raw['pref_id'] ?? null ),
+			'pref_id'   => $pref_id,
 			'pref_name' => Cast::to_string_or_null( $raw['pref_name'] ?? null ),
 			'address1'  => Cast::to_string_or_null( $raw['address1'] ?? null ),
 			'address2'  => Cast::to_string_or_null( $raw['address2'] ?? null ),
-			'country'   => 'JP',
+			// pref_id=48は「海外」を表す特別値（swagger customerスキーマ）。実際の国は
+			// ColorMe側から提供されないため、JP固定にせずnullのまま残す。
+			'country'   => 48 === $pref_id ? null : 'JP',
 		];
 	}
 

@@ -206,6 +206,9 @@ final class ProductTransformer {
 			'without_shipping'            => Cast::to_bool_or_null( $raw['without_shipping'] ?? null ),
 			'digital_content'             => Cast::to_bool_or_null( $raw['digital_content'] ?? null ),
 			'regular_purchase'            => Cast::to_bool_or_null( $raw['regular_purchase'] ?? null ),
+			// 「限定公開」フラグ（display_stateとは独立）。Wooのカタログ表示設定（visible/hidden等）に
+			// マッピングする想定でF1-4向けに退避する。
+			'unlisted'                    => Cast::to_bool_or_null( $raw['unlisted'] ?? null ),
 		];
 	}
 }

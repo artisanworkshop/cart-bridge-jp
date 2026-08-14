@@ -116,6 +116,8 @@ final class OrderTransformer {
 				'option1_value'       => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
 				'option2_value'       => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
 				'tax_reduced'         => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
+				// 刻印文字等、購入者が入力したカスタマイズ内容。案文構造がASP固有のため生のまま退避する。
+				'customizations'      => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
 			];
 		}
 
@@ -261,6 +263,37 @@ final class OrderTransformer {
 			'canceled'            => Cast::to_bool_or_null( $raw['canceled'] ?? null ),
 			'mobile'              => Cast::to_bool_or_null( $raw['mobile'] ?? null ),
 			'sale_deliveries'     => is_array( $raw['sale_deliveries'] ?? null ) ? $raw['sale_deliveries'] : [],
+			'customer_snapshot'   => $this->customer_snapshot( $raw ),
+		];
+	}
+
+	/**
+	 * 受注時点の購入者情報のスナップショット（D10の「明細は注文時の値を使う」と同じ考え方を
+	 * 請求先情報にも適用する）。ゲスト購入・退会済み顧客・プロフィール変更後の突合では、
+	 * `customer_ref` 経由で解決した現在の顧客レコードではなく、この値をWoo注文の請求先に使う。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return ?array<string,mixed>
+	 */
+	private function customer_snapshot( array $raw ): ?array {
+		$customer = $raw['customer'] ?? null;
+
+		if ( ! is_array( $customer ) ) {
+			return null;
+		}
+
+		return [
+			'email'      => Cast::to_string_or_null( $customer['mail'] ?? null ),
+			'name'       => Cast::to_string_or_null( $customer['name'] ?? null ),
+			'kana'       => Cast::to_string_or_null( $customer['furigana'] ?? null ),
+			'company'    => Cast::to_string_or_null( $customer['hojin'] ?? null ),
+			'department' => Cast::to_string_or_null( $customer['busho'] ?? null ),
+			'phone'      => Cast::first_non_empty( $customer['tel'] ?? null, $customer['tel_mobile'] ?? null ),
+			'postal'     => Cast::to_string_or_null( $customer['postal'] ?? null ),
+			'pref_id'    => Cast::to_int_or_null( $customer['pref_id'] ?? null ),
+			'pref_name'  => Cast::to_string_or_null( $customer['pref_name'] ?? null ),
+			'address1'   => Cast::to_string_or_null( $customer['address1'] ?? null ),
+			'address2'   => Cast::to_string_or_null( $customer['address2'] ?? null ),
 		];
 	}
 }

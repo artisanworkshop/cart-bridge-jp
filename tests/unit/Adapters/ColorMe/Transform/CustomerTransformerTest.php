@@ -84,4 +84,34 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'テスト備考', $customer->note );
 	}
+
+	public function test_phone_falls_back_to_mobile_when_tel_is_absent(): void {
+		$raw               = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
+		$raw['tel']        = null;
+		$raw['tel_mobile'] = '09000000002';
+
+		$customer = $this->transformer->transform( $raw );
+
+		$this->assertSame( '09000000002', $customer->phone );
+	}
+
+	public function test_phone_prefers_tel_over_mobile_when_both_present(): void {
+		$raw               = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
+		$raw['tel_mobile'] = '09000000002';
+
+		$customer = $this->transformer->transform( $raw );
+
+		$this->assertSame( '0300000001', $customer->phone );
+	}
+
+	public function test_overseas_pref_id_leaves_country_null_instead_of_forcing_jp(): void {
+		// swagger customerスキーマ: pref_id=48は「海外」を表す特別値。
+		$raw            = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
+		$raw['pref_id'] = 48;
+
+		$customer = $this->transformer->transform( $raw );
+
+		$this->assertNull( $customer->address['country'] );
+		$this->assertSame( 48, $customer->address['pref_id'] );
+	}
 }

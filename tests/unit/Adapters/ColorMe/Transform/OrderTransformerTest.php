@@ -143,6 +143,60 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '9240', $order->line_items[0]['subtotal'] );
 	}
 
+	public function test_line_item_customizations_are_preserved(): void {
+		$raw                                 = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['customizations'] = [
+			[
+				'name'  => '刻印',
+				'value' => 'Happy Birthday',
+			],
+		];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame(
+			[
+				[
+					'name'  => '刻印',
+					'value' => 'Happy Birthday',
+				],
+			],
+			$order->line_items[0]['customizations']
+		);
+	}
+
+	public function test_customer_snapshot_preserves_order_time_billing_info(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame(
+			[
+				'email'      => 'taro@example.com',
+				'name'       => '山田 太郎',
+				'kana'       => 'ヤマダ タロウ',
+				'company'    => null,
+				'department' => null,
+				'phone'      => '0300000001',
+				'postal'     => '1000001',
+				'pref_id'    => 13,
+				'pref_name'  => '東京都',
+				'address1'   => '千代田区千代田1-1-1',
+				'address2'   => '株式会社サンプル サンプルマンション101',
+			],
+			$order->extras['customer_snapshot']
+		);
+	}
+
+	public function test_customer_snapshot_is_null_when_customer_is_absent(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['customer'] );
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->extras['customer_snapshot'] );
+	}
+
 	private function make_transformer(): OrderTransformer {
 		return new OrderTransformer(
 			[
