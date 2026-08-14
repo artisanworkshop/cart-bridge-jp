@@ -28,7 +28,7 @@ final readonly class CanonicalStock implements CanonicalModel {
 		public array $extras = []
 	) {}
 
-	public function remote_id(): ?string {
+	public function remote_id(): string {
 		return $this->variant_ref ?? $this->product_ref;
 	}
 
