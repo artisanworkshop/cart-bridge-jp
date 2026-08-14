@@ -105,23 +105,26 @@ final class OrderTransformer {
 			}
 
 			$result[] = [
-				'remote_detail_id'      => Cast::to_string_or_null( $detail['id'] ?? null ),
-				'remote_product_id'     => Cast::to_string_or_null( $detail['product_id'] ?? null ),
-				'sku'                   => Cast::to_string_or_null( $detail['product_model_number'] ?? null ),
-				'name'                  => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
-				'price'                 => Cast::money( $detail['price_with_tax'] ?? null ),
-				'unit_price_excl_tax'   => Cast::money( $detail['price'] ?? null ),
-				'quantity'              => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
-				'subtotal'              => Cast::money( $detail['subtotal_price'] ?? null ),
+				'remote_detail_id'        => Cast::to_string_or_null( $detail['id'] ?? null ),
+				'remote_product_id'       => Cast::to_string_or_null( $detail['product_id'] ?? null ),
+				// 複数配送先の受注で、この明細がどの配送先に属するかを示す（sale_deliveriesの各要素のidと対応）。
+				// 配送方法IDとは別物（配送方法IDはshippingキーのmethod_idを参照）。
+				'remote_sale_delivery_id' => Cast::to_string_or_null( $detail['sale_delivery_id'] ?? null ),
+				'sku'                     => Cast::to_string_or_null( $detail['product_model_number'] ?? null ),
+				'name'                    => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
+				'price'                   => Cast::money( $detail['price_with_tax'] ?? null ),
+				'unit_price_excl_tax'     => Cast::money( $detail['price'] ?? null ),
+				'quantity'                => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
+				'subtotal'                => Cast::money( $detail['subtotal_price'] ?? null ),
 				// swagger: option1_value/option2_valueは「最新の商品情報」であり注文時点の値ではない
 				// （オプション名変更後は購入時の選択と食い違いうる）。注文時点の選択を表すのは
 				// `name`（pristine_product_full_name）のみのため、これらは変位判定用の参考値として
 				// current_ prefixを付けて明示的に区別する（D10: 明細は注文時の値を使う原則）。
-				'option1_value_current' => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
-				'option2_value_current' => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
-				'tax_reduced'           => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
+				'option1_value_current'   => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
+				'option2_value_current'   => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
+				'tax_reduced'             => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
 				// 刻印文字等、購入者が入力したカスタマイズ内容。案文構造がASP固有のため生のまま退避する。
-				'customizations'        => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
+				'customizations'          => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
 			];
 		}
 
@@ -190,20 +193,30 @@ final class OrderTransformer {
 	 * `sale.tax` は商品分のみで送料分の税を含まないため、注文全体の税額には
 	 * `sale.totals.normal_tax_amount + reduced_tax_amount` を使う（欠損時は `sale.tax` にフォールバック）。
 	 *
+	 * 分割受注（`segment.splitted === true`）の場合、商品・送料・熨斗等の合計は
+	 * `segment.*` がこの分割分の実額であり、トップレベルの `sale.*` は分割前の全体額のまま
+	 * のため使えない。`fee`/各種割引はsegment側に対応フィールドが無く分割単位の実額が
+	 * 不明なため、`sale.*` の値をそのまま使う（恒等式が崩れる場合は `residual` に表れる）。
+	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
 	 */
 	private function totals( array $raw ): array {
-		$subtotal       = Cast::to_int_or_null( $raw['product_total_price'] ?? null ) ?? 0;
-		$shipping       = Cast::to_int_or_null( $raw['delivery_total_charge'] ?? null ) ?? 0;
+		$segment = $raw['segment'] ?? null;
+		// `segment` を分割金額の情報源として使うのは `splitted === true` の場合のみ。
+		// 分割されていない受注の `segment` は自身の受注IDを指すだけの非分割メタ情報。
+		$amounts = ( is_array( $segment ) && true === ( $segment['splitted'] ?? null ) ) ? $segment : $raw;
+
+		$subtotal       = Cast::to_int_or_null( $amounts['product_total_price'] ?? null ) ?? 0;
+		$shipping       = Cast::to_int_or_null( $amounts['delivery_total_charge'] ?? null ) ?? 0;
 		$fee            = Cast::to_int_or_null( $raw['fee'] ?? null ) ?? 0;
-		$noshi          = Cast::to_int_or_null( $raw['noshi_total_charge'] ?? null ) ?? 0;
-		$card           = Cast::to_int_or_null( $raw['card_total_charge'] ?? null ) ?? 0;
-		$wrapping       = Cast::to_int_or_null( $raw['wrapping_total_charge'] ?? null ) ?? 0;
+		$noshi          = Cast::to_int_or_null( $amounts['noshi_total_charge'] ?? null ) ?? 0;
+		$card           = Cast::to_int_or_null( $amounts['card_total_charge'] ?? null ) ?? 0;
+		$wrapping       = Cast::to_int_or_null( $amounts['wrapping_total_charge'] ?? null ) ?? 0;
 		$discount_point = Cast::to_int_or_null( $raw['point_discount'] ?? null ) ?? 0;
 		$discount_gmo   = Cast::to_int_or_null( $raw['gmo_point_discount'] ?? null ) ?? 0;
 		$discount_other = Cast::to_int_or_null( $raw['other_discount'] ?? null ) ?? 0;
-		$total          = Cast::to_int_or_null( $raw['total_price'] ?? null ) ?? 0;
+		$total          = Cast::to_int_or_null( $amounts['total_price'] ?? null ) ?? 0;
 
 		$gift_charges = $noshi + $card + $wrapping;
 		$discount     = $discount_point + $discount_gmo + $discount_other;
@@ -264,6 +277,8 @@ final class OrderTransformer {
 			'remote_id'           => Cast::to_string_or_null( $raw['id'] ?? null ),
 			'external_order_id'   => Cast::to_string_or_null( $raw['external_order_id'] ?? null ),
 			'shop_coupon'         => is_array( $raw['shop_coupon'] ?? null ) ? $raw['shop_coupon'] : null,
+			// 受注分割時の親子関係の紐付けに使う生データ。分割金額の算出元と同一のデータを保持する。
+			'segment'             => is_array( $raw['segment'] ?? null ) ? $raw['segment'] : null,
 			'other_discount_name' => Cast::to_string_or_null( $raw['other_discount_name'] ?? null ),
 			'product_tax'         => Cast::to_int_or_null( $raw['tax'] ?? null ),
 			'granted_points'      => Cast::to_int_or_null( $raw['granted_points'] ?? null ),

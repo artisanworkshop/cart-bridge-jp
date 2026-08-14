@@ -19,8 +19,9 @@ final class CategoryTransformer {
 	 * `hidden`/`members_only` のカテゴリーは `CanonicalCategory` に可視性を表すフィールドが
 	 * 無いため、ここで除外する（`showing`のみを保持）。Wooの商品カテゴリーは常に公開の
 	 * タクソノミーであり、可視性を保ったまま作成する手段が無いため、除外が最も安全な既定挙動。
-	 * 大カテゴリーが除外された場合、その小カテゴリーの `parent_id` は存在しないカテゴリーを
-	 * 指すことになる（小カテゴリー自体が可視でも、F1-4側で親なし扱いにする必要がある）。
+	 * 大カテゴリーが除外された場合、可視な小カテゴリーは親なし（トップレベル）として扱う
+	 * （存在しない大カテゴリーを指す`parent_id`を残すと、mappings経由で親を解決するF1-4側の
+	 * 処理が不整合を起こすため）。
 	 *
 	 * @param array<string,mixed> $raw `categories.json` の `categories[]` の1要素。
 	 * @return array<int,CanonicalCategory> 大カテゴリー0〜1件 + 小カテゴリーN件。
@@ -32,9 +33,10 @@ final class CategoryTransformer {
 			return [];
 		}
 
-		$categories = [];
+		$categories      = [];
+		$parent_included = self::is_visible( $raw['display_state'] ?? null );
 
-		if ( self::is_visible( $raw['display_state'] ?? null ) ) {
+		if ( $parent_included ) {
 			$categories[] = new CanonicalCategory(
 				$id,
 				Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
@@ -60,7 +62,7 @@ final class CategoryTransformer {
 				$categories[] = new CanonicalCategory(
 					$child_id,
 					Cast::to_string_or_null( $child['name'] ?? null ) ?? '',
-					$id,
+					$parent_included ? $id : null,
 					null
 				);
 			}

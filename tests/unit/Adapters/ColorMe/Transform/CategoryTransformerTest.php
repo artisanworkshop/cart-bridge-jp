@@ -113,4 +113,28 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '100', $categories[0]->id );
 		$this->assertSame( '100-2', $categories[1]->id );
 	}
+
+	public function test_visible_child_of_a_filtered_parent_becomes_top_level_not_dangling(): void {
+		// 親カテゴリーがhidden/members_onlyで除外された場合、可視な子カテゴリーの
+		// parent_idを存在しない親IDのまま残さず、親なし（トップレベル）として扱う。
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '非公開の親カテゴリー',
+			'display_state' => 'hidden',
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '公開の子カテゴリー',
+					'display_state' => 'showing',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 1, $categories );
+		$this->assertSame( '100-1', $categories[0]->id );
+		$this->assertNull( $categories[0]->parent_id );
+	}
 }

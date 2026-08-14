@@ -177,6 +177,58 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'option2_value_current', $order->line_items[0] );
 	}
 
+	public function test_line_item_retains_its_delivery_association(): void {
+		// 複数配送先の受注で、どの明細がどの配送先(sale_deliveries[].id)に属するかを
+		// Woo writerがraw extrasを逆解析せずに判定できるようにする。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '212059370', $order->line_items[0]['remote_sale_delivery_id'] );
+		$this->assertSame( $order->extras['sale_deliveries'][0]['id'], (int) $order->line_items[0]['remote_sale_delivery_id'] );
+	}
+
+	public function test_split_order_uses_segment_amounts_not_parent_order_totals(): void {
+		// segment.splitted=trueの受注は、商品・送料・熨斗等の合計がsegment側の実額であり、
+		// トップレベルのsale.*は分割前の全体額のまま(=このsplitには使えない)。
+		$raw            = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['segment'] = [
+			'id'                    => 1,
+			'name'                  => '区分A',
+			'parent_sale_id'        => 4434233,
+			'splitted'              => true,
+			'product_total_price'   => 2000,
+			'delivery_total_charge' => 700,
+			'total_price'           => 2700,
+			'noshi_total_charge'    => 0,
+			'card_total_charge'     => 0,
+			'wrapping_total_charge' => 0,
+		];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '2000', $order->totals['subtotal'] );
+		$this->assertSame( '700', $order->totals['shipping'] );
+		$this->assertSame( '2700', $order->totals['total'] );
+		$this->assertSame( 4434233, $order->extras['segment']['parent_sale_id'] );
+	}
+
+	public function test_non_split_order_ignores_segment_and_uses_sale_level_totals(): void {
+		// segment.splitted=falseの場合、segmentは自身の受注IDを指すだけの非分割メタ情報であり、
+		// 分割金額の情報源としては使わない。
+		$raw            = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['segment'] = [
+			'id'                  => 1,
+			'parent_sale_id'      => (int) $raw['id'],
+			'splitted'            => false,
+			'product_total_price' => 999999,
+		];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '4080', $order->totals['total'] );
+	}
+
 	public function test_line_item_customizations_are_preserved(): void {
 		$raw                                 = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['details'][0]['customizations'] = [
