@@ -94,7 +94,16 @@ final class OrderTransformer {
 	private function split_amounts( array $raw ): array {
 		$segment = $raw['segment'] ?? null;
 
-		return ( is_array( $segment ) && true === ( $segment['splitted'] ?? null ) ) ? $segment : $raw;
+		return ( $this->is_split( $raw ) && is_array( $segment ) ) ? $segment : $raw;
+	}
+
+	/**
+	 * @param array<string,mixed> $raw
+	 */
+	private function is_split( array $raw ): bool {
+		$segment = $raw['segment'] ?? null;
+
+		return is_array( $segment ) && true === ( $segment['splitted'] ?? null );
 	}
 
 	/**
@@ -214,6 +223,10 @@ final class OrderTransformer {
 	 * `segment.*` がこの分割分の実額であり、トップレベルの `sale.*` は分割前の全体額のまま
 	 * のため使えない。`fee`/各種割引はsegment側に対応フィールドが無く分割単位の実額が
 	 * 不明なため、`sale.*` の値をそのまま使う（恒等式が崩れる場合は `residual` に表れる）。
+	 * 税額（`sale.tax`/`sale.totals`）も同様に分割前の全体額のままだが、`segment`スキーマには
+	 * 対応する税フィールドが無く分割単位の実額を導出できないため、`fee`等と違い「そのまま使う」
+	 * のではなく明示的に0 + `unavailable_for_split_order` とし、親受注の税額をそのまま
+	 * 転記してしまわないようにする（F1-6のdry-run警告で使う）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
@@ -236,7 +249,7 @@ final class OrderTransformer {
 		$discount     = $discount_point + $discount_gmo + $discount_other;
 		$expected     = $subtotal + $shipping + $fee + $gift_charges - $discount;
 
-		[ $tax, $tax_normal, $tax_reduced, $tax_source ] = $this->tax( $raw );
+		[ $tax, $tax_normal, $tax_reduced, $tax_source ] = $this->tax( $raw, $this->is_split( $raw ) );
 
 		$totals = [
 			'subtotal'       => Cast::money( $subtotal ),
@@ -264,10 +277,17 @@ final class OrderTransformer {
 	}
 
 	/**
+	 * `segment`スキーマには税額に対応するフィールドが無いため、分割受注では
+	 * 親受注（分割前の全体）の税額をそのまま転記せず、明示的に「不明」として返す。
+	 *
 	 * @param array<string,mixed> $raw
 	 * @return array{0:int,1:int,2:int,3:string}
 	 */
-	private function tax( array $raw ): array {
+	private function tax( array $raw, bool $is_split ): array {
+		if ( $is_split ) {
+			return [ 0, 0, 0, 'unavailable_for_split_order' ];
+		}
+
 		$order_totals = $raw['totals'] ?? null;
 
 		if ( is_array( $order_totals ) && isset( $order_totals['normal_tax_amount'] ) ) {

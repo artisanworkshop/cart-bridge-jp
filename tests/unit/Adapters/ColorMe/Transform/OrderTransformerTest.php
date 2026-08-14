@@ -215,6 +215,27 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '700', $order->shipping['fee'] );
 	}
 
+	public function test_split_order_does_not_copy_parent_orders_tax(): void {
+		// segmentスキーマには税額フィールドが無いため、分割受注では親受注（分割前の全体）の
+		// 税額（sale.totals.normal_tax_amount=371）をそのまま転記せず、明示的に不明とする。
+		$raw            = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['segment'] = [
+			'id'                    => 1,
+			'splitted'              => true,
+			'product_total_price'   => 2000,
+			'delivery_total_charge' => 700,
+			'total_price'           => 2700,
+			'noshi_total_charge'    => 0,
+			'card_total_charge'     => 0,
+			'wrapping_total_charge' => 0,
+		];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '0', $order->totals['tax'] );
+		$this->assertSame( 'unavailable_for_split_order', $order->totals['tax_source'] );
+	}
+
 	public function test_gmo_and_yahoo_point_activity_is_preserved_in_extras(): void {
 		$raw                         = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['granted_gmo_points']   = 10;
