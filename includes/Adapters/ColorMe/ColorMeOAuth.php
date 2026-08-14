@@ -1,0 +1,232 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Adapters\ColorMe;
+
+use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\HttpClient;
+use CartBridgeJP\Support\RateLimiter;
+use CartBridgeJP\Support\TokenStore;
+
+/**
+ * カラーミーショップ OAuth2 認可コードフロー（`01-plan-colorme.md` §1 / swagger.json 添付ドキュメント）。
+ *
+ * - アクセストークンは無期限（リフレッシュ処理不要。取得したら `TokenStore` にそのまま保存する）
+ * - 認可コードは発行から10分・1回のみ交換可能
+ * - リダイレクトURIに `urn:ietf:wg:oauth:2.0:oob`（{@see self::OOB_REDIRECT_URI}）を指定した場合、
+ *   カラーミー側は自サイトの `https://api.shop-pro.jp/oauth/authorize/{code}` へリダイレクトし、
+ *   コード末尾がそのまま認可コードになる。これをローカル開発等、httpsの公開コールバックURLを
+ *   用意できない環境向けの「コード手動貼り付け」フォールバックとして利用する
+ *   （要検証#7=ローカル開発でのhttpリダイレクトURI可否は本実装時点で未確定。詳細は 03 §9）
+ */
+final class ColorMeOAuth {
+
+	private const AUTHORIZE_URL = 'https://api.shop-pro.jp/oauth/authorize';
+	private const TOKEN_URL     = 'https://api.shop-pro.jp/oauth/token';
+
+	/**
+	 * 01-plan-colorme.md §1で確定したスコープ。
+	 */
+	private const SCOPE = 'read_products write_products read_sales write_sales read_shop_coupons';
+
+	private const RATE_LIMIT_PER_MINUTE = 100;
+
+	private const STATE_TTL_SECONDS = 600;
+
+	public const OOB_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
+
+	public function __construct(
+		private readonly TokenStore $token_store,
+		private readonly HttpClient $http_client
+	) {}
+
+	public static function for_platform(): self {
+		return new self(
+			new TokenStore( 'colorme' ),
+			new HttpClient( new RateLimiter( 'colorme', self::RATE_LIMIT_PER_MINUTE ) )
+		);
+	}
+
+	public function has_credentials(): bool {
+		$settings = $this->token_store->settings();
+
+		return '' !== ( $settings['client_id'] ?? '' ) && '' !== ( $settings['client_secret'] ?? '' );
+	}
+
+	public function save_credentials( string $client_id, string $client_secret ): void {
+		$this->token_store->save_settings(
+			[
+				'client_id'     => $client_id,
+				'client_secret' => $client_secret,
+			]
+		);
+	}
+
+	/**
+	 * @throws \RuntimeException client_id/client_secret が未設定の場合。
+	 */
+	public function authorize_url( string $redirect_uri, ?int $state_user_id = null ): string {
+		$settings      = $this->token_store->settings();
+		$client_id     = (string) ( $settings['client_id'] ?? '' );
+		$client_secret = (string) ( $settings['client_secret'] ?? '' );
+
+		if ( '' === $client_id || '' === $client_secret ) {
+			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
+		}
+
+		$args = [
+			'response_type' => 'code',
+			'client_id'     => $client_id,
+			'redirect_uri'  => $redirect_uri,
+			'scope'         => self::SCOPE,
+		];
+
+		// stateはコールバックでのCSRF検証用（03 §6）。OOBフローは我々への redirect が発生しないため
+		// 検証しようがなく、呼び出し側（$state_user_id省略）で生成をスキップできるようにする。
+		if ( null !== $state_user_id ) {
+			$args['state'] = $this->issue_state( $state_user_id );
+		}
+
+		// add_query_arg()は値をurlencodeしない（WP側の既知の挙動）ため、PHP標準の
+		// http_build_query()でクエリ文字列を組み立てる。セパレータは明示（ini設定
+		// arg_separator.output=&amp; の環境で `amp;client_id` になるのを防ぐ）。
+		return self::AUTHORIZE_URL . '?' . http_build_query( $args, '', '&' );
+	}
+
+	/**
+	 * `state` を一度きりの transient として発行する（管理ユーザーIDに紐付け、10分）。
+	 */
+	private function issue_state( int $user_id ): string {
+		$state = wp_generate_password( 32, false );
+
+		set_transient( $this->state_transient_key( $state ), $user_id, self::STATE_TTL_SECONDS );
+
+		return $state;
+	}
+
+	/**
+	 * 一度きりの検証（成功・失敗いずれの場合もtransientを消費する）。
+	 *
+	 * ASPからの外部リダイレクトで叩かれるコールバックはREST cookie認証のnonceを
+	 * 持たないため、WordPressは`get_current_user_id()`をリクエスト単位で0にリセットする
+	 * （`rest_cookie_check_errors()`）。よって「発行時の管理ユーザーIDと突き合わせる」検証は
+	 * 本番のコールバックで必ず失敗する。stateトークン自体が`get_authorize_url()`
+	 * （nonce+capability保護下）でのみ発行される一度きりの乱数のため、存在確認のみで
+	 * CSRF対策として十分である。
+	 */
+	public function verify_state( string $state ): bool {
+		$key         = $this->state_transient_key( $state );
+		$stored_user = get_transient( $key );
+
+		delete_transient( $key );
+
+		return false !== $stored_user;
+	}
+
+	private function state_transient_key( string $state ): string {
+		return 'cbjp_colorme_oauth_state_' . $state;
+	}
+
+	/**
+	 * カラーミー側のOOBリダイレクト先 `https://api.shop-pro.jp/oauth/authorize/{code}` や、
+	 * ユーザーが貼り付けた生の認可コードの両方を受け付ける。
+	 */
+	public function extract_code_from_input( string $input ): string {
+		$trimmed = trim( $input );
+		$path    = (string) wp_parse_url( $trimmed, PHP_URL_PATH );
+
+		if ( '' === $path ) {
+			return $trimmed;
+		}
+
+		$segments = explode( '/', rtrim( $path, '/' ) );
+
+		return (string) end( $segments );
+	}
+
+	/**
+	 * @throws ApiException トークン交換に失敗した場合。
+	 */
+	public function exchange_code( string $code, string $redirect_uri ): void {
+		$settings      = $this->token_store->settings();
+		$client_id     = (string) ( $settings['client_id'] ?? '' );
+		$client_secret = (string) ( $settings['client_secret'] ?? '' );
+
+		if ( '' === $client_id || '' === $client_secret ) {
+			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
+		}
+
+		$body = [
+			'grant_type'    => 'authorization_code',
+			'client_id'     => $client_id,
+			'client_secret' => $client_secret,
+			'code'          => $code,
+			'redirect_uri'  => $redirect_uri,
+		];
+
+		try {
+			$response = $this->http_client->request(
+				'POST',
+				self::TOKEN_URL,
+				[
+					'headers' => [ 'Content-Type' => 'application/x-www-form-urlencoded' ],
+					'body'    => http_build_query( $body, '', '&' ),
+				]
+			);
+		} catch ( ApiException $exception ) {
+			throw $this->translate_exception( $exception );
+		}
+
+		$decoded = json_decode( $response['body'], true );
+
+		if ( ! is_array( $decoded ) || ! isset( $decoded['access_token'] ) || ! is_string( $decoded['access_token'] ) || '' === $decoded['access_token'] ) {
+			throw new ApiException( 'ColorMe token exchange returned an unexpected response.', $response['status'] );
+		}
+
+		// トークンPOSTの往復中に管理者が資格情報を削除・変更している可能性がある。
+		// 交換開始時に読んだスナップショットを書き戻すと、削除済み資格情報の復活や
+		// 新しい設定の上書きが起きるため、TokenStore側のCAS（トークン取得に使った
+		// client_id/secretが現在も保存されている場合のみ原子的に保存。あわせて
+		// 前のショップのextrasを破棄）に委ねる。
+		$saved = $this->token_store->save_token_if_credentials_match(
+			$client_id,
+			$client_secret,
+			$decoded['access_token']
+		);
+
+		if ( ! $saved ) {
+			throw new \RuntimeException(
+				'The stored credentials were changed or removed while the token exchange was in flight. Please try connecting again.'
+			);
+		}
+	}
+
+	/**
+	 * {@see ColorMeClient::translate_exception()} と同じカラーミーエラー形式の変換。
+	 * トークンエンドポイントは `/v1/` 配下のClientを経由しないため個別に持つ。
+	 */
+	private function translate_exception( ApiException $exception ): ApiException {
+		$body    = $exception->context()['body'] ?? null;
+		$decoded = is_string( $body ) ? json_decode( $body, true ) : null;
+
+		if ( ! is_array( $decoded ) || ! isset( $decoded['errors'][0] ) || ! is_array( $decoded['errors'][0] ) ) {
+			return $exception;
+		}
+
+		$first = $decoded['errors'][0];
+
+		return new ApiException(
+			isset( $first['message'] ) ? (string) $first['message'] : $exception->getMessage(),
+			$exception->status_code(),
+			array_merge(
+				$exception->context(),
+				[ 'colorme_error_code' => isset( $first['code'] ) ? (int) $first['code'] : 0 ]
+			),
+			$exception
+		);
+	}
+}

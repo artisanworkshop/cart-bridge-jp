@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Importer;
@@ -463,5 +464,23 @@ final class JobManagerTest extends WP_UnitTestCase {
 			// 再エンキューされていること（retry_jobがpendingに戻すだけで放置しない）。
 			$this->assertTrue( as_has_scheduled_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' ) );
 		}
+	}
+
+	public function test_start_run_rejects_platforms_whose_adapter_does_not_implement_fetching_yet(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$this->expectException( \RuntimeException::class );
+
+		$manager->start_run( 'dry_run', ColorMeAdapter::ID, [ 'product' ] );
 	}
 }

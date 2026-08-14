@@ -8,7 +8,13 @@
 ## 進め方（各セッション共通）
 
 1. セッション開始時に `docs/00〜03` と本ファイルの該当タスクを読む
-2. `main` から `feat/{タスクID}-{短い説明}` ブランチを作成
+2. `main` から `feat/{タスクID}-{短い説明}` ブランチを作成。
+   **ただし1タスク=1ブランチを機械的に適用しない**: 隣接するタスクが同じ依存レイヤーに属し、
+   単体では動作確認可能な振る舞いを生まない場合はまとめて1ブランチ/PRにする
+   （例: Phase 1では `F1-1(Client)+F1-2(OAuth/接続UI)`＝「接続できる」単位、
+   `F1-3(Transformer)+F1-4(WooRepository)`＝フィクスチャ検証のみで閉じる単位、でまとめ、
+   `F1-5(Adapter.fetch*+Importer結合)`＝最初にE2Eで動く統合ポイントは単独PRのまま。
+   Phase 2/3でも同じ考え方を類推適用する）
 3. plan モードで実装計画を立ててから着手
 4. **完了条件**: 各タスク記載の成果物 + `composer lint && composer analyze && composer test` が通ること（npm を含むタスクは `npm run lint && npm run build` も）
 5. PR 作成（gh コマンド）→ CI 通過 → マージ → 本ファイルのチェックボックスを更新
@@ -79,12 +85,12 @@
 
 > 前提: デベロッパー登録・テストショップ・アプリ登録済み（D2）。詳細は `01-plan-colorme.md`。
 
-- [ ] **F1-0: フィクスチャ収集 + swagger精査**
+- [x] **F1-0: フィクスチャ収集 + swagger精査**
   - `swagger.json` を `tests/fixtures/colorme/` に保存し、商品/受注/顧客スキーマを精査
   - **要検証#1（画像書き込み可否）/#14（受注の新しい順ソート）/#15（商品・顧客のID指定取得）をここで確定** → 03 §9 と Capabilities を更新
   - テストショップにサンプルデータ（バリエーション商品・オプション商品・法人顧客・各決済の受注）を登録し、各エンドポイントの実レスポンスJSONをフィクスチャ保存
-- [ ] **F1-1: ColorMeClient**（GET/POST/PUT、errors[]→ApiException、RateLimiter統合）+ ユニットテスト
-- [ ] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。**要検証#7を確定**）
+- [x] **F1-1: ColorMeClient**（GET/POST/PUT、errors[]→ApiException、RateLimiter統合）+ ユニットテスト
+- [x] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。要検証#7は未確定のまま据え置き=ユーザー判断で後回し。自動リダイレクト・OOB手動貼付の両対応で実装済み）
 - [ ] **F1-3: Transformer 4種+**（Product/Customer/Order/Category + Tag(groups)/Coupon読取。フィクスチャベースのユニットテスト。マッピング表は 01 §4）
 - [ ] **F1-4: WooRepository**（商品/カテゴリ/タグ/顧客/受注/在庫のupsert書込。画像sideload、受注は 03 §5 の詳細仕様・HPOS対応CRUDのみ使用）+ テスト
 - [ ] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**。§10.2 #5後半の受注10件未満時フォールバック補完の実装を含む）

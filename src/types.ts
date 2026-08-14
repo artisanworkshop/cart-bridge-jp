@@ -25,7 +25,20 @@ export interface Connection {
 	label: string;
 	connected: boolean;
 	needs_reconnect: boolean;
+	has_settings: boolean;
 	masked_token: string | null;
 	capabilities: Capabilities;
+	callback_url: string | null;
 	connection_fields: ConnectionField[];
+}
+
+export interface AuthorizeUrlResponse {
+	url: string;
+	redirect_uri: string;
+}
+
+export interface TestConnectionResult {
+	ok: boolean;
+	shop_name: string | null;
+	message: string | null;
 }

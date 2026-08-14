@@ -11,13 +11,23 @@ namespace CartBridgeJP\Support;
  * プラットフォームのAPI資格情報を暗号化して保存する。
  *
  * - 暗号化: `sodium_crypto_secretbox`（鍵は AUTH_KEY/AUTH_SALT から導出）
- * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?}`（D13）。
- *   無期限トークン（カラーミー/MakeShop）も同構造に格納する
+ * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?, settings?}`（D13）。
+ *   無期限トークン（カラーミー/MakeShop）も同構造に格納する。`settings`はOAuth接続前のclient_id/secret等、
+ *   `extras`はOAuth完了後にアダプタが保存する付随情報（例: shop.jsonのcontract_plan）を想定した区分
+ * - `access_token`が空文字のpayload（`save_settings()`経由）は「設定済みだが未接続」を表す
  * - AUTH_KEY変更等による復号失敗、リフレッシュトークン失効時は例外にせず「再接続が必要」を意味する null を返す
  */
 final class TokenStore {
 
 	private const LOCK_TTL_SECONDS = 30;
+
+	/**
+	 * {@see self::compare_and_swap()} の結果種別。
+	 */
+	private const CAS_SAVED          = 0;
+	private const CAS_MUTATE_ABORTED = 1;
+	private const CAS_CONFLICT       = 2;
+	private const CAS_RETRY_ATTEMPTS = 3;
 
 	/**
 	 * 復号済みペイロードのインスタンス内キャッシュ。false = 未読込。
@@ -31,19 +41,81 @@ final class TokenStore {
 	public function __construct( private readonly string $platform ) {}
 
 	/**
-	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>} $payload
+	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>} $payload
 	 */
 	public function save( array $payload ): void {
 		if ( '' === $payload['access_token'] ) {
 			throw new \InvalidArgumentException( 'access_token is required.' );
 		}
 
+		$this->persist( $payload );
+	}
+
+	/**
+	 * OAuth前段階の接続設定（例: client_id/client_secret）を保存する。まだアクセストークンが
+	 * 存在しない接続でも呼べるよう、既存payloadの`settings`キーにのみマージする
+	 * （`access_token`が空のpayloadを許容する点が {@see self::save()} と異なる）。
+	 *
+	 * この保存はトークン交換（{@see self::save_token_if_credentials_match()}）や
+	 * 接続テスト（{@see self::update_extras_if_token_matches()}）と同時に走る可能性がある。
+	 * 単純な「読み取り→マージ→書き込み」では、その間に別リクエストが保存した新しい
+	 * access_token/extrasを古いスナップショットで巻き戻してしまうため、他の書き込みと
+	 * 同じCASでマージする。オプション未作成（初回保存）はCASの前提（既存blobとの一致）に
+	 * 乗らないため、その場合のみ `add_option()`（既存なら書き込まない）で原子的に作成する。
+	 *
+	 * @param array<string,mixed> $settings
+	 * @throws \RuntimeException CASリトライが尽きるほどの連続した同時書き込み衝突が続いた場合
+	 *         （極めて稀）。呼び出し側に再試行を委ねる。
+	 */
+	public function save_settings( array $settings ): void {
+		$merge = static function ( array $payload ) use ( $settings ): array {
+			$payload['settings'] = array_merge( $payload['settings'] ?? [], $settings );
+
+			return $payload;
+		};
+
+		for ( $attempt = 0; $attempt < self::CAS_RETRY_ATTEMPTS; $attempt++ ) {
+			if ( self::CAS_SAVED === $this->compare_and_swap( $merge ) ) {
+				return;
+			}
+
+			if ( add_option(
+				$this->option_name(),
+				$this->encrypt( (string) wp_json_encode( $merge( [ 'access_token' => '' ] ) ) ),
+				'',
+				false
+			) ) {
+				$this->payload_cache = $merge( [ 'access_token' => '' ] );
+
+				return;
+			}
+		}
+
+		// 極めて稀な連続競合。ここで無条件read-merge-writeへフォールバックするとCAS保証を
+		// 破り、この間に割り込んだ他の書き込み（トークン交換・接続テストのextras更新等）を
+		// 巻き戻しかねない。保存を諦めて呼び出し側に再試行を委ねる。
+		throw new \RuntimeException( 'Could not save settings due to repeated concurrent writes. Please try again.' );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	public function settings(): array {
+		$payload = $this->get();
+
+		return $payload['settings'] ?? [];
+	}
+
+	/**
+	 * @param array<string,mixed> $payload
+	 */
+	private function persist( array $payload ): void {
 		update_option( $this->option_name(), $this->encrypt( (string) wp_json_encode( $payload ) ), false );
 		$this->payload_cache = $payload;
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>}|null
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
 	 *         復号失敗・未接続の場合は null（呼び出し側は「再接続が必要」として扱う）。
 	 */
 	public function get(): ?array {
@@ -57,7 +129,135 @@ final class TokenStore {
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>}|null
+	 * 保存中のaccess_tokenが$expected_tokenと一致する場合のみextrasを更新する（CAS）。
+	 *
+	 * 「読み取り→比較→書き込み」の系列を、別リクエストの保存（OAuth再認可等）と
+	 * 競合しても安全にするため、{@see self::compare_and_swap()} で原子的に書き込む。
+	 *
+	 * @param callable(array<string,mixed>):array<string,mixed> $update 現在のextrasを受け取り新しいextrasを返す。
+	 * @return bool 書き込んだ場合true。トークン不一致・並行更新・未保存・復号失敗はfalse。
+	 */
+	public function update_extras_if_token_matches( string $expected_token, callable $update ): bool {
+		return self::CAS_SAVED === $this->compare_and_swap(
+			static function ( array $payload ) use ( $expected_token, $update ): ?array {
+				if ( ( $payload['access_token'] ?? null ) !== $expected_token ) {
+					return null;
+				}
+
+				$extras            = is_array( $payload['extras'] ?? null ) ? $payload['extras'] : [];
+				$payload['extras'] = $update( $extras );
+
+				if ( [] === $payload['extras'] ) {
+					unset( $payload['extras'] );
+				}
+
+				return $payload;
+			}
+		);
+	}
+
+	/**
+	 * 保存中のsettings（client_id/client_secret）がトークン取得に使った資格情報と
+	 * 一致する場合のみ、access_tokenを保存する（CAS）。
+	 *
+	 * OAuthのトークン交換はHTTP往復を挟むため、その間に管理者が資格情報を削除・
+	 * 変更している可能性がある。交換開始時のスナップショットを書き戻すと削除済み
+	 * 資格情報の復活や新しい設定の上書きが起きるため、原子的CASで書き込み、
+	 * 発行済みトークンの紐づく資格情報が現存しない場合は保存しない。
+	 * 保存時はextras（前のショップの契約プラン等）を破棄する。
+	 *
+	 * このCASは、設定保存や接続テストのextras更新など無関係な同時書き込みとも
+	 * 衝突しうる。資格情報自体は一致しているのにその衝突だけで発行済みトークンを
+	 * 破棄すると管理者にOAuthのやり直しを強いてしまうため、資格情報の不一致
+	 * （中止）と単なる書き込み衝突（再試行可）を区別し、後者のみ有限回リトライする。
+	 *
+	 * @return bool 書き込んだ場合true。資格情報の不一致・削除済み・リトライ上限到達はfalse。
+	 */
+	public function save_token_if_credentials_match( string $client_id, string $client_secret, string $access_token ): bool {
+		$mutate = static function ( array $payload ) use ( $client_id, $client_secret, $access_token ): ?array {
+			$settings = is_array( $payload['settings'] ?? null ) ? $payload['settings'] : [];
+
+			if ( ( $settings['client_id'] ?? null ) !== $client_id || ( $settings['client_secret'] ?? null ) !== $client_secret ) {
+				return null;
+			}
+
+			$payload['access_token'] = $access_token;
+			unset( $payload['extras'] );
+
+			return $payload;
+		};
+
+		for ( $attempt = 0; $attempt < self::CAS_RETRY_ATTEMPTS; $attempt++ ) {
+			$result = $this->compare_and_swap( $mutate );
+
+			if ( self::CAS_CONFLICT !== $result ) {
+				return self::CAS_SAVED === $result;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * 現在のpayloadを読み、$mutateの返すpayloadへ原子的に置き換える（CAS）。
+	 *
+	 * キャッシュを介さずDBから直接読み、読み取った暗号化blob自体を比較値とした
+	 * UPDATEで書き込む。blobは保存ごとにnonceが変わり一意なため、読み取り後に
+	 * 他の保存が割り込めば必ず不一致になり、0行更新（＝何もしない）で終わる。
+	 *
+	 * @param callable(array<string,mixed>):(array<string,mixed>|null) $mutate 現在のpayloadを受け取り
+	 *        新しいpayloadを返す。nullを返すと保存せず中止する。
+	 * @return int self::CAS_SAVED（書き込んだ）/ self::CAS_MUTATE_ABORTED（$mutateが中止）/
+	 *         self::CAS_CONFLICT（未保存・復号失敗・並行更新による衝突。呼び出し側の判断で再試行可）。
+	 */
+	private function compare_and_swap( callable $mutate ): int {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- CASの比較値となる現在のblobをキャッシュを介さず読む。
+		$stored = $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $this->option_name() )
+		);
+
+		if ( ! is_string( $stored ) || '' === $stored ) {
+			return self::CAS_CONFLICT;
+		}
+
+		$plaintext = $this->decrypt( $stored );
+		$payload   = null === $plaintext ? null : json_decode( $plaintext, true );
+
+		if ( ! is_array( $payload ) ) {
+			return self::CAS_CONFLICT;
+		}
+
+		$new_payload = $mutate( $payload );
+
+		if ( null === $new_payload ) {
+			return self::CAS_MUTATE_ABORTED;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 読み取ったblobとの一致を条件とする原子的なCAS書き込み。
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				$this->encrypt( (string) wp_json_encode( $new_payload ) ),
+				$this->option_name(),
+				$stored
+			)
+		);
+
+		if ( ! is_int( $updated ) || $updated < 1 ) {
+			return self::CAS_CONFLICT;
+		}
+
+		// オプションAPIを迂回して直接書き込んだため、オプションキャッシュを破棄して整合させる。
+		wp_cache_delete( $this->option_name(), 'options' );
+		$this->payload_cache = $new_payload;
+
+		return self::CAS_SAVED;
+	}
+
+	/**
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
 	 */
 	private function load_payload(): ?array {
 		$stored = get_option( $this->option_name() );
@@ -90,10 +290,14 @@ final class TokenStore {
 		return null === $this->get();
 	}
 
+	/**
+	 * アクセストークンを保有していれば true。`save_settings()` のみが呼ばれた
+	 * （client_id/secretは保存済みだがOAuth未完了の）状態は接続済みとみなさない。
+	 */
 	public function is_connected(): bool {
-		$stored = get_option( $this->option_name() );
+		$payload = $this->get();
 
-		return is_string( $stored ) && '' !== $stored;
+		return null !== $payload && '' !== $payload['access_token'];
 	}
 
 	public function is_expired(): bool {
