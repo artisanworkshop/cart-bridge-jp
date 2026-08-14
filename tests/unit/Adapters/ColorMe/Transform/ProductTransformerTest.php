@@ -70,6 +70,41 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'hidden', $product->extras['display_state'] );
 	}
 
+	public function test_sale_for_members_stays_publicly_listed(): void {
+		// swagger: 「掲載状態だが購入は会員のみ可能」。showingと同じく一般公開の掲載状態であり、
+		// privateにすると誰にも見えなくなってしまう。
+		$raw                  = $this->product_fixture( 192616831 );
+		$raw['display_state'] = 'sale_for_members';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'publish', $product->status );
+		$this->assertSame( 'sale_for_members', $product->extras['display_state'] );
+	}
+
+	public function test_showing_for_members_is_mapped_to_private_status(): void {
+		// swagger: 「会員にのみ掲載」。Wooにネイティブな会員限定掲載機能は無いため、
+		// 現状は非公開扱い（private）に丸める（raw display_stateはextrasに残す）。
+		$raw                  = $this->product_fixture( 192616831 );
+		$raw['display_state'] = 'showing_for_members';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+		$this->assertSame( 'showing_for_members', $product->extras['display_state'] );
+	}
+
+	public function test_unavailable_payment_and_delivery_ids_are_preserved_in_extras(): void {
+		$raw                             = $this->product_fixture( 192616831 );
+		$raw['unavailable_payment_ids']  = [ 1094475 ];
+		$raw['unavailable_delivery_ids'] = [ 640580, 640581 ];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [ '1094475' ], $product->extras['unavailable_payment_ids'] );
+		$this->assertSame( [ '640580', '640581' ], $product->extras['unavailable_delivery_ids'] );
+	}
+
 	public function test_two_axis_variants_use_option_objects_not_title(): void {
 		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
 

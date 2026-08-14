@@ -32,9 +32,23 @@ final class ProductTransformer {
 			$this->options( $raw ),
 			$this->category_refs( $raw ),
 			Cast::to_int_or_null( $raw['stocks'] ?? null ),
-			'showing' === ( $raw['display_state'] ?? null ) ? 'publish' : 'private',
+			$this->status( $raw ),
 			$this->extras( $raw, $remote_id )
 		);
+	}
+
+	/**
+	 * `display_state` の4値のうち `sale_for_members`（掲載状態だが購入は会員のみ可能）は
+	 * `showing` と同じく一般公開の掲載状態であり、`private` にすると誰にも見えなくなってしまう
+	 * （swagger: 「掲載状態だが購入は会員のみ可能」）。購入制限自体はWoo標準機能で表現できないため
+	 * extras の生の `display_state` に委ね、ここではWooの掲載可否のみを判定する。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function status( array $raw ): string {
+		$display_state = $raw['display_state'] ?? null;
+
+		return in_array( $display_state, [ 'showing', 'sale_for_members' ], true ) ? 'publish' : 'private';
 	}
 
 	/**
@@ -199,6 +213,8 @@ final class ProductTransformer {
 			'cost'                        => Cast::to_int_or_null( $raw['cost'] ?? null ),
 			'delivery_charge'             => Cast::to_int_or_null( $raw['delivery_charge'] ?? null ),
 			'cool_charge'                 => Cast::to_int_or_null( $raw['cool_charge'] ?? null ),
+			'unavailable_payment_ids'     => Cast::strings( is_array( $raw['unavailable_payment_ids'] ?? null ) ? $raw['unavailable_payment_ids'] : [] ),
+			'unavailable_delivery_ids'    => Cast::strings( is_array( $raw['unavailable_delivery_ids'] ?? null ) ? $raw['unavailable_delivery_ids'] : [] ),
 			'memo'                        => Cast::to_string_or_null( $raw['memo'] ?? null ),
 			'sale_start_date'             => Cast::unix_to_iso( $raw['sale_start_date'] ?? null ),
 			'sale_end_date'               => Cast::unix_to_iso( $raw['sale_end_date'] ?? null ),

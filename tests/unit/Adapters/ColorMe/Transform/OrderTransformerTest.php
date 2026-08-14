@@ -122,6 +122,27 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertCount( 2, $order->extras['sale_deliveries'] );
 	}
 
+	public function test_shipping_address_normalizes_overseas_pref_id_like_customer_transformer(): void {
+		// saleDeliveryスキーマ自体には海外値の明記が無いが、customerスキーマとの一貫性から
+		// pref_id=48を「海外」として正規化する（CustomerTransformerと同じ規約）。
+		$raw                                  = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['sale_deliveries'][0]['pref_id'] = 48;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 48, $order->shipping['pref_id'] );
+		$this->assertNull( $order->shipping['country'] );
+	}
+
+	public function test_shipping_address_defaults_to_jp_for_domestic_pref_id(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 13, $order->shipping['pref_id'] );
+		$this->assertSame( 'JP', $order->shipping['country'] );
+	}
+
 	public function test_totals_residual_is_recorded_when_the_identity_does_not_balance(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		// 本来のtotal_priceは4080。恒等式と食い違う値を与えてresidualが記録されることを確認する。

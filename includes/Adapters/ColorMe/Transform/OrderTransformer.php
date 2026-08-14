@@ -138,6 +138,7 @@ final class OrderTransformer {
 
 		$delivery_id   = Cast::to_int_or_null( $first['delivery_id'] ?? null );
 		$delivery_name = null !== $delivery_id ? ( $this->delivery_names[ $delivery_id ] ?? null ) : null;
+		$pref_id       = Cast::to_int_or_null( $first['pref_id'] ?? null );
 
 		return [
 			'method_id'    => Cast::to_string_or_null( $first['delivery_id'] ?? null ),
@@ -145,12 +146,17 @@ final class OrderTransformer {
 			'fee'          => Cast::money( $raw['delivery_total_charge'] ?? null ),
 			'name'         => Cast::to_string_or_null( $first['name'] ?? null ),
 			'postal'       => Cast::to_string_or_null( $first['postal'] ?? null ),
+			'pref_id'      => $pref_id,
 			'pref_name'    => Cast::to_string_or_null( $first['pref_name'] ?? null ),
 			'address1'     => Cast::to_string_or_null( $first['address1'] ?? null ),
 			'address2'     => Cast::to_string_or_null( $first['address2'] ?? null ),
 			'tel'          => Cast::to_string_or_null( $first['tel'] ?? null ),
 			'slip_number'  => Cast::to_string_or_null( $first['slip_number'] ?? null ),
 			'tracking_url' => Cast::to_string_or_null( $first['tracking_url'] ?? null ),
+			// pref_id=48は「海外」を表す特別値。`saleDelivery`スキーマ自体には明記が無いが、
+			// `customer`スキーマで定義された同名フィールドとの一貫性から同じ規約で正規化する
+			// （CustomerTransformer::address()参照）。
+			'country'      => 48 === $pref_id ? null : 'JP',
 		];
 	}
 
