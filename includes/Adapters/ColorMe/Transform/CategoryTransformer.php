@@ -41,7 +41,8 @@ final class CategoryTransformer {
 				$id,
 				Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
 				null,
-				null
+				null,
+				self::extras( $raw )
 			);
 		}
 
@@ -63,7 +64,8 @@ final class CategoryTransformer {
 					$child_id,
 					Cast::to_string_or_null( $child['name'] ?? null ) ?? '',
 					$parent_included ? $id : null,
-					null
+					null,
+					self::extras( $child )
 				);
 			}
 		}
@@ -73,5 +75,16 @@ final class CategoryTransformer {
 
 	private static function is_visible( mixed $display_state ): bool {
 		return ! in_array( $display_state, [ 'hidden', 'members_only' ], true );
+	}
+
+	/**
+	 * @param array<string,mixed> $raw
+	 * @return array<string,mixed>
+	 */
+	private static function extras( array $raw ): array {
+		return [
+			'description' => Cast::sanitize_html( $raw['expl'] ?? null ),
+			'image_url'   => Cast::to_string_or_null( $raw['image_url'] ?? null ),
+		];
 	}
 }

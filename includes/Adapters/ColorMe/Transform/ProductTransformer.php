@@ -222,6 +222,8 @@ final class ProductTransformer {
 			'cool_charge'                 => Cast::to_int_or_null( $raw['cool_charge'] ?? null ),
 			'unavailable_payment_ids'     => Cast::strings( is_array( $raw['unavailable_payment_ids'] ?? null ) ? $raw['unavailable_payment_ids'] : [] ),
 			'unavailable_delivery_ids'    => Cast::strings( is_array( $raw['unavailable_delivery_ids'] ?? null ) ? $raw['unavailable_delivery_ids'] : [] ),
+			// おすすめ商品種別・表示順。ストアフロントの特集/おすすめ枠設定。
+			'pickups'                     => is_array( $raw['pickups'] ?? null ) ? $raw['pickups'] : [],
 			'memo'                        => Cast::to_string_or_null( $raw['memo'] ?? null ),
 			'sale_start_date'             => Cast::unix_to_iso( $raw['sale_start_date'] ?? null ),
 			'sale_end_date'               => Cast::unix_to_iso( $raw['sale_end_date'] ?? null ),

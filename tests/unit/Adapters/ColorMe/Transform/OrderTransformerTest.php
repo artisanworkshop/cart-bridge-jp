@@ -211,6 +211,23 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '700', $order->totals['shipping'] );
 		$this->assertSame( '2700', $order->totals['total'] );
 		$this->assertSame( 4434233, $order->extras['segment']['parent_sale_id'] );
+		// 配送料もtotals側と同じsegment実額を使い、食い違いが起きないことを確認する。
+		$this->assertSame( '700', $order->shipping['fee'] );
+	}
+
+	public function test_gmo_and_yahoo_point_activity_is_preserved_in_extras(): void {
+		$raw                         = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['granted_gmo_points']   = 10;
+		$raw['use_gmo_points']       = 5;
+		$raw['granted_yahoo_points'] = 20;
+		$raw['use_yahoo_points']     = 15;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 10, $order->extras['granted_gmo_points'] );
+		$this->assertSame( 5, $order->extras['use_gmo_points'] );
+		$this->assertSame( 20, $order->extras['granted_yahoo_points'] );
+		$this->assertSame( 15, $order->extras['use_yahoo_points'] );
 	}
 
 	public function test_non_split_order_ignores_segment_and_uses_sale_level_totals(): void {

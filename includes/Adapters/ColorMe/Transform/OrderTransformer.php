@@ -83,6 +83,21 @@ final class OrderTransformer {
 	}
 
 	/**
+	 * 分割受注（`segment.splitted === true`）の場合、商品・送料・熨斗等の合計は
+	 * トップレベルの `sale.*`（分割前の全体額）ではなく `segment.*`（この分割分の実額）を
+	 * 情報源として使う。分割されていない受注の `segment` は自身の受注IDを指すだけの
+	 * 非分割メタ情報のため使わない。`shipping()`/`totals()`で共有する。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return array<string,mixed>
+	 */
+	private function split_amounts( array $raw ): array {
+		$segment = $raw['segment'] ?? null;
+
+		return ( is_array( $segment ) && true === ( $segment['splitted'] ?? null ) ) ? $segment : $raw;
+	}
+
+	/**
 	 * `SampleSelector`（`includes/Sync/SampleSelector.php`）が `remote_product_id` キーのみを読む。
 	 * ここに設定する値は `ProductTransformer` の `extras['remote_id']` とバイト一致していなければ
 	 * ならない（無料版のサンプル商品ID指定取得が空振りする）。
@@ -132,9 +147,11 @@ final class OrderTransformer {
 	}
 
 	/**
-	 * 送料は `sale.delivery_total_charge` を使う（`sale_deliveries[0].delivery_charge` は
-	 * 複数配送先の受注では1件分の値でしかない）。配送先住所は先頭の配送を代表として使い、
-	 * 全配送は `extras['sale_deliveries']` に退避する。
+	 * 送料は通常 `sale.delivery_total_charge` を使う（`sale_deliveries[0].delivery_charge` は
+	 * 複数配送先の受注では1件分の値でしかない）。分割受注（`segment.splitted === true`）の場合は
+	 * `totals()` と同じく `segment.delivery_total_charge`（この分割分の実額）を使う
+	 * （`split_amounts()`参照。分割前の全体額のままだと `totals['shipping']` と食い違う）。
+	 * 配送先住所は先頭の配送を代表として使い、全配送は `extras['sale_deliveries']` に退避する。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
@@ -150,7 +167,7 @@ final class OrderTransformer {
 		return [
 			'method_id'    => Cast::to_string_or_null( $first['delivery_id'] ?? null ),
 			'method_name'  => $delivery_name,
-			'fee'          => Cast::money( $raw['delivery_total_charge'] ?? null ),
+			'fee'          => Cast::money( $this->split_amounts( $raw )['delivery_total_charge'] ?? null ),
 			'name'         => Cast::to_string_or_null( $first['name'] ?? null ),
 			'postal'       => Cast::to_string_or_null( $first['postal'] ?? null ),
 			'pref_id'      => $pref_id,
@@ -202,10 +219,7 @@ final class OrderTransformer {
 	 * @return array<string,mixed>
 	 */
 	private function totals( array $raw ): array {
-		$segment = $raw['segment'] ?? null;
-		// `segment` を分割金額の情報源として使うのは `splitted === true` の場合のみ。
-		// 分割されていない受注の `segment` は自身の受注IDを指すだけの非分割メタ情報。
-		$amounts = ( is_array( $segment ) && true === ( $segment['splitted'] ?? null ) ) ? $segment : $raw;
+		$amounts = $this->split_amounts( $raw );
 
 		$subtotal       = Cast::to_int_or_null( $amounts['product_total_price'] ?? null ) ?? 0;
 		$shipping       = Cast::to_int_or_null( $amounts['delivery_total_charge'] ?? null ) ?? 0;
@@ -274,21 +288,28 @@ final class OrderTransformer {
 	 */
 	private function extras( array $raw ): array {
 		return [
-			'remote_id'           => Cast::to_string_or_null( $raw['id'] ?? null ),
-			'external_order_id'   => Cast::to_string_or_null( $raw['external_order_id'] ?? null ),
-			'shop_coupon'         => is_array( $raw['shop_coupon'] ?? null ) ? $raw['shop_coupon'] : null,
+			'remote_id'            => Cast::to_string_or_null( $raw['id'] ?? null ),
+			'external_order_id'    => Cast::to_string_or_null( $raw['external_order_id'] ?? null ),
+			'shop_coupon'          => is_array( $raw['shop_coupon'] ?? null ) ? $raw['shop_coupon'] : null,
 			// 受注分割時の親子関係の紐付けに使う生データ。分割金額の算出元と同一のデータを保持する。
-			'segment'             => is_array( $raw['segment'] ?? null ) ? $raw['segment'] : null,
-			'other_discount_name' => Cast::to_string_or_null( $raw['other_discount_name'] ?? null ),
-			'product_tax'         => Cast::to_int_or_null( $raw['tax'] ?? null ),
-			'granted_points'      => Cast::to_int_or_null( $raw['granted_points'] ?? null ),
-			'use_points'          => Cast::to_int_or_null( $raw['use_points'] ?? null ),
-			'paid'                => Cast::to_bool_or_null( $raw['paid'] ?? null ),
-			'delivered'           => Cast::to_bool_or_null( $raw['delivered'] ?? null ),
-			'canceled'            => Cast::to_bool_or_null( $raw['canceled'] ?? null ),
-			'mobile'              => Cast::to_bool_or_null( $raw['mobile'] ?? null ),
-			'sale_deliveries'     => is_array( $raw['sale_deliveries'] ?? null ) ? $raw['sale_deliveries'] : [],
-			'customer_snapshot'   => $this->customer_snapshot( $raw ),
+			'segment'              => is_array( $raw['segment'] ?? null ) ? $raw['segment'] : null,
+			'other_discount_name'  => Cast::to_string_or_null( $raw['other_discount_name'] ?? null ),
+			'product_tax'          => Cast::to_int_or_null( $raw['tax'] ?? null ),
+			'point_state'          => Cast::to_string_or_null( $raw['point_state'] ?? null ),
+			'granted_points'       => Cast::to_int_or_null( $raw['granted_points'] ?? null ),
+			'use_points'           => Cast::to_int_or_null( $raw['use_points'] ?? null ),
+			'gmo_point_state'      => Cast::to_string_or_null( $raw['gmo_point_state'] ?? null ),
+			'granted_gmo_points'   => Cast::to_int_or_null( $raw['granted_gmo_points'] ?? null ),
+			'use_gmo_points'       => Cast::to_int_or_null( $raw['use_gmo_points'] ?? null ),
+			'yahoo_point_state'    => Cast::to_string_or_null( $raw['yahoo_point_state'] ?? null ),
+			'granted_yahoo_points' => Cast::to_int_or_null( $raw['granted_yahoo_points'] ?? null ),
+			'use_yahoo_points'     => Cast::to_int_or_null( $raw['use_yahoo_points'] ?? null ),
+			'paid'                 => Cast::to_bool_or_null( $raw['paid'] ?? null ),
+			'delivered'            => Cast::to_bool_or_null( $raw['delivered'] ?? null ),
+			'canceled'             => Cast::to_bool_or_null( $raw['canceled'] ?? null ),
+			'mobile'               => Cast::to_bool_or_null( $raw['mobile'] ?? null ),
+			'sale_deliveries'      => is_array( $raw['sale_deliveries'] ?? null ) ? $raw['sale_deliveries'] : [],
+			'customer_snapshot'    => $this->customer_snapshot( $raw ),
 		];
 	}
 

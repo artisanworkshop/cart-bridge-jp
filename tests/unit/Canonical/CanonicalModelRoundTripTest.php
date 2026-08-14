@@ -51,6 +51,7 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 					'name'      => 'Category 1',
 					'parent_id' => null,
 					'slug'      => 'category-1',
+					'extras'    => [],
 				],
 			],
 			'tag'      => [

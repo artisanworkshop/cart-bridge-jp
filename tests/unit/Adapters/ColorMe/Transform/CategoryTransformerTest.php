@@ -137,4 +137,36 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '100-1', $categories[0]->id );
 		$this->assertNull( $categories[0]->parent_id );
 	}
+
+	public function test_description_and_image_are_preserved_in_extras(): void {
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][0];
+
+		$this->assertSame( 'お申し込み時に自動で作成された初期カテゴリー', $raw['expl'] );
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'お申し込み時に自動で作成された初期カテゴリー', $categories[0]->extras['description'] );
+		$this->assertNull( $categories[0]->extras['image_url'] );
+	}
+
+	public function test_child_category_description_and_image_are_preserved_independently(): void {
+		$raw = [
+			'id_big'   => 100,
+			'name'     => '親カテゴリー',
+			'children' => [
+				[
+					'id_big'    => 100,
+					'id_small'  => 1,
+					'name'      => '子カテゴリー',
+					'expl'      => '子カテゴリーの説明',
+					'image_url' => 'https://img.example.com/category-1.jpg',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( '子カテゴリーの説明', $categories[1]->extras['description'] );
+		$this->assertSame( 'https://img.example.com/category-1.jpg', $categories[1]->extras['image_url'] );
+	}
 }

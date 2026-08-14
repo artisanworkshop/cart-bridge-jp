@@ -114,6 +114,21 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 5, $product->extras['sort'] );
 	}
 
+	public function test_pickups_merchandising_metadata_is_preserved_in_extras(): void {
+		$raw            = $this->product_fixture( 192616831 );
+		$raw['pickups'] = [
+			[
+				'pickup_type' => 0,
+				'product_id'  => 192616831,
+				'order_num'   => 1,
+			],
+		];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( $raw['pickups'], $product->extras['pickups'] );
+	}
+
 	public function test_two_axis_variants_use_option_objects_not_title(): void {
 		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
 
