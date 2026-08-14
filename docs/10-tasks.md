@@ -81,6 +81,20 @@
 
 ---
 
+## 保守タスク（フェーズ外・随時対応）
+
+- [x] **chore: PHPStan 2.x移行 + PHPCS系依存の脆弱性対応**（2026-08-14）
+  `phpstan/phpstan` `^1.11`→`^2.0`、`phpstan-strict-rules`/`szepeviktor/phpstan-wordpress`も追随。
+  `treatPhpDocTypesAsCertain: false` を設定（`apply_filters()`等の外部境界でdocblockの型を過信しないため。
+  szepeviktor/phpstan-wordpress拡張がフィルターの返り値型をdocblockから読み取る都合上、
+  防御的な`is_array()`等の実行時チェックが「常にtrue」の誤検知になっていた）。
+  `CanonicalCategory`/`CanonicalOrder`/`CanonicalStock`/`CanonicalTag`の`remote_id()`戻り値型を
+  `?string`→`string`に是正（コンストラクタのid相当フィールドが非nullableなためnullを返すことはない）。
+  あわせて `composer audit` で判明した `squizlabs/php_codesniffer`/`wp-coding-standards/wpcs`/
+  `phpcsstandards/phpcsutils` の脆弱性修正版へのアップグレードも実施
+
+---
+
 ## Phase 1: カラーミー → Woo インポート（MVP）
 
 > 前提: デベロッパー登録・テストショップ・アプリ登録済み（D2）。詳細は `01-plan-colorme.md`。

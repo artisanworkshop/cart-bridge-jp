@@ -36,7 +36,7 @@ final readonly class CanonicalOrder implements CanonicalModel {
 		public array $extras = []
 	) {}
 
-	public function remote_id(): ?string {
+	public function remote_id(): string {
 		return $this->number;
 	}
 

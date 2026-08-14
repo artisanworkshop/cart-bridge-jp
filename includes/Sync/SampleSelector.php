@@ -66,7 +66,6 @@ final class SampleSelector {
 
 			foreach ( $order->line_items as $line_item ) {
 				// アダプタ実装がline_itemsの各要素を配列以外で返す可能性への防御（型宣言はドキュメント上の契約でしかないため）。
-				// @phpstan-ignore ternary.elseUnreachable
 				$remote_product_id = is_array( $line_item ) ? ( $line_item['remote_product_id'] ?? null ) : null;
 
 				if ( null !== $remote_product_id && '' !== $remote_product_id ) {
