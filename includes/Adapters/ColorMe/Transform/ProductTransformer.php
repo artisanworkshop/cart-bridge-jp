@@ -125,15 +125,20 @@ final class ProductTransformer {
 			$price             = Cast::to_string_or_null( $variant['option_price_including_tax'] ?? null );
 
 			$result[] = [
-				'remote_id'     => $variant_remote_id,
-				'sku'           => null !== $model_number ? $model_number : "colorme-{$product_remote_id}-{$variant_remote_id}",
-				'option1_name'  => Cast::to_string_or_null( $variant['option1']['name'] ?? null ),
-				'option1_value' => Cast::to_string_or_null( $variant['option1']['value'] ?? $variant['option1_value'] ?? null ),
-				'option2_name'  => Cast::to_string_or_null( $variant['option2']['name'] ?? null ),
-				'option2_value' => Cast::to_string_or_null( $variant['option2']['value'] ?? $variant['option2_value'] ?? null ),
-				'price'         => null !== $price ? $price : $product_price,
-				'stock'         => Cast::to_int_or_null( $variant['stocks'] ?? null ),
-				'weight'        => Cast::to_int_or_null( $variant['weight'] ?? null ),
+				'remote_id'                   => $variant_remote_id,
+				'sku'                         => null !== $model_number ? $model_number : "colorme-{$product_remote_id}-{$variant_remote_id}",
+				'option1_name'                => Cast::to_string_or_null( $variant['option1']['name'] ?? null ),
+				'option1_value'               => Cast::to_string_or_null( $variant['option1']['value'] ?? $variant['option1_value'] ?? null ),
+				'option2_name'                => Cast::to_string_or_null( $variant['option2']['name'] ?? null ),
+				'option2_value'               => Cast::to_string_or_null( $variant['option2']['value'] ?? $variant['option2_value'] ?? null ),
+				'price'                       => null !== $price ? $price : $product_price,
+				'stock'                       => Cast::to_int_or_null( $variant['stocks'] ?? null ),
+				'weight'                      => Cast::to_int_or_null( $variant['weight'] ?? null ),
+				// バリエーション別の上書き値。商品レベルの同種項目はextrasに退避済み（few_num/cost/
+				// members_price_including_tax）だが、ここではバリエーションごとの値をそのまま保持する。
+				'few_num'                     => Cast::to_int_or_null( $variant['few_num'] ?? null ),
+				'cost'                        => Cast::to_int_or_null( $variant['option_cost'] ?? null ),
+				'members_price_including_tax' => Cast::to_int_or_null( $variant['option_members_price_including_tax'] ?? null ),
 			];
 		}
 
@@ -210,6 +215,8 @@ final class ProductTransformer {
 			'unit'                        => Cast::to_string_or_null( $raw['unit'] ?? null ),
 			'min_num'                     => Cast::to_int_or_null( $raw['min_num'] ?? null ),
 			'max_num'                     => Cast::to_int_or_null( $raw['max_num'] ?? null ),
+			// 商品一覧での表示順（数値が小さいほど先頭）。F1-4がWooのmenu_orderへマッピングする想定。
+			'sort'                        => Cast::to_int_or_null( $raw['sort'] ?? null ),
 			'cost'                        => Cast::to_int_or_null( $raw['cost'] ?? null ),
 			'delivery_charge'             => Cast::to_int_or_null( $raw['delivery_charge'] ?? null ),
 			'cool_charge'                 => Cast::to_int_or_null( $raw['cool_charge'] ?? null ),

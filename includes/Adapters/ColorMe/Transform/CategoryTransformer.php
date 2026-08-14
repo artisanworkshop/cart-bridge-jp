@@ -16,8 +16,14 @@ use CartBridgeJP\Canonical\CanonicalCategory;
 final class CategoryTransformer {
 
 	/**
+	 * `hidden`/`members_only` のカテゴリーは `CanonicalCategory` に可視性を表すフィールドが
+	 * 無いため、ここで除外する（`showing`のみを保持）。Wooの商品カテゴリーは常に公開の
+	 * タクソノミーであり、可視性を保ったまま作成する手段が無いため、除外が最も安全な既定挙動。
+	 * 大カテゴリーが除外された場合、その小カテゴリーの `parent_id` は存在しないカテゴリーを
+	 * 指すことになる（小カテゴリー自体が可視でも、F1-4側で親なし扱いにする必要がある）。
+	 *
 	 * @param array<string,mixed> $raw `categories.json` の `categories[]` の1要素。
-	 * @return array<int,CanonicalCategory> 大カテゴリー1件 + 小カテゴリーN件。
+	 * @return array<int,CanonicalCategory> 大カテゴリー0〜1件 + 小カテゴリーN件。
 	 */
 	public function transform( array $raw ): array {
 		$id = Cast::category_ref( $raw['id_big'] ?? null, 0 );
@@ -26,19 +32,22 @@ final class CategoryTransformer {
 			return [];
 		}
 
-		$categories   = [];
-		$categories[] = new CanonicalCategory(
-			$id,
-			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
-			null,
-			null
-		);
+		$categories = [];
+
+		if ( self::is_visible( $raw['display_state'] ?? null ) ) {
+			$categories[] = new CanonicalCategory(
+				$id,
+				Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
+				null,
+				null
+			);
+		}
 
 		$children = $raw['children'] ?? [];
 
 		if ( is_array( $children ) ) {
 			foreach ( $children as $child ) {
-				if ( ! is_array( $child ) ) {
+				if ( ! is_array( $child ) || ! self::is_visible( $child['display_state'] ?? null ) ) {
 					continue;
 				}
 
@@ -58,5 +67,9 @@ final class CategoryTransformer {
 		}
 
 		return $categories;
+	}
+
+	private static function is_visible( mixed $display_state ): bool {
+		return ! in_array( $display_state, [ 'hidden', 'members_only' ], true );
 	}
 }

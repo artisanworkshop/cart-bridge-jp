@@ -18,15 +18,17 @@ use RuntimeException;
 final class TagTransformer {
 
 	/**
-	 * `display_state: hidden` のグループ（例: 実フィクスチャの「なし」既定グループ）は
-	 * 内部管理用でショップ非公開のものが多い。`CanonicalTag` は可視性を表現できないため、
-	 * ここで除外して null を返す（呼び出し側=F1-5のColorMeAdapterはnullをスキップする）。
-	 * こうすることで、内部用グループが誰にでも見えるWooタグとして作成されるのを防ぐ。
+	 * `display_state: hidden`（非掲載）と `showing_for_members`（会員にのみ掲載）のグループは
+	 * 一般公開されていない（例: 実フィクスチャの「なし」既定グループは `hidden`）。`CanonicalTag`
+	 * は可視性を表現できないため、ここで除外して null を返す（呼び出し側=F1-5のColorMeAdapterは
+	 * nullをスキップする）。こうすることで、非公開グループが誰にでも見えるWooタグとして
+	 * 作成されるのを防ぐ。`sale_for_members`（掲載状態だが購入は会員のみ可能）は一般公開の
+	 * 掲載状態のため除外しない（ProductTransformer::status()と同じ区別）。
 	 *
 	 * @param array<string,mixed> $raw `groups.json` の `groups[]` の1要素。
 	 */
 	public function transform( array $raw ): ?CanonicalTag {
-		if ( 'hidden' === ( $raw['display_state'] ?? null ) ) {
+		if ( in_array( $raw['display_state'] ?? null, [ 'hidden', 'showing_for_members' ], true ) ) {
 			return null;
 		}
 

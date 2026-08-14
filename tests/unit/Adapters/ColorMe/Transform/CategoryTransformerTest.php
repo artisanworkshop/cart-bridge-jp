@@ -70,4 +70,47 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 	public function test_missing_id_big_yields_no_categories(): void {
 		$this->assertSame( [], $this->transformer->transform( [ 'name' => 'no id' ] ) );
 	}
+
+	public function test_hidden_top_level_category_is_excluded(): void {
+		// Wooの商品カテゴリーは常に公開タクソノミーであり、可視性を保ったまま作成する手段が
+		// 無いため、hidden/members_onlyは除外する。
+		$raw                  = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		$raw['display_state'] = 'hidden';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
+	public function test_members_only_top_level_category_is_excluded(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		$raw['display_state'] = 'members_only';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
+	public function test_hidden_child_category_is_excluded_but_visible_siblings_remain(): void {
+		$raw = [
+			'id_big'   => 100,
+			'name'     => '親カテゴリー',
+			'children' => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '非公開の子カテゴリー',
+					'display_state' => 'hidden',
+				],
+				[
+					'id_big'        => 100,
+					'id_small'      => 2,
+					'name'          => '公開の子カテゴリー',
+					'display_state' => 'showing',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 2, $categories ); // 親 + 公開の子のみ。
+		$this->assertSame( '100', $categories[0]->id );
+		$this->assertSame( '100-2', $categories[1]->id );
+	}
 }

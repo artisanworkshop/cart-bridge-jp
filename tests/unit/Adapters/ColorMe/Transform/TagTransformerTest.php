@@ -34,6 +34,22 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
 	}
 
+	public function test_showing_for_members_group_is_excluded_from_public_tags(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'showing_for_members';
+
+		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
+	}
+
+	public function test_sale_for_members_group_stays_a_public_tag(): void {
+		// sale_for_membersは「掲載状態だが購入は会員のみ可能」であり一般公開の掲載状態
+		// （ProductTransformer::status()のsale_for_members商品と同じ扱い）。
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'sale_for_members';
+
+		$this->assertNotNull( ( new TagTransformer() )->transform( $raw ) );
+	}
+
 	public function test_missing_id_throws_instead_of_yielding_empty_remote_id(): void {
 		// CanonicalTag::remote_id()は空文字を素通しするため、空文字のまま
 		// 通すとImporterが弾かず複数グループが同一remote_idに衝突する。

@@ -105,6 +105,15 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( [ '640580', '640581' ], $product->extras['unavailable_delivery_ids'] );
 	}
 
+	public function test_sort_order_is_preserved_in_extras(): void {
+		$raw         = $this->product_fixture( 192616831 );
+		$raw['sort'] = 5;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 5, $product->extras['sort'] );
+	}
+
 	public function test_two_axis_variants_use_option_objects_not_title(): void {
 		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
 
@@ -119,6 +128,18 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'S', $first['option2_value'] );
 		$this->assertSame( '4950', $first['price'] );
 		$this->assertSame( 20, $first['stock'] );
+		$this->assertSame( 4950, $first['members_price_including_tax'] );
+	}
+
+	public function test_variant_specific_overrides_are_preserved_not_just_product_level_values(): void {
+		$raw                               = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		$raw['variants'][0]['few_num']     = 3;
+		$raw['variants'][0]['option_cost'] = 1200;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 3, $product->variants[0]['few_num'] );
+		$this->assertSame( 1200, $product->variants[0]['cost'] );
 	}
 
 	public function test_single_axis_variant_has_null_second_option(): void {
