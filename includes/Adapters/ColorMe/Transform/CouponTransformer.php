@@ -50,7 +50,7 @@ final class CouponTransformer {
 			'starts_at'            => Cast::unix_to_iso( $raw['starts_at'] ?? null ),
 			'status'               => Cast::to_string_or_null( $raw['status'] ?? null ),
 			'group_limit_type'     => Cast::to_string_or_null( $raw['group_limit_type'] ?? null ),
-			'group_ids'            => array_values( array_filter( array_map( [ Cast::class, 'to_string_or_null' ], is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ) ) ),
+			'group_ids'            => Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ),
 		];
 	}
 }

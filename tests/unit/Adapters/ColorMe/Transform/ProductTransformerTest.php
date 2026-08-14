@@ -95,6 +95,30 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_option_value_of_zero_is_not_dropped(): void {
+		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
+		$raw            = $this->product_fixture( 192616831 );
+		$raw['options'] = [
+			[
+				'name'   => 'サイズ',
+				'values' => [ '0', 'M', '' ],
+			],
+		];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [ '0', 'M' ], $product->options[0]['values'] );
+	}
+
+	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
+		$raw              = $this->product_fixture( 192616831 );
+		$raw['group_ids'] = [ 0, 3197761 ];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [ '0', '3197761' ], $product->extras['group_ids'] );
+	}
+
 	public function test_variant_sku_falls_back_when_model_number_is_empty_string(): void {
 		$raw = $this->product_fixture( 192616832 ); // サンプルギフトセット, variant model_number: ""
 

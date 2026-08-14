@@ -148,7 +148,7 @@ final class ProductTransformer {
 
 			$result[] = [
 				'name'   => Cast::to_string_or_null( $option['name'] ?? null ) ?? '',
-				'values' => is_array( $values ) ? array_values( array_filter( array_map( [ Cast::class, 'to_string_or_null' ], $values ) ) ) : [],
+				'values' => is_array( $values ) ? Cast::strings( $values ) : [],
 			];
 		}
 
@@ -185,7 +185,7 @@ final class ProductTransformer {
 			// `simple_expl`（簡易説明）は `CanonicalProduct` に専用フィールドが無いためextras経由でWoo抜粋に渡す。
 			'short_description'           => Cast::sanitize_html( $raw['simple_expl'] ?? null ),
 			// `CanonicalProduct` にタグ参照フィールドが無いため、グループIDはextras経由でF1-4がタグ紐付けに使う。
-			'group_ids'                   => array_values( array_filter( array_map( [ Cast::class, 'to_string_or_null' ], is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ) ) ),
+			'group_ids'                   => Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ),
 			// 定価（税抜/税込どちらか不明）。Transformerはショップの税設定を持たないため税込換算を作らずそのまま退避する。
 			'list_price'                  => Cast::to_int_or_null( $raw['price'] ?? null ),
 			'members_price_including_tax' => Cast::to_int_or_null( $raw['members_price_including_tax'] ?? null ),

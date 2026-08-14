@@ -33,6 +33,14 @@ final class OrderTransformer {
 	 * @param array<string,mixed> $raw `sales[]` の1要素、または `sale` 単体。
 	 */
 	public function transform( array $raw ): CanonicalOrder {
+		$number = Cast::to_string_or_null( $raw['id'] ?? null );
+
+		if ( null === $number ) {
+			// `number` は `remote_id()` としてmappingsのUNIQUEキーに使われる。空文字のまま
+			// 通すと欠損IDの受注が全て同一remote_idに衝突するため、ここで必須として弾く。
+			throw new RuntimeException( 'ColorMe sale is missing id; cannot determine order number.' );
+		}
+
 		$placed_at = Cast::unix_to_iso( $raw['make_date'] ?? null );
 
 		if ( null === $placed_at ) {
@@ -42,7 +50,7 @@ final class OrderTransformer {
 		$customer = $raw['customer'] ?? null;
 
 		return new CanonicalOrder(
-			Cast::to_string_or_null( $raw['id'] ?? null ) ?? '',
+			$number,
 			$this->status( $raw ),
 			is_array( $customer ) ? Cast::to_string_or_null( $customer['id'] ?? null ) : null,
 			$this->line_items( $raw ),

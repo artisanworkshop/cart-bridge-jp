@@ -61,6 +61,12 @@ final class CastTest extends WP_UnitTestCase {
 		$this->assertNull( Cast::sanitize_html( null ) );
 	}
 
+	public function test_strings_drops_null_but_keeps_falsy_string_zero(): void {
+		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまうため、
+		// strings()はnullのみを除外することを確認する。
+		$this->assertSame( [ '0', 'a' ], Cast::strings( [ 0, null, 'a', '' ] ) );
+	}
+
 	public function test_category_ref_combines_big_and_small(): void {
 		$this->assertSame( '100', Cast::category_ref( 100, 0 ) );
 		$this->assertSame( '100', Cast::category_ref( 100, null ) );

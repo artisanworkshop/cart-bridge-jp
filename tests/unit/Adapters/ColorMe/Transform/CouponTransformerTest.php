@@ -76,6 +76,13 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'indisposable', $coupon->extras['per_user_usage_limit'] );
 	}
 
+	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
+		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
+		$coupon = $this->transformer->transform( $this->raw( [ 'group_ids' => [ 0, 1 ] ] ) );
+
+		$this->assertSame( [ '0', '1' ], $coupon->extras['group_ids'] );
+	}
+
 	/**
 	 * @param array<string,mixed> $overrides
 	 * @return array<string,mixed>

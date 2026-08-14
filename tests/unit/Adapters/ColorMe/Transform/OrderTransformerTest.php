@@ -96,6 +96,17 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		( new OrderTransformer() )->transform( $raw );
 	}
 
+	public function test_missing_id_throws_instead_of_yielding_empty_remote_id(): void {
+		// CanonicalOrder::remote_id()はnumberを素通しするため、空文字のまま
+		// 通すとImporterが弾かず複数注文が同一remote_idに衝突する。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['id'] );
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
 	public function test_multi_delivery_order_uses_order_level_shipping_charge_not_first_leg(): void {
 		$raw                          = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['delivery_total_charge'] = 1800;

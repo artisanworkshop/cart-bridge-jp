@@ -96,6 +96,28 @@ final class Cast {
 	}
 
 	/**
+	 * 値の配列を文字列配列へ変換する。`null`/空文字のみを除外し、`'0'` のような
+	 * falsyな文字列は保持する（`array_filter()` をコールバック無しで使うと
+	 * `'0'` も除去されてしまうため、この用途では使わないこと）。
+	 *
+	 * @param array<int|string,mixed> $values
+	 * @return array<int,string>
+	 */
+	public static function strings( array $values ): array {
+		$result = [];
+
+		foreach ( $values as $value ) {
+			$string = self::to_string_or_null( $value );
+
+			if ( null !== $string ) {
+				$result[] = $string;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
 	 * カテゴリ参照キー。小カテゴリが無い（0）場合は大カテゴリのキーと同一になる。
 	 */
 	public static function category_ref( mixed $id_big, mixed $id_small ): ?string {
