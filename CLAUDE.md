@@ -40,7 +40,8 @@ wp-env run cli wp ...        # WP-CLI実行
 composer install             # PHP依存
 composer lint                # PHPCS (WordPress Coding Standards)
 composer analyze             # PHPStan (level 6+)
-composer test                # PHPUnit（wp-envのtestsインスタンスで実行）
+composer test                # PHPUnit（wp-envコンテナ内で直接実行する場合。ホストからは動かない）
+composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
 ```
