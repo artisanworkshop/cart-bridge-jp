@@ -47,12 +47,10 @@ final class OrderTransformer {
 			throw new RuntimeException( 'ColorMe sale is missing make_date; cannot determine placed_at.' );
 		}
 
-		$customer = $raw['customer'] ?? null;
-
 		return new CanonicalOrder(
 			$number,
 			$this->status( $raw ),
-			is_array( $customer ) ? Cast::to_string_or_null( $customer['id'] ?? null ) : null,
+			$this->customer_ref( $raw ),
 			$this->line_items( $raw ),
 			$this->shipping( $raw ),
 			$this->payment( $raw ),
@@ -61,6 +59,23 @@ final class OrderTransformer {
 			Cast::to_string_or_null( $raw['memo'] ?? null ),
 			$this->extras( $raw )
 		);
+	}
+
+	/**
+	 * ゲスト購入（`customer.member === false`）は`SampleSelector`の顧客枠にカウントさせない
+	 * ため、`customer_ref` は登録会員のみ設定する（`docs/03-design-decisions.md` §10.2）。
+	 * ゲストの請求先情報は `customer_snapshot()` 側で別途保持する。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function customer_ref( array $raw ): ?string {
+		$customer = $raw['customer'] ?? null;
+
+		if ( ! is_array( $customer ) || true !== ( $customer['member'] ?? null ) ) {
+			return null;
+		}
+
+		return Cast::to_string_or_null( $customer['id'] ?? null );
 	}
 
 	/**

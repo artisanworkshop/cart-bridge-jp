@@ -60,7 +60,7 @@
         "memo": "",
         "other": null,
         "points": 0,
-        "member": false,
+        "member": true,
         "sales_count": 1,
         "receive_mail_magazine": true,
         "answer_free_form1": null,

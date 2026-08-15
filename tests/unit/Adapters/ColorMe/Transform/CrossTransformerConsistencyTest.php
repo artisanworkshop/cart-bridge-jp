@@ -59,6 +59,11 @@ final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 		);
 
 		foreach ( $orders as $order ) {
+			// ゲスト購入（`customer.member === false`）は customer_ref を設定しない仕様のため対象外。
+			if ( null === $order->customer_ref ) {
+				continue;
+			}
+
 			$this->assertContains(
 				$order->customer_ref,
 				$customer_remote_ids,

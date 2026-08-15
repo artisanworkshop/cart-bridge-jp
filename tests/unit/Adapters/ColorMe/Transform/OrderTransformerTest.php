@@ -42,7 +42,8 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 
 		$order = $this->make_transformer()->transform( $raw );
 
-		$this->assertSame( '175271028', $order->customer_ref );
+		// このフィクスチャの顧客は `member: false`（ゲスト購入）のため customer_ref は設定しない。
+		$this->assertNull( $order->customer_ref );
 		$this->assertSame( '300', $order->payment['fee'] );
 		$this->assertSame( '商品代引き（ゆうパック・ゆうメール）', $order->payment['method_name'] );
 		$this->assertSame( '6250', $order->totals['total'] );
