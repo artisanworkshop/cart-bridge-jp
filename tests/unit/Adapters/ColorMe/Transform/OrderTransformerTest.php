@@ -201,6 +201,19 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( $order->extras['sale_deliveries'][0]['id'], (int) $order->line_items[0]['remote_sale_delivery_id'] );
 	}
 
+	public function test_shipping_preserves_requested_delivery_window(): void {
+		// 配送希望日・希望時間帯は購入者が指定した制約であり、raw extrasのみに残すと
+		// Woo writer側でASP固有構造を逆解析しないと配送スタッフに表示できない。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['sale_deliveries'][0]['preferred_date']   = '2026-08-01';
+		$raw['sale_deliveries'][0]['preferred_period'] = '午前中';
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '2026-08-01', $order->shipping['preferred_date'] );
+		$this->assertSame( '午前中', $order->shipping['preferred_period'] );
+	}
+
 	public function test_split_order_uses_segment_amounts_not_parent_order_totals(): void {
 		// segment.splitted=trueの受注は、商品・送料・熨斗等の合計がsegment側の実額であり、
 		// トップレベルのsale.*は分割前の全体額のまま(=このsplitには使えない)。
@@ -371,9 +384,22 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				'pref_name'  => '東京都',
 				'address1'   => '千代田区千代田1-1-1',
 				'address2'   => '株式会社サンプル サンプルマンション101',
+				'country'    => 'JP',
 			],
 			$order->extras['customer_snapshot']
 		);
+	}
+
+	public function test_customer_snapshot_normalizes_overseas_pref_id_like_shipping(): void {
+		// ゲスト購入（customer_ref===null）ではこのスナップショットが唯一の正規化済み請求先情報に
+		// なるため、shipping()・CustomerTransformer::address()と同じpref_id=48規約を適用する。
+		$raw                        = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['customer']['pref_id'] = 48;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->extras['customer_snapshot']['country'] );
+		$this->assertSame( 48, $order->extras['customer_snapshot']['pref_id'] );
 	}
 
 	public function test_customer_snapshot_is_null_when_customer_is_absent(): void {

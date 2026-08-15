@@ -192,22 +192,26 @@ final class OrderTransformer {
 		$pref_id       = Cast::to_int_or_null( $first['pref_id'] ?? null );
 
 		return [
-			'method_id'    => Cast::to_string_or_null( $first['delivery_id'] ?? null ),
-			'method_name'  => $delivery_name,
-			'fee'          => Cast::money( $this->split_amounts( $raw )['delivery_total_charge'] ?? null ),
-			'name'         => Cast::to_string_or_null( $first['name'] ?? null ),
-			'postal'       => Cast::to_string_or_null( $first['postal'] ?? null ),
-			'pref_id'      => $pref_id,
-			'pref_name'    => Cast::to_string_or_null( $first['pref_name'] ?? null ),
-			'address1'     => Cast::to_string_or_null( $first['address1'] ?? null ),
-			'address2'     => Cast::to_string_or_null( $first['address2'] ?? null ),
-			'tel'          => Cast::to_string_or_null( $first['tel'] ?? null ),
-			'slip_number'  => Cast::to_string_or_null( $first['slip_number'] ?? null ),
-			'tracking_url' => Cast::to_string_or_null( $first['tracking_url'] ?? null ),
+			'method_id'        => Cast::to_string_or_null( $first['delivery_id'] ?? null ),
+			'method_name'      => $delivery_name,
+			'fee'              => Cast::money( $this->split_amounts( $raw )['delivery_total_charge'] ?? null ),
+			'name'             => Cast::to_string_or_null( $first['name'] ?? null ),
+			'postal'           => Cast::to_string_or_null( $first['postal'] ?? null ),
+			'pref_id'          => $pref_id,
+			'pref_name'        => Cast::to_string_or_null( $first['pref_name'] ?? null ),
+			'address1'         => Cast::to_string_or_null( $first['address1'] ?? null ),
+			'address2'         => Cast::to_string_or_null( $first['address2'] ?? null ),
+			'tel'              => Cast::to_string_or_null( $first['tel'] ?? null ),
+			// 購入者が指定した配送希望日・希望時間帯。生のraw extras頼みだと配送業務側が
+			// プラットフォーム固有の構造を読む必要が出るため、正規化済みshippingに含める。
+			'preferred_date'   => Cast::to_string_or_null( $first['preferred_date'] ?? null ),
+			'preferred_period' => Cast::to_string_or_null( $first['preferred_period'] ?? null ),
+			'slip_number'      => Cast::to_string_or_null( $first['slip_number'] ?? null ),
+			'tracking_url'     => Cast::to_string_or_null( $first['tracking_url'] ?? null ),
 			// pref_id=48は「海外」を表す特別値。`saleDelivery`スキーマ自体には明記が無いが、
 			// `customer`スキーマで定義された同名フィールドとの一貫性から同じ規約で正規化する
 			// （CustomerTransformer::address()参照）。
-			'country'      => 48 === $pref_id ? null : 'JP',
+			'country'          => 48 === $pref_id ? null : 'JP',
 		];
 	}
 
@@ -376,6 +380,8 @@ final class OrderTransformer {
 			return null;
 		}
 
+		$pref_id = Cast::to_int_or_null( $customer['pref_id'] ?? null );
+
 		return [
 			'email'      => Cast::to_string_or_null( $customer['mail'] ?? null ),
 			'name'       => Cast::to_string_or_null( $customer['name'] ?? null ),
@@ -384,10 +390,14 @@ final class OrderTransformer {
 			'department' => Cast::to_string_or_null( $customer['busho'] ?? null ),
 			'phone'      => Cast::first_non_empty( $customer['tel'] ?? null, $customer['tel_mobile'] ?? null ),
 			'postal'     => Cast::to_string_or_null( $customer['postal'] ?? null ),
-			'pref_id'    => Cast::to_int_or_null( $customer['pref_id'] ?? null ),
+			'pref_id'    => $pref_id,
 			'pref_name'  => Cast::to_string_or_null( $customer['pref_name'] ?? null ),
 			'address1'   => Cast::to_string_or_null( $customer['address1'] ?? null ),
 			'address2'   => Cast::to_string_or_null( $customer['address2'] ?? null ),
+			// pref_id=48は「海外」を表す特別値。`shipping()`/`CustomerTransformer::address()`と
+			// 同じ規約で正規化する（ゲスト購入等、この請求先スナップショットのみが唯一の
+			// 正規化済み住所情報になるケースがあるため）。
+			'country'    => 48 === $pref_id ? null : 'JP',
 		];
 	}
 }
