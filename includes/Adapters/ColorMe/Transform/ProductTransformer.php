@@ -204,6 +204,9 @@ final class ProductTransformer {
 			'display_state'               => Cast::to_string_or_null( $raw['display_state'] ?? null ),
 			// `simple_expl`（簡易説明）は `CanonicalProduct` に専用フィールドが無いためextras経由でWoo抜粋に渡す。
 			'short_description'           => Cast::sanitize_html( $raw['simple_expl'] ?? null ),
+			// `smartphone_expl`（スマートフォン向け説明文）はPC向け`expl`とは別内容になり得るため、
+			// 本体の説明文フィールドを上書きせずextras経由で退避する。
+			'smartphone_description'      => Cast::sanitize_html( $raw['smartphone_expl'] ?? null ),
 			// `CanonicalProduct` にタグ参照フィールドが無いため、グループIDはextras経由でF1-4がタグ紐付けに使う。
 			'group_ids'                   => Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ),
 			// 定価（税抜/税込どちらか不明）。Transformerはショップの税設定を持たないため税込換算を作らずそのまま退避する。
