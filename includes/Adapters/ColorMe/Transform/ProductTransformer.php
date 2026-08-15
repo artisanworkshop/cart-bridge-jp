@@ -139,6 +139,7 @@ final class ProductTransformer {
 				'few_num'                     => Cast::to_int_or_null( $variant['few_num'] ?? null ),
 				'cost'                        => Cast::to_int_or_null( $variant['option_cost'] ?? null ),
 				'members_price_including_tax' => Cast::to_int_or_null( $variant['option_members_price_including_tax'] ?? null ),
+				'market_price'                => Cast::to_int_or_null( $variant['option_market_price'] ?? null ),
 			];
 		}
 
