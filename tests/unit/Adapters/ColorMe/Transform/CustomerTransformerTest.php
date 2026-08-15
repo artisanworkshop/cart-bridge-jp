@@ -30,6 +30,17 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->transform( $raw ) );
 	}
 
+	public function test_member_without_a_usable_email_is_excluded(): void {
+		// docs/01-plan-colorme.mdの通りemailがWoo突合の唯一のキーであり、`mail`が欠損した
+		// まま空文字を通すと複数の会員が同一の空emailで誤って同一WPユーザーに突合されたり、
+		// アカウント作成に失敗したりする。swaggerのcustomerスキーマはmail: nullを許容する。
+		$raw           = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
+		$raw['member'] = true;
+		$raw['mail']   = null;
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+	}
+
 	public function test_transforms_individual_customer(): void {
 		$raw           = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
 		$raw['member'] = true;

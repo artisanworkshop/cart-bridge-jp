@@ -22,7 +22,10 @@ final class CustomerTransformer {
 	 * `member`（swagger: 「会員登録済みであるか否か」）が `false` の顧客データは、
 	 * ログイン用アカウントを持たないゲスト購入時のスナップショットであり、Woo顧客アカウントとして
 	 * 作成する対象ではない（受注側の請求先は `OrderTransformer::customer_snapshot()` が別途保持する）。
-	 * `null` を返し、呼び出し側（顧客の全量スキャン等）でスキップさせる。
+	 * `mail` が欠損した会員データも同様に除外する（`docs/01-plan-colorme.md` の通りemailがWoo突合の
+	 * キーであり、空文字のまま通すと複数の顧客が同一の空emailで誤って同一WPユーザーに突合されたり、
+	 * アカウント作成に失敗したりする）。いずれも `null` を返し、呼び出し側（顧客の全量スキャン等）で
+	 * スキップさせる。
 	 *
 	 * @param array<string,mixed> $raw `customers[]` の1要素、または `customer` 単体。
 	 */
@@ -31,10 +34,16 @@ final class CustomerTransformer {
 			return null;
 		}
 
+		$email = Cast::to_string_or_null( $raw['mail'] ?? null );
+
+		if ( null === $email ) {
+			return null;
+		}
+
 		$remote_id = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 
 		return new CanonicalCustomer(
-			Cast::to_string_or_null( $raw['mail'] ?? null ) ?? '',
+			$email,
 			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
 			Cast::to_string_or_null( $raw['furigana'] ?? null ),
 			Cast::to_string_or_null( $raw['hojin'] ?? null ),
