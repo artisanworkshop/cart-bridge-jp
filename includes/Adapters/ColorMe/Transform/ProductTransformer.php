@@ -243,7 +243,7 @@ final class ProductTransformer {
 			'unavailable_payment_ids'     => Cast::strings( is_array( $raw['unavailable_payment_ids'] ?? null ) ? $raw['unavailable_payment_ids'] : [] ),
 			'unavailable_delivery_ids'    => Cast::strings( is_array( $raw['unavailable_delivery_ids'] ?? null ) ? $raw['unavailable_delivery_ids'] : [] ),
 			// おすすめ商品種別・表示順。ストアフロントの特集/おすすめ枠設定。
-			'pickups'                     => is_array( $raw['pickups'] ?? null ) ? $raw['pickups'] : [],
+			'pickups'                     => $this->pickups( $raw ),
 			'memo'                        => Cast::to_string_or_null( $raw['memo'] ?? null ),
 			'sale_start_date'             => Cast::unix_to_iso( $raw['sale_start_date'] ?? null ),
 			'sale_end_date'               => Cast::unix_to_iso( $raw['sale_end_date'] ?? null ),
@@ -255,5 +255,38 @@ final class ProductTransformer {
 			// マッピングする想定でF1-4向けに退避する。
 			'unlisted'                    => Cast::to_bool_or_null( $raw['unlisted'] ?? null ),
 		];
+	}
+
+	/**
+	 * `product_id`/`account_id`は変換対象の商品自身を指すだけの冗長情報、`make_date`/`update_date`は
+	 * 実質的な設定変更を伴わずに変動し得る揮発性のタイムスタンプ。生のまま保持すると
+	 * `CanonicalProduct::checksum()` がextras全体をハッシュするため、意味のない更新のたびに
+	 * checksumが変わり、実際は変わっていないWoo商品を毎回書き込み直してしまう。意味のある
+	 * フィールド（種別・表示順）のみ抽出する。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function pickups( array $raw ): array {
+		$pickups = $raw['pickups'] ?? [];
+
+		if ( ! is_array( $pickups ) ) {
+			return [];
+		}
+
+		$result = [];
+
+		foreach ( $pickups as $pickup ) {
+			if ( ! is_array( $pickup ) ) {
+				continue;
+			}
+
+			$result[] = [
+				'pickup_type' => Cast::to_int_or_null( $pickup['pickup_type'] ?? null ),
+				'order_num'   => Cast::to_int_or_null( $pickup['order_num'] ?? null ),
+			];
+		}
+
+		return $result;
 	}
 }

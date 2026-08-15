@@ -140,7 +140,44 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 
 		$product = $this->transformer->transform( $raw );
 
-		$this->assertSame( $raw['pickups'], $product->extras['pickups'] );
+		$this->assertSame(
+			[
+				[
+					'pickup_type' => 0,
+					'order_num'   => 1,
+				],
+			],
+			$product->extras['pickups']
+		);
+	}
+
+	public function test_pickups_drop_volatile_timestamps_that_would_destabilize_the_checksum(): void {
+		// make_date/update_date は実質的な設定変更を伴わずに変動し得る揮発性のタイムスタンプ。
+		// 生のまま保持するとCanonicalProduct::checksum()がextras全体をハッシュするため、
+		// 意味のない更新のたびに変わっていないWoo商品を毎回書き込み直してしまう。
+		$raw            = $this->product_fixture( 192616831 );
+		$raw['pickups'] = [
+			[
+				'pickup_type' => 0,
+				'product_id'  => 192616831,
+				'account_id'  => 'PA00000001',
+				'order_num'   => 1,
+				'make_date'   => 1465784944,
+				'update_date' => 1494496809,
+			],
+		];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame(
+			[
+				[
+					'pickup_type' => 0,
+					'order_num'   => 1,
+				],
+			],
+			$product->extras['pickups']
+		);
 	}
 
 	public function test_two_axis_variants_use_option_objects_not_title(): void {
