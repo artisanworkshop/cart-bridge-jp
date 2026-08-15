@@ -15,9 +15,17 @@ use CartBridgeJP\Canonical\CanonicalCoupon;
 final class CouponTransformer {
 
 	/**
+	 * `status: 'unavailable'`（店舗側で手動無効化済み）のクーポンは、`CanonicalCoupon` に
+	 * 有効/無効を表すフィールドが無いため、そのまま変換すると利用不能だったコードがWoo側で
+	 * 再び使用可能になってしまう。`null` を返し、呼び出し側でスキップさせる。
+	 *
 	 * @param array<string,mixed> $raw `shop_coupons[]` の1要素。
 	 */
-	public function transform( array $raw ): CanonicalCoupon {
+	public function transform( array $raw ): ?CanonicalCoupon {
+		if ( 'unavailable' === ( $raw['status'] ?? null ) ) {
+			return null;
+		}
+
 		$remote_id   = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$coupon_type = Cast::to_string_or_null( $raw['coupon_type'] ?? null );
 

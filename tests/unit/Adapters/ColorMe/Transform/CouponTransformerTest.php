@@ -76,6 +76,14 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'indisposable', $coupon->extras['per_user_usage_limit'] );
 	}
 
+	public function test_unavailable_coupon_is_excluded(): void {
+		// CanonicalCouponには有効/無効を表すフィールドが無いため、店舗側で手動無効化された
+		// クーポンをそのまま変換するとWoo側でコードが再び使用可能になってしまう。
+		$coupon = $this->transformer->transform( $this->raw( [ 'status' => 'unavailable' ] ) );
+
+		$this->assertNull( $coupon );
+	}
+
 	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
 		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
 		$coupon = $this->transformer->transform( $this->raw( [ 'group_ids' => [ 0, 1 ] ] ) );
