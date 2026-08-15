@@ -234,7 +234,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$order = $this->make_transformer()->transform( $raw );
 
 		$this->assertSame( '2000', $order->totals['subtotal'] );
-		$this->assertSame( '700', $order->totals['shipping'] );
+		$this->assertSame( '700', $order->totals['shipping_fee'] );
 		$this->assertSame( '2700', $order->totals['total'] );
 		$this->assertSame( 4434233, $order->extras['segment']['parent_sale_id'] );
 		// 配送料もtotals側と同じsegment実額を使い、食い違いが起きないことを確認する。

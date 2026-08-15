@@ -177,7 +177,7 @@ final class OrderTransformer {
 	 * 送料は通常 `sale.delivery_total_charge` を使う（`sale_deliveries[0].delivery_charge` は
 	 * 複数配送先の受注では1件分の値でしかない）。分割受注（`segment.splitted === true`）の場合は
 	 * `totals()` と同じく `segment.delivery_total_charge`（この分割分の実額）を使う
-	 * （`split_amounts()`参照。分割前の全体額のままだと `totals['shipping']` と食い違う）。
+	 * （`split_amounts()`参照。分割前の全体額のままだと `totals['shipping_fee']` と食い違う）。
 	 * 配送先住所は先頭の配送を代表として使い、全配送は `extras['sale_deliveries']` に退避する。
 	 *
 	 * @param array<string,mixed> $raw
@@ -281,7 +281,7 @@ final class OrderTransformer {
 
 		$totals = [
 			'subtotal'       => Cast::money( $subtotal ),
-			'shipping'       => Cast::money( $shipping ),
+			'shipping_fee'   => Cast::money( $shipping ),
 			'fee'            => Cast::money( $fee ),
 			'gift_charges'   => Cast::money( $gift_charges ),
 			'discount'       => Cast::money( $discount ),
