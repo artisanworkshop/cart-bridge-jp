@@ -31,7 +31,7 @@ final class ProductTransformer {
 			$this->variants( $raw, $remote_id ),
 			$this->options( $raw ),
 			$this->category_refs( $raw ),
-			Cast::to_int_or_null( $raw['stocks'] ?? null ),
+			$this->stock( $raw ),
 			$this->status( $raw ),
 			$this->extras( $raw, $remote_id )
 		);
@@ -58,6 +58,22 @@ final class ProductTransformer {
 		$model_number = Cast::to_string_or_null( $raw['model_number'] ?? null );
 
 		return null !== $model_number ? $model_number : "colorme-{$remote_id}";
+	}
+
+	/**
+	 * `stock_managed: false`（在庫管理しない設定）の場合、`stocks`の値は在庫切れ判定に使わない。
+	 * `Importer::run_sample_stock_page()`はstockがnullの商品を「在庫あり」として扱うため
+	 * （`includes/Sync/Importer.php`参照）、管理外の商品に `stocks: 0` 等をそのまま渡すと
+	 * 購入可能な商品を誤って在庫切れにしてしまう。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function stock( array $raw ): ?int {
+		if ( true !== ( $raw['stock_managed'] ?? null ) ) {
+			return null;
+		}
+
+		return Cast::to_int_or_null( $raw['stocks'] ?? null );
 	}
 
 	/**

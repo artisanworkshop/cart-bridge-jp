@@ -39,6 +39,20 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( true, $product->extras['stock_managed'] );
 	}
 
+	public function test_unmanaged_stock_is_not_treated_as_out_of_stock(): void {
+		// `stock_managed: false`の商品は在庫管理をしていないため、rawの`stocks`値は在庫切れ判定に
+		// 使わない。stockをnullにし、Importerに「無制限＝在庫あり」と判断させる
+		// （`includes/Sync/Importer.php`はstockがnullの商品を在庫ありとして扱う）。
+		$raw = $this->product_fixture( 192817398 );
+
+		$this->assertFalse( $raw['stock_managed'] );
+		$this->assertSame( 45, $raw['stocks'] );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertNull( $product->stock );
+	}
+
 	public function test_unlisted_flag_is_preserved_independently_of_display_state(): void {
 		$raw             = $this->product_fixture( 192616831 );
 		$raw['unlisted'] = true;
