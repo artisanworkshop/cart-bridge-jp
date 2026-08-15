@@ -47,16 +47,23 @@ final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 	}
 
 	public function test_order_customer_ref_matches_customer_transformer_remote_id(): void {
-		$customers           = array_map(
-			fn( array $raw ) => ( new CustomerTransformer() )->transform( $raw ),
-			FixtureLoader::load( 'colorme', 'customers' )['customers']
+		[ $customers_raw, $orders_raw ] = $this->raw_fixtures_with_members_flagged();
+
+		$customers           = array_filter(
+			array_map(
+				fn( array $raw ) => ( new CustomerTransformer() )->transform( $raw ),
+				$customers_raw
+			)
 		);
 		$customer_remote_ids = array_map( static fn( $c ) => $c->extras['remote_id'], $customers );
 
 		$orders = array_map(
 			fn( array $raw ) => ( new OrderTransformer() )->transform( $raw ),
-			FixtureLoader::load( 'colorme', 'sales' )['sales']
+			$orders_raw
 		);
+
+		// オーバーライドが空振りしてこのテスト自体が無意味にならないことを保証する。
+		$this->assertNotEmpty( $customer_remote_ids );
 
 		foreach ( $orders as $order ) {
 			// ゲスト購入（`customer.member === false`）は customer_ref を設定しない仕様のため対象外。
@@ -73,17 +80,23 @@ final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 	}
 
 	public function test_sample_selector_resolves_a_non_empty_sample_from_transformed_orders(): void {
+		[ $customers_raw, $orders_raw ] = $this->raw_fixtures_with_members_flagged();
+
 		$products  = array_map(
 			fn( array $raw ) => ( new ProductTransformer() )->transform( $raw ),
 			FixtureLoader::load( 'colorme', 'products' )['products']
 		);
-		$customers = array_map(
-			fn( array $raw ) => ( new CustomerTransformer() )->transform( $raw ),
-			FixtureLoader::load( 'colorme', 'customers' )['customers']
+		$customers = array_values(
+			array_filter(
+				array_map(
+					fn( array $raw ) => ( new CustomerTransformer() )->transform( $raw ),
+					$customers_raw
+				)
+			)
 		);
 		$orders    = array_map(
 			fn( array $raw ) => ( new OrderTransformer() )->transform( $raw ),
-			FixtureLoader::load( 'colorme', 'sales' )['sales']
+			$orders_raw
 		);
 
 		$adapter  = new MockPlatformAdapter( $products, $customers, $orders );
@@ -101,5 +114,25 @@ final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 		foreach ( $sample->customer_refs as $remote_id ) {
 			$this->assertNotNull( $adapter->fetch_customer_by_remote_id( $remote_id ) );
 		}
+	}
+
+	/**
+	 * フィクスチャは実APIレスポンスをそのまま保持する（`tests/fixtures/README.md`）ため、コミット済み
+	 * JSONの`member`値は書き換えない。会員パスを検証するため、`sales.json`が参照する2顧客
+	 * （id 175271257 / 175271028。customers.json[0]/[1]と対応）のみインメモリで`member: true`に
+	 * 上書きする。残りの顧客はゲストのまま残し、`CustomerTransformer`の除外分岐も併せて検証する。
+	 *
+	 * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>}
+	 */
+	private function raw_fixtures_with_members_flagged(): array {
+		$customers_raw = FixtureLoader::load( 'colorme', 'customers' )['customers'];
+		$orders_raw    = FixtureLoader::load( 'colorme', 'sales' )['sales'];
+
+		$customers_raw[0]['member']          = true;
+		$customers_raw[1]['member']          = true;
+		$orders_raw[0]['customer']['member'] = true;
+		$orders_raw[1]['customer']['member'] = true;
+
+		return [ $customers_raw, $orders_raw ];
 	}
 }

@@ -21,7 +21,8 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 
 		$this->assertSame( '219293424', $order->number );
 		$this->assertSame( 'pending', $order->status );
-		$this->assertSame( '175271257', $order->customer_ref );
+		// このフィクスチャの顧客は `member: false`（ゲスト購入）のため customer_ref は設定しない。
+		$this->assertNull( $order->customer_ref );
 		$this->assertSame( '2026-07-27T23:42:45+00:00', $order->placed_at );
 
 		$this->assertCount( 1, $order->line_items );
@@ -48,6 +49,17 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '商品代引き（ゆうパック・ゆうメール）', $order->payment['method_name'] );
 		$this->assertSame( '6250', $order->totals['total'] );
 		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
+	public function test_customer_ref_is_populated_only_for_registered_members(): void {
+		// フィクスチャは実APIレスポンスをそのまま保持する（tests/fixtures/README.md）ため、
+		// 会員シナリオはコミット済みJSONを書き換えず、ここでインメモリにオーバーライドして検証する。
+		$raw                       = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['customer']['member'] = true;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '175271257', $order->customer_ref );
 	}
 
 	public function test_order_level_tax_includes_shipping_tax_unlike_sale_tax(): void {
@@ -328,6 +340,17 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			],
 			$order->line_items[0]['customizations']
 		);
+	}
+
+	public function test_line_item_preserves_order_time_product_cost(): void {
+		// 商品原価は商品マスタ側で後から変わり得るため、履歴上のCOGS/利益計算には
+		// 明細レベル（注文時点）の値を使う必要がある。
+		$raw                               = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['product_cost'] = 1000;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 1000, $order->line_items[0]['cost'] );
 	}
 
 	public function test_customer_snapshot_preserves_order_time_billing_info(): void {

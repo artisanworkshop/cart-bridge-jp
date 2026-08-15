@@ -19,9 +19,18 @@ use CartBridgeJP\Canonical\CanonicalCustomer;
 final class CustomerTransformer {
 
 	/**
+	 * `member`（swagger: 「会員登録済みであるか否か」）が `false` の顧客データは、
+	 * ログイン用アカウントを持たないゲスト購入時のスナップショットであり、Woo顧客アカウントとして
+	 * 作成する対象ではない（受注側の請求先は `OrderTransformer::customer_snapshot()` が別途保持する）。
+	 * `null` を返し、呼び出し側（顧客の全量スキャン等）でスキップさせる。
+	 *
 	 * @param array<string,mixed> $raw `customers[]` の1要素、または `customer` 単体。
 	 */
-	public function transform( array $raw ): CanonicalCustomer {
+	public function transform( array $raw ): ?CanonicalCustomer {
+		if ( true !== ( $raw['member'] ?? null ) ) {
+			return null;
+		}
+
 		$remote_id = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 
 		return new CanonicalCustomer(
