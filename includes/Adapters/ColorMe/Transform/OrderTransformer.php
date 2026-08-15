@@ -168,6 +168,11 @@ final class OrderTransformer {
 				'option1_value_current'   => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
 				'option2_value_current'   => Cast::to_string_or_null( $detail['option2_value'] ?? null ),
 				'tax_reduced'             => Cast::to_bool_or_null( $detail['tax_reduced'] ?? null ),
+				// 注文時点の商品画像。削除済み・突合不能な商品（D10により商品行として取り込む）は
+				// 現行のWoo商品から画像を復元できないため、この明細レベルの値が唯一の情報源になる
+				// （`product_mobile_image_url`はswaggerでdeprecated扱いのため対象外）。
+				'image_url'               => Cast::to_string_or_null( $detail['product_image_url'] ?? null ),
+				'thumbnail_url'           => Cast::to_string_or_null( $detail['product_thumbnail_image_url'] ?? null ),
 				// 刻印文字等、購入者が入力したカスタマイズ内容。案文構造がASP固有のため生のまま退避する。
 				'customizations'          => is_array( $detail['customizations'] ?? null ) ? $detail['customizations'] : [],
 			];

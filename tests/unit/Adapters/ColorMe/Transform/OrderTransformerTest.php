@@ -377,6 +377,19 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '箱', $order->line_items[0]['unit'] );
 	}
 
+	public function test_line_item_preserves_captured_product_image_urls(): void {
+		// 削除済み・突合不能な商品（D10により商品行として取り込む）は現行のWoo商品から
+		// 画像を復元できないため、この明細レベルの値が唯一の情報源になる。
+		$raw                                    = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['product_image_url'] = 'https://img.example.com/product.jpg';
+		$raw['details'][0]['product_thumbnail_image_url'] = 'https://img.example.com/product_th.jpg';
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( 'https://img.example.com/product.jpg', $order->line_items[0]['image_url'] );
+		$this->assertSame( 'https://img.example.com/product_th.jpg', $order->line_items[0]['thumbnail_url'] );
+	}
+
 	public function test_customer_snapshot_preserves_order_time_billing_info(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 
