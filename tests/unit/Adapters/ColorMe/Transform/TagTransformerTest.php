@@ -61,6 +61,32 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'グループの説明文', $tag->extras['description'] );
 	}
 
+	public function test_image_sort_and_meta_tag_are_preserved_in_extras(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'showing';
+		$raw['image_url']     = 'https://img.example.com/group-1.jpg';
+		$raw['sort']          = 3;
+		$raw['meta_tag']      = [
+			'title'       => 'グループタイトル',
+			'keywords'    => 'キーワード1,キーワード2',
+			'description' => 'グループのページ概要',
+		];
+
+		$tag = ( new TagTransformer() )->transform( $raw );
+
+		$this->assertNotNull( $tag );
+		$this->assertSame( 'https://img.example.com/group-1.jpg', $tag->extras['image_url'] );
+		$this->assertSame( 3, $tag->extras['sort'] );
+		$this->assertSame(
+			[
+				'title'       => 'グループタイトル',
+				'keywords'    => 'キーワード1,キーワード2',
+				'description' => 'グループのページ概要',
+			],
+			$tag->extras['meta_tag']
+		);
+	}
+
 	public function test_missing_id_throws_instead_of_yielding_empty_remote_id(): void {
 		// CanonicalTag::remote_id()は空文字を素通しするため、空文字のまま
 		// 通すとImporterが弾かず複数グループが同一remote_idに衝突する。

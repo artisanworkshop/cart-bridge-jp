@@ -170,6 +170,50 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 5, $categories[1]->extras['sort'] );
 	}
 
+	public function test_meta_tag_is_preserved_for_parent_and_child(): void {
+		$raw = [
+			'id_big'   => 100,
+			'name'     => '親カテゴリー',
+			'meta_tag' => [
+				'title'       => '夏物特集',
+				'keywords'    => '夏物,涼しい,衣類',
+				'description' => '暑い夏を涼しく過ごすための商品を集めました',
+			],
+			'children' => [
+				[
+					'id_big'   => 100,
+					'id_small' => 1,
+					'name'     => '子カテゴリー',
+					'meta_tag' => [
+						'title'       => '子カテゴリータイトル',
+						'keywords'    => null,
+						'description' => null,
+					],
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame(
+			[
+				'title'       => '夏物特集',
+				'keywords'    => '夏物,涼しい,衣類',
+				'description' => '暑い夏を涼しく過ごすための商品を集めました',
+			],
+			$categories[0]->extras['meta_tag']
+		);
+		$this->assertSame( '子カテゴリータイトル', $categories[1]->extras['meta_tag']['title'] );
+	}
+
+	public function test_meta_tag_is_null_when_absent(): void {
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertNull( $categories[0]->extras['meta_tag'] );
+	}
+
 	public function test_child_category_description_and_image_are_preserved_independently(): void {
 		$raw = [
 			'id_big'   => 100,

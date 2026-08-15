@@ -118,6 +118,25 @@ final class Cast {
 	}
 
 	/**
+	 * SEOメタタグ情報（タイトル・キーワード・ページ概要）。カテゴリー・グループ双方の
+	 * `meta_tag` オブジェクトで共通のスキーマのため、ここに集約する。HTMLタグを含められない
+	 * 仕様（swagger）のためsanitize_htmlではなくプレーン文字列として保持する。
+	 *
+	 * @return ?array<string,mixed>
+	 */
+	public static function meta_tag( mixed $value ): ?array {
+		if ( ! is_array( $value ) ) {
+			return null;
+		}
+
+		return [
+			'title'       => self::to_string_or_null( $value['title'] ?? null ),
+			'keywords'    => self::to_string_or_null( $value['keywords'] ?? null ),
+			'description' => self::to_string_or_null( $value['description'] ?? null ),
+		];
+	}
+
+	/**
 	 * カテゴリ参照キー。小カテゴリが無い（0）場合は大カテゴリのキーと同一になる。
 	 */
 	public static function category_ref( mixed $id_big, mixed $id_small ): ?string {

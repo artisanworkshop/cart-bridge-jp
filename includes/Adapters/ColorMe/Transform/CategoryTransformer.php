@@ -87,6 +87,7 @@ final class CategoryTransformer {
 			'image_url'   => Cast::to_string_or_null( $raw['image_url'] ?? null ),
 			// 表示順（数値が小さいほど先頭）。F1-4がWooのカテゴリー並び順へマッピングする想定。
 			'sort'        => Cast::to_int_or_null( $raw['sort'] ?? null ),
+			'meta_tag'    => Cast::meta_tag( $raw['meta_tag'] ?? null ),
 		];
 	}
 }

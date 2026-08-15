@@ -43,7 +43,12 @@ final class TagTransformer {
 		return new CanonicalTag(
 			$id,
 			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
-			[ 'description' => Cast::sanitize_html( $raw['expl'] ?? null ) ]
+			[
+				'description' => Cast::sanitize_html( $raw['expl'] ?? null ),
+				'image_url'   => Cast::to_string_or_null( $raw['image_url'] ?? null ),
+				'sort'        => Cast::to_int_or_null( $raw['sort'] ?? null ),
+				'meta_tag'    => Cast::meta_tag( $raw['meta_tag'] ?? null ),
+			]
 		);
 	}
 }
