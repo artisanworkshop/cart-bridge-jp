@@ -155,6 +155,9 @@ final class OrderTransformer {
 				'unit_price_excl_tax'     => Cast::money( $detail['price'] ?? null ),
 				'quantity'                => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
 				'subtotal'                => Cast::money( $detail['subtotal_price'] ?? null ),
+				// 注文時点の商品原価。商品マスタの原価は後から変わり得るため、履歴上の原価計算には
+				// この明細レベルの値を使う必要がある。
+				'cost'                    => Cast::to_int_or_null( $detail['product_cost'] ?? null ),
 				// swagger: option1_value/option2_valueは「最新の商品情報」であり注文時点の値ではない
 				// （オプション名変更後は購入時の選択と食い違いうる）。注文時点の選択を表すのは
 				// `name`（pristine_product_full_name）のみのため、これらは変位判定用の参考値として
