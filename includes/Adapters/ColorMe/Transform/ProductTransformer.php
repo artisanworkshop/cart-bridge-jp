@@ -69,11 +69,21 @@ final class ProductTransformer {
 	 * @param array<string,mixed> $raw
 	 */
 	private function stock( array $raw ): ?int {
-		if ( true !== ( $raw['stock_managed'] ?? null ) ) {
+		if ( ! $this->is_stock_managed( $raw ) ) {
 			return null;
 		}
 
 		return Cast::to_int_or_null( $raw['stocks'] ?? null );
+	}
+
+	/**
+	 * `stock_managed`は商品レベルのみに存在するフラグ（swaggerのvariantスキーマには無い）。
+	 * バリエーションの在庫可否も、この商品レベルの設定に従わせる。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function is_stock_managed( array $raw ): bool {
+		return true === ( $raw['stock_managed'] ?? null );
 	}
 
 	/**
@@ -129,6 +139,7 @@ final class ProductTransformer {
 		}
 
 		$product_price = Cast::money( $raw['sales_price_including_tax'] ?? null );
+		$stock_managed = $this->is_stock_managed( $raw );
 		$result        = [];
 
 		foreach ( $variants as $variant ) {
@@ -148,7 +159,7 @@ final class ProductTransformer {
 				'option2_name'                => Cast::to_string_or_null( $variant['option2']['name'] ?? null ),
 				'option2_value'               => Cast::to_string_or_null( $variant['option2']['value'] ?? $variant['option2_value'] ?? null ),
 				'price'                       => null !== $price ? $price : $product_price,
-				'stock'                       => Cast::to_int_or_null( $variant['stocks'] ?? null ),
+				'stock'                       => $stock_managed ? Cast::to_int_or_null( $variant['stocks'] ?? null ) : null,
 				'weight'                      => Cast::to_int_or_null( $variant['weight'] ?? null ),
 				// バリエーション別の上書き値。商品レベルの同種項目はextrasに退避済み（few_num/cost/
 				// members_price_including_tax）だが、ここではバリエーションごとの値をそのまま保持する。

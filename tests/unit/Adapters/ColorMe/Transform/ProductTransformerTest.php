@@ -193,8 +193,19 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'サイズ', $first['option2_name'] );
 		$this->assertSame( 'S', $first['option2_value'] );
 		$this->assertSame( '4950', $first['price'] );
-		$this->assertSame( 20, $first['stock'] );
+		// このフィクスチャは商品レベルで `stock_managed: false`（在庫管理無効）のため、
+		// バリエーションの`stocks`値があっても在庫切れ判定には使わない。
+		$this->assertNull( $first['stock'] );
 		$this->assertSame( 4950, $first['members_price_including_tax'] );
+	}
+
+	public function test_variant_stock_is_preserved_when_stock_management_is_enabled(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		$raw['stock_managed'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 20, $product->variants[0]['stock'] );
 	}
 
 	public function test_variant_specific_overrides_are_preserved_not_just_product_level_values(): void {
