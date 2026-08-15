@@ -366,6 +366,17 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 1000, $order->line_items[0]['cost'] );
 	}
 
+	public function test_line_item_preserves_quantity_unit(): void {
+		// 数量の単位（箱・セット・重量単位等）が欠けると、梱包・出荷資料側で数量ラベルを
+		// 復元できない。
+		$raw                       = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['unit'] = '箱';
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '箱', $order->line_items[0]['unit'] );
+	}
+
 	public function test_customer_snapshot_preserves_order_time_billing_info(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 

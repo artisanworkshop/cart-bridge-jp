@@ -154,6 +154,9 @@ final class OrderTransformer {
 				'price'                   => Cast::money( $detail['price_with_tax'] ?? null ),
 				'unit_price_excl_tax'     => Cast::money( $detail['price'] ?? null ),
 				'quantity'                => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
+				// 数量の単位（箱・セット・重量単位等）。欠けると梱包・出荷資料側で数量ラベルを
+				// 復元できない。
+				'unit'                    => Cast::to_string_or_null( $detail['unit'] ?? null ),
 				'subtotal'                => Cast::money( $detail['subtotal_price'] ?? null ),
 				// 注文時点の商品原価。商品マスタの原価は後から変わり得るため、履歴上の原価計算には
 				// この明細レベルの値を使う必要がある。
