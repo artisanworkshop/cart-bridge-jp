@@ -62,6 +62,20 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '175271257', $order->customer_ref );
 	}
 
+	public function test_customer_ref_is_excluded_for_members_without_a_usable_email(): void {
+		// CustomerTransformer::transform()はmail欠損の会員を除外するため、ここでcustomer_refに
+		// 含めてしまうとSampleSelectorが無料版の限られた顧客サンプル枠を「実際には決してWoo顧客
+		// として作成されない」remote_idで消費してしまう。請求先情報自体はcustomer_snapshotに残す。
+		$raw                       = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['customer']['member'] = true;
+		$raw['customer']['mail']   = null;
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->customer_ref );
+		$this->assertSame( '山田 太郎', $order->extras['customer_snapshot']['name'] );
+	}
+
 	public function test_order_level_tax_includes_shipping_tax_unlike_sale_tax(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 

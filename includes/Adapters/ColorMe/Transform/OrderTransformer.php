@@ -66,12 +66,22 @@ final class OrderTransformer {
 	 * ため、`customer_ref` は登録会員のみ設定する（`docs/03-design-decisions.md` §10.2）。
 	 * ゲストの請求先情報は `customer_snapshot()` 側で別途保持する。
 	 *
+	 * `mail`が欠損した会員データも`CustomerTransformer::transform()`と同じ理由（email欠損時は
+	 * 除外）で除外する。ここで除外しないと、`SampleSelector`が無料版の限られた顧客サンプル枠
+	 * （10件）に「実際には`CustomerTransformer`側で弾かれ絶対にインポートされない」remote_idを
+	 * 消費させてしまい、枠を無駄にした上に存在しない顧客への無駄なフェッチも発生する。
+	 * この場合も請求先情報自体は `customer_snapshot()` 側で別途保持する。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function customer_ref( array $raw ): ?string {
 		$customer = $raw['customer'] ?? null;
 
 		if ( ! is_array( $customer ) || true !== ( $customer['member'] ?? null ) ) {
+			return null;
+		}
+
+		if ( null === Cast::to_string_or_null( $customer['mail'] ?? null ) ) {
 			return null;
 		}
 
