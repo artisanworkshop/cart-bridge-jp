@@ -169,6 +169,13 @@ final class OrderTransformer {
 				throw new RuntimeException( 'ColorMe sale detail is missing product_num; cannot determine line item quantity.' );
 			}
 
+			if ( null === Cast::to_int_or_null( $detail['price_with_tax'] ?? null ) ) {
+				// `Cast::money()`は欠損・非数値を無言で'0'に丸めるため、区別なく通すと
+				// 小計・注文合計は非ゼロなのに明細単価だけ0円という不整合な注文になり、
+				// 返金・履歴レポートを壊す。他に単価を復元できる情報源が無いため注文全体を弾く。
+				throw new RuntimeException( 'ColorMe sale detail is missing price_with_tax; cannot determine line item unit price.' );
+			}
+
 			$result[] = [
 				'remote_detail_id'        => Cast::to_string_or_null( $detail['id'] ?? null ),
 				'remote_product_id'       => Cast::to_string_or_null( $detail['product_id'] ?? null ),

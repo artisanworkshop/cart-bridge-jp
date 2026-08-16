@@ -157,6 +157,17 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		( new OrderTransformer() )->transform( $raw );
 	}
 
+	public function test_missing_line_item_unit_price_throws_instead_of_yielding_zero(): void {
+		// Cast::money()は欠損・非数値を無言で'0'に丸めるため、区別なく通すと小計・注文合計は
+		// 非ゼロなのに明細単価だけ0円という不整合な注文になり、返金・履歴レポートを壊す。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['details'][0]['price_with_tax'] );
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
 	public function test_multi_delivery_order_uses_order_level_shipping_charge_not_first_leg(): void {
 		$raw                          = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['delivery_total_charge'] = 1800;
