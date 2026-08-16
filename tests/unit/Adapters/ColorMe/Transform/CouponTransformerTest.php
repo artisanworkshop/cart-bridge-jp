@@ -106,6 +106,21 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $coupon );
 	}
 
+	public function test_coupon_not_yet_started_is_excluded(): void {
+		// WooCommerceのクーポンには開始日時の概念が無く、CanonicalCouponにも開始日時フィールドが
+		// 無いため、そのまま変換すると本来まだ使えないコードがWoo側では作成直後から使用可能に
+		// なってしまう。starts_atが未来のクーポンは除外する。
+		$coupon = $this->transformer->transform( $this->raw( [ 'starts_at' => time() + 3600 ] ) );
+
+		$this->assertNull( $coupon );
+	}
+
+	public function test_coupon_already_started_is_not_excluded(): void {
+		$coupon = $this->transformer->transform( $this->raw( [ 'starts_at' => time() - 3600 ] ) );
+
+		$this->assertNotNull( $coupon );
+	}
+
 	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
 		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
 		$coupon = $this->transformer->transform( $this->raw( [ 'group_ids' => [ 0, 1 ] ] ) );

@@ -25,6 +25,12 @@ final class CouponTransformer {
 	 * なってしまい金銭的リスクがある（`group_limit_type`/`group_ids`はextrasに保持済みなので
 	 * F1-4で制限方法が定まれば再検討できる）。
 	 *
+	 * `starts_at`（利用開始日時）が未来のクーポンも除外する。WooCommerceのネイティブなクーポンには
+	 * 開始日時の概念が無く（有効期限＝expires_atのみ）、`CanonicalCoupon` にも開始日時フィールドが
+	 * 無いため、そのまま変換すると本来まだ使えないはずのコードがWoo側では作成直後から即座に
+	 * 使用可能になってしまう（`starts_at`はextrasに保持済みなので開始日時を表現する仕組みが
+	 * 整えばF1-4で再検討できる）。
+	 *
 	 * いずれの場合も `null` を返し、呼び出し側でスキップさせる。
 	 *
 	 * @param array<string,mixed> $raw `shop_coupons[]` の1要素。
@@ -35,6 +41,12 @@ final class CouponTransformer {
 		}
 
 		if ( in_array( $raw['group_limit_type'] ?? null, [ 'including', 'excluding' ], true ) ) {
+			return null;
+		}
+
+		$starts_at = Cast::to_int_or_null( $raw['starts_at'] ?? null );
+
+		if ( null !== $starts_at && $starts_at > time() ) {
 			return null;
 		}
 
