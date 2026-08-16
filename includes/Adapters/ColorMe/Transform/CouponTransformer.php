@@ -26,7 +26,10 @@ final class CouponTransformer {
 	 * 除外する。WooCommerceのクーポン制限はタグ単位に対応しておらず、この変換層だけでは
 	 * グループ→商品ID一覧の展開もできないため、そのまま作ると意図せず全商品対象の割引券に
 	 * なってしまい金銭的リスクがある（`group_limit_type`/`group_ids`はextrasに保持済みなので
-	 * F1-4で制限方法が定まれば再検討できる）。
+	 * F1-4で制限方法が定まれば再検討できる）。`group_limit_type`はレスポンススキーマ上必須では
+	 * なく、欠損・不正値・想定外の新enum値もありうるため、`none`（無制限）と明示された場合のみ
+	 * 変換する（欠損時にnone扱いへ倒れると、実は商品グループ制限がある割引が全商品対象の
+	 * クーポンとして作られてしまう）。
 	 *
 	 * `starts_at`（利用開始日時）が未来のクーポンも除外する。WooCommerceのネイティブなクーポンには
 	 * 開始日時の概念が無く（有効期限＝expires_atのみ）、`CanonicalCoupon` にも開始日時フィールドが
@@ -43,7 +46,7 @@ final class CouponTransformer {
 			return null;
 		}
 
-		if ( in_array( $raw['group_limit_type'] ?? null, [ 'including', 'excluding' ], true ) ) {
+		if ( 'none' !== ( $raw['group_limit_type'] ?? null ) ) {
 			return null;
 		}
 
@@ -53,9 +56,16 @@ final class CouponTransformer {
 			return null;
 		}
 
-		$remote_id   = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$coupon_type = Cast::to_string_or_null( $raw['coupon_type'] ?? null );
 
+		// `coupon_type`はレスポンススキーマ上必須ではなく、欠損・不正値・想定外の新enum値も
+		// ありうる。未知の値を`fixed`（対応外の折り返し）に丸めると、例えば定率(`rate`)の
+		// フィールド欠損レスポンスが定額割引として誤って再現されうるため、既知の3値のみ処理する。
+		if ( ! in_array( $coupon_type, [ 'amount', 'rate', 'delivery_charge' ], true ) ) {
+			return null;
+		}
+
+		$remote_id        = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$is_free_shipping = 'delivery_charge' === $coupon_type;
 
 		return new CanonicalCoupon(

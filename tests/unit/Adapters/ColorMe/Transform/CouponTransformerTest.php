@@ -98,6 +98,28 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->transform( $this->raw( [ 'group_limit_type' => 'excluding' ] ) ) );
 	}
 
+	public function test_coupon_with_missing_or_unknown_group_limit_type_is_excluded(): void {
+		// group_limit_typeはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を
+		// 誤ってnone（無制限）扱いしないよう、'none'の肯定的な許可リストとして判定する
+		// （欠損時にnone扱いへ倒れると、実は商品グループ制限がある割引が全商品対象になる）。
+		$raw = $this->raw( [] );
+		unset( $raw['group_limit_type'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'group_limit_type' => 'unknown_future_value' ] ) ) );
+	}
+
+	public function test_coupon_with_missing_or_unknown_coupon_type_is_excluded(): void {
+		// coupon_typeはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を
+		// 'fixed'に丸めると、例えば定率(rate)フィールド欠損レスポンスが定額割引として誤って
+		// 再現されうるため、既知の3値（amount/rate/delivery_charge）のみ処理する。
+		$raw = $this->raw( [] );
+		unset( $raw['coupon_type'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'coupon_type' => 'unknown_future_value' ] ) ) );
+	}
+
 	public function test_unavailable_coupon_is_excluded(): void {
 		// CanonicalCouponには有効/無効を表すフィールドが無いため、店舗側で手動無効化された
 		// クーポンをそのまま変換するとWoo側でコードが再び使用可能になってしまう。
