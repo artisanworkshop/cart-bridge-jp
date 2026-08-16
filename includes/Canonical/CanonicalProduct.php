@@ -37,23 +37,25 @@ final readonly class CanonicalProduct implements CanonicalModel {
 		public array $category_refs,
 		public ?int $stock,
 		public string $status,
+		public bool $requires_shipping = true,
 		public array $extras = []
 	) {}
 
 	public function to_array(): array {
 		return [
-			'name'          => $this->name,
-			'sku'           => $this->sku,
-			'price'         => $this->price,
-			'sale_price'    => $this->sale_price,
-			'description'   => $this->description,
-			'images'        => $this->images,
-			'variants'      => $this->variants,
-			'options'       => $this->options,
-			'category_refs' => $this->category_refs,
-			'stock'         => $this->stock,
-			'status'        => $this->status,
-			'extras'        => $this->extras,
+			'name'              => $this->name,
+			'sku'               => $this->sku,
+			'price'             => $this->price,
+			'sale_price'        => $this->sale_price,
+			'description'       => $this->description,
+			'images'            => $this->images,
+			'variants'          => $this->variants,
+			'options'           => $this->options,
+			'category_refs'     => $this->category_refs,
+			'stock'             => $this->stock,
+			'status'            => $this->status,
+			'requires_shipping' => $this->requires_shipping,
+			'extras'            => $this->extras,
 		];
 	}
 
@@ -70,6 +72,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			(array) ( $data['category_refs'] ?? [] ),
 			isset( $data['stock'] ) ? (int) $data['stock'] : null,
 			(string) ( $data['status'] ?? 'draft' ),
+			(bool) ( $data['requires_shipping'] ?? true ),
 			(array) ( $data['extras'] ?? [] )
 		);
 	}

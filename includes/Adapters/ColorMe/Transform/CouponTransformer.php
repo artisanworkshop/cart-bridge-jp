@@ -17,12 +17,24 @@ final class CouponTransformer {
 	/**
 	 * `status: 'unavailable'`（店舗側で手動無効化済み）のクーポンは、`CanonicalCoupon` に
 	 * 有効/無効を表すフィールドが無いため、そのまま変換すると利用不能だったコードがWoo側で
-	 * 再び使用可能になってしまう。`null` を返し、呼び出し側でスキップさせる。
+	 * 再び使用可能になってしまう。
+	 *
+	 * `group_limit_type`が`including`/`excluding`（特定商品グループのみ対象/除外）のクーポンも
+	 * 除外する。WooCommerceのクーポン制限はタグ単位に対応しておらず、この変換層だけでは
+	 * グループ→商品ID一覧の展開もできないため、そのまま作ると意図せず全商品対象の割引券に
+	 * なってしまい金銭的リスクがある（`group_limit_type`/`group_ids`はextrasに保持済みなので
+	 * F1-4で制限方法が定まれば再検討できる）。
+	 *
+	 * いずれの場合も `null` を返し、呼び出し側でスキップさせる。
 	 *
 	 * @param array<string,mixed> $raw `shop_coupons[]` の1要素。
 	 */
 	public function transform( array $raw ): ?CanonicalCoupon {
 		if ( 'unavailable' === ( $raw['status'] ?? null ) ) {
+			return null;
+		}
+
+		if ( in_array( $raw['group_limit_type'] ?? null, [ 'including', 'excluding' ], true ) ) {
 			return null;
 		}
 
@@ -41,6 +53,9 @@ final class CouponTransformer {
 			// `indisposable`/`disposable` の1ユーザーあたり上限を表す列挙文字列であり別物
 			// （`(int) 'indisposable' === 0` になる罠のため混同しないこと）。
 			Cast::to_int_or_null( $raw['total_usage_limit'] ?? null ),
+			$is_free_shipping,
+			// `disposable`はWooの usage_limit_per_user=1 に、`indisposable`は無制限（null）に対応する。
+			( 'disposable' === ( $raw['usage_limit'] ?? null ) ) ? 1 : null,
 			$this->extras( $raw, $remote_id, $is_free_shipping )
 		);
 	}

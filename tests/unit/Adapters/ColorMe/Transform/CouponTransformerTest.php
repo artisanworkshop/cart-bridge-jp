@@ -36,6 +36,7 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'fixed', $coupon->type );
 		$this->assertSame( '100', $coupon->amount );
+		$this->assertFalse( $coupon->free_shipping );
 		$this->assertFalse( $coupon->extras['free_shipping'] );
 	}
 
@@ -54,10 +55,13 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 	}
 
 	public function test_delivery_charge_type_maps_to_zero_fixed_with_free_shipping_flag(): void {
+		// WooCommerceのクーポンはfree_shippingをネイティブなフラグとして持つため、$0固定割引に
+		// 留めず正規モデル側にも反映する（そうしないと送料無料が機能しないクーポンになる）。
 		$coupon = $this->transformer->transform( $this->raw( [ 'coupon_type' => 'delivery_charge' ] ) );
 
 		$this->assertSame( 'fixed', $coupon->type );
 		$this->assertSame( '0', $coupon->amount );
+		$this->assertTrue( $coupon->free_shipping );
 		$this->assertTrue( $coupon->extras['free_shipping'] );
 	}
 
@@ -74,6 +78,24 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		// usage_limit は enum 文字列。intキャストすると0になる罠があるため誤用していないか確認する。
 		$this->assertSame( 10, $coupon->usage_limit );
 		$this->assertSame( 'indisposable', $coupon->extras['per_user_usage_limit'] );
+		// indisposable（無制限）はWooのusage_limit_per_userを設定しない（null）。
+		$this->assertNull( $coupon->usage_limit_per_user );
+	}
+
+	public function test_disposable_usage_limit_maps_to_woo_per_user_limit_of_one(): void {
+		// WooCommerceのクーポンはusage_limit_per_userをネイティブなフラグとして持つため、
+		// disposable（1人1回）はここに反映しないと同一顧客が繰り返し利用できてしまう。
+		$coupon = $this->transformer->transform( $this->raw( [ 'usage_limit' => 'disposable' ] ) );
+
+		$this->assertSame( 1, $coupon->usage_limit_per_user );
+	}
+
+	public function test_group_restricted_coupon_is_excluded(): void {
+		// WooCommerceのクーポン制限はタグ単位に対応しておらず、Transformer層だけではColorMeの
+		// グループ→商品ID一覧の展開もできない。そのまま作ると意図せず全商品対象の割引券になり
+		// 金銭的リスクがあるため除外する（group_limit_type/group_idsはextrasに保持済み）。
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'group_limit_type' => 'including' ] ) ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'group_limit_type' => 'excluding' ] ) ) );
 	}
 
 	public function test_unavailable_coupon_is_excluded(): void {

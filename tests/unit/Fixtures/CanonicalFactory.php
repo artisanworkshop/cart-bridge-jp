@@ -30,6 +30,7 @@ final class CanonicalFactory {
 			[],
 			$stock,
 			'publish',
+			true,
 			[ 'remote_id' => $remote_id ]
 		);
 	}

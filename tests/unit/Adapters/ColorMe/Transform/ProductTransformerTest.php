@@ -108,6 +108,65 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'showing_for_members', $product->extras['display_state'] );
 	}
 
+	public function test_regular_purchase_product_is_kept_private_regardless_of_display_state(): void {
+		// Wooコアにはサブスクリプションの仕組みが無い。通常商品として公開すると一回限りの
+		// 購入として売れてしまい、定期収益や継続提供の前提が崩れるため、F1-4がサブスク対応する
+		// までprivateに留める。
+		$raw                     = $this->product_fixture( 192616831 );
+		$raw['regular_purchase'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+		$this->assertTrue( $product->extras['regular_purchase'] );
+	}
+
+	public function test_product_outside_its_sale_window_is_kept_private(): void {
+		// sale_start_date/sale_end_date（掲載期間）の外側は、display_stateがshowingであっても
+		// 今この瞬間は非公開が正しい（ColorMe側でも本来非公開になる想定の時限公開設定）。
+		$raw = $this->product_fixture( 192616831 );
+
+		$not_yet_started                    = $raw;
+		$not_yet_started['sale_start_date'] = time() + 3600;
+		$this->assertSame( 'private', $this->transformer->transform( $not_yet_started )->status );
+
+		$already_ended                  = $raw;
+		$already_ended['sale_end_date'] = time() - 3600;
+		$this->assertSame( 'private', $this->transformer->transform( $already_ended )->status );
+
+		$within_window                    = $raw;
+		$within_window['sale_start_date'] = time() - 3600;
+		$within_window['sale_end_date']   = time() + 3600;
+		$this->assertSame( 'publish', $this->transformer->transform( $within_window )->status );
+	}
+
+	public function test_product_requires_shipping_by_default(): void {
+		$raw = $this->product_fixture( 192616831 );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertTrue( $product->requires_shipping );
+	}
+
+	public function test_without_shipping_product_does_not_require_shipping(): void {
+		// Wooのネイティブなvirtual商品設定（配送先住所を要求せず送料もかけない）に対応する。
+		$raw                     = $this->product_fixture( 192616831 );
+		$raw['without_shipping'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertFalse( $product->requires_shipping );
+	}
+
+	public function test_digital_content_product_does_not_require_shipping(): void {
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['digital_content'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertFalse( $product->requires_shipping );
+	}
+
 	public function test_unavailable_payment_and_delivery_ids_are_preserved_in_extras(): void {
 		$raw                             = $this->product_fixture( 192616831 );
 		$raw['unavailable_payment_ids']  = [ 1094475 ];

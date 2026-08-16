@@ -33,6 +33,7 @@ final class ProductTransformer {
 			$this->category_refs( $raw ),
 			$this->stock( $raw ),
 			$this->status( $raw ),
+			$this->requires_shipping( $raw ),
 			$this->extras( $raw, $remote_id )
 		);
 	}
@@ -43,12 +44,60 @@ final class ProductTransformer {
 	 * （swagger: 「掲載状態だが購入は会員のみ可能」）。購入制限自体はWoo標準機能で表現できないため
 	 * extras の生の `display_state` に委ね、ここではWooの掲載可否のみを判定する。
 	 *
+	 * 一方、以下の2つは「今この瞬間に一般公開すべきでない」ケースであり、sale_for_membersとは異なり
+	 * privateにしても元のASP側の意図を損なわない（誰に対しても非公開が正しい）ため、display_stateに
+	 * 優先してprivateにする:
+	 * - `regular_purchase`（定期購入商品）: Wooコアにはサブスクリプションの仕組みが無く、通常商品として
+	 *   公開すると一回限りの購入として売れてしまい、定期収益や継続提供の前提が崩れる。F1-4がサブスク
+	 *   対応を実装するまでの暫定処置
+	 * - `sale_start_date`/`sale_end_date`（掲載期間）: 期間外は本来ColorMe側でも非公開になる想定の
+	 *   時限公開設定
+	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function status( array $raw ): string {
+		if ( true === ( $raw['regular_purchase'] ?? null ) ) {
+			return 'private';
+		}
+
+		if ( ! $this->is_within_sale_window( $raw ) ) {
+			return 'private';
+		}
+
 		$display_state = $raw['display_state'] ?? null;
 
 		return in_array( $display_state, [ 'showing', 'sale_for_members' ], true ) ? 'publish' : 'private';
+	}
+
+	/**
+	 * @param array<string,mixed> $raw
+	 */
+	private function is_within_sale_window( array $raw ): bool {
+		$now = time();
+
+		$start = Cast::to_int_or_null( $raw['sale_start_date'] ?? null );
+
+		if ( null !== $start && $start > $now ) {
+			return false;
+		}
+
+		$end = Cast::to_int_or_null( $raw['sale_end_date'] ?? null );
+
+		if ( null !== $end && $end < $now ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * `without_shipping`（配送不要商品）・`digital_content`（デジタルコンテンツ）はWooのネイティブな
+	 * virtual商品設定（配送先住所を要求せず送料もかけない）に対応する。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function requires_shipping( array $raw ): bool {
+		return true !== ( $raw['without_shipping'] ?? null ) && true !== ( $raw['digital_content'] ?? null );
 	}
 
 	/**
