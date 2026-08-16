@@ -160,6 +160,9 @@ final class VariationWriter {
 	/**
 	 * ASP側から消えたvariationを削除する（残すと価格レンジ・在庫状態がずれるため）。
 	 * `_cbjp_remote_id`メタを持たないvariation（このプラグイン外で作成されたもの）は対象外。
+	 * `_cbjp_platform`が`$this->platform`と一致しないvariation（別プラットフォーム由来。
+	 * リンク再構築ツール=D16等で複数プラットフォームが同一Woo商品を共有するケースを想定）も
+	 * このWriterインスタンスの管轄外として対象外にする。
 	 *
 	 * @param array<int,string> $seen_remote_ids
 	 * @return array<int,string>
@@ -175,8 +178,9 @@ final class VariationWriter {
 
 		foreach ( $product->get_children() as $variation_id ) {
 			$remote_id = get_post_meta( $variation_id, '_cbjp_remote_id', true );
+			$platform  = get_post_meta( $variation_id, '_cbjp_platform', true );
 
-			if ( ! is_string( $remote_id ) || '' === $remote_id || in_array( $remote_id, $seen_remote_ids, true ) ) {
+			if ( ! is_string( $remote_id ) || '' === $remote_id || $platform !== $this->platform || in_array( $remote_id, $seen_remote_ids, true ) ) {
 				continue;
 			}
 
