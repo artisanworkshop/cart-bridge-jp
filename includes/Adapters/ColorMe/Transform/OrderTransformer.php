@@ -47,6 +47,13 @@ final class OrderTransformer {
 			throw new RuntimeException( 'ColorMe sale is missing make_date; cannot determine placed_at.' );
 		}
 
+		if ( null === Cast::to_int_or_null( $this->split_amounts( $raw )['total_price'] ?? null ) ) {
+			// 欠損・非数値のtotal_priceを0円として通すと、実際は金額のある注文が0円の履歴注文
+			// として書き込まれてしまう。`residual`は恒等式の食い違いのみを検知するため、
+			// 全項目が同時に欠損した部分的なレスポンスでは食い違いが発生せず検知できない。
+			throw new RuntimeException( 'ColorMe sale is missing total_price; cannot determine order total.' );
+		}
+
 		return new CanonicalOrder(
 			$number,
 			$this->status( $raw ),
@@ -153,6 +160,15 @@ final class OrderTransformer {
 				continue;
 			}
 
+			$quantity = Cast::to_int_or_null( $detail['product_num'] ?? null );
+
+			if ( null === $quantity ) {
+				// 欠損・非数値の数量を1個として捏造すると、実際の購入数と食い違う出荷指示になり
+				// うる。他にこの明細の数量を復元できる情報源が無いため、注文全体を弾く
+				// （id/make_date/total_priceの欠損時と同じ扱い）。
+				throw new RuntimeException( 'ColorMe sale detail is missing product_num; cannot determine line item quantity.' );
+			}
+
 			$result[] = [
 				'remote_detail_id'        => Cast::to_string_or_null( $detail['id'] ?? null ),
 				'remote_product_id'       => Cast::to_string_or_null( $detail['product_id'] ?? null ),
@@ -163,7 +179,7 @@ final class OrderTransformer {
 				'name'                    => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
 				'price'                   => Cast::money( $detail['price_with_tax'] ?? null ),
 				'unit_price_excl_tax'     => Cast::money( $detail['price'] ?? null ),
-				'quantity'                => Cast::to_int_or_null( $detail['product_num'] ?? null ) ?? 1,
+				'quantity'                => $quantity,
 				// 数量の単位（箱・セット・重量単位等）。欠けると梱包・出荷資料側で数量ラベルを
 				// 復元できない。
 				'unit'                    => Cast::to_string_or_null( $detail['unit'] ?? null ),

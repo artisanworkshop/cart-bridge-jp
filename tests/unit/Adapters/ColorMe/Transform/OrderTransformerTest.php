@@ -134,6 +134,29 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		( new OrderTransformer() )->transform( $raw );
 	}
 
+	public function test_missing_total_price_throws_instead_of_yielding_zero_total(): void {
+		// 欠損・非数値のtotal_priceを0円として通すと、実際は金額のある注文が0円の履歴注文
+		// として書き込まれてしまう。全項目が同時に欠損した部分的なレスポンスではresidualが
+		// 恒等式の食い違いを検知できないため、total_price自体を必須として弾く。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['total_price'] );
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
+	public function test_missing_line_item_quantity_throws_instead_of_defaulting_to_one(): void {
+		// 欠損・非数値の数量を1個として捏造すると、実際の購入数と食い違う出荷指示になりうる。
+		// 他にこの明細の数量を復元できる情報源が無いため、注文全体を弾く。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['details'][0]['product_num'] );
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
 	public function test_multi_delivery_order_uses_order_level_shipping_charge_not_first_leg(): void {
 		$raw                          = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['delivery_total_charge'] = 1800;
