@@ -28,6 +28,17 @@ final class CouponWriter implements EntityWriter {
 			throw new RuntimeException( 'CouponWriter received an unsupported Canonical model.' );
 		}
 
+		$group_limit_type = Value::string( $item->extras['group_limit_type'] ?? null );
+
+		if ( null !== $group_limit_type && 'none' !== $group_limit_type ) {
+			// 特定会員グループ限定のクーポンはWooに対応機能が無い。制限を無視して保存すると
+			// 実質「全顧客が使える無制限クーポン」として機能してしまい金銭的リスクに直結するため
+			// （ColorMeの`CouponTransformer`はこのケースを既に除外しているが、`extras`経由で
+			// 直接構築されうる外部アダプタは信頼境界のため、ここでも警告だけでなく保存自体を
+			// 見送るフェイルクローズにする）。
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED ] );
+		}
+
 		$warnings = [];
 		$coupon   = null !== $existing_local_id ? new WC_Coupon( $existing_local_id ) : new WC_Coupon();
 
@@ -56,12 +67,6 @@ final class CouponWriter implements EntityWriter {
 		$coupon->set_usage_limit_per_user( $item->usage_limit_per_user );
 		$coupon->set_free_shipping( $item->free_shipping );
 		$coupon->set_description( Value::string( $item->extras['name'] ?? null ) ?? '' );
-
-		$group_limit_type = Value::string( $item->extras['group_limit_type'] ?? null );
-
-		if ( null !== $group_limit_type && 'none' !== $group_limit_type ) {
-			$warnings[] = WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED;
-		}
 
 		ExtrasMeta::apply( $coupon, $this->meta_extras( $item->extras ) );
 		$coupon->update_meta_data( '_cbjp_platform', $this->platform );

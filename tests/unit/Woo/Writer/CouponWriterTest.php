@@ -62,6 +62,28 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
 	}
 
+	public function test_group_limited_coupon_is_skipped_not_saved_unrestricted(): void {
+		$coupon = new CanonicalCoupon(
+			'MEMBERS-ONLY',
+			'fixed',
+			'500',
+			null,
+			null,
+			null,
+			[
+				'remote_id'        => '6',
+				'group_limit_type' => 'specified',
+			]
+		);
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED, $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
+	}
+
 	public function test_usage_limit_per_user_is_applied(): void {
 		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1 );
 
