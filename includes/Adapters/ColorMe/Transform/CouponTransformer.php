@@ -104,10 +104,10 @@ final class CouponTransformer {
 			// `indisposable`/`disposable` の1ユーザーあたり上限を表す列挙文字列であり別物
 			// （`(int) 'indisposable' === 0` になる罠のため混同しないこと）。
 			Cast::to_int_or_null( $raw['total_usage_limit'] ?? null ),
+			$this->extras( $raw, $remote_id, $is_free_shipping ),
 			$is_free_shipping,
 			// `disposable`はWooの usage_limit_per_user=1 に、`indisposable`は無制限（null）に対応する。
-			'disposable' === $usage_limit ? 1 : null,
-			$this->extras( $raw, $remote_id, $is_free_shipping )
+			'disposable' === $usage_limit ? 1 : null
 		);
 	}
 

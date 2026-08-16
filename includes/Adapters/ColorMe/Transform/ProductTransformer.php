@@ -33,8 +33,8 @@ final class ProductTransformer {
 			$this->category_refs( $raw ),
 			$this->stock( $raw ),
 			$this->status( $raw ),
-			$this->requires_shipping( $raw ),
 			$this->extras( $raw, $remote_id ),
+			$this->requires_shipping( $raw ),
 			$this->tag_refs( $raw ),
 			Cast::to_int_or_null( $raw['weight'] ?? null ),
 			$this->tax_class( $raw )
