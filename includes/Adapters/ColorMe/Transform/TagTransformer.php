@@ -32,10 +32,15 @@ final class TagTransformer {
 	 * 作成されるのを防ぐ。`sale_for_members`（掲載状態だが購入は会員のみ可能）は一般公開の
 	 * 掲載状態のため除外しない（ProductTransformer::status()と同じ区別）。
 	 *
+	 * `display_state`はレスポンススキーマ上必須ではなく、欠損・不正値・想定外の新enum値も
+	 * ありうるため、既知の非公開値の否定ではなく、明示的に公開状態と分かる値（`showing`/
+	 * `sale_for_members`）の肯定的な許可リストとして判定する（欠損時に公開扱いへ倒れると、
+	 * 可視性不明のグループ由来のタグが`tag_refs`経由で商品にも公開状態で紐付いてしまう）。
+	 *
 	 * @param array<string,mixed> $raw `groups.json` の `groups[]` の1要素。
 	 */
 	public function transform( array $raw ): ?CanonicalTag {
-		if ( in_array( $raw['display_state'] ?? null, [ 'hidden', 'showing_for_members' ], true ) ) {
+		if ( ! in_array( $raw['display_state'] ?? null, [ 'showing', 'sale_for_members' ], true ) ) {
 			return null;
 		}
 

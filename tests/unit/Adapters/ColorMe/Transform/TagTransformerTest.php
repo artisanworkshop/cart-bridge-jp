@@ -44,6 +44,19 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
 	}
 
+	public function test_group_with_missing_or_unknown_display_state_is_excluded(): void {
+		// display_stateはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を
+		// 誤って公開扱いしないよう、showing/sale_for_membersの肯定的な許可リストとして判定する。
+		$raw = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		unset( $raw['display_state'] );
+
+		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
+
+		$raw['display_state'] = 'unknown_future_value';
+
+		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
+	}
+
 	public function test_sale_for_members_group_stays_a_public_tag(): void {
 		// sale_for_membersは「掲載状態だが購入は会員のみ可能」であり一般公開の掲載状態
 		// （ProductTransformer::status()のsale_for_members商品と同じ扱い）。
@@ -95,6 +108,11 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		// 通すとImporterが弾かず複数グループが同一remote_idに衝突する。
 		$this->expectException( RuntimeException::class );
 
-		( new TagTransformer() )->transform( [ 'name' => 'no id' ] );
+		( new TagTransformer() )->transform(
+			[
+				'name'          => 'no id',
+				'display_state' => 'showing',
+			]
+		);
 	}
 }
