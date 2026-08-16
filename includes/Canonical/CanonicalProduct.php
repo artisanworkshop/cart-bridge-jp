@@ -25,6 +25,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	 * @param array<int,string>              $category_refs 連携先カテゴリのremote_id一覧。
 	 * @param array<int,string>              $tag_refs 連携先タグのremote_id一覧。
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。往復移行でのデータ欠損を防ぐ。
+	 * @param ?int                            $weight 重量（グラム単位）。Wooのネイティブな重量設定に対応する。
 	 */
 	public function __construct(
 		public string $name,
@@ -40,7 +41,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 		public string $status,
 		public bool $requires_shipping = true,
 		public array $extras = [],
-		public array $tag_refs = []
+		public array $tag_refs = [],
+		public ?int $weight = null
 	) {}
 
 	public function to_array(): array {
@@ -59,6 +61,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			'status'            => $this->status,
 			'requires_shipping' => $this->requires_shipping,
 			'extras'            => $this->extras,
+			'weight'            => $this->weight,
 		];
 	}
 
@@ -77,7 +80,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			(string) ( $data['status'] ?? 'draft' ),
 			(bool) ( $data['requires_shipping'] ?? true ),
 			(array) ( $data['extras'] ?? [] ),
-			(array) ( $data['tag_refs'] ?? [] )
+			(array) ( $data['tag_refs'] ?? [] ),
+			isset( $data['weight'] ) ? (int) $data['weight'] : null
 		);
 	}
 }

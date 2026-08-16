@@ -181,6 +181,57 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'publish', $product->status );
 	}
 
+	public function test_product_with_missing_price_is_kept_private_instead_of_free(): void {
+		// Cast::money()は解釈できない値を無言で'0'に丸めるため、区別せず通すと本来有料の商品が
+		// 無料商品としてWoo側で購入可能になってしまう。
+		$raw = $this->product_fixture( 192616831 );
+		unset( $raw['sales_price_including_tax'] );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+		$this->assertSame( '0', $product->price );
+	}
+
+	public function test_product_with_non_numeric_price_is_kept_private(): void {
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['sales_price_including_tax'] = 'invalid';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+	}
+
+	public function test_product_with_genuinely_free_price_still_publishes(): void {
+		// 0は正規の無料商品を表す数値であり、欠損・非数値とは区別してpublishのままにする。
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['sales_price_including_tax'] = 0;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'publish', $product->status );
+		$this->assertSame( '0', $product->price );
+	}
+
+	public function test_weight_is_carried_in_grams(): void {
+		// swagger: weightはグラム単位。variant側は既にweightを正規モデルに持つため、
+		// 商品レベルも同じ単位でCanonicalProduct::weightへ反映する。
+		$raw           = $this->product_fixture( 192616831 );
+		$raw['weight'] = 250;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 250, $product->weight );
+	}
+
+	public function test_null_weight_yields_null(): void {
+		$raw = $this->product_fixture( 192616831 );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertNull( $product->weight );
+	}
+
 	public function test_product_requires_shipping_by_default(): void {
 		$raw = $this->product_fixture( 192616831 );
 

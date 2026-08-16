@@ -35,7 +35,8 @@ final class ProductTransformer {
 			$this->status( $raw ),
 			$this->requires_shipping( $raw ),
 			$this->extras( $raw, $remote_id ),
-			$this->tag_refs( $raw )
+			$this->tag_refs( $raw ),
+			Cast::to_int_or_null( $raw['weight'] ?? null )
 		);
 	}
 
@@ -55,6 +56,8 @@ final class ProductTransformer {
 	 *   時限公開設定
 	 * - `soldout_display: false`（売り切れ時非表示）かつ在庫管理中で在庫が0: 店舗側が明示的に
 	 *   「売り切れたら表示しない」と設定している以上、privateにしても元のASP側の意図を損なわない
+	 * - `sales_price_including_tax`が欠損／非数値: `Cast::money()`は解釈できない値を無言で`'0'`に
+	 *   丸めるため、区別なく通すと本来有料の商品が無料商品としてWoo側で購入可能になってしまう
 	 *
 	 * @param array<string,mixed> $raw
 	 */
@@ -71,9 +74,23 @@ final class ProductTransformer {
 			return 'private';
 		}
 
+		if ( $this->has_unparseable_price( $raw ) ) {
+			return 'private';
+		}
+
 		$display_state = $raw['display_state'] ?? null;
 
 		return in_array( $display_state, [ 'showing', 'sale_for_members' ], true ) ? 'publish' : 'private';
+	}
+
+	/**
+	 * `sales_price_including_tax: 0`（正規の無料商品）と、欠損・非数値値が`Cast::money()`で
+	 * 丸められた結果の`'0'`は下流で見分けが付かない。数値として解釈できない場合のみtrueを返す。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function has_unparseable_price( array $raw ): bool {
+		return null === Cast::to_int_or_null( $raw['sales_price_including_tax'] ?? null );
 	}
 
 	/**
