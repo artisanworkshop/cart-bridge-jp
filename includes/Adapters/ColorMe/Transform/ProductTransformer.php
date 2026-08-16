@@ -160,6 +160,12 @@ final class ProductTransformer {
 	 * （`includes/Sync/Importer.php`参照）、管理外の商品に `stocks: 0` 等をそのまま渡すと
 	 * 購入可能な商品を誤って在庫切れにしてしまう。
 	 *
+	 * 逆に `stock_managed: true`（在庫管理する設定）で `stocks` が欠損・非数値の場合、
+	 * `Cast::to_int_or_null()` は `null` を返すが、それをそのまま返すと上記と同じ
+	 * `Importer` の「stock=nullは在庫あり」判定に乗ってしまい、実際は売り切れかもしれない
+	 * 在庫管理商品を無条件に購入可能にしてしまう。在庫管理対象なのに実数が不明な場合は
+	 * `0`（在庫切れ）にフェイルクローズする。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function stock( array $raw ): ?int {
@@ -167,7 +173,7 @@ final class ProductTransformer {
 			return null;
 		}
 
-		return Cast::to_int_or_null( $raw['stocks'] ?? null );
+		return Cast::to_int_or_null( $raw['stocks'] ?? null ) ?? 0;
 	}
 
 	/**
