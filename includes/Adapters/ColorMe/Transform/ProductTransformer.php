@@ -259,7 +259,9 @@ final class ProductTransformer {
 				'option2_name'                => Cast::to_string_or_null( $variant['option2']['name'] ?? null ),
 				'option2_value'               => Cast::to_string_or_null( $variant['option2']['value'] ?? $variant['option2_value'] ?? null ),
 				'price'                       => null !== $price ? $price : $product_price,
-				'stock'                       => $stock_managed ? Cast::to_int_or_null( $variant['stocks'] ?? null ) : null,
+				// 在庫管理中で欠損・非数値の場合は`stock()`と同じ理由で0（在庫切れ）にフェイルクローズする
+				// （Woo writerはnullを「在庫管理外＝在庫あり」と解釈するため）。
+				'stock'                       => $stock_managed ? ( Cast::to_int_or_null( $variant['stocks'] ?? null ) ?? 0 ) : null,
 				'weight'                      => Cast::to_int_or_null( $variant['weight'] ?? null ),
 				// バリエーション別の上書き値。商品レベルの同種項目はextrasに退避済み（few_num/cost/
 				// members_price_including_tax）だが、ここではバリエーションごとの値をそのまま保持する。

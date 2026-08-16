@@ -393,6 +393,18 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 20, $product->variants[0]['stock'] );
 	}
 
+	public function test_managed_variant_stock_fails_closed_to_zero_when_stocks_is_missing(): void {
+		// 商品レベルのstock()と同じ理由: Woo writerはnullを「在庫管理外＝在庫あり」と解釈するため、
+		// 在庫管理中で欠損・非数値のバリエーション在庫は0（在庫切れ）にフェイルクローズする。
+		$raw                  = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		$raw['stock_managed'] = true;
+		unset( $raw['variants'][0]['stocks'] );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 0, $product->variants[0]['stock'] );
+	}
+
 	public function test_variant_specific_overrides_are_preserved_not_just_product_level_values(): void {
 		$raw                               = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
 		$raw['variants'][0]['few_num']     = 3;
