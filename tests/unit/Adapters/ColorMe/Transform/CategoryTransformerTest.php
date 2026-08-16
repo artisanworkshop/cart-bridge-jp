@@ -1,0 +1,261 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
+
+use CartBridgeJP\Adapters\ColorMe\Transform\CategoryTransformer;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use WP_UnitTestCase;
+
+final class CategoryTransformerTest extends WP_UnitTestCase {
+
+	private CategoryTransformer $transformer;
+
+	public function set_up(): void {
+		parent::set_up();
+		$this->transformer = new CategoryTransformer();
+	}
+
+	public function test_transforms_top_level_category_without_children(): void {
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 1, $categories );
+		$this->assertSame( '2993032', $categories[0]->id );
+		$this->assertSame( 'テストカテゴリ', $categories[0]->name );
+		$this->assertNull( $categories[0]->parent_id );
+	}
+
+	/**
+	 * `categories.json` の実フィクスチャは `children: []` のみのため、階層構造は
+	 * swaggerスキーマに基づく合成データで検証する。
+	 */
+	public function test_flattens_nested_children_with_parent_id(): void {
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリーA',
+					'display_state' => 'showing',
+				],
+				[
+					'id_big'        => 100,
+					'id_small'      => 2,
+					'name'          => '子カテゴリーB',
+					'display_state' => 'showing',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 3, $categories );
+		$this->assertSame( '100', $categories[0]->id );
+		$this->assertNull( $categories[0]->parent_id );
+
+		$this->assertSame( '100-1', $categories[1]->id );
+		$this->assertSame( '100', $categories[1]->parent_id );
+		$this->assertSame( '子カテゴリーA', $categories[1]->name );
+
+		$this->assertSame( '100-2', $categories[2]->id );
+		$this->assertSame( '100', $categories[2]->parent_id );
+	}
+
+	public function test_missing_id_big_yields_no_categories(): void {
+		$this->assertSame( [], $this->transformer->transform( [ 'name' => 'no id' ] ) );
+	}
+
+	public function test_hidden_top_level_category_is_excluded(): void {
+		// Wooの商品カテゴリーは常に公開タクソノミーであり、可視性を保ったまま作成する手段が
+		// 無いため、hidden/members_onlyは除外する。
+		$raw                  = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		$raw['display_state'] = 'hidden';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
+	public function test_members_only_top_level_category_is_excluded(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		$raw['display_state'] = 'members_only';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
+	public function test_category_with_missing_or_unknown_display_state_is_excluded(): void {
+		// display_stateはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を
+		// 誤ってvisible扱いしないよう、'showing'の肯定的な許可リストとして判定する
+		// （否定的な除外リストだと、欠損時に可視性不明のカテゴリーを誤って公開してしまう）。
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		unset( $raw['display_state'] );
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+
+		$raw['display_state'] = 'unknown_future_value';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
+	public function test_hidden_child_category_is_excluded_but_visible_siblings_remain(): void {
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '非公開の子カテゴリー',
+					'display_state' => 'hidden',
+				],
+				[
+					'id_big'        => 100,
+					'id_small'      => 2,
+					'name'          => '公開の子カテゴリー',
+					'display_state' => 'showing',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 2, $categories ); // 親 + 公開の子のみ。
+		$this->assertSame( '100', $categories[0]->id );
+		$this->assertSame( '100-2', $categories[1]->id );
+	}
+
+	public function test_visible_child_of_a_filtered_parent_becomes_top_level_not_dangling(): void {
+		// 親カテゴリーがhidden/members_onlyで除外された場合、可視な子カテゴリーの
+		// parent_idを存在しない親IDのまま残さず、親なし（トップレベル）として扱う。
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '非公開の親カテゴリー',
+			'display_state' => 'hidden',
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '公開の子カテゴリー',
+					'display_state' => 'showing',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertCount( 1, $categories );
+		$this->assertSame( '100-1', $categories[0]->id );
+		$this->assertNull( $categories[0]->parent_id );
+	}
+
+	public function test_description_and_image_are_preserved_in_extras(): void {
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][0];
+
+		$this->assertSame( 'お申し込み時に自動で作成された初期カテゴリー', $raw['expl'] );
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'お申し込み時に自動で作成された初期カテゴリー', $categories[0]->extras['description'] );
+		$this->assertNull( $categories[0]->extras['image_url'] );
+	}
+
+	public function test_sort_order_is_preserved_for_parent_and_child(): void {
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'sort'          => 2,
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'sort'          => 5,
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( 2, $categories[0]->extras['sort'] );
+		$this->assertSame( 5, $categories[1]->extras['sort'] );
+	}
+
+	public function test_meta_tag_is_preserved_for_parent_and_child(): void {
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'meta_tag'      => [
+				'title'       => '夏物特集',
+				'keywords'    => '夏物,涼しい,衣類',
+				'description' => '暑い夏を涼しく過ごすための商品を集めました',
+			],
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'meta_tag'      => [
+						'title'       => '子カテゴリータイトル',
+						'keywords'    => null,
+						'description' => null,
+					],
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame(
+			[
+				'title'       => '夏物特集',
+				'keywords'    => '夏物,涼しい,衣類',
+				'description' => '暑い夏を涼しく過ごすための商品を集めました',
+			],
+			$categories[0]->extras['meta_tag']
+		);
+		$this->assertSame( '子カテゴリータイトル', $categories[1]->extras['meta_tag']['title'] );
+	}
+
+	public function test_meta_tag_is_null_when_absent(): void {
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertNull( $categories[0]->extras['meta_tag'] );
+	}
+
+	public function test_child_category_description_and_image_are_preserved_independently(): void {
+		$raw = [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
+				[
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'expl'          => '子カテゴリーの説明',
+					'image_url'     => 'https://img.example.com/category-1.jpg',
+				],
+			],
+		];
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( '子カテゴリーの説明', $categories[1]->extras['description'] );
+		$this->assertSame( 'https://img.example.com/category-1.jpg', $categories[1]->extras['image_url'] );
+	}
+}

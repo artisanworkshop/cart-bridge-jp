@@ -16,11 +16,15 @@ final readonly class CanonicalCategory implements CanonicalModel {
 
 	use ChecksumTrait;
 
+	/**
+	 * @param array<string,mixed> $extras ASP固有フィールド（説明文・画像URL等）の退避先。
+	 */
 	public function __construct(
 		public string $id,
 		public string $name,
 		public ?string $parent_id,
-		public ?string $slug
+		public ?string $slug,
+		public array $extras = []
 	) {}
 
 	public function remote_id(): string {
@@ -33,6 +37,7 @@ final readonly class CanonicalCategory implements CanonicalModel {
 			'name'      => $this->name,
 			'parent_id' => $this->parent_id,
 			'slug'      => $this->slug,
+			'extras'    => $this->extras,
 		];
 	}
 
@@ -41,7 +46,8 @@ final readonly class CanonicalCategory implements CanonicalModel {
 			(string) ( $data['id'] ?? '' ),
 			(string) ( $data['name'] ?? '' ),
 			isset( $data['parent_id'] ) ? (string) $data['parent_id'] : null,
-			isset( $data['slug'] ) ? (string) $data['slug'] : null
+			isset( $data['slug'] ) ? (string) $data['slug'] : null,
+			(array) ( $data['extras'] ?? [] )
 		);
 	}
 }

@@ -321,6 +321,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
 | 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は`before`を過去方向へずらして複数回リクエストし、10件集まるか受注履歴が尽きるまで走査する実装が必要（単発リクエストでは不足しうる）。MakeShop/BASEは未 |
 | 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
+| 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | 未（`ProductTransformer`実装時、PR#9のCodexレビューで指摘）。`price`には`sales_price_including_tax`のような税込版フィールドがAPI上存在しない（swagger.json実測確認）ため、税抜/税込を推測せず`extras['list_price']`に生値を退避し`sale_price`は`null`のままとしている。定価と実売価格が異なる商品（セール品）を持つ実店舗のデータで両フィールドの関係を実測してから、`CanonicalProduct.price`/`sale_price`への反映方法を確定する |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
