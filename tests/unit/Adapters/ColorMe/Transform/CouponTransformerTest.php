@@ -176,6 +176,17 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNotNull( $coupon );
 	}
 
+	public function test_coupon_with_missing_or_unparseable_starts_at_is_excluded(): void {
+		// 欠損・非数値のstarts_atを「未来日付ではない」とフォールスルーさせると、実際には
+		// 将来開始予定のクーポンの部分的なレスポンスが即時有効として作られてしまう
+		// （ends_atと同じ理由でフェイルクローズする）。
+		$raw = $this->raw( [] );
+		unset( $raw['starts_at'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'starts_at' => 'invalid' ] ) ) );
+	}
+
 	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
 		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
 		$coupon = $this->transformer->transform( $this->raw( [ 'group_ids' => [ 0, 1 ] ] ) );

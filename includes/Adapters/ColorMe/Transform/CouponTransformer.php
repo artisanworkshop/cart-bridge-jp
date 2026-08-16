@@ -35,7 +35,8 @@ final class CouponTransformer {
 	 * 開始日時の概念が無く（有効期限＝expires_atのみ）、`CanonicalCoupon` にも開始日時フィールドが
 	 * 無いため、そのまま変換すると本来まだ使えないはずのコードがWoo側では作成直後から即座に
 	 * 使用可能になってしまう（`starts_at`はextrasに保持済みなので開始日時を表現する仕組みが
-	 * 整えばF1-4で再検討できる）。
+	 * 整えばF1-4で再検討できる）。欠損・非数値の場合も「未来日付ではない」とフォールスルー
+	 * させず同様に除外する（`ends_at`と同じ理由でフェイルクローズする）。
 	 *
 	 * `ends_at`（利用終了日）が欠損・非数値の場合も除外する。`CanonicalCoupon::expires_at`は
 	 * 欠損時にnull（無期限）になり、レスポンススキーマ上必須ではないため、期限付きクーポンの
@@ -56,7 +57,10 @@ final class CouponTransformer {
 
 		$starts_at = Cast::to_int_or_null( $raw['starts_at'] ?? null );
 
-		if ( null !== $starts_at && $starts_at > time() ) {
+		// 欠損・非数値のstarts_atは「未来日付ではない＝除外不要」とフォールスルーしてしまうと、
+		// 実際には将来開始予定のクーポンの部分的なレスポンスが即時有効として作られてしまう
+		// （ends_atと同じ理由でフェイルクローズする）。
+		if ( null === $starts_at || $starts_at > time() ) {
 			return null;
 		}
 
