@@ -56,13 +56,17 @@ final class StockWriter implements EntityWriter {
 			$target->set_stock_status( $item->quantity > 0 ? 'instock' : 'outofstock' );
 		}
 
-		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
+		// `resolve_stock_target()` は既存の商品/バリエーションをmappings/SKUで解決するのみで
+		// 新規作成することは無いため、`$existing_local_id`（stockエンティティのmapping有無）に
+		// 関わらず実体としては常に更新である。ここをexisting_local_idで判定すると、
+		// stockのmapping行が初回（null）のケースで実際は更新なのにcreatedと報告され、
+		// 結果レポートの件数が不正確になる。
 		$target_id = $target->save();
 
 		if ( $target instanceof WC_Product_Variation ) {
 			WC_Product_Variable::sync( $target->get_parent_id() );
 		}
 
-		return new WriteResult( $target_id, $operation, $warnings );
+		return new WriteResult( $target_id, WriteResult::OPERATION_UPDATED, $warnings );
 	}
 }

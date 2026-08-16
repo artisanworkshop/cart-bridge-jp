@@ -55,6 +55,22 @@ final class MediaImporterTest extends WooTestCase {
 		$this->assertSame( $first, $second );
 	}
 
+	public function test_imports_image_from_extensionless_url_via_content_detection(): void {
+		$this->stub_image_http();
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'P' );
+		$product_id = $product->save();
+
+		// `media_sideload_image()`は拡張子をURLパスの正規表現からしか判定できないため、
+		// 拡張子なしURLでは失敗しフォールバック経路（`wp_check_filetype_and_ext()`による
+		// ダウンロード済みファイルの内容判定）に入る。
+		$attachment_id = ( new MediaImporter() )->import( 'https://example.test/image-without-extension', $product_id );
+
+		$this->assertNotNull( $attachment_id );
+		$this->assertSame( 'image/png', get_post_mime_type( $attachment_id ) );
+	}
+
 	public function test_returns_null_on_http_failure(): void {
 		add_filter(
 			'pre_http_request',

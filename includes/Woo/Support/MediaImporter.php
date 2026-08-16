@@ -72,11 +72,36 @@ final class MediaImporter {
 			'tmp_name' => $tmp_file,
 		];
 
-		$filetype = wp_check_filetype( $file_array['name'] );
+		// `wp_check_filetype()` はファイル名の拡張子のみで判定する。`wp_check_filetype_and_ext()`は
+		// ダウンロード済みファイルの内容で検証を行うが、それはファイル名ベースの一次判定が
+		// image/*型に一致した場合の「拡張子の食い違い訂正」としてのみ働き、ファイル名に
+		// 拡張子が一切無い場合はcontent-sniffステップ自体に入らず空のまま返る。
+		// そのため拡張子なしURLは`wp_get_image_mime()`（ファイル内容のみで判定）による
+		// 直接のcontentスニッフィングにフォールバックする。
+		$filetype = wp_check_filetype_and_ext( $tmp_file, $file_array['name'] );
 
-		if ( null === $filetype['ext'] ) {
-			wp_delete_file( $tmp_file );
-			return null;
+		if ( empty( $filetype['ext'] ) || empty( $filetype['type'] ) ) {
+			$real_mime = wp_get_image_mime( $tmp_file );
+			$ext       = is_string( $real_mime ) ? wp_get_default_extension_for_mime_type( $real_mime ) : false;
+
+			if ( ! is_string( $real_mime ) || ! is_string( $ext ) ) {
+				wp_delete_file( $tmp_file );
+				return null;
+			}
+
+			$filetype = [
+				'ext'             => $ext,
+				'type'            => $real_mime,
+				'proper_filename' => "{$file_array['name']}.{$ext}",
+			];
+		}
+
+		// 判定結果の拡張子をファイル名へ反映しないと、`media_handle_sideload()` 内部の
+		// 再チェック（ファイル名ベース）で再び失敗しうる。
+		if ( ! empty( $filetype['proper_filename'] ) ) {
+			$file_array['name'] = $filetype['proper_filename'];
+		} elseif ( ! str_ends_with( $file_array['name'], ".{$filetype['ext']}" ) ) {
+			$file_array['name'] .= ".{$filetype['ext']}";
 		}
 
 		$attachment_id = media_handle_sideload( $file_array, $post_id );
