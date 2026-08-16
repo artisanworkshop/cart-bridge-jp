@@ -150,6 +150,17 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->transform( $this->raw( [ 'status' => 'unknown_future_value' ] ) ) );
 	}
 
+	public function test_coupon_with_missing_or_unparseable_ends_at_is_excluded(): void {
+		// ends_atが欠損・非数値の場合、CanonicalCoupon::expires_atはnull（無期限）になる。
+		// 期限付きクーポンの部分的なレスポンスから無期限のWooクーポンが作られると金銭的
+		// リスクがあるため除外する。
+		$raw = $this->raw( [] );
+		unset( $raw['ends_at'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'ends_at' => 'invalid' ] ) ) );
+	}
+
 	public function test_coupon_not_yet_started_is_excluded(): void {
 		// WooCommerceのクーポンには開始日時の概念が無く、CanonicalCouponにも開始日時フィールドが
 		// 無いため、そのまま変換すると本来まだ使えないコードがWoo側では作成直後から使用可能に

@@ -37,6 +37,10 @@ final class CouponTransformer {
 	 * 使用可能になってしまう（`starts_at`はextrasに保持済みなので開始日時を表現する仕組みが
 	 * 整えばF1-4で再検討できる）。
 	 *
+	 * `ends_at`（利用終了日）が欠損・非数値の場合も除外する。`CanonicalCoupon::expires_at`は
+	 * 欠損時にnull（無期限）になり、レスポンススキーマ上必須ではないため、期限付きクーポンの
+	 * 部分的なレスポンスから無期限のWooクーポンが作られてしまうと金銭的リスクがある。
+	 *
 	 * いずれの場合も `null` を返し、呼び出し側でスキップさせる。
 	 *
 	 * @param array<string,mixed> $raw `shop_coupons[]` の1要素。
@@ -74,6 +78,15 @@ final class CouponTransformer {
 			return null;
 		}
 
+		$expires_at = Cast::unix_to_iso( $raw['ends_at'] ?? null );
+
+		// `ends_at`が欠損・非数値の場合、`CanonicalCoupon::expires_at`はnull（無期限）になる。
+		// レスポンススキーマ上必須ではないが、期限付きクーポンの部分的なレスポンスから
+		// 無期限のWooクーポンが作られてしまうと金銭的リスクがあるため、欠損時は除外する。
+		if ( null === $expires_at ) {
+			return null;
+		}
+
 		$remote_id        = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$is_free_shipping = 'delivery_charge' === $coupon_type;
 
@@ -82,7 +95,7 @@ final class CouponTransformer {
 			'rate' === $coupon_type ? 'percent' : 'fixed',
 			$is_free_shipping ? '0' : Cast::money( $raw['discount_amount'] ?? null ),
 			Cast::to_string_or_null( $raw['minimum_amount'] ?? null ),
-			Cast::unix_to_iso( $raw['ends_at'] ?? null ),
+			$expires_at,
 			// `total_usage_limit` が発行総数（int）。ColorMeの `usage_limit` フィールドは
 			// `indisposable`/`disposable` の1ユーザーあたり上限を表す列挙文字列であり別物
 			// （`(int) 'indisposable' === 0` になる罠のため混同しないこと）。
