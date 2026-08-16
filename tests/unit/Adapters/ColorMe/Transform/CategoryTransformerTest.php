@@ -37,18 +37,21 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 	 */
 	public function test_flattens_nested_children_with_parent_id(): void {
 		$raw = [
-			'id_big'   => 100,
-			'name'     => '親カテゴリー',
-			'children' => [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
 				[
-					'id_big'   => 100,
-					'id_small' => 1,
-					'name'     => '子カテゴリーA',
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリーA',
+					'display_state' => 'showing',
 				],
 				[
-					'id_big'   => 100,
-					'id_small' => 2,
-					'name'     => '子カテゴリーB',
+					'id_big'        => 100,
+					'id_small'      => 2,
+					'name'          => '子カテゴリーB',
+					'display_state' => 'showing',
 				],
 			],
 		];
@@ -87,11 +90,26 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( [], $this->transformer->transform( $raw ) );
 	}
 
+	public function test_category_with_missing_or_unknown_display_state_is_excluded(): void {
+		// display_stateはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を
+		// 誤ってvisible扱いしないよう、'showing'の肯定的な許可リストとして判定する
+		// （否定的な除外リストだと、欠損時に可視性不明のカテゴリーを誤って公開してしまう）。
+		$raw = FixtureLoader::load( 'colorme', 'categories' )['categories'][1];
+		unset( $raw['display_state'] );
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+
+		$raw['display_state'] = 'unknown_future_value';
+
+		$this->assertSame( [], $this->transformer->transform( $raw ) );
+	}
+
 	public function test_hidden_child_category_is_excluded_but_visible_siblings_remain(): void {
 		$raw = [
-			'id_big'   => 100,
-			'name'     => '親カテゴリー',
-			'children' => [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
 				[
 					'id_big'        => 100,
 					'id_small'      => 1,
@@ -151,15 +169,17 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 
 	public function test_sort_order_is_preserved_for_parent_and_child(): void {
 		$raw = [
-			'id_big'   => 100,
-			'name'     => '親カテゴリー',
-			'sort'     => 2,
-			'children' => [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'sort'          => 2,
+			'children'      => [
 				[
-					'id_big'   => 100,
-					'id_small' => 1,
-					'name'     => '子カテゴリー',
-					'sort'     => 5,
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'sort'          => 5,
 				],
 			],
 		];
@@ -172,19 +192,21 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 
 	public function test_meta_tag_is_preserved_for_parent_and_child(): void {
 		$raw = [
-			'id_big'   => 100,
-			'name'     => '親カテゴリー',
-			'meta_tag' => [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'meta_tag'      => [
 				'title'       => '夏物特集',
 				'keywords'    => '夏物,涼しい,衣類',
 				'description' => '暑い夏を涼しく過ごすための商品を集めました',
 			],
-			'children' => [
+			'children'      => [
 				[
-					'id_big'   => 100,
-					'id_small' => 1,
-					'name'     => '子カテゴリー',
-					'meta_tag' => [
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'meta_tag'      => [
 						'title'       => '子カテゴリータイトル',
 						'keywords'    => null,
 						'description' => null,
@@ -216,15 +238,17 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 
 	public function test_child_category_description_and_image_are_preserved_independently(): void {
 		$raw = [
-			'id_big'   => 100,
-			'name'     => '親カテゴリー',
-			'children' => [
+			'id_big'        => 100,
+			'name'          => '親カテゴリー',
+			'display_state' => 'showing',
+			'children'      => [
 				[
-					'id_big'    => 100,
-					'id_small'  => 1,
-					'name'      => '子カテゴリー',
-					'expl'      => '子カテゴリーの説明',
-					'image_url' => 'https://img.example.com/category-1.jpg',
+					'id_big'        => 100,
+					'id_small'      => 1,
+					'name'          => '子カテゴリー',
+					'display_state' => 'showing',
+					'expl'          => '子カテゴリーの説明',
+					'image_url'     => 'https://img.example.com/category-1.jpg',
 				],
 			],
 		];

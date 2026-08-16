@@ -19,6 +19,9 @@ final class CategoryTransformer {
 	 * `hidden`/`members_only` のカテゴリーは `CanonicalCategory` に可視性を表すフィールドが
 	 * 無いため、ここで除外する（`showing`のみを保持）。Wooの商品カテゴリーは常に公開の
 	 * タクソノミーであり、可視性を保ったまま作成する手段が無いため、除外が最も安全な既定挙動。
+	 * `display_state`はレスポンススキーマ上必須ではなく、欠損・不正値・想定外の新enum値も
+	 * ありうるため、既知の除外値の否定ではなく`showing`の肯定的な許可リストとして判定する
+	 * （欠損時にvisible扱いへ倒れると、可視性不明のカテゴリーを誤って公開してしまう）。
 	 * 大カテゴリーが除外された場合、可視な小カテゴリーは親なし（トップレベル）として扱う
 	 * （存在しない大カテゴリーを指す`parent_id`を残すと、mappings経由で親を解決するF1-4側の
 	 * 処理が不整合を起こすため）。
@@ -74,7 +77,7 @@ final class CategoryTransformer {
 	}
 
 	private static function is_visible( mixed $display_state ): bool {
-		return ! in_array( $display_state, [ 'hidden', 'members_only' ], true );
+		return 'showing' === $display_state;
 	}
 
 	/**
