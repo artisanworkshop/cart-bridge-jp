@@ -59,11 +59,19 @@ final class ProductTransformer {
 	 *   「売り切れたら表示しない」と設定している以上、privateにしても元のASP側の意図を損なわない
 	 * - `sales_price_including_tax`が欠損／非数値: `Cast::money()`は解釈できない値を無言で`'0'`に
 	 *   丸めるため、区別なく通すと本来有料の商品が無料商品としてWoo側で購入可能になってしまう
+	 * - `digital_content`（デジタルコンテンツ）: `requires_shipping()`でWooのvirtual商品設定には
+	 *   反映するが、`CanonicalProduct`にはダウンロード対象ファイル自体を運ぶフィールドが無い。
+	 *   このまま公開すると、購入者が代金を支払ってもダウンロード可能な実体が届かない通常の
+	 *   virtual商品として売れてしまうため、ダウンロード資産の移行手段が整うまでprivateに留める
 	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function status( array $raw ): string {
 		if ( true === ( $raw['regular_purchase'] ?? null ) ) {
+			return 'private';
+		}
+
+		if ( true === ( $raw['digital_content'] ?? null ) ) {
 			return 'private';
 		}
 

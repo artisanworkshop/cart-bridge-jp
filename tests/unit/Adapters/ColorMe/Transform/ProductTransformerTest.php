@@ -293,6 +293,19 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertFalse( $product->requires_shipping );
 	}
 
+	public function test_digital_content_product_is_kept_private_regardless_of_display_state(): void {
+		// CanonicalProductにはダウンロード対象ファイル自体を運ぶフィールドが無い。公開すると
+		// 購入者が代金を払ってもダウンロード可能な実体が届かない通常のvirtual商品として
+		// 売れてしまうため、ダウンロード資産の移行手段が整うまでprivateに留める。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['digital_content'] = true;
+		$raw['display_state']   = 'showing';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+	}
+
 	public function test_unavailable_payment_and_delivery_ids_are_preserved_in_extras(): void {
 		$raw                             = $this->product_fixture( 192616831 );
 		$raw['unavailable_payment_ids']  = [ 1094475 ];
