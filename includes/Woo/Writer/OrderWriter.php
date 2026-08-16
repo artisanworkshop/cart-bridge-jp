@@ -90,13 +90,14 @@ final class OrderWriter implements EntityWriter {
 	private function add_shipping_and_fees( WC_Order $order, CanonicalOrder $item ): array {
 		$warnings           = [];
 		$shipping_method_id = Value::string( $item->shipping['method_id'] ?? null );
-		$mapped_shipping    = $this->methods->shipping_method_title( $shipping_method_id );
-		$shipping_built     = $this->items->build_shipping_item( $item->shipping, $mapped_shipping );
+		$mapped_method_id   = null !== $shipping_method_id ? $this->methods->mapped_shipping_method_id( $shipping_method_id ) : null;
+		$mapped_title       = null !== $mapped_method_id ? $this->methods->shipping_method_title( $mapped_method_id ) : null;
+		$shipping_built     = $this->items->build_shipping_item( $item->shipping, $mapped_method_id, $mapped_title );
 
 		$order->add_item( $shipping_built['item'] );
 
-		if ( $shipping_built['unmapped'] ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $shipping_method_id ?? '' );
+		if ( null !== $shipping_method_id && null === $mapped_method_id ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $shipping_method_id );
 		}
 
 		foreach ( $this->items->build_fee_items( $item->payment, $item->totals ) as $fee_item ) {
@@ -229,14 +230,24 @@ final class OrderWriter implements EntityWriter {
 	 * @return array<int,string>
 	 */
 	private function apply_payment_method( WC_Order $order, array $payment ): array {
-		$method_id    = Value::string( $payment['method_id'] ?? null );
-		$method_name  = Value::string( $payment['method_name'] ?? null );
-		$mapped_title = $this->methods->payment_method_title( $method_id );
+		$method_id   = Value::string( $payment['method_id'] ?? null );
+		$method_name = Value::string( $payment['method_name'] ?? null );
+		$mapped_id   = null !== $method_id ? $this->methods->mapped_payment_gateway_id( $method_id ) : null;
 
-		$order->set_payment_method( $method_id ?? '' );
-		$order->set_payment_method_title( $mapped_title ?? $method_name ?? '' );
+		if ( null !== $mapped_id ) {
+			$order->set_payment_method( $mapped_id );
+			$order->set_payment_method_title( $this->methods->payment_gateway_title( $mapped_id ) );
 
-		if ( null !== $method_id && null === $mapped_title ) {
+			return [];
+		}
+
+		// 未マッピング: Wooの決済ゲートウェイとして実在しないASP側の生ID/名称を
+		// `payment_method`（ゲートウェイID）へ設定すると、決済連携プラグイン等の
+		// ゲートウェイ判定処理が誤動作しうるため空にし、元の名称はタイトルにのみ保持する。
+		$order->set_payment_method( '' );
+		$order->set_payment_method_title( $method_name ?? '' );
+
+		if ( null !== $method_id ) {
 			return [ WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $method_id ) ];
 		}
 

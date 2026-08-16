@@ -111,24 +111,21 @@ final class OrderItemBuilder {
 
 	/**
 	 * @param array<string,mixed> $shipping
-	 * @return array{item:WC_Order_Item_Shipping,title:string,unmapped:bool,original_name:?string}
+	 * @return array{item:WC_Order_Item_Shipping}
 	 */
-	public function build_shipping_item( array $shipping, ?string $mapped_title ): array {
-		$method_id   = Value::string( $shipping['method_id'] ?? null );
+	public function build_shipping_item( array $shipping, ?string $mapped_method_id, ?string $mapped_title ): array {
 		$method_name = Value::string( $shipping['method_name'] ?? null );
 		$title       = $mapped_title ?? $method_name ?? __( 'Shipping', 'cart-bridge-jp' );
 
 		$item = new WC_Order_Item_Shipping();
 		$item->set_method_title( $title );
-		$item->set_method_id( $method_id ?? '' );
+		// `method_id`にはWooの配送方法ID（マッピング済みIDのみ）を設定する。未マッピングの
+		// ASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが記録され、
+		// 拡張機能等の配送方法判定処理が誤動作しうる。
+		$item->set_method_id( $mapped_method_id ?? '' );
 		$item->set_total( Value::string( $shipping['fee'] ?? null ) ?? '0' );
 
-		return [
-			'item'          => $item,
-			'title'         => $title,
-			'unmapped'      => null !== $method_id && null === $mapped_title,
-			'original_name' => $method_name,
-		];
+		return [ 'item' => $item ];
 	}
 
 	/**

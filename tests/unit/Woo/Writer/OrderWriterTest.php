@@ -299,4 +299,61 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 		$this->assertSame( '銀行振込', $wc_order->get_payment_method_title() );
 	}
+
+	public function test_mapped_payment_method_sets_woo_gateway_id_not_the_asp_raw_id(): void {
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ 'pay-1' => 'bacs' ] ] );
+
+		$order = $this->make_order(
+			'1013',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => '銀行振込',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		// `payment_method`（決済ゲートウェイID）にはマッピング済みのWoo ID（'bacs'）が入り、
+		// ASP側の生ID（'pay-1'）がそのまま入ってはならない。
+		$this->assertSame( 'bacs', $wc_order->get_payment_method() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::PAYMENT_METHOD_UNMAPPED ) )
+		);
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_mapped_shipping_method_sets_woo_method_id_not_the_asp_raw_id(): void {
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate' ] ] );
+
+		$order = $this->make_order(
+			'1014',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		// shipping item の method_id にはマッピング済みのWoo ID（'flat_rate'）が入り、
+		// ASP側の生ID（'ship-1'）がそのまま入ってはならない。
+		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+		);
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
 }
