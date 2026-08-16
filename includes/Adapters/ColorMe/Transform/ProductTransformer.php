@@ -34,7 +34,8 @@ final class ProductTransformer {
 			$this->stock( $raw ),
 			$this->status( $raw ),
 			$this->requires_shipping( $raw ),
-			$this->extras( $raw, $remote_id )
+			$this->extras( $raw, $remote_id ),
+			$this->tag_refs( $raw )
 		);
 	}
 
@@ -52,6 +53,8 @@ final class ProductTransformer {
 	 *   対応を実装するまでの暫定処置
 	 * - `sale_start_date`/`sale_end_date`（掲載期間）: 期間外は本来ColorMe側でも非公開になる想定の
 	 *   時限公開設定
+	 * - `soldout_display: false`（売り切れ時非表示）かつ在庫管理中で在庫が0: 店舗側が明示的に
+	 *   「売り切れたら表示しない」と設定している以上、privateにしても元のASP側の意図を損なわない
 	 *
 	 * @param array<string,mixed> $raw
 	 */
@@ -64,9 +67,33 @@ final class ProductTransformer {
 			return 'private';
 		}
 
+		if ( $this->is_hidden_while_sold_out( $raw ) ) {
+			return 'private';
+		}
+
 		$display_state = $raw['display_state'] ?? null;
 
 		return in_array( $display_state, [ 'showing', 'sale_for_members' ], true ) ? 'publish' : 'private';
+	}
+
+	/**
+	 * `soldout_display`はswaggerで必須のbooleanフィールド（デフォルト値はドキュメント上）だが、
+	 * 値が欠損している場合は挙動を変えないよう `false`（非表示設定）と明示された場合のみ扱う。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function is_hidden_while_sold_out( array $raw ): bool {
+		if ( ! $this->is_stock_managed( $raw ) ) {
+			return false;
+		}
+
+		if ( false !== ( $raw['soldout_display'] ?? null ) ) {
+			return false;
+		}
+
+		$stocks = Cast::to_int_or_null( $raw['stocks'] ?? null );
+
+		return null !== $stocks && $stocks <= 0;
 	}
 
 	/**
@@ -268,6 +295,18 @@ final class ProductTransformer {
 	}
 
 	/**
+	 * `group_ids`は `docs/01-plan-colorme.md` の対応表通り `TagTransformer` が作るタグの
+	 * remote_id一覧としてそのまま使える（groupsのidがタグのremote_id）。ここでextrasだけに
+	 * 留めると、アダプタ非依存のWoo writerが商品とタグを紐付けられなくなる。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return array<int,string>
+	 */
+	private function tag_refs( array $raw ): array {
+		return Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] );
+	}
+
+	/**
 	 * ASP固有フィールドの退避先。`account_id`・`make_date`・`update_date`（ネスト含む）は
 	 * checksumを内容ベースに保つため含めない。
 	 *
@@ -283,7 +322,7 @@ final class ProductTransformer {
 			// `smartphone_expl`（スマートフォン向け説明文）はPC向け`expl`とは別内容になり得るため、
 			// 本体の説明文フィールドを上書きせずextras経由で退避する。
 			'smartphone_description'      => Cast::sanitize_html( $raw['smartphone_expl'] ?? null ),
-			// `CanonicalProduct` にタグ参照フィールドが無いため、グループIDはextras経由でF1-4がタグ紐付けに使う。
+			// タグ紐付け自体は `tag_refs()`（正規モデルの `tag_refs`）が担う。ここではASP側の生値の保持のみが目的。
 			'group_ids'                   => Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ),
 			// 定価（税抜/税込どちらか不明）。Transformerはショップの税設定を持たないため税込換算を作らずそのまま退避する。
 			'list_price'                  => Cast::to_int_or_null( $raw['price'] ?? null ),

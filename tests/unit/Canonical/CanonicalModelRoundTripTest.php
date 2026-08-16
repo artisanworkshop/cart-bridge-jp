@@ -39,6 +39,7 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 					'variants'          => [],
 					'options'           => [],
 					'category_refs'     => [ 'cat-1' ],
+					'tag_refs'          => [ 'tag-1' ],
 					'stock'             => 10,
 					'status'            => 'publish',
 					'requires_shipping' => true,

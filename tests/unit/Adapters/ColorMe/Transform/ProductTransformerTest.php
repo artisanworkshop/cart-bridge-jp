@@ -140,6 +140,47 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'publish', $this->transformer->transform( $within_window )->status );
 	}
 
+	public function test_sold_out_product_hidden_by_shop_setting_is_kept_private(): void {
+		// 店舗側が明示的に「売り切れ時は非表示」（soldout_display: false）と設定している場合、
+		// 在庫管理中で在庫が0であればWoo側で再露出させず非公開に留める。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['stock_managed']   = true;
+		$raw['stocks']          = 0;
+		$raw['soldout_display'] = false;
+		$raw['display_state']   = 'showing';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'private', $product->status );
+	}
+
+	public function test_sold_out_product_still_shown_when_shop_allows_it(): void {
+		// soldout_display: true（売り切れ時も表示）の場合は、既存のdisplay_state判定どおり公開する。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['stock_managed']   = true;
+		$raw['stocks']          = 0;
+		$raw['soldout_display'] = true;
+		$raw['display_state']   = 'showing';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'publish', $product->status );
+	}
+
+	public function test_sold_out_hiding_is_ignored_when_stock_is_not_managed(): void {
+		// stock_managed: false の商品はstocksを在庫切れ判定に使わない既存仕様（stock()メソッド）
+		// と一貫させ、非表示化にもstocksを使わない。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['stock_managed']   = false;
+		$raw['stocks']          = 0;
+		$raw['soldout_display'] = false;
+		$raw['display_state']   = 'showing';
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'publish', $product->status );
+	}
+
 	public function test_product_requires_shipping_by_default(): void {
 		$raw = $this->product_fixture( 192616831 );
 
@@ -321,6 +362,27 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$product = $this->transformer->transform( $raw );
 
 		$this->assertSame( [ '0', '3197761' ], $product->extras['group_ids'] );
+		$this->assertSame( [ '0', '3197761' ], $product->tag_refs );
+	}
+
+	public function test_group_ids_are_mapped_to_tag_refs(): void {
+		// docs/01-plan-colorme.md の対応表通り group_ids は TagTransformer が作るタグの
+		// remote_id一覧としてそのまま使えるため、tag_refs経由でアダプタ非依存のWoo writerに渡す。
+		$raw              = $this->product_fixture( 192616831 );
+		$raw['group_ids'] = [ 3197760, 3197761 ];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [ '3197760', '3197761' ], $product->tag_refs );
+	}
+
+	public function test_null_group_ids_yields_empty_tag_refs(): void {
+		$raw              = $this->product_fixture( 192616831 );
+		$raw['group_ids'] = null;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [], $product->tag_refs );
 	}
 
 	public function test_variant_sku_falls_back_when_model_number_is_empty_string(): void {

@@ -23,6 +23,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	 * @param array<int,array<string,mixed>> $variants
 	 * @param array<int,array<string,mixed>> $options
 	 * @param array<int,string>              $category_refs 連携先カテゴリのremote_id一覧。
+	 * @param array<int,string>              $tag_refs 連携先タグのremote_id一覧。
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。往復移行でのデータ欠損を防ぐ。
 	 */
 	public function __construct(
@@ -38,7 +39,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 		public ?int $stock,
 		public string $status,
 		public bool $requires_shipping = true,
-		public array $extras = []
+		public array $extras = [],
+		public array $tag_refs = []
 	) {}
 
 	public function to_array(): array {
@@ -52,6 +54,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			'variants'          => $this->variants,
 			'options'           => $this->options,
 			'category_refs'     => $this->category_refs,
+			'tag_refs'          => $this->tag_refs,
 			'stock'             => $this->stock,
 			'status'            => $this->status,
 			'requires_shipping' => $this->requires_shipping,
@@ -73,7 +76,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			isset( $data['stock'] ) ? (int) $data['stock'] : null,
 			(string) ( $data['status'] ?? 'draft' ),
 			(bool) ( $data['requires_shipping'] ?? true ),
-			(array) ( $data['extras'] ?? [] )
+			(array) ( $data['extras'] ?? [] ),
+			(array) ( $data['tag_refs'] ?? [] )
 		);
 	}
 }
