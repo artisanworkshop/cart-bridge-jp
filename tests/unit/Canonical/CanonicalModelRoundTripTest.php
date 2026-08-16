@@ -45,6 +45,7 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 					'requires_shipping' => true,
 					'extras'            => [ 'foo' => 'bar' ],
 					'weight'            => 250,
+					'tax_class'         => 'reduced-rate',
 				],
 			],
 			'category' => [

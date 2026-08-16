@@ -26,6 +26,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	 * @param array<int,string>              $tag_refs 連携先タグのremote_id一覧。
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。往復移行でのデータ欠損を防ぐ。
 	 * @param ?int                            $weight 重量（グラム単位）。Wooのネイティブな重量設定に対応する。
+	 * @param ?string                         $tax_class Wooのネイティブな税区分スラッグ（例: 標準税率はnull、
+	 *   軽減税率は`reduced-rate`）。Wooが標準で用意する追加税区分の規約に合わせる。
 	 */
 	public function __construct(
 		public string $name,
@@ -42,7 +44,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 		public bool $requires_shipping = true,
 		public array $extras = [],
 		public array $tag_refs = [],
-		public ?int $weight = null
+		public ?int $weight = null,
+		public ?string $tax_class = null
 	) {}
 
 	public function to_array(): array {
@@ -62,6 +65,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			'requires_shipping' => $this->requires_shipping,
 			'extras'            => $this->extras,
 			'weight'            => $this->weight,
+			'tax_class'         => $this->tax_class,
 		];
 	}
 
@@ -81,7 +85,8 @@ final readonly class CanonicalProduct implements CanonicalModel {
 			(bool) ( $data['requires_shipping'] ?? true ),
 			(array) ( $data['extras'] ?? [] ),
 			(array) ( $data['tag_refs'] ?? [] ),
-			isset( $data['weight'] ) ? (int) $data['weight'] : null
+			isset( $data['weight'] ) ? (int) $data['weight'] : null,
+			isset( $data['tax_class'] ) ? (string) $data['tax_class'] : null
 		);
 	}
 }

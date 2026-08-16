@@ -36,7 +36,8 @@ final class ProductTransformer {
 			$this->requires_shipping( $raw ),
 			$this->extras( $raw, $remote_id ),
 			$this->tag_refs( $raw ),
-			Cast::to_int_or_null( $raw['weight'] ?? null )
+			Cast::to_int_or_null( $raw['weight'] ?? null ),
+			$this->tax_class( $raw )
 		);
 	}
 
@@ -321,6 +322,18 @@ final class ProductTransformer {
 	 */
 	private function tag_refs( array $raw ): array {
 		return Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] );
+	}
+
+	/**
+	 * `tax_reduced`（軽減税率対象商品かどうか）をWooのネイティブな税区分（`_tax_class`）に
+	 * マッピングする。`reduced-rate`はWooが標準インストール時から用意する追加税区分のスラッグ
+	 * （`sanitize_title( __( 'Reduced rate', 'woocommerce' ) )`）。ここでextrasだけに留めると、
+	 * アダプタ非依存のWoo writerが軽減税率対象商品にも標準税率を適用してしまい、税額を過大計算しうる。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function tax_class( array $raw ): ?string {
+		return true === Cast::to_bool_or_null( $raw['tax_reduced'] ?? null ) ? 'reduced-rate' : null;
 	}
 
 	/**

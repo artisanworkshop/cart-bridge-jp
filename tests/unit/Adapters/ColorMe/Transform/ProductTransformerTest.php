@@ -232,6 +232,27 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $product->weight );
 	}
 
+	public function test_tax_reduced_product_maps_to_reduced_rate_tax_class(): void {
+		// swagger: tax_reducedは軽減税率対象商品かどうか。extrasだけに留めると、
+		// アダプタ非依存のWoo writerが標準税率を適用してしまい税額を過大計算しうるため、
+		// Wooの標準税区分スラッグ（reduced-rate）へ正規化する。
+		$raw                = $this->product_fixture( 192616831 );
+		$raw['tax_reduced'] = true;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'reduced-rate', $product->tax_class );
+	}
+
+	public function test_non_reduced_product_has_null_tax_class(): void {
+		$raw                = $this->product_fixture( 192616831 );
+		$raw['tax_reduced'] = false;
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertNull( $product->tax_class );
+	}
+
 	public function test_product_requires_shipping_by_default(): void {
 		$raw = $this->product_fixture( 192616831 );
 
