@@ -258,7 +258,13 @@ final class OrderTransformer {
 	 * 実測（`sale_bank_detail.json` / `sale_daibiki_detail.json`）で確認した恒等式:
 	 * `total_price == product_total_price + delivery_total_charge + fee
 	 *              + noshi_total_charge + card_total_charge + wrapping_total_charge
-	 *              - point_discount - gmo_point_discount - other_discount`
+	 *              - discount`
+	 *
+	 * `discount`は割引種別ごとの内訳（`point_discount`/`gmo_point_discount`/`other_discount`）
+	 * の合計ではなく、`sale.totals.discount_amount_for_normal_tax + discount_amount_for_reduced_tax`
+	 * を優先して使う（欠損時は内訳の合計にフォールバック）。Yahooポイント利用等、内訳側に対応する
+	 * 割引フィールドがAPIに存在しない割引種別があり、内訳合計だけでは割引額を過小算出してしまう
+	 * ため（`discount()`参照）。内訳3種は参考値としてそのまま返す。
 	 *
 	 * `sale.tax` は商品分のみで送料分の税を含まないため、注文全体の税額には
 	 * `sale.totals.normal_tax_amount + reduced_tax_amount` を使う（欠損時は `sale.tax` にフォールバック）。
@@ -271,7 +277,7 @@ final class OrderTransformer {
 	 * 同じfee/割引が重複計上されてしまうため、`segment`が確定できた場合は`sale.*`をそのまま
 	 * 使わず明示的に0にする（既存フィクスチャで実測した`segment.total_price`は
 	 * `product_total_price + delivery_total_charge + gift_charges`のみで一致し、fee/discount/tax
-	 * を含まないことを確認済み。恒等式が崩れる場合は `residual` に表れる）。
+	 * を含まないことを確認済み。それでも恒等式が崩れる場合は `residual` に表れる）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<string,mixed>
@@ -292,7 +298,7 @@ final class OrderTransformer {
 		$total          = Cast::to_int_or_null( $amounts['total_price'] ?? null ) ?? 0;
 
 		$gift_charges = $noshi + $card + $wrapping;
-		$discount     = $discount_point + $discount_gmo + $discount_other;
+		$discount     = $is_split ? 0 : $this->discount( $raw, $discount_point + $discount_gmo + $discount_other );
 		$expected     = $subtotal + $shipping + $fee + $gift_charges - $discount;
 
 		[ $tax, $tax_normal, $tax_reduced, $tax_source ] = $this->tax( $raw, $is_split );
@@ -314,12 +320,37 @@ final class OrderTransformer {
 		];
 
 		if ( $expected !== $total ) {
-			// APIに `use_yahoo_points` 相当の割引フィールドが存在しないなど、恒等式が
-			// 崩れるケースがある。差額を残し、F1-6のdry-run警告で使う。
+			// discount()で吸収できない未知の恒等式崩れ（想定外のフィールド欠損等）。
+			// 差額を残し、F1-6のdry-run警告で使う。
 			$totals['residual'] = Cast::money( $expected - $total );
 		}
 
 		return $totals;
+	}
+
+	/**
+	 * `point_discount`/`gmo_point_discount`/`other_discount`は割引「手段」ごとの内訳であり、
+	 * Yahooポイント利用のように内訳側に対応フィールドが存在しない割引種別がある
+	 * （`extras()`の`use_yahoo_points`参照。対応する`yahoo_point_discount`相当のフィールドは
+	 * APIに無い）。`sale.totals.discount_amount_for_normal_tax`/`discount_amount_for_reduced_tax`
+	 * は割引「手段」を問わず注文全体にかかった割引額を税率区分で集計した値のため、これを
+	 * 優先して使うことで内訳側の欠落による過小算出を避ける。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @param int                 $component_sum `sale.totals`が欠損している場合のフォールバック値
+	 *   （内訳3種の合計）。
+	 */
+	private function discount( array $raw, int $component_sum ): int {
+		$order_totals = $raw['totals'] ?? null;
+
+		if ( is_array( $order_totals ) && isset( $order_totals['discount_amount_for_normal_tax'] ) ) {
+			$normal  = Cast::to_int_or_null( $order_totals['discount_amount_for_normal_tax'] ) ?? 0;
+			$reduced = Cast::to_int_or_null( $order_totals['discount_amount_for_reduced_tax'] ?? null ) ?? 0;
+
+			return $normal + $reduced;
+		}
+
+		return $component_sum;
 	}
 
 	/**

@@ -170,6 +170,34 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'JP', $order->shipping['country'] );
 	}
 
+	public function test_discount_prefers_totals_aggregate_over_the_component_breakdown(): void {
+		// Yahooポイント利用のように、point_discount/gmo_point_discount/other_discountの内訳側に
+		// 対応フィールドが無い割引種別がある。sale.totals.discount_amount_for_*_taxは割引手段を
+		// 問わない集計値のため、内訳合計より優先して使う。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['totals']['discount_amount_for_normal_tax']  = 500;
+		$raw['totals']['discount_amount_for_reduced_tax'] = 0;
+		$raw['total_price']                               = 3580; // 4080 - 500
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '500', $order->totals['discount'] );
+		$this->assertSame( '0', $order->totals['discount_point'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
+	public function test_discount_falls_back_to_component_breakdown_when_totals_is_missing(): void {
+		$raw                   = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['totals']         = null;
+		$raw['point_discount'] = 300;
+		$raw['total_price']    = 3780; // 4080 - 300
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '300', $order->totals['discount'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
 	public function test_totals_residual_is_recorded_when_the_identity_does_not_balance(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		// 本来のtotal_priceは4080。恒等式と食い違う値を与えてresidualが記録されることを確認する。
