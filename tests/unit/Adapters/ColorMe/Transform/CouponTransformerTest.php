@@ -90,6 +90,17 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $coupon->usage_limit_per_user );
 	}
 
+	public function test_coupon_with_missing_or_unknown_usage_limit_is_excluded(): void {
+		// usage_limitはレスポンススキーマ上必須ではない。'disposable'以外を無条件にindisposable
+		// （無制限）扱いする三項演算子だと、欠損・不正値・想定外の新enum値のレスポンスから
+		// 1人1回制限が失われたクーポンが作られてしまうため、既知の2値のみ処理する。
+		$raw = $this->raw( [] );
+		unset( $raw['usage_limit'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'usage_limit' => 'unknown_future_value' ] ) ) );
+	}
+
 	public function test_group_restricted_coupon_is_excluded(): void {
 		// WooCommerceのクーポン制限はタグ単位に対応しておらず、Transformer層だけではColorMeの
 		// グループ→商品ID一覧の展開もできない。そのまま作ると意図せず全商品対象の割引券になり

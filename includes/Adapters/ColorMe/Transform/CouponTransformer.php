@@ -65,6 +65,15 @@ final class CouponTransformer {
 			return null;
 		}
 
+		$usage_limit = $raw['usage_limit'] ?? null;
+
+		// `usage_limit`もレスポンススキーマ上必須ではない。`disposable`以外を無条件に`indisposable`
+		// （無制限）扱いする三項演算子だと、欠損・不正値・想定外の新enum値のレスポンスから
+		// 1人1回制限が失われたクーポンが作られてしまうため、既知の2値のみ処理する。
+		if ( ! in_array( $usage_limit, [ 'disposable', 'indisposable' ], true ) ) {
+			return null;
+		}
+
 		$remote_id        = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$is_free_shipping = 'delivery_charge' === $coupon_type;
 
@@ -80,7 +89,7 @@ final class CouponTransformer {
 			Cast::to_int_or_null( $raw['total_usage_limit'] ?? null ),
 			$is_free_shipping,
 			// `disposable`はWooの usage_limit_per_user=1 に、`indisposable`は無制限（null）に対応する。
-			( 'disposable' === ( $raw['usage_limit'] ?? null ) ) ? 1 : null,
+			'disposable' === $usage_limit ? 1 : null,
 			$this->extras( $raw, $remote_id, $is_free_shipping )
 		);
 	}
