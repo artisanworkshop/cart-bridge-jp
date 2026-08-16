@@ -17,7 +17,10 @@ final class CouponTransformer {
 	/**
 	 * `status: 'unavailable'`（店舗側で手動無効化済み）のクーポンは、`CanonicalCoupon` に
 	 * 有効/無効を表すフィールドが無いため、そのまま変換すると利用不能だったコードがWoo側で
-	 * 再び使用可能になってしまう。
+	 * 再び使用可能になってしまう。`status`はレスポンススキーマ上必須ではなく、`unavailable`/
+	 * `available`以外の値（欠損・不正値・想定外の新enum値）もありうるため、既知の除外値の
+	 * 否定ではなく`available`の肯定的な許可リストとして判定する（欠損時にavailable扱いへ
+	 * 倒れると、可否不明のクーポンを誤って有効化してしまう）。
 	 *
 	 * `group_limit_type`が`including`/`excluding`（特定商品グループのみ対象/除外）のクーポンも
 	 * 除外する。WooCommerceのクーポン制限はタグ単位に対応しておらず、この変換層だけでは
@@ -36,7 +39,7 @@ final class CouponTransformer {
 	 * @param array<string,mixed> $raw `shop_coupons[]` の1要素。
 	 */
 	public function transform( array $raw ): ?CanonicalCoupon {
-		if ( 'unavailable' === ( $raw['status'] ?? null ) ) {
+		if ( 'available' !== ( $raw['status'] ?? null ) ) {
 			return null;
 		}
 

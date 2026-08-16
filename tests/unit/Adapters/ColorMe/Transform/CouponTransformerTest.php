@@ -106,6 +106,17 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $coupon );
 	}
 
+	public function test_coupon_with_missing_or_unknown_status_is_excluded(): void {
+		// statusはレスポンススキーマ上必須ではない。欠損・不正値・想定外の新enum値を誤って
+		// available扱いしないよう、'available'の肯定的な許可リストとして判定する
+		// （否定的な除外リストだと、欠損時に可否不明のクーポンを誤って有効化してしまう）。
+		$raw = $this->raw( [] );
+		unset( $raw['status'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'status' => 'unknown_future_value' ] ) ) );
+	}
+
 	public function test_coupon_not_yet_started_is_excluded(): void {
 		// WooCommerceのクーポンには開始日時の概念が無く、CanonicalCouponにも開始日時フィールドが
 		// 無いため、そのまま変換すると本来まだ使えないコードがWoo側では作成直後から使用可能に
