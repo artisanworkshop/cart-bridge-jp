@@ -18,20 +18,24 @@ use RuntimeException;
 final class TagTransformer {
 
 	/**
-	 * グループの `display_state` は `showing`/`hidden`/`members_only` の3値（swagger:
-	 * `tests/fixtures/colorme/swagger.json:13702-13709`）。商品の `display_state`
-	 * （`showing_for_members`/`sale_for_members` を含む4値）とは別のenumのため混同しないこと。
+	 * このTransformerが読む `GET /v1/groups.json` `GET /v1/groups/{id}.json` の**レスポンス**
+	 * スキーマでは、`display_state` は `showing`/`hidden`/`showing_for_members`/`sale_for_members`
+	 * の4値（商品の `display_state` と同じenum。swagger:
+	 * `tests/fixtures/colorme/swagger.json:13611-13618`、`:13945-13953`）。`members_only`は
+	 * `POST /v1/groups`（グループ作成）の**リクエスト**スキーマ側のみの値（同ファイル:13702-13709）
+	 * であり、GETレスポンスには出現しないため混同しないこと。
 	 *
-	 * `hidden`（非掲載）と `members_only`（会員にのみ掲載）のグループは一般公開されていない
+	 * `hidden`（非掲載）と `showing_for_members`（会員にのみ掲載）のグループは一般公開されていない
 	 * （例: 実フィクスチャの「なし」既定グループは `hidden`）。`CanonicalTag` は可視性を
 	 * 表現できないため、ここで除外して null を返す（呼び出し側=F1-5のColorMeAdapterは
 	 * nullをスキップする）。こうすることで、非公開グループが誰にでも見えるWooタグとして
-	 * 作成されるのを防ぐ。
+	 * 作成されるのを防ぐ。`sale_for_members`（掲載状態だが購入は会員のみ可能）は一般公開の
+	 * 掲載状態のため除外しない（ProductTransformer::status()と同じ区別）。
 	 *
 	 * @param array<string,mixed> $raw `groups.json` の `groups[]` の1要素。
 	 */
 	public function transform( array $raw ): ?CanonicalTag {
-		if ( in_array( $raw['display_state'] ?? null, [ 'hidden', 'members_only' ], true ) ) {
+		if ( in_array( $raw['display_state'] ?? null, [ 'hidden', 'showing_for_members' ], true ) ) {
 			return null;
 		}
 

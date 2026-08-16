@@ -34,14 +34,23 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
 	}
 
-	public function test_members_only_group_is_excluded_from_public_tags(): void {
-		// グループのdisplay_stateは showing/hidden/members_only の3値（商品のenumとは別物）。
-		// members_only（会員にのみ掲載）は非公開のため、誰にでも見えるWooタグとして
-		// 作成されるのを防ぐ必要がある。
+	public function test_showing_for_members_group_is_excluded_from_public_tags(): void {
+		// GET /v1/groupsのレスポンススキーマ（swagger: showing/hidden/showing_for_members/
+		// sale_for_membersの4値。tests/fixtures/colorme/swagger.json:13611-13618）における
+		// 会員限定グループの値。POST側リクエストスキーマのmembers_onlyとは別物のため混同しないこと。
 		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
-		$raw['display_state'] = 'members_only';
+		$raw['display_state'] = 'showing_for_members';
 
 		$this->assertNull( ( new TagTransformer() )->transform( $raw ) );
+	}
+
+	public function test_sale_for_members_group_stays_a_public_tag(): void {
+		// sale_for_membersは「掲載状態だが購入は会員のみ可能」であり一般公開の掲載状態
+		// （ProductTransformer::status()のsale_for_members商品と同じ扱い）。
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'sale_for_members';
+
+		$this->assertNotNull( ( new TagTransformer() )->transform( $raw ) );
 	}
 
 	public function test_description_is_preserved_in_extras(): void {
