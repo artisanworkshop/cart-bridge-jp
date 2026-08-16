@@ -188,10 +188,15 @@ final class ProductTransformer {
 	 * `stock_managed`は商品レベルのみに存在するフラグ（swaggerのvariantスキーマには無い）。
 	 * バリエーションの在庫可否も、この商品レベルの設定に従わせる。
 	 *
+	 * 欠損・非数値の場合は「管理外（在庫あり扱い）」ではなく「管理中（実数不明）」とみなす。
+	 * 前者に倒すと`stock()`が`null`を返し、`Importer::run_sample_stock_page()`がそれを
+	 * 「在庫あり」と解釈するため、実際は管理対象で売り切れかもしれない商品が無条件に
+	 * 購入可能になってしまう。`stock()`側の0（在庫切れ）フェイルクローズに委ねる。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function is_stock_managed( array $raw ): bool {
-		return true === ( $raw['stock_managed'] ?? null );
+		return false !== ( $raw['stock_managed'] ?? null );
 	}
 
 	/**

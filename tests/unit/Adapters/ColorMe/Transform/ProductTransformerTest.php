@@ -66,6 +66,18 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $product->stock );
 	}
 
+	public function test_stock_fails_closed_to_zero_when_stock_managed_flag_itself_is_unknown(): void {
+		// stock_managedが欠損・非数値の場合、「管理外＝在庫あり」ではなく「管理中だが実数不明」
+		// とみなす。前者に倒すとstock()がnullを返し、Importerがそれを在庫ありと解釈するため、
+		// 実際は管理対象で売り切れかもしれない商品が無条件に購入可能になってしまう。
+		$raw = $this->product_fixture( 192616831 );
+		unset( $raw['stock_managed'], $raw['stocks'] );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( 0, $product->stock );
+	}
+
 	public function test_unlisted_flag_is_preserved_independently_of_display_state(): void {
 		$raw             = $this->product_fixture( 192616831 );
 		$raw['unlisted'] = true;
