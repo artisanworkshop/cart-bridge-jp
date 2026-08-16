@@ -34,19 +34,40 @@ final class VariationWriter {
 	public function sync( int $product_id, array $variants, array $axis_names ): array {
 		$warnings        = [];
 		$seen_remote_ids = [];
+		// remote_id・priceのいずれかが解決できないvariantが混ざっている場合、このレスポンスは
+		// 不完全なスナップショットである可能性がある（部分的なAPIレスポンス等）。その状態で
+		// stale削除を行うと、実際には消えていない正当なvariationを「今回のセットに無い」と
+		// 誤認して削除しかねないため、そのようなvariantが1件でもあればstale削除自体を中止する。
+		$incomplete_snapshot = false;
 
 		foreach ( $variants as $variant ) {
 			$remote_id = Value::string( $variant['remote_id'] ?? null );
 
 			if ( null === $remote_id ) {
+				$incomplete_snapshot = true;
+				continue;
+			}
+
+			$price = Value::string( $variant['price'] ?? null );
+
+			if ( null === $price ) {
+				// 価格が解決できないvariantを楽観的に0円で公開すると、誰でも購入できる
+				// 無料のvariationを作ってしまう金銭的リスクがある（CLAUDE.md参照）ため、
+				// このvariantの作成/更新自体を見送りフェイルクローズする。
+				$incomplete_snapshot = true;
+				$warnings[]          = WarningCode::with_detail( WarningCode::VARIATION_PRICE_INVALID, $remote_id );
 				continue;
 			}
 
 			$seen_remote_ids[] = $remote_id;
-			$warnings          = array_merge( $warnings, $this->sync_one( $product_id, $variant, $remote_id, $axis_names ) );
+			$warnings          = array_merge( $warnings, $this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names ) );
 		}
 
-		$warnings = array_merge( $warnings, $this->remove_stale_variations( $product_id, $seen_remote_ids ) );
+		if ( $incomplete_snapshot ) {
+			$warnings[] = WarningCode::VARIATION_SNAPSHOT_INCOMPLETE;
+		} else {
+			$warnings = array_merge( $warnings, $this->remove_stale_variations( $product_id, $seen_remote_ids ) );
+		}
 
 		$product = wc_get_product( $product_id );
 
@@ -62,7 +83,7 @@ final class VariationWriter {
 	 * @param array<int,string>   $axis_names
 	 * @return array<int,string>
 	 */
-	private function sync_one( int $product_id, array $variant, string $remote_id, array $axis_names ): array {
+	private function sync_one( int $product_id, array $variant, string $remote_id, string $price, array $axis_names ): array {
 		$warnings              = [];
 		$existing_variation_id = $this->mappings->find_local_id( $this->platform, 'variant', $remote_id );
 		$variation             = new WC_Product_Variation( $existing_variation_id ?? 0 );
@@ -71,7 +92,6 @@ final class VariationWriter {
 		$variation->set_attributes( $this->variation_attributes( $variant, $axis_names ) );
 		$variation->set_status( 'publish' );
 
-		$price = Value::string( $variant['price'] ?? null ) ?? '0';
 		$variation->set_regular_price( $price );
 		$variation->set_price( $price );
 

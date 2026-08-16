@@ -21,13 +21,15 @@ final class WarningCode {
 	public const PRICES_INCLUDE_TAX_DISABLED = 'prices_include_tax_disabled';
 	public const CURRENCY_MISMATCH           = 'currency_mismatch';
 
-	public const SKU_DUPLICATE            = 'sku_duplicate';
-	public const TAX_CLASS_MISSING        = 'tax_class_missing';
-	public const TAX_RATES_NOT_CONFIGURED = 'tax_rates_not_configured';
-	public const IMAGE_DOWNLOAD_FAILED    = 'image_download_failed';
-	public const VARIATION_AXIS_EXCEEDED  = 'variation_axis_exceeded';
-	public const ATTRIBUTE_NAME_COLLISION = 'attribute_name_collision';
-	public const VARIATION_REMOVED        = 'variation_removed';
+	public const SKU_DUPLICATE                 = 'sku_duplicate';
+	public const TAX_CLASS_MISSING             = 'tax_class_missing';
+	public const TAX_RATES_NOT_CONFIGURED      = 'tax_rates_not_configured';
+	public const IMAGE_DOWNLOAD_FAILED         = 'image_download_failed';
+	public const VARIATION_AXIS_EXCEEDED       = 'variation_axis_exceeded';
+	public const ATTRIBUTE_NAME_COLLISION      = 'attribute_name_collision';
+	public const VARIATION_REMOVED             = 'variation_removed';
+	public const VARIATION_PRICE_INVALID       = 'variation_price_invalid';
+	public const VARIATION_SNAPSHOT_INCOMPLETE = 'variation_snapshot_incomplete';
 
 	public const CATEGORY_PARENT_UNRESOLVED = 'category_parent_unresolved';
 	public const CATEGORY_REF_UNRESOLVED    = 'category_ref_unresolved';

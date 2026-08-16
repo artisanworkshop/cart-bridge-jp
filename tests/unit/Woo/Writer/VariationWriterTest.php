@@ -140,6 +140,95 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertContains( $foreign_id, $product->get_children() );
 	}
 
+	public function test_incomplete_response_with_missing_remote_id_does_not_remove_other_variations(): void {
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v2',
+					'sku'           => 'V2',
+					'option1_name'  => 'Size',
+					'option1_value' => 'M',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		// 今回のレスポンスにはv1のみ含まれ、v2はremote_id自体が欠落した不正なレコードとして
+		// 混入している。これは「v2が本当に消えた」のか「レスポンスが単に壊れているだけ」なのか
+		// 区別できないため、stale削除自体を中止しv2を残すべき。
+		$warnings = $writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => null,
+					'sku'           => 'BROKEN',
+					'option1_name'  => 'Size',
+					'option1_value' => 'L',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$product = wc_get_product( $product_id );
+		$this->assertCount( 2, $product->get_children() );
+		$this->assertNotNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v2' ) );
+		$this->assertContains( 'variation_snapshot_incomplete', $warnings );
+		$this->assertEmpty(
+			array_filter( $warnings, static fn ( string $w ): bool => str_starts_with( $w, 'variation_removed' ) )
+		);
+	}
+
+	public function test_invalid_price_skips_variant_without_publishing_free_variation(): void {
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$warnings = $writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => null,
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
+		$this->assertContains( 'variation_price_invalid:v1', $warnings );
+		$this->assertContains( 'variation_snapshot_incomplete', $warnings );
+
+		$product = wc_get_product( $product_id );
+		$this->assertCount( 0, $product->get_children() );
+	}
+
 	public function test_reuses_variation_via_mapping_on_second_sync(): void {
 		$product_id = $this->make_parent();
 		$writer     = new VariationWriter( 'colorme', $this->mappings );
