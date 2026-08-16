@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
+use CartBridgeJP\Woo\WooRepositoryFactory;
 use RuntimeException;
 use Throwable;
 
@@ -57,23 +58,23 @@ final class JobManager {
 		private readonly JobRepository $jobs,
 		private readonly LimitPolicy $limits,
 		private readonly Importer $importer,
-		private readonly WooWriter $writer,
+		private readonly WooWriterFactory $writer_factory,
 		private readonly Logger $logger = new Logger()
 	) {}
 
 	/**
 	 * 既定の配線でJobManagerを生成する共有ファクトリ。
-	 * `NotImplementedWriter` は Phase 1 の `Woo\WooRepository` までのプレースホルダー
-	 * （dry-run は内部で `DryRunReporter` に差し替わり、実移行はREST層が501を返すため到達しない）。
+	 * `Woo\WooRepositoryFactory` が実移行のwriterを組み立てる
+	 * （dry-run は内部で `DryRunReporter` に差し替わるため到達しない）。
 	 */
-	public static function create( ?WooWriter $writer = null ): self {
+	public static function create( ?WooWriterFactory $writer_factory = null ): self {
 		$mappings = new MappingRepository();
 
 		return new self(
 			new JobRepository(),
 			new LimitPolicy( $mappings ),
 			new Importer( $mappings ),
-			$writer ?? new NotImplementedWriter()
+			$writer_factory ?? new WooRepositoryFactory()
 		);
 	}
 
@@ -181,7 +182,7 @@ final class JobManager {
 		}
 
 		$is_dry_run = self::TYPE_DRY_RUN === $job['type'];
-		$writer     = $is_dry_run ? new DryRunReporter() : $this->writer;
+		$writer     = $is_dry_run ? new DryRunReporter() : $this->writer_factory->for_platform( $job['platform'] );
 		$entity     = $job['entity'];
 
 		try {

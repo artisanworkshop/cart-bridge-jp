@@ -173,7 +173,10 @@ final class Importer {
 
 			$result = $writer->write( $entity, $item, $existing_local_id );
 
-			if ( ! $is_dry_run ) {
+			// local_id 0 は「ローカル実体を作成/更新できなかった」ことを表す契約
+			// （例: stockの対象商品がまだ未インポート）。checksumを保存すると次回実行時の
+			// checksum一致スキップに掛かり永久に再試行できなくなるため、mappingsを書かない。
+			if ( ! $is_dry_run && 0 !== $result->local_id ) {
 				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
 			}
 

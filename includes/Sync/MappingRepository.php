@@ -130,6 +130,24 @@ final class MappingRepository {
 		);
 	}
 
+	/**
+	 * 単一mapping行の削除。ASP側から消えた個別レコード（例: 削除されたバリエーション）の
+	 * mappingsを、他のplatform/entity_type分を巻き込まずに掃除するために使う。
+	 */
+	public function delete_one( string $platform, string $entity_type, string $remote_id ): void {
+		global $wpdb;
+
+		$wpdb->delete(
+			$this->table(),
+			[
+				'platform'    => $platform,
+				'entity_type' => $entity_type,
+				'remote_id'   => $remote_id,
+			],
+			[ '%s', '%s', '%s' ]
+		);
+	}
+
 	public function delete_for_platform( string $platform, ?string $entity_type = null ): int {
 		global $wpdb;
 

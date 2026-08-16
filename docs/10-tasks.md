@@ -106,9 +106,10 @@
 - [x] **F1-1: ColorMeClient**（GET/POST/PUT、errors[]→ApiException、RateLimiter統合）+ ユニットテスト
 - [x] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。要検証#7は未確定のまま据え置き=ユーザー判断で後回し。自動リダイレクト・OOB手動貼付の両対応で実装済み）
 - [x] **F1-3: Transformer 4種+**（Product/Customer/Order/Category + Tag(groups)/Coupon読取。フィクスチャベースのユニットテスト。マッピング表は 01 §4）
-- [ ] **F1-4: WooRepository**（商品/カテゴリ/タグ/顧客/受注/在庫のupsert書込。画像sideload、受注は 03 §5 の詳細仕様・HPOS対応CRUDのみ使用）+ テスト。
-  **F1-3とは別PR**: `tests/bootstrap.php` にWooCommerceのテーブル作成（`WC_Install::install()`等）を追加する
-  テスト基盤変更を含むため、レビュー容易性を優先して分離した（`docs/10-tasks.md` 冒頭の分割方針の例外）
+- [x] **F1-4: WooRepository**（商品/カテゴリ/タグ/顧客/受注/在庫のupsert書込。画像sideload、受注は 03 §5 の詳細仕様・HPOS対応CRUDのみ使用）+ テスト。
+  `tests/bootstrap.php` にWooCommerceのテーブル作成（`WC_Install::install()`）とHPOS権威データストアの明示的有効化を追加。
+  `Sync\WooWriterFactory`（platform単位でwriterを組み立てる）を新設し `JobManager` を配線変更、`NotImplementedWriter` を削除。
+  extrasメタのキー規約は `_cbjp_*`（汎用）に統一（01 §4を更新）。既存Wooデータとの突合は顧客のみemail突合、商品/カテゴリ/タグはmappings欠損時は常に新規作成（既存データの誤上書きを避ける）
 - [ ] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**。§10.2 #5後半の受注10件未満時フォールバック補完の実装を含む）
 - [ ] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）
 - [ ] **F1-7: ツール + 検証レポート**（サンプルクリーンアップ / リンク再構築（`/tools/*` REST + UI、D16）、移行後検証レポート（件数・受注合計金額の突合表示、D17））
