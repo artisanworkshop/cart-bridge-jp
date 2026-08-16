@@ -256,6 +256,23 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '午前中', $order->shipping['preferred_period'] );
 	}
 
+	public function test_shipping_preserves_gift_fulfillment_instructions(): void {
+		// 熨斗の文言・メッセージカード・ラッピングの指示は、raw extrasのみに残すと
+		// Woo writer側でASP固有構造を逆解析しないとスタッフに提示できない。
+		$raw                                        = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['sale_deliveries'][0]['noshi_text']    = '寿';
+		$raw['sale_deliveries'][0]['card_name']     = 'バースデーカード';
+		$raw['sale_deliveries'][0]['card_text']     = 'おめでとう';
+		$raw['sale_deliveries'][0]['wrapping_name'] = 'ギフト用ラッピング（ピンク）';
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertSame( '寿', $order->shipping['noshi_text'] );
+		$this->assertSame( 'バースデーカード', $order->shipping['card_name'] );
+		$this->assertSame( 'おめでとう', $order->shipping['card_text'] );
+		$this->assertSame( 'ギフト用ラッピング（ピンク）', $order->shipping['wrapping_name'] );
+	}
+
 	public function test_split_order_uses_segment_amounts_not_parent_order_totals(): void {
 		// segment.splitted=trueの受注は、商品・送料・熨斗等の合計がsegment側の実額であり、
 		// トップレベルのsale.*は分割前の全体額のまま(=このsplitには使えない)。

@@ -226,6 +226,12 @@ final class OrderTransformer {
 			'preferred_period' => Cast::to_string_or_null( $first['preferred_period'] ?? null ),
 			'slip_number'      => Cast::to_string_or_null( $first['slip_number'] ?? null ),
 			'tracking_url'     => Cast::to_string_or_null( $first['tracking_url'] ?? null ),
+			// ギフト同梱指示。生のraw extras頼みだと配送業務側がプラットフォーム固有の構造を
+			// 読む必要が出るため、preferred_date等と同様に正規化済みshippingに含める。
+			'noshi_text'       => Cast::to_string_or_null( $first['noshi_text'] ?? null ),
+			'card_name'        => Cast::to_string_or_null( $first['card_name'] ?? null ),
+			'card_text'        => Cast::to_string_or_null( $first['card_text'] ?? null ),
+			'wrapping_name'    => Cast::to_string_or_null( $first['wrapping_name'] ?? null ),
 			// pref_id=48は「海外」を表す特別値。`saleDelivery`スキーマ自体には明記が無いが、
 			// `customer`スキーマで定義された同名フィールドとの一貫性から同じ規約で正規化する
 			// （CustomerTransformer::address()参照）。
