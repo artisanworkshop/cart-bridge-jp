@@ -73,22 +73,30 @@ final class ProductResolver {
 
 	/**
 	 * 在庫更新の対象解決: variant_refがあればmappings（'variant'）優先、無ければproduct_refの
-	 * mappings、それも空振りならSKUで解決する。
+	 * mappings、それも空振りならSKUで解決する。SKUフォールバックはvariant_ref・product_ref
+	 * どちらの経路でも空振りだった場合に共通で試す（`wc_get_product_id_by_sku()`は
+	 * variationも引けるため、variant側のmapping未整備・stale時にも取りこぼしを防げる）。
 	 */
 	public function resolve_stock_target( ?string $variant_ref, string $product_ref, ?string $sku ): ?WC_Product {
 		if ( null !== $variant_ref ) {
 			$local_id = $this->mappings->find_local_id( $this->platform, 'variant', $variant_ref );
 
-			return null !== $local_id ? $this->as_product( $local_id ) : null;
-		}
+			if ( null !== $local_id ) {
+				$product = $this->as_product( $local_id );
 
-		$local_id = $this->mappings->find_local_id( $this->platform, 'product', $product_ref );
+				if ( null !== $product ) {
+					return $product;
+				}
+			}
+		} else {
+			$local_id = $this->mappings->find_local_id( $this->platform, 'product', $product_ref );
 
-		if ( null !== $local_id ) {
-			$product = $this->as_product( $local_id );
+			if ( null !== $local_id ) {
+				$product = $this->as_product( $local_id );
 
-			if ( null !== $product ) {
-				return $product;
+				if ( null !== $product ) {
+					return $product;
+				}
 			}
 		}
 

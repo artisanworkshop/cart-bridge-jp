@@ -108,4 +108,24 @@ final class StockWriterTest extends WooTestCase {
 		$updated = wc_get_product( $variation_id );
 		$this->assertSame( 3, $updated->get_stock_quantity() );
 	}
+
+	public function test_variant_ref_falls_back_to_sku_when_mapping_missing(): void {
+		// product_refと同様、variant_refのmapping解決が空振り（未整備・stale）でも
+		// SKUで解決できることを確認する（`wc_get_product_id_by_sku()`はvariationも引ける）。
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Variable' );
+		$product_id = $product->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->set_sku( 'VAR-SKU-1' );
+		$variation_id = $variation->save();
+
+		$stock  = new CanonicalStock( '1', 'v-unmapped', 'VAR-SKU-1', 3, true );
+		$result = $this->make_writer()->write( $stock, $variation_id );
+
+		$this->assertSame( $variation_id, $result->local_id );
+		$updated = wc_get_product( $variation_id );
+		$this->assertSame( 3, $updated->get_stock_quantity() );
+	}
 }
