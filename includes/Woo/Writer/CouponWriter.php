@@ -71,6 +71,17 @@ final class CouponWriter implements EntityWriter {
 					return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
 				}
 			}
+		} elseif ( $coupon->get_code() !== $item->code ) {
+			// 上のブロックは新規作成（またはmapping先が既に存在しない）のときしか走らない。
+			// 既存の有効なクーポンのコードがASP側でリネームされた場合も、コードの一意性が
+			// 崩れると決済時にどちらが適用されるか不定になる同じ金銭的リスクがあるため
+			// 衝突チェックが必要。ただし更新パスでは新規作成時と異なり他クーポンへの
+			// 「乗り換え」は行わず、衝突があれば保存自体を見送り元のクーポンをそのまま残す。
+			$conflict_id = wc_get_coupon_id_by_code( $item->code, $coupon->get_id() );
+
+			if ( 0 !== $conflict_id ) {
+				return new WriteResult( $coupon->get_id(), WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
+			}
 		}
 
 		$operation = 0 === $coupon->get_id() ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;

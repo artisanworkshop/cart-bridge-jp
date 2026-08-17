@@ -117,6 +117,35 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
 	}
 
+	public function test_update_path_code_rename_conflict_is_skipped_not_overwritten(): void {
+		// 新規作成時のコード衝突チェック（56-74行目）は`get_id()===0`のときしか走らない。
+		// 既存の有効なクーポン（mapping先が実在）のコードがASP側でリネームされた場合も、
+		// コードの一意性が崩れると決済時にどちらが適用されるか不定になる同じ金銭的リスクが
+		// あるため、更新パスでも衝突チェックが必要であることを確認する。
+		$other = new \WC_Coupon();
+		$other->set_code( 'TAKEN' );
+		$other->set_amount( '9999' );
+		$other->save();
+
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'ORIGINAL' );
+		$existing->set_amount( '100' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
+		$existing_id = $existing->save();
+
+		$coupon = new CanonicalCoupon( 'TAKEN', 'fixed', '200', null, null, null, [ 'remote_id' => '8' ] );
+		$result = $this->make_writer()->write( $coupon, $existing_id );
+
+		$this->assertSame( $existing_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $other->get_id() ), $result->warnings );
+
+		// 元のクーポンのコード・金額は変更されていない（WC_Coupon側の仕様でコードは小文字化される）。
+		$reloaded = new \WC_Coupon( $existing_id );
+		$this->assertSame( 'original', $reloaded->get_code() );
+		$this->assertSame( '100', $reloaded->get_amount() );
+	}
+
 	public function test_unknown_type_is_skipped_and_warns(): void {
 		// `CanonicalCoupon::$type`はdocblock上'fixed'|'percent'だが実行時にはstringでしかなく、
 		// `cbjp/adapters/register`経由の外部アダプタが未知の値を渡しうる。deny-list判定だと
