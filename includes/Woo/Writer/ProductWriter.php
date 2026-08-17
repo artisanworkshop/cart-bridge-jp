@@ -13,10 +13,10 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MediaImporter;
+use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
-use WC_Data_Exception;
 use WC_Product;
 use WC_Product_Attribute;
 use WC_Tax;
@@ -83,7 +83,7 @@ final class ProductWriter implements EntityWriter {
 		}
 
 		$warnings = array_merge( $warnings, $this->apply_tax_class( $product, $item->tax_class ) );
-		$warnings = array_merge( $warnings, $this->apply_sku( $product, $item->sku ) );
+		$warnings = array_merge( $warnings, SkuGuard::apply( $product, $item->sku ) );
 
 		[ $category_ids, $category_warnings ] = $this->resolve_refs( $item->category_refs, 'category', WarningCode::CATEGORY_REF_UNRESOLVED );
 		$product->set_category_ids( $category_ids );
@@ -109,7 +109,7 @@ final class ProductWriter implements EntityWriter {
 		$operation  = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 		$product_id = $product->save();
 
-		$warnings = array_merge( $warnings, $this->apply_images( $product_id, $item->images ) );
+		$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
 
 		if ( $has_variants ) {
 			$warnings = array_merge(
@@ -155,43 +155,6 @@ final class ProductWriter implements EntityWriter {
 		return [ WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, $tax_class ) ];
 	}
 
-	/**
-	 * 他商品が既に保持しているSKUは奪わない。元SKUは `_cbjp_original_sku` メタへ退避し、
-	 * SKUを空で登録して手動解決を促す（フェイルクローズ: 商品自体は取り込みを継続する）。
-	 *
-	 * @return array<int,string>
-	 */
-	private function apply_sku( WC_Product $product, ?string $sku ): array {
-		$sku = $sku ?? '';
-
-		if ( '' !== $sku ) {
-			$conflict = wc_get_product_id_by_sku( $sku );
-
-			if ( 0 !== $conflict && $conflict !== $product->get_id() ) {
-				$product->update_meta_data( '_cbjp_original_sku', $sku );
-
-				return $this->set_sku_or_warn( $product, '', WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku ) );
-			}
-		}
-
-		return $this->set_sku_or_warn( $product, $sku, null );
-	}
-
-	/**
-	 * @return array<int,string>
-	 */
-	private function set_sku_or_warn( WC_Product $product, string $sku, ?string $duplicate_warning ): array {
-		try {
-			$product->set_sku( $sku );
-		} catch ( WC_Data_Exception ) {
-			$product->update_meta_data( '_cbjp_original_sku', $sku );
-			$product->set_sku( '' );
-
-			return [ WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku ) ];
-		}
-
-		return null !== $duplicate_warning ? [ $duplicate_warning ] : [];
-	}
 
 	/**
 	 * @param array<int,string> $refs
@@ -307,13 +270,18 @@ final class ProductWriter implements EntityWriter {
 	}
 
 	/**
+	 * `write()`がsave()済みの`$product`をそのまま受け取る（`wc_get_product()`による
+	 * 冗長な再取得を避けるため）。
+	 *
 	 * @param array<int,array<string,mixed>> $images
 	 * @return array<int,string>
 	 */
-	private function apply_images( int $product_id, array $images ): array {
+	private function apply_images( WC_Product $product, array $images ): array {
 		if ( [] === $images ) {
 			return [];
 		}
+
+		$product_id = $product->get_id();
 
 		usort(
 			$images,
@@ -346,12 +314,6 @@ final class ProductWriter implements EntityWriter {
 		}
 
 		if ( [] === $attachment_ids ) {
-			return $warnings;
-		}
-
-		$product = wc_get_product( $product_id );
-
-		if ( ! $product instanceof WC_Product ) {
 			return $warnings;
 		}
 

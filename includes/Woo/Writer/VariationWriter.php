@@ -8,9 +8,9 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Writer;
 
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
-use WC_Data_Exception;
 use WC_Product;
 use WC_Product_Variable;
 use WC_Product_Variation;
@@ -63,13 +63,14 @@ final class VariationWriter {
 			$warnings          = array_merge( $warnings, $this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names ) );
 		}
 
+		// stale削除・variable同期の判定で二重に`wc_get_product()`しないよう、ここで一度だけ取得する。
+		$product = wc_get_product( $product_id );
+
 		if ( $incomplete_snapshot ) {
 			$warnings[] = WarningCode::VARIATION_SNAPSHOT_INCOMPLETE;
-		} else {
-			$warnings = array_merge( $warnings, $this->remove_stale_variations( $product_id, $seen_remote_ids ) );
+		} elseif ( $product instanceof WC_Product_Variable ) {
+			$warnings = array_merge( $warnings, $this->remove_stale_variations( $product, $seen_remote_ids ) );
 		}
-
-		$product = wc_get_product( $product_id );
 
 		if ( $product instanceof WC_Product_Variable ) {
 			WC_Product_Variable::sync( $product_id );
@@ -113,25 +114,7 @@ final class VariationWriter {
 			$variation->set_weight( (string) wc_get_weight( $weight, is_string( $unit ) && '' !== $unit ? $unit : 'kg', 'g' ) );
 		}
 
-		$sku = Value::string( $variant['sku'] ?? null ) ?? '';
-
-		if ( '' !== $sku ) {
-			$conflict = wc_get_product_id_by_sku( $sku );
-
-			if ( 0 !== $conflict && $conflict !== $variation->get_id() ) {
-				$variation->update_meta_data( '_cbjp_original_sku', $sku );
-				$warnings[] = WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku );
-				$sku        = '';
-			}
-		}
-
-		try {
-			$variation->set_sku( $sku );
-		} catch ( WC_Data_Exception ) {
-			$variation->update_meta_data( '_cbjp_original_sku', $sku );
-			$variation->set_sku( '' );
-			$warnings[] = WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku );
-		}
+		$warnings = array_merge( $warnings, SkuGuard::apply( $variation, Value::string( $variant['sku'] ?? null ) ) );
 
 		foreach ( [ 'few_num', 'cost', 'members_price_including_tax', 'market_price' ] as $key ) {
 			$value = Value::int( $variant[ $key ] ?? null );
@@ -187,13 +170,7 @@ final class VariationWriter {
 	 * @param array<int,string> $seen_remote_ids
 	 * @return array<int,string>
 	 */
-	private function remove_stale_variations( int $product_id, array $seen_remote_ids ): array {
-		$product = wc_get_product( $product_id );
-
-		if ( ! $product instanceof WC_Product_Variable ) {
-			return [];
-		}
-
+	private function remove_stale_variations( WC_Product_Variable $product, array $seen_remote_ids ): array {
 		$warnings = [];
 
 		foreach ( $product->get_children() as $variation_id ) {
