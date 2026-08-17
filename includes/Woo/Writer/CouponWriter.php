@@ -40,6 +40,16 @@ final class CouponWriter implements EntityWriter {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED ] );
 		}
 
+		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {
+			// `CanonicalCoupon::$type`はdocblock上`'fixed'|'percent'`だがPHPの型としては
+			// 単なるstringで実行時に強制されない。`cbjp/adapters/register`経由の外部アダプタは
+			// 信頼境界（CLAUDE.md参照）のため、未知の値を`fixed_cart`へ黙って倒す（deny-list）
+			// と、想定外のtype文字列がそのまま実在の値引きクーポンとして公開されてしまう
+			// 金銭的リスクがある。既知の2値のみを許可するallow-listにし、それ以外は保存を
+			// 見送りフェイルクローズする。
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_TYPE_UNKNOWN, $item->type ) ] );
+		}
+
 		$warnings = [];
 		$coupon   = null !== $existing_local_id ? new WC_Coupon( $existing_local_id ) : new WC_Coupon();
 

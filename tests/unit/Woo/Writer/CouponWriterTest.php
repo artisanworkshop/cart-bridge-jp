@@ -117,6 +117,21 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
 	}
 
+	public function test_unknown_type_is_skipped_and_warns(): void {
+		// `CanonicalCoupon::$type`はdocblock上'fixed'|'percent'だが実行時にはstringでしかなく、
+		// `cbjp/adapters/register`経由の外部アダプタが未知の値を渡しうる。deny-list判定だと
+		// 未知の値が黙って`fixed_cart`として保存され金銭的リスクになるため、allow-listで
+		// 保存自体を見送ることを確認する。
+		$coupon = new CanonicalCoupon( 'WEIRD', 'buy_one_get_one', '100', null, null, null, [ 'remote_id' => '7' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_TYPE_UNKNOWN, 'buy_one_get_one' ), $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'WEIRD' ) );
+	}
+
 	public function test_usage_limit_per_user_is_applied(): void {
 		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1 );
 
