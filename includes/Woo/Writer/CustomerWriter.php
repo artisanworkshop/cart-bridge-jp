@@ -41,6 +41,15 @@ final class CustomerWriter implements EntityWriter {
 		$warnings = [];
 		$billing  = AddressMapper::to_woo( $this->platform, $item->address, $item->name, $item->email, $item->phone, $item->company );
 
+		// mappingsが指すユーザーが手動削除等で既に存在しない場合、existing_local_idを
+		// 信用せず新規作成へフォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。
+		// 信用したまま進むと、has_protected_role()は存在しないIDに対してfalseを返して
+		// 保護をすり抜け、wp_update_user()の失敗（WP_Error）も無視されたまま「更新成功」
+		// として扱われ、存在しないユーザーIDに孤立したusermetaだけが書き込まれてしまう。
+		if ( null !== $existing_local_id && ! get_userdata( $existing_local_id ) ) {
+			$existing_local_id = null;
+		}
+
 		[ $user_id, $operation, $reuse_warning ] = null !== $existing_local_id
 			? [ $existing_local_id, WriteResult::OPERATION_UPDATED, null ]
 			: $this->find_or_create( $item, $billing );

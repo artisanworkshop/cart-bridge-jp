@@ -105,6 +105,21 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( '', get_user_meta( $existing_id, 'billing_address_1', true ) );
 	}
 
+	public function test_stale_existing_local_id_falls_back_to_create(): void {
+		// mappingsが指すユーザーIDが手動削除等で既に存在しない場合を模擬する
+		// （実在しないユーザーIDを直接existing_local_idとして渡す）。
+		$customer = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '9' ] );
+
+		$result = $this->make_writer()->write( $customer, 999999 );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 999999, $result->local_id );
+
+		$user = get_userdata( $result->local_id );
+		$this->assertInstanceOf( \WP_User::class, $user );
+		$this->assertSame( 'new@example.com', $user->user_email );
+	}
+
 	public function test_overseas_address_warns_and_leaves_state_empty(): void {
 		$customer = new CanonicalCustomer(
 			'overseas@example.com',
