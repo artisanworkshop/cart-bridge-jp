@@ -121,6 +121,18 @@ final class VariationWriter {
 		$variation->update_meta_data( '_cbjp_remote_id', $remote_id );
 
 		$variation_id = $variation->save();
+
+		if ( 0 === $variation_id ) {
+			// `Importer`は`WriteResult::$local_id === 0`を「書けなかった」の意味として扱い
+			// mappingsを書かない契約（穴Bの対処）だが、この保存は`ProductWriter`の
+			// `WriteResult`とは別枠でここが直接upsertしているため、同じ契約をここでも
+			// 明示的に守る必要がある。守らないとlocal_id=0のmapping行が残り、
+			// StockWriter/ProductResolverの以後の解決が全て存在しない商品ID 0を指してしまう。
+			$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_SAVE_FAILED, $remote_id );
+
+			return $warnings;
+		}
+
 		$this->mappings->upsert( $this->platform, 'variant', $remote_id, $variation_id, null );
 
 		return $warnings;

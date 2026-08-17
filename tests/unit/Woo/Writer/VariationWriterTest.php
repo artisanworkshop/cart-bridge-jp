@@ -229,6 +229,42 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertCount( 0, $product->get_children() );
 	}
 
+	public function test_save_failure_does_not_persist_stale_mapping(): void {
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		// `WC_Product_Variation::save()`がID 0のまま失敗するケースを、WP標準の
+		// `wp_insert_post_empty_content`フィルターで`product_variation`投稿のみ狙って再現する。
+		$block_variation_posts = static function ( $maybe_empty, $postarr ) {
+			return 'product_variation' === ( $postarr['post_type'] ?? null ) ? true : $maybe_empty;
+		};
+		add_filter( 'wp_insert_post_empty_content', $block_variation_posts, 10, 2 );
+
+		try {
+			$warnings = $writer->sync(
+				$product_id,
+				[
+					[
+						'remote_id'     => 'v1',
+						'sku'           => 'V1',
+						'option1_name'  => 'Size',
+						'option1_value' => 'S',
+						'price'         => '1000',
+						'stock'         => 5,
+					],
+				],
+				[ 'Size' ]
+			);
+		} finally {
+			remove_filter( 'wp_insert_post_empty_content', $block_variation_posts, 10 );
+		}
+
+		$this->assertContains( 'variation_save_failed:v1', $warnings );
+		// 保存に失敗したため、local_id 0を指すmapping行が残ってはならない
+		// （残るとStockWriter/ProductResolverの以後の解決が全て存在しない商品ID 0を指す）。
+		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
+	}
+
 	public function test_reuses_variation_via_mapping_on_second_sync(): void {
 		$product_id = $this->make_parent();
 		$writer     = new VariationWriter( 'colorme', $this->mappings );
