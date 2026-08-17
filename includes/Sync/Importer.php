@@ -180,7 +180,14 @@ final class Importer {
 				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
 			}
 
-			++$totals[ $result->operation ];
+			// この契約は `WooWriter`/`EntityWriter` インターフェース上で型として強制できない
+			// （PHPの型システムでは「local_idが0ならoperationはskippedでなければならない」を
+			// 表現できない）ため、ここで防御的に正規化する。将来のwriter実装や
+			// `cbjp/adapters/register`経由の外部アダプタがlocal_id=0のままcreated/updatedを
+			// 返す契約違反を犯しても、totals集計（結果レポート）上は実態どおりskipped扱いになる。
+			$operation = 0 === $result->local_id ? WriteResult::OPERATION_SKIPPED : $result->operation;
+
+			++$totals[ $operation ];
 
 			if ( [] !== $result->warnings ) {
 				++$totals['warned'];

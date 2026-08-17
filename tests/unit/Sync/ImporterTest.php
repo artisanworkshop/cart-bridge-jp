@@ -75,6 +75,28 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $writer->calls );
 	}
 
+	/**
+	 * `local_id === 0` なのに `operation` が created/updated を返す（writer実装側の契約違反）
+	 * 場合でも、totals集計上は実態どおりskipped扱いになることを確認する
+	 * （writer/EntityWriterインターフェースでは型として強制できない契約を、Importer側で
+	 * 防御的に正規化している）。
+	 */
+	public function test_totals_treat_zero_local_id_as_skipped_even_if_writer_claims_created(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				// 契約違反: local_id=0なのにcreatedを主張する不正なwriter実装を模擬する。
+				return new WriteResult( 0, WriteResult::OPERATION_CREATED, [] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+	}
+
 	public function test_nonzero_local_id_persists_mapping(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
 		$writer  = new class() implements WooWriter {
