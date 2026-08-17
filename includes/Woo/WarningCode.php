@@ -36,8 +36,9 @@ final class WarningCode {
 	public const TAG_REF_UNRESOLVED         = 'tag_ref_unresolved';
 	public const TERM_REUSED_EXISTING       = 'term_reused_existing';
 
-	public const CUSTOMER_REUSED_EXISTING = 'customer_reused_existing';
-	public const ADDRESS_OVERSEAS         = 'address_overseas';
+	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
+	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
+	public const ADDRESS_OVERSEAS           = 'address_overseas';
 
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';
@@ -53,11 +54,26 @@ final class WarningCode {
 
 	public const COUPON_REUSED_EXISTING         = 'coupon_reused_existing';
 	public const COUPON_GROUP_LIMIT_UNSUPPORTED = 'coupon_group_limit_unsupported';
+	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {
 		return '' === $detail ? $code : "{$code}:{$detail}";
+	}
+
+	/**
+	 * `with_detail()` で組み立てた文字列をcode/detailに分解する。detail自体（画像URL・ASP側の
+	 * 任意文字列等）に`:`が含まれることがあるため、素朴な`explode(':', $warning)`（limit無し）
+	 * は誤分割する。必ず最初の`:`でのみ分割する（`explode(..., 2)`）ため、F1-6のdry-run CSV・
+	 * 結果レポートはこのメソッドを使うこと。
+	 *
+	 * @return array{0:string,1:?string} [code, detail]
+	 */
+	public static function split( string $warning ): array {
+		$parts = explode( ':', $warning, 2 );
+
+		return [ $parts[0], $parts[1] ?? null ];
 	}
 }
