@@ -229,6 +229,55 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertCount( 0, $product->get_children() );
 	}
 
+	public function test_stale_variation_mapping_falls_back_to_create(): void {
+		// mappingsが指すvariation投稿が手動削除等で既に存在しない場合を模擬する。
+		// `new WC_Product_Variation($id)`は`wc_get_product_object()`と異なり例外を投げず、
+		// 早期リターンで気付けないため、既存IDを信用せず新規作成へフォールバックする
+		// ことを確認する（フォールバックしないと再同期しても何も永続化されない）。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+		$stale_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		wp_delete_post( $stale_variation_id, true );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1500',
+					'stock'         => 3,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$new_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$this->assertNotNull( $new_variation_id );
+		$this->assertNotSame( $stale_variation_id, $new_variation_id );
+
+		$variation = wc_get_product( $new_variation_id );
+		$this->assertInstanceOf( \WC_Product_Variation::class, $variation );
+		$this->assertSame( '1500', $variation->get_regular_price() );
+	}
+
 	public function test_save_failure_does_not_persist_stale_mapping(): void {
 		$product_id = $this->make_parent();
 		$writer     = new VariationWriter( 'colorme', $this->mappings );

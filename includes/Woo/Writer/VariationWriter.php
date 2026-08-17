@@ -16,6 +16,7 @@ use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
 use WC_Product_Variable;
 use WC_Product_Variation;
+use WP_Post;
 
 /**
  * `CanonicalProduct::variants` をWooのバリエーション（`WC_Product_Variation`）へ同期する。
@@ -89,7 +90,17 @@ final class VariationWriter {
 	private function sync_one( int $product_id, array $variant, string $remote_id, string $price, array $axis_names ): array {
 		$warnings              = [];
 		$existing_variation_id = $this->mappings->find_local_id( $this->platform, 'variant', $remote_id );
-		$variation             = new WC_Product_Variation( $existing_variation_id ?? 0 );
+
+		// mappingsが指すvariation投稿が手動削除等で既に存在しない場合、`new WC_Product_Variation($id)`は
+		// （`wc_get_product_object()`と異なり）例外を投げず、`WC_Product_Variation_Data_Store_CPT::read()`が
+		// 早期リターンするだけで気付けない。その状態のまま`save()`すると存在しない投稿IDへの更新を
+		// 試みて何も永続化されず、mappingだけが恒久的にstaleのまま残りこのvariantが二度と復旧しない
+		// （TermWriter/CustomerWriter/ProductWriter/OrderWriterの同種のstale-ID対応と同じ方針）。
+		if ( null !== $existing_variation_id && ! get_post( $existing_variation_id ) instanceof WP_Post ) {
+			$existing_variation_id = null;
+		}
+
+		$variation = new WC_Product_Variation( $existing_variation_id ?? 0 );
 
 		$variation->set_parent_id( $product_id );
 		$variation->set_attributes( $this->variation_attributes( $variant, $axis_names ) );
