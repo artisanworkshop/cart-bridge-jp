@@ -45,11 +45,20 @@ final class CouponWriter implements EntityWriter {
 		if ( 0 === $coupon->get_id() ) {
 			// クーポンコードはWooCommerce内で一意である必要があるため（他商品と違いSKUのような
 			// 「奪わない」選択肢が無い）、既存の同コードクーポンがあれば再利用する。
+			// ただし、`_cbjp_platform`が自分自身と一致する場合のみ再利用する
+			// （VariationWriterの他プラットフォーム保護と同じ理由）。一致しない場合は
+			// 店舗独自クーポン・別プラットフォーム由来のクーポンを誤って上書きしてしまう
+			// リスクがあり、かつコード重複のまま新規作成するとWoo側でどちらが適用されるか
+			// 不定になる別の金銭的リスクを生むため、保存自体を見送る。
 			$conflict_id = wc_get_coupon_id_by_code( $item->code );
 
 			if ( 0 !== $conflict_id ) {
-				$coupon     = new WC_Coupon( $conflict_id );
-				$warnings[] = WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $conflict_id );
+				if ( get_post_meta( $conflict_id, '_cbjp_platform', true ) === $this->platform ) {
+					$coupon     = new WC_Coupon( $conflict_id );
+					$warnings[] = WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $conflict_id );
+				} else {
+					return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
+				}
 			}
 		}
 

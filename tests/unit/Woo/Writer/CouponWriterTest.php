@@ -50,9 +50,10 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertTrue( $wc_coupon->get_free_shipping() );
 	}
 
-	public function test_reuses_existing_coupon_with_same_code(): void {
+	public function test_reuses_existing_coupon_with_same_code_and_matching_platform(): void {
 		$existing = new \WC_Coupon();
 		$existing->set_code( 'DUPLICATE' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
 		$existing_id = $existing->save();
 
 		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
@@ -60,6 +61,38 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( $existing_id, $result->local_id );
 		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
+	}
+
+	public function test_code_conflict_with_another_platform_is_skipped_not_overwritten(): void {
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'DUPLICATE' );
+		$existing->set_amount( '9999' );
+		$existing->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$existing_id = $existing->save();
+
+		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $result->warnings );
+
+		// 他プラットフォーム由来のクーポンは一切上書きされていない。
+		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
+	}
+
+	public function test_code_conflict_with_unmanaged_coupon_is_skipped_not_overwritten(): void {
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'DUPLICATE' );
+		$existing->set_amount( '9999' );
+		$existing_id = $existing->save();
+
+		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
 	}
 
 	public function test_group_limited_coupon_is_skipped_not_saved_unrestricted(): void {
