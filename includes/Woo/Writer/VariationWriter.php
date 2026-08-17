@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Writer;
 
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\StockApplier;
@@ -120,13 +121,17 @@ final class VariationWriter {
 
 		$warnings = array_merge( $warnings, SkuGuard::apply( $variation, Value::string( $variant['sku'] ?? null ) ) );
 
-		foreach ( [ 'few_num', 'cost', 'members_price_including_tax', 'market_price' ] as $key ) {
-			$value = Value::int( $variant[ $key ] ?? null );
-
-			if ( null !== $value ) {
-				$variation->update_meta_data( "_cbjp_{$key}", (string) $value );
-			}
-		}
+		// 値がnullになった場合も`ExtrasMeta::apply()`経由でメタを削除する（更新のみで
+		// 削除しないと、再実行時にvariantから値が消えても古い値のメタが残り続けてしまう）。
+		ExtrasMeta::apply(
+			$variation,
+			[
+				'few_num'                     => Value::int( $variant['few_num'] ?? null ),
+				'cost'                        => Value::int( $variant['cost'] ?? null ),
+				'members_price_including_tax' => Value::int( $variant['members_price_including_tax'] ?? null ),
+				'market_price'                => Value::int( $variant['market_price'] ?? null ),
+			]
+		);
 
 		$variation->update_meta_data( '_cbjp_platform', $this->platform );
 		$variation->update_meta_data( '_cbjp_remote_id', $remote_id );

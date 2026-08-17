@@ -290,6 +290,33 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, 'c-gone' ), $result->warnings );
 	}
 
+	public function test_discount_point_meta_is_deleted_when_no_longer_present(): void {
+		// ポイント利用等が取り消されてtotalsから値が消えた場合、更新のみで削除しないと
+		// 古い金額のメタが残り、実際の割引内容と食い違ったまま残り続けてしまう。
+		$with_point = $this->make_order(
+			'3013',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'          => '1000',
+				'tax'            => '0',
+				'shipping_fee'   => '0',
+				'discount'       => '0',
+				'discount_point' => '500',
+			]
+		);
+		$first      = $this->make_writer()->write( $with_point, null );
+		$this->assertSame( '500', wc_get_order( $first->local_id )->get_meta( '_cbjp_discount_point' ) );
+
+		$without_point = $this->make_order( '3013', 'processing' );
+		$this->make_writer()->write( $without_point, $first->local_id );
+
+		$this->assertSame( '', wc_get_order( $first->local_id )->get_meta( '_cbjp_discount_point' ) );
+	}
+
 	public function test_stale_existing_local_id_falls_back_to_create(): void {
 		// mappingsが指す注文が手動削除等で既に存在しない場合を模擬する
 		// （実在しない注文IDを直接existing_local_idとして渡す）。

@@ -352,13 +352,17 @@ final class OrderWriter implements EntityWriter {
 		// （アーキテクチャ原則1: Woo層はプラットフォーム固有キーを知らなくてよい）。
 		ExtrasMeta::apply( $order, $this->meta_extras( $item->extras ) );
 
-		foreach ( [ 'discount_point', 'discount_gmo', 'discount_other' ] as $key ) {
-			$value = Value::string( $item->totals[ $key ] ?? null );
-
-			if ( null !== $value ) {
-				$order->update_meta_data( "_cbjp_{$key}", $value );
-			}
-		}
+		// 値がnullになった場合も`ExtrasMeta::apply()`経由でメタを削除する（更新のみで
+		// 削除しないと、再実行時にポイント利用が取り消された等でtotalsから値が消えても
+		// 古い金額のメタが残り、実際の割引内容と食い違ったまま残り続けてしまう）。
+		ExtrasMeta::apply(
+			$order,
+			[
+				'discount_point' => Value::string( $item->totals['discount_point'] ?? null ),
+				'discount_gmo'   => Value::string( $item->totals['discount_gmo'] ?? null ),
+				'discount_other' => Value::string( $item->totals['discount_other'] ?? null ),
+			]
+		);
 
 		$order->update_meta_data( '_cbjp_import_warnings', wp_json_encode( array_values( array_unique( $warnings ) ) ) );
 	}

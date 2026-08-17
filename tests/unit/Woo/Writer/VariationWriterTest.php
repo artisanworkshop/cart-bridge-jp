@@ -353,4 +353,46 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertSame( $first_variation_id, $second_variation_id );
 		$this->assertSame( '1500', wc_get_product( $second_variation_id )->get_regular_price() );
 	}
+
+	public function test_few_num_meta_is_deleted_when_no_longer_present(): void {
+		// 更新のみで削除しないと、再同期時にvariantからfew_num等の値が消えても古い値の
+		// メタが残り続けてしまう。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+					'few_num'       => 3,
+				],
+			],
+			[ 'Size' ]
+		);
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$this->assertSame( '3', get_post_meta( $variation_id, '_cbjp_few_num', true ) );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$this->assertSame( '', get_post_meta( $variation_id, '_cbjp_few_num', true ) );
+	}
 }
