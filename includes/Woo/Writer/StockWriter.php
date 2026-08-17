@@ -41,10 +41,13 @@ final class StockWriter implements EntityWriter {
 
 		$warnings = [];
 
-		if ( null === $item->variant_ref && $target instanceof WC_Product_Variable ) {
-			// variable商品に親レベルの在庫（variant_ref=null）が来た場合、manage_stockをtrueにすると
-			// variation側の在庫と競合するため、親はstock_statusのみ更新する（quantityは無視する。
-			// Importer::run_sample_stock_page()はvariant_refを常にnullで作るため到達しうる）。
+		if ( $target instanceof WC_Product_Variable ) {
+			// variable商品自体が対象になった場合、manage_stockをtrueにするとvariation側の在庫と
+			// 競合するため、stock_statusのみ更新する（quantityは無視する）。variant_ref=nullで
+			// 明示的に親レベル在庫が来た場合（Importer::run_sample_stock_page()）だけでなく、
+			// variant_refが指定されていてもmapping未整備/stale時にresolve_stock_target()の
+			// SKUフォールバックが親商品自身のSKU（SkuGuardで親にも設定され得る）にマッチして
+			// 親が返ってくるケースでも、variant_refの有無に関わらずここで弾く必要がある。
 			StockApplier::apply( $target, null, $item->in_stock );
 			$warnings[] = WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $target->get_id() );
 		} else {

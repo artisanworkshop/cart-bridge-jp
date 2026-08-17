@@ -128,4 +128,31 @@ final class StockWriterTest extends WooTestCase {
 		$updated = wc_get_product( $variation_id );
 		$this->assertSame( 3, $updated->get_stock_quantity() );
 	}
+
+	public function test_variant_ref_sku_fallback_resolving_to_parent_is_guarded(): void {
+		// variant_refのmappingが未整備/staleで、SKUフォールバックが（親商品自身にも
+		// SKUが設定されているケースで）variationではなく親のvariable商品そのものに
+		// 解決してしまった場合でも、variant_refの有無に関わらずvariable商品への
+		// 直接書込みは弾かれ、親のvariation在庫が壊されないことを確認する。
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Variable' );
+		$product->set_sku( 'PARENT-SKU' );
+		$product_id = $product->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->set_manage_stock( true );
+		$variation->set_stock_quantity( 1 );
+		$variation->set_stock_status( 'instock' );
+		$variation->save();
+		WC_Product_Variable::sync( $product_id );
+
+		$stock  = new CanonicalStock( '1', 'v-unmapped', 'PARENT-SKU', 99, true );
+		$result = $this->make_writer()->write( $stock, $product_id );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $product_id ), $result->warnings );
+
+		$updated = wc_get_product( $product_id );
+		$this->assertFalse( $updated->get_manage_stock() );
+	}
 }
