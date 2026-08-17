@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\AddressMapper;
+use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
@@ -204,6 +205,7 @@ final class OrderWriter implements EntityWriter {
 
 		$order->set_billing_address(
 			AddressMapper::to_woo(
+				$this->platform,
 				$snapshot,
 				$billing_name,
 				Value::string( $snapshot['email'] ?? null ) ?? '',
@@ -216,6 +218,7 @@ final class OrderWriter implements EntityWriter {
 
 		$order->set_shipping_address(
 			AddressMapper::to_woo(
+				$this->platform,
 				$item->shipping,
 				$shipping_name,
 				'',
@@ -288,7 +291,6 @@ final class OrderWriter implements EntityWriter {
 		$order->update_meta_data( '_cbjp_remote_order_number', $item->number );
 		$order->update_meta_data( '_cbjp_remote_order_id', Value::string( $item->extras['remote_id'] ?? null ) ?? $item->number );
 
-		$this->set_or_delete_meta( $order, '_cbjp_external_order_id', Value::string( $item->extras['external_order_id'] ?? null ) );
 		$this->set_or_delete_meta( $order, '_cbjp_memo', $item->note );
 
 		$this->set_or_delete_meta( $order, '_cbjp_slip_number', Value::string( $item->shipping['slip_number'] ?? null ) );
@@ -300,31 +302,12 @@ final class OrderWriter implements EntityWriter {
 		$this->set_or_delete_meta( $order, '_cbjp_card_text', Value::string( $item->shipping['card_text'] ?? null ) );
 		$this->set_or_delete_meta( $order, '_cbjp_wrapping_name', Value::string( $item->shipping['wrapping_name'] ?? null ) );
 
-		foreach ( [ 'point_state', 'granted_points', 'use_points', 'gmo_point_state', 'granted_gmo_points', 'use_gmo_points', 'yahoo_point_state', 'granted_yahoo_points', 'use_yahoo_points' ] as $key ) {
-			$value = $item->extras[ $key ] ?? null;
-
-			if ( null !== $value ) {
-				$order->update_meta_data( "_cbjp_{$key}", $value );
-			}
-		}
-
-		$sale_deliveries = Value::array_or_null( $item->extras['sale_deliveries'] ?? null );
-
-		if ( null !== $sale_deliveries ) {
-			$order->update_meta_data( '_cbjp_sale_deliveries', wp_json_encode( $sale_deliveries ) );
-		}
-
-		$segment = Value::array_or_null( $item->extras['segment'] ?? null );
-
-		if ( null !== $segment ) {
-			$order->update_meta_data( '_cbjp_segment', wp_json_encode( $segment ) );
-		}
-
-		$shop_coupon = Value::array_or_null( $item->extras['shop_coupon'] ?? null );
-
-		if ( null !== $shop_coupon ) {
-			$order->update_meta_data( '_cbjp_shop_coupon', wp_json_encode( $shop_coupon ) );
-		}
+		// Woo側の別フィールドとして既に反映済み、または請求先住所の構築にのみ使う一時データ
+		// （customer_snapshot）を除いた残りのextrasは、`ProductWriter`/`CouponWriter`と同じ
+		// 汎用機構`ExtrasMeta::apply()`へ委ねる。ASP固有キーをここで個別にホワイトリスト
+		// 管理しないことで、他ASPが異なるextras構成を持つ場合のデータ欠損を防ぐ
+		// （アーキテクチャ原則1: Woo層はプラットフォーム固有キーを知らなくてよい）。
+		ExtrasMeta::apply( $order, $this->meta_extras( $item->extras ) );
 
 		foreach ( [ 'discount_point', 'discount_gmo', 'discount_other' ] as $key ) {
 			$value = Value::string( $item->totals[ $key ] ?? null );
@@ -335,6 +318,18 @@ final class OrderWriter implements EntityWriter {
 		}
 
 		$order->update_meta_data( '_cbjp_import_warnings', wp_json_encode( array_values( array_unique( $warnings ) ) ) );
+	}
+
+	/**
+	 * @param array<string,mixed> $extras
+	 * @return array<string,mixed>
+	 */
+	private function meta_extras( array $extras ): array {
+		// remote_idは`_cbjp_remote_order_id`として既に反映済み。customer_snapshotは
+		// 請求先住所の構築にのみ使う一時データで、メタとしての永続化対象ではない。
+		unset( $extras['remote_id'], $extras['customer_snapshot'] );
+
+		return $extras;
 	}
 
 	private function set_or_delete_meta( WC_Order $order, string $meta_key, ?string $value ): void {

@@ -275,6 +275,67 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertCount( 1, $wc_order->get_items() );
 	}
 
+	public function test_extras_not_on_the_hardcoded_whitelist_are_still_persisted(): void {
+		// `other_discount_name`/`product_tax`はapply_meta()の旧ホワイトリストに含まれておらず
+		// 静かに欠落していたキー。ExtrasMeta経由になったことで、明示的に扱っていないASP固有の
+		// extrasキーも往復移行のために保存されることを検証する。
+		$order = $this->make_order(
+			'2001',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[
+				'other_discount_name' => '会員割引',
+				'shop_coupon'         => [
+					'code'   => 'SUMMER',
+					'amount' => 100,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( '会員割引', $wc_order->get_meta( '_cbjp_other_discount_name' ) );
+		$this->assertSame( '{"code":"SUMMER","amount":100}', $wc_order->get_meta( '_cbjp_shop_coupon' ) );
+	}
+
+	public function test_customer_snapshot_extras_key_is_not_persisted_as_meta(): void {
+		$order = $this->make_order(
+			'2002',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[
+				'customer_snapshot' => [
+					'name'  => 'Guest',
+					'email' => 'guest@example.com',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( '', $wc_order->get_meta( '_cbjp_customer_snapshot' ) );
+	}
+
 	public function test_unmapped_payment_and_shipping_methods_warn(): void {
 		$order = $this->make_order(
 			'1012',
