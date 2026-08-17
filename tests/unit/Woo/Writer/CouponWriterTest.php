@@ -136,7 +136,12 @@ final class CouponWriterTest extends WooTestCase {
 		$coupon = new CanonicalCoupon( 'TAKEN', 'fixed', '200', null, null, null, [ 'remote_id' => '8' ] );
 		$result = $this->make_writer()->write( $coupon, $existing_id );
 
-		$this->assertSame( $existing_id, $result->local_id );
+		// local_id 0を返す: `Importer`はlocal_id!==0であればoperationに関わらずchecksumを
+		// mappingsへupsertするため、ここで既存クーポンのIDを返すとリネームが実際には
+		// 適用されなかったにも関わらず次回以降checksum一致でこの衝突チェック自体が
+		// スキップされ、衝突が解消された後も永久に再試行されなくなる（既存の有効な
+		// mappingはImporter側でupsert自体が発生しないため変更されず残る）。
+		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $other->get_id() ), $result->warnings );
 

@@ -80,7 +80,14 @@ final class CouponWriter implements EntityWriter {
 			$conflict_id = wc_get_coupon_id_by_code( $item->code, $coupon->get_id() );
 
 			if ( 0 !== $conflict_id ) {
-				return new WriteResult( $coupon->get_id(), WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
+				// `Importer`はlocal_id!==0であればoperationに関わらずchecksumをmappingsへ
+				// upsertする。ここで既存クーポンのIDをそのまま返すと、リネームが実際には
+				// 適用されなかったにも関わらず新しいitemのchecksumがキャッシュされ、
+				// 次回以降はchecksum一致でこの衝突チェック自体がスキップされてしまい、
+				// 衝突先が削除される等で解消された後も永久にリネームが再試行されなくなる。
+				// local_id 0を返してupsert自体を発生させず、既存の有効なmapping（旧コードの
+				// クーポンを指す）を変更せずに残し、次回実行時に再試行できるようにする。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
 			}
 		}
 
