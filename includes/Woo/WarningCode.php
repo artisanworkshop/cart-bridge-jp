@@ -36,9 +36,11 @@ final class WarningCode {
 	public const TAG_REF_UNRESOLVED         = 'tag_ref_unresolved';
 	public const TERM_REUSED_EXISTING       = 'term_reused_existing';
 	public const TERM_NAME_CONFLICT         = 'term_name_conflict';
+	public const TERM_UPDATE_FAILED         = 'term_update_failed';
 
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
+	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
 	public const ADDRESS_OVERSEAS           = 'address_overseas';
 
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
@@ -49,6 +51,7 @@ final class WarningCode {
 	public const ORDER_TOTAL_RESIDUAL          = 'order_total_residual';
 	public const ORDER_SPLIT_TAX_UNKNOWN       = 'order_split_tax_unknown';
 	public const ORDER_TAX_SPLIT_UNAVAILABLE   = 'order_tax_split_unavailable';
+	public const ORDER_TAX_TOTAL_INCOMPLETE    = 'order_tax_total_incomplete';
 
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
@@ -56,6 +59,8 @@ final class WarningCode {
 	public const COUPON_REUSED_EXISTING         = 'coupon_reused_existing';
 	public const COUPON_GROUP_LIMIT_UNSUPPORTED = 'coupon_group_limit_unsupported';
 	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
+	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
+	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
