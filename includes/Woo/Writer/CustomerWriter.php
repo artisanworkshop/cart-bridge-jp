@@ -11,6 +11,7 @@ use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\AddressMapper;
+use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use WP_Error;
@@ -141,7 +142,9 @@ final class CustomerWriter implements EntityWriter {
 		);
 
 		if ( $created instanceof WP_Error ) {
-			return [ null, WriteResult::OPERATION_SKIPPED, null ];
+			// パスワードポリシー系プラグインの拒否・DB制約違反等で作成に失敗。無警告で
+			// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
+			return [ null, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ];
 		}
 
 		return [ $created, WriteResult::OPERATION_CREATED, null ];
@@ -178,15 +181,10 @@ final class CustomerWriter implements EntityWriter {
 			]
 		);
 
-		foreach ( $extras as $key => $value ) {
-			$meta_key = "_cbjp_{$key}";
-
-			if ( null === $value ) {
-				delete_user_meta( $user_id, $meta_key );
-				continue;
-			}
-
-			update_user_meta( $user_id, $meta_key, is_array( $value ) ? wp_json_encode( $value ) : $value );
-		}
+		ExtrasMeta::apply_via(
+			static fn ( string $meta_key, mixed $value ) => update_user_meta( $user_id, $meta_key, $value ),
+			static fn ( string $meta_key ) => delete_user_meta( $user_id, $meta_key ),
+			$extras
+		);
 	}
 }

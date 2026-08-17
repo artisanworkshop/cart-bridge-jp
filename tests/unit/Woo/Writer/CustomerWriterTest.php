@@ -120,6 +120,22 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 'new@example.com', $user->user_email );
 	}
 
+	public function test_create_failure_is_surfaced_as_a_warning(): void {
+		// `wc_create_new_customer()`はメール形式が不正だと`WP_Error`を返す。無警告のまま
+		// skippedにすると結果レポートから顧客が丸ごと欠落した理由が分からなくなるため、
+		// 警告として可視化されることを確認する。
+		$customer = new CanonicalCustomer( 'not-an-email', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '10' ] );
+
+		$result = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains(
+			WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, 'registration-error-invalid-email' ),
+			$result->warnings
+		);
+	}
+
 	public function test_update_syncs_changed_email_from_asp(): void {
 		// mappings経由の再利用（existing_local_id指定）では、ASP側で前回インポート後に
 		// メールアドレスが変更されている可能性がある。同期しないとWPアカウントのログイン用
