@@ -97,6 +97,27 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['skipped'] );
 	}
 
+	/**
+	 * `DryRunReporter`は仕様として常にlocal_id=0でcreated/updatedを返す（何も永続化しない
+	 * ため）。dry-run結果レポートの新規/更新件数を正しく表示するには、この正規化を
+	 * dry-runの対象外にする必要がある（対象にすると常に0件表示になってしまう）。
+	 */
+	public function test_dry_run_preserves_created_and_updated_totals_despite_zero_local_id(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				// DryRunReporterと同じ契約: 何も永続化しないためlocal_idは常に0。
+				return new WriteResult( 0, WriteResult::OPERATION_CREATED, [] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), true );
+
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 0, $result['totals']['skipped'] );
+	}
+
 	public function test_nonzero_local_id_persists_mapping(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
 		$writer  = new class() implements WooWriter {

@@ -185,7 +185,10 @@ final class Importer {
 			// 表現できない）ため、ここで防御的に正規化する。将来のwriter実装や
 			// `cbjp/adapters/register`経由の外部アダプタがlocal_id=0のままcreated/updatedを
 			// 返す契約違反を犯しても、totals集計（結果レポート）上は実態どおりskipped扱いになる。
-			$operation = 0 === $result->local_id ? WriteResult::OPERATION_SKIPPED : $result->operation;
+			// ただしdry-runは`DryRunReporter`が仕様として常にlocal_id=0でcreated/updatedを返す
+			// （何も永続化しないため）ため、この正規化の対象外にする。対象にするとdry-run結果
+			// レポートの新規/更新件数が常に0になってしまう。
+			$operation = ( ! $is_dry_run && 0 === $result->local_id ) ? WriteResult::OPERATION_SKIPPED : $result->operation;
 
 			++$totals[ $operation ];
 
