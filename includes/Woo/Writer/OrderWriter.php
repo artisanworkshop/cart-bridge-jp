@@ -17,6 +17,7 @@ use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
+use Throwable;
 use WC_Order;
 
 /**
@@ -47,24 +48,37 @@ final class OrderWriter implements EntityWriter {
 
 		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 
-		// 再実行時は明細を作り直す（冪等）。
-		$order->remove_order_items();
+		try {
+			// 再実行時は明細を作り直す（冪等）。
+			$order->remove_order_items();
 
-		$warnings = $this->add_line_items( $order, $item->line_items );
-		$warnings = array_merge( $warnings, $this->add_shipping_and_fees( $order, $item ) );
+			$warnings = $this->add_line_items( $order, $item->line_items );
+			$warnings = array_merge( $warnings, $this->add_shipping_and_fees( $order, $item ) );
 
-		$this->apply_totals( $order, $item->totals );
-		$this->apply_currency_and_tax_settings( $order, $warnings );
-		$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status ) );
-		$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
-		$this->apply_addresses( $order, $item );
-		$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
-		$this->apply_dates( $order, $item );
-		$warnings = array_merge( $warnings, $this->totals_warnings( $item->totals ) );
+			$this->apply_totals( $order, $item->totals );
+			$this->apply_currency_and_tax_settings( $order, $warnings );
+			$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status ) );
+			$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
+			$this->apply_addresses( $order, $item );
+			$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
+			$this->apply_dates( $order, $item );
+			$warnings = array_merge( $warnings, $this->totals_warnings( $item->totals ) );
 
-		$this->apply_meta( $order, $item, $warnings );
+			$this->apply_meta( $order, $item, $warnings );
 
-		$order_id = $order->save();
+			$order_id = $order->save();
+		} catch ( Throwable $exception ) {
+			// `wc_create_order()`は呼び出し直後にDBへ永続化するため、ここで例外が伝播すると
+			// 呼び出し元Importerはmappingsを書けない（書込成功時にしかupsertしないため）。
+			// 再試行時は`existing_local_id`が依然nullのまま`wc_create_order()`が再度呼ばれ、
+			// 同一ASP受注に対して重複した孤立注文を作ってしまう。新規作成だった場合はここで
+			// 削除してから例外を再送出し、次回は クリーンな状態からやり直せるようにする。
+			if ( null === $existing_local_id ) {
+				$order->delete( true );
+			}
+
+			throw $exception;
+		}
 
 		return new WriteResult( $order_id, $operation, $warnings );
 	}
