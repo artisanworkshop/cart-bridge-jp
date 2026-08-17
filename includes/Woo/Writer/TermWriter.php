@@ -60,13 +60,11 @@ final class TermWriter implements EntityWriter {
 			'parent'      => $parent_id,
 		];
 
-		[ $term_id, $operation, $reuse_warning ] = null !== $existing_local_id
+		[ $term_id, $operation, $term_warnings ] = null !== $existing_local_id
 			? $this->update_existing( $existing_local_id, $name, $args )
 			: $this->create_or_reuse( $name, $args );
 
-		if ( null !== $reuse_warning ) {
-			$warnings[] = $reuse_warning;
-		}
+		$warnings = array_merge( $warnings, $term_warnings );
 
 		if ( null === $term_id ) {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
@@ -79,7 +77,7 @@ final class TermWriter implements EntityWriter {
 
 	/**
 	 * @param array{description:string,parent:int} $args
-	 * @return array{0:?int,1:string,2:?string}
+	 * @return array{0:?int,1:string,2:array<int,string>}
 	 */
 	private function update_existing( int $term_id, string $name, array $args ): array {
 		$result = wp_update_term( $term_id, $this->taxonomy, array_merge( $args, [ 'name' => $name ] ) );
@@ -94,27 +92,27 @@ final class TermWriter implements EntityWriter {
 			// （例: リネーム後の名前が無関係な兄弟タームと衝突）を「削除済み」と誤認して
 			// create_or_reuse()に回すと、無関係な衝突先タームを誤って再利用しかねない。
 			// 保存は見送り、元のターム・名前はそのまま残して警告のみ積む。
-			return [ $term_id, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $result->get_error_code() ) ];
+			return [ $term_id, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $result->get_error_code() ) ] ];
 		}
 
-		return [ $term_id, WriteResult::OPERATION_UPDATED, null ];
+		return [ $term_id, WriteResult::OPERATION_UPDATED, [] ];
 	}
 
 	/**
 	 * @param array{description:string,parent:int} $args
-	 * @return array{0:?int,1:string,2:?string}
+	 * @return array{0:?int,1:string,2:array<int,string>}
 	 */
 	private function create_or_reuse( string $name, array $args ): array {
 		$inserted = wp_insert_term( $name, $this->taxonomy, $args );
 
 		if ( ! $inserted instanceof WP_Error ) {
-			return [ (int) $inserted['term_id'], WriteResult::OPERATION_CREATED, null ];
+			return [ (int) $inserted['term_id'], WriteResult::OPERATION_CREATED, [] ];
 		}
 
 		$existing_term_id = $inserted->get_error_data( 'term_exists' );
 
 		if ( ! is_numeric( $existing_term_id ) ) {
-			return [ null, WriteResult::OPERATION_SKIPPED, null ];
+			return [ null, WriteResult::OPERATION_SKIPPED, [] ];
 		}
 
 		$term_id = (int) $existing_term_id;
@@ -124,12 +122,20 @@ final class TermWriter implements EntityWriter {
 		// 同種の他プラットフォーム保護と同じ理由）。一致しない場合（店舗独自カテゴリ・
 		// 別プラットフォーム由来のカテゴリと名前が衝突）は上書きせず、保存自体を見送る。
 		if ( ! PlatformOwnership::owns_term( $term_id, $this->platform ) ) {
-			return [ null, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $term_id ) ];
+			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $term_id ) ] ];
 		}
 
-		wp_update_term( $term_id, $this->taxonomy, $args );
+		$warnings      = [ WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $term_id ) ];
+		$update_result = wp_update_term( $term_id, $this->taxonomy, $args );
 
-		return [ $term_id, WriteResult::OPERATION_UPDATED, WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $term_id ) ];
+		if ( $update_result instanceof WP_Error ) {
+			// 再利用自体（term_idの解決）は成功しても、description/parent等の反映が失敗した
+			// 場合を可視化する。戻り値を無視すると「再利用できた」という警告だけが残り、
+			// 実際には内容が古いまま（親カテゴリ未反映等）になっていることに気付けない。
+			$warnings[] = WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $update_result->get_error_code() );
+		}
+
+		return [ $term_id, WriteResult::OPERATION_UPDATED, $warnings ];
 	}
 
 	private function apply_extras( int $term_id, CanonicalCategory|CanonicalTag $item ): void {
