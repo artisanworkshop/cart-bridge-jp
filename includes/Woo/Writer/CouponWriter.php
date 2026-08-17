@@ -11,6 +11,7 @@ use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
+use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -53,7 +54,7 @@ final class CouponWriter implements EntityWriter {
 			$conflict_id = wc_get_coupon_id_by_code( $item->code );
 
 			if ( 0 !== $conflict_id ) {
-				if ( get_post_meta( $conflict_id, '_cbjp_platform', true ) === $this->platform ) {
+				if ( PlatformOwnership::owns_post( $conflict_id, $this->platform ) ) {
 					$coupon     = new WC_Coupon( $conflict_id );
 					$warnings[] = WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $conflict_id );
 				} else {

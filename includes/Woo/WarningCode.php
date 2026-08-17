@@ -35,6 +35,7 @@ final class WarningCode {
 	public const CATEGORY_REF_UNRESOLVED    = 'category_ref_unresolved';
 	public const TAG_REF_UNRESOLVED         = 'tag_ref_unresolved';
 	public const TERM_REUSED_EXISTING       = 'term_reused_existing';
+	public const TERM_NAME_CONFLICT         = 'term_name_conflict';
 
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';

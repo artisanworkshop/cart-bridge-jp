@@ -77,8 +77,9 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 0, $term->parent );
 	}
 
-	public function test_reuses_existing_term_on_name_conflict(): void {
+	public function test_reuses_existing_term_on_name_conflict_when_platform_matches(): void {
 		$existing_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		update_term_meta( $existing_id, '_cbjp_platform', 'colorme' );
 
 		$category = new CanonicalCategory( '100', 'Apparel', null, null );
 		$result   = $this->make_writer()->write( $category, null );
@@ -91,6 +92,23 @@ final class TermWriterTest extends WooTestCase {
 				static fn ( string $w ): bool => str_starts_with( $w, WarningCode::TERM_REUSED_EXISTING )
 			)
 		);
+	}
+
+	public function test_name_conflict_with_another_platform_or_manual_term_is_skipped(): void {
+		// `_cbjp_platform`メタが無い（店舗が手動作成した）または別プラットフォーム由来の
+		// タームと名前が衝突した場合、上書きせず保存を見送る。
+		$existing_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+
+		$category = new CanonicalCategory( '100', 'Apparel', null, null );
+		$result   = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $existing_id ), $result->warnings );
+
+		// 手動作成タームの名前は上書きされていない。
+		$term = get_term( $existing_id, 'product_cat' );
+		$this->assertSame( 'Apparel', $term->name );
 	}
 
 	public function test_tag_taxonomy_creates_product_tag_term(): void {

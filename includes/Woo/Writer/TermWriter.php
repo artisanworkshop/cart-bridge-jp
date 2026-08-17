@@ -13,6 +13,7 @@ use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\MediaImporter;
+use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -109,6 +110,15 @@ final class TermWriter implements EntityWriter {
 		}
 
 		$term_id = (int) $existing_term_id;
+
+		// WPの技術的制約（同名・同親のタームを重複作成できない）による再利用は、
+		// `_cbjp_platform`が自分自身と一致する場合のみ許す（CouponWriter/VariationWriterの
+		// 同種の他プラットフォーム保護と同じ理由）。一致しない場合（店舗独自カテゴリ・
+		// 別プラットフォーム由来のカテゴリと名前が衝突）は上書きせず、保存自体を見送る。
+		if ( ! PlatformOwnership::owns_term( $term_id, $this->platform ) ) {
+			return [ null, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $term_id ) ];
+		}
+
 		wp_update_term( $term_id, $this->taxonomy, $args );
 
 		return [ $term_id, WriteResult::OPERATION_UPDATED, WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $term_id ) ];
