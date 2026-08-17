@@ -122,7 +122,12 @@ final class TermWriterTest extends WooTestCase {
 		$result = $this->make_writer()->write( $category, $term_id );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertSame( $term_id, $result->local_id );
+		// local_id 0を返す: `Importer`はlocal_id!==0であればoperationに関わらずchecksumを
+		// mappingsへupsertするため、ここで既存term_idを返すとリネームが実際には
+		// 適用されなかったにも関わらず次回以降checksum一致でこの検証自体がスキップされ、
+		// バリデーション失敗が解消された後も永久に再試行されなくなる（既存の有効な
+		// mappingはImporter側でupsert自体が発生しないため変更されず残る）。
+		$this->assertSame( 0, $result->local_id );
 		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, 'empty_term_name' ), $result->warnings );
 
 		// 元のタームの名前は変更されていない（新規タームも作られていない）。

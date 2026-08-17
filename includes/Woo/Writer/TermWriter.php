@@ -92,7 +92,14 @@ final class TermWriter implements EntityWriter {
 			// （例: リネーム後の名前が無関係な兄弟タームと衝突）を「削除済み」と誤認して
 			// create_or_reuse()に回すと、無関係な衝突先タームを誤って再利用しかねない。
 			// 保存は見送り、元のターム・名前はそのまま残して警告のみ積む。
-			return [ $term_id, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $result->get_error_code() ) ] ];
+			//
+			// term_idをそのまま返さずnullにする: `Importer`はlocal_id!==0であればoperationに
+			// 関わらずchecksumをmappingsへupsertするため、ここで既存term_idを返すと
+			// リネームが実際には適用されなかったにも関わらず新しいitemのchecksumが
+			// キャッシュされ、次回以降はchecksum一致でこの検証自体がスキップされてしまい、
+			// 衝突が解消された後も永久にリネームが再試行されなくなる。nullを返せば
+			// upsert自体が発生せず、既存の有効なmappingを変更せずに残せる。
+			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $result->get_error_code() ) ] ];
 		}
 
 		return [ $term_id, WriteResult::OPERATION_UPDATED, [] ];
