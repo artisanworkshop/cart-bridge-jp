@@ -11,6 +11,7 @@ use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ProductResolver;
+use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use WC_Product_Variable;
@@ -42,18 +43,12 @@ final class StockWriter implements EntityWriter {
 
 		if ( null === $item->variant_ref && $target instanceof WC_Product_Variable ) {
 			// variable商品に親レベルの在庫（variant_ref=null）が来た場合、manage_stockをtrueにすると
-			// variation側の在庫と競合するため、親はstock_statusのみ更新する
-			// （Importer::run_sample_stock_page()はvariant_refを常にnullで作るため到達しうる）。
-			$target->set_manage_stock( false );
-			$target->set_stock_status( $item->in_stock ? 'instock' : 'outofstock' );
+			// variation側の在庫と競合するため、親はstock_statusのみ更新する（quantityは無視する。
+			// Importer::run_sample_stock_page()はvariant_refを常にnullで作るため到達しうる）。
+			StockApplier::apply( $target, null, $item->in_stock );
 			$warnings[] = WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $target->get_id() );
-		} elseif ( null === $item->quantity ) {
-			$target->set_manage_stock( false );
-			$target->set_stock_status( $item->in_stock ? 'instock' : 'outofstock' );
 		} else {
-			$target->set_manage_stock( true );
-			$target->set_stock_quantity( $item->quantity );
-			$target->set_stock_status( $item->quantity > 0 ? 'instock' : 'outofstock' );
+			StockApplier::apply( $target, $item->quantity, $item->in_stock );
 		}
 
 		// `resolve_stock_target()` は既存の商品/バリエーションをmappings/SKUで解決するのみで

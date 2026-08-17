@@ -14,9 +14,11 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\SkuGuard;
+use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
+use Throwable;
 use WC_Product;
 use WC_Product_Attribute;
 use WC_Tax;
@@ -29,7 +31,15 @@ final class ProductWriter implements EntityWriter {
 
 	/**
 	 * `wc_prices_include_tax()` が false のときの警告は商品ごとに積むと結果が埋もれるため、
-	 * このWriterインスタンス（1ジョブ実行）内で1度だけ積む。
+	 * このWriterインスタンス内で1度だけ積む。
+	 *
+	 * 注意: `Sync\WooWriterFactory::for_platform()` は Action Scheduler の1アクション
+	 * （=1ページ処理、`JobManager::process_job()`）ごとに新しいwriterインスタンスを
+	 * 組み立てるため、実際にデデュープされる範囲は「1ジョブ実行全体」ではなく「1ページ内」
+	 * にとどまる（複数ページに跨るアクションは別プロセスで実行されうるため、インスタンス
+	 * プロパティでジョブ全体をまたぐ状態を持たせることはできない）。ジョブ全体での
+	 * デデュープにはrun_id単位の永続状態（transient等）が必要になるため、現状は
+	 * ページ単位の抑制にとどめている。
 	 */
 	private bool $prices_include_tax_warned = false;
 
@@ -47,7 +57,17 @@ final class ProductWriter implements EntityWriter {
 
 		$warnings     = [];
 		$has_variants = [] !== $item->variants;
-		$product      = wc_get_product_object( $has_variants ? 'variable' : 'simple', $existing_local_id ?? 0 );
+		$type         = $has_variants ? 'variable' : 'simple';
+
+		try {
+			$product = wc_get_product_object( $type, $existing_local_id ?? 0 );
+		} catch ( Throwable ) {
+			// mappingsが指す商品が手動削除等で既に存在しない場合、`wc_get_product_object()`は
+			// （`wc_get_product()`と異なり）例外を投げる。既存IDを信用せず新規作成へ
+			// フォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。
+			$existing_local_id = null;
+			$product           = wc_get_product_object( $type, 0 );
+		}
 
 		$product->set_name( $item->name );
 		$product->set_description( $item->description ?? '' );
@@ -69,7 +89,7 @@ final class ProductWriter implements EntityWriter {
 			$product->set_regular_price( $item->price );
 			$product->set_price( $item->price );
 			$product->set_sale_price( '' );
-			$this->apply_stock( $product, $item->stock );
+			StockApplier::apply( $product, $item->stock );
 		}
 
 		$few_num = Value::int( $item->extras['few_num'] ?? null );
@@ -106,7 +126,15 @@ final class ProductWriter implements EntityWriter {
 		$product->update_meta_data( '_cbjp_platform', $this->platform );
 		$product->update_meta_data( '_cbjp_remote_id', $item->remote_id() ?? '' );
 
-		$operation  = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
+		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
+
+		// variable→simpleへの型変更は`$product->save()`の中でWooCommerce自身が子variationの
+		// 投稿を強制削除する（`WC_Post_Data::product_type_changed()`）。保存後に検索しても
+		// 対象は既に消えているため、`cbjp_mappings`の掃除に必要な情報を保存前に確定させる。
+		$stale_variations = ( ! $has_variants && null !== $existing_local_id )
+			? $this->variations->find_owned_variation_remote_ids( $existing_local_id )
+			: [];
+
 		$product_id = $product->save();
 
 		$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
@@ -116,22 +144,11 @@ final class ProductWriter implements EntityWriter {
 				$warnings,
 				$this->variations->sync( $product_id, $item->variants, $variation_axis_names )
 			);
+		} elseif ( [] !== $stale_variations ) {
+			$warnings = array_merge( $warnings, $this->variations->remove_all( $stale_variations ) );
 		}
 
 		return new WriteResult( $product_id, $operation, $warnings );
-	}
-
-	private function apply_stock( WC_Product $product, ?int $stock ): void {
-		if ( null === $stock ) {
-			$product->set_manage_stock( false );
-			$product->set_stock_status( 'instock' );
-
-			return;
-		}
-
-		$product->set_manage_stock( true );
-		$product->set_stock_quantity( $stock );
-		$product->set_stock_status( $stock > 0 ? 'instock' : 'outofstock' );
 	}
 
 	/**

@@ -214,4 +214,62 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( $first->local_id, $second->local_id );
 		$this->assertInstanceOf( WC_Product_Variable::class, wc_get_product( $second->local_id ) );
 	}
+
+	public function test_variable_to_simple_type_change_removes_orphaned_variations(): void {
+		$variable     = new CanonicalProduct(
+			'P',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'P-A',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'price'         => '100',
+					'stock'         => 1,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '9' ]
+		);
+		$first        = $this->make_writer()->write( $variable, null );
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$this->assertNotNull( $variation_id );
+
+		$simple = new CanonicalProduct( 'P', 'SKU-9', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '9' ] );
+		$second = $this->make_writer()->write( $simple, $first->local_id );
+
+		$this->assertSame( $first->local_id, $second->local_id );
+		$product = wc_get_product( $second->local_id );
+		$this->assertNotInstanceOf( WC_Product_Variable::class, $product );
+
+		// 旧variationは削除され、mappingも掃除されている。
+		// `wc_get_product()`は削除済みvariationに対しても空のオブジェクトを返すことがある
+		// （`WC_Product_Variation_Data_Store_CPT::read()`は投稿が無くても例外を投げず
+		// 早期リターンするだけのため）、投稿自体の存在有無で判定する。
+		$this->assertNull( get_post( $variation_id ) );
+		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
+	}
+
+	public function test_stale_existing_local_id_falls_back_to_create(): void {
+		// mappingsが指す商品IDが手動削除等で既に存在しない場合を模擬する
+		// （実在しない商品IDを直接existing_local_idとして渡す）。
+		$product = new CanonicalProduct( 'P', 'SKU-10', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '10' ] );
+
+		$result = $this->make_writer()->write( $product, 999999 );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 999999, $result->local_id );
+
+		$wc_product = wc_get_product( $result->local_id );
+		$this->assertInstanceOf( \WC_Product::class, $wc_product );
+		$this->assertSame( 'P', $wc_product->get_name() );
+	}
 }

@@ -8,7 +8,9 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Writer;
 
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SkuGuard;
+use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
@@ -96,16 +98,7 @@ final class VariationWriter {
 		$variation->set_regular_price( $price );
 		$variation->set_price( $price );
 
-		$stock = Value::int( $variant['stock'] ?? null );
-
-		if ( null === $stock ) {
-			$variation->set_manage_stock( false );
-			$variation->set_stock_status( 'instock' );
-		} else {
-			$variation->set_manage_stock( true );
-			$variation->set_stock_quantity( $stock );
-			$variation->set_stock_status( $stock > 0 ? 'instock' : 'outofstock' );
-		}
+		StockApplier::apply( $variation, Value::int( $variant['stock'] ?? null ) );
 
 		$weight = Value::int( $variant['weight'] ?? null );
 
@@ -162,22 +155,94 @@ final class VariationWriter {
 
 	/**
 	 * ASP側から消えたvariationを削除する（残すと価格レンジ・在庫状態がずれるため）。
-	 * `_cbjp_remote_id`メタを持たないvariation（このプラグイン外で作成されたもの）は対象外。
-	 * `_cbjp_platform`が`$this->platform`と一致しないvariation（別プラットフォーム由来。
-	 * リンク再構築ツール=D16等で複数プラットフォームが同一Woo商品を共有するケースを想定）も
-	 * このWriterインスタンスの管轄外として対象外にする。
 	 *
 	 * @param array<int,string> $seen_remote_ids
 	 * @return array<int,string>
 	 */
 	private function remove_stale_variations( WC_Product_Variable $product, array $seen_remote_ids ): array {
+		return $this->delete_variations( $product->get_children(), $seen_remote_ids );
+	}
+
+	/**
+	 * 親商品がvariable→simpleへ型変更される場合、`$product->save()`の時点でWooCommerce自身が
+	 * （`WC_Post_Data::product_type_changed()`経由で）子variationの投稿を強制削除する。
+	 * そのため保存後に`get_posts()`で再検索しても対象は既に消えており、`cbjp_mappings`だけが
+	 * 削除済みpost IDを指したまま残ってしまう。`ProductWriter::write()`は本メソッドを
+	 * `$product->save()`より**前**に呼び、削除対象の(variation_id => remote_id)を確定させておく。
+	 *
+	 * @return array<int,string>
+	 */
+	public function find_owned_variation_remote_ids( int $product_id ): array {
+		$variation_ids = get_posts(
+			[
+				'post_type'   => 'product_variation',
+				'post_parent' => $product_id,
+				'post_status' => 'any',
+				'numberposts' => -1,
+				'fields'      => 'ids',
+			]
+		);
+
+		$remote_ids_by_variation_id = [];
+
+		foreach ( $variation_ids as $variation_id ) {
+			$remote_id = get_post_meta( $variation_id, '_cbjp_remote_id', true );
+
+			if ( is_string( $remote_id ) && '' !== $remote_id && PlatformOwnership::owns_post( $variation_id, $this->platform ) ) {
+				$remote_ids_by_variation_id[ $variation_id ] = $remote_id;
+			}
+		}
+
+		return $remote_ids_by_variation_id;
+	}
+
+	/**
+	 * `find_owned_variation_remote_ids()`で保存前に確定させた削除対象を掃除する。
+	 * variation投稿自体は`$product->save()`の型変更処理で既にWooCommerceが削除済みのことが
+	 * ほとんどだが、（`woocommerce_delete_variations_on_product_type_change`フィルターで
+	 * 無効化されている等）投稿が残っているケースにも備えて`wc_get_product()`が実体を
+	 * 返す場合のみ明示的に削除する。
+	 *
+	 * @param array<int,string> $remote_ids_by_variation_id
+	 * @return array<int,string>
+	 */
+	public function remove_all( array $remote_ids_by_variation_id ): array {
 		$warnings = [];
 
-		foreach ( $product->get_children() as $variation_id ) {
-			$remote_id = get_post_meta( $variation_id, '_cbjp_remote_id', true );
-			$platform  = get_post_meta( $variation_id, '_cbjp_platform', true );
+		foreach ( $remote_ids_by_variation_id as $variation_id => $remote_id ) {
+			$variation = wc_get_product( $variation_id );
 
-			if ( ! is_string( $remote_id ) || '' === $remote_id || $platform !== $this->platform || in_array( $remote_id, $seen_remote_ids, true ) ) {
+			if ( $variation instanceof WC_Product && get_post( $variation_id ) instanceof \WP_Post ) {
+				$variation->delete( true );
+			}
+
+			// mappingsを残すとremote_idが削除済みpost IDを指したままになり、ASP側で同じ
+			// remote_idのバリエーションが復活した際に不整合を起こすため、削除に合わせて掃除する。
+			$this->mappings->delete_one( $this->platform, 'variant', $remote_id );
+
+			$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_REMOVED, $remote_id );
+		}
+
+		return $warnings;
+	}
+
+	/**
+	 * `_cbjp_remote_id`メタを持たないvariation（このプラグイン外で作成されたもの）は対象外。
+	 * `_cbjp_platform`が`$this->platform`と一致しないvariation（別プラットフォーム由来。
+	 * リンク再構築ツール=D16等で複数プラットフォームが同一Woo商品を共有するケースを想定）も
+	 * このWriterインスタンスの管轄外として対象外にする。
+	 *
+	 * @param array<int,int>    $variation_ids
+	 * @param array<int,string> $seen_remote_ids
+	 * @return array<int,string>
+	 */
+	private function delete_variations( array $variation_ids, array $seen_remote_ids ): array {
+		$warnings = [];
+
+		foreach ( $variation_ids as $variation_id ) {
+			$remote_id = get_post_meta( $variation_id, '_cbjp_remote_id', true );
+
+			if ( ! is_string( $remote_id ) || '' === $remote_id || ! PlatformOwnership::owns_post( $variation_id, $this->platform ) || in_array( $remote_id, $seen_remote_ids, true ) ) {
 				continue;
 			}
 
