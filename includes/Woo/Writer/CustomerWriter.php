@@ -75,14 +75,24 @@ final class CustomerWriter implements EntityWriter {
 
 		if ( WriteResult::OPERATION_UPDATED === $operation ) {
 			// 既存ユーザーのロールは変更しない（管理者と同じメールアドレスの場合に権限を壊さないため）。
-			wp_update_user(
+			// user_emailも同期する: mappings経由の再利用（existing_local_id指定）では、ASP側で
+			// 前回インポート後にメールアドレスが変更されている可能性があり、同期しないとWPアカウント
+			// のログイン用メールが古いまま残り続ける（email突合で解決した場合は既に一致しているため
+			// 実質no-op）。他ユーザーが既に使用中のメールと衝突した場合はWP_Errorが返るため、
+			// その場合はメール以外のフィールドは既に適用試行済みだが警告を積んで可視化する。
+			$update_result = wp_update_user(
 				[
 					'ID'           => $user_id,
+					'user_email'   => $item->email,
 					'first_name'   => $billing['first_name'],
 					'last_name'    => $billing['last_name'],
 					'display_name' => $item->name,
 				]
 			);
+
+			if ( $update_result instanceof WP_Error ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+			}
 		}
 
 		$this->apply_addresses( $user_id, $billing );

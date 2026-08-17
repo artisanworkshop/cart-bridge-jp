@@ -120,6 +120,57 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 'new@example.com', $user->user_email );
 	}
 
+	public function test_update_syncs_changed_email_from_asp(): void {
+		// mappings経由の再利用（existing_local_id指定）では、ASP側で前回インポート後に
+		// メールアドレスが変更されている可能性がある。同期しないとWPアカウントのログイン用
+		// メールが古いまま残り続けるため、更新時にuser_emailも同期されることを確認する。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
+
+		$user = get_userdata( $existing_id );
+		$this->assertSame( 'new@example.com', $user->user_email );
+	}
+
+	public function test_update_email_conflict_with_another_user_warns_without_overwriting(): void {
+		wp_insert_user(
+			[
+				'user_login' => 'other',
+				'user_email' => 'taken@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, 'taken@example.com' ), $result->warnings );
+
+		// 衝突のためメールは更新されず、既存アカウントの元のメールのまま残る。
+		$user = get_userdata( $existing_id );
+		$this->assertSame( 'old@example.com', $user->user_email );
+	}
+
 	public function test_overseas_address_warns_and_leaves_state_empty(): void {
 		$customer = new CanonicalCustomer(
 			'overseas@example.com',
