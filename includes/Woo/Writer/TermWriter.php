@@ -112,7 +112,9 @@ final class TermWriter implements EntityWriter {
 		$existing_term_id = $inserted->get_error_data( 'term_exists' );
 
 		if ( ! is_numeric( $existing_term_id ) ) {
-			return [ null, WriteResult::OPERATION_SKIPPED, [] ];
+			// term_exists以外の理由（empty_term_name・DBエラー等）での失敗。無警告で
+			// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
+			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_CREATE_FAILED, $inserted->get_error_code() ) ] ];
 		}
 
 		$term_id = (int) $existing_term_id;

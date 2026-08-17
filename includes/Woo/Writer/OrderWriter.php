@@ -19,6 +19,7 @@ use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
 use WC_Order;
+use WP_Error;
 
 /**
  * `CanonicalOrder` をWooの受注として書き込む（`docs/03-design-decisions.md` §5 D10）。
@@ -52,7 +53,11 @@ final class OrderWriter implements EntityWriter {
 		}
 
 		if ( ! $order instanceof WC_Order ) {
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [] );
+			// wc_create_order()がWP_Error（DB障害・データストア誤設定等）を返した場合。無警告で
+			// 握りつぶすと結果レポートから受注が丸ごと欠落した理由が分からなくなるため警告を積む。
+			$detail = $order instanceof WP_Error ? $order->get_error_code() : '';
+
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::ORDER_CREATE_FAILED, $detail ) ] );
 		}
 
 		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;

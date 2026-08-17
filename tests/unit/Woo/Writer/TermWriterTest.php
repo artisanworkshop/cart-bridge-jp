@@ -130,6 +130,21 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 'Original', $term->name );
 	}
 
+	public function test_create_failure_other_than_term_exists_is_surfaced_as_a_warning(): void {
+		// `wp_insert_term()`は空の名前だと`term_exists`とは別の`empty_term_name`エラーを
+		// 返す。無警告のまま握りつぶすと結果レポートから欠落理由が分からなくなるため、
+		// 警告として可視化されることを確認する。
+		$category = new CanonicalCategory( '100', '', null, null );
+		$result   = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains(
+			WarningCode::with_detail( WarningCode::TERM_CREATE_FAILED, 'empty_term_name' ),
+			$result->warnings
+		);
+	}
+
 	public function test_tag_taxonomy_creates_product_tag_term(): void {
 		$writer = $this->make_writer( 'product_tag' );
 		$tag    = new \CartBridgeJP\Canonical\CanonicalTag( '55', 'Sale' );
