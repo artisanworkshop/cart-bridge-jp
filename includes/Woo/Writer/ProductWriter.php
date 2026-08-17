@@ -22,6 +22,7 @@ use Throwable;
 use WC_Product;
 use WC_Product_Attribute;
 use WC_Tax;
+use WP_Term;
 
 /**
  * `CanonicalProduct` をWooの商品として書き込む。バリエーションの有無で `simple`/`variable` を
@@ -139,15 +140,27 @@ final class ProductWriter implements EntityWriter {
 
 		$product_id = $product->save();
 
-		$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
+		try {
+			$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
 
-		if ( $has_variants ) {
-			$warnings = array_merge(
-				$warnings,
-				$this->variations->sync( $product_id, $item->variants, $variation_axis_names )
-			);
-		} elseif ( [] !== $stale_variations ) {
-			$warnings = array_merge( $warnings, $this->variations->remove_all( $stale_variations ) );
+			if ( $has_variants ) {
+				$warnings = array_merge(
+					$warnings,
+					$this->variations->sync( $product_id, $item->variants, $variation_axis_names )
+				);
+			} elseif ( [] !== $stale_variations ) {
+				$warnings = array_merge( $warnings, $this->variations->remove_all( $stale_variations ) );
+			}
+		} catch ( Throwable $exception ) {
+			// `$product->save()`は直後にDBへ永続化するため、ここで例外が伝播すると呼び出し元
+			// Importerはmappingsを書けない（OrderWriterの同種の対応と同じ理由）。新規作成
+			// だった場合、再試行時に同一remote productに対して重複した孤立商品を作ってしまう
+			// ため、ここで削除してから例外を再送出し、次回はクリーンな状態からやり直せるようにする。
+			if ( null === $existing_local_id ) {
+				$product->delete( true );
+			}
+
+			throw $exception;
 		}
 
 		return new WriteResult( $product_id, $operation, $warnings );
@@ -205,7 +218,9 @@ final class ProductWriter implements EntityWriter {
 		foreach ( $refs as $ref ) {
 			$local_id = $this->mappings->find_local_id( $this->platform, $entity_type, $ref );
 
-			if ( null === $local_id ) {
+			// mappingsが指すタームが手動削除等で既に存在しない場合も未解決として扱う
+			// （存在しないterm IDをそのまま`set_category_ids()`/`set_tag_ids()`に渡さない）。
+			if ( null === $local_id || ! get_term( $local_id ) instanceof WP_Term ) {
 				$warnings[] = WarningCode::with_detail( $warning_code, $ref );
 				continue;
 			}

@@ -258,6 +258,70 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
 	}
 
+	public function test_exception_during_variation_sync_deletes_orphaned_new_product(): void {
+		$product = new CanonicalProduct(
+			'Shirt',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'SHIRT-S',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '2000',
+					'stock'         => 5,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '20' ]
+		);
+
+		$blow_up_on_variation_save = static function ( $saved_product ) {
+			if ( 'variation' === $saved_product->get_type() ) {
+				throw new \RuntimeException( 'simulated variation save failure' );
+			}
+		};
+		add_action( 'woocommerce_before_product_object_save', $blow_up_on_variation_save );
+
+		try {
+			$threw = false;
+
+			try {
+				$this->make_writer()->write( $product, null );
+			} catch ( \RuntimeException $e ) {
+				$threw = true;
+				$this->assertSame( 'simulated variation save failure', $e->getMessage() );
+			}
+
+			$this->assertTrue( $threw, 'Expected the simulated exception to propagate.' );
+		} finally {
+			remove_action( 'woocommerce_before_product_object_save', $blow_up_on_variation_save );
+		}
+
+		// 途中で失敗した新規商品の親レコードが削除されており、孤立商品が残っていないことを確認する。
+		$this->assertCount( 0, wc_get_products( [ 'limit' => -1 ] ) );
+	}
+
+	public function test_category_ref_pointing_to_deleted_term_is_treated_as_unresolved(): void {
+		$category_term_id = wp_insert_term( 'Cat', 'product_cat' )['term_id'];
+		$this->seed_mapping( 'colorme', 'category', '10', $category_term_id );
+		wp_delete_term( $category_term_id, 'product_cat' );
+
+		$product = new CanonicalProduct( 'P', 'SKU-13', '100', null, null, [], [], [], [ '10' ], null, 'publish', [ 'remote_id' => '13' ] );
+		$result  = $this->make_writer()->write( $product, null );
+
+		$wc_product = wc_get_product( $result->local_id );
+		$this->assertSame( [], $wc_product->get_category_ids() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ), $result->warnings );
+	}
+
 	public function test_sale_price_below_regular_is_applied(): void {
 		$product = new CanonicalProduct( 'P', 'SKU-11', '1000', '800', null, [], [], [], [], null, 'publish', [ 'remote_id' => '11' ] );
 
