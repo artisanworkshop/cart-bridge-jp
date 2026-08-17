@@ -37,10 +37,12 @@ final class WarningCode {
 	public const TERM_REUSED_EXISTING       = 'term_reused_existing';
 	public const TERM_NAME_CONFLICT         = 'term_name_conflict';
 	public const TERM_UPDATE_FAILED         = 'term_update_failed';
+	public const TERM_CREATE_FAILED         = 'term_create_failed';
 
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
 	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
+	public const CUSTOMER_CREATE_FAILED     = 'customer_create_failed';
 	public const ADDRESS_OVERSEAS           = 'address_overseas';
 
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
@@ -53,6 +55,8 @@ final class WarningCode {
 	public const ORDER_SPLIT_TAX_UNKNOWN       = 'order_split_tax_unknown';
 	public const ORDER_TAX_SPLIT_UNAVAILABLE   = 'order_tax_split_unavailable';
 	public const ORDER_TAX_TOTAL_INCOMPLETE    = 'order_tax_total_incomplete';
+	public const ORDER_CREATE_FAILED           = 'order_create_failed';
+	public const ORDER_LINE_TAX_INCONSISTENT   = 'order_line_tax_inconsistent';
 
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
