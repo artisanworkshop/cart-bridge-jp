@@ -55,13 +55,13 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertNotEmpty( $user->user_pass );
 	}
 
-	public function test_reuses_existing_user_by_email(): void {
+	public function test_reuses_existing_customer_user_by_email(): void {
 		$existing_id = wp_insert_user(
 			[
 				'user_login' => 'taro',
 				'user_email' => 'taro@example.com',
 				'user_pass'  => 'x',
-				'role'       => 'administrator',
+				'role'       => 'customer',
 			]
 		);
 
@@ -72,9 +72,37 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
 		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
 
-		// 既存ユーザーのロールは変更しない。
+		$user = get_userdata( $existing_id );
+		$this->assertContains( 'customer', $user->roles );
+		$this->assertSame( 'Yamada', $user->first_name );
+	}
+
+	public function test_reusing_administrator_account_does_not_overwrite_profile(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login'   => 'admin-taro',
+				'user_email'   => 'taro@example.com',
+				'user_pass'    => 'x',
+				'role'         => 'administrator',
+				'first_name'   => 'Original',
+				'display_name' => 'Original Admin',
+			]
+		);
+
+		$customer = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, null );
+
+		// mappingを解決できるようlocal_idは既存アカウントを指すが、実体としては何も
+		// 変更されなかった（skipped）ことを示す。
+		$this->assertSame( $existing_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $existing_id ), $result->warnings );
+
+		// 既存ユーザーのロール・氏名・住所は一切変更されていない。
 		$user = get_userdata( $existing_id );
 		$this->assertContains( 'administrator', $user->roles );
+		$this->assertSame( 'Original', $user->first_name );
+		$this->assertSame( '', get_user_meta( $existing_id, 'billing_address_1', true ) );
 	}
 
 	public function test_overseas_address_warns_and_leaves_state_empty(): void {

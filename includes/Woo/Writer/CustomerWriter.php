@@ -22,6 +22,15 @@ use WP_User;
  */
 final class CustomerWriter implements EntityWriter {
 
+	/**
+	 * これらのロールを1つでも持つ既存WPユーザーはプロフィール上書きの対象外とする
+	 * （店舗の管理者・スタッフアカウントとASP側顧客のメールアドレスが偶然一致した場合に、
+	 * 業務アカウントの氏名・住所を破壊しないため）。
+	 *
+	 * @var array<int,string>
+	 */
+	private const PROTECTED_ROLES = [ 'administrator', 'shop_manager', 'editor', 'author', 'contributor' ];
+
 	public function __construct( private readonly string $platform ) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
@@ -30,7 +39,7 @@ final class CustomerWriter implements EntityWriter {
 		}
 
 		$warnings = [];
-		$billing  = AddressMapper::to_woo( $item->address, $item->name, $item->email, $item->phone, $item->company );
+		$billing  = AddressMapper::to_woo( $this->platform, $item->address, $item->name, $item->email, $item->phone, $item->company );
 
 		[ $user_id, $operation, $reuse_warning ] = null !== $existing_local_id
 			? [ $existing_local_id, WriteResult::OPERATION_UPDATED, null ]
@@ -42,6 +51,17 @@ final class CustomerWriter implements EntityWriter {
 
 		if ( null === $user_id ) {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+		}
+
+		if ( self::has_protected_role( $user_id ) ) {
+			// email突合で見つかった既存アカウント（または過去のインポートで紐付いた
+			// アカウントが後から昇格したケース）が管理者・スタッフ権限を持つ場合、
+			// プロフィール（氏名・住所・extras）を一切上書きしない。受注等からの
+			// 顧客参照解決に必要なmappingの記録（呼び出し元Importerがlocal_idを見て行う）
+			// のみは維持する。
+			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $user_id );
+
+			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
 		if ( WriteResult::OPERATION_UPDATED === $operation ) {
@@ -59,7 +79,7 @@ final class CustomerWriter implements EntityWriter {
 		$this->apply_addresses( $user_id, $billing );
 		$this->apply_extras_meta( $user_id, $item );
 
-		if ( AddressMapper::is_overseas( $item->address ) ) {
+		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
 			$warnings[] = WarningCode::ADDRESS_OVERSEAS;
 		}
 
@@ -67,6 +87,16 @@ final class CustomerWriter implements EntityWriter {
 		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
 
 		return new WriteResult( $user_id, $operation, $warnings );
+	}
+
+	private static function has_protected_role( int $user_id ): bool {
+		$user = get_userdata( $user_id );
+
+		if ( ! $user instanceof WP_User ) {
+			return false;
+		}
+
+		return [] !== array_intersect( $user->roles, self::PROTECTED_ROLES );
 	}
 
 	/**
