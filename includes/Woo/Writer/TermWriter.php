@@ -85,8 +85,16 @@ final class TermWriter implements EntityWriter {
 		$result = wp_update_term( $term_id, $this->taxonomy, array_merge( $args, [ 'name' => $name ] ) );
 
 		if ( $result instanceof WP_Error ) {
-			// 対象タームが既に存在しない（手動削除等）。新規作成へフォールバックする。
-			return $this->create_or_reuse( $name, $args );
+			if ( 'invalid_term_id' === $result->get_error_code() ) {
+				// 対象タームが既に存在しない（手動削除等）。新規作成へフォールバックする。
+				return $this->create_or_reuse( $name, $args );
+			}
+
+			// `duplicate_term_slug`等、対象タームは実在するがバリデーションで弾かれた場合
+			// （例: リネーム後の名前が無関係な兄弟タームと衝突）を「削除済み」と誤認して
+			// create_or_reuse()に回すと、無関係な衝突先タームを誤って再利用しかねない。
+			// 保存は見送り、元のターム・名前はそのまま残して警告のみ積む。
+			return [ $term_id, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $result->get_error_code() ) ];
 		}
 
 		return [ $term_id, WriteResult::OPERATION_UPDATED, null ];

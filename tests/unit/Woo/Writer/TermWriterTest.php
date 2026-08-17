@@ -111,6 +111,25 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 'Apparel', $term->name );
 	}
 
+	public function test_update_validation_error_is_not_treated_as_deleted_term(): void {
+		// `wp_update_term()`は対象タームが削除済みのとき以外にも、名前バリデーション
+		// （空の名前・親不在等）でWP_Errorを返しうる。これらを「削除済みなので新規作成」と
+		// 誤認してcreate_or_reuse()に回すと、無関係な同名タームを誤って再利用しかねない
+		// （term_existsのdata経由で衝突先を再利用してしまう）。
+		$term_id  = wp_insert_term( 'Original', 'product_cat' )['term_id'];
+		$category = new CanonicalCategory( '100', '', null, null );
+
+		$result = $this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( $term_id, $result->local_id );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, 'empty_term_name' ), $result->warnings );
+
+		// 元のタームの名前は変更されていない（新規タームも作られていない）。
+		$term = get_term( $term_id, 'product_cat' );
+		$this->assertSame( 'Original', $term->name );
+	}
+
 	public function test_tag_taxonomy_creates_product_tag_term(): void {
 		$writer = $this->make_writer( 'product_tag' );
 		$tag    = new \CartBridgeJP\Canonical\CanonicalTag( '55', 'Sale' );
