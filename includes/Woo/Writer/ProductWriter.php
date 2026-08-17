@@ -16,6 +16,7 @@ use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\Support\Value;
+use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -102,7 +103,7 @@ final class ProductWriter implements EntityWriter {
 		}
 
 		if ( null !== $item->weight ) {
-			$product->set_weight( (string) wc_get_weight( $item->weight, $this->weight_unit(), 'g' ) );
+			$product->set_weight( (string) wc_get_weight( $item->weight, WeightUnit::resolve(), 'g' ) );
 		}
 
 		$warnings = array_merge( $warnings, $this->apply_tax_class( $product, $item->tax_class ) );
@@ -395,11 +396,5 @@ final class ProductWriter implements EntityWriter {
 		unset( $extras['remote_id'] );
 
 		return $extras;
-	}
-
-	private function weight_unit(): string {
-		$unit = get_option( 'woocommerce_weight_unit', 'kg' );
-
-		return is_string( $unit ) && '' !== $unit ? $unit : 'kg';
 	}
 }

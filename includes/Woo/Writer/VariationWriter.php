@@ -12,6 +12,7 @@ use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\Support\Value;
+use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
 use WC_Product_Variable;
@@ -114,8 +115,7 @@ final class VariationWriter {
 		$weight = Value::int( $variant['weight'] ?? null );
 
 		if ( null !== $weight ) {
-			$unit = get_option( 'woocommerce_weight_unit', 'kg' );
-			$variation->set_weight( (string) wc_get_weight( $weight, is_string( $unit ) && '' !== $unit ? $unit : 'kg', 'g' ) );
+			$variation->set_weight( (string) wc_get_weight( $weight, WeightUnit::resolve(), 'g' ) );
 		}
 
 		$warnings = array_merge( $warnings, SkuGuard::apply( $variation, Value::string( $variant['sku'] ?? null ) ) );
@@ -233,20 +233,29 @@ final class VariationWriter {
 		$warnings = [];
 
 		foreach ( $remote_ids_by_variation_id as $variation_id => $remote_id ) {
-			$variation = wc_get_product( $variation_id );
-
-			if ( $variation instanceof WC_Product && get_post( $variation_id ) instanceof \WP_Post ) {
-				$variation->delete( true );
-			}
-
-			// mappingsを残すとremote_idが削除済みpost IDを指したままになり、ASP側で同じ
-			// remote_idのバリエーションが復活した際に不整合を起こすため、削除に合わせて掃除する。
-			$this->mappings->delete_one( $this->platform, 'variant', $remote_id );
-
-			$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_REMOVED, $remote_id );
+			$warnings[] = $this->remove_variation( $variation_id, $remote_id );
 		}
 
 		return $warnings;
+	}
+
+	/**
+	 * variation投稿の削除＋mapping掃除＋`VARIATION_REMOVED`警告の組み立てを1箇所に集約する
+	 * （`remove_all()`/`delete_variations()`の呼び出し元でフィルタ条件が異なるだけで、
+	 * 削除後処理の契約自体は共通のため）。
+	 */
+	private function remove_variation( int $variation_id, string $remote_id ): string {
+		$variation = wc_get_product( $variation_id );
+
+		if ( $variation instanceof WC_Product && get_post( $variation_id ) instanceof WP_Post ) {
+			$variation->delete( true );
+		}
+
+		// mappingsを残すとremote_idが削除済みpost IDを指したままになり、ASP側で同じ
+		// remote_idのバリエーションが復活した際に不整合を起こすため、削除に合わせて掃除する。
+		$this->mappings->delete_one( $this->platform, 'variant', $remote_id );
+
+		return WarningCode::with_detail( WarningCode::VARIATION_REMOVED, $remote_id );
 	}
 
 	/**
@@ -269,17 +278,7 @@ final class VariationWriter {
 				continue;
 			}
 
-			$variation = wc_get_product( $variation_id );
-
-			if ( $variation instanceof WC_Product ) {
-				$variation->delete( true );
-			}
-
-			// mappingsを残すとremote_idが削除済みpost IDを指したままになり、ASP側で同じ
-			// remote_idのバリエーションが復活した際に不整合を起こすため、削除に合わせて掃除する。
-			$this->mappings->delete_one( $this->platform, 'variant', $remote_id );
-
-			$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_REMOVED, $remote_id );
+			$warnings[] = $this->remove_variation( $variation_id, $remote_id );
 		}
 
 		return $warnings;
