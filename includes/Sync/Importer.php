@@ -13,7 +13,9 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
+use CartBridgeJP\Support\Logger;
 use RuntimeException;
+use Throwable;
 
 /**
  * fetch → 書込 → mappings upsert のパイプライン。
@@ -27,7 +29,10 @@ use RuntimeException;
  */
 final class Importer {
 
-	public function __construct( private readonly MappingRepository $mappings ) {}
+	public function __construct(
+		private readonly MappingRepository $mappings,
+		private readonly Logger $logger = new Logger()
+	) {}
 
 	/**
 	 * カーソル走査エンティティを1ページ処理する。$sample が渡された場合は
@@ -171,7 +176,27 @@ final class Importer {
 				--$remaining;
 			}
 
-			$result = $writer->write( $entity, $item, $existing_local_id );
+			try {
+				$result = $writer->write( $entity, $item, $existing_local_id );
+			} catch ( Throwable $exception ) {
+				// 1件のアイテムでの例外がページ全体を失敗させると、`JobManager::process_job()`が
+				// ジョブを恒久的にfailedへ遷移させ、このページ内の他の正常なアイテムの処理まで
+				// 巻き添えになる（このページ手前までの進捗も、ページ自体が例外で完了しなかった
+				// ため`update_progress()`に到達せず永続化されない）。1件の異常データで移行全体が
+				// 止まらないよう、このアイテムのみskipped扱いにして処理を継続する
+				// （local_id 0と同様mappingsは書かないため、次回実行時に再試行される）。
+				++$totals['skipped'];
+				++$totals['warned'];
+				$this->logger->error(
+					"Writer threw while processing a {$entity} item: {$exception->getMessage()}",
+					[
+						'remote_id' => $remote_id,
+						'exception' => $exception::class,
+					]
+				);
+
+				continue;
+			}
 
 			// local_id 0 は「ローカル実体を作成/更新できなかった」ことを表す契約
 			// （例: stockの対象商品がまだ未インポート）。checksumを保存すると次回実行時の

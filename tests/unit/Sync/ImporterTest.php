@@ -118,6 +118,46 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $result['totals']['skipped'] );
 	}
 
+	/**
+	 * 1件のアイテムでwriterが例外を投げても、`process_job()`がジョブ全体をfailedへ
+	 * 遷移させて他の正常なアイテムまで巻き添えにしないよう、そのアイテムのみskipped
+	 * 扱いにして処理を継続することを確認する。
+	 */
+	public function test_writer_exception_on_one_item_does_not_abort_the_page(): void {
+		$adapter = new MockPlatformAdapter(
+			products: [
+				CanonicalFactory::product( 'p1', 'SKU-1' ),
+				CanonicalFactory::product( 'p2', 'SKU-2' ),
+			]
+		);
+		$writer  = new class() implements WooWriter {
+			public array $seen = [];
+
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				$this->seen[] = $item->remote_id();
+
+				if ( 'p1' === $item->remote_id() ) {
+					throw new \RuntimeException( 'simulated failure' );
+				}
+
+				return new WriteResult( 42, WriteResult::OPERATION_CREATED );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		// 例外を投げたp1の後もp2の処理まで到達している（ページ全体が中断していない）。
+		$this->assertSame( [ 'p1', 'p2' ], $writer->seen );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+
+		// 例外を投げたp1にはmappingが書かれていない（次回実行時に再試行できる）。
+		$this->assertNull( $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+		$this->assertSame( 42, $this->mappings->find_local_id( $adapter->id(), 'product', 'p2' ) );
+	}
+
 	public function test_nonzero_local_id_persists_mapping(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
 		$writer  = new class() implements WooWriter {
