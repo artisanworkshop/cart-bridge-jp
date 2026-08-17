@@ -13,13 +13,25 @@ namespace CartBridgeJP\Woo\Support;
  */
 final class AddressMapper {
 
+	/**
+	 * `pref_id`（1-47=都道府県、48=海外を表す特別値）というエンコーディング自体はColorMe
+	 * APIの取り決めであり、Wooの都道府県コード（`JP01`等）との対応関係もColorMe固有の解釈
+	 * である。このクラスはWooRepositoryFactory経由で全プラットフォーム共通に使われるため、
+	 * `pref_id`スキームを解釈してよい対応済みプラットフォームをここで明示的に限定する
+	 * （アーキテクチャ原則1）。将来他ASPの`address`が同名キー`pref_id`を異なる意味で
+	 * 使う可能性があり、無条件に解釈すると住所を誤って変換しかねない。
+	 *
+	 * @var array<int,string>
+	 */
+	private const PREF_ID_SCHEME_PLATFORMS = [ 'colorme' ];
+
 	private function __construct() {}
 
 	/**
 	 * @param array<string,mixed> $address
 	 * @return array{first_name:string,last_name:string,company:string,address_1:string,address_2:string,city:string,state:string,postcode:string,country:string,email:string,phone:string}
 	 */
-	public static function to_woo( array $address, string $full_name, string $email, ?string $phone, ?string $company ): array {
+	public static function to_woo( string $platform, array $address, string $full_name, string $email, ?string $phone, ?string $company ): array {
 		[ $last_name, $first_name ] = self::split_name( $full_name );
 
 		return [
@@ -31,9 +43,9 @@ final class AddressMapper {
 			'address_1'  => Value::string( $address['address1'] ?? null ) ?? '',
 			'address_2'  => Value::string( $address['address2'] ?? null ) ?? '',
 			'city'       => '',
-			'state'      => self::state_code( $address ),
+			'state'      => self::state_code( $platform, $address ),
 			'postcode'   => Value::string( $address['postal'] ?? null ) ?? '',
-			'country'    => self::is_overseas( $address ) ? '' : ( Value::string( $address['country'] ?? null ) ?? 'JP' ),
+			'country'    => self::is_overseas( $platform, $address ) ? '' : ( Value::string( $address['country'] ?? null ) ?? 'JP' ),
 			'email'      => $email,
 			'phone'      => $phone ?? '',
 		];
@@ -42,14 +54,22 @@ final class AddressMapper {
 	/**
 	 * @param array<string,mixed> $address
 	 */
-	public static function is_overseas( array $address ): bool {
+	public static function is_overseas( string $platform, array $address ): bool {
+		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
+			return false;
+		}
+
 		return 48 === Value::int( $address['pref_id'] ?? null );
 	}
 
 	/**
 	 * @param array<string,mixed> $address
 	 */
-	private static function state_code( array $address ): string {
+	private static function state_code( string $platform, array $address ): string {
+		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
+			return '';
+		}
+
 		$pref_id = Value::int( $address['pref_id'] ?? null );
 
 		if ( null === $pref_id || $pref_id < 1 || $pref_id > 47 ) {
