@@ -86,9 +86,11 @@ final class ProductWriter implements EntityWriter {
 		// バリエーションありの商品は価格・在庫を各variationが持つため親には設定しない
 		// （WC_Product_Variable::sync()が子の価格レンジ・在庫状態から親を再計算する）。
 		if ( ! $has_variants ) {
+			$sale_price = $this->resolve_sale_price( $item->price, $item->sale_price );
+
 			$product->set_regular_price( $item->price );
-			$product->set_price( $item->price );
-			$product->set_sale_price( '' );
+			$product->set_sale_price( $sale_price ?? '' );
+			$product->set_price( $sale_price ?? $item->price );
 			StockApplier::apply( $product, $item->stock );
 		}
 
@@ -149,6 +151,25 @@ final class ProductWriter implements EntityWriter {
 		}
 
 		return new WriteResult( $product_id, $operation, $warnings );
+	}
+
+	/**
+	 * `set_sale_price('')`を無条件に呼ぶ従来実装では`CanonicalProduct::$sale_price`が
+	 * 一切参照されず、値があっても常に破棄されていた。セール価格として不正な値
+	 * （非数値・通常価格以上）をそのまま適用すると誤って割引が効いてしまう金銭的リスクが
+	 * あるため、数値かつ通常価格未満の場合のみ採用し、それ以外は「セールなし」として扱う
+	 * （WooCommerce自身のREST/管理画面バリデーションと同じ振る舞い）。
+	 */
+	private function resolve_sale_price( string $regular_price, ?string $sale_price ): ?string {
+		if ( null === $sale_price || '' === $sale_price ) {
+			return null;
+		}
+
+		if ( ! is_numeric( $sale_price ) || ! is_numeric( $regular_price ) || (float) $sale_price >= (float) $regular_price ) {
+			return null;
+		}
+
+		return $sale_price;
 	}
 
 	/**

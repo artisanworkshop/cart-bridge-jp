@@ -258,6 +258,29 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
 	}
 
+	public function test_sale_price_below_regular_is_applied(): void {
+		$product = new CanonicalProduct( 'P', 'SKU-11', '1000', '800', null, [], [], [], [], null, 'publish', [ 'remote_id' => '11' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '800', $wc_product->get_sale_price() );
+		$this->assertSame( '800', $wc_product->get_price() );
+	}
+
+	public function test_sale_price_not_below_regular_price_is_ignored(): void {
+		// `CanonicalProduct::$sale_price`が通常価格以上・非数値の場合、そのまま適用すると
+		// 誤って割引が効く/エラーになるリスクがあるため、セールなし扱いにフォールバックする
+		// （WooCommerce自身のREST/管理画面バリデーションと同じ振る舞い）。
+		$product = new CanonicalProduct( 'P', 'SKU-12', '1000', '1200', null, [], [], [], [], null, 'publish', [ 'remote_id' => '12' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '', $wc_product->get_sale_price() );
+		$this->assertSame( '1000', $wc_product->get_price() );
+	}
+
 	public function test_stale_existing_local_id_falls_back_to_create(): void {
 		// mappingsが指す商品IDが手動削除等で既に存在しない場合を模擬する
 		// （実在しない商品IDを直接existing_local_idとして渡す）。
