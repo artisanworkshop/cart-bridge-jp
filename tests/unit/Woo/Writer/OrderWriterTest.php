@@ -180,6 +180,86 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
 	}
 
+	public function test_missing_line_item_quantity_falls_back_to_one_with_warning(): void {
+		// 数量欠損を1個として黙って捏造すると実際の購入数と食い違う出荷指示になりうる
+		// （CLAUDE.md参照）。行自体は注文履歴のため残しつつ、数量が不確かである旨を
+		// 警告として可視化することを確認する。
+		$order = $this->make_order(
+			'3009',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'no-qty',
+					'name'                => 'Mystery quantity',
+					'price'               => '100',
+					'unit_price_excl_tax' => '100',
+					'subtotal'            => '100',
+					'quantity'            => null,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 1, (int) $items[0]->get_quantity() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'no-qty' ), $result->warnings );
+	}
+
+	public function test_reduced_rate_tax_class_not_configured_falls_back_to_standard(): void {
+		// ProductWriterと同じ理由: 未設定のtax_classをそのまま`set_tax_class()`に渡すと
+		// `WC_Order_Item_Product`は`WC_Data_Exception`を投げる。WooCommerceは標準で
+		// 'reduced-rate'を用意しているため、未設定ストアを模擬するため明示的に削除する。
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+
+		$order = $this->make_order(
+			'3010',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'reduced-item',
+					'name'                => 'Reduced rate item',
+					'price'               => '100',
+					'unit_price_excl_tax' => '100',
+					'subtotal'            => '100',
+					'quantity'            => 1,
+					'tax_reduced'         => true,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( '', $items[0]->get_tax_class() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'reduced-rate' ), $result->warnings );
+	}
+
+	public function test_customer_ref_pointing_to_deleted_user_is_treated_as_unresolved(): void {
+		$user_id = wp_insert_user(
+			[
+				'user_login' => 'cust2',
+				'user_email' => 'cust2@example.com',
+				'user_pass'  => 'x',
+			]
+		);
+		$this->seed_mapping( 'colorme', 'customer', 'c-gone', $user_id );
+		wp_delete_user( $user_id );
+
+		$order    = $this->make_order( '3011', 'processing', 'c-gone' );
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( 0, $wc_order->get_customer_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, 'c-gone' ), $result->warnings );
+	}
+
 	public function test_stale_existing_local_id_falls_back_to_create(): void {
 		// mappingsが指す注文が手動削除等で既に存在しない場合を模擬する
 		// （実在しない注文IDを直接existing_local_idとして渡す）。

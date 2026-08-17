@@ -14,6 +14,7 @@ use WC_Order_Item_Fee;
 use WC_Order_Item_Product;
 use WC_Order_Item_Shipping;
 use WC_Product_Variation;
+use WC_Tax;
 
 /**
  * `CanonicalOrder` の明細・送料・手数料ラインを組み立てる（03 §5 D10）。
@@ -57,7 +58,18 @@ final class OrderItemBuilder {
 			}
 		}
 
-		$quantity = Value::int( $line_item['quantity'] ?? null ) ?? 1;
+		$quantity = Value::int( $line_item['quantity'] ?? null );
+
+		if ( null === $quantity ) {
+			// 数量が欠損・非数値の場合、1個として捏造すると実際の購入数と食い違う出荷指示に
+			// なりうる（CLAUDE.md参照）。ColorMeの`OrderTransformer`は同じ理由で`product_num`
+			// 欠損時に注文全体を弾いているが、Woo層は他ASPアダプタの出力も信頼境界として
+			// 扱うため、ここでも黙って1個扱いにはしない。ただし明細自体を消すと注文履歴・
+			// 返金記録が欠落する（D10 #3）ため、行は残しつつ数量が不確かである旨を警告する。
+			$quantity   = 1;
+			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
+		}
+
 		$item->set_quantity( $quantity );
 
 		[ $excl_tax, $tax, $tax_warning ] = $this->split_line_amount( $line_item, $quantity );
@@ -74,7 +86,19 @@ final class OrderItemBuilder {
 				'subtotal' => [ 0 => $tax ],
 			]
 		);
-		$item->set_tax_class( true === Value::bool( $line_item['tax_reduced'] ?? null ) ? 'reduced-rate' : '' );
+		$tax_class = true === Value::bool( $line_item['tax_reduced'] ?? null ) ? 'reduced-rate' : '';
+
+		if ( '' !== $tax_class && ! in_array( $tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
+			// `ProductWriter::apply_tax_class()`と同じ理由: 未設定のtax_classをそのまま
+			// `WC_Order_Item_Product::set_tax_class()`に渡すと、`WC_Tax::get_tax_class_slugs()`
+			// に無い値を拒否する仕様のため`WC_Data_Exception`を投げる。日本の軽減税率クラスを
+			// 設定していないストアでは、軽減税率対象の明細を含む注文が全て失敗してしまうため、
+			// 標準税率へフェイルクローズし警告を積む。
+			$warnings[] = WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, $tax_class );
+			$tax_class  = '';
+		}
+
+		$item->set_tax_class( $tax_class );
 
 		if ( null !== $tax_warning ) {
 			$warnings[] = $tax_warning;

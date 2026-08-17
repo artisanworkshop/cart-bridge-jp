@@ -214,7 +214,10 @@ final class OrderWriter implements EntityWriter {
 
 		$local_id = $this->mappings->find_local_id( $this->platform, 'customer', $customer_ref );
 
-		if ( null === $local_id ) {
+		// mappingsが指すユーザーが手動削除等で既に存在しない場合を含め、解決できないものは
+		// 未解決として扱う（存在しないIDを`set_customer_id()`にそのまま渡すと、注文が
+		// 「顧客に紐付いているように見えるが実体が無い」壊れた参照を持つことになる）。
+		if ( null === $local_id || ! get_userdata( $local_id ) ) {
 			$order->set_customer_id( 0 );
 
 			return [ WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, $customer_ref ) ];
