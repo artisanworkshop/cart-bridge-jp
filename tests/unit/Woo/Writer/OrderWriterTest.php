@@ -16,6 +16,7 @@ use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_Product_Simple;
+use WC_Product_Variable;
 
 final class OrderWriterTest extends WooTestCase {
 
@@ -141,6 +142,84 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertSame( 'gone', $items[0]->get_meta( '_cbjp_remote_product_id' ) );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'gone' ), $result->warnings );
+	}
+
+	public function test_line_item_resolving_to_variable_parent_is_treated_as_unresolved(): void {
+		// ColorMeの受注明細は`remote_product_id`として常に親商品のIDしか持たない
+		// （どのvariationかはoption1/2の値でしか特定できない）。SKU解決に失敗した場合、
+		// remote_idフォールバックが親のvariable商品そのものに解決してしまうと、
+		// variable商品は単体では購入対象にならないため不整合な注文行になる。
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Variable parent' );
+		$parent->set_status( 'publish' );
+		$parent_id = $parent->save();
+		$this->seed_mapping( 'colorme', 'product', 'vp1', $parent_id );
+
+		$order = $this->make_order(
+			'3005',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'vp1',
+					'name'                => 'Some variant',
+					'price'               => '500',
+					'unit_price_excl_tax' => '500',
+					'subtotal'            => '500',
+					'quantity'            => 1,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+	}
+
+	public function test_stale_existing_local_id_falls_back_to_create(): void {
+		// mappingsが指す注文が手動削除等で既に存在しない場合を模擬する
+		// （実在しない注文IDを直接existing_local_idとして渡す）。
+		$order  = $this->make_order( '3006', 'processing' );
+		$result = $this->make_writer()->write( $order, 999999 );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 999999, $result->local_id );
+		$this->assertInstanceOf( \WC_Order::class, wc_get_order( $result->local_id ) );
+	}
+
+	public function test_unknown_status_falls_back_to_on_hold_with_warning(): void {
+		$order    = $this->make_order( '3007', 'some-unknown-status' );
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( 'on-hold', $wc_order->get_status() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $result->warnings );
+	}
+
+	public function test_tax_total_incomplete_source_warns(): void {
+		$order = $this->make_order(
+			'3008',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '80',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+				'tax_source'   => 'sale.tax_incomplete_excludes_shipping_tax',
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+
+		$this->assertContains( WarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
 	}
 
 	public function test_totals_are_set_from_asp_values_without_recalculation(): void {

@@ -40,7 +40,16 @@ final class OrderWriter implements EntityWriter {
 			throw new RuntimeException( 'OrderWriter received an unsupported Canonical model.' );
 		}
 
-		$order = null !== $existing_local_id ? wc_get_order( $existing_local_id ) : wc_create_order( [ 'status' => 'pending' ] );
+		$order = null !== $existing_local_id ? wc_get_order( $existing_local_id ) : false;
+
+		if ( ! $order instanceof WC_Order ) {
+			// mappingsが指す注文が手動削除等で既に存在しない場合、既存IDを信用せず新規作成へ
+			// フォールバックする（TermWriter/CustomerWriter/ProductWriterの同種のstale-ID対応と
+			// 同じ方針）。フォールバックしないと`WriteResult`のlocal_id=0はmappingsへ永続化
+			// されない契約（`Importer`参照）のため、この注文は毎回skippedのまま永久に復旧しない。
+			$existing_local_id = null;
+			$order             = wc_create_order( [ 'status' => 'pending' ] );
+		}
 
 		if ( ! $order instanceof WC_Order ) {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [] );
@@ -170,7 +179,12 @@ final class OrderWriter implements EntityWriter {
 		$known  = wc_get_order_statuses();
 
 		if ( ! array_key_exists( "wc-{$status}", $known ) ) {
+			// 未知のステータス文字列をそのまま書き込むと、`wc_get_order_statuses()`を前提にした
+			// Woo標準の管理画面フィルタ・受注処理ワークフローから見えなくなる（境界データは
+			// フェイルクローズで検証する。CLAUDE.md参照）。Wooが「要確認」の意味で標準提供する
+			// `on-hold`へ倒し、元の値は警告のdetailとして残す。
 			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, $status );
+			$status     = 'on-hold';
 		}
 
 		$order->set_status( $status );
@@ -290,8 +304,15 @@ final class OrderWriter implements EntityWriter {
 			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_TOTAL_RESIDUAL, (string) $totals['residual'] );
 		}
 
-		if ( 'unavailable_for_split_order' === ( $totals['tax_source'] ?? null ) ) {
+		$tax_source = $totals['tax_source'] ?? null;
+
+		if ( 'unavailable_for_split_order' === $tax_source ) {
 			$warnings[] = WarningCode::ORDER_SPLIT_TAX_UNKNOWN;
+		} elseif ( 'sale.tax_incomplete_excludes_shipping_tax' === $tax_source ) {
+			// `sale.totals`が欠損しColorMe側の`sale.tax`（商品分のみ、送料分の税を含まない）へ
+			// フォールバックした場合。`apply_totals()`の`totals.tax`はこの不完全な値をそのまま
+			// 使うため、税額が実際より低い可能性があることをレポートで確認できるようにする。
+			$warnings[] = WarningCode::ORDER_TAX_TOTAL_INCOMPLETE;
 		}
 
 		return $warnings;
