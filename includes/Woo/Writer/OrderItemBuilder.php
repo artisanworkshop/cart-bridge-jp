@@ -128,9 +128,18 @@ final class OrderItemBuilder {
 		}
 
 		$line_total_excl = wc_format_decimal( (float) $unit_price_excl * $quantity );
-		$tax             = wc_format_decimal( (float) $line_total_incl - (float) $line_total_excl );
+		$tax_amount      = (float) $line_total_incl - (float) $line_total_excl;
 
-		return [ $line_total_excl, $tax, null ];
+		if ( $tax_amount < 0.0 ) {
+			// `line_total_incl`（subtotal優先）と`line_total_excl`（unit_price_excl_tax×数量）は
+			// ASP側の別フィールドから独立に導出しているため、行割引・端数処理の都合で整合しない
+			// ことがある。負の税額をそのまま`set_taxes()`へ書き込むと注文の税合計・検証レポートが
+			// 破綻するため、税抜/税込を分離できないケースと同様に税込金額を税抜側へ丸めて税額0に
+			// フェイルクローズし、警告で可視化する（合計金額自体は崩さない）。
+			return [ $line_total_incl, '0', WarningCode::ORDER_LINE_TAX_INCONSISTENT ];
+		}
+
+		return [ $line_total_excl, wc_format_decimal( $tax_amount ), null ];
 	}
 
 	/**

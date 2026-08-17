@@ -241,6 +241,36 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'reduced-rate' ), $result->warnings );
 	}
 
+	public function test_inconsistent_tax_split_clamps_to_zero_with_warning(): void {
+		// `subtotal`（税込線合計の情報源）と`unit_price_excl_tax`×数量は別々のASPフィールドから
+		// 独立に導出されるため、行割引・端数処理の都合で整合しないことがある。税抜側が
+		// 税込側を上回ると減算結果が負になり、そのまま`set_taxes()`へ書き込むと注文の税合計が
+		// 破綻するため、税額0へフェイルクローズし警告で可視化することを確認する。
+		$order = $this->make_order(
+			'3012',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'bad-split',
+					'name'                => 'Inconsistent split',
+					'price'               => '100',
+					'unit_price_excl_tax' => '150',
+					'subtotal'            => '100',
+					'quantity'            => 1,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( '0', $items[0]->get_total_tax() );
+		$this->assertContains( WarningCode::ORDER_LINE_TAX_INCONSISTENT, $result->warnings );
+	}
+
 	public function test_customer_ref_pointing_to_deleted_user_is_treated_as_unresolved(): void {
 		$user_id = wp_insert_user(
 			[
