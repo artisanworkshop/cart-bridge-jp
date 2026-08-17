@@ -44,6 +44,7 @@ final class WarningCode {
 	public const ADDRESS_OVERSEAS           = 'address_overseas';
 
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
+	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';
 	public const PAYMENT_METHOD_UNMAPPED       = 'payment_method_unmapped';
 	public const SHIPPING_METHOD_UNMAPPED      = 'shipping_method_unmapped';
