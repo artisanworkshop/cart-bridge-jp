@@ -182,10 +182,15 @@ final class JobManager {
 		}
 
 		$is_dry_run = self::TYPE_DRY_RUN === $job['type'];
-		$writer     = $is_dry_run ? new DryRunReporter() : $this->writer_factory->for_platform( $job['platform'] );
 		$entity     = $job['entity'];
 
 		try {
+			// `for_platform()`はwriter組み立て（Writerクラス群のnew）であり現状は例外を投げないが、
+			// 将来的に検証等が加わって例外を投げるようになった場合でも、この呼び出し全体を
+			// 下のcatchで確実に拾い`mark_failed()`させるため、tryの外に出さない
+			// （tryの外に置くと、例外発生時にジョブがmark_failed()もされずSTATUS_RUNNINGのまま
+			// 停止してしまう）。
+			$writer                        = $is_dry_run ? new DryRunReporter() : $this->writer_factory->for_platform( $job['platform'] );
 			[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
