@@ -439,6 +439,32 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
 	}
 
+	public function test_missing_total_key_is_rejected_before_creating_the_order(): void {
+		// `total`キー自体が欠損している場合、`apply_totals()`は`Value::string(...) ?? '0'`で
+		// 無警告のまま0円にフォールバックしてしまう。他の3キー（discount/shipping_fee/tax）は
+		// 正当に欠損しうるが`total`だけは必須であることを確認する。
+		$order = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
+		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
+	}
+
 	public function test_date_paid_is_cleared_when_paid_flag_reverts_to_false(): void {
 		// 更新のみで削除しないと、再実行時に返金・注文取消等でASP側のpaidフラグが
 		// falseへ戻っても古いdate_paidが残り続け、WooCommerce側の会計・エクスポートで

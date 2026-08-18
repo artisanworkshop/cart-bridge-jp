@@ -106,6 +106,19 @@ final class OrderWriter implements EntityWriter {
 			throw $exception;
 		}
 
+		if ( 0 === $order_id ) {
+			// `wc_create_order()`は内部で`$order->save()`を呼ぶが戻り値そのものは検証しない。
+			// HPOS（本プラグインが要求する構成）の`OrdersTableDataStore::persist_order_to_db()`は
+			// create失敗時に必ず`\Exception`を投げ、`wc_create_order()`側のcatchでWP_Errorへ
+			// 変換されるため64-70行目のチェックで捕捉できる実測上、この分岐は基本的に
+			// 到達しない。ただしHPOSが何らかの理由で無効化された環境（本プラグインの前提が
+			// 崩れるケース）や将来のWC実装変更で「例外を投げず0を返す」経路に変わった場合の
+			// 保険として、ProductWriter/CouponWriter/TermWriterと同じ0チェックの慣習を
+			// ここにも揃えておく（`WC_Data::save()`は既存ID保持時のupdate経路では常に
+			// そのIDを返すため、既存注文の更新では原理上ここに来ない）。
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::ORDER_CREATE_FAILED ] ) );
+		}
+
 		return new WriteResult( $order_id, $operation, $warnings );
 	}
 
@@ -158,6 +171,14 @@ final class OrderWriter implements EntityWriter {
 	 * @param array<string,mixed> $totals
 	 */
 	private function validate_totals( array $totals ): ?string {
+		// `total`のみ必須（`apply_totals()`が`Value::string(...) ?? '0'`で欠損を無警告のまま
+		// 0円へフォールバックしてしまうため）。discount/shipping_fee/taxは実際の注文で
+		// 正当に欠損しうる（`apply_totals()`の既存フォールバックどおり0扱いでよい）ため、
+		// 存在しないこと自体はエラーにしない。
+		if ( ! isset( $totals['total'] ) ) {
+			return WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' );
+		}
+
 		foreach ( [ 'total', 'discount', 'shipping_fee', 'tax' ] as $key ) {
 			$value = $totals[ $key ] ?? null;
 
