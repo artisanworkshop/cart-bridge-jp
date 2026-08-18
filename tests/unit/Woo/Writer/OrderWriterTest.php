@@ -552,6 +552,40 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( '{"code":"SUMMER","amount":100}', $wc_order->get_meta( '_cbjp_shop_coupon' ) );
 	}
 
+	public function test_explicit_meta_fields_win_over_colliding_extras_keys(): void {
+		// `cbjp/adapters/register`経由の外部アダプタは信頼境界のため、extrasに
+		// '_cbjp_platform'等の予約済みメタと同名のキー（'platform'等）が偶然/意図的に
+		// 含まれていても、`ExtrasMeta::apply()`より後に明示フィールドを設定することで
+		// 正しい値が優先されることを確認する（他writer=ProductWriter/TermWriter/
+		// CouponWriterと同じ順序規約）。
+		$order = $this->make_order(
+			'2003',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[
+				'platform'            => 'malicious-override',
+				'remote_order_number' => 'malicious-override',
+				'remote_order_id'     => 'malicious-override',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( 'colorme', $wc_order->get_meta( '_cbjp_platform' ) );
+		$this->assertSame( '2003', $wc_order->get_meta( '_cbjp_remote_order_number' ) );
+		$this->assertSame( '2003', $wc_order->get_meta( '_cbjp_remote_order_id' ) );
+	}
+
 	public function test_customer_snapshot_extras_key_is_not_persisted_as_meta(): void {
 		$order = $this->make_order(
 			'2002',

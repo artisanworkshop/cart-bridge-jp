@@ -333,10 +333,6 @@ final class OrderWriter implements EntityWriter {
 	 * @param array<int,string> $warnings
 	 */
 	private function apply_meta( WC_Order $order, CanonicalOrder $item, array $warnings ): void {
-		$order->update_meta_data( '_cbjp_platform', $this->platform );
-		$order->update_meta_data( '_cbjp_remote_order_number', $item->number );
-		$order->update_meta_data( '_cbjp_remote_order_id', Value::string( $item->extras['remote_id'] ?? null ) ?? $item->number );
-
 		$this->set_or_delete_meta( $order, '_cbjp_memo', $item->note );
 
 		$this->set_or_delete_meta( $order, '_cbjp_slip_number', Value::string( $item->shipping['slip_number'] ?? null ) );
@@ -366,6 +362,15 @@ final class OrderWriter implements EntityWriter {
 				'discount_other' => Value::string( $item->totals['discount_other'] ?? null ),
 			]
 		);
+
+		// `ExtrasMeta::apply()`より後に設定する: 他writer（ProductWriter/TermWriter/
+		// CouponWriter）と同じ順序規約で、extras内に同名キー（'platform'等）が
+		// 混入していても、この明示フィールドが常に優先されるようにする
+		// （汎用extrasを先に設定する順序だと、外部アダプタ由来のextrasにたまたま
+		// 同名キーがあった場合に正しい値を上書きしてしまう）。
+		$order->update_meta_data( '_cbjp_platform', $this->platform );
+		$order->update_meta_data( '_cbjp_remote_order_number', $item->number );
+		$order->update_meta_data( '_cbjp_remote_order_id', Value::string( $item->extras['remote_id'] ?? null ) ?? $item->number );
 
 		$order->update_meta_data( '_cbjp_import_warnings', wp_json_encode( array_values( array_unique( $warnings ) ) ) );
 	}
