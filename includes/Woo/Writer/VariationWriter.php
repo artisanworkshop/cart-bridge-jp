@@ -45,6 +45,19 @@ final class VariationWriter {
 		// 誤認して削除しかねないため、そのようなvariantが1件でもあればstale削除自体を中止する。
 		$incomplete_snapshot = false;
 
+		// アイテム（variant）毎のSELECTを避けるため、対象になり得る全remote_idのmappingを
+		// 一括プリロードする（Sync\Importer::process_items()と同じ理由・同じ手法）。
+		$remote_ids = array_values(
+			array_filter(
+				array_map(
+					static fn ( array $variant ): ?string => Value::string( $variant['remote_id'] ?? null ),
+					$variants
+				),
+				static fn ( ?string $remote_id ): bool => null !== $remote_id
+			)
+		);
+		$existing   = $this->mappings->find_many( $this->platform, 'variant', $remote_ids );
+
 		foreach ( $variants as $variant ) {
 			$remote_id = Value::string( $variant['remote_id'] ?? null );
 
@@ -64,8 +77,12 @@ final class VariationWriter {
 				continue;
 			}
 
-			$seen_remote_ids[] = $remote_id;
-			$warnings          = array_merge( $warnings, $this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names ) );
+			$seen_remote_ids[]     = $remote_id;
+			$existing_variation_id = $existing[ $remote_id ]['local_id'] ?? null;
+			$warnings              = array_merge(
+				$warnings,
+				$this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names, $existing_variation_id )
+			);
 		}
 
 		// stale削除・variable同期の判定で二重に`wc_get_product()`しないよう、ここで一度だけ取得する。
@@ -89,9 +106,8 @@ final class VariationWriter {
 	 * @param array<int,string>   $axis_names
 	 * @return array<int,string>
 	 */
-	private function sync_one( int $product_id, array $variant, string $remote_id, string $price, array $axis_names ): array {
-		$warnings              = [];
-		$existing_variation_id = $this->mappings->find_local_id( $this->platform, 'variant', $remote_id );
+	private function sync_one( int $product_id, array $variant, string $remote_id, string $price, array $axis_names, ?int $existing_variation_id ): array {
+		$warnings = [];
 
 		// mappingsが指すvariation投稿が手動削除等で既に存在しない場合、`new WC_Product_Variation($id)`は
 		// （`wc_get_product_object()`と異なり）例外を投げず、`WC_Product_Variation_Data_Store_CPT::read()`が
@@ -211,6 +227,11 @@ final class VariationWriter {
 			]
 		);
 
+		// `get_posts(['fields' => 'ids'])`は投稿オブジェクトを構築しないためpostmetaキャッシュを
+		// 温めない。温めないまま以下のループで`get_post_meta()`/`PlatformOwnership::owns_post()`を
+		// 呼ぶとvariation毎に個別SELECTが発生するため、ここで一括プリロードする。
+		update_meta_cache( 'post', $variation_ids );
+
 		$remote_ids_by_variation_id = [];
 
 		foreach ( $variation_ids as $variation_id ) {
@@ -275,6 +296,12 @@ final class VariationWriter {
 	 */
 	private function delete_variations( array $variation_ids, array $seen_remote_ids ): array {
 		$warnings = [];
+
+		// `WC_Product_Variable::get_children()`はpostmetaキャッシュを温めないため、
+		// 以下のループで`get_post_meta()`/`PlatformOwnership::owns_post()`を個別に呼ぶと
+		// variation毎にSELECTが発生する。この経路は対象商品がvariableである限り
+		// 商品を書き込む度に毎回通るため、ここで一括プリロードする。
+		update_meta_cache( 'post', $variation_ids );
 
 		foreach ( $variation_ids as $variation_id ) {
 			$remote_id = get_post_meta( $variation_id, '_cbjp_remote_id', true );
