@@ -269,6 +269,49 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertInstanceOf( WC_Product_Variable::class, wc_get_product( $second->local_id ) );
 	}
 
+	public function test_simple_to_variable_type_change_clears_stale_stock_management(): void {
+		// simple商品時代の`manage_stock=true`+実数量がpostmetaに残ったままだと、variation側の
+		// 在庫管理と競合する。`WC_Product_Variable::sync()`は`_price`/`_stock_status`は
+		// 子から再計算するが`manage_stock`/`_stock`（数量）は対象外のため、ProductWriter側で
+		// 明示的にクリアしないと型変更後も残り続けることを確認する。
+		$simple = new CanonicalProduct( 'P', 'SKU-9', '100', null, null, [], [], [], [], 7, 'publish', [ 'remote_id' => '9' ] );
+		$first  = $this->make_writer()->write( $simple, null );
+
+		$simple_product = wc_get_product( $first->local_id );
+		$this->assertTrue( $simple_product->get_manage_stock() );
+		$this->assertSame( 7, $simple_product->get_stock_quantity() );
+
+		$variable = new CanonicalProduct(
+			'P',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'v2',
+					'sku'           => 'P-B',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Blue',
+					'price'         => '100',
+					'stock'         => 1,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '9' ]
+		);
+
+		$second = $this->make_writer()->write( $variable, $first->local_id );
+
+		$variable_product = wc_get_product( $second->local_id );
+		$this->assertInstanceOf( WC_Product_Variable::class, $variable_product );
+		$this->assertFalse( $variable_product->get_manage_stock() );
+	}
+
 	public function test_variable_to_simple_type_change_removes_orphaned_variations(): void {
 		$variable     = new CanonicalProduct(
 			'P',

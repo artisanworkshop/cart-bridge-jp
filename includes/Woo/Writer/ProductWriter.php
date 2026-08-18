@@ -93,7 +93,15 @@ final class ProductWriter implements EntityWriter {
 		$product->set_virtual( ! $item->requires_shipping );
 
 		// バリエーションありの商品は価格・在庫を各variationが持つため親には設定しない
-		// （WC_Product_Variable::sync()が子の価格レンジ・在庫状態から親を再計算する）。
+		// （`VariationWriter::sync()`経由で呼ばれる`WC_Product_Variable::sync()`が
+		// 子の価格レンジ・stock_statusから親を再計算する。ただし`sync()`が触るのは
+		// `_price`/`_regular_price`/`_sale_price`（`sync_price()`が明示的に`delete_post_meta()`
+		// してから子から再構築する）と`_stock_status`（`sync_stock_status()`）のみで、
+		// `manage_stock`/`_stock`（数量）は対象外。既存商品がsimple→variableへ型変更された
+		// 場合、simple時代の`manage_stock=true`+数量がそのままpostmetaに残り続け
+		// （`wc_get_product_object()`は既存postの全メタを読み込むため）、variation側の
+		// 在庫管理と競合する（StockWriterが親をvariableとして扱う際にmanage_stockを
+		// falseにする方針と矛盾する状態になる）。
 		if ( ! $has_variants ) {
 			if ( is_numeric( $item->price ) && (float) $item->price >= 0 ) {
 				[ $sale_price, $sale_price_warning ] = $this->resolve_sale_price( $item->price, $item->sale_price );
@@ -114,6 +122,10 @@ final class ProductWriter implements EntityWriter {
 			}
 
 			StockApplier::apply( $product, $item->stock );
+		} else {
+			// simple→variable型変更時にsimple時代の`manage_stock`/数量が残らないよう明示的に
+			// クリアする（上のコメント参照。`sync()`はこのフィールドを再計算しない）。
+			$product->set_manage_stock( false );
 		}
 
 		$few_num = Value::int( $item->extras['few_num'] ?? null );
