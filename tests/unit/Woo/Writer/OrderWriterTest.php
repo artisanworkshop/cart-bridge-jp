@@ -412,6 +412,33 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( '111', $wc_order->get_total_tax() );
 	}
 
+	public function test_negative_total_is_rejected_before_creating_the_order(): void {
+		// `合計はASP側の値をそのまま設定`する契約上、合計自体が壊れていると実際に決済
+		// された金額と一致しない注文になる金銭的リスクがある。`WC_Order`に一切触れず
+		// 注文全体を見送ることを確認する（受注そのものが作られない）。
+		$order = $this->make_order(
+			'1015',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '-100',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
+		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
+	}
+
 	/**
 	 * @dataProvider status_provider
 	 */

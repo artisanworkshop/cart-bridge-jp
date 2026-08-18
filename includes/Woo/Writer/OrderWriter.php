@@ -41,6 +41,15 @@ final class OrderWriter implements EntityWriter {
 			throw new RuntimeException( 'OrderWriter received an unsupported Canonical model.' );
 		}
 
+		$totals_warning = $this->validate_totals( $item->totals );
+
+		if ( null !== $totals_warning ) {
+			// 明細レベル（数量・tax_class）と異なり、注文合計の欠陥は注文全体の信頼性に関わる
+			// ため、WC_Orderに一切触れる前にここで注文全体を見送る（CouponWriterの
+			// type/group_limit判定と同じく、書込を始める前に検証する方針）。
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ $totals_warning ] );
+		}
+
 		$order = null !== $existing_local_id ? wc_get_order( $existing_local_id ) : false;
 
 		if ( ! $order instanceof WC_Order ) {
@@ -137,6 +146,31 @@ final class OrderWriter implements EntityWriter {
 		}
 
 		return $warnings;
+	}
+
+	/**
+	 * `apply_totals()`は`Value::string(...) ?? '0'`で欠損のみガードし、非数値・負の値は
+	 * そのまま`wc_format_decimal()`経由でWC_Orderに書き込まれてしまう（符号は検証されない）。
+	 * 注文合計はASP側の値をそのまま信頼する契約（`calculate_totals()`を呼ばない）上、
+	 * この値自体が壊れていると実際に決済された金額と一致しない注文になる金銭的リスクが
+	 * あるため、`WC_Order`に一切触れる前に検証する。
+	 *
+	 * @param array<string,mixed> $totals
+	 */
+	private function validate_totals( array $totals ): ?string {
+		foreach ( [ 'total', 'discount', 'shipping_fee', 'tax' ] as $key ) {
+			$value = $totals[ $key ] ?? null;
+
+			if ( null === $value ) {
+				continue;
+			}
+
+			if ( ! is_numeric( $value ) || (float) $value < 0 ) {
+				return WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, $key );
+			}
+		}
+
+		return null;
 	}
 
 	/**
