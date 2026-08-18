@@ -167,6 +167,8 @@ final class Importer {
 				continue;
 			}
 
+			$consumed_quota_slot = false;
+
 			if ( ! $is_dry_run && null === $existing_local_id && null !== $remaining ) {
 				if ( $remaining <= 0 ) {
 					++$totals['skipped'];
@@ -174,6 +176,7 @@ final class Importer {
 				}
 
 				--$remaining;
+				$consumed_quota_slot = true;
 			}
 
 			try {
@@ -185,6 +188,14 @@ final class Importer {
 				// ため`update_progress()`に到達せず永続化されない）。1件の異常データで移行全体が
 				// 止まらないよう、このアイテムのみskipped扱いにして処理を継続する
 				// （local_id 0と同様mappingsは書かないため、次回実行時に再試行される）。
+				//
+				// 上で確保した無料版サンプル上限の枠は、この例外で実体が何も作られなかった
+				// ため消費されたことにしない（返却しないと、無効な1件が枠を1つ無駄に食い潰し、
+				// 本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう）。
+				if ( $consumed_quota_slot ) {
+					++$remaining;
+				}
+
 				++$totals['skipped'];
 				++$totals['warned'];
 				$this->logger->error(
@@ -203,6 +214,10 @@ final class Importer {
 			// checksum一致スキップに掛かり永久に再試行できなくなるため、mappingsを書かない。
 			if ( ! $is_dry_run && 0 !== $result->local_id ) {
 				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
+			} elseif ( $consumed_quota_slot ) {
+				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した
+				// ことにしない。
+				++$remaining;
 			}
 
 			// この契約は `WooWriter`/`EntityWriter` インターフェース上で型として強制できない

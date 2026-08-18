@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
+use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WriteResult;
@@ -156,6 +157,82 @@ final class ImporterTest extends WP_UnitTestCase {
 		// 例外を投げたp1にはmappingが書かれていない（次回実行時に再試行できる）。
 		$this->assertNull( $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
 		$this->assertSame( 42, $this->mappings->find_local_id( $adapter->id(), 'product', 'p2' ) );
+	}
+
+	/**
+	 * 無料版サンプル上限（`$remaining`）は新規作成の直前に1件消費するが、その後writerが
+	 * 例外を投げて実体が何も作られなかった場合は枠を返却しないと、無効な1件が枠を
+	 * 無駄に食い潰し、本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう。
+	 */
+	public function test_quota_slot_is_restored_when_write_throws(): void {
+		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
+
+		try {
+			$adapter = new MockPlatformAdapter(
+				products: [
+					CanonicalFactory::product( 'p1', 'SKU-1' ),
+					CanonicalFactory::product( 'p2', 'SKU-2' ),
+				]
+			);
+			$writer  = new class() implements WooWriter {
+				public array $seen = [];
+
+				public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+					$this->seen[] = $item->remote_id();
+
+					if ( 'p1' === $item->remote_id() ) {
+						throw new \RuntimeException( 'simulated failure' );
+					}
+
+					return new WriteResult( 42, WriteResult::OPERATION_CREATED );
+				}
+			};
+
+			$importer     = new Importer( $this->mappings );
+			$limit_policy = new LimitPolicy( $this->mappings );
+			$result       = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false, $limit_policy );
+
+			// 上限1件でも、p1の例外で消費した枠が返却されるためp2まで到達し作成できる。
+			$this->assertSame( [ 'p1', 'p2' ], $writer->seen );
+			$this->assertSame( 1, $result['totals']['created'] );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+	}
+
+	/**
+	 * writerがlocal_id=0（実体を作成できなかった）を返した場合も、例外と同じ理由で
+	 * 消費した枠を返却することを確認する。
+	 */
+	public function test_quota_slot_is_restored_when_write_returns_zero_local_id(): void {
+		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
+
+		try {
+			$adapter = new MockPlatformAdapter(
+				products: [
+					CanonicalFactory::product( 'p1', 'SKU-1' ),
+					CanonicalFactory::product( 'p2', 'SKU-2' ),
+				]
+			);
+			$writer  = new class() implements WooWriter {
+				public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+					if ( 'p1' === $item->remote_id() ) {
+						return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [] );
+					}
+
+					return new WriteResult( 42, WriteResult::OPERATION_CREATED );
+				}
+			};
+
+			$importer     = new Importer( $this->mappings );
+			$limit_policy = new LimitPolicy( $this->mappings );
+			$result       = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false, $limit_policy );
+
+			$this->assertSame( 1, $result['totals']['created'] );
+			$this->assertSame( 42, $this->mappings->find_local_id( $adapter->id(), 'product', 'p2' ) );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
 	}
 
 	public function test_nonzero_local_id_persists_mapping(): void {
