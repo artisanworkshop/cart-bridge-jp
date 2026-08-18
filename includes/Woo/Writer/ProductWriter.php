@@ -15,6 +15,7 @@ use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\StockApplier;
+use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
@@ -22,7 +23,6 @@ use RuntimeException;
 use Throwable;
 use WC_Product;
 use WC_Product_Attribute;
-use WC_Tax;
 use WP_Term;
 
 /**
@@ -141,6 +141,18 @@ final class ProductWriter implements EntityWriter {
 
 		$product_id = $product->save();
 
+		if ( 0 === $product_id ) {
+			// `WC_Product_Data_Store_CPT::create()` は `wp_insert_post()` が失敗（DB障害等）した場合、
+			// 例外を投げず黙ってIDを未設定のまま返す（`WC_Product::save()`は`get_id()`=0を返す）。
+			// このまま`variations->sync(0, ...)`/`apply_images()`を走らせると、parent_id=0の
+			// 孤立バリエーションを作りかねない。`WriteResult::$local_id === 0`はImporterが
+			// mappingsを書かない契約のため、ここで打ち切らないと警告も無いまま永久に気付けない
+			// （OrderWriter/CustomerWriter/TermWriter/VariationWriterの同種の作成失敗ガードと同じ方針）。
+			$warnings[] = WarningCode::PRODUCT_SAVE_FAILED;
+
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+		}
+
 		try {
 			$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
 
@@ -190,21 +202,11 @@ final class ProductWriter implements EntityWriter {
 	 * @return array<int,string>
 	 */
 	private function apply_tax_class( WC_Product $product, ?string $tax_class ): array {
-		if ( null === $tax_class ) {
-			$product->set_tax_class( '' );
+		[ $resolved, $warnings ] = TaxClass::resolve( $tax_class );
 
-			return [];
-		}
+		$product->set_tax_class( $resolved );
 
-		if ( in_array( $tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
-			$product->set_tax_class( $tax_class );
-
-			return [];
-		}
-
-		$product->set_tax_class( '' );
-
-		return [ WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, $tax_class ) ];
+		return $warnings;
 	}
 
 

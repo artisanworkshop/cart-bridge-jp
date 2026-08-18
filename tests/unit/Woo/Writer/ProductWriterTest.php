@@ -359,4 +359,25 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertInstanceOf( \WC_Product::class, $wc_product );
 		$this->assertSame( 'P', $wc_product->get_name() );
 	}
+
+	public function test_save_failure_bails_out_before_touching_variations(): void {
+		// 保存がDB障害等で0を返した場合、WCは例外を投げず黙って未設定のIDのまま返す。
+		// その状態でバリエーション同期を走らせると親ID 0の孤立バリエーションを作りかねない
+		// ため、ここで打ち切ることを確認する。
+		$blocker = static function ( $maybe_empty, $postarr ) {
+			return 'product' === ( $postarr['post_type'] ?? null ) ? true : $maybe_empty;
+		};
+		add_filter( 'wp_insert_post_empty_content', $blocker, 10, 2 );
+
+		try {
+			$product = new CanonicalProduct( 'P', 'SKU-14', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '14' ] );
+			$result  = $this->make_writer()->write( $product, null );
+		} finally {
+			remove_filter( 'wp_insert_post_empty_content', $blocker, 10 );
+		}
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::PRODUCT_SAVE_FAILED, $result->warnings );
+	}
 }

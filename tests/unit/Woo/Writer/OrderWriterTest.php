@@ -209,6 +209,34 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'no-qty' ), $result->warnings );
 	}
 
+	public function test_zero_or_negative_line_item_quantity_falls_back_to_one_with_warning(): void {
+		// 0以下の数量をそのまま`set_quantity()`に渡すと負/ゼロ数量の明細行になり、
+		// 注文の集計・返金計算が破綻しうるため、欠損時と同じフェイルクローズ扱いにする。
+		$order = $this->make_order(
+			'3014',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'negative-qty',
+					'name'                => 'Negative quantity',
+					'price'               => '100',
+					'unit_price_excl_tax' => '100',
+					'subtotal'            => '100',
+					'quantity'            => -1,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 1, (int) $items[0]->get_quantity() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'negative-qty' ), $result->warnings );
+	}
+
 	public function test_reduced_rate_tax_class_not_configured_falls_back_to_standard(): void {
 		// ProductWriterと同じ理由: 未設定のtax_classをそのまま`set_tax_class()`に渡すと
 		// `WC_Order_Item_Product`は`WC_Data_Exception`を投げる。WooCommerceは標準で

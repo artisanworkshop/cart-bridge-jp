@@ -66,6 +66,7 @@ final class WarningCode {
 	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
 	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
 	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
+	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
