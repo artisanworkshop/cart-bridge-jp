@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\Value;
@@ -148,19 +149,20 @@ final class TermWriter implements EntityWriter {
 	}
 
 	private function apply_extras( int $term_id, CanonicalCategory|CanonicalTag $item ): void {
-		$sort = Value::int( $item->extras['sort'] ?? null );
+		$extras = $item->extras;
+		$sort   = Value::int( $extras['sort'] ?? null );
 
 		if ( null !== $sort ) {
 			update_term_meta( $term_id, 'order', $sort );
 		}
 
-		$meta_tag = Value::array_or_null( $item->extras['meta_tag'] ?? null );
+		$meta_tag = Value::array_or_null( $extras['meta_tag'] ?? null );
 
 		if ( null !== $meta_tag ) {
 			update_term_meta( $term_id, '_cbjp_meta_tag', wp_json_encode( $meta_tag ) );
 		}
 
-		$image_url = Value::string( $item->extras['image_url'] ?? null );
+		$image_url = Value::string( $extras['image_url'] ?? null );
 
 		if ( null !== $image_url ) {
 			$attachment_id = $this->media->import( $image_url, 0 );
@@ -169,6 +171,19 @@ final class TermWriter implements EntityWriter {
 				update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
 			}
 		}
+
+		// 上で個別処理した既知キー（sort/meta_tag/image_url）・descriptionは`write()`で既に
+		// term自体の`description`列へ反映済み・remote_idは`_cbjp_remote_id`として別途書く。
+		// 残りはProductWriter/OrderWriter/CouponWriter/CustomerWriterと同じ汎用機構
+		// `ExtrasMeta::apply_via()`へ委ねる（アーキテクチャ原則1: 将来別ASPが異なるextras構成を
+		// 持ってもここでキーを個別ホワイトリスト管理せず、データ欠損を防ぐ）。
+		unset( $extras['sort'], $extras['meta_tag'], $extras['image_url'], $extras['description'], $extras['remote_id'] );
+
+		ExtrasMeta::apply_via(
+			static fn ( string $meta_key, mixed $value ) => update_term_meta( $term_id, $meta_key, $value ),
+			static fn ( string $meta_key ) => delete_term_meta( $term_id, $meta_key ),
+			$extras
+		);
 
 		update_term_meta( $term_id, '_cbjp_platform', $this->platform );
 		update_term_meta( $term_id, '_cbjp_remote_id', $item->remote_id() );

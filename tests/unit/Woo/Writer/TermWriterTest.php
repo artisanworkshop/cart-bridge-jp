@@ -43,6 +43,25 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( '3', get_term_meta( $result->local_id, 'order', true ) );
 	}
 
+	public function test_extras_not_on_the_hardcoded_whitelist_are_still_persisted(): void {
+		// sort/meta_tag/image_url以外のextrasキーを個別ホワイトリスト管理せず、
+		// ProductWriter/OrderWriter等と同じ`ExtrasMeta`経由で汎用的に保存されることを確認する
+		// （将来別ASPが異なるextras構成を持つ場合のデータ欠損を防ぐ）。
+		$category = new CanonicalCategory(
+			'100',
+			'Apparel',
+			null,
+			null,
+			[
+				'note' => '店舗独自メモ',
+			]
+		);
+
+		$result = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( '店舗独自メモ', get_term_meta( $result->local_id, '_cbjp_note', true ) );
+	}
+
 	public function test_updates_existing_term_by_mapping(): void {
 		$term_id  = wp_insert_term( 'Old name', 'product_cat' )['term_id'];
 		$category = new CanonicalCategory( '100', 'New name', null, null );
