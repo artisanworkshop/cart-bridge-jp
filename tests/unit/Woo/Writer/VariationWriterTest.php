@@ -229,6 +229,34 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertCount( 0, $product->get_children() );
 	}
 
+	public function test_negative_price_skips_variant_without_publishing_it(): void {
+		// 欠損時と同様、負の価格をそのまま`set_regular_price()`に渡すとマイナス価格の
+		// variationが公開されてしまう金銭的リスクがある。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$warnings = $writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '-100',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
+		$this->assertContains( 'variation_price_invalid:v1', $warnings );
+
+		$product = wc_get_product( $product_id );
+		$this->assertCount( 0, $product->get_children() );
+	}
+
 	public function test_stale_variation_mapping_falls_back_to_create(): void {
 		// mappingsが指すvariation投稿が手動削除等で既に存在しない場合を模擬する。
 		// `new WC_Product_Variation($id)`は`wc_get_product_object()`と異なり例外を投げず、

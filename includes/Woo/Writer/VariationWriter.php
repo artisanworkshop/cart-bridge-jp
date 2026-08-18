@@ -68,8 +68,8 @@ final class VariationWriter {
 
 			$price = Value::string( $variant['price'] ?? null );
 
-			if ( null === $price ) {
-				// 価格が解決できないvariantを楽観的に0円で公開すると、誰でも購入できる
+			if ( null === $price || ! is_numeric( $price ) || (float) $price < 0 ) {
+				// 価格が欠損・非数値・負の値のvariantを楽観的に0円等で公開すると、誰でも購入できる
 				// 無料のvariationを作ってしまう金銭的リスクがある（CLAUDE.md参照）ため、
 				// このvariantの作成/更新自体を見送りフェイルクローズする。
 				$incomplete_snapshot = true;

@@ -62,6 +62,12 @@ final class ProductWriter implements EntityWriter {
 		$has_variants = [] !== $item->variants;
 		$type         = $has_variants ? 'variable' : 'simple';
 
+		// stale-IDフォールバックで`$existing_local_id`がnullに戻される前の元の値を保持する。
+		// 親post自体は手動削除等で無くなっていても、`wp_delete_post()`を経由しない削除
+		// （直接DB操作・別プラグイン等）ではWooCommerceが子variation投稿を自動カスケード
+		// 削除しない場合があり、旧IDに紐づく孤立variationが残りうるため、その掃除に使う。
+		$original_existing_local_id = $existing_local_id;
+
 		try {
 			$product = wc_get_product_object( $type, $existing_local_id ?? 0 );
 		} catch ( Throwable ) {
@@ -89,11 +95,24 @@ final class ProductWriter implements EntityWriter {
 		// バリエーションありの商品は価格・在庫を各variationが持つため親には設定しない
 		// （WC_Product_Variable::sync()が子の価格レンジ・在庫状態から親を再計算する）。
 		if ( ! $has_variants ) {
-			$sale_price = $this->resolve_sale_price( $item->price, $item->sale_price );
+			if ( is_numeric( $item->price ) && (float) $item->price >= 0 ) {
+				[ $sale_price, $sale_price_warning ] = $this->resolve_sale_price( $item->price, $item->sale_price );
 
-			$product->set_regular_price( $item->price );
-			$product->set_sale_price( $sale_price ?? '' );
-			$product->set_price( $sale_price ?? $item->price );
+				if ( null !== $sale_price_warning ) {
+					$warnings[] = $sale_price_warning;
+				}
+
+				$product->set_regular_price( $item->price );
+				$product->set_sale_price( $sale_price ?? '' );
+				$product->set_price( $sale_price ?? $item->price );
+			} else {
+				// 非数値・負の価格をそのまま`set_regular_price()`に渡すと、`wc_format_decimal()`は
+				// 符号を検証しないため不正な価格のまま公開されてしまう（無料/マイナス価格の
+				// 金銭的リスク）。価格を設定せず（Wooの規約上、価格未設定の商品は購入不可になる）
+				// 警告を積む。他フィールドは通常どおり反映し、商品自体の作成/更新は継続する。
+				$warnings[] = WarningCode::with_detail( WarningCode::PRODUCT_PRICE_INVALID, $item->price );
+			}
+
 			StockApplier::apply( $product, $item->stock );
 		}
 
@@ -136,8 +155,11 @@ final class ProductWriter implements EntityWriter {
 		// variable→simpleへの型変更は`$product->save()`の中でWooCommerce自身が子variationの
 		// 投稿を強制削除する（`WC_Post_Data::product_type_changed()`）。保存後に検索しても
 		// 対象は既に消えているため、`cbjp_mappings`の掃除に必要な情報を保存前に確定させる。
-		$stale_variations = ( ! $has_variants && null !== $existing_local_id )
-			? $this->variations->find_owned_variation_remote_ids( $existing_local_id )
+		// `$existing_local_id`ではなく`$original_existing_local_id`を使う: stale-ID
+		// フォールバックが発生した場合（親post自体が既に無い）でも、その旧IDに紐づく
+		// 孤立variationの掃除は引き続き必要なため。
+		$stale_variations = ( ! $has_variants && null !== $original_existing_local_id )
+			? $this->variations->find_owned_variation_remote_ids( $original_existing_local_id )
 			: [];
 
 		$product_id = $product->save();
@@ -186,17 +208,21 @@ final class ProductWriter implements EntityWriter {
 	 * （非数値・0以下・通常価格以上）をそのまま適用すると誤って割引が効いてしまう金銭的
 	 * リスクがあるため、数値かつ0より大きくかつ通常価格未満の場合のみ採用し、それ以外は
 	 * 「セールなし」として扱う（WooCommerce自身のREST/管理画面バリデーションと同じ振る舞い）。
+	 * 値が存在するのに拒否した場合は、他の同種のフェイルクローズ分岐（tax_class・SKU・
+	 * カテゴリ/タグ参照等）と同じく警告を積み、結果レポートから追跡できるようにする。
+	 *
+	 * @return array{0:?string,1:?string} 採用するセール価格（無い場合null）と警告（無い場合null）。
 	 */
-	private function resolve_sale_price( string $regular_price, ?string $sale_price ): ?string {
+	private function resolve_sale_price( string $regular_price, ?string $sale_price ): array {
 		if ( null === $sale_price || '' === $sale_price ) {
-			return null;
+			return [ null, null ];
 		}
 
 		if ( ! is_numeric( $sale_price ) || ! is_numeric( $regular_price ) || (float) $sale_price <= 0 || (float) $sale_price >= (float) $regular_price ) {
-			return null;
+			return [ null, WarningCode::with_detail( WarningCode::SALE_PRICE_INVALID, $sale_price ) ];
 		}
 
-		return $sale_price;
+		return [ $sale_price, null ];
 	}
 
 	/**

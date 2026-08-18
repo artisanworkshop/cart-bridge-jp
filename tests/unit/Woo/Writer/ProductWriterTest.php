@@ -15,6 +15,7 @@ use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\ProductWriter;
 use CartBridgeJP\Woo\Writer\VariationWriter;
 use WC_Product_Variable;
+use WC_Product_Variation;
 
 final class ProductWriterTest extends WooTestCase {
 
@@ -410,6 +411,51 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( '1000', $wc_product->get_price() );
 	}
 
+	public function test_negative_sale_price_is_rejected_with_warning(): void {
+		// 拒否された値が存在したこと自体が結果レポートから追跡できるよう、警告が
+		// 積まれることを確認する（他の同種フェイルクローズ分岐と同じ規約）。
+		$product = new CanonicalProduct( 'P', 'SKU-18', '1000', '-10', null, [], [], [], [], null, 'publish', [ 'remote_id' => '18' ] );
+
+		$result = $this->make_writer()->write( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::SALE_PRICE_INVALID, '-10' ), $result->warnings );
+	}
+
+	public function test_negative_regular_price_is_not_applied(): void {
+		// `wc_format_decimal()`は符号を検証しないため、負の価格をそのまま`set_regular_price()`
+		// に渡すとマイナス価格の商品が公開されてしまう金銭的リスクがある。
+		$product = new CanonicalProduct( 'P', 'SKU-19', '-100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '19' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '', $wc_product->get_regular_price() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PRODUCT_PRICE_INVALID, '-100' ), $result->warnings );
+	}
+
+	public function test_non_numeric_regular_price_is_not_applied(): void {
+		$product = new CanonicalProduct( 'P', 'SKU-20', 'not-a-price', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '20' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '', $wc_product->get_regular_price() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PRODUCT_PRICE_INVALID, 'not-a-price' ), $result->warnings );
+	}
+
+	public function test_zero_regular_price_is_accepted_as_a_free_product(): void {
+		// 0は正規の無料商品として許可する（拒否対象は非数値・負の値のみ）。
+		$product = new CanonicalProduct( 'P', 'SKU-21', '0', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '21' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '0', $wc_product->get_regular_price() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::PRODUCT_PRICE_INVALID ) )
+		);
+	}
+
 	public function test_stale_existing_local_id_falls_back_to_create(): void {
 		// mappingsが指す商品IDが手動削除等で既に存在しない場合を模擬する
 		// （実在しない商品IDを直接existing_local_idとして渡す）。
@@ -423,6 +469,34 @@ final class ProductWriterTest extends WooTestCase {
 		$wc_product = wc_get_product( $result->local_id );
 		$this->assertInstanceOf( \WC_Product::class, $wc_product );
 		$this->assertSame( 'P', $wc_product->get_name() );
+	}
+
+	public function test_stale_id_fallback_cleans_up_orphaned_variations_of_the_old_product(): void {
+		// 親商品IDが手動削除等で既に存在しない場合でも、その旧IDに紐づいたまま残っていた
+		// 孤立variationが掃除されることを確認する。`wp_delete_post()`経由の削除は
+		// WooCommerceが子variationを自動カスケード削除するため、それを経由しない削除
+		// （直接DB操作・別プラグイン等）を`$wpdb->delete()`で模擬する。
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Old parent' );
+		$parent_id = $parent->save();
+
+		$orphaned_variation = new WC_Product_Variation();
+		$orphaned_variation->set_parent_id( $parent_id );
+		$orphaned_variation->update_meta_data( '_cbjp_platform', 'colorme' );
+		$orphaned_variation->update_meta_data( '_cbjp_remote_id', 'v1' );
+		$variation_id = $orphaned_variation->save();
+		$this->seed_mapping( 'colorme', 'variant', 'v1', $variation_id );
+
+		global $wpdb;
+		$wpdb->delete( $wpdb->posts, [ 'ID' => $parent_id ] );
+		clean_post_cache( $parent_id );
+
+		$product = new CanonicalProduct( 'P', 'SKU-23', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '23' ] );
+		$result  = $this->make_writer()->write( $product, $parent_id );
+
+		$this->assertNotSame( $parent_id, $result->local_id );
+		$this->assertNull( get_post( $variation_id ) );
+		$this->assertNull( $this->mappings->find_local_id( 'colorme', 'variant', 'v1' ) );
 	}
 
 	public function test_save_failure_bails_out_before_touching_variations(): void {
