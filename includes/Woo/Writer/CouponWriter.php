@@ -112,6 +112,16 @@ final class CouponWriter implements EntityWriter {
 
 		$coupon_id = $coupon->save();
 
+		if ( 0 === $coupon_id ) {
+			// 他writer（Product/Variation/Term/Customer/Order）と同じ「保存失敗を無警告で
+			// 通さない」方針。無警告のまま`WriteResult(0, CREATED, [])`を返すと、totals集計上は
+			// skippedへ正規化される（`Importer`参照）ものの、結果レポートから欠落理由が
+			// 分からなくなる。
+			$warnings[] = WarningCode::COUPON_SAVE_FAILED;
+
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+		}
+
 		return new WriteResult( $coupon_id, $operation, $warnings );
 	}
 
