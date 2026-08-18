@@ -19,6 +19,7 @@ use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use WP_Error;
+use WP_Term;
 
 /**
  * `CanonicalCategory`（taxonomy: `product_cat`）/ `CanonicalTag`（taxonomy: `product_tag`）共用。
@@ -48,7 +49,11 @@ final class TermWriter implements EntityWriter {
 		if ( $item instanceof CanonicalCategory && null !== $item->parent_id ) {
 			$resolved = $this->mappings->find_local_id( $this->platform, 'category', $item->parent_id );
 
-			if ( null === $resolved ) {
+			// mappingsが指す親タームが手動削除等で既に存在しない場合も未解決として扱う
+			// （`ProductWriter::resolve_refs()`の同種のstale-mapping対応と同じ方針。
+			// 存在しないterm IDをそのまま`wp_insert_term()`/`wp_update_term()`の'parent'に
+			// 渡すと、宙に浮いた親参照を持つカテゴリを無警告で作ってしまう）。
+			if ( null === $resolved || ! get_term( $resolved, 'product_cat' ) instanceof WP_Term ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::CATEGORY_PARENT_UNRESOLVED, $item->parent_id );
 			} else {
 				$parent_id = $resolved;

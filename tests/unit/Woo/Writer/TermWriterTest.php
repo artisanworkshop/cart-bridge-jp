@@ -96,6 +96,20 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 0, $term->parent );
 	}
 
+	public function test_stale_parent_mapping_is_treated_as_unresolved(): void {
+		// mappingsが指す親タームが手動削除等で既に存在しない場合を模擬する
+		// （`ProductWriter::resolve_refs()`の同種のstale-mapping対応と同じ方針）。
+		$this->seed_mapping( 'colorme', 'category', '999', 424242 );
+
+		$child  = new CanonicalCategory( '100-1', 'Child', '999', null );
+		$result = $this->make_writer()->write( $child, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::CATEGORY_PARENT_UNRESOLVED, '999' ), $result->warnings );
+
+		$term = get_term( $result->local_id, 'product_cat' );
+		$this->assertSame( 0, $term->parent );
+	}
+
 	public function test_reuses_existing_term_on_name_conflict_when_platform_matches(): void {
 		$existing_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
 		update_term_meta( $existing_id, '_cbjp_platform', 'colorme' );
