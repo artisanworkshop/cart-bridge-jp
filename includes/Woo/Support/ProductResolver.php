@@ -62,13 +62,9 @@ final class ProductResolver {
 	}
 
 	private function as_orderable_product( int $id ): ?WC_Product {
-		$product = wc_get_product( $id );
+		$product = $this->as_product( $id );
 
-		if ( ! $product instanceof WC_Product || $product instanceof WC_Product_Variable ) {
-			return null;
-		}
-
-		return $product;
+		return null !== $product && ! $product instanceof WC_Product_Variable ? $product : null;
 	}
 
 	/**
