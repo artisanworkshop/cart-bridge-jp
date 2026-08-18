@@ -50,6 +50,28 @@ final class StockWriterTest extends WooTestCase {
 		$this->assertSame( 'instock', $updated->get_stock_status() );
 	}
 
+	public function test_managed_stock_with_positive_quantity_but_explicit_out_of_stock_flag(): void {
+		// `CanonicalStock`はquantityとin_stockを独立フィールドとして持つ。ASP側が
+		// 「数量は残っているが個別事情で取り扱い停止」等の理由でin_stock=falseを明示した
+		// 場合、quantity>0だけでinstock扱いにすると販売してはいけない商品を売ってしまう。
+		// `WC_Product::validate_props()`が在庫管理オンの間stock_statusをstock_quantityから
+		// 必ず再計算するため、単純にstock_statusをoutofstockにするだけでは`save()`後に
+		// instockへ戻ってしまう。数量自体を0にすることで再計算後もoutofstockが維持される
+		// ことを確認する。
+		$product = new WC_Product_Simple();
+		$product->set_name( 'P' );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$stock = new CanonicalStock( '1', null, null, 7, false );
+		$this->make_writer()->write( $stock, $product_id );
+
+		$updated = wc_get_product( $product_id );
+		$this->assertTrue( $updated->get_manage_stock() );
+		$this->assertSame( 0, $updated->get_stock_quantity() );
+		$this->assertSame( 'outofstock', $updated->get_stock_status() );
+	}
+
 	public function test_unmanaged_stock_sets_status_only(): void {
 		$product = new WC_Product_Simple();
 		$product->set_name( 'P' );
