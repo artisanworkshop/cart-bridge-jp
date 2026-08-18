@@ -187,6 +187,30 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 'old@example.com', $user->user_email );
 	}
 
+	public function test_shipping_phone_is_written_from_billing_phone(): void {
+		// WCの配送先メタには`shipping_phone`が実在するフィールドとして存在する
+		// （配送ラベル・チェックアウト自動入力等が参照する）。email除外のついでに
+		// phoneまで除外していた不具合の回帰テスト。
+		$customer = new CanonicalCustomer(
+			'phone@example.com',
+			'Taro Yamada',
+			null,
+			null,
+			null,
+			[],
+			'03-1234-5678',
+			null,
+			null,
+			null,
+			[ 'remote_id' => '20' ]
+		);
+
+		$result = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( '03-1234-5678', get_user_meta( $result->local_id, 'billing_phone', true ) );
+		$this->assertSame( '03-1234-5678', get_user_meta( $result->local_id, 'shipping_phone', true ) );
+	}
+
 	public function test_overseas_address_warns_and_leaves_state_empty(): void {
 		$customer = new CanonicalCustomer(
 			'overseas@example.com',

@@ -160,7 +160,10 @@ final class CustomerWriter implements EntityWriter {
 			update_user_meta( $user_id, "billing_{$key}", $value );
 		}
 
-		unset( $billing['email'], $billing['phone'] );
+		// WCの配送先メタに`shipping_email`は存在しないため除外するが、`shipping_phone`は
+		// 実在する項目（配送ラベル・チェックアウト自動入力等が参照する）のため、
+		// 請求先と同じ電話番号をそのまま反映する。
+		unset( $billing['email'] );
 
 		foreach ( $billing as $key => $value ) {
 			update_user_meta( $user_id, "shipping_{$key}", $value );
