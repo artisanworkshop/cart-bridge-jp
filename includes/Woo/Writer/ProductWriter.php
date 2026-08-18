@@ -103,7 +103,7 @@ final class ProductWriter implements EntityWriter {
 		}
 
 		if ( null !== $item->weight ) {
-			$product->set_weight( (string) wc_get_weight( $item->weight, WeightUnit::resolve(), 'g' ) );
+			$product->set_weight( WeightUnit::convert_from_grams( $item->weight ) );
 		}
 
 		$warnings = array_merge( $warnings, $this->apply_tax_class( $product, $item->tax_class ) );
@@ -291,6 +291,15 @@ final class ProductWriter implements EntityWriter {
 	}
 
 	/**
+	 * 戻り値のキーは元のoption1/2スロット番号（0=option1, 1=option2）をそのまま保持する
+	 * （`array_values()`で詰め直さない）。`VariationWriter::variation_attributes()`は
+	 * `isset($axis_names[0])`/`isset($axis_names[1])`でスロット番号として直接参照するため、
+	 * ここでキーを0始まりに詰め直すと、option1_nameが全variantでnullかつoption2_nameのみ
+	 * 存在する商品（ColorMeのoption1/option2は独立フィールドで構造的にありうる）で
+	 * axis2がキー0に繰り上がり、`axis_values()`/`variation_attributes()`が誤って
+	 * option1_valueを読んでしまう（値が空またはoption1のものになり、variationが
+	 * ストア上で区別できなくなる）。
+	 *
 	 * @param array<int,array<string,mixed>> $variants
 	 * @return array<int,string>
 	 */
@@ -303,7 +312,7 @@ final class ProductWriter implements EntityWriter {
 			$axis2 = $axis2 ?? Value::string( $variant['option2_name'] ?? null );
 		}
 
-		return array_values( array_filter( [ $axis1, $axis2 ], static fn ( ?string $name ): bool => null !== $name ) );
+		return array_filter( [ $axis1, $axis2 ], static fn ( ?string $name ): bool => null !== $name );
 	}
 
 	/**

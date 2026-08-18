@@ -181,6 +181,59 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( 5, $variation->get_stock_quantity() );
 	}
 
+	public function test_variable_product_with_only_option2_populated_uses_option2_value(): void {
+		// ColorMeのoption1/option2は独立フィールドで、全variantでoption1_nameがnullかつ
+		// option2_nameのみ存在するケースが構造的にありうる。`variation_axis_names()`が
+		// null軸を`array_values()`で詰め直すと、option2がキー0へ繰り上がり、
+		// `axis_values()`/`VariationWriter::variation_attributes()`が誤ってoption1_value
+		// （常にnull）を読んでしまい、variationが区別できなくなる不具合を防ぐ回帰テスト。
+		$product = new CanonicalProduct(
+			'Mug',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'MUG-RED',
+					'option1_name'  => null,
+					'option1_value' => null,
+					'option2_name'  => 'Color',
+					'option2_value' => 'Red',
+					'price'         => '1500',
+					'stock'         => 4,
+				],
+				[
+					'remote_id'     => 'v2',
+					'sku'           => 'MUG-BLUE',
+					'option1_name'  => null,
+					'option1_value' => null,
+					'option2_name'  => 'Color',
+					'option2_value' => 'Blue',
+					'price'         => '1500',
+					'stock'         => 2,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '15' ]
+		);
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+		$this->assertInstanceOf( WC_Product_Variable::class, $wc_product );
+
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$variation    = wc_get_product( $variation_id );
+
+		$attributes = $variation->get_attributes();
+		$this->assertSame( [ 'color' => 'Red' ], $attributes );
+	}
+
 	public function test_simple_to_variable_type_change_preserves_id(): void {
 		$simple = new CanonicalProduct( 'P', 'SKU-8', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '8' ] );
 		$first  = $this->make_writer()->write( $simple, null );

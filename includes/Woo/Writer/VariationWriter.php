@@ -132,7 +132,7 @@ final class VariationWriter {
 		$weight = Value::int( $variant['weight'] ?? null );
 
 		if ( null !== $weight ) {
-			$variation->set_weight( (string) wc_get_weight( $weight, WeightUnit::resolve(), 'g' ) );
+			$variation->set_weight( WeightUnit::convert_from_grams( $weight ) );
 		}
 
 		$warnings = array_merge( $warnings, SkuGuard::apply( $variation, Value::string( $variant['sku'] ?? null ) ) );

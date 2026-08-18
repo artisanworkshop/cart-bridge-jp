@@ -23,4 +23,13 @@ final class WeightUnit {
 
 		return is_string( $unit ) && '' !== $unit ? $unit : 'kg';
 	}
+
+	/**
+	 * `CanonicalProduct::weight`/`variant['weight']`はグラム単位。`WC_Product::set_weight()`は
+	 * ストア設定単位の文字列を期待するため、`Writer\ProductWriter`（商品）・
+	 * `Writer\VariationWriter`（バリエーション）の両方で必要な変換をここに集約する。
+	 */
+	public static function convert_from_grams( int $grams ): string {
+		return (string) wc_get_weight( $grams, self::resolve(), 'g' );
+	}
 }
