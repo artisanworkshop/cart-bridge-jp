@@ -63,7 +63,10 @@ final class OrderWriter implements EntityWriter {
 		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 
 		try {
-			// 再実行時は明細を作り直す（冪等）。
+			// 再実行時は明細を作り直す（冪等）。`remove_order_items()`はDBを即座には変更せず、
+			// 内部フラグを立てて実際の削除を`save()`まで遅延させる仕様
+			// （`WC_Abstract_Order::remove_order_items()`のコード内コメント参照）。そのため
+			// この後の処理で例外が起きても`save()`に到達しない限りDB上の既存明細は無傷のまま残る。
 			$order->remove_order_items();
 
 			$warnings = $this->add_line_items( $order, $item->line_items );
