@@ -18,8 +18,8 @@ use WC_Product_Variable;
 
 final class ProductWriterTest extends WooTestCase {
 
-	private function make_writer(): ProductWriter {
-		return new ProductWriter( 'colorme', $this->mappings, new VariationWriter( 'colorme', $this->mappings ), new MediaImporter() );
+	private function make_writer( string $platform = 'colorme' ): ProductWriter {
+		return new ProductWriter( $platform, $this->mappings, new VariationWriter( $platform, $this->mappings ), new MediaImporter() );
 	}
 
 	public function test_creates_simple_product_with_core_fields(): void {
@@ -398,6 +398,18 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( '1000', $wc_product->get_price() );
 	}
 
+	public function test_negative_sale_price_is_ignored(): void {
+		// 負のセール価格は「非数値」「通常価格以上」いずれの既存ガードにも掛からず
+		// すり抜けてしまっていた（-10 < 1000 は真のため）。0以下も無効値として扱う。
+		$product = new CanonicalProduct( 'P', 'SKU-16', '1000', '-10', null, [], [], [], [], null, 'publish', [ 'remote_id' => '16' ] );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertSame( '', $wc_product->get_sale_price() );
+		$this->assertSame( '1000', $wc_product->get_price() );
+	}
+
 	public function test_stale_existing_local_id_falls_back_to_create(): void {
 		// mappingsが指す商品IDが手動削除等で既に存在しない場合を模擬する
 		// （実在しない商品IDを直接existing_local_idとして渡す）。
@@ -432,5 +444,73 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertContains( WarningCode::PRODUCT_SAVE_FAILED, $result->warnings );
+	}
+
+	public function test_gallery_images_from_another_platform_are_preserved(): void {
+		// D16のリンク再構築ツール等で複数プラットフォームが同一Woo商品を共有しうる。
+		// `_cbjp_source_url`の有無だけでギャラリー保持を判定すると、別プラットフォームが
+		// 過去に取り込んだ画像も「このwriterが取り込んだもの」と誤認され、今回のASP側
+		// 画像リストに無いという理由で消されてしまう。プラットフォームでスコープして
+		// 他プラットフォームの画像は残ることを確認する。
+		$this->stub_image_http();
+
+		$colorme_product = new CanonicalProduct(
+			'P',
+			'SKU-17',
+			'100',
+			null,
+			null,
+			[
+				[
+					'src'      => 'https://example.test/colorme-main.png',
+					'position' => 0,
+				],
+				[
+					'src'      => 'https://example.test/colorme-gallery.png',
+					'position' => 1,
+				],
+			],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '17' ]
+		);
+		$first           = $this->make_writer( 'colorme' )->write( $colorme_product, null );
+
+		$preserved_id = $this->find_attachment_by_source_url( 'https://example.test/colorme-gallery.png' );
+		$this->assertGreaterThan( 0, $preserved_id );
+
+		$makeshop_product = new CanonicalProduct(
+			'P',
+			'SKU-17-mk',
+			'100',
+			null,
+			null,
+			[
+				[
+					'src'      => 'https://example.test/makeshop-main.png',
+					'position' => 0,
+				],
+			],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '17-mk' ]
+		);
+		$this->make_writer( 'makeshop' )->write( $makeshop_product, $first->local_id );
+
+		$wc_product = wc_get_product( $first->local_id );
+		$this->assertContains( $preserved_id, $wc_product->get_gallery_image_ids() );
+	}
+
+	private function find_attachment_by_source_url( string $url ): int {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テスト専用ヘルパー。テーブル名のみの埋め込みで値はプレースホルダー経由。
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_cbjp_source_url' AND meta_value = %s LIMIT 1", $url ) );
 	}
 }

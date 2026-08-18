@@ -13,6 +13,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MediaImporter;
+use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SkuGuard;
 use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\Support\TaxClass;
@@ -182,16 +183,16 @@ final class ProductWriter implements EntityWriter {
 	/**
 	 * `set_sale_price('')`を無条件に呼ぶ従来実装では`CanonicalProduct::$sale_price`が
 	 * 一切参照されず、値があっても常に破棄されていた。セール価格として不正な値
-	 * （非数値・通常価格以上）をそのまま適用すると誤って割引が効いてしまう金銭的リスクが
-	 * あるため、数値かつ通常価格未満の場合のみ採用し、それ以外は「セールなし」として扱う
-	 * （WooCommerce自身のREST/管理画面バリデーションと同じ振る舞い）。
+	 * （非数値・0以下・通常価格以上）をそのまま適用すると誤って割引が効いてしまう金銭的
+	 * リスクがあるため、数値かつ0より大きくかつ通常価格未満の場合のみ採用し、それ以外は
+	 * 「セールなし」として扱う（WooCommerce自身のREST/管理画面バリデーションと同じ振る舞い）。
 	 */
 	private function resolve_sale_price( string $regular_price, ?string $sale_price ): ?string {
 		if ( null === $sale_price || '' === $sale_price ) {
 			return null;
 		}
 
-		if ( ! is_numeric( $sale_price ) || ! is_numeric( $regular_price ) || (float) $sale_price >= (float) $regular_price ) {
+		if ( ! is_numeric( $sale_price ) || ! is_numeric( $regular_price ) || (float) $sale_price <= 0 || (float) $sale_price >= (float) $regular_price ) {
 			return null;
 		}
 
@@ -375,6 +376,9 @@ final class ProductWriter implements EntityWriter {
 				continue;
 			}
 
+			// D16のリンク再構築ツール等で複数プラットフォームが同一Woo商品を共有しうるため、
+			// どのプラットフォームが取り込んだ添付かをここでタグ付けする（ギャラリー保持判定で使う）。
+			update_post_meta( $attachment_id, '_cbjp_platform', $this->platform );
 			$attachment_ids[] = $attachment_id;
 		}
 
@@ -382,12 +386,16 @@ final class ProductWriter implements EntityWriter {
 			return $warnings;
 		}
 
-		// メイン画像はASP側の値を常に反映する。ギャラリーはこちらが過去に取り込んだ添付
-		// （`_cbjp_source_url`メタあり）だけを差し替え、ユーザーが手動で追加した画像は残す。
+		// メイン画像はASP側の値を常に反映する。ギャラリーは「このプラットフォームが過去に
+		// 取り込んだ添付」（`_cbjp_source_url`あり かつ `_cbjp_platform`が自分自身）だけを
+		// 差し替え、ユーザーが手動で追加した画像・別プラットフォームが取り込んだ画像は残す
+		// （`_cbjp_source_url`の有無だけで判定すると、複数プラットフォームが同一商品を共有する
+		// 場合に他プラットフォームのギャラリーを消してしまう）。
 		$preserved_gallery = array_values(
 			array_filter(
 				$product->get_gallery_image_ids(),
-				static fn ( int $attachment_id ): bool => '' === get_post_meta( $attachment_id, '_cbjp_source_url', true )
+				fn ( int $attachment_id ): bool => '' === get_post_meta( $attachment_id, '_cbjp_source_url', true )
+					|| ! PlatformOwnership::owns_post( $attachment_id, $this->platform )
 			)
 		);
 
