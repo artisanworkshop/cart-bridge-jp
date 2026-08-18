@@ -439,6 +439,48 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
 	}
 
+	public function test_date_paid_is_cleared_when_paid_flag_reverts_to_false(): void {
+		// 更新のみで削除しないと、再実行時に返金・注文取消等でASP側のpaidフラグが
+		// falseへ戻っても古いdate_paidが残り続け、WooCommerce側の会計・エクスポートで
+		// 支払済みのまま扱われてしまう。
+		$paid  = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[ 'paid' => true ]
+		);
+		$first = $this->make_writer()->write( $paid, null );
+		$this->assertNotNull( wc_get_order( $first->local_id )->get_date_paid() );
+
+		$unpaid = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[ 'paid' => false ]
+		);
+		$this->make_writer()->write( $unpaid, $first->local_id );
+
+		$this->assertNull( wc_get_order( $first->local_id )->get_date_paid() );
+	}
+
 	/**
 	 * @dataProvider status_provider
 	 */

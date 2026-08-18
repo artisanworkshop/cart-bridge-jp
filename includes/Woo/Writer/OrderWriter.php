@@ -333,9 +333,11 @@ final class OrderWriter implements EntityWriter {
 	private function apply_dates( WC_Order $order, CanonicalOrder $item ): void {
 		$order->set_date_created( $item->placed_at );
 
-		if ( true === Value::bool( $item->extras['paid'] ?? null ) ) {
-			$order->set_date_paid( $item->placed_at );
-		}
+		// falseに反転した場合もdate_paidを消す（更新のみで削除しないと、再実行時に
+		// 返金・注文取消等でASP側のpaidフラグが取り消されても、古いdate_paidが残り続け
+		// WooCommerce側の会計・エクスポートで支払済みのまま扱われてしまう。discount_point等の
+		// 他フィールドで既に適用している「nullで削除」と同じ方針）。
+		$order->set_date_paid( true === Value::bool( $item->extras['paid'] ?? null ) ? $item->placed_at : null );
 	}
 
 	/**
