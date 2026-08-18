@@ -30,6 +30,8 @@ final class WarningCode {
 	public const VARIATION_REMOVED             = 'variation_removed';
 	public const VARIATION_PRICE_INVALID       = 'variation_price_invalid';
 	public const VARIATION_SNAPSHOT_INCOMPLETE = 'variation_snapshot_incomplete';
+	public const PRODUCT_PRICE_INVALID         = 'product_price_invalid';
+	public const SALE_PRICE_INVALID            = 'sale_price_invalid';
 
 	public const CATEGORY_PARENT_UNRESOLVED = 'category_parent_unresolved';
 	public const CATEGORY_REF_UNRESOLVED    = 'category_ref_unresolved';
@@ -57,6 +59,7 @@ final class WarningCode {
 	public const ORDER_TAX_TOTAL_INCOMPLETE    = 'order_tax_total_incomplete';
 	public const ORDER_CREATE_FAILED           = 'order_create_failed';
 	public const ORDER_LINE_TAX_INCONSISTENT   = 'order_line_tax_inconsistent';
+	public const ORDER_TOTALS_INVALID          = 'order_totals_invalid';
 
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
@@ -67,6 +70,7 @@ final class WarningCode {
 	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
 	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
 	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
+	public const COUPON_SAVE_FAILED             = 'coupon_save_failed';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
