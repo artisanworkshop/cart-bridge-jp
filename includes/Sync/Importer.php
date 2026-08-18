@@ -215,7 +215,11 @@ final class Importer {
 			// local_id 0 は「ローカル実体を作成/更新できなかった」ことを表す契約
 			// （例: stockの対象商品がまだ未インポート）。checksumを保存すると次回実行時の
 			// checksum一致スキップに掛かり永久に再試行できなくなるため、mappingsを書かない。
-			if ( ! $is_dry_run && 0 !== $result->local_id ) {
+			// dry-runは`DryRunReporter`が仕様として常にlocal_id=0でcreated/updatedを返す
+			// （何も永続化しないため）ため、この判定の対象外にする。
+			$did_persist = ! $is_dry_run && 0 !== $result->local_id;
+
+			if ( $did_persist ) {
 				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
 			} elseif ( $consumed_quota_slot ) {
 				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した
@@ -228,10 +232,10 @@ final class Importer {
 			// 表現できない）ため、ここで防御的に正規化する。将来のwriter実装や
 			// `cbjp/adapters/register`経由の外部アダプタがlocal_id=0のままcreated/updatedを
 			// 返す契約違反を犯しても、totals集計（結果レポート）上は実態どおりskipped扱いになる。
-			// ただしdry-runは`DryRunReporter`が仕様として常にlocal_id=0でcreated/updatedを返す
-			// （何も永続化しないため）ため、この正規化の対象外にする。対象にするとdry-run結果
-			// レポートの新規/更新件数が常に0になってしまう。
-			$operation = ( ! $is_dry_run && 0 === $result->local_id ) ? WriteResult::OPERATION_SKIPPED : $result->operation;
+			// dry-runでは`$did_persist`が常にfalseになるため、`! $is_dry_run`を別途チェックして
+			// dry-run結果レポートの新規/更新件数が常に0件になることを防ぐ
+			// （対象にすると常に0件表示になってしまう）。
+			$operation = ( ! $is_dry_run && ! $did_persist ) ? WriteResult::OPERATION_SKIPPED : $result->operation;
 
 			++$totals[ $operation ];
 
