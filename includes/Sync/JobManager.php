@@ -266,7 +266,7 @@ final class JobManager {
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false );
+			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, (int) $job['id'] );
 
 			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
 			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
@@ -275,7 +275,7 @@ final class JobManager {
 		if ( 'stock' === $entity && $sampling_active ) {
 			// §10.2 #4: 在庫の全量走査はレート制限を浪費するため、サンプル商品のID指定取得から導出する。
 			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false );
+			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'] );
 
 			return [ array_merge( $result['totals'], [ 'total' => count( $sample->product_remote_ids ) ] ), null ];
 		}
@@ -286,7 +286,7 @@ final class JobManager {
 			: null;
 		$limit_policy = $is_dry_run ? null : $this->limits;
 
-		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample );
+		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample, (int) $job['id'] );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {

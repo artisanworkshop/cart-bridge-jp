@@ -47,11 +47,12 @@ final class Importer {
 		Cursor $cursor,
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy = null,
-		?SampleSet $sample = null
+		?SampleSet $sample = null,
+		?int $job_id = null
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample );
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample, $job_id );
 
 		return [
 			'next_cursor' => $next_cursor,
@@ -67,7 +68,7 @@ final class Importer {
 	 * @param array<int,string> $remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run ): array {
+	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $remote_ids as $remote_id ) {
@@ -82,7 +83,7 @@ final class Importer {
 			}
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null, $job_id ) ];
 	}
 
 	/**
@@ -92,7 +93,7 @@ final class Importer {
 	 * @param array<int,string> $product_remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run ): array {
+	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $product_remote_ids as $remote_id ) {
@@ -111,7 +112,7 @@ final class Importer {
 			);
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ) ];
 	}
 
 	/**
@@ -125,7 +126,8 @@ final class Importer {
 		array $items,
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy,
-		?SampleSet $sample
+		?SampleSet $sample,
+		?int $job_id = null
 	): array {
 		$totals = [
 			'processed' => 0,
@@ -203,7 +205,8 @@ final class Importer {
 					[
 						'remote_id' => $remote_id,
 						'exception' => $exception::class,
-					]
+					],
+					$job_id
 				);
 
 				continue;
