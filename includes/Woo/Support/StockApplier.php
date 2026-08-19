@@ -43,8 +43,13 @@ final class StockApplier {
 			return;
 		}
 
+		// 負の数量は物理的にありえない不正データ（`wc_stock_amount()`は符号を検証しないため
+		// そのまま渡すとマイナス在庫としてwp-admin/REST APIにそのまま公開されてしまう）。
+		// フェイルクローズで0（在庫切れ）へ丸める。
+		$safe_quantity = max( 0, $quantity );
+
 		$target->set_manage_stock( true );
-		$target->set_stock_quantity( $in_stock ? $quantity : 0 );
-		$target->set_stock_status( $quantity > 0 && $in_stock ? 'instock' : 'outofstock' );
+		$target->set_stock_quantity( $in_stock ? $safe_quantity : 0 );
+		$target->set_stock_status( $safe_quantity > 0 && $in_stock ? 'instock' : 'outofstock' );
 	}
 }
