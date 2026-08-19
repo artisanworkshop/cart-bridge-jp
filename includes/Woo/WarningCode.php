@@ -68,6 +68,7 @@ final class WarningCode {
 	public const COUPON_GROUP_LIMIT_UNSUPPORTED = 'coupon_group_limit_unsupported';
 	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
 	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
+	public const COUPON_AMOUNT_INVALID          = 'coupon_amount_invalid';
 	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
 	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
 	public const COUPON_SAVE_FAILED             = 'coupon_save_failed';

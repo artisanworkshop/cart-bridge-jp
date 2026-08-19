@@ -50,6 +50,16 @@ final class CouponWriter implements EntityWriter {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_TYPE_UNKNOWN, $item->type ) ] );
 		}
 
+		// `WC_Coupon::set_amount()`自身が負値・percent型で100超の場合に`WC_Data_Exception`を
+		// 投げるため実際に不正値が保存されることは無いが、他の全writer（Product/Variation/
+		// OrderWriterの価格・合計検証）と異なり、その例外は`Importer::process_items()`の
+		// 汎用catch-allに落ち、専用WarningCodeの無い「Writer threw...」ログにしかならない
+		// （dry-run/結果レポートからは欠落理由が分からない）。ここで事前検証し、他writerと
+		// 同じフェイルクローズ+専用警告の経路に揃える。
+		if ( ! is_numeric( $item->amount ) || (float) $item->amount < 0 || ( 'percent' === $item->type && (float) $item->amount > 100 ) ) {
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, $item->amount ) ] );
+		}
+
 		$warnings = [];
 		$coupon   = null !== $existing_local_id ? new WC_Coupon( $existing_local_id ) : new WC_Coupon();
 

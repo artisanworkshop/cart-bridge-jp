@@ -166,6 +166,31 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'WEIRD' ) );
 	}
 
+	public function test_negative_amount_is_skipped_and_warns(): void {
+		// `WC_Coupon::set_amount()`自身が負値を拒否して例外を投げるが、これまでは他writerと
+		// 異なり事前検証が無く、その例外が`Importer`の汎用catch-allに落ちて専用の警告コードが
+		// 残らなかった。ここで保存自体を見送りフェイルクローズすることを確認する。
+		$coupon = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '-100' ), $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'NEGATIVE' ) );
+	}
+
+	public function test_percent_amount_over_100_is_skipped_and_warns(): void {
+		$coupon = new CanonicalCoupon( 'TOOMUCH', 'percent', '150', null, null, null, [ 'remote_id' => '9' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '150' ), $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'TOOMUCH' ) );
+	}
+
 	public function test_usage_limit_per_user_is_applied(): void {
 		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1 );
 
