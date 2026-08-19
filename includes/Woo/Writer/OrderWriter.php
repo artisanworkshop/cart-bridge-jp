@@ -93,6 +93,18 @@ final class OrderWriter implements EntityWriter {
 			$this->apply_meta( $order, $item, $warnings );
 
 			$order_id = $order->save();
+
+			if ( 0 === $order_id ) {
+				// `wc_create_order()`は内部で`$order->save()`を呼ぶが戻り値そのものは検証しない。
+				// HPOS（本プラグインが要求する構成）の`OrdersTableDataStore::persist_order_to_db()`は
+				// create失敗時に必ず`\Exception`を投げるため実測上この分岐は基本的に到達しないが、
+				// 将来のWC実装変更で「例外を投げず0を返す」経路に変わった場合の保険として、
+				// ProductWriter/CouponWriter/TermWriterと同じ0チェックの慣習をここにも揃え、
+				// 下のcatchへ合流させて孤立注文（新規作成時）の削除を確実に共通化する
+				// （以前はこのチェックがtry/catchの外にあり、新規作成でここに到達すると
+				// 孤立した`WC_Order`がDBに残ったまま`WriteResult(0, SKIPPED, ...)`を返していた）。
+				throw new RuntimeException( 'OrderWriter: $order->save() returned 0.' );
+			}
 		} catch ( Throwable $exception ) {
 			// `wc_create_order()`は呼び出し直後にDBへ永続化するため、ここで例外が伝播すると
 			// 呼び出し元Importerはmappingsを書けない（書込成功時にしかupsertしないため）。
@@ -104,19 +116,6 @@ final class OrderWriter implements EntityWriter {
 			}
 
 			throw $exception;
-		}
-
-		if ( 0 === $order_id ) {
-			// `wc_create_order()`は内部で`$order->save()`を呼ぶが戻り値そのものは検証しない。
-			// HPOS（本プラグインが要求する構成）の`OrdersTableDataStore::persist_order_to_db()`は
-			// create失敗時に必ず`\Exception`を投げ、`wc_create_order()`側のcatchでWP_Errorへ
-			// 変換されるため64-70行目のチェックで捕捉できる実測上、この分岐は基本的に
-			// 到達しない。ただしHPOSが何らかの理由で無効化された環境（本プラグインの前提が
-			// 崩れるケース）や将来のWC実装変更で「例外を投げず0を返す」経路に変わった場合の
-			// 保険として、ProductWriter/CouponWriter/TermWriterと同じ0チェックの慣習を
-			// ここにも揃えておく（`WC_Data::save()`は既存ID保持時のupdate経路では常に
-			// そのIDを返すため、既存注文の更新では原理上ここに来ない）。
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::ORDER_CREATE_FAILED ] ) );
 		}
 
 		return new WriteResult( $order_id, $operation, $warnings );
