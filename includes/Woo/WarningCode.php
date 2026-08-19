@@ -72,6 +72,8 @@ final class WarningCode {
 	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
 	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
 	public const COUPON_SAVE_FAILED             = 'coupon_save_failed';
+	public const COUPON_EXPIRES_AT_INVALID      = 'coupon_expires_at_invalid';
+	public const COUPON_MIN_AMOUNT_INVALID      = 'coupon_min_amount_invalid';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。

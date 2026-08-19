@@ -60,6 +60,24 @@ final class CouponWriter implements EntityWriter {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, $item->amount ) ] );
 		}
 
+		// `expires_at`が`null`であること自体は「無期限クーポン」として正当（既存テスト・
+		// 他ASPの仕様上も想定内）。ただし値が設定されているのに`strtotime()`で解釈できない
+		// 文字列（外部アダプタ側の不具合等）の場合、`WC_Coupon::set_date_expires()`
+		// （`wc_string_to_datetime()`経由）に例外を投げさせて`Importer`の汎用catch-all（専用
+		// WarningCodeの無い「Writer threw...」ログ）に落ちるより、他フィールド（type/amount）
+		// と同じフェイルクローズ+専用警告の経路に揃える方が結果レポートから追跡しやすい。
+		if ( null !== $item->expires_at && false === strtotime( $item->expires_at ) ) {
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_EXPIRES_AT_INVALID, $item->expires_at ) ] );
+		}
+
+		// `min_amount`は`amount`と異なり`WC_Coupon::set_minimum_amount()`が`wc_format_decimal()`を
+		// 通すのみで符号を検証しないため、負値がそのまま「最低購入金額」として保存されうる
+		// （意図せずクーポン適用条件が緩む金銭的リスク）。欠損（null）自体は「制限なし」として
+		// 正当なため許可し、値が存在するのに非数値・負値の場合のみ保存を見送る。
+		if ( null !== $item->min_amount && ( ! is_numeric( $item->min_amount ) || (float) $item->min_amount < 0 ) ) {
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_MIN_AMOUNT_INVALID, $item->min_amount ) ] );
+		}
+
 		$warnings = [];
 		$coupon   = null !== $existing_local_id ? new WC_Coupon( $existing_local_id ) : new WC_Coupon();
 

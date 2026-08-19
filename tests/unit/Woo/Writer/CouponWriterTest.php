@@ -191,6 +191,45 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'TOOMUCH' ) );
 	}
 
+	public function test_unparseable_expires_at_is_skipped_and_warns(): void {
+		// `null`（無期限）は正当だが、値が設定されているのに`strtotime()`で解釈できない
+		// 文字列（外部アダプタ側の不具合等）を`WC_Coupon::set_date_expires()`にそのまま
+		// 渡すと`Importer`の汎用catch-allに落ちて専用の警告が残らない。事前検証で
+		// フェイルクローズすることを確認する。
+		$coupon = new CanonicalCoupon( 'BADDATE', 'fixed', '100', null, 'not-a-date', null, [ 'remote_id' => '10' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_EXPIRES_AT_INVALID, 'not-a-date' ), $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'BADDATE' ) );
+	}
+
+	public function test_null_expires_at_is_accepted_as_no_expiry(): void {
+		$coupon = new CanonicalCoupon( 'FOREVER', 'fixed', '100', null, null, null, [ 'remote_id' => '11' ] );
+
+		$result    = $this->make_writer()->write( $coupon, null );
+		$wc_coupon = new \WC_Coupon( $result->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNull( $wc_coupon->get_date_expires() );
+	}
+
+	public function test_negative_min_amount_is_skipped_and_warns(): void {
+		// `WC_Coupon::set_minimum_amount()`は`wc_format_decimal()`を通すのみで符号を検証
+		// しないため、負値がそのまま「最低購入金額」として保存されると意図せずクーポン
+		// 適用条件が緩む金銭的リスクがある。
+		$coupon = new CanonicalCoupon( 'BADMIN', 'fixed', '100', '-500', null, null, [ 'remote_id' => '12' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_MIN_AMOUNT_INVALID, '-500' ), $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'BADMIN' ) );
+	}
+
 	public function test_usage_limit_per_user_is_applied(): void {
 		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1 );
 
