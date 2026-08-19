@@ -55,6 +55,9 @@ final class OrderWriterTest extends WooTestCase {
 		$product = new WC_Product_Simple();
 		$product->set_name( 'Widget' );
 		$product->set_sku( 'WIDGET-1' );
+		// SKUフォールバックのownershipガード（`PlatformOwnership`）を通すために必要
+		// （`VariationWriter`/`ProductWriter`が通常のsync時に付与するメタを模擬している）。
+		$product->update_meta_data( '_cbjp_platform', 'colorme' );
 		$product_id = $product->save();
 
 		$order = $this->make_order(
@@ -85,6 +88,42 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 'Widget (at purchase)', $items[0]->get_name() );
 		$this->assertSame( '1000', $items[0]->get_total() );
 		$this->assertSame( '100', $items[0]->get_total_tax() );
+	}
+
+	public function test_line_item_sku_match_on_foreign_platform_product_is_treated_as_unresolved(): void {
+		// `ProductResolver::resolve_stock_target()`のSKUフォールバックと同じownershipガード
+		// （`PlatformOwnership`）を`resolve_by_sku_or_remote_id()`にも適用済み。偶然SKUが
+		// 一致しただけの別プラットフォーム由来（または店舗手動作成）の商品に、注文明細を
+		// 誤って紐付けてはならない（誤った商品・価格・統計が注文に付いてしまう）。
+		$foreign = new WC_Product_Simple();
+		$foreign->set_name( 'Foreign' );
+		$foreign->set_sku( 'SHARED-SKU' );
+		$foreign->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$foreign->save();
+
+		$order = $this->make_order(
+			'1017',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => 'SHARED-SKU',
+					'remote_product_id'   => 'p-unmapped',
+					'name'                => 'Widget (at purchase)',
+					'price'               => '1100',
+					'unit_price_excl_tax' => '1000',
+					'subtotal'            => '1100',
+					'quantity'            => 1,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'p-unmapped' ), $result->warnings );
 	}
 
 	public function test_resolves_line_item_by_mapping_when_sku_missing(): void {

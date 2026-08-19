@@ -37,7 +37,11 @@ final class ProductResolver {
 		if ( null !== $sku ) {
 			$product_id = wc_get_product_id_by_sku( $sku );
 
-			if ( 0 !== $product_id ) {
+			// `resolve_stock_target()`のSKUフォールバックと同じ理由（`PlatformOwnership`の
+			// ownershipガード）: 偶然SKUが一致しただけの別プラットフォーム由来・店舗手動作成の
+			// 商品に、注文明細を誤って紐付けてはならない（誤った商品・価格・統計が注文に
+			// 付いてしまう）。
+			if ( 0 !== $product_id && PlatformOwnership::owns_post( $product_id, $this->platform ) ) {
 				$product = $this->as_orderable_product( $product_id );
 
 				if ( null !== $product ) {
