@@ -72,6 +72,12 @@ final class ProductResolver {
 	 * mappings、それも空振りならSKUで解決する。SKUフォールバックはvariant_ref・product_ref
 	 * どちらの経路でも空振りだった場合に共通で試す（`wc_get_product_id_by_sku()`は
 	 * variationも引けるため、variant側のmapping未整備・stale時にも取りこぼしを防げる）。
+	 *
+	 * SKUフォールバックは`wc_get_product_id_by_sku()`でストア全体からSKU一致を探すため、
+	 * mappingsが未整備/staleな場合、店舗が手動作成した商品や別プラットフォーム由来の
+	 * 商品がたまたま同じSKUを持っていると、それらの在庫を誤って上書きしうる
+	 * （TermWriter/CouponWriter/VariationWriterが行っている`_cbjp_platform`ownership検証と
+	 * 同じガードをここにも掛け、自プラットフォームが作成したレコード以外には書き込まない）。
 	 */
 	public function resolve_stock_target( ?string $variant_ref, string $product_ref, ?string $sku ): ?WC_Product {
 		if ( null !== $variant_ref ) {
@@ -99,7 +105,7 @@ final class ProductResolver {
 		if ( null !== $sku ) {
 			$product_id = wc_get_product_id_by_sku( $sku );
 
-			if ( 0 !== $product_id ) {
+			if ( 0 !== $product_id && PlatformOwnership::owns_post( $product_id, $this->platform ) ) {
 				return $this->as_product( $product_id );
 			}
 		}

@@ -134,6 +134,8 @@ final class StockWriterTest extends WooTestCase {
 	public function test_variant_ref_falls_back_to_sku_when_mapping_missing(): void {
 		// product_refと同様、variant_refのmapping解決が空振り（未整備・stale）でも
 		// SKUで解決できることを確認する（`wc_get_product_id_by_sku()`はvariationも引ける）。
+		// `_cbjp_platform`はSKUフォールバックのownershipガード（`PlatformOwnership`）を
+		// 通すために必要（`VariationWriter`が通常のsync時に付与するメタを模擬している）。
 		$product = new WC_Product_Variable();
 		$product->set_name( 'Variable' );
 		$product_id = $product->save();
@@ -141,6 +143,7 @@ final class StockWriterTest extends WooTestCase {
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
 		$variation->set_sku( 'VAR-SKU-1' );
+		$variation->update_meta_data( '_cbjp_platform', 'colorme' );
 		$variation_id = $variation->save();
 
 		$stock  = new CanonicalStock( '1', 'v-unmapped', 'VAR-SKU-1', 3, true );
@@ -156,9 +159,11 @@ final class StockWriterTest extends WooTestCase {
 		// SKUが設定されているケースで）variationではなく親のvariable商品そのものに
 		// 解決してしまった場合でも、variant_refの有無に関わらずvariable商品への
 		// 直接書込みは弾かれ、親のvariation在庫が壊されないことを確認する。
+		// `_cbjp_platform`はSKUフォールバックのownershipガードを通すために必要。
 		$product = new WC_Product_Variable();
 		$product->set_name( 'Variable' );
 		$product->set_sku( 'PARENT-SKU' );
+		$product->update_meta_data( '_cbjp_platform', 'colorme' );
 		$product_id = $product->save();
 
 		$variation = new WC_Product_Variation();
@@ -176,5 +181,28 @@ final class StockWriterTest extends WooTestCase {
 
 		$updated = wc_get_product( $product_id );
 		$this->assertFalse( $updated->get_manage_stock() );
+	}
+
+	public function test_sku_fallback_does_not_overwrite_stock_of_product_from_another_platform(): void {
+		// mapping未整備/staleでSKUフォールバックする際、SKUが偶然一致しただけの
+		// 別プラットフォーム由来（または店舗が手動作成した）商品には書き込んではならない
+		// （`PlatformOwnership`によるownershipガード）。
+		$foreign = new WC_Product_Simple();
+		$foreign->set_name( 'Foreign' );
+		$foreign->set_sku( 'SHARED-SKU' );
+		$foreign->set_manage_stock( true );
+		$foreign->set_stock_quantity( 42 );
+		$foreign->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$foreign_id = $foreign->save();
+
+		$stock  = new CanonicalStock( 'unmapped', null, 'SHARED-SKU', 1, true );
+		$result = $this->make_writer()->write( $stock, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, 'unmapped' ), $result->warnings );
+
+		$untouched = wc_get_product( $foreign_id );
+		$this->assertSame( 42, $untouched->get_stock_quantity() );
 	}
 }
