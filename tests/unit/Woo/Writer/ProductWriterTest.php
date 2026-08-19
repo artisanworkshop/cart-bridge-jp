@@ -98,6 +98,42 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::SKU_DUPLICATE, 'DUP-SKU' ), $result->warnings );
 	}
 
+	public function test_few_num_maps_to_native_low_stock_amount_and_clears_when_removed(): void {
+		// `few_num`はWoo標準の`low_stock_amount`にも反映する。再同期でASP側の設定が
+		// 解除された（extrasからfew_numが消えた）場合、古い閾値がpostmetaに残り続けず
+		// 明示的にクリアされることを確認する。
+		// `WC_Product::validate_props()`は`manage_stock`がfalseの場合`save()`の度に
+		// `low_stock_amount`を強制的に`''`へリセットする（`stock_status`の上書きと同じ
+		// WooCommerce自身の仕様）ため、この検証には在庫数量ありの管理対象商品が必要。
+		$with_few_num = new CanonicalProduct(
+			'P',
+			'SKU-30',
+			'100',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			20,
+			'publish',
+			[
+				'remote_id' => '30',
+				'few_num'   => 5,
+			]
+		);
+		$first        = $this->make_writer()->write( $with_few_num, null );
+
+		$product = wc_get_product( $first->local_id );
+		$this->assertSame( 5, $product->get_low_stock_amount() );
+
+		$without_few_num = new CanonicalProduct( 'P', 'SKU-30', '100', null, null, [], [], [], [], 20, 'publish', [ 'remote_id' => '30' ] );
+		$second          = $this->make_writer()->write( $without_few_num, $first->local_id );
+
+		$updated = wc_get_product( $second->local_id );
+		$this->assertSame( '', $updated->get_low_stock_amount() );
+	}
+
 	public function test_resolves_categories_and_tags_via_mapping(): void {
 		$category_term_id = wp_insert_term( 'Cat', 'product_cat' )['term_id'];
 		$tag_term_id      = wp_insert_term( 'Tag', 'product_tag' )['term_id'];

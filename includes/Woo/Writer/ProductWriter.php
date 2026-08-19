@@ -128,11 +128,13 @@ final class ProductWriter implements EntityWriter {
 			$product->set_manage_stock( false );
 		}
 
+		// few_numが欠損/nullになった場合（再同期でASP側の設定が解除された等）も、直後の
+		// `ExtrasMeta::apply()`が`_cbjp_few_num`メタを正しく削除するのと同様に、Woo標準の
+		// `low_stock_amount`（`_low_stock_amount`postmeta）も明示的にクリアする。ここで
+		// 何もしないと以前設定した閾値がpostmetaに残り続け、実際にはfew_numを持たない商品でも
+		// 古い閾値のまま低在庫通知が発火し続けてしまう。
 		$few_num = Value::int( $item->extras['few_num'] ?? null );
-
-		if ( null !== $few_num ) {
-			$product->set_low_stock_amount( $few_num );
-		}
+		$product->set_low_stock_amount( null !== $few_num ? $few_num : '' );
 
 		if ( null !== $item->weight ) {
 			$product->set_weight( WeightUnit::convert_from_grams( $item->weight ) );

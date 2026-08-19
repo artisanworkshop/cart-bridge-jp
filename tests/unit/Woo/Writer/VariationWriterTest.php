@@ -435,6 +435,7 @@ final class VariationWriterTest extends WooTestCase {
 		);
 		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
 		$this->assertSame( '3', get_post_meta( $variation_id, '_cbjp_few_num', true ) );
+		$this->assertSame( 3, wc_get_product( $variation_id )->get_low_stock_amount() );
 
 		$writer->sync(
 			$product_id,
@@ -452,5 +453,8 @@ final class VariationWriterTest extends WooTestCase {
 		);
 
 		$this->assertSame( '', get_post_meta( $variation_id, '_cbjp_few_num', true ) );
+		// ネイティブの`low_stock_amount`もfew_num削除時に明示的にクリアされることを確認する
+		// （そうしないと古い閾値が残り続け、Woo標準の低在庫通知が誤って発火し続ける）。
+		$this->assertSame( '', wc_get_product( $variation_id )->get_low_stock_amount() );
 	}
 }
