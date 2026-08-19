@@ -160,6 +160,36 @@ final class ImporterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `Support\Logger`の個人情報禁止ルール（IDのみ許可）はcontextだけでなくmessage自体にも
+	 * 及ぶ（`JobManager::process_job()`の同種のcatch節も固定文言のみを渡す方針と揃える）。
+	 * `$exception->getMessage()`は自由文字列であり、writer経由で顧客のメール等の値を
+	 * そのまま含みうるため、ログのmessageに例外メッセージをそのまま埋め込まないことを確認する。
+	 */
+	public function test_writer_exception_message_does_not_leak_raw_exception_text(): void {
+		global $wpdb;
+
+		$adapter = new MockPlatformAdapter(
+			products: [
+				CanonicalFactory::product( 'p1', 'SKU-1' ),
+			]
+		);
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				throw new \RuntimeException( 'taro@example.com must not leak into logs' );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		$logged_message = $wpdb->get_var( "SELECT message FROM {$wpdb->prefix}cbjp_logs ORDER BY id DESC LIMIT 1" );
+
+		$this->assertNotNull( $logged_message );
+		$this->assertStringNotContainsString( 'taro@example.com', $logged_message );
+		$this->assertStringContainsString( 'product', $logged_message );
+	}
+
+	/**
 	 * 無料版サンプル上限（`$remaining`）は新規作成の直前に1件消費するが、その後writerが
 	 * 例外を投げて実体が何も作られなかった場合は枠を返却しないと、無効な1件が枠を
 	 * 無駄に食い潰し、本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう。

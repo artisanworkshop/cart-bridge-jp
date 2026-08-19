@@ -200,8 +200,14 @@ final class Importer {
 
 				++$totals['skipped'];
 				++$totals['warned'];
+				// `Support\Logger`の契約（個人情報禁止ルール。ID以外を含めない）はcontextだけでなく
+				// message自体にも及ぶ（`JobManager::process_job()`の同種のcatch節も固定文言のみを
+				// 渡し、例外メッセージはログに含めない）。`$exception->getMessage()`は
+				// `WC_Data_Exception`等が投げる自由文字列でありワークライター経由で顧客の
+				// メールアドレス等の値をそのまま含みうるため、ここでも固定文言＋
+				// 例外クラス名（`exception`キー）にとどめる。
 				$this->logger->error(
-					"Writer threw while processing a {$entity} item: {$exception->getMessage()}",
+					"Writer threw while processing a {$entity} item.",
 					[
 						'remote_id' => $remote_id,
 						'exception' => $exception::class,
