@@ -252,15 +252,21 @@ final class ProductWriter implements EntityWriter {
 
 
 	/**
+	 * category_refs/tag_refsをmappingsから解決する。`find_local_id()`をrefの数だけループ
+	 * 呼び出すとカテゴリ・タグを多く持つ商品ほどSELECTが積み重なる（`VariationWriter`が
+	 * ページ内variantの一括取得に`find_many()`を使っているのと同じN+1）ため、ここでも
+	 * refsをまとめて1クエリで解決する。
+	 *
 	 * @param array<int,string> $refs
 	 * @return array{0:array<int,int>,1:array<int,string>}
 	 */
 	private function resolve_refs( array $refs, string $entity_type, string $warning_code ): array {
 		$ids      = [];
 		$warnings = [];
+		$mapped   = $this->mappings->find_many( $this->platform, $entity_type, $refs );
 
 		foreach ( $refs as $ref ) {
-			$local_id = $this->mappings->find_local_id( $this->platform, $entity_type, $ref );
+			$local_id = isset( $mapped[ $ref ] ) ? $mapped[ $ref ]['local_id'] : null;
 
 			// mappingsが指すタームが手動削除等で既に存在しない場合も未解決として扱う
 			// （存在しないterm IDをそのまま`set_category_ids()`/`set_tag_ids()`に渡さない）。
