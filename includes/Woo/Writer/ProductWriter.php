@@ -437,9 +437,17 @@ final class ProductWriter implements EntityWriter {
 		// 差し替え、ユーザーが手動で追加した画像・別プラットフォームが取り込んだ画像は残す
 		// （`_cbjp_source_url`の有無だけで判定すると、複数プラットフォームが同一商品を共有する
 		// 場合に他プラットフォームのギャラリーを消してしまう）。
+		$existing_gallery_ids = $product->get_gallery_image_ids();
+
+		// `VariationWriter::find_owned_variation_remote_ids()`/`delete_variations()`と同じ理由:
+		// 以下のフィルタで画像1枚ごとに`get_post_meta()`/`PlatformOwnership::owns_post()`
+		// （内部でも`get_post_meta()`）を呼ぶと未キャッシュの個別SELECTが発生するため、
+		// ここで一括プリロードする。
+		update_meta_cache( 'post', $existing_gallery_ids );
+
 		$preserved_gallery = array_values(
 			array_filter(
-				$product->get_gallery_image_ids(),
+				$existing_gallery_ids,
 				fn ( int $attachment_id ): bool => '' === get_post_meta( $attachment_id, '_cbjp_source_url', true )
 					|| ! PlatformOwnership::owns_post( $attachment_id, $this->platform )
 			)
