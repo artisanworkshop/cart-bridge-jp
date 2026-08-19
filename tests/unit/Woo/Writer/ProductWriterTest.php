@@ -85,6 +85,22 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( '1.5', $wc_product->get_weight() );
 	}
 
+	public function test_weight_is_cleared_when_no_longer_present(): void {
+		// few_num/low_stock_amountと同じ理由: 再同期でASP側が重量を送らなくなった場合、
+		// 古い重量がpostmetaに残り続けず明示的にクリアされることを確認する。
+		$with_weight = new CanonicalProduct( 'P', 'SKU-31', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '31' ], true, [], 1500 );
+		$first       = $this->make_writer()->write( $with_weight, null );
+
+		$product = wc_get_product( $first->local_id );
+		$this->assertNotSame( '', $product->get_weight() );
+
+		$without_weight = new CanonicalProduct( 'P', 'SKU-31', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '31' ] );
+		$second         = $this->make_writer()->write( $without_weight, $first->local_id );
+
+		$updated = wc_get_product( $second->local_id );
+		$this->assertSame( '', $updated->get_weight() );
+	}
+
 	public function test_sku_conflict_falls_back_to_empty_sku_and_warns(): void {
 		$existing = new CanonicalProduct( 'Existing', 'DUP-SKU', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'existing' ] );
 		$this->make_writer()->write( $existing, null );

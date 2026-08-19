@@ -129,11 +129,10 @@ final class VariationWriter {
 
 		StockApplier::apply( $variation, Value::int( $variant['stock'] ?? null ) );
 
+		// `ProductWriter`と同じ理由: 再同期でASP側が重量を送らなくなった場合も古い値が
+		// postmetaに残り続けないよう明示的にクリアする。
 		$weight = Value::int( $variant['weight'] ?? null );
-
-		if ( null !== $weight ) {
-			$variation->set_weight( WeightUnit::convert_from_grams( $weight ) );
-		}
+		$variation->set_weight( null !== $weight ? WeightUnit::convert_from_grams( $weight ) : '' );
 
 		// `ProductWriter`（親/simple商品）と同じくfew_numをWoo標準の低在庫閾値へも反映する。
 		// `WC_Product_Variation`は`WC_Product`を継承しており`set_low_stock_amount()`が使えるが、

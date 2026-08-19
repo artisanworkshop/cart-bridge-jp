@@ -136,9 +136,9 @@ final class ProductWriter implements EntityWriter {
 		$few_num = Value::int( $item->extras['few_num'] ?? null );
 		$product->set_low_stock_amount( null !== $few_num ? $few_num : '' );
 
-		if ( null !== $item->weight ) {
-			$product->set_weight( WeightUnit::convert_from_grams( $item->weight ) );
-		}
+		// few_num/low_stock_amountと同じ理由: 再同期でASP側が重量を送らなくなった場合も
+		// 古い値がpostmetaに残り続けないよう明示的にクリアする。
+		$product->set_weight( null !== $item->weight ? WeightUnit::convert_from_grams( $item->weight ) : '' );
 
 		$warnings = array_merge( $warnings, $this->apply_tax_class( $product, $item->tax_class ) );
 		$warnings = array_merge( $warnings, SkuGuard::apply( $product, $item->sku ) );

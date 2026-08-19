@@ -457,4 +457,47 @@ final class VariationWriterTest extends WooTestCase {
 		// （そうしないと古い閾値が残り続け、Woo標準の低在庫通知が誤って発火し続ける）。
 		$this->assertSame( '', wc_get_product( $variation_id )->get_low_stock_amount() );
 	}
+
+	public function test_weight_is_cleared_when_no_longer_present(): void {
+		// `ProductWriter`と同じ理由: 再同期でASP側が重量を送らなくなった場合、古い重量が
+		// postmetaに残り続けず明示的にクリアされることを確認する。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+					'weight'        => 500,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$this->assertNotSame( '', wc_get_product( $variation_id )->get_weight() );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$this->assertSame( '', wc_get_product( $variation_id )->get_weight() );
+	}
 }
