@@ -382,6 +382,36 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertSame( '1500', wc_get_product( $second_variation_id )->get_regular_price() );
 	}
 
+	public function test_few_num_is_also_applied_as_the_native_low_stock_amount(): void {
+		// `ProductWriter`（simple商品）はfew_numをWoo標準の`set_low_stock_amount()`へ反映するが、
+		// variationはこれまで`_cbjp_few_num`という汎用メタにしか反映しておらず、variation単位の
+		// Woo標準低在庫通知が一切発火しない欠落があった。simple商品と同じくネイティブ値にも
+		// 反映されることを確認する。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+					'few_num'       => 3,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$variation    = wc_get_product( $variation_id );
+
+		$this->assertSame( 3, $variation->get_low_stock_amount() );
+	}
+
 	public function test_few_num_meta_is_deleted_when_no_longer_present(): void {
 		// 更新のみで削除しないと、再同期時にvariantからfew_num等の値が消えても古い値の
 		// メタが残り続けてしまう。

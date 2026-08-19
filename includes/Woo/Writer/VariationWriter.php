@@ -135,6 +135,16 @@ final class VariationWriter {
 			$variation->set_weight( WeightUnit::convert_from_grams( $weight ) );
 		}
 
+		// `ProductWriter`（親/simple商品）と同じくfew_numをWoo標準の低在庫閾値へも反映する。
+		// `WC_Product_Variation`は`WC_Product`を継承しており`set_low_stock_amount()`が使えるが、
+		// これを怠るとWoo標準の低在庫管理画面表示・通知メールがバリエーション単位では
+		// 一切発火しなくなる（simple商品では効くのにvariable商品でだけ機能が欠落する）。
+		$few_num = Value::int( $variant['few_num'] ?? null );
+
+		if ( null !== $few_num ) {
+			$variation->set_low_stock_amount( $few_num );
+		}
+
 		$warnings = array_merge( $warnings, SkuGuard::apply( $variation, Value::string( $variant['sku'] ?? null ) ) );
 
 		// 値がnullになった場合も`ExtrasMeta::apply()`経由でメタを削除する（更新のみで
