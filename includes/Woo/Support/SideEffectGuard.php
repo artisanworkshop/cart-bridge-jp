@@ -44,8 +44,13 @@ final class SideEffectGuard {
 
 		// ASP側で既に確定済みの受注に対してWoo標準の在庫増減ロジックを再度走らせない
 		// （`Writer\OrderWriter` が `set_order_stock_reduced()` でステータスに応じた在庫状態を明示するため）。
+		// 減算側は`wc_maybe_reduce_stock_levels()`が参照する`woocommerce_payment_complete_reduce_order_stock`、
+		// 復元側は`wc_increase_stock_levels()`が参照する`woocommerce_can_restore_order_stock`と、
+		// ゲートのフィルター名がそれぞれ異なる（WooCommerce本体コードで確認済み。
+		// `woocommerce_payment_complete_restore_order_stock`という名前のフィルターはWC本体に
+		// 存在せず、以前はここが死んだフィルターになっていた）。
 		add_filter( 'woocommerce_payment_complete_reduce_order_stock', '__return_false', PHP_INT_MAX );
-		add_filter( 'woocommerce_payment_complete_restore_order_stock', '__return_false', PHP_INT_MAX );
+		add_filter( 'woocommerce_can_restore_order_stock', '__return_false', PHP_INT_MAX );
 	}
 
 	private function off(): void {
@@ -54,7 +59,7 @@ final class SideEffectGuard {
 		remove_filter( 'send_password_change_email', '__return_false' );
 		remove_filter( 'send_email_change_email', '__return_false' );
 		remove_filter( 'woocommerce_payment_complete_reduce_order_stock', '__return_false', PHP_INT_MAX );
-		remove_filter( 'woocommerce_payment_complete_restore_order_stock', '__return_false', PHP_INT_MAX );
+		remove_filter( 'woocommerce_can_restore_order_stock', '__return_false', PHP_INT_MAX );
 	}
 
 	public static function no_op_mail_callback(): string {
