@@ -658,6 +658,30 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( $user_id, $wc_order->get_customer_id() );
 	}
 
+	public function test_customer_mapping_pointing_to_protected_role_account_is_treated_as_unresolved(): void {
+		// ASP側顧客のメールが店舗の管理者・スタッフアカウントと偶然一致した場合、
+		// `CustomerWriter::write()`はプロフィールを上書きしないままmappingだけを維持する
+		// （`CustomerWriter::PROTECTED_ROLES`参照）。このmappingを無条件に信用すると、
+		// 見ず知らずのASP顧客の注文が管理者アカウントに紐付いてしまうため、注文側でも
+		// 再検証してゲスト注文として扱うことを確認する。
+		$admin_id = wp_insert_user(
+			[
+				'user_login' => 'store-admin',
+				'user_email' => 'admin@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'administrator',
+			]
+		);
+		$this->seed_mapping( 'colorme', 'customer', 'c-admin', $admin_id );
+
+		$order    = $this->make_order( '1020', 'processing', 'c-admin' );
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( 0, $wc_order->get_customer_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-admin' ), $result->warnings );
+	}
+
 	public function test_unresolved_customer_ref_warns_and_is_guest(): void {
 		$order    = $this->make_order( '1009', 'processing', 'missing-customer' );
 		$result   = $this->make_writer()->write( $order, null );

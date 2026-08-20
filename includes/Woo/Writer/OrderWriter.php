@@ -296,6 +296,18 @@ final class OrderWriter implements EntityWriter {
 			return [ WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, $customer_ref ) ];
 		}
 
+		// ASP側顧客のメールが店舗の管理者・スタッフアカウントと偶然一致した場合、
+		// `CustomerWriter::write()`はプロフィールを上書きしないままmappingだけを維持する
+		// （顧客参照解決のため）。しかしこのmappingを無条件に信用してここで
+		// `set_customer_id()`すると、見ず知らずのASP顧客の注文が管理者・スタッフの
+		// WooCommerceアカウント（マイアカウント）に紐付いてしまう。存在しない参照と同様に
+		// 未解決として扱い、注文はゲスト（customer_id=0）のまま作成する。
+		if ( CustomerWriter::has_protected_role( $local_id ) ) {
+			$order->set_customer_id( 0 );
+
+			return [ WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $customer_ref ) ];
+		}
+
 		$order->set_customer_id( $local_id );
 
 		return [];

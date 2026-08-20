@@ -121,7 +121,11 @@ final class CustomerWriter implements EntityWriter {
 		return new WriteResult( $user_id, $operation, $warnings );
 	}
 
-	private static function has_protected_role( int $user_id ): bool {
+	/**
+	 * `OrderWriter::apply_customer()`が、mappings経由で解決した顧客参照先が管理者・スタッフ
+	 * アカウントでないか再検証するために公開する（`write()`内の同種チェックと同じ判定）。
+	 */
+	public static function has_protected_role( int $user_id ): bool {
 		$user = get_userdata( $user_id );
 
 		if ( ! $user instanceof WP_User ) {
