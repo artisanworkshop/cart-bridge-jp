@@ -30,7 +30,7 @@ final class WooRepositoryFactory implements WooWriterFactory {
 
 	public function for_platform( string $platform ): WooWriter {
 		$mappings   = new MappingRepository();
-		$media      = new MediaImporter();
+		$media      = new MediaImporter( $platform );
 		$resolver   = new ProductResolver( $platform, $mappings );
 		$variations = new VariationWriter( $platform, $mappings );
 		$methods    = new MethodMap( $platform );

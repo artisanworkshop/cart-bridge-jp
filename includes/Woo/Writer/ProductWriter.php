@@ -176,21 +176,21 @@ final class ProductWriter implements EntityWriter {
 			? $this->variations->find_owned_variation_remote_ids( $original_existing_local_id )
 			: [];
 
-		$product_id = $product->save();
-
-		if ( 0 === $product_id ) {
-			// `WC_Product_Data_Store_CPT::create()` は `wp_insert_post()` が失敗（DB障害等）した場合、
-			// 例外を投げず黙ってIDを未設定のまま返す（`WC_Product::save()`は`get_id()`=0を返す）。
-			// このまま`variations->sync(0, ...)`/`apply_images()`を走らせると、parent_id=0の
-			// 孤立バリエーションを作りかねない。`WriteResult::$local_id === 0`はImporterが
-			// mappingsを書かない契約のため、ここで打ち切らないと警告も無いまま永久に気付けない
-			// （OrderWriter/CustomerWriter/TermWriter/VariationWriterの同種の作成失敗ガードと同じ方針）。
-			$warnings[] = WarningCode::PRODUCT_SAVE_FAILED;
-
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
-		}
-
 		try {
+			$product_id = $product->save();
+
+			if ( 0 === $product_id ) {
+				// `WC_Product_Data_Store_CPT::create()` は `wp_insert_post()` が失敗（DB障害等）した場合、
+				// 例外を投げず黙ってIDを未設定のまま返す（`WC_Product::save()`は`get_id()`=0を返す）。
+				// このまま`variations->sync(0, ...)`/`apply_images()`を走らせると、parent_id=0の
+				// 孤立バリエーションを作りかねない。`WriteResult::$local_id === 0`はImporterが
+				// mappingsを書かない契約のため、ここで打ち切らないと警告も無いまま永久に気付けない
+				// （OrderWriter/CustomerWriter/TermWriter/VariationWriterの同種の作成失敗ガードと同じ方針）。
+				$warnings[] = WarningCode::PRODUCT_SAVE_FAILED;
+
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+			}
+
 			$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
 
 			if ( $has_variants ) {
@@ -206,7 +206,10 @@ final class ProductWriter implements EntityWriter {
 			// Importerはmappingsを書けない（OrderWriterの同種の対応と同じ理由）。新規作成
 			// だった場合、再試行時に同一remote productに対して重複した孤立商品を作ってしまう
 			// ため、ここで削除してから例外を再送出し、次回はクリーンな状態からやり直せるようにする。
-			if ( null === $existing_local_id ) {
+			// `save()`自体がフックの例外等で失敗した場合も`WC_Product`オブジェクトには既にIDが
+			// セットされていることがあるため（`create()`はID採番後にpost保存＋フック発火する）、
+			// ローカル変数の`$product_id`ではなく`$product->get_id()`で判定する。
+			if ( null === $existing_local_id && 0 !== $product->get_id() ) {
 				// `variations->sync()`は複数variantを1件ずつ保存・upsertするため、後続のvariantで
 				// 例外が起きた時点で先行するvariantは既に保存済み・mapping済みのことがある。
 				// `product`投稿型は非階層のため`$product->delete(true)`は子のvariation投稿を
@@ -214,7 +217,7 @@ final class ProductWriter implements EntityWriter {
 				// 親を指したままのmapping行が残ってしまう。`find_owned_variation_remote_ids()`は
 				// stale-variation掃除と同じ手法（post_parent＋プラットフォーム所有権）で
 				// これらを検出できるため、親を削除する前にここでも同様に掃除する。
-				$this->variations->remove_all( $this->variations->find_owned_variation_remote_ids( $product_id ) );
+				$this->variations->remove_all( $this->variations->find_owned_variation_remote_ids( $product->get_id() ) );
 				$product->delete( true );
 			}
 

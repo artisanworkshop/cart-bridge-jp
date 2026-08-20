@@ -358,11 +358,21 @@ final class OrderWriter implements EntityWriter {
 	private function apply_dates( WC_Order $order, CanonicalOrder $item ): void {
 		$order->set_date_created( $item->placed_at );
 
-		// falseに反転した場合もdate_paidを消す（更新のみで削除しないと、再実行時に
+		$paid = Value::bool( $item->extras['paid'] ?? null );
+
+		if ( null === $paid ) {
+			// `paid`キー自体が欠損/nullの場合（未対応ASP、またはColorMeの`Cast::to_bool_or_null()`が
+			// 値を解釈できなかった場合）は「未払いに変わった」という明示的なシグナルではないため、
+			// 既存の`date_paid`には触れない。ここで無条件にnullへ倒すと、再同期のたびに
+			// 支払い済み注文の`date_paid`が消え、会計・エクスポートで未払い扱いに戻ってしまう。
+			return;
+		}
+
+		// falseに反転した場合はdate_paidを消す（更新のみで削除しないと、再実行時に
 		// 返金・注文取消等でASP側のpaidフラグが取り消されても、古いdate_paidが残り続け
 		// WooCommerce側の会計・エクスポートで支払済みのまま扱われてしまう。discount_point等の
 		// 他フィールドで既に適用している「nullで削除」と同じ方針）。
-		$order->set_date_paid( true === Value::bool( $item->extras['paid'] ?? null ) ? $item->placed_at : null );
+		$order->set_date_paid( $paid ? $item->placed_at : null );
 	}
 
 	/**
@@ -442,8 +452,11 @@ final class OrderWriter implements EntityWriter {
 	 */
 	private function meta_extras( array $extras ): array {
 		// remote_idは`_cbjp_remote_order_id`として既に反映済み。customer_snapshotは
-		// 請求先住所の構築にのみ使う一時データで、メタとしての永続化対象ではない。
-		unset( $extras['remote_id'], $extras['customer_snapshot'] );
+		// 請求先住所の構築にのみ使う一時データで、メタとしての永続化対象ではない。paidは
+		// `apply_dates()`が`date_paid`として既に反映済みで、ここを素通りさせると
+		// `ExtrasMeta::apply()`（Woo標準の`update_meta_data()`）経由でbool `false`が
+		// 空文字列として書き込まれ、未設定と区別できなくなる。
+		unset( $extras['remote_id'], $extras['customer_snapshot'], $extras['paid'] );
 
 		return $extras;
 	}

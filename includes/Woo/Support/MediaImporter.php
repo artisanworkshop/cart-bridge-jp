@@ -22,6 +22,8 @@ final class MediaImporter {
 	 */
 	private array $resolved = [];
 
+	public function __construct( private readonly string $platform ) {}
+
 	/**
 	 * 画像をsideloadし添付IDを返す。失敗時はnullを返し、呼び出し側が警告を積んで続行する
 	 * （1枚の画像取得失敗で商品全体の取込を止めない）。
@@ -50,6 +52,10 @@ final class MediaImporter {
 		}
 
 		update_post_meta( $attachment_id, '_cbjp_source_url', $url );
+		// `find_existing()`のプラットフォーム絞り込みが新規添付を即座に見つけられるよう、
+		// 作成時点でタグ付けする（呼び出し側`ProductWriter::apply_images()`等の再タグ付けは
+		// 「同一Woo商品を複数プラットフォームが共有する場合の所有権移譲」用で、これとは別目的）。
+		update_post_meta( $attachment_id, '_cbjp_platform', $this->platform );
 		$this->resolved[ $url ] = $attachment_id;
 
 		return $attachment_id;
@@ -121,10 +127,22 @@ final class MediaImporter {
 
 		global $wpdb;
 
+		// `_cbjp_platform`でも一致する添付のみを再利用する。URLだけで検索すると、異なる
+		// プラットフォームの商品がたまたま同一の画像URL（共通CDN等）を参照している場合に
+		// 他プラットフォームが取り込んだ添付を横取りしてしまい、`ProductWriter::apply_images()`
+		// が直後に`_cbjp_platform`を自分自身へ上書きしてしまう（元の所有プラットフォーム側の
+		// ギャラリー保持判定が壊れる）。
 		$attachment_id = $wpdb->get_var(
 			$wpdb->prepare(
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- meta_value による既存添付の検索。get_posts()のmeta_query経由だとSlowDBQuery警告になるため直接クエリにする。テーブル名のみの埋め込みで値はプレースホルダー経由。
-				"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_cbjp_source_url' AND meta_value = %s LIMIT 1",
+				"SELECT source.post_id FROM {$wpdb->postmeta} source
+					INNER JOIN {$wpdb->postmeta} platform
+						ON platform.post_id = source.post_id
+						AND platform.meta_key = '_cbjp_platform'
+						AND platform.meta_value = %s
+					WHERE source.meta_key = '_cbjp_source_url' AND source.meta_value = %s
+					LIMIT 1",
+				$this->platform,
 				$url
 			)
 		);

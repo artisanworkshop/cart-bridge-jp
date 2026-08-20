@@ -20,7 +20,7 @@ use WC_Product_Variation;
 final class ProductWriterTest extends WooTestCase {
 
 	private function make_writer( string $platform = 'colorme' ): ProductWriter {
-		return new ProductWriter( $platform, $this->mappings, new VariationWriter( $platform, $this->mappings ), new MediaImporter() );
+		return new ProductWriter( $platform, $this->mappings, new VariationWriter( $platform, $this->mappings ), new MediaImporter( $platform ) );
 	}
 
 	public function test_creates_simple_product_with_core_fields(): void {
@@ -72,6 +72,42 @@ final class ProductWriterTest extends WooTestCase {
 		$wc_product = wc_get_product( $result->local_id );
 		$this->assertSame( '', $wc_product->get_tax_class() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'nonexistent-class' ), $result->warnings );
+	}
+
+	public function test_registered_tax_class_without_rates_applies_and_warns(): void {
+		// 'reduced-rate'クラス自体は登録済みだが、税率行を1件も設定していないストアを模擬する
+		// （テストfixtureはデフォルトでクラスのみ用意し、レート行は入れないため既に該当する）。
+		$product = new CanonicalProduct( 'P', 'SKU-30', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '30' ], true, [], null, 'reduced-rate' );
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		// クラス自体は有効なので標準税率へフェイルクローズはせず適用する。
+		$this->assertSame( 'reduced-rate', $wc_product->get_tax_class() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_RATES_NOT_CONFIGURED, 'reduced-rate' ), $result->warnings );
+	}
+
+	public function test_registered_tax_class_with_rates_does_not_warn(): void {
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country' => '',
+				'tax_rate_state'   => '',
+				'tax_rate'         => '8.0000',
+				'tax_rate_name'    => 'JP Reduced',
+				'tax_rate_class'   => 'reduced-rate',
+			]
+		);
+
+		$product = new CanonicalProduct( 'P', 'SKU-32', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '32' ], true, [], null, 'reduced-rate' );
+
+		$result = $this->make_writer()->write( $product, null );
+
+		$this->assertEmpty(
+			array_filter(
+				$result->warnings,
+				static fn ( string $warning ): bool => str_starts_with( $warning, WarningCode::TAX_RATES_NOT_CONFIGURED )
+			)
+		);
 	}
 
 	public function test_weight_is_converted_from_grams_to_store_unit(): void {
@@ -455,6 +491,35 @@ final class ProductWriterTest extends WooTestCase {
 		}
 
 		// 途中で失敗した新規商品の親レコードが削除されており、孤立商品が残っていないことを確認する。
+		$this->assertCount( 0, wc_get_products( [ 'limit' => -1 ] ) );
+	}
+
+	public function test_exception_during_initial_product_save_deletes_orphaned_new_product(): void {
+		// `WC_Product::save()`自体（`wp_insert_post()`後に発火する`woocommerce_new_product`等の
+		// フック）で例外が起きた場合も、`save()`をtry/catch外で呼んでいると孤立商品post
+		// （mapping無し）が残ってしまう。
+		$product = new CanonicalProduct( 'P', 'SKU-40', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '40' ] );
+
+		$blow_up_after_insert = static function (): void {
+			throw new \RuntimeException( 'simulated post-save hook failure' );
+		};
+		add_action( 'woocommerce_new_product', $blow_up_after_insert );
+
+		try {
+			$threw = false;
+
+			try {
+				$this->make_writer()->write( $product, null );
+			} catch ( \RuntimeException $e ) {
+				$threw = true;
+				$this->assertSame( 'simulated post-save hook failure', $e->getMessage() );
+			}
+
+			$this->assertTrue( $threw, 'Expected the simulated exception to propagate.' );
+		} finally {
+			remove_action( 'woocommerce_new_product', $blow_up_after_insert );
+		}
+
 		$this->assertCount( 0, wc_get_products( [ 'limit' => -1 ] ) );
 	}
 

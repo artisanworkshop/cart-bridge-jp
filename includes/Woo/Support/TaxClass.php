@@ -27,10 +27,18 @@ final class TaxClass {
 			return [ '', [] ];
 		}
 
-		if ( in_array( $tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
-			return [ $tax_class, [] ];
+		if ( ! in_array( $tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
+			return [ '', [ WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, $tax_class ) ] ];
 		}
 
-		return [ '', [ WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, $tax_class ) ] ];
+		// tax_class自体は登録されていても税率が1件も設定されていない場合、Wooはその明細の税額を
+		// 常に0として計算する（軽減税率クラスだけ作って税率行を入れ忘れる、というJPストアでの
+		// 半端な設定でありうる）。標準税率へのフォールバックはせず（税額を丸ごと変えてしまうため）、
+		// 適用は継続しつつ結果レポートで気付けるよう警告のみ積む。
+		if ( [] === WC_Tax::get_rates_for_tax_class( $tax_class ) ) {
+			return [ $tax_class, [ WarningCode::with_detail( WarningCode::TAX_RATES_NOT_CONFIGURED, $tax_class ) ] ];
+		}
+
+		return [ $tax_class, [] ];
 	}
 }

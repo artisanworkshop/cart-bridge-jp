@@ -17,7 +17,7 @@ use CartBridgeJP\Woo\Writer\TermWriter;
 final class TermWriterTest extends WooTestCase {
 
 	private function make_writer( string $taxonomy = 'product_cat' ): TermWriter {
-		return new TermWriter( $taxonomy, 'colorme', $this->mappings, new MediaImporter() );
+		return new TermWriter( $taxonomy, 'colorme', $this->mappings, new MediaImporter( 'colorme' ) );
 	}
 
 	public function test_creates_new_category_term(): void {

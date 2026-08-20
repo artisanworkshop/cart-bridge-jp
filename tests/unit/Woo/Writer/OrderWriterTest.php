@@ -544,6 +544,52 @@ final class OrderWriterTest extends WooTestCase {
 		$this->make_writer()->write( $unpaid, $first->local_id );
 
 		$this->assertNull( wc_get_order( $first->local_id )->get_date_paid() );
+		// `paid`は`date_paid`として既に反映済みのため、汎用extras passthrough
+		// （`ExtrasMeta::apply()`）には渡らない。渡ると`false`が空文字列として書き込まれ、
+		// 未設定と区別できなくなる。
+		$this->assertSame( '', wc_get_order( $first->local_id )->get_meta( '_cbjp_paid' ) );
+	}
+
+	public function test_date_paid_is_preserved_when_paid_flag_is_absent(): void {
+		// `paid`キーが欠損/null（未対応ASP、または値を解釈できなかった場合）は
+		// 「未払いに変わった」という明示的なシグナルではないため、falseと同一視して
+		// 既存のdate_paidを消してはいけない。
+		$paid  = $this->make_order(
+			'1017',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[ 'paid' => true ]
+		);
+		$first = $this->make_writer()->write( $paid, null );
+		$this->assertNotNull( wc_get_order( $first->local_id )->get_date_paid() );
+
+		$resynced = $this->make_order(
+			'1017',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[]
+		);
+		$this->make_writer()->write( $resynced, $first->local_id );
+
+		$this->assertNotNull( wc_get_order( $first->local_id )->get_date_paid() );
 	}
 
 	/**
