@@ -623,6 +623,24 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertFalse( wc_get_order( $pending->local_id )->get_data_store()->get_stock_reduced( wc_get_order( $pending->local_id ) ) );
 	}
 
+	public function test_sales_and_download_permission_flags_reflect_status(): void {
+		// pending/on-hold等の未処理注文にまで無条件でtrueを立てると、この注文が後に本当に
+		// processing/completedへ遷移した際、WooCommerce標準フック
+		// （`wc_update_total_sales_counts()`/`wc_update_coupon_usage_counts()`/
+		// ダウンロード権限付与）が「既に処理済み」と誤認して発火しなくなる。
+		$completed       = $this->make_writer()->write( $this->make_order( '1018', 'completed' ), null );
+		$completed_order = wc_get_order( $completed->local_id );
+		$this->assertTrue( $completed_order->get_recorded_sales() );
+		$this->assertTrue( $completed_order->get_recorded_coupon_usage_counts() );
+		$this->assertTrue( $completed_order->get_download_permissions_granted() );
+
+		$pending       = $this->make_writer()->write( $this->make_order( '1019', 'pending' ), null );
+		$pending_order = wc_get_order( $pending->local_id );
+		$this->assertFalse( $pending_order->get_recorded_sales() );
+		$this->assertFalse( $pending_order->get_recorded_coupon_usage_counts() );
+		$this->assertFalse( $pending_order->get_download_permissions_granted() );
+	}
+
 	public function test_customer_resolved_via_mapping(): void {
 		$user_id = wp_insert_user(
 			[

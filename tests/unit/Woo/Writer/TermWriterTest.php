@@ -62,6 +62,53 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( '店舗独自メモ', get_term_meta( $result->local_id, '_cbjp_note', true ) );
 	}
 
+	public function test_boolean_false_extras_are_persisted_as_zero_not_empty_string(): void {
+		// bool `false`をそのまま`update_term_meta()`等に渡すとSQLへ渡す際に空文字列へ変換され、
+		// キー未設定と区別できなくなる（`ExtrasMeta::apply_via()`の正規化で防ぐ）。
+		$category = new CanonicalCategory(
+			'100',
+			'Apparel',
+			null,
+			null,
+			[
+				'featured' => false,
+			]
+		);
+
+		$result = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( '0', get_term_meta( $result->local_id, '_cbjp_featured', true ) );
+	}
+
+	public function test_thumbnail_download_failure_is_surfaced_as_a_warning(): void {
+		// `MediaImporter::import()`のnull返却契約: 呼び出し側が警告を積む必要がある
+		// （`ProductWriter::apply_images()`の同種の失敗処理と同じ方針）。
+		add_filter(
+			'pre_http_request',
+			static fn () => new \WP_Error( 'http_request_failed', 'boom' ),
+			10,
+			3
+		);
+
+		$category = new CanonicalCategory(
+			'100',
+			'Apparel',
+			null,
+			null,
+			[
+				'image_url' => 'https://example.test/thumb.png',
+			]
+		);
+
+		$result = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( '', get_term_meta( $result->local_id, 'thumbnail_id', true ) );
+		$this->assertContains(
+			WarningCode::with_detail( WarningCode::IMAGE_DOWNLOAD_FAILED, 'https://example.test/thumb.png' ),
+			$result->warnings
+		);
+	}
+
 	public function test_updates_existing_term_by_mapping(): void {
 		$term_id  = wp_insert_term( 'Old name', 'product_cat' )['term_id'];
 		$category = new CanonicalCategory( '100', 'New name', null, null );
@@ -142,6 +189,22 @@ final class TermWriterTest extends WooTestCase {
 		// 手動作成タームの名前は上書きされていない。
 		$term = get_term( $existing_id, 'product_cat' );
 		$this->assertSame( 'Apparel', $term->name );
+	}
+
+	public function test_stale_term_id_falls_back_to_create_when_term_was_manually_deleted(): void {
+		// `wp_update_term()`は対象タームが既に存在しない場合、`invalid_term_id`ではなく
+		// `invalid_term`を返す（`wp-includes/taxonomy.php`の`get_term()`が空を返した分岐）。
+		// これを誤検知しないと、手動削除されたタームへのmappingは永久に再作成されなくなる。
+		$term_id = wp_insert_term( 'Old', 'product_cat' )['term_id'];
+		wp_delete_term( $term_id, 'product_cat' );
+
+		$category = new CanonicalCategory( '100', 'New', null, null );
+		$result   = $this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 0, $result->local_id );
+		$term = get_term( $result->local_id, 'product_cat' );
+		$this->assertSame( 'New', $term->name );
 	}
 
 	public function test_update_validation_error_is_not_treated_as_deleted_term(): void {

@@ -52,7 +52,16 @@ final class ExtrasMeta {
 
 			// 配列（pickups/group_ids/membership等）はget_post_meta()の自動unserializeに
 			// 依存させず、checksum比較やCSV出力で扱いやすいJSON文字列として保存する。
-			$update( $meta_key, is_array( $value ) ? wp_json_encode( $value ) : $value );
+			// bool `false`はメタストレージ層（`update_post_meta()`/`update_user_meta()`等）が
+			// SQLへ渡す際に空文字列へ変換され、キー未設定と区別できなくなるため、
+			// `CustomerWriter::mailmag_opt_in`と同じ規約で明示的に'1'/'0'文字列へ変換する。
+			$normalized = match ( true ) {
+				is_array( $value ) => wp_json_encode( $value ),
+				is_bool( $value ) => $value ? '1' : '0',
+				default => $value,
+			};
+
+			$update( $meta_key, $normalized );
 		}
 	}
 }

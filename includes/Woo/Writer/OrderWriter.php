@@ -256,15 +256,21 @@ final class OrderWriter implements EntityWriter {
 
 		$order->set_status( $status );
 
-		// D10 #6: ASP側で既に確定済みの受注に対してWoo標準の在庫増減を再度走らせない
-		// （SideEffectGuardのフィルターに加え、履歴として正しいフラグを明示する）。
-		// completed/processingはASP側で既に減算済みという履歴として true にし、
-		// falseのままだとcancelled等への遷移時に在庫が「戻されて」増えてしまう。
-		$order->set_order_stock_reduced( in_array( $status, [ 'completed', 'processing' ], true ) );
+		// D10 #6: ASP側で既に確定済みの受注に対してWoo標準の在庫増減・売上集計・ダウンロード
+		// 権限付与を再度走らせない（SideEffectGuardのフィルターに加え、履歴として正しい
+		// フラグを明示する）。completed/processingはASP側で既に処理済みという履歴として true
+		// にする。pending/on-hold等の未処理注文にまで無条件でtrueを立てると、この注文が
+		// 後に本当にprocessing/completedへ遷移した際、WooCommerce標準フック
+		// （`wc_update_total_sales_counts()`/`wc_update_coupon_usage_counts()`/
+		// ダウンロード権限付与）が「既に処理済み」と誤認して発火せず、集計が過少になったり
+		// 購入者がダウンロード可能商品を一切受け取れなくなったりする。
+		$already_finalized = in_array( $status, [ 'completed', 'processing' ], true );
+
+		$order->set_order_stock_reduced( $already_finalized );
 		$order->set_new_order_email_sent( true );
-		$order->set_recorded_sales( true );
-		$order->set_recorded_coupon_usage_counts( true );
-		$order->set_download_permissions_granted( true );
+		$order->set_recorded_sales( $already_finalized );
+		$order->set_recorded_coupon_usage_counts( $already_finalized );
+		$order->set_download_permissions_granted( $already_finalized );
 
 		return $warnings;
 	}

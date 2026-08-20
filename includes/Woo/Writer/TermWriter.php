@@ -76,7 +76,7 @@ final class TermWriter implements EntityWriter {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
-		$this->apply_extras( $term_id, $item );
+		$warnings = array_merge( $warnings, $this->apply_extras( $term_id, $item ) );
 
 		return new WriteResult( $term_id, $operation, $warnings );
 	}
@@ -89,8 +89,10 @@ final class TermWriter implements EntityWriter {
 		$result = wp_update_term( $term_id, $this->taxonomy, array_merge( $args, [ 'name' => $name ] ) );
 
 		if ( $result instanceof WP_Error ) {
-			if ( 'invalid_term_id' === $result->get_error_code() ) {
-				// 対象タームが既に存在しない（手動削除等）。新規作成へフォールバックする。
+			if ( 'invalid_term' === $result->get_error_code() ) {
+				// 対象タームが既に存在しない（手動削除等）。`wp_update_term()`はこの場合
+				// `invalid_term_id`ではなく`invalid_term`を返す（`wp-includes/taxonomy.php`の
+				// `get_term()`が空を返した分岐）。新規作成へフォールバックする。
 				return $this->create_or_reuse( $name, $args );
 			}
 
@@ -153,9 +155,13 @@ final class TermWriter implements EntityWriter {
 		return [ $term_id, WriteResult::OPERATION_UPDATED, $warnings ];
 	}
 
-	private function apply_extras( int $term_id, CanonicalCategory|CanonicalTag $item ): void {
-		$extras = $item->extras;
-		$sort   = Value::int( $extras['sort'] ?? null );
+	/**
+	 * @return array<int,string>
+	 */
+	private function apply_extras( int $term_id, CanonicalCategory|CanonicalTag $item ): array {
+		$warnings = [];
+		$extras   = $item->extras;
+		$sort     = Value::int( $extras['sort'] ?? null );
 
 		if ( null !== $sort ) {
 			update_term_meta( $term_id, 'order', $sort );
@@ -174,6 +180,10 @@ final class TermWriter implements EntityWriter {
 
 			if ( null !== $attachment_id ) {
 				update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
+			} else {
+				// `MediaImporter::import()`のnull返却契約: 呼び出し側が警告を積む
+				// （`ProductWriter::apply_images()`の同種の失敗処理と同じ方針）。
+				$warnings[] = WarningCode::with_detail( WarningCode::IMAGE_DOWNLOAD_FAILED, $image_url );
 			}
 		}
 
@@ -192,5 +202,7 @@ final class TermWriter implements EntityWriter {
 
 		update_term_meta( $term_id, '_cbjp_platform', $this->platform );
 		update_term_meta( $term_id, '_cbjp_remote_id', $item->remote_id() );
+
+		return $warnings;
 	}
 }
