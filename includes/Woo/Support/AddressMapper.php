@@ -25,6 +25,17 @@ final class AddressMapper {
 	 */
 	private const PREF_ID_SCHEME_PLATFORMS = [ 'colorme' ];
 
+	/**
+	 * 「氏名は姓名を空白区切りで連結した単一文字列」という前提自体もColorMe固有の仕様であり、
+	 * 他ASPが姓名を最初から別フィールドで供給する、または異なる区切り規則を持つ可能性がある
+	 * （`pref_id`スキームと全く同じリスク構造。アーキテクチャ原則1）。無条件に分割すると
+	 * 対応外プラットフォームの氏名を誤って分割しかねないため、対応済みプラットフォームを
+	 * ここで明示的に限定する。
+	 *
+	 * @var array<int,string>
+	 */
+	private const SINGLE_STRING_NAME_PLATFORMS = [ 'colorme' ];
+
 	private function __construct() {}
 
 	/**
@@ -32,7 +43,7 @@ final class AddressMapper {
 	 * @return array{first_name:string,last_name:string,company:string,address_1:string,address_2:string,city:string,state:string,postcode:string,country:string,email:string,phone:string}
 	 */
 	public static function to_woo( string $platform, array $address, string $full_name, string $email, ?string $phone, ?string $company ): array {
-		[ $last_name, $first_name ] = self::split_name( $full_name );
+		[ $last_name, $first_name ] = self::split_name( $platform, $full_name );
 
 		return [
 			'first_name' => $first_name,
@@ -82,10 +93,16 @@ final class AddressMapper {
 	/**
 	 * ColorMeの氏名は「姓 名」の単一文字列。半角/全角スペースで最初の1回だけ分割し、
 	 * 先頭を姓（last_name）、残りを名（first_name）とする。区切りが無ければ全体を姓に入れる。
+	 * `SINGLE_STRING_NAME_PLATFORMS`未対応のプラットフォームでは、この分割規則自体が
+	 * 妥当か不明なため分割せず全体を姓に入れる（分割に失敗した場合と同じフォールバック）。
 	 *
 	 * @return array{0:string,1:string} [last_name, first_name]
 	 */
-	private static function split_name( string $full_name ): array {
+	private static function split_name( string $platform, string $full_name ): array {
+		if ( ! in_array( $platform, self::SINGLE_STRING_NAME_PLATFORMS, true ) ) {
+			return [ $full_name, '' ];
+		}
+
 		$parts = preg_split( '/[\s\x{3000}]+/u', trim( $full_name ), 2 );
 
 		if ( false === $parts || ! isset( $parts[0] ) ) {

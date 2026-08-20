@@ -23,28 +23,15 @@ final class SkuGuard {
 	private function __construct() {}
 
 	/**
+	 * 重複判定は`WC_Product::set_sku()`が内部の`wc_product_has_unique_sku()`経由で既に行い
+	 * `WC_Data_Exception`を投げるため、ここで`wc_get_product_id_by_sku()`を重ねて手動チェック
+	 * すると同じ問い合わせを二重に行うだけになる。例外を捕捉する1箇所に判定を集約する。
+	 *
 	 * @return array<int,string> 警告
 	 */
 	public static function apply( WC_Product $target, ?string $sku ): array {
 		$sku = $sku ?? '';
 
-		if ( '' !== $sku ) {
-			$conflict = wc_get_product_id_by_sku( $sku );
-
-			if ( 0 !== $conflict && $conflict !== $target->get_id() ) {
-				$target->update_meta_data( '_cbjp_original_sku', $sku );
-
-				return self::set_or_warn( $target, '', WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku ) );
-			}
-		}
-
-		return self::set_or_warn( $target, $sku, null );
-	}
-
-	/**
-	 * @return array<int,string>
-	 */
-	private static function set_or_warn( WC_Product $target, string $sku, ?string $duplicate_warning ): array {
 		try {
 			$target->set_sku( $sku );
 		} catch ( WC_Data_Exception ) {
@@ -54,6 +41,6 @@ final class SkuGuard {
 			return [ WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku ) ];
 		}
 
-		return null !== $duplicate_warning ? [ $duplicate_warning ] : [];
+		return [];
 	}
 }

@@ -95,6 +95,16 @@ final class CustomerWriter implements EntityWriter {
 
 			if ( $update_result instanceof WP_Error ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+
+				// `wp_update_user()`はメール重複等のエラー時、渡した全フィールド（氏名・
+				// display_name含む）を一切適用しない。それにも関わらずここから先を続行すると、
+				// billing/shipping住所・extrasだけが新しい値に更新され、コアプロフィール
+				// （氏名・メール）だけが古いまま残る内部不整合な部分更新になってしまう。
+				// `local_id=0`＋`OPERATION_SKIPPED`を返すと`Importer`はmappingsのchecksumを
+				// 更新しない（`WriteResult::$local_id === 0`の契約）ため、衝突が解消されるまで
+				// 次回実行時も同じアイテムとして再試行される（他の同種の失敗パターンと同じ
+				// フェイルクローズ方針）。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
 			}
 		}
 

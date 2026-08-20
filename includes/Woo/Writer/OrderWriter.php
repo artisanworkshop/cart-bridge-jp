@@ -148,14 +148,19 @@ final class OrderWriter implements EntityWriter {
 		$shipping_built     = $this->items->build_shipping_item( $item->shipping, $mapped_method_id, $mapped_title );
 
 		$order->add_item( $shipping_built['item'] );
+		$warnings = array_merge( $warnings, $shipping_built['warnings'] );
 
 		if ( null !== $shipping_method_id && null === $mapped_method_id ) {
 			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $shipping_method_id );
 		}
 
-		foreach ( $this->items->build_fee_items( $item->payment, $item->totals ) as $fee_item ) {
+		$fee_built = $this->items->build_fee_items( $item->payment, $item->totals );
+
+		foreach ( $fee_built['items'] as $fee_item ) {
 			$order->add_item( $fee_item );
 		}
+
+		$warnings = array_merge( $warnings, $fee_built['warnings'] );
 
 		return $warnings;
 	}

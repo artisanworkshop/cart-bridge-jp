@@ -140,7 +140,7 @@ final class OrderItemBuilder {
 
 	/**
 	 * @param array<string,mixed> $shipping
-	 * @return array{item:WC_Order_Item_Shipping}
+	 * @return array{item:WC_Order_Item_Shipping,warnings:array<int,string>}
 	 */
 	public function build_shipping_item( array $shipping, ?string $mapped_method_id, ?string $mapped_title ): array {
 		$method_name = Value::string( $shipping['method_name'] ?? null );
@@ -152,9 +152,14 @@ final class OrderItemBuilder {
 		// ASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが記録され、
 		// 拡張機能等の配送方法判定処理が誤動作しうる。
 		$item->set_method_id( $mapped_method_id ?? '' );
-		$item->set_total( Value::string( $shipping['fee'] ?? null ) ?? '0' );
 
-		return [ 'item' => $item ];
+		[ $fee, $fee_warning ] = $this->validate_amount( Value::string( $shipping['fee'] ?? null ) );
+		$item->set_total( $fee );
+
+		return [
+			'item'     => $item,
+			'warnings' => null !== $fee_warning ? [ $fee_warning ] : [],
+		];
 	}
 
 	/**
@@ -163,12 +168,17 @@ final class OrderItemBuilder {
 	 *
 	 * @param array<string,mixed> $payment
 	 * @param array<string,mixed> $totals
-	 * @return array<int,WC_Order_Item_Fee>
+	 * @return array{items:array<int,WC_Order_Item_Fee>,warnings:array<int,string>}
 	 */
 	public function build_fee_items( array $payment, array $totals ): array {
-		$items = [];
+		$items    = [];
+		$warnings = [];
 
-		$payment_fee = Value::string( $payment['fee'] ?? null ) ?? '0';
+		[ $payment_fee, $payment_fee_warning ] = $this->validate_amount( Value::string( $payment['fee'] ?? null ) );
+
+		if ( null !== $payment_fee_warning ) {
+			$warnings[] = $payment_fee_warning;
+		}
 
 		if ( 0.0 !== (float) $payment_fee ) {
 			$fee = new WC_Order_Item_Fee();
@@ -179,7 +189,11 @@ final class OrderItemBuilder {
 			$items[] = $fee;
 		}
 
-		$gift_charges = Value::string( $totals['gift_charges'] ?? null ) ?? '0';
+		[ $gift_charges, $gift_charges_warning ] = $this->validate_amount( Value::string( $totals['gift_charges'] ?? null ) );
+
+		if ( null !== $gift_charges_warning ) {
+			$warnings[] = $gift_charges_warning;
+		}
 
 		if ( 0.0 !== (float) $gift_charges ) {
 			$fee = new WC_Order_Item_Fee();
@@ -190,6 +204,32 @@ final class OrderItemBuilder {
 			$items[] = $fee;
 		}
 
-		return $items;
+		return [
+			'items'    => $items,
+			'warnings' => $warnings,
+		];
+	}
+
+	/**
+	 * 送料/手数料金額の符号・数値妥当性を検証する。`OrderWriter::validate_totals()`が
+	 * 注文全体の`totals.*`をフェイルクローズ検証するのと非対称に、明細レベルの送料
+	 * （`shipping.fee`）・決済手数料（`payment.fee`）・ギフト包装料（`totals.gift_charges`）は
+	 * 符号未検証のまま`set_total()`/`set_amount()`に渡されていた。非数値・負の値をそのまま
+	 * 適用すると符号未検証のマイナス送料/手数料行が作られてしまう金銭的リスクがあるため、
+	 * ここでも0円へフェイルクローズし警告を積む（注文全体を見送るほどの致命傷ではないため
+	 * `OrderWriter::validate_totals()`のように注文自体は止めない）。
+	 *
+	 * @return array{0:string,1:?string} [採用する金額文字列, 警告（無ければnull）]
+	 */
+	private function validate_amount( ?string $raw ): array {
+		if ( null === $raw ) {
+			return [ '0', null ];
+		}
+
+		if ( ! is_numeric( $raw ) || (float) $raw < 0 ) {
+			return [ '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $raw ) ];
+		}
+
+		return [ $raw, null ];
 	}
 }

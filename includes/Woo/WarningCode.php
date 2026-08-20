@@ -60,6 +60,7 @@ final class WarningCode {
 	public const ORDER_CREATE_FAILED           = 'order_create_failed';
 	public const ORDER_LINE_TAX_INCONSISTENT   = 'order_line_tax_inconsistent';
 	public const ORDER_TOTALS_INVALID          = 'order_totals_invalid';
+	public const ORDER_LINE_AMOUNT_INVALID     = 'order_line_amount_invalid';
 
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';

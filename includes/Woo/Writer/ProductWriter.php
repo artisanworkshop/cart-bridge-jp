@@ -143,11 +143,11 @@ final class ProductWriter implements EntityWriter {
 		$warnings = array_merge( $warnings, $this->apply_tax_class( $product, $item->tax_class ) );
 		$warnings = array_merge( $warnings, SkuGuard::apply( $product, $item->sku ) );
 
-		[ $category_ids, $category_warnings ] = $this->resolve_refs( $item->category_refs, 'category', WarningCode::CATEGORY_REF_UNRESOLVED );
+		[ $category_ids, $category_warnings ] = $this->resolve_refs( $item->category_refs, 'category', 'product_cat', WarningCode::CATEGORY_REF_UNRESOLVED );
 		$product->set_category_ids( $category_ids );
 		$warnings = array_merge( $warnings, $category_warnings );
 
-		[ $tag_ids, $tag_warnings ] = $this->resolve_refs( $item->tag_refs, 'tag', WarningCode::TAG_REF_UNRESOLVED );
+		[ $tag_ids, $tag_warnings ] = $this->resolve_refs( $item->tag_refs, 'tag', 'product_tag', WarningCode::TAG_REF_UNRESOLVED );
 		$product->set_tag_ids( $tag_ids );
 		$warnings = array_merge( $warnings, $tag_warnings );
 
@@ -207,6 +207,14 @@ final class ProductWriter implements EntityWriter {
 			// だった場合、再試行時に同一remote productに対して重複した孤立商品を作ってしまう
 			// ため、ここで削除してから例外を再送出し、次回はクリーンな状態からやり直せるようにする。
 			if ( null === $existing_local_id ) {
+				// `variations->sync()`は複数variantを1件ずつ保存・upsertするため、後続のvariantで
+				// 例外が起きた時点で先行するvariantは既に保存済み・mapping済みのことがある。
+				// `product`投稿型は非階層のため`$product->delete(true)`は子のvariation投稿を
+				// カスケード削除せず、そのまま放置すると親を失った孤立variationと、存在しない
+				// 親を指したままのmapping行が残ってしまう。`find_owned_variation_remote_ids()`は
+				// stale-variation掃除と同じ手法（post_parent＋プラットフォーム所有権）で
+				// これらを検出できるため、親を削除する前にここでも同様に掃除する。
+				$this->variations->remove_all( $this->variations->find_owned_variation_remote_ids( $product_id ) );
 				$product->delete( true );
 			}
 
@@ -260,7 +268,7 @@ final class ProductWriter implements EntityWriter {
 	 * @param array<int,string> $refs
 	 * @return array{0:array<int,int>,1:array<int,string>}
 	 */
-	private function resolve_refs( array $refs, string $entity_type, string $warning_code ): array {
+	private function resolve_refs( array $refs, string $entity_type, string $taxonomy, string $warning_code ): array {
 		$ids      = [];
 		$warnings = [];
 		$mapped   = $this->mappings->find_many( $this->platform, $entity_type, $refs );
@@ -270,7 +278,10 @@ final class ProductWriter implements EntityWriter {
 
 			// mappingsが指すタームが手動削除等で既に存在しない場合も未解決として扱う
 			// （存在しないterm IDをそのまま`set_category_ids()`/`set_tag_ids()`に渡さない）。
-			if ( null === $local_id || ! get_term( $local_id ) instanceof WP_Term ) {
+			// `get_term()`にtaxonomyを明示するのは`TermWriter`の親ターム検証と同じ理由:
+			// term_idはtaxonomyをまたいで一意である保証がないため、指定しないと別taxonomyの
+			// タームを誤って同一term_idとして解決しかねない。
+			if ( null === $local_id || ! get_term( $local_id, $taxonomy ) instanceof WP_Term ) {
 				$warnings[] = WarningCode::with_detail( $warning_code, $ref );
 				continue;
 			}
