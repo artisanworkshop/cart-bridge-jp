@@ -534,6 +534,16 @@ final class ProductWriterTest extends WooTestCase {
 		$wc_product = wc_get_product( $result->local_id );
 		$this->assertSame( [], $wc_product->get_category_ids() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ), $result->warnings );
+		// `Importer::process_items()`はfully_resolved=falseの結果に対してchecksumを
+		// キャッシュしない（category参照が後から解決可能になった場合に再試行するため）。
+		$this->assertFalse( $result->fully_resolved );
+	}
+
+	public function test_fully_resolved_defaults_to_true_when_no_references_are_unresolved(): void {
+		$product = new CanonicalProduct( 'P', 'SKU-14', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '14' ] );
+		$result  = $this->make_writer()->write( $product, null );
+
+		$this->assertTrue( $result->fully_resolved );
 	}
 
 	public function test_sale_price_below_regular_is_applied(): void {
@@ -739,6 +749,70 @@ final class ProductWriterTest extends WooTestCase {
 
 		$wc_product = wc_get_product( $first->local_id );
 		$this->assertContains( $preserved_id, $wc_product->get_gallery_image_ids() );
+	}
+
+	public function test_own_images_are_cleared_when_asp_removes_all_images_but_other_platforms_are_preserved(): void {
+		// weight/few_num/sort等と同じclear-on-nullの規約: ASP側で商品画像が全て削除された
+		// 場合も、以前このプラグインが取り込んだメイン画像/ギャラリーを残し続けない。
+		// ただし他プラットフォームが取り込んだ画像・店舗が手動追加した画像は保護する。
+		$this->stub_image_http();
+
+		$colorme_product = new CanonicalProduct(
+			'P',
+			'SKU-18',
+			'100',
+			null,
+			null,
+			[
+				[
+					'src'      => 'https://example.test/colorme-main-18.png',
+					'position' => 0,
+				],
+				[
+					'src'      => 'https://example.test/colorme-gallery-18.png',
+					'position' => 1,
+				],
+			],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '18' ]
+		);
+		$first           = $this->make_writer( 'colorme' )->write( $colorme_product, null );
+
+		// 他プラットフォームが取り込んだギャラリー画像を模擬する（メイン画像は「常に最後に
+		// 書いたプラットフォームの値を反映する」既存の仕様上、writer経由の書込では
+		// この検証に必要な「colorme由来のメイン画像がまだ残っている」状態を作れないため、
+		// gallery_image_idsへ直接追加する）。
+		$other_platform_id = self::factory()->attachment->create();
+		update_post_meta( $other_platform_id, '_cbjp_source_url', 'https://example.test/makeshop-gallery-18.png' );
+		update_post_meta( $other_platform_id, '_cbjp_platform', 'makeshop' );
+		$product_before = wc_get_product( $first->local_id );
+		$product_before->set_gallery_image_ids( array_merge( $product_before->get_gallery_image_ids(), [ $other_platform_id ] ) );
+		$product_before->save();
+
+		// colorme側でASPが画像を全て削除した状態を再同期する。
+		$resynced = new CanonicalProduct(
+			'P',
+			'SKU-18',
+			'100',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '18' ]
+		);
+		$this->make_writer( 'colorme' )->write( $resynced, $first->local_id );
+
+		$wc_product = wc_get_product( $first->local_id );
+		$this->assertSame( '', $wc_product->get_image_id() );
+		$this->assertContains( $other_platform_id, $wc_product->get_gallery_image_ids() );
 	}
 
 	private function find_attachment_by_source_url( string $url ): int {

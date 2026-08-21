@@ -78,7 +78,7 @@ final class TermWriter implements EntityWriter {
 
 		$warnings = array_merge( $warnings, $this->apply_extras( $term_id, $item ) );
 
-		return new WriteResult( $term_id, $operation, $warnings );
+		return new WriteResult( $term_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
 	}
 
 	/**
@@ -230,7 +230,12 @@ final class TermWriter implements EntityWriter {
 			return;
 		}
 
-		if ( '' !== get_post_meta( $current_attachment_id, '_cbjp_source_url', true ) ) {
+		// `_cbjp_source_url`だけでなく`_cbjp_platform`が自分自身と一致する場合のみ削除する
+		// （`ProductWriter::apply_images()`と同じ理由: D16のリンク再構築ツール等で複数
+		// プラットフォームが同一タームを共有しうるため、`_cbjp_source_url`の有無だけで判定すると
+		// 他プラットフォームが取り込んだサムネイルを誤って削除してしまう）。
+		if ( '' !== get_post_meta( $current_attachment_id, '_cbjp_source_url', true )
+			&& PlatformOwnership::owns_post( $current_attachment_id, $this->platform ) ) {
 			delete_term_meta( $term_id, 'thumbnail_id' );
 		}
 	}

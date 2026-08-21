@@ -224,7 +224,7 @@ final class ProductWriter implements EntityWriter {
 			throw $exception;
 		}
 
-		return new WriteResult( $product_id, $operation, $warnings );
+		return new WriteResult( $product_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
 	}
 
 	/**
@@ -404,6 +404,12 @@ final class ProductWriter implements EntityWriter {
 	 */
 	private function apply_images( WC_Product $product, array $images ): array {
 		if ( [] === $images ) {
+			// weight/few_num/sort等と同じclear-on-nullの規約: ASP側で商品画像が全て削除された
+			// 場合も、以前このプラグインが取り込んだメイン画像/ギャラリーを残し続けない
+			// （TermWriter::clear_owned_thumbnail()の商品版。ユーザー手動追加・他プラットフォーム
+			// 由来の画像は下記と同じ所有権判定で保護する）。
+			$this->set_images( $product, [] );
+
 			return [];
 		}
 
@@ -446,11 +452,25 @@ final class ProductWriter implements EntityWriter {
 			return $warnings;
 		}
 
-		// メイン画像はASP側の値を常に反映する。ギャラリーは「このプラットフォームが過去に
-		// 取り込んだ添付」（`_cbjp_source_url`あり かつ `_cbjp_platform`が自分自身）だけを
-		// 差し替え、ユーザーが手動で追加した画像・別プラットフォームが取り込んだ画像は残す
-		// （`_cbjp_source_url`の有無だけで判定すると、複数プラットフォームが同一商品を共有する
-		// 場合に他プラットフォームのギャラリーを消してしまう）。
+		$this->set_images( $product, $attachment_ids );
+
+		return $warnings;
+	}
+
+	/**
+	 * メイン画像・ギャラリーの反映を担う。`$attachment_ids`が空（ASP側で画像が全て削除された）
+	 * 場合も含めて、このメソッド1箇所で「自プラットフォームが取り込んだ添付だけを差し替え、
+	 * ユーザーが手動で追加した画像・別プラットフォームが取り込んだ画像は残す」所有権判定を
+	 * 一貫して適用する。
+	 *
+	 * @param array<int,int> $attachment_ids
+	 */
+	private function set_images( WC_Product $product, array $attachment_ids ): void {
+		// ギャラリーは「このプラットフォームが過去に取り込んだ添付」（`_cbjp_source_url`あり
+		// かつ `_cbjp_platform`が自分自身）だけを差し替え、ユーザーが手動で追加した画像・
+		// 別プラットフォームが取り込んだ画像は残す（`_cbjp_source_url`の有無だけで判定すると、
+		// 複数プラットフォームが同一商品を共有する場合に他プラットフォームのギャラリーを
+		// 消してしまう）。
 		$existing_gallery_ids = $product->get_gallery_image_ids();
 
 		// `VariationWriter::find_owned_variation_remote_ids()`/`delete_variations()`と同じ理由:
@@ -459,19 +479,32 @@ final class ProductWriter implements EntityWriter {
 		// ここで一括プリロードする。
 		update_meta_cache( 'post', $existing_gallery_ids );
 
+		$is_owned_by_this_platform = fn ( int $attachment_id ): bool => '' !== get_post_meta( $attachment_id, '_cbjp_source_url', true )
+			&& PlatformOwnership::owns_post( $attachment_id, $this->platform );
+
 		$preserved_gallery = array_values(
 			array_filter(
 				$existing_gallery_ids,
-				fn ( int $attachment_id ): bool => '' === get_post_meta( $attachment_id, '_cbjp_source_url', true )
-					|| ! PlatformOwnership::owns_post( $attachment_id, $this->platform )
+				fn ( int $attachment_id ): bool => ! $is_owned_by_this_platform( $attachment_id )
 			)
 		);
 
-		$product->set_image_id( $attachment_ids[0] );
-		$product->set_gallery_image_ids( array_values( array_merge( array_slice( $attachment_ids, 1 ), $preserved_gallery ) ) );
-		$product->save();
+		if ( [] === $attachment_ids ) {
+			// メイン画像も自プラットフォームが取り込んだものである場合のみ外す
+			// （店舗が手動設定したメイン画像・別プラットフォーム由来の画像は保護する）。
+			$current_image_id = (int) $product->get_image_id();
 
-		return $warnings;
+			if ( 0 !== $current_image_id && $is_owned_by_this_platform( $current_image_id ) ) {
+				$product->set_image_id( '' );
+			}
+
+			$product->set_gallery_image_ids( $preserved_gallery );
+		} else {
+			$product->set_image_id( $attachment_ids[0] );
+			$product->set_gallery_image_ids( array_values( array_merge( array_slice( $attachment_ids, 1 ), $preserved_gallery ) ) );
+		}
+
+		$product->save();
 	}
 
 	/**

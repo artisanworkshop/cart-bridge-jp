@@ -241,7 +241,14 @@ final class Importer {
 			$did_persist = ! $is_dry_run && 0 !== $result->local_id;
 
 			if ( $did_persist ) {
-				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
+				// `$result->fully_resolved`がfalse（category/tag参照・customer_ref等の一部が
+				// 未解決のまま実体だけ保存された）の場合はchecksumをキャッシュしない
+				// （`MappingRepository::upsert()`はnullをNULLIF経由でSQLのNULLへ変換する）。
+				// checksumをキャッシュすると、参照先が後から解決可能になった場合でも
+				// 182行目のchecksum一致スキップに永久に掛かり、二度と再試行されなくなる。
+				$checksum = $result->fully_resolved ? $item->checksum() : null;
+
+				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $checksum );
 
 				// ループ開始前に一括プリロードした`$existing`はこのループ内で行われた更新を
 				// 反映しない。同一ページ内（アダプタのページング境界バグ等）に同じremote_idの
@@ -252,7 +259,7 @@ final class Importer {
 				// 直前に確定したlocal_idでこの場で更新し、以後の同一remote_idの再利用に備える。
 				$existing[ $remote_id ] = [
 					'local_id' => $result->local_id,
-					'checksum' => $item->checksum(),
+					'checksum' => $checksum,
 				];
 			} elseif ( $consumed_quota_slot ) {
 				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した

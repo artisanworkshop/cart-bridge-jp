@@ -95,4 +95,31 @@ final class WarningCode {
 
 		return [ $parts[0], $parts[1] ?? null ];
 	}
+
+	/**
+	 * `Sync\Importer::process_items()`がchecksumをキャッシュしてよいか（`WriteResult::$fully_resolved`）
+	 * の判定に使う。ここに列挙するのは「参照先が後から解決可能になりうる」警告のみ:
+	 * category/tag/親カテゴリ・顧客参照・注文明細の商品参照が未解決のまま実体自体は保存された
+	 * ケース。`CUSTOMER_ACCOUNT_PROTECTED`（管理者アカウントとの衝突）のように解決される見込みが
+	 * ない終端状態はここに含めない（含めると、解決される可能性が無いのに毎回無駄に再処理される）。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_unresolved_reference( array $warnings ): bool {
+		$retry_worthy_codes = [
+			self::CATEGORY_PARENT_UNRESOLVED,
+			self::CATEGORY_REF_UNRESOLVED,
+			self::TAG_REF_UNRESOLVED,
+			self::ORDER_CUSTOMER_UNRESOLVED,
+			self::ORDER_LINE_PRODUCT_UNRESOLVED,
+		];
+
+		foreach ( $warnings as $warning ) {
+			if ( in_array( self::split( $warning )[0], $retry_worthy_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 }

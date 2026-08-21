@@ -150,6 +150,33 @@ final class ImporterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * ProductWriter/OrderWriter/TermWriterは、category/tag参照や顧客参照が未解決のまま
+	 * 実体自体は保存できた場合、local_id!==0（`WriteResult::$fully_resolved`はfalse）を返す
+	 * （注文履歴・商品自体の欠落を防ぐため）。この場合checksumをキャッシュすると、参照先が
+	 * 後から解決可能になっても（category等が後で取り込まれても）二度と再試行されなくなるため、
+	 * checksumが一致していても次回実行時に再度write()が呼ばれることを確認する。
+	 */
+	public function test_partially_resolved_item_is_retried_even_when_checksum_matches(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public int $calls = 0;
+
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				++$this->calls;
+
+				return new WriteResult( 42, WriteResult::OPERATION_CREATED, [ 'category_ref_unresolved:10' ], false );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		$this->assertSame( 2, $writer->calls );
+		$this->assertSame( 42, $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+	}
+
+	/**
 	 * `local_id === 0` なのに `operation` が created/updated を返す（writer実装側の契約違反）
 	 * 場合でも、totals集計上は実態どおりskipped扱いになることを確認する
 	 * （writer/EntityWriterインターフェースでは型として強制できない契約を、Importer側で

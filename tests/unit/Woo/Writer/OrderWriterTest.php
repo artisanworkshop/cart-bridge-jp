@@ -623,6 +623,59 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertNotNull( wc_get_order( $first->local_id )->get_date_paid() );
 	}
 
+	public function test_new_completed_order_with_ambiguous_paid_flag_does_not_get_migration_run_time_as_paid_date(): void {
+		// `apply_status()`（直前に呼ばれる）の`WC_Order::set_status()`は、pending→completedの
+		// ステータス遷移時に`maybe_set_date_paid()`/`maybe_set_date_completed()`を発火させ、
+		// `date_paid`へ移行実行時刻（`time()`）を自動的に焼き込む（WooCommerce本体の仕様）。
+		// `paid`フラグが欠損/nullの新規注文でこれを放置すると、実際にはASP側で何年も前に
+		// 支払われたか不明な注文が「移行を実行した今日」支払われたことになってしまう。
+		// 一方`date_completed`はステータス（completed）自体から導かれる事実であり、
+		// `paid`の有無に関わらずASP側の受注日時（`placed_at`）で確定してよい。
+		$order  = $this->make_order(
+			'1021',
+			'completed',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[]
+		);
+		$result = $this->make_writer()->write( $order, null );
+
+		$wc_order = wc_get_order( $result->local_id );
+		$this->assertNull( $wc_order->get_date_paid() );
+		$this->assertSame( '2026-01-01T00:00:00+00:00', $wc_order->get_date_completed()->date( 'c' ) );
+	}
+
+	public function test_completed_order_with_explicit_paid_flag_gets_placed_at_as_completed_and_paid_dates(): void {
+		$order  = $this->make_order(
+			'1022',
+			'completed',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			[ 'paid' => true ]
+		);
+		$result = $this->make_writer()->write( $order, null );
+
+		$wc_order = wc_get_order( $result->local_id );
+		$this->assertSame( '2026-01-01T00:00:00+00:00', $wc_order->get_date_paid()->date( 'c' ) );
+		$this->assertSame( '2026-01-01T00:00:00+00:00', $wc_order->get_date_completed()->date( 'c' ) );
+	}
+
 	/**
 	 * @dataProvider status_provider
 	 */
@@ -711,6 +764,10 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $wc_order->get_customer_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-admin' ), $result->warnings );
+		// 管理者アカウントとの衝突は解決される見込みが無い終端状態のため（再試行しても
+		// 保護は解除されない）、`ORDER_CUSTOMER_UNRESOLVED`と異なりfully_resolvedはtrueのまま
+		// （falseにすると、解決される可能性が無いのに毎回無駄に再処理されてしまう）。
+		$this->assertTrue( $result->fully_resolved );
 	}
 
 	public function test_unresolved_customer_ref_warns_and_is_guest(): void {
@@ -720,6 +777,9 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $wc_order->get_customer_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, 'missing-customer' ), $result->warnings );
+		// `Importer::process_items()`はfully_resolved=falseの結果に対してchecksumを
+		// キャッシュしない（顧客参照が後から解決可能になった場合に再試行するため）。
+		$this->assertFalse( $result->fully_resolved );
 	}
 
 	public function test_residual_and_split_tax_warnings(): void {

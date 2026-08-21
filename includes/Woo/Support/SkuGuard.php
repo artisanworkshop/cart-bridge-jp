@@ -41,6 +41,13 @@ final class SkuGuard {
 			return [ WarningCode::with_detail( WarningCode::SKU_DUPLICATE, $sku ) ];
 		}
 
+		// 前回の同期時点では重複していて`_cbjp_original_sku`へ退避していたSKUが、今回は
+		// （衝突相手が削除された等で）正常に設定できた場合、退避メタが残り続けないよう
+		// 明示的に削除する（weight/low_stock_amount等で確立しているclear-on-nullの規約と
+		// 揃える）。残したままだと、SKU_DUPLICATE警告は次回以降出なくなるのに、D16の
+		// リンク再構築ツールや店舗側の突合が古い「退避されたSKU」を参照し続けてしまう。
+		$target->delete_meta_data( '_cbjp_original_sku' );
+
 		return [];
 	}
 }

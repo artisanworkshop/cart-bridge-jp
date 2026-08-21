@@ -19,6 +19,8 @@ use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
 use WC_Order;
+use WC_Order_Item;
+use WC_Order_Item_Product;
 use WP_Error;
 
 /**
@@ -72,14 +74,12 @@ final class OrderWriter implements EntityWriter {
 		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 
 		try {
-			// 再実行時は明細を作り直す（冪等）。`remove_order_items()`はDBを即座には変更せず、
-			// 内部フラグを立てて実際の削除を`save()`まで遅延させる仕様
-			// （`WC_Abstract_Order::remove_order_items()`のコード内コメント参照）。そのため
-			// この後の処理で例外が起きても`save()`に到達しない限りDB上の既存明細は無傷のまま残る。
-			$order->remove_order_items();
-
-			$warnings = $this->add_line_items( $order, $item->line_items );
-			$warnings = array_merge( $warnings, $this->add_shipping_and_fees( $order, $item ) );
+			// 明細（line item/shipping/fee）の組み立てはこの時点では`WC_Order_Item`
+			// オブジェクトを作るだけで、`$order`へは何も反映しない（`remove_order_items()`を
+			// 呼ぶ前に、失敗しうる処理を全て済ませておくため。理由は下のコメント参照）。
+			$built_line_items     = $this->build_line_items( $item->line_items );
+			$built_shipping_items = $this->build_shipping_and_fees( $item );
+			$warnings             = array_merge( $built_line_items['warnings'], $built_shipping_items['warnings'] );
 
 			$this->apply_totals( $order, $item->totals );
 			$this->apply_currency_and_tax_settings( $order, $warnings );
@@ -87,10 +87,22 @@ final class OrderWriter implements EntityWriter {
 			$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
 			$this->apply_addresses( $order, $item );
 			$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
-			$this->apply_dates( $order, $item );
+			$this->apply_dates( $order, $item, null === $existing_local_id );
 			$warnings = array_merge( $warnings, $this->totals_warnings( $item->totals ) );
 
 			$this->apply_meta( $order, $item, $warnings );
+
+			// 再実行時は明細を作り直す（冪等）。ここまでで組み立て・各種設定が全て成功した後、
+			// 最後にまとめて削除→追加する。`remove_order_items()`はWooCommerce 11.0.0で
+			// 追加された遅延削除機構（`$item_types_to_bulk_delete`、実削除は`save()`まで
+			// 遅延）が無いバージョンでは即座にDBから明細を削除する。本プラグインの最低要件は
+			// `WC requires at least: 10.0`のため、削除より前で例外が起きても（WC 10.x環境でも）
+			// 既存の明細が失われないよう、失敗しうる処理を全て終えてから削除・追加・保存を行う。
+			$order->remove_order_items();
+
+			foreach ( array_merge( $built_line_items['items'], $built_shipping_items['items'] ) as $order_item ) {
+				$order->add_item( $order_item );
+			}
 
 			$order_id = $order->save();
 
@@ -118,36 +130,46 @@ final class OrderWriter implements EntityWriter {
 			throw $exception;
 		}
 
-		return new WriteResult( $order_id, $operation, $warnings );
+		return new WriteResult( $order_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
 	}
 
 	/**
+	 * `$order->add_item()`は呼ばず、組み立てた`WC_Order_Item_Product`だけを返す
+	 * （`write()`が`remove_order_items()`より前に全ての失敗しうる組み立てを終わらせるため）。
+	 *
 	 * @param array<int,array<string,mixed>> $line_items
-	 * @return array<int,string>
+	 * @return array{items:array<int,WC_Order_Item_Product>,warnings:array<int,string>}
 	 */
-	private function add_line_items( WC_Order $order, array $line_items ): array {
+	private function build_line_items( array $line_items ): array {
+		$items    = [];
 		$warnings = [];
 
 		foreach ( $line_items as $line_item ) {
-			$built = $this->items->build_line_item( $line_item );
-			$order->add_item( $built['item'] );
+			$built    = $this->items->build_line_item( $line_item );
+			$items[]  = $built['item'];
 			$warnings = array_merge( $warnings, $built['warnings'] );
 		}
 
-		return $warnings;
+		return [
+			'items'    => $items,
+			'warnings' => $warnings,
+		];
 	}
 
 	/**
-	 * @return array<int,string>
+	 * `build_line_items()`と同じ理由で`$order->add_item()`は呼ばない。
+	 *
+	 * @return array{items:array<int,WC_Order_Item>,warnings:array<int,string>}
 	 */
-	private function add_shipping_and_fees( WC_Order $order, CanonicalOrder $item ): array {
+	private function build_shipping_and_fees( CanonicalOrder $item ): array {
+		$items              = [];
 		$warnings           = [];
 		$shipping_method_id = Value::string( $item->shipping['method_id'] ?? null );
 		$mapped_method_id   = null !== $shipping_method_id ? $this->methods->mapped_shipping_method_id( $shipping_method_id ) : null;
 		$mapped_title       = null !== $mapped_method_id ? $this->methods->shipping_method_title( $mapped_method_id ) : null;
 		$shipping_built     = $this->items->build_shipping_item( $item->shipping, $mapped_method_id, $mapped_title );
 
-		$order->add_item( $shipping_built['item'] );
+		$items[]  = $shipping_built['item'];
 		$warnings = array_merge( $warnings, $shipping_built['warnings'] );
 
 		if ( null !== $shipping_method_id && null === $mapped_method_id ) {
@@ -155,14 +177,13 @@ final class OrderWriter implements EntityWriter {
 		}
 
 		$fee_built = $this->items->build_fee_items( $item->payment, $item->totals );
+		$items     = array_merge( $items, $fee_built['items'] );
+		$warnings  = array_merge( $warnings, $fee_built['warnings'] );
 
-		foreach ( $fee_built['items'] as $fee_item ) {
-			$order->add_item( $fee_item );
-		}
-
-		$warnings = array_merge( $warnings, $fee_built['warnings'] );
-
-		return $warnings;
+		return [
+			'items'    => $items,
+			'warnings' => $warnings,
+		];
 	}
 
 	/**
@@ -373,9 +394,14 @@ final class OrderWriter implements EntityWriter {
 		return [];
 	}
 
-	private function apply_dates( WC_Order $order, CanonicalOrder $item ): void {
+	private function apply_dates( WC_Order $order, CanonicalOrder $item, bool $is_new_order ): void {
 		$order->set_date_created( $item->placed_at );
 
+		// `apply_status()`（この直前に呼ばれる）の`set_status()`は、ステータス遷移時に
+		// `WC_Order::maybe_set_date_paid()`/`maybe_set_date_completed()`を発火させ、
+		// `date_paid`/`date_completed`へ移行実行時刻（`time()`）を自動的に焼き込む
+		// （WooCommerce本体の仕様）。ASP側の実際の日時（`placed_at`）で明示的に上書きしないと、
+		// 過去に確定済みの注文が軒並み「移行実行日」に支払い・完了したことになってしまう。
 		$paid = Value::bool( $item->extras['paid'] ?? null );
 
 		if ( null === $paid ) {
@@ -383,14 +409,25 @@ final class OrderWriter implements EntityWriter {
 			// 値を解釈できなかった場合）は「未払いに変わった」という明示的なシグナルではないため、
 			// 既存の`date_paid`には触れない。ここで無条件にnullへ倒すと、再同期のたびに
 			// 支払い済み注文の`date_paid`が消え、会計・エクスポートで未払い扱いに戻ってしまう。
-			return;
+			if ( $is_new_order ) {
+				// ただし新規作成の場合は「既存の正しい値」がそもそも存在せず、直前の
+				// `set_status()`が焼き込んだ移行実行時刻だけが残っている状態のため、
+				// 保持すべき値が無い。誤った日時が残り続けないよう明示的にクリアする。
+				$order->set_date_paid( null );
+			}
+		} else {
+			// falseに反転した場合はdate_paidを消す（更新のみで削除しないと、再実行時に
+			// 返金・注文取消等でASP側のpaidフラグが取り消されても、古いdate_paidが残り続け
+			// WooCommerce側の会計・エクスポートで支払済みのまま扱われてしまう。discount_point等の
+			// 他フィールドで既に適用している「nullで削除」と同じ方針）。
+			$order->set_date_paid( $paid ? $item->placed_at : null );
 		}
 
-		// falseに反転した場合はdate_paidを消す（更新のみで削除しないと、再実行時に
-		// 返金・注文取消等でASP側のpaidフラグが取り消されても、古いdate_paidが残り続け
-		// WooCommerce側の会計・エクスポートで支払済みのまま扱われてしまう。discount_point等の
-		// 他フィールドで既に適用している「nullで削除」と同じ方針）。
-		$order->set_date_paid( $paid ? $item->placed_at : null );
+		// `date_completed`はCanonicalOrderに専用の完了日時フィールドが無いため、受注日時
+		// （`placed_at`）を代用する。上記コメントの理由により、ステータスがcompletedでなければ
+		// 明示的にクリアする（`set_status()`はcompleted→他ステータスへの遷移時に
+		// `date_completed`を自動クリアしないため、放置すると古い完了日時が残り続ける）。
+		$order->set_date_completed( $order->has_status( 'completed' ) ? $item->placed_at : null );
 	}
 
 	/**

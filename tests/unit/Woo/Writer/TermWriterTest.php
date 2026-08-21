@@ -125,17 +125,35 @@ final class TermWriterTest extends WooTestCase {
 	}
 
 	public function test_own_previously_imported_thumbnail_is_cleared_when_image_url_is_removed(): void {
-		// 逆に、以前このwriter自身が取り込んだ添付（`_cbjp_source_url`を持つ）であれば、
-		// ASP側でimage_urlが削除された場合に古い画像を残さない。
+		// 逆に、以前このwriter自身（同一プラットフォーム）が取り込んだ添付
+		// （`_cbjp_source_url`かつ`_cbjp_platform`が自分自身）であれば、ASP側でimage_urlが
+		// 削除された場合に古い画像を残さない。
 		$term_id       = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
 		$attachment_id = self::factory()->attachment->create();
 		update_post_meta( $attachment_id, '_cbjp_source_url', 'https://example.test/old-thumb.png' );
+		update_post_meta( $attachment_id, '_cbjp_platform', 'colorme' );
 		update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
 
 		$category = new CanonicalCategory( '100', 'Apparel', null, null );
 		$this->make_writer()->write( $category, $term_id );
 
 		$this->assertSame( '', get_term_meta( $term_id, 'thumbnail_id', true ) );
+	}
+
+	public function test_other_platforms_thumbnail_is_not_cleared_when_image_url_is_removed(): void {
+		// D16のリンク再構築ツール等で複数プラットフォームが同一タームを共有しうるため、
+		// `_cbjp_source_url`の有無だけで判定すると、他プラットフォームが取り込んだサムネイルを
+		// 誤って削除してしまう。`_cbjp_platform`が自分自身と一致しない場合は残すことを確認する。
+		$term_id       = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		$attachment_id = self::factory()->attachment->create();
+		update_post_meta( $attachment_id, '_cbjp_source_url', 'https://example.test/other-thumb.png' );
+		update_post_meta( $attachment_id, '_cbjp_platform', 'makeshop' );
+		update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
+
+		$category = new CanonicalCategory( '100', 'Apparel', null, null );
+		$this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( (string) $attachment_id, get_term_meta( $term_id, 'thumbnail_id', true ) );
 	}
 
 	public function test_manually_set_sort_order_is_not_cleared_when_sort_is_absent(): void {
