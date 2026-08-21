@@ -108,7 +108,7 @@ final class Importer {
 				null,
 				$product->sku,
 				$product->stock,
-				null === $product->stock || $product->stock > 0
+				CanonicalStock::is_in_stock( $product->stock )
 			);
 		}
 

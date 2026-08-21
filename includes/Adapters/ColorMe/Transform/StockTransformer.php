@@ -60,7 +60,7 @@ final class StockTransformer {
 			null,
 			ProductTransformer::sku( $raw, $remote_id ),
 			$quantity,
-			null === $quantity || $quantity > 0
+			CanonicalStock::is_in_stock( $quantity )
 		);
 	}
 
@@ -77,7 +77,7 @@ final class StockTransformer {
 			$variant_remote_id,
 			ProductTransformer::variant_sku( $variant, $remote_id ),
 			$quantity,
-			null === $quantity || $quantity > 0
+			CanonicalStock::is_in_stock( $quantity )
 		);
 	}
 }

@@ -349,6 +349,35 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $page->next_cursor->get( 'offset' ) );
 	}
 
+	public function test_fetch_products_terminates_when_meta_total_disagrees_with_zero_fetched_items(): void {
+		// meta.totalがoffsetより大きい値を報告していても、実際に0件しか取れなかった場合
+		// （並行削除等）はoffsetを進めるすべが無い。offset不変のCursorを返すと同じページを
+		// 無限に再エンキューし続けてしまうため、無条件に終端（null）を返すべき。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [
+						'products' => [],
+						'meta'     => [
+							'total'  => 4,
+							'limit'  => 50,
+							'offset' => 0,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertSame( [], $page->items );
+		$this->assertNull( $page->next_cursor );
+	}
+
 	public function test_fetch_categories_flattens_and_filters_by_display_state(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );

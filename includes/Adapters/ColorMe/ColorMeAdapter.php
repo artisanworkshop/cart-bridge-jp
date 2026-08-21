@@ -68,7 +68,10 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	/**
 	 * `payments.json`/`deliveries.json` から組み立てた名称マップを持つ`OrderTransformer`。
-	 * 1アダプタインスタンス（=1ジョブアクション）内での再利用のため遅延生成後にキャッシュする。
+	 * `AdapterRegistry::get()`はプラットフォーム単位でアダプタインスタンスを静的キャッシュするため、
+	 * このキャッシュの実際の寿命は「同一PHPプロセス内で処理された全ジョブアクション」（Action
+	 * Schedulerが1リクエストで複数アクションをまとめて実行する場合はページ横断で再利用される）。
+	 * アクション毎に新規プロセスが割り当てられる実行環境ではプロセス毎に再取得される。
 	 */
 	private ?OrderTransformer $order_transformer = null;
 
@@ -210,17 +213,18 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	public function fetch_products( Cursor $cursor ): Page {
-		$offset = (int) $cursor->get( 'offset', 0 );
-		$body   = $this->client()->get(
+		$offset      = (int) $cursor->get( 'offset', 0 );
+		$body        = $this->client()->get(
 			'products.json',
 			[
 				'limit'  => self::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw    = $this->list_from( $body, 'products' );
-		$items  = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => ( new ProductTransformer() )->transform( $item ), 'product' );
-		$total  = $this->total_from_meta( $body );
+		$raw         = $this->list_from( $body, 'products' );
+		$transformer = new ProductTransformer();
+		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
+		$total       = $this->total_from_meta( $body );
 
 		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
@@ -229,34 +233,37 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * @return array<int,CanonicalCategory>
 	 */
 	public function fetch_categories(): array {
-		$body = $this->client()->get( 'categories.json' );
-		$raw  = $this->list_from( $body, 'categories' );
+		$body        = $this->client()->get( 'categories.json' );
+		$raw         = $this->list_from( $body, 'categories' );
+		$transformer = new CategoryTransformer();
 
-		return $this->transform_rows_flat( $raw, static fn ( array $item ): array => ( new CategoryTransformer() )->transform( $item ), 'category' );
+		return $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'category' );
 	}
 
 	/**
 	 * @return array<int,CanonicalTag>
 	 */
 	public function fetch_tags(): array {
-		$body = $this->client()->get( 'groups.json' );
-		$raw  = $this->list_from( $body, 'groups' );
+		$body        = $this->client()->get( 'groups.json' );
+		$raw         = $this->list_from( $body, 'groups' );
+		$transformer = new TagTransformer();
 
-		return $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalTag => ( new TagTransformer() )->transform( $item ), 'tag' );
+		return $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalTag => $transformer->transform( $item ), 'tag' );
 	}
 
 	public function fetch_customers( Cursor $cursor ): Page {
-		$offset = (int) $cursor->get( 'offset', 0 );
-		$body   = $this->client()->get(
+		$offset      = (int) $cursor->get( 'offset', 0 );
+		$body        = $this->client()->get(
 			'customers.json',
 			[
 				'limit'  => self::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw    = $this->list_from( $body, 'customers' );
-		$items  = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => ( new CustomerTransformer() )->transform( $item ), 'customer' );
-		$total  = $this->total_from_meta( $body );
+		$raw         = $this->list_from( $body, 'customers' );
+		$transformer = new CustomerTransformer();
+		$items       = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => $transformer->transform( $item ), 'customer' );
+		$total       = $this->total_from_meta( $body );
 
 		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
@@ -288,17 +295,18 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * `CanonicalStock::remote_id()` が衝突するため使わない（`StockTransformer` docblock参照）。
 	 */
 	public function fetch_stocks( Cursor $cursor ): Page {
-		$offset = (int) $cursor->get( 'offset', 0 );
-		$body   = $this->client()->get(
+		$offset      = (int) $cursor->get( 'offset', 0 );
+		$body        = $this->client()->get(
 			'products.json',
 			[
 				'limit'  => self::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw    = $this->list_from( $body, 'products' );
-		$items  = $this->transform_rows_flat( $raw, static fn ( array $item ): array => ( new StockTransformer() )->transform( $item ), 'stock' );
-		$total  = $this->total_from_meta( $body );
+		$raw         = $this->list_from( $body, 'products' );
+		$transformer = new StockTransformer();
+		$items       = $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'stock' );
+		$total       = $this->total_from_meta( $body );
 
 		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
@@ -307,9 +315,10 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * `GET /shop_coupons.json` にページングパラメータが無い（swagger）ため常に1ページで完結する。
 	 */
 	public function fetch_coupons( Cursor $cursor ): Page {
-		$body  = $this->client()->get( 'shop_coupons.json' );
-		$raw   = $this->list_from( $body, 'shop_coupons' );
-		$items = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCoupon => ( new CouponTransformer() )->transform( $item ), 'coupon' );
+		$body        = $this->client()->get( 'shop_coupons.json' );
+		$raw         = $this->list_from( $body, 'shop_coupons' );
+		$transformer = new CouponTransformer();
+		$items       = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCoupon => $transformer->transform( $item ), 'coupon' );
 
 		return new Page( $items, null, count( $items ) );
 	}
@@ -510,6 +519,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * shop_couponsの単発取得を除くページング系）はページサイズ未満の取得件数を終端の合図にする。
 	 */
 	private function next_cursor( int $offset, int $fetched_count, ?int $total ): ?Cursor {
+		// 0件取得時は無条件に終端とする。`meta.total`がoffsetより大きい値を報告していても
+		// （並行削除や`list_from()`によるmalformed要素の除去等で0件になった場合）offsetを
+		// 進めるすべが無く、同じoffsetのCursorを返すとJobManagerが同一ページを無限に
+		// 再エンキューし続けてしまう。
+		if ( 0 === $fetched_count ) {
+			return null;
+		}
+
 		if ( null !== $total ) {
 			return ( $offset + $fetched_count ) < $total ? new Cursor( [ 'offset' => $offset + $fetched_count ] ) : null;
 		}
