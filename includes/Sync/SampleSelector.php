@@ -9,6 +9,7 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use Throwable;
 
@@ -30,7 +31,10 @@ final class SampleSelector {
 	private const PRODUCT_HARD_CAP   = 50;
 	private const CUSTOMER_CAP       = 10;
 
-	public function __construct( private readonly PlatformAdapter $adapter ) {}
+	public function __construct(
+		private readonly PlatformAdapter $adapter,
+		private readonly Logger $logger = new Logger()
+	) {}
 
 	/**
 	 * 既存のサンプルセットがあればそれを返し、なければ新規に選定して永続化する。
@@ -114,9 +118,10 @@ final class SampleSelector {
 	 * 先頭ページ）から不足分を補う。重複は除外する。customer は
 	 * `Capabilities::can_fetch_customers` が false のアダプタでは呼び出さず、
 	 * いずれのエンティティも一覧取得自体が失敗（`UnsupportedOperationException`等）した場合は
-	 * 補完をスキップして`$existing`をそのまま返す。`RateLimitExhaustedException`は補完の
-	 * 失敗ではなくジョブの一時停止・再開（`JobManager`）に委ねるべきシグナルのため、ここでは
-	 * 握りつぶさず再送出する（握りつぶすと劣化したサンプルがそのまま永続化されてしまう）。
+	 * `Logger::warning()`に記録したうえで補完をスキップし`$existing`をそのまま返す（無言で
+	 * スキップすると、本番で劣化したサンプルが永続化された原因を追跡できなくなる）。
+	 * `RateLimitExhaustedException`は補完の失敗ではなくジョブの一時停止・再開（`JobManager`）に
+	 * 委ねるべきシグナルのため、ここでは握りつぶさず再送出する。
 	 *
 	 * @param array<int,string> $existing
 	 * @return array<int,string>
@@ -136,7 +141,18 @@ final class SampleSelector {
 				: $this->adapter->fetch_customers( Cursor::start() );
 		} catch ( RateLimitExhaustedException $exception ) {
 			throw $exception;
-		} catch ( Throwable ) {
+		} catch ( Throwable $exception ) {
+			// 個人情報禁止ルール（`Importer`の同種catch節と同じ方針）に従い、例外クラス名のみを
+			// 記録する。ここで記録を怠ると、劣化したサンプルが永続化された原因を本番で
+			// 追跡する手段が無くなる。
+			$this->logger->warning(
+				"Failed to top up the \"{$entity}\" sample from the first page of the normal list.",
+				[
+					'platform'  => $this->adapter->id(),
+					'exception' => $exception::class,
+				]
+			);
+
 			return $existing;
 		}
 

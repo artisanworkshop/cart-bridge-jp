@@ -62,6 +62,18 @@ final class StockTransformerTest extends WP_UnitTestCase {
 		}
 	}
 
+	public function test_variant_missing_id_is_skipped_instead_of_colliding_on_an_empty_remote_id(): void {
+		// idが無いバリエーションを空文字のvariant_refとして通すと、`CanonicalStock::remote_id()`
+		// （`variant_ref ?? product_ref`）が別商品の同種バリエーションと衝突しうる。
+		$raw                = $this->product_fixture( 192616832 );
+		$raw['variants'][0] = array_diff_key( $raw['variants'][0], [ 'id' => true ] );
+
+		$stocks = $this->transformer->transform( $raw );
+
+		$this->assertCount( 1, $stocks );
+		$this->assertSame( '1802130613', $stocks[0]->variant_ref );
+	}
+
 	public function test_sku_derivation_matches_product_transformer(): void {
 		$raw = $this->product_fixture( 192616832 );
 

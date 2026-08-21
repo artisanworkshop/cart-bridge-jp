@@ -43,7 +43,11 @@ final class StockTransformer {
 				continue;
 			}
 
-			$result[] = $this->stock_for_variant( $raw, $remote_id, $variant );
+			$stock = $this->stock_for_variant( $raw, $remote_id, $variant );
+
+			if ( null !== $stock ) {
+				$result[] = $stock;
+			}
 		}
 
 		return $result;
@@ -65,12 +69,22 @@ final class StockTransformer {
 	}
 
 	/**
+	 * `variant.id`が欠損しているバリエーションはnullを返し、呼び出し側でスキップさせる。
+	 * 空文字をremote_idとして通すと `CanonicalStock::remote_id()` の `variant_ref ?? product_ref`
+	 * フォールバックが効かず（`??`はnullのみ未設定とみなす）、id欠損の複数バリエーションが
+	 * 同一の空remote_idに衝突してしまう。
+	 *
 	 * @param array<string,mixed> $raw
 	 * @param array<string,mixed> $variant
 	 */
-	private function stock_for_variant( array $raw, string $remote_id, array $variant ): CanonicalStock {
-		$variant_remote_id = Cast::to_string_or_null( $variant['id'] ?? null ) ?? '';
-		$quantity          = ProductTransformer::variant_stock( $variant, ProductTransformer::is_stock_managed( $raw ) );
+	private function stock_for_variant( array $raw, string $remote_id, array $variant ): ?CanonicalStock {
+		$variant_remote_id = ProductTransformer::variant_remote_id( $variant );
+
+		if ( null === $variant_remote_id ) {
+			return null;
+		}
+
+		$quantity = ProductTransformer::variant_stock( $variant, ProductTransformer::is_stock_managed( $raw ) );
 
 		return new CanonicalStock(
 			$remote_id,

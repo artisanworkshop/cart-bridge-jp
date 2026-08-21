@@ -77,7 +77,6 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
-		private readonly ?ColorMeClient $client_override = null,
 		private readonly Logger $logger = new Logger()
 	) {}
 
@@ -547,7 +546,11 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return ( $offset + $fetched_count ) < $total ? new Cursor( [ 'offset' => $offset + $fetched_count ] ) : null;
 		}
 
-		return $fetched_count < self::PAGE_SIZE ? null : new Cursor( [ 'offset' => $offset + $fetched_count ] );
+		// `meta.total`が得られない場合、「取得件数がページサイズ未満＝最終ページ」とは推測しない。
+		// `list_from()`が非配列要素を除去するため、APIが実際にはページサイズ分の行を返していても
+		// フィルタ後の件数はページサイズ未満になり得る。それを最終ページと誤認すると残りのデータを
+		// 取りこぼすため、0件になるまで走査を続ける（安全側=継続に倒す）。
+		return new Cursor( [ 'offset' => $offset + $fetched_count ] );
 	}
 
 	/**
@@ -615,10 +618,6 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	private function client(): ColorMeClient {
-		if ( null !== $this->client_override ) {
-			return $this->client_override;
-		}
-
 		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
 
 		if ( '' === $access_token ) {

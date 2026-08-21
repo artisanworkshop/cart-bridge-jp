@@ -267,7 +267,7 @@ final class ProductTransformer {
 				continue;
 			}
 
-			$variant_remote_id = Cast::to_string_or_null( $variant['id'] ?? null ) ?? '';
+			$variant_remote_id = self::variant_remote_id( $variant ) ?? '';
 			$price             = Cast::to_string_or_null( $variant['option_price_including_tax'] ?? null );
 
 			$result[] = [
@@ -301,9 +301,21 @@ final class ProductTransformer {
 	 */
 	public static function variant_sku( array $variant, string $product_remote_id ): string {
 		$model_number      = Cast::to_string_or_null( $variant['model_number'] ?? null );
-		$variant_remote_id = Cast::to_string_or_null( $variant['id'] ?? null ) ?? '';
+		$variant_remote_id = self::variant_remote_id( $variant ) ?? '';
 
 		return null !== $model_number ? $model_number : "colorme-{$product_remote_id}-{$variant_remote_id}";
+	}
+
+	/**
+	 * `StockTransformer`（F1-5）も同じ規則でバリエーションのremote_idを解決する必要があるため公開する。
+	 * `id`欠損時は`''`ではなく`null`を返す。空文字を返すと`CanonicalStock::remote_id()`の
+	 * `variant_ref ?? product_ref`フォールバックが効かず（`??`はnullのみを未設定とみなす）、
+	 * id欠損の複数バリエーションが同一の空remote_idに衝突してしまう。
+	 *
+	 * @param array<string,mixed> $variant
+	 */
+	public static function variant_remote_id( array $variant ): ?string {
+		return Cast::to_string_or_null( $variant['id'] ?? null );
 	}
 
 	/**

@@ -378,6 +378,29 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNull( $page->next_cursor );
 	}
 
+	public function test_fetch_products_keeps_paging_when_meta_total_is_unavailable_even_below_page_size(): void {
+		// meta.totalが得られない場合、取得件数がページサイズ未満でも「最終ページ」と推測しない。
+		// list_from()が非配列要素を除去するため、APIが実際にはページサイズ分返していても
+		// フィルタ後の件数はページサイズ未満になり得る。安全側（=継続）に倒すことを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [ 'products' => [ $this->product_fixture( 192616831 ) ] ],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertCount( 1, $page->items );
+		$this->assertNotNull( $page->next_cursor );
+		$this->assertSame( 1, $page->next_cursor->get( 'offset' ) );
+	}
+
 	public function test_fetch_categories_flattens_and_filters_by_display_state(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
