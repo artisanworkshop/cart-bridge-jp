@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
+use CartBridgeJP\Woo\WooRepositoryFactory;
 use RuntimeException;
 use Throwable;
 
@@ -57,23 +58,23 @@ final class JobManager {
 		private readonly JobRepository $jobs,
 		private readonly LimitPolicy $limits,
 		private readonly Importer $importer,
-		private readonly WooWriter $writer,
+		private readonly WooWriterFactory $writer_factory,
 		private readonly Logger $logger = new Logger()
 	) {}
 
 	/**
 	 * 既定の配線でJobManagerを生成する共有ファクトリ。
-	 * `NotImplementedWriter` は Phase 1 の `Woo\WooRepository` までのプレースホルダー
-	 * （dry-run は内部で `DryRunReporter` に差し替わり、実移行はREST層が501を返すため到達しない）。
+	 * `Woo\WooRepositoryFactory` が実移行のwriterを組み立てる
+	 * （dry-run は内部で `DryRunReporter` に差し替わるため到達しない）。
 	 */
-	public static function create( ?WooWriter $writer = null ): self {
+	public static function create( ?WooWriterFactory $writer_factory = null ): self {
 		$mappings = new MappingRepository();
 
 		return new self(
 			new JobRepository(),
 			new LimitPolicy( $mappings ),
 			new Importer( $mappings ),
-			$writer ?? new NotImplementedWriter()
+			$writer_factory ?? new WooRepositoryFactory()
 		);
 	}
 
@@ -181,10 +182,15 @@ final class JobManager {
 		}
 
 		$is_dry_run = self::TYPE_DRY_RUN === $job['type'];
-		$writer     = $is_dry_run ? new DryRunReporter() : $this->writer;
 		$entity     = $job['entity'];
 
 		try {
+			// `for_platform()`はwriter組み立て（Writerクラス群のnew）であり現状は例外を投げないが、
+			// 将来的に検証等が加わって例外を投げるようになった場合でも、この呼び出し全体を
+			// 下のcatchで確実に拾い`mark_failed()`させるため、tryの外に出さない
+			// （tryの外に置くと、例外発生時にジョブがmark_failed()もされずSTATUS_RUNNINGのまま
+			// 停止してしまう）。
+			$writer                        = $is_dry_run ? new DryRunReporter() : $this->writer_factory->for_platform( $job['platform'] );
 			[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
@@ -260,7 +266,7 @@ final class JobManager {
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false );
+			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, (int) $job['id'] );
 
 			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
 			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
@@ -269,7 +275,7 @@ final class JobManager {
 		if ( 'stock' === $entity && $sampling_active ) {
 			// §10.2 #4: 在庫の全量走査はレート制限を浪費するため、サンプル商品のID指定取得から導出する。
 			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false );
+			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'] );
 
 			return [ array_merge( $result['totals'], [ 'total' => count( $sample->product_remote_ids ) ] ), null ];
 		}
@@ -280,7 +286,7 @@ final class JobManager {
 			: null;
 		$limit_policy = $is_dry_run ? null : $this->limits;
 
-		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample );
+		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample, (int) $job['id'] );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {

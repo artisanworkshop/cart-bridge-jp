@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
+use CartBridgeJP\Sync\FixedWooWriterFactory;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
@@ -73,7 +74,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 			$this->jobs,
 			new LimitPolicy( $this->mappings ),
 			new Importer( $this->mappings ),
-			$writer
+			new FixedWooWriterFactory( $writer )
 		);
 	}
 

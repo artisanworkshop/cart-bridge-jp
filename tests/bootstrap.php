@@ -37,4 +37,25 @@ tests_add_filter( 'muplugins_loaded', 'cbjp_test_manually_load_plugins' );
 
 require "{$cbjp_tests_dir}/includes/bootstrap.php";
 
+/**
+ * wp-env はプラグインzipを配置するだけで有効化フックを走らせないため、WooCommerceの
+ * テーブル（wc_orders等のHPOSテーブル含む）・ロール・product_typeタームが存在しない。
+ * `wc_get_product()`/`WC_Order`のデータストアが動くために、テストスイート本体のbootstrap
+ * 完了後（プラグイン読み込み後）にここで明示的にインストールする。
+ * `beStrictAboutOutputDuringTests`のため、install()の出力はテストメソッド外で消費させる。
+ */
+if ( class_exists( 'WC_Install' ) ) {
+	WC_Install::install();
+
+	// install()が追加したロールを現プロセスのグローバルへ反映する（WP core既知の挙動）。
+	// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- ロール追加をテストプロセスに反映するための意図的な再初期化。
+	$GLOBALS['wp_roles'] = null;
+	wp_roles();
+
+	// プラグインはHPOS（High-Performance Order Storage）必須（CLAUDE.md）のため、テストも
+	// HPOSを権威ストレージとして有効化した状態で走らせる。`WC_Install::install()`は
+	// wc_ordersテーブル自体は作成するが、権威データストアの切り替えは行わないため明示的に有効化する。
+	update_option( 'woocommerce_custom_orders_table_enabled', 'yes' );
+}
+
 require_once dirname( __DIR__ ) . '/vendor/yoast/phpunit-polyfills/phpunitpolyfills-autoload.php';

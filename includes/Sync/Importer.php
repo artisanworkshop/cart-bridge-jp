@@ -13,7 +13,9 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
+use CartBridgeJP\Support\Logger;
 use RuntimeException;
+use Throwable;
 
 /**
  * fetch → 書込 → mappings upsert のパイプライン。
@@ -27,7 +29,10 @@ use RuntimeException;
  */
 final class Importer {
 
-	public function __construct( private readonly MappingRepository $mappings ) {}
+	public function __construct(
+		private readonly MappingRepository $mappings,
+		private readonly Logger $logger = new Logger()
+	) {}
 
 	/**
 	 * カーソル走査エンティティを1ページ処理する。$sample が渡された場合は
@@ -42,11 +47,12 @@ final class Importer {
 		Cursor $cursor,
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy = null,
-		?SampleSet $sample = null
+		?SampleSet $sample = null,
+		?int $job_id = null
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample );
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample, $job_id );
 
 		return [
 			'next_cursor' => $next_cursor,
@@ -62,7 +68,7 @@ final class Importer {
 	 * @param array<int,string> $remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run ): array {
+	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $remote_ids as $remote_id ) {
@@ -77,7 +83,7 @@ final class Importer {
 			}
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null, $job_id ) ];
 	}
 
 	/**
@@ -87,7 +93,7 @@ final class Importer {
 	 * @param array<int,string> $product_remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run ): array {
+	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $product_remote_ids as $remote_id ) {
@@ -106,7 +112,7 @@ final class Importer {
 			);
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ) ];
 	}
 
 	/**
@@ -120,7 +126,8 @@ final class Importer {
 		array $items,
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy,
-		?SampleSet $sample
+		?SampleSet $sample,
+		?int $job_id = null
 	): array {
 		$totals = [
 			'processed' => 0,
@@ -134,11 +141,15 @@ final class Importer {
 
 		// ページ内アイテムの既存mapping（local_id/checksum）を一括プリロードし、
 		// アイテム毎のSELECTを避ける。dry-runでも読み取り専用で使い、新規/更新/スキップを分類する（D16）。
+		// `remote_id_of()`はアダプタの契約違反（remote_id欠損）をnullで表す（例外を投げない）。
+		// ここで例外を投げると、ページ内の1件だけが契約違反でも`array_map()`がループに入る前に
+		// 中断し、下のforeachで確立している「1件の異常データで移行全体を止めない」方針
+		// （186行目以降）が、このremote_id解決自体には適用されずページ全体が失敗してしまう。
 		$remote_ids = array_map(
-			fn( CanonicalModel $item ): string => $this->remote_id_of( $entity, $item ),
+			fn( CanonicalModel $item ): ?string => $this->remote_id_of( $item ),
 			$items
 		);
-		$existing   = $this->mappings->find_many( $platform, $entity, $remote_ids );
+		$existing   = $this->mappings->find_many( $platform, $entity, array_filter( $remote_ids, static fn ( ?string $id ): bool => null !== $id ) );
 
 		// 残枠はページ開始時に一度だけ解決する（アイテム毎のCOUNT(*)を避ける）。
 		// 上限は新規作成のみを対象とし、既存mappingの更新は阻まない（D16の上書きポリシー前提）。
@@ -152,7 +163,18 @@ final class Importer {
 				continue;
 			}
 
-			$remote_id         = $remote_ids[ $index ];
+			$remote_id = $remote_ids[ $index ];
+
+			if ( null === $remote_id ) {
+				// アダプタの契約違反（`extras['remote_id']`欠損）。この1件はmappingを解決できず
+				// 永続化もできないため、ページ全体を止めずこのアイテムだけをskipped扱いにする
+				// （下の`catch`節と同じ「1件の異常データで移行全体を止めない」方針）。
+				++$totals['skipped'];
+				++$totals['warned'];
+				$this->logger->error( "Adapter returned a \"{$entity}\" item without a remote id.", [], $job_id );
+				continue;
+			}
+
 			$row               = $existing[ $remote_id ] ?? null;
 			$existing_local_id = $row['local_id'] ?? null;
 
@@ -162,6 +184,8 @@ final class Importer {
 				continue;
 			}
 
+			$consumed_quota_slot = false;
+
 			if ( ! $is_dry_run && null === $existing_local_id && null !== $remaining ) {
 				if ( $remaining <= 0 ) {
 					++$totals['skipped'];
@@ -169,15 +193,91 @@ final class Importer {
 				}
 
 				--$remaining;
+				$consumed_quota_slot = true;
 			}
 
-			$result = $writer->write( $entity, $item, $existing_local_id );
+			try {
+				$result = $writer->write( $entity, $item, $existing_local_id );
+			} catch ( Throwable $exception ) {
+				// 1件のアイテムでの例外がページ全体を失敗させると、`JobManager::process_job()`が
+				// ジョブを恒久的にfailedへ遷移させ、このページ内の他の正常なアイテムの処理まで
+				// 巻き添えになる（このページ手前までの進捗も、ページ自体が例外で完了しなかった
+				// ため`update_progress()`に到達せず永続化されない）。1件の異常データで移行全体が
+				// 止まらないよう、このアイテムのみskipped扱いにして処理を継続する
+				// （local_id 0と同様mappingsは書かないため、次回実行時に再試行される）。
+				//
+				// 上で確保した無料版サンプル上限の枠は、この例外で実体が何も作られなかった
+				// ため消費されたことにしない（返却しないと、無効な1件が枠を1つ無駄に食い潰し、
+				// 本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう）。
+				if ( $consumed_quota_slot ) {
+					++$remaining;
+				}
 
-			if ( ! $is_dry_run ) {
-				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
+				++$totals['skipped'];
+				++$totals['warned'];
+				// `Support\Logger`の契約（個人情報禁止ルール。ID以外を含めない）はcontextだけでなく
+				// message自体にも及ぶ（`JobManager::process_job()`の同種のcatch節も固定文言のみを
+				// 渡し、例外メッセージはログに含めない）。`$exception->getMessage()`は
+				// `WC_Data_Exception`等が投げる自由文字列でありワークライター経由で顧客の
+				// メールアドレス等の値をそのまま含みうるため、ここでも固定文言＋
+				// 例外クラス名（`exception`キー）にとどめる。
+				$this->logger->error(
+					"Writer threw while processing a {$entity} item.",
+					[
+						'remote_id' => $remote_id,
+						'exception' => $exception::class,
+					],
+					$job_id
+				);
+
+				continue;
 			}
 
-			++$totals[ $result->operation ];
+			// local_id 0 は「ローカル実体を作成/更新できなかった」ことを表す契約
+			// （例: stockの対象商品がまだ未インポート）。checksumを保存すると次回実行時の
+			// checksum一致スキップに掛かり永久に再試行できなくなるため、mappingsを書かない。
+			// dry-runは`DryRunReporter`が仕様として常にlocal_id=0でcreated/updatedを返す
+			// （何も永続化しないため）ため、この判定の対象外にする。
+			$did_persist = ! $is_dry_run && 0 !== $result->local_id;
+
+			if ( $did_persist ) {
+				// `$result->fully_resolved`がfalse（category/tag参照・customer_ref等の一部が
+				// 未解決のまま実体だけ保存された）の場合はchecksumをキャッシュしない
+				// （`MappingRepository::upsert()`はnullをNULLIF経由でSQLのNULLへ変換する）。
+				// checksumをキャッシュすると、参照先が後から解決可能になった場合でも
+				// 182行目のchecksum一致スキップに永久に掛かり、二度と再試行されなくなる。
+				$checksum = $result->fully_resolved ? $item->checksum() : null;
+
+				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $checksum );
+
+				// ループ開始前に一括プリロードした`$existing`はこのループ内で行われた更新を
+				// 反映しない。同一ページ内（アダプタのページング境界バグ等）に同じremote_idの
+				// アイテムが複数含まれると、後続のアイテムがこの古いスナップショットを見て
+				// 「未作成」と誤認し、別の孤立エンティティを新規作成してしまう
+				// （`upsert()`はremote_id単位でON DUPLICATE KEY UPDATEするため、mappingは
+				// 最後に処理したエンティティだけを指し、先行するエンティティは孤立して残る）。
+				// 直前に確定したlocal_idでこの場で更新し、以後の同一remote_idの再利用に備える。
+				$existing[ $remote_id ] = [
+					'local_id' => $result->local_id,
+					'checksum' => $checksum,
+				];
+			} elseif ( $consumed_quota_slot ) {
+				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した
+				// ことにしない。
+				++$remaining;
+			}
+
+			// この契約は `WooWriter`/`EntityWriter` インターフェース上で型として強制できない
+			// （PHPの型システムでは「local_idが0ならoperationはskippedでなければならない」を
+			// 表現できない）ため、ここで防御的に正規化する。将来のwriter実装や
+			// `cbjp/adapters/register`経由の外部アダプタがlocal_id=0のままcreated/updatedを
+			// 返す契約違反を犯しても、totals集計（結果レポート）上は実態どおりskipped扱いになる。
+			// dry-runでは`$did_persist`が常にfalseになるため、`! $is_dry_run`を別途チェックして
+			// dry-run結果レポートの新規/更新件数が常に0件になることを防ぐ
+			// （対象にすると常に0件表示になってしまう）。
+			$operation = ( ! $is_dry_run && ! $did_persist ) ? WriteResult::OPERATION_SKIPPED : $result->operation;
+
+			++$totals[ $operation ];
 
 			if ( [] !== $result->warnings ) {
 				++$totals['warned'];
@@ -224,13 +324,7 @@ final class Importer {
 		return '';
 	}
 
-	private function remote_id_of( string $entity, CanonicalModel $item ): string {
-		$remote_id = $item->remote_id();
-
-		if ( null === $remote_id ) {
-			throw new RuntimeException( "Adapter returned a \"{$entity}\" item without a remote id (extras['remote_id'] is required)." );
-		}
-
-		return $remote_id;
+	private function remote_id_of( CanonicalModel $item ): ?string {
+		return $item->remote_id();
 	}
 }

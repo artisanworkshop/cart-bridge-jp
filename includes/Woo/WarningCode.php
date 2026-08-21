@@ -1,0 +1,125 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Woo;
+
+/**
+ * `WriteResult::$warnings` に積む警告コード定数。`"{code}:{detail}"` 形式の文字列にする
+ * （F1-6のdry-run CSV・結果レポートが`:`で分解できる契約）。コード自体はi18nしない安定キーで、
+ * 表示文言はUI側で `__()` する。
+ */
+final class WarningCode {
+
+	private function __construct() {}
+
+	public const ENTITY_NOT_SUPPORTED = 'entity_not_supported';
+
+	public const PRICES_INCLUDE_TAX_DISABLED = 'prices_include_tax_disabled';
+	public const CURRENCY_MISMATCH           = 'currency_mismatch';
+
+	public const SKU_DUPLICATE                 = 'sku_duplicate';
+	public const TAX_CLASS_MISSING             = 'tax_class_missing';
+	public const TAX_RATES_NOT_CONFIGURED      = 'tax_rates_not_configured';
+	public const IMAGE_DOWNLOAD_FAILED         = 'image_download_failed';
+	public const ATTRIBUTE_NAME_COLLISION      = 'attribute_name_collision';
+	public const VARIATION_REMOVED             = 'variation_removed';
+	public const VARIATION_PRICE_INVALID       = 'variation_price_invalid';
+	public const VARIATION_SNAPSHOT_INCOMPLETE = 'variation_snapshot_incomplete';
+	public const PRODUCT_PRICE_INVALID         = 'product_price_invalid';
+	public const SALE_PRICE_INVALID            = 'sale_price_invalid';
+
+	public const CATEGORY_PARENT_UNRESOLVED = 'category_parent_unresolved';
+	public const CATEGORY_REF_UNRESOLVED    = 'category_ref_unresolved';
+	public const TAG_REF_UNRESOLVED         = 'tag_ref_unresolved';
+	public const TERM_REUSED_EXISTING       = 'term_reused_existing';
+	public const TERM_NAME_CONFLICT         = 'term_name_conflict';
+	public const TERM_UPDATE_FAILED         = 'term_update_failed';
+	public const TERM_CREATE_FAILED         = 'term_create_failed';
+
+	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
+	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
+	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
+	public const CUSTOMER_CREATE_FAILED     = 'customer_create_failed';
+	public const ADDRESS_OVERSEAS           = 'address_overseas';
+
+	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
+	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
+	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';
+	public const PAYMENT_METHOD_UNMAPPED       = 'payment_method_unmapped';
+	public const SHIPPING_METHOD_UNMAPPED      = 'shipping_method_unmapped';
+	public const ORDER_STATUS_UNKNOWN          = 'order_status_unknown';
+	public const ORDER_TOTAL_RESIDUAL          = 'order_total_residual';
+	public const ORDER_SPLIT_TAX_UNKNOWN       = 'order_split_tax_unknown';
+	public const ORDER_TAX_SPLIT_UNAVAILABLE   = 'order_tax_split_unavailable';
+	public const ORDER_TAX_TOTAL_INCOMPLETE    = 'order_tax_total_incomplete';
+	public const ORDER_CREATE_FAILED           = 'order_create_failed';
+	public const ORDER_LINE_TAX_INCONSISTENT   = 'order_line_tax_inconsistent';
+	public const ORDER_TOTALS_INVALID          = 'order_totals_invalid';
+	public const ORDER_LINE_AMOUNT_INVALID     = 'order_line_amount_invalid';
+
+	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
+	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
+
+	public const COUPON_REUSED_EXISTING         = 'coupon_reused_existing';
+	public const COUPON_GROUP_LIMIT_UNSUPPORTED = 'coupon_group_limit_unsupported';
+	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
+	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
+	public const COUPON_AMOUNT_INVALID          = 'coupon_amount_invalid';
+	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
+	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
+	public const COUPON_SAVE_FAILED             = 'coupon_save_failed';
+	public const COUPON_EXPIRES_AT_INVALID      = 'coupon_expires_at_invalid';
+	public const COUPON_MIN_AMOUNT_INVALID      = 'coupon_min_amount_invalid';
+
+	/**
+	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
+	 */
+	public static function with_detail( string $code, string $detail ): string {
+		return '' === $detail ? $code : "{$code}:{$detail}";
+	}
+
+	/**
+	 * `with_detail()` で組み立てた文字列をcode/detailに分解する。detail自体（画像URL・ASP側の
+	 * 任意文字列等）に`:`が含まれることがあるため、素朴な`explode(':', $warning)`（limit無し）
+	 * は誤分割する。必ず最初の`:`でのみ分割する（`explode(..., 2)`）ため、F1-6のdry-run CSV・
+	 * 結果レポートはこのメソッドを使うこと。
+	 *
+	 * @return array{0:string,1:?string} [code, detail]
+	 */
+	public static function split( string $warning ): array {
+		$parts = explode( ':', $warning, 2 );
+
+		return [ $parts[0], $parts[1] ?? null ];
+	}
+
+	/**
+	 * `Sync\Importer::process_items()`がchecksumをキャッシュしてよいか（`WriteResult::$fully_resolved`）
+	 * の判定に使う。ここに列挙するのは「参照先が後から解決可能になりうる」警告のみ:
+	 * category/tag/親カテゴリ・顧客参照・注文明細の商品参照が未解決のまま実体自体は保存された
+	 * ケース。`CUSTOMER_ACCOUNT_PROTECTED`（管理者アカウントとの衝突）のように解決される見込みが
+	 * ない終端状態はここに含めない（含めると、解決される可能性が無いのに毎回無駄に再処理される）。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_unresolved_reference( array $warnings ): bool {
+		$retry_worthy_codes = [
+			self::CATEGORY_PARENT_UNRESOLVED,
+			self::CATEGORY_REF_UNRESOLVED,
+			self::TAG_REF_UNRESOLVED,
+			self::ORDER_CUSTOMER_UNRESOLVED,
+			self::ORDER_LINE_PRODUCT_UNRESOLVED,
+		];
+
+		foreach ( $warnings as $warning ) {
+			if ( in_array( self::split( $warning )[0], $retry_worthy_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+}
