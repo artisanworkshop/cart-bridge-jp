@@ -36,14 +36,15 @@ final class StockTransformer {
 			return [ $this->stock_for_product( $raw, $remote_id ) ];
 		}
 
-		$result = [];
+		$result        = [];
+		$stock_managed = ProductTransformer::is_stock_managed( $raw );
 
 		foreach ( $variants as $variant ) {
 			if ( ! is_array( $variant ) ) {
 				continue;
 			}
 
-			$stock = $this->stock_for_variant( $raw, $remote_id, $variant );
+			$stock = $this->stock_for_variant( $remote_id, $variant, $stock_managed );
 
 			if ( null !== $stock ) {
 				$result[] = $stock;
@@ -74,17 +75,16 @@ final class StockTransformer {
 	 * フォールバックが効かず（`??`はnullのみ未設定とみなす）、id欠損の複数バリエーションが
 	 * 同一の空remote_idに衝突してしまう。
 	 *
-	 * @param array<string,mixed> $raw
 	 * @param array<string,mixed> $variant
 	 */
-	private function stock_for_variant( array $raw, string $remote_id, array $variant ): ?CanonicalStock {
+	private function stock_for_variant( string $remote_id, array $variant, bool $stock_managed ): ?CanonicalStock {
 		$variant_remote_id = ProductTransformer::variant_remote_id( $variant );
 
 		if ( null === $variant_remote_id ) {
 			return null;
 		}
 
-		$quantity = ProductTransformer::variant_stock( $variant, ProductTransformer::is_stock_managed( $raw ) );
+		$quantity = ProductTransformer::variant_stock( $variant, $stock_managed );
 
 		return new CanonicalStock(
 			$remote_id,

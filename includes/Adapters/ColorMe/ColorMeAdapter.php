@@ -225,7 +225,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
 		$total       = $this->total_from_meta( $body );
 
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
+		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $total ), $total );
 	}
 
 	/**
@@ -267,7 +267,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// `meta.total`は生レスポンスの顧客件数であり、`CustomerTransformer`が非会員・email欠損の
 		// 行をnullで除外した後の`items`件数とは一致しない（`fetch_stocks()`のバリエーション展開と
 		// 同種の乖離）。ページング終端の判定にだけ使い、進捗率の分母として`Page`側には報告しない。
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $row_total ), null );
+		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'customers' ), $row_total ), null );
 	}
 
 	/**
@@ -290,7 +290,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		// customer同様、`OrderTransformer`が変換失敗行（id/make_date/total_price欠損）を除外した
 		// 後の`items`件数は`meta.total`（生の受注件数）と一致しうるとは限らない。
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $row_total ), null );
+		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'sales' ), $row_total ), null );
 	}
 
 	/**
@@ -317,7 +317,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// `meta.total`（商品件数）をそのまま`Page`側の`total`として報告すると進捗が100%を
 		// 超えて表示されてしまう。ページング終端の判定にだけ商品件数ベースの値を使い、
 		// `Page`には報告しない。
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $product_total ), null );
+		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $product_total ), null );
 	}
 
 	/**
@@ -452,7 +452,21 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		$item = $body[ $envelope_key ] ?? null;
 
-		return is_array( $item ) ? $item : null;
+		if ( is_array( $item ) ) {
+			return $item;
+		}
+
+		// 200応答でも envelope キーの中身が期待した配列でない場合（スキーマ変更等）は、
+		// 404（=正当な削除済み）と区別が付かなくなってしまう。無言でnullを返すと本番で
+		// トラブルシュートする手段が無くなるため、ここでだけログを残す。
+		if ( null !== $item ) {
+			$this->logger->warning(
+				"ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was not an array.",
+				[ 'path' => $path ]
+			);
+		}
+
+		return null;
 	}
 
 	/**
@@ -530,27 +544,45 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * `list_from()`はis_array()フィルタ後の配列を返すため、非配列要素が混入したページでは
+	 * その件数がAPI側の実際のページ内行数より少なくなりうる。カーソルのoffset計算を
+	 * フィルタ後の件数で行うと、次ページのoffsetがAPI側の絶対位置より手前になり、
+	 * 除外された行を含むページと次のページが重複し、重複取込・重複書込を招く
+	 * （upsertのため実害は軽微だが、レート制限を無駄に消費する）。offset計算には
+	 * 必ずフィルタ前の生の行数を使う。
+	 *
+	 * @param array<string,mixed> $body
+	 */
+	private function raw_row_count( array $body, string $key ): int {
+		$list = $body[ $key ] ?? null;
+
+		return is_array( $list ) ? count( $list ) : 0;
+	}
+
+	/**
 	 * `meta.total`が得られる場合はそれで終端判定し、得られない場合（categories/groups/
 	 * shop_couponsの単発取得を除くページング系）はページサイズ未満の取得件数を終端の合図にする。
+	 *
+	 * `$raw_count`は`list_from()`によるフィルタ前の生の行数（`raw_row_count()`）を渡すこと。
+	 * フィルタ後の件数を渡すと、次ページのoffsetがAPI側の絶対位置より手前になり重複取得を招く
+	 * （offset計算はAPI側のページ内行数と対応させる必要があるため）。
 	 */
-	private function next_cursor( int $offset, int $fetched_count, ?int $total ): ?Cursor {
+	private function next_cursor( int $offset, int $raw_count, ?int $total ): ?Cursor {
 		// 0件取得時は無条件に終端とする。`meta.total`がoffsetより大きい値を報告していても
-		// （並行削除や`list_from()`によるmalformed要素の除去等で0件になった場合）offsetを
-		// 進めるすべが無く、同じoffsetのCursorを返すとJobManagerが同一ページを無限に
-		// 再エンキューし続けてしまう。
-		if ( 0 === $fetched_count ) {
+		// （並行削除等で0件になった場合）offsetを進めるすべが無く、同じoffsetのCursorを返すと
+		// JobManagerが同一ページを無限に再エンキューし続けてしまう。
+		if ( 0 === $raw_count ) {
 			return null;
 		}
 
 		if ( null !== $total ) {
-			return ( $offset + $fetched_count ) < $total ? new Cursor( [ 'offset' => $offset + $fetched_count ] ) : null;
+			return ( $offset + $raw_count ) < $total ? new Cursor( [ 'offset' => $offset + $raw_count ] ) : null;
 		}
 
-		// `meta.total`が得られない場合、「取得件数がページサイズ未満＝最終ページ」とは推測しない。
-		// `list_from()`が非配列要素を除去するため、APIが実際にはページサイズ分の行を返していても
-		// フィルタ後の件数はページサイズ未満になり得る。それを最終ページと誤認すると残りのデータを
-		// 取りこぼすため、0件になるまで走査を続ける（安全側=継続に倒す）。
-		return new Cursor( [ 'offset' => $offset + $fetched_count ] );
+		// `meta.total`が得られない場合、「取得件数がページサイズ未満＝最終ページ」とは推測しない
+		// （APIが実際にはページサイズ分の行を返していても、`$raw_count`自体がそのままページサイズと
+		// 一致しない構成のエンドポイントがありうるため）。0件になるまで走査を続ける（安全側=継続に倒す）。
+		return new Cursor( [ 'offset' => $offset + $raw_count ] );
 	}
 
 	/**
@@ -611,7 +643,10 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$this->logger->error(
 			"Failed to transform a ColorMe \"{$entity}\" row.",
 			[
-				'remote_id' => Cast::to_string_or_null( $raw['id'] ?? $raw['id_big'] ?? null ),
+				// `??`は空文字を「設定済み」とみなし`id_big`へフォールバックしない
+				// （`id`が空文字の壊れた行でカテゴリー由来の`id_big`を拾えなくなる）ため、
+				// `Cast::first_non_empty()`で空文字も未設定として扱う。
+				'remote_id' => Cast::first_non_empty( $raw['id'] ?? null, $raw['id_big'] ?? null ),
 				'exception' => $exception::class,
 			]
 		);

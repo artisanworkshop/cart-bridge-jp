@@ -349,6 +349,39 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 2, $page->next_cursor->get( 'offset' ) );
 	}
 
+	public function test_fetch_products_advances_the_cursor_by_the_raw_row_count_not_the_filtered_count(): void {
+		// 非配列要素はフィルタで除去されるため、フィルタ後の件数でoffsetを進めると次ページのoffsetが
+		// APIの実際のページ内位置より手前にずれ、除外された行を含むページと次ページが重複してしまう。
+		// offsetの計算にはフィルタ前の生の行数を使うべきであることを確認する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$all_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [
+						// 先頭の要素は非配列の壊れた行。フィルタで除去されるため有効な行は2件になる。
+						'products' => [ 'not-an-array', $all_products[0], $all_products[1] ],
+						'meta'     => [
+							'total'  => 4,
+							'limit'  => 3,
+							'offset' => 0,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertCount( 2, $page->items );
+		$this->assertNotNull( $page->next_cursor );
+		$this->assertSame( 3, $page->next_cursor->get( 'offset' ) );
+	}
+
 	public function test_fetch_products_terminates_when_meta_total_disagrees_with_zero_fetched_items(): void {
 		// meta.totalがoffsetより大きい値を報告していても、実際に0件しか取れなかった場合
 		// （並行削除等）はoffsetを進めるすべが無い。offset不変のCursorを返すと同じページを
@@ -650,6 +683,24 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 							],
 						],
 					],
+				],
+			]
+		);
+
+		$this->assertNull( $adapter->fetch_product_by_remote_id( '999' ) );
+	}
+
+	public function test_fetch_product_by_remote_id_returns_null_when_the_envelope_is_malformed(): void {
+		// 200応答でも`product`envelopeの中身が配列でない場合（スキーマ変更等）は、404（正当な削除済み）
+		// と同じnullへフェイルクローズする。ログには残すが、呼び出し側の契約はnullのまま変わらない。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'products/999.json' => [
+					'status' => 200,
+					'body'   => [ 'product' => 'unexpected-string' ],
 				],
 			]
 		);
