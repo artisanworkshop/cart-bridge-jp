@@ -67,6 +67,9 @@ npm run build                # 本番ビルド
 - カラーミー受注（`sale`）の `tax` フィールドは商品分の消費税のみで送料分を含まない。注文全体の税額（Wooの合計と整合する値）が必要な場合は `totals.normal_tax_amount + totals.reduced_tax_amount` を使うこと
 - カラーミーの `display_state` はエンドポイントごとにenumが異なりうる（例: `GET /v1/groups`のレスポンスは`showing/hidden/showing_for_members/sale_for_members`の4値だが、`POST /v1/groups`のリクエストスキーマは`showing/hidden/members_only`の3値で別物）。修正時はレスポンス側の実際のスキーマ行を確認してから判定条件を書くこと
 - `CanonicalProduct::stock`（バリエーション含む）に`null`を渡すと`Importer`は「在庫管理外＝在庫あり」と解釈する。在庫管理対象なのに実数が不明な場合は`null`ではなく`0`を返すこと
+- WooCommerceのAPI挙動は「同系クラスだから同じはず」の推測が外れる。判断前に wp-env 内の実ソース（`wp-env run cli -- grep -n -A20 "function xxx" /var/www/html/wp-content/plugins/woocommerce.latest-stable/...`）か `wp eval-file` での実測で確認すること。例: `WC_Coupon::__construct()` は `'shop_coupon' === get_post_type($data)` でpost typeを検証するため、削除済みIDでも例外を投げず新規作成扱いになる（他writerで必要なstale-IDフォールバックはCouponWriterには不要）。レビュー指摘に対してテストを書いたら修正なしで通った場合は、指摘自体が誤りである可能性をまず疑うこと
+- `WC_Order::set_status()` はステータスが実際に遷移したとき `maybe_set_date_paid()`/`maybe_set_date_completed()` を呼び、`date_paid`/`date_completed` に **`time()`（＝移行の実行時刻）** を打刻する。過去の受注日を保つため、日付の設定・補正は必ず `set_status()` より**後**に行うこと
+- variable商品の親の `stock_status` は子variationから導出され（`WC_Product_Variable::sync()`）、親へ直接 `set_stock_status()` しても保存時に子由来の値へ戻る。さらに `set_manage_stock(false)` を書くと `WC_Product::validate_props()` が `stock_quantity` を空にし、店舗が設定した親レベル在庫管理が消える。variable親には在庫を書かないこと
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
@@ -94,6 +97,6 @@ npm run build                # 本番ビルド
   `main`への直接pushを許容する。GitHub側のブランチ保護は「PR必須」だが、パス単位の例外は
   設定できず（クラシック保護・Rulesetsとも非対応）、管理者は元々バイパス可能なため、これは
   GitHub側の強制ではなくClaude Codeが守る運用ルールである
-- 各フェーズ完了時に `composer lint && composer analyze && composer test` を通すこと
+- 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）
