@@ -202,7 +202,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $run_id, $poll_response->get_data()['run_id'] );
 	}
 
-	public function test_import_type_is_not_yet_implemented(): void {
+	public function test_import_type_starts_a_run(): void {
 		add_filter(
 			'cbjp/adapters/register',
 			static function ( array $adapters ) {
@@ -217,6 +217,31 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request->set_body_params(
 			[
 				'type'     => 'import',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertIsString( $response->get_data()['run_id'] );
+	}
+
+	public function test_export_type_is_not_yet_implemented(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'export',
 				'platform' => 'mock',
 				'entities' => [ 'category' ],
 			]

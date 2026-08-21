@@ -502,10 +502,11 @@ final class RestController {
 		$platform = (string) $request->get_param( 'platform' );
 		$entities = (array) ( $request->get_param( 'entities' ) ?? [] );
 
-		if ( JobManager::TYPE_DRY_RUN !== $type ) {
+		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。
+		if ( ! in_array( $type, [ JobManager::TYPE_DRY_RUN, JobManager::TYPE_IMPORT ], true ) ) {
 			return new WP_Error(
 				'cbjp_not_implemented',
-				__( 'Only dry-run is supported until platform adapters ship in Phase 1.', 'cart-bridge-jp' ),
+				__( 'Export is not implemented yet.', 'cart-bridge-jp' ),
 				[ 'status' => 501 ]
 			);
 		}

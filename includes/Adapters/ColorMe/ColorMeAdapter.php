@@ -8,6 +8,14 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe;
 
 use CartBridgeJP\Adapters\Capabilities;
+use CartBridgeJP\Adapters\ColorMe\Transform\Cast;
+use CartBridgeJP\Adapters\ColorMe\Transform\CategoryTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\CouponTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\CustomerTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\StockTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\TagTransformer;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\ConnectionResult;
 use CartBridgeJP\Adapters\Cursor;
@@ -23,14 +31,16 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
+use Throwable;
 
 /**
  * カラーミーショップアダプタ（`01-plan-colorme.md`）。
  *
- * このクラスは F1-2 時点では接続まわり（capabilities/connection_fields/test_connection）のみを
- * 実装するシェルであり、fetch系・push系メソッドは F1-5（インポート結合）・E4-3（エクスポート）で順次実装する。
- * それまでは UnsupportedOperationException を投げる（Capabilities宣言と矛盾しないための防御）。
+ * fetch系メソッドは`docs/03-design-decisions.md` §10.2 の無料版サンプル選定〜Pro版の全量走査
+ * 双方から呼ばれる。push系はE4-3（エクスポート）で実装する（それまでは
+ * `UnsupportedOperationException`）。
  */
 final class ColorMeAdapter implements PlatformAdapter {
 
@@ -38,8 +48,34 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	private const RATE_LIMIT_PER_MINUTE = 100;
 
+	/**
+	 * 商品・顧客・在庫の一覧APIページサイズ。`products.json`/`stocks.json` の上限（50）に合わせる
+	 * （`customers.json`/`sales.json` は上限100だが、全エンドポイント共通の値に揃える）。
+	 */
+	private const PAGE_SIZE = 50;
+
+	/**
+	 * `GET /sales.json` の全量走査・`fetchLatestOrders` の探索終端に使う日付
+	 * （カラーミーのサービス開始より確実に前）。
+	 */
+	private const HISTORY_FLOOR = '2000-01-01';
+
+	/**
+	 * `fetchLatestOrders` の初回探索窓（日数）。`after`/`before` 省略時のAPIデフォルトと同じ
+	 * 直近7日間から開始し、不足していれば4倍ずつ過去へ広げる（03 §9 #14 / §10.2 #1）。
+	 */
+	private const LATEST_ORDERS_INITIAL_WINDOW_DAYS = 7;
+
+	/**
+	 * `payments.json`/`deliveries.json` から組み立てた名称マップを持つ`OrderTransformer`。
+	 * 1アダプタインスタンス（=1ジョブアクション）内での再利用のため遅延生成後にキャッシュする。
+	 */
+	private ?OrderTransformer $order_transformer = null;
+
 	public function __construct(
-		private readonly TokenStore $token_store = new TokenStore( self::ID )
+		private readonly TokenStore $token_store = new TokenStore( self::ID ),
+		private readonly ?ColorMeClient $client_override = null,
+		private readonly Logger $logger = new Logger()
 	) {}
 
 	public function id(): string {
@@ -174,37 +210,108 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	public function fetch_products( Cursor $cursor ): Page {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$offset = (int) $cursor->get( 'offset', 0 );
+		$body   = $this->client()->get(
+			'products.json',
+			[
+				'limit'  => self::PAGE_SIZE,
+				'offset' => $offset,
+			]
+		);
+		$raw    = $this->list_from( $body, 'products' );
+		$items  = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => ( new ProductTransformer() )->transform( $item ), 'product' );
+		$total  = $this->total_from_meta( $body );
+
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
 
 	/**
 	 * @return array<int,CanonicalCategory>
 	 */
 	public function fetch_categories(): array {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$body = $this->client()->get( 'categories.json' );
+		$raw  = $this->list_from( $body, 'categories' );
+
+		return $this->transform_rows_flat( $raw, static fn ( array $item ): array => ( new CategoryTransformer() )->transform( $item ), 'category' );
 	}
 
 	/**
 	 * @return array<int,CanonicalTag>
 	 */
 	public function fetch_tags(): array {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$body = $this->client()->get( 'groups.json' );
+		$raw  = $this->list_from( $body, 'groups' );
+
+		return $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalTag => ( new TagTransformer() )->transform( $item ), 'tag' );
 	}
 
 	public function fetch_customers( Cursor $cursor ): Page {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$offset = (int) $cursor->get( 'offset', 0 );
+		$body   = $this->client()->get(
+			'customers.json',
+			[
+				'limit'  => self::PAGE_SIZE,
+				'offset' => $offset,
+			]
+		);
+		$raw    = $this->list_from( $body, 'customers' );
+		$items  = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => ( new CustomerTransformer() )->transform( $item ), 'customer' );
+		$total  = $this->total_from_meta( $body );
+
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
 
+	/**
+	 * 全量走査（Pro版・dry-run用）。`after`未指定だと直近7日間しか検索されないため
+	 * （03 §9 #14）、`HISTORY_FLOOR`を明示して全履歴を対象にする。
+	 */
 	public function fetch_orders( Cursor $cursor ): Page {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$offset = (int) $cursor->get( 'offset', 0 );
+		$body   = $this->client()->get(
+			'sales.json',
+			[
+				'after'  => self::HISTORY_FLOOR,
+				'limit'  => self::PAGE_SIZE,
+				'offset' => $offset,
+			]
+		);
+		$raw    = $this->list_from( $body, 'sales' );
+		$items  = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+		$total  = $this->total_from_meta( $body );
+
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
 
+	/**
+	 * §10.2 #4: 無料版の在庫取込はサンプル商品のID指定取得結果から導出するため、この全量走査は
+	 * dry-run・Pro版のみで使われる。`GET /stocks.json` はバリエーションIDを返さず
+	 * `CanonicalStock::remote_id()` が衝突するため使わない（`StockTransformer` docblock参照）。
+	 */
 	public function fetch_stocks( Cursor $cursor ): Page {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$offset = (int) $cursor->get( 'offset', 0 );
+		$body   = $this->client()->get(
+			'products.json',
+			[
+				'limit'  => self::PAGE_SIZE,
+				'offset' => $offset,
+			]
+		);
+		$raw    = $this->list_from( $body, 'products' );
+		$items  = $this->transform_rows_flat( $raw, static fn ( array $item ): array => ( new StockTransformer() )->transform( $item ), 'stock' );
+		$total  = $this->total_from_meta( $body );
+
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
 	}
 
+	/**
+	 * `GET /shop_coupons.json` にページングパラメータが無い（swagger）ため常に1ページで完結する。
+	 */
 	public function fetch_coupons( Cursor $cursor ): Page {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$body  = $this->client()->get( 'shop_coupons.json' );
+		$raw   = $this->list_from( $body, 'shop_coupons' );
+		$items = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCoupon => ( new CouponTransformer() )->transform( $item ), 'coupon' );
+
+		return new Page( $items, null, count( $items ) );
 	}
 
 	public function fetch_reviews( Cursor $cursor ): Page {
@@ -212,18 +319,71 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * 無料版サンプル選定用（D15）。`GET /sales.json` は`after`/`before`省略時に直近7日間しか
+	 * 検索しない（03 §9 #14）ため、不足していれば探索窓を4倍ずつ過去へ広げて再取得する。
+	 * 各リクエストは前回より広い窓での取得（常に現在時刻を`before`側の起点とする上位集合）に
+	 * なるため、レスポンスのマージは不要で最後の取得結果をそのまま使う。
+	 *
 	 * @return array<int,CanonicalOrder>
 	 */
 	public function fetch_latest_orders( int $limit ): array {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$raw         = $this->fetch_sales_raw( [ 'limit' => $limit ] );
+		$raw_count   = count( $raw );
+		$window_days = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
+
+		while ( $raw_count < $limit ) {
+			$window_days *= 4;
+			$after        = $this->history_floor_or_days_ago( $window_days );
+			$raw          = $this->fetch_sales_raw(
+				[
+					'limit' => $limit,
+					'after' => $after,
+				]
+			);
+			$raw_count    = count( $raw );
+
+			if ( self::HISTORY_FLOOR === $after ) {
+				break;
+			}
+		}
+
+		$orders = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+
+		usort( $orders, static fn ( CanonicalOrder $a, CanonicalOrder $b ): int => $b->placed_at <=> $a->placed_at );
+
+		return array_slice( $orders, 0, $limit );
 	}
 
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$product = $this->fetch_single_by_remote_id( 'products/' . rawurlencode( $remote_id ) . '.json', 'product' );
+
+		if ( null === $product ) {
+			return null;
+		}
+
+		try {
+			return ( new ProductTransformer() )->transform( $product );
+		} catch ( Throwable $exception ) {
+			$this->log_transform_failure( 'product', $product, $exception );
+
+			return null;
+		}
 	}
 
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$customer = $this->fetch_single_by_remote_id( 'customers/' . rawurlencode( $remote_id ) . '.json', 'customer' );
+
+		if ( null === $customer ) {
+			return null;
+		}
+
+		try {
+			return ( new CustomerTransformer() )->transform( $customer );
+		} catch ( Throwable $exception ) {
+			$this->log_transform_failure( 'customer', $customer, $exception );
+
+			return null;
+		}
 	}
 
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
@@ -248,5 +408,190 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+	}
+
+	/**
+	 * `id.json`単体取得エンドポイント共通のラッパー。404は契約どおりnullに変換する。
+	 *
+	 * @return ?array<string,mixed>
+	 */
+	private function fetch_single_by_remote_id( string $path, string $envelope_key ): ?array {
+		try {
+			$body = $this->client()->get( $path );
+		} catch ( ApiException $exception ) {
+			if ( 404 === $exception->status_code() ) {
+				return null;
+			}
+
+			throw $exception;
+		}
+
+		$item = $body[ $envelope_key ] ?? null;
+
+		return is_array( $item ) ? $item : null;
+	}
+
+	/**
+	 * @param array<string,mixed> $query
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function fetch_sales_raw( array $query ): array {
+		return $this->list_from( $this->client()->get( 'sales.json', $query ), 'sales' );
+	}
+
+	/**
+	 * `$window_days`日前の日付が`HISTORY_FLOOR`より過去になったら`HISTORY_FLOOR`に丸める
+	 * （探索の終端を明示するため）。
+	 */
+	private function history_floor_or_days_ago( int $window_days ): string {
+		$candidate = gmdate( 'Y-m-d', time() - $window_days * DAY_IN_SECONDS );
+
+		return $candidate < self::HISTORY_FLOOR ? self::HISTORY_FLOOR : $candidate;
+	}
+
+	private function order_transformer(): OrderTransformer {
+		if ( null === $this->order_transformer ) {
+			$this->order_transformer = new OrderTransformer(
+				$this->id_name_map( 'payments.json', 'payments' ),
+				$this->id_name_map( 'deliveries.json', 'deliveries' )
+			);
+		}
+
+		return $this->order_transformer;
+	}
+
+	/**
+	 * `sale`は`payment_id`/`delivery_id`のみを持ち名称を含まないため、`OrderTransformer`が
+	 * 参照する`id => name`マップをここで組み立てる（同クラスdocblock参照）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function id_name_map( string $path, string $envelope_key ): array {
+		$rows = $this->list_from( $this->client()->get( $path ), $envelope_key );
+		$map  = [];
+
+		foreach ( $rows as $row ) {
+			$id   = Cast::to_int_or_null( $row['id'] ?? null );
+			$name = Cast::to_string_or_null( $row['name'] ?? null );
+
+			if ( null !== $id && null !== $name ) {
+				$map[ $id ] = $name;
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * @param array<string,mixed> $body
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function list_from( array $body, string $key ): array {
+		$list = $body[ $key ] ?? null;
+
+		if ( ! is_array( $list ) ) {
+			return [];
+		}
+
+		return array_values( array_filter( $list, 'is_array' ) );
+	}
+
+	/**
+	 * @param array<string,mixed> $body
+	 */
+	private function total_from_meta( array $body ): ?int {
+		$meta = $body['meta'] ?? null;
+
+		return is_array( $meta ) ? Cast::to_int_or_null( $meta['total'] ?? null ) : null;
+	}
+
+	/**
+	 * `meta.total`が得られる場合はそれで終端判定し、得られない場合（categories/groups/
+	 * shop_couponsの単発取得を除くページング系）はページサイズ未満の取得件数を終端の合図にする。
+	 */
+	private function next_cursor( int $offset, int $fetched_count, ?int $total ): ?Cursor {
+		if ( null !== $total ) {
+			return ( $offset + $fetched_count ) < $total ? new Cursor( [ 'offset' => $offset + $fetched_count ] ) : null;
+		}
+
+		return $fetched_count < self::PAGE_SIZE ? null : new Cursor( [ 'offset' => $offset + $fetched_count ] );
+	}
+
+	/**
+	 * 1行の変換失敗（例: id欠損の`RuntimeException`）でページ全体を落とさないための共通ラッパー。
+	 * `Importer`の1件例外保護は`WooWriter::write()`周りにしか無く、fetch/transform段はここで担う。
+	 *
+	 * @template T
+	 *
+	 * @param array<int,array<string,mixed>>   $raw_items
+	 * @param callable(array<string,mixed>):?T $transform
+	 * @return array<int,T>
+	 */
+	private function transform_rows( array $raw_items, callable $transform, string $entity ): array {
+		return $this->transform_rows_flat(
+			$raw_items,
+			static function ( array $raw ) use ( $transform ): array {
+				$item = $transform( $raw );
+
+				return null !== $item ? [ $item ] : [];
+			},
+			$entity
+		);
+	}
+
+	/**
+	 * `transform_rows()`の1件=0..N件版（category/stockのように1行から複数モデルを生成する場合）。
+	 *
+	 * @template T
+	 *
+	 * @param array<int,array<string,mixed>>             $raw_items
+	 * @param callable(array<string,mixed>):array<int,T> $transform
+	 * @return array<int,T>
+	 */
+	private function transform_rows_flat( array $raw_items, callable $transform, string $entity ): array {
+		$result = [];
+
+		foreach ( $raw_items as $raw ) {
+			try {
+				$items = $transform( $raw );
+			} catch ( Throwable $exception ) {
+				$this->log_transform_failure( $entity, $raw, $exception );
+				continue;
+			}
+
+			array_push( $result, ...$items );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * `Support\Logger`の個人情報禁止ルール（`Importer`の同種catch節と同じ方針）に従い、
+	 * remote_idと例外クラス名のみを記録する（例外メッセージ自体は含めない）。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function log_transform_failure( string $entity, array $raw, Throwable $exception ): void {
+		$this->logger->error(
+			"Failed to transform a ColorMe \"{$entity}\" row.",
+			[
+				'remote_id' => Cast::to_string_or_null( $raw['id'] ?? $raw['id_big'] ?? null ),
+				'exception' => $exception::class,
+			]
+		);
+	}
+
+	private function client(): ColorMeClient {
+		if ( null !== $this->client_override ) {
+			return $this->client_override;
+		}
+
+		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
+
+		if ( '' === $access_token ) {
+			throw new ApiException( 'ColorMe adapter is not connected.', 0, [] );
+		}
+
+		return ColorMeClient::for_access_token( $access_token );
 	}
 }

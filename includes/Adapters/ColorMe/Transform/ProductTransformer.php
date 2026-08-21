@@ -23,7 +23,7 @@ final class ProductTransformer {
 
 		return new CanonicalProduct(
 			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
-			$this->sku( $raw, $remote_id ),
+			self::sku( $raw, $remote_id ),
 			Cast::money( $raw['sales_price_including_tax'] ?? null ),
 			null,
 			Cast::sanitize_html( $raw['expl'] ?? null ),
@@ -109,7 +109,7 @@ final class ProductTransformer {
 	 * @param array<string,mixed> $raw
 	 */
 	private function is_hidden_while_sold_out( array $raw ): bool {
-		if ( ! $this->is_stock_managed( $raw ) ) {
+		if ( ! self::is_stock_managed( $raw ) ) {
 			return false;
 		}
 
@@ -154,9 +154,12 @@ final class ProductTransformer {
 	}
 
 	/**
+	 * `StockTransformer`（F1-5）も同じ規則でSKUを導出する必要があるため公開する
+	 * （在庫を別商品に誤って当てないよう、SKU導出ルールを1箇所にまとめる）。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
-	private function sku( array $raw, string $remote_id ): string {
+	public static function sku( array $raw, string $remote_id ): string {
 		$model_number = Cast::to_string_or_null( $raw['model_number'] ?? null );
 
 		return null !== $model_number ? $model_number : "colorme-{$remote_id}";
@@ -174,10 +177,12 @@ final class ProductTransformer {
 	 * 在庫管理商品を無条件に購入可能にしてしまう。在庫管理対象なのに実数が不明な場合は
 	 * `0`（在庫切れ）にフェイルクローズする。
 	 *
+	 * `StockTransformer`（F1-5）も商品レベルの在庫数導出にこのメソッドを再利用するため公開する。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
-	private function stock( array $raw ): ?int {
-		if ( ! $this->is_stock_managed( $raw ) ) {
+	public static function stock( array $raw ): ?int {
+		if ( ! self::is_stock_managed( $raw ) ) {
 			return null;
 		}
 
@@ -193,9 +198,11 @@ final class ProductTransformer {
 	 * 「在庫あり」と解釈するため、実際は管理対象で売り切れかもしれない商品が無条件に
 	 * 購入可能になってしまう。`stock()`側の0（在庫切れ）フェイルクローズに委ねる。
 	 *
+	 * `StockTransformer`（F1-5）も在庫管理判定にこのメソッドを再利用するため公開する。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
-	private function is_stock_managed( array $raw ): bool {
+	public static function is_stock_managed( array $raw ): bool {
 		return false !== ( $raw['stock_managed'] ?? null );
 	}
 
@@ -252,7 +259,7 @@ final class ProductTransformer {
 		}
 
 		$product_price = Cast::money( $raw['sales_price_including_tax'] ?? null );
-		$stock_managed = $this->is_stock_managed( $raw );
+		$stock_managed = self::is_stock_managed( $raw );
 		$result        = [];
 
 		foreach ( $variants as $variant ) {
@@ -261,12 +268,11 @@ final class ProductTransformer {
 			}
 
 			$variant_remote_id = Cast::to_string_or_null( $variant['id'] ?? null ) ?? '';
-			$model_number      = Cast::to_string_or_null( $variant['model_number'] ?? null );
 			$price             = Cast::to_string_or_null( $variant['option_price_including_tax'] ?? null );
 
 			$result[] = [
 				'remote_id'                   => $variant_remote_id,
-				'sku'                         => null !== $model_number ? $model_number : "colorme-{$product_remote_id}-{$variant_remote_id}",
+				'sku'                         => self::variant_sku( $variant, $product_remote_id ),
 				'option1_name'                => Cast::to_string_or_null( $variant['option1']['name'] ?? null ),
 				'option1_value'               => Cast::to_string_or_null( $variant['option1']['value'] ?? $variant['option1_value'] ?? null ),
 				'option2_name'                => Cast::to_string_or_null( $variant['option2']['name'] ?? null ),
@@ -274,7 +280,7 @@ final class ProductTransformer {
 				'price'                       => null !== $price ? $price : $product_price,
 				// 在庫管理中で欠損・非数値の場合は`stock()`と同じ理由で0（在庫切れ）にフェイルクローズする
 				// （Woo writerはnullを「在庫管理外＝在庫あり」と解釈するため）。
-				'stock'                       => $stock_managed ? ( Cast::to_int_or_null( $variant['stocks'] ?? null ) ?? 0 ) : null,
+				'stock'                       => self::variant_stock( $variant, $stock_managed ),
 				'weight'                      => Cast::to_int_or_null( $variant['weight'] ?? null ),
 				// バリエーション別の上書き値。商品レベルの同種項目はextrasに退避済み（few_num/cost/
 				// members_price_including_tax）だが、ここではバリエーションごとの値をそのまま保持する。
@@ -286,6 +292,27 @@ final class ProductTransformer {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * `StockTransformer`（F1-5）も同じ規則でバリエーションSKUを導出する必要があるため公開する。
+	 *
+	 * @param array<string,mixed> $variant
+	 */
+	public static function variant_sku( array $variant, string $product_remote_id ): string {
+		$model_number      = Cast::to_string_or_null( $variant['model_number'] ?? null );
+		$variant_remote_id = Cast::to_string_or_null( $variant['id'] ?? null ) ?? '';
+
+		return null !== $model_number ? $model_number : "colorme-{$product_remote_id}-{$variant_remote_id}";
+	}
+
+	/**
+	 * `StockTransformer`（F1-5）も同じ規則でバリエーション在庫数を導出する必要があるため公開する。
+	 *
+	 * @param array<string,mixed> $variant
+	 */
+	public static function variant_stock( array $variant, bool $stock_managed ): ?int {
+		return $stock_managed ? ( Cast::to_int_or_null( $variant['stocks'] ?? null ) ?? 0 ) : null;
 	}
 
 	/**

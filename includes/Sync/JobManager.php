@@ -8,7 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
-use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Support\Logger;
@@ -44,16 +43,6 @@ final class JobManager {
 	 */
 	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
 
-	/**
-	 * fetch系メソッドが未実装のシェルアダプタ（F1-2時点の `ColorMeAdapter` は接続まわりのみ実装で、
-	 * fetch_*は全て `UnsupportedOperationException` を投げる）。Capabilities（03 §2確定版）は
-	 * product/category/order/stockを常時対応として扱うため、このリストで明示的にrun開始を拒否
-	 * しないと、必ず失敗するジョブが作られてしまう。F1-5で該当アダプタのfetch*を実装したら、
-	 * このプラットフォームをリストから外す（アダプタパターン上プラットフォーム固有知識を
-	 * Sync層に置かないのが原則のため、恒久的な仕組みではなく一時的な対応）。
-	 */
-	private const RUN_NOT_YET_IMPLEMENTED_PLATFORMS = [ ColorMeAdapter::ID ];
-
 	public function __construct(
 		private readonly JobRepository $jobs,
 		private readonly LimitPolicy $limits,
@@ -82,8 +71,7 @@ final class JobManager {
 	 * @param array<int,string> $entities
 	 *
 	 * @throws RunAlreadyInProgressException 同一プラットフォームで進行中（pending/running/paused）のジョブがある場合。
-	 * @throws RuntimeException 未登録プラットフォーム、fetch系未実装のシェルアダプタ、
-	 *         または対応エンティティが1つもない場合。
+	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
 		if ( ! in_array( $type, [ self::TYPE_DRY_RUN, self::TYPE_IMPORT, self::TYPE_EXPORT ], true ) ) {
@@ -98,10 +86,6 @@ final class JobManager {
 
 		if ( null === $adapter ) {
 			throw new RuntimeException( "Unknown platform: {$platform}" );
-		}
-
-		if ( in_array( $platform, self::RUN_NOT_YET_IMPLEMENTED_PLATFORMS, true ) ) {
-			throw new RuntimeException( "Adapter for platform \"{$platform}\" does not support fetching data yet." );
 		}
 
 		$ordered_entities = $this->filter_and_order_entities( $entities, $adapter );
