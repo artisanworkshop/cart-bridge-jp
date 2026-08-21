@@ -86,15 +86,16 @@ final class StockWriterTest extends WooTestCase {
 		$this->assertSame( 'outofstock', $updated->get_stock_status() );
 	}
 
-	public function test_variable_parent_level_stock_warns_and_only_updates_status(): void {
+	public function test_variable_parent_level_stock_is_skipped_without_touching_the_parent(): void {
+		// variable商品の親が対象になった場合は実体に触れず、結果レポート上もskippedとして
+		// 扱う（ASP側の在庫が何も反映されないため、updatedとして計上すると件数が実態とずれる）。
+		// 親のstock_statusはWooCommerce自身が子variationから導出するため、ここでは子由来の
+		// `instock`がそのまま保たれることも合わせて確認する。
 		$product = new WC_Product_Variable();
 		$product->set_name( 'Variable' );
 		$product_id = $product->save();
 		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
 
-		// variable商品は在庫を持つ子variationが無いとWooCommerce自身がstock_statusを
-		// outofstockへ強制再計算するため、実運用の前提（先に商品ジョブでvariationが
-		// 作成済み）に合わせて在庫ありのvariationを1件用意する。
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
 		$variation->set_manage_stock( true );
@@ -103,16 +104,47 @@ final class StockWriterTest extends WooTestCase {
 		$variation->save();
 		WC_Product_Variable::sync( $product_id );
 
-		$stock  = new CanonicalStock( '1', null, null, 5, true );
+		$stock  = new CanonicalStock( '1', null, null, 0, false );
 		$result = $this->make_writer()->write( $stock, $product_id );
 
+		$updated = wc_get_product( $product_id );
+		$this->assertSame( 'instock', $updated->get_stock_status() );
+		$this->assertFalse( $updated->get_manage_stock() );
+
+		// 対象自体は解決できているためlocal_idは親のIDを返す（STOCK_PRODUCT_UNRESOLVEDと
+		// 異なり、再実行しても解消し得ない終端状態なのでmapping/checksumは記録させる）。
+		$this->assertSame( $product_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		// detailはWoo内部のpost IDではなくASP側remote_id（F1-6のdry-run結果レポートが
 		// remote_idで問題箇所を特定する契約のため、STOCK_PRODUCT_UNRESOLVEDと同じ規約）。
 		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, '1' ), $result->warnings );
+	}
+
+	public function test_variable_parent_level_stock_preserves_parent_level_stock_management(): void {
+		// WooCommerceはvariable商品の親レベル在庫管理（manage_stock=true＋数量）を許容する。
+		// 親へ書き込むと`StockApplier::apply()`の`set_manage_stock(false)`でその設定が失われ、
+		// `WC_Product::validate_props()`が数量まで空へ落としてしまうため、店舗が設定した
+		// 在庫管理を消さずに見送ることを確認する。
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Variable' );
+		$product->set_manage_stock( true );
+		$product->set_stock_quantity( 50 );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->save();
+
+		$stock  = new CanonicalStock( '1', null, null, null, true );
+		$result = $this->make_writer()->write( $stock, $product_id );
 
 		$updated = wc_get_product( $product_id );
-		$this->assertFalse( $updated->get_manage_stock() );
-		$this->assertSame( 'instock', $updated->get_stock_status() );
+		$this->assertTrue( $updated->get_manage_stock() );
+		$this->assertSame( 50, $updated->get_stock_quantity() );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, '1' ), $result->warnings );
 	}
 
 	public function test_variant_ref_resolves_to_variation(): void {
@@ -179,10 +211,14 @@ final class StockWriterTest extends WooTestCase {
 		$stock  = new CanonicalStock( '1', 'v-unmapped', 'PARENT-SKU', 99, true );
 		$result = $this->make_writer()->write( $stock, $product_id );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, 'v-unmapped' ), $result->warnings );
-
 		$updated = wc_get_product( $product_id );
+		// 親には数量99が書かれず、子由来のstock_statusがそのまま保たれる。
+		$this->assertNull( $updated->get_stock_quantity() );
+		$this->assertSame( 'instock', $updated->get_stock_status() );
 		$this->assertFalse( $updated->get_manage_stock() );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, 'v-unmapped' ), $result->warnings );
 	}
 
 	public function test_sku_fallback_does_not_overwrite_stock_of_product_from_another_platform(): void {

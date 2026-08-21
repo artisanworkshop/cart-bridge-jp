@@ -238,4 +238,62 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 1, $wc_coupon->get_usage_limit_per_user() );
 	}
+
+	public function test_stale_mapping_to_deleted_coupon_falls_back_to_create(): void {
+		// 他writer（Product/Term/Customer/Order/Variation）はmappingsが指す実体が手動削除済みの
+		// ケースを明示的に検知して新規作成へフォールバックしている。`CouponWriter`にその分岐が
+		// 無いのは、`WC_Coupon::__construct()`が`is_int($data) && 'shop_coupon' === get_post_type($data)`で
+		// post typeを検証しており、削除済みIDでは`WC_Coupon_Data_Store_CPT::read()`（実体が無いと
+		// 素の`\Exception`を投げる）に到達せずid=0のまま＝新規作成扱いになるため。
+		// この前提はWC側の実装詳細に依存しているので、退行した場合に気付けるよう固定する
+		// （壊れると例外が`Importer`の汎用catch-allに落ち、mappingもchecksumも更新されないまま
+		// 毎回同じ例外を繰り返し、このクーポンは二度と再作成されなくなる）。
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'GHOST' );
+		$existing->set_amount( '100' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
+		$stale_id = $existing->save();
+
+		wp_delete_post( $stale_id, true );
+		$this->assertNull( get_post( $stale_id ) );
+
+		$coupon = new CanonicalCoupon( 'GHOST', 'fixed', '300', null, null, null, [ 'remote_id' => '9' ] );
+		$result = $this->make_writer()->write( $coupon, $stale_id );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 0, $result->local_id );
+		$this->assertNotSame( $stale_id, $result->local_id );
+
+		$recreated = new \WC_Coupon( $result->local_id );
+		$this->assertSame( 'ghost', $recreated->get_code() );
+		$this->assertSame( '300', $recreated->get_amount() );
+		$this->assertSame( 'colorme', $recreated->get_meta( '_cbjp_platform' ) );
+	}
+
+	public function test_stale_mapping_still_applies_code_conflict_guard(): void {
+		// stale-IDの場合`$coupon->get_id() === 0`になり新規作成パスへ落ちるため、そちらの
+		// コード重複ガードが働かなければならない。フォールバック先のコードが別プラットフォーム
+		// 由来のクーポンと衝突する場合、それを上書きせず保存自体を見送ることを確認する。
+		$foreign = new \WC_Coupon();
+		$foreign->set_code( 'SHARED' );
+		$foreign->set_amount( '50' );
+		$foreign->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$foreign_id = $foreign->save();
+
+		$stale = new \WC_Coupon();
+		$stale->set_code( 'OLDNAME' );
+		$stale->update_meta_data( '_cbjp_platform', 'colorme' );
+		$stale_id = $stale->save();
+		wp_delete_post( $stale_id, true );
+
+		$coupon = new CanonicalCoupon( 'SHARED', 'fixed', '999', null, null, null, [ 'remote_id' => '10' ] );
+		$result = $this->make_writer()->write( $coupon, $stale_id );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $foreign_id ), $result->warnings );
+
+		$untouched = new \WC_Coupon( $foreign_id );
+		$this->assertSame( '50', $untouched->get_amount() );
+	}
 }
