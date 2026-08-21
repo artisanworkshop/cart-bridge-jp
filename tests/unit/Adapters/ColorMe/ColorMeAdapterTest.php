@@ -479,7 +479,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$page = $adapter->fetch_customers( Cursor::start() );
 
 		$this->assertSame( [], $page->items );
-		$this->assertSame( 5, $page->total );
+		// meta.totalは生の顧客件数（5）でありitems件数（0、非会員除外後）と一致しないため、
+		// 進捗率の分母として誤報告しない（totalはnull）。
+		$this->assertNull( $page->total );
 	}
 
 	public function test_fetch_customers_includes_members_with_mail(): void {
@@ -536,6 +538,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertCount( 2, $page->items );
 		$this->assertStringContainsString( 'after=2000-01-01', (string) $captured );
+		// meta.totalは変換失敗行を含みうる生の受注件数のため、進捗率の分母として誤報告しない。
+		$this->assertNull( $page->total );
 	}
 
 	public function test_fetch_stocks_derives_from_products_and_flattens_variants(): void {

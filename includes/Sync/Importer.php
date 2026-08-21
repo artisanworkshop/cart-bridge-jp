@@ -15,6 +15,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Woo\Support\Value;
 use RuntimeException;
 use Throwable;
 
@@ -139,18 +140,22 @@ final class Importer {
 		$items = [];
 
 		foreach ( $variants as $variant ) {
-			$variant_remote_id = isset( $variant['remote_id'] ) ? (string) $variant['remote_id'] : null;
+			// `$variant`はアダプタが返す`CanonicalProduct::$variants`（配列<string,mixed>）で、
+			// 型宣言はドキュメント上の契約でしかない（アーキテクチャ原則8）。`VariationWriter`が
+			// 同じremote_id/sku/stock契約に使う`Value`ヘルパーで防御的に取り出し、非スカラー値が
+			// 来ても在庫管理商品を無条件に「在庫あり」扱いしないようフェイルクローズする。
+			$variant_remote_id = Value::string( $variant['remote_id'] ?? null );
 
-			if ( null === $variant_remote_id || '' === $variant_remote_id ) {
+			if ( null === $variant_remote_id ) {
 				continue;
 			}
 
-			$quantity = array_key_exists( 'stock', $variant ) && null !== $variant['stock'] ? (int) $variant['stock'] : null;
+			$quantity = Value::int( $variant['stock'] ?? null );
 
 			$items[] = new CanonicalStock(
 				$remote_id,
 				$variant_remote_id,
-				isset( $variant['sku'] ) ? (string) $variant['sku'] : null,
+				Value::string( $variant['sku'] ?? null ),
 				$quantity,
 				CanonicalStock::is_in_stock( $quantity )
 			);

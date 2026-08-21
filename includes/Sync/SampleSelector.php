@@ -9,6 +9,7 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use Throwable;
 
 /**
@@ -113,7 +114,9 @@ final class SampleSelector {
 	 * 先頭ページ）から不足分を補う。重複は除外する。customer は
 	 * `Capabilities::can_fetch_customers` が false のアダプタでは呼び出さず、
 	 * いずれのエンティティも一覧取得自体が失敗（`UnsupportedOperationException`等）した場合は
-	 * 補完をスキップして`$existing`をそのまま返す。
+	 * 補完をスキップして`$existing`をそのまま返す。`RateLimitExhaustedException`は補完の
+	 * 失敗ではなくジョブの一時停止・再開（`JobManager`）に委ねるべきシグナルのため、ここでは
+	 * 握りつぶさず再送出する（握りつぶすと劣化したサンプルがそのまま永続化されてしまう）。
 	 *
 	 * @param array<int,string> $existing
 	 * @return array<int,string>
@@ -131,6 +134,8 @@ final class SampleSelector {
 			$page = 'product' === $entity
 				? $this->adapter->fetch_products( Cursor::start() )
 				: $this->adapter->fetch_customers( Cursor::start() );
+		} catch ( RateLimitExhaustedException $exception ) {
+			throw $exception;
 		} catch ( Throwable ) {
 			return $existing;
 		}

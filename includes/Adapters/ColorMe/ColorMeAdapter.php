@@ -263,9 +263,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$raw         = $this->list_from( $body, 'customers' );
 		$transformer = new CustomerTransformer();
 		$items       = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => $transformer->transform( $item ), 'customer' );
-		$total       = $this->total_from_meta( $body );
+		$row_total   = $this->total_from_meta( $body );
 
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
+		// `meta.total`は生レスポンスの顧客件数であり、`CustomerTransformer`が非会員・email欠損の
+		// 行をnullで除外した後の`items`件数とは一致しない（`fetch_stocks()`のバリエーション展開と
+		// 同種の乖離）。ページング終端の判定にだけ使い、進捗率の分母として`Page`側には報告しない。
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $row_total ), null );
 	}
 
 	/**
@@ -273,8 +276,8 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * （03 §9 #14）、`HISTORY_FLOOR`を明示して全履歴を対象にする。
 	 */
 	public function fetch_orders( Cursor $cursor ): Page {
-		$offset = (int) $cursor->get( 'offset', 0 );
-		$body   = $this->client()->get(
+		$offset    = (int) $cursor->get( 'offset', 0 );
+		$body      = $this->client()->get(
 			'sales.json',
 			[
 				'after'  => self::HISTORY_FLOOR,
@@ -282,11 +285,13 @@ final class ColorMeAdapter implements PlatformAdapter {
 				'offset' => $offset,
 			]
 		);
-		$raw    = $this->list_from( $body, 'sales' );
-		$items  = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
-		$total  = $this->total_from_meta( $body );
+		$raw       = $this->list_from( $body, 'sales' );
+		$items     = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+		$row_total = $this->total_from_meta( $body );
 
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
+		// customer同様、`OrderTransformer`が変換失敗行（id/make_date/total_price欠損）を除外した
+		// 後の`items`件数は`meta.total`（生の受注件数）と一致しうるとは限らない。
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $row_total ), null );
 	}
 
 	/**
