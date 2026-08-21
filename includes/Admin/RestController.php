@@ -502,8 +502,9 @@ final class RestController {
 		$platform = (string) $request->get_param( 'platform' );
 		$entities = (array) ( $request->get_param( 'entities' ) ?? [] );
 
-		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。
-		if ( ! in_array( $type, [ JobManager::TYPE_DRY_RUN, JobManager::TYPE_IMPORT ], true ) ) {
+		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。type未知の値（typo等）はここで
+		// 「エクスポート未実装」と誤答させず、下の`JobManager::start_run()`の型検証（400）に委ねる。
+		if ( JobManager::TYPE_EXPORT === $type ) {
 			return new WP_Error(
 				'cbjp_not_implemented',
 				__( 'Export is not implemented yet.', 'cart-bridge-jp' ),

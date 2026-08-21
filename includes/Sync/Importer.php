@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
@@ -88,7 +89,7 @@ final class Importer {
 
 	/**
 	 * 無料版の在庫取込（§10.2 #4）: `fetchStocks` の全量走査はレート制限を浪費するため使わず、
-	 * サンプル商品のID指定取得結果（CanonicalProduct.stock）から在庫を導出して書き込む。
+	 * サンプル商品のID指定取得結果（CanonicalProduct.stock/variants）から在庫を導出して書き込む。
 	 *
 	 * @param array<int,string> $product_remote_ids
 	 * @return array{totals:array<string,int>}
@@ -103,16 +104,59 @@ final class Importer {
 				continue;
 			}
 
-			$items[] = new CanonicalStock(
-				(string) $remote_id,
-				null,
-				$product->sku,
-				$product->stock,
-				CanonicalStock::is_in_stock( $product->stock )
-			);
+			array_push( $items, ...$this->stocks_for_sample_product( (string) $remote_id, $product ) );
 		}
 
 		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ) ];
+	}
+
+	/**
+	 * バリエーションを持つ商品は、親レベルではなくバリエーション単位（`CanonicalProduct::$variants`。
+	 * ASP非依存の `remote_id`/`sku`/`stock` キー規約は `Woo\Writer\VariationWriter` 参照）で
+	 * `CanonicalStock` を作る。variable商品の親には在庫を書かない
+	 * （`WC_Product_Variable::sync()` が子から導出するため親への直接書込は無効。CLAUDE.md）ので、
+	 * 親レベルの1件だけを返すと `Woo\Writer\StockWriter` が対象を
+	 * `WC_Product_Variable` と判定してスキップし、無料版のサンプル在庫が実質書き込まれない。
+	 * バリエーションが無い商品は従来どおり商品レベル1件を返す。
+	 *
+	 * @return array<int,CanonicalStock>
+	 */
+	private function stocks_for_sample_product( string $remote_id, CanonicalProduct $product ): array {
+		$variants = $product->variants;
+
+		if ( [] === $variants ) {
+			return [
+				new CanonicalStock(
+					$remote_id,
+					null,
+					$product->sku,
+					$product->stock,
+					CanonicalStock::is_in_stock( $product->stock )
+				),
+			];
+		}
+
+		$items = [];
+
+		foreach ( $variants as $variant ) {
+			$variant_remote_id = isset( $variant['remote_id'] ) ? (string) $variant['remote_id'] : null;
+
+			if ( null === $variant_remote_id || '' === $variant_remote_id ) {
+				continue;
+			}
+
+			$quantity = array_key_exists( 'stock', $variant ) && null !== $variant['stock'] ? (int) $variant['stock'] : null;
+
+			$items[] = new CanonicalStock(
+				$remote_id,
+				$variant_remote_id,
+				isset( $variant['sku'] ) ? (string) $variant['sku'] : null,
+				$quantity,
+				CanonicalStock::is_in_stock( $quantity )
+			);
+		}
+
+		return $items;
 	}
 
 	/**

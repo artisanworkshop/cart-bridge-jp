@@ -295,20 +295,25 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * `CanonicalStock::remote_id()` が衝突するため使わない（`StockTransformer` docblock参照）。
 	 */
 	public function fetch_stocks( Cursor $cursor ): Page {
-		$offset      = (int) $cursor->get( 'offset', 0 );
-		$body        = $this->client()->get(
+		$offset        = (int) $cursor->get( 'offset', 0 );
+		$body          = $this->client()->get(
 			'products.json',
 			[
 				'limit'  => self::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw         = $this->list_from( $body, 'products' );
-		$transformer = new StockTransformer();
-		$items       = $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'stock' );
-		$total       = $this->total_from_meta( $body );
+		$raw           = $this->list_from( $body, 'products' );
+		$transformer   = new StockTransformer();
+		$items         = $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'stock' );
+		$product_total = $this->total_from_meta( $body );
 
-		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $total ), $total );
+		// `Page::$total`は進捗率表示用の最終processed件数の見込み（`items`の累積件数と対になる）。
+		// `$items`はバリエーション単位に展開済み（1商品→複数件）で商品件数と一致しないため、
+		// `meta.total`（商品件数）をそのまま`Page`側の`total`として報告すると進捗が100%を
+		// 超えて表示されてしまう。ページング終端の判定にだけ商品件数ベースの値を使い、
+		// `Page`には報告しない。
+		return new Page( $items, $this->next_cursor( $offset, count( $raw ), $product_total ), null );
 	}
 
 	/**
@@ -336,27 +341,33 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * @return array<int,CanonicalOrder>
 	 */
 	public function fetch_latest_orders( int $limit ): array {
-		$raw         = $this->fetch_sales_raw( [ 'limit' => $limit ] );
-		$raw_count   = count( $raw );
-		$window_days = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
+		$orders       = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $limit ] ), fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+		$orders_count = count( $orders );
+		$window_days  = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
 
-		while ( $raw_count < $limit ) {
+		// 取得件数ではなく変換に成功した件数で判定する。行欠損（id/make_date/total_price欠損）で
+		// `transform_rows()`が一部の行を落とした場合、取得件数だけを見ていると`$limit`件揃った
+		// ように誤認して探索を打ち切ってしまい、より過去に遡れば集まったはずの有効な受注を
+		// 取りこぼす。
+		while ( $orders_count < $limit ) {
 			$window_days *= 4;
 			$after        = $this->history_floor_or_days_ago( $window_days );
-			$raw          = $this->fetch_sales_raw(
-				[
-					'limit' => $limit,
-					'after' => $after,
-				]
+			$orders       = $this->transform_rows(
+				$this->fetch_sales_raw(
+					[
+						'limit' => $limit,
+						'after' => $after,
+					]
+				),
+				fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ),
+				'order'
 			);
-			$raw_count    = count( $raw );
+			$orders_count = count( $orders );
 
 			if ( self::HISTORY_FLOOR === $after ) {
 				break;
 			}
 		}
-
-		$orders = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
 
 		usort( $orders, static fn ( CanonicalOrder $a, CanonicalOrder $b ): int => $b->placed_at <=> $a->placed_at );
 

@@ -555,6 +555,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		// フィクスチャ4商品のバリエーション数合計（3+9+2+1）。
 		$this->assertCount( 15, $page->items );
+		// meta.totalは商品件数（4）でitems件数（15、バリエーション展開後）と一致しないため、
+		// 進捗率の分母として誤報告しない（totalはnull）。
+		$this->assertNull( $page->total );
 	}
 
 	public function test_fetch_coupons_has_no_pagination_and_filters_null_rows(): void {
@@ -710,6 +713,50 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'after=2000-01-01', end( $captured ) );
 		// makeDate降順（新しい順）で並んでいること。
 		$this->assertGreaterThanOrEqual( $orders[1]->placed_at, $orders[0]->placed_at );
+	}
+
+	public function test_fetch_latest_orders_keeps_widening_when_rows_fail_transformation(): void {
+		// 1回目のレスポンスは取得件数こそ$limit(2)を満たすが、1件はid欠損で変換に失敗する。
+		// 取得件数だけで判定すると探索を打ち切ってしまうため、有効件数（1件）を見て
+		// 2回目のリクエストに進むことを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$sales  = FixtureLoader::load( 'colorme', 'sales' );
+		$valid  = $sales['sales'][0];
+		$broken = $sales['sales'][1];
+		unset( $broken['id'] );
+		$first_response  = [ 'sales' => [ $valid, $broken ] ];
+		$second_response = [ 'sales' => [ $valid, $sales['sales'][1] ] ];
+
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( &$requests, $first_response, $second_response ) {
+				if ( str_contains( $url, 'payments.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'payments' ) );
+				}
+
+				if ( str_contains( $url, 'deliveries.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'deliveries' ) );
+				}
+
+				if ( str_contains( $url, 'sales.json' ) ) {
+					++$requests;
+
+					return $this->json_response( 1 === $requests ? $first_response : $second_response );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled request: {$url}" );
+			},
+			10,
+			3
+		);
+
+		$orders = $adapter->fetch_latest_orders( 2 );
+
+		$this->assertGreaterThan( 1, $requests );
+		$this->assertCount( 2, $orders );
 	}
 
 	/**

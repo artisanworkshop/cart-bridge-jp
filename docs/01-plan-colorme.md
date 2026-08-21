@@ -42,7 +42,7 @@
 
 ページネーション: `limit` / `offset` 方式。ページサイズは50で確定（F1-5実装値。`products.json`/`stocks.json` のAPI上限に合わせ、`customers.json`/`sales.json`（上限100）も含め全エンドポイント共通にした）。`categories.json`/`groups.json`/`shop_coupons.json` はページングパラメータが無く常に1回で全件取得する。
 
-**在庫の取得元（F1-5確定）**: `GET /stocks.json` はバリエーションIDを返さない（`option1_value`/`variant_model_number`のみ）ため、同一商品の複数バリエーションで `CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）が衝突する。`GET /products.json` の `variants[].id` を使うことで `VariationWriter` の `'variant'` マッピングと正確に突合できるため、`fetch_stocks()` は `products.json` を走査し `StockTransformer` で導出する（無料版のサンプル在庫取込 `run_sample_stock_page()` も同じロジックを共有）。
+**在庫の取得元（F1-5確定）**: `GET /stocks.json` はバリエーションIDを返さない（`option1_value`/`variant_model_number`のみ）ため、同一商品の複数バリエーションで `CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）が衝突する。`GET /products.json` の `variants[].id` を使うことで `VariationWriter` の `'variant'` マッピングと正確に突合できるため、`fetch_stocks()` は `products.json` を走査し `StockTransformer` で導出する。無料版のサンプル在庫取込 `Sync\Importer::run_sample_stock_page()` も、`fetch_product_by_remote_id()` が返す `CanonicalProduct::$variants`（ASP非依存の`remote_id`/`sku`/`stock`キー規約）からバリエーション単位に展開する同等のロジックを持つ（variable商品を親レベル1件に丸めると `StockWriter` が `WC_Product_Variable` と判定して書込をスキップし、サンプル在庫が実質書き込まれなくなるため）。
 
 **受注の全量走査（`fetch_orders`）**: `GET /sales.json` は `after`/`before` 省略時に直近7日間しか検索しない（§9 #14）ため、全量走査時は `after=2000-01-01`（サービス開始より確実に前の日付）を明示する。
 

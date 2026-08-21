@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\LimitPolicy;
@@ -17,6 +18,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\InMemoryWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
 
@@ -377,5 +379,64 @@ final class ImporterTest extends WP_UnitTestCase {
 		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
 
 		$this->assertSame( 99, $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+	}
+
+	/**
+	 * `run_sample_stock_page()`は無料版のサンプル在庫取込経路（§10.2 #4）。バリエーションを持つ
+	 * 商品を親レベル1件のCanonicalStockに丸めると、`Woo\Writer\StockWriter`が書込対象を
+	 * `WC_Product_Variable`（親）と判定して書込をスキップしてしまい、サンプル在庫が
+	 * 実質書き込まれなくなる。バリエーション単位に展開されることを確認する。
+	 */
+	public function test_sample_stock_page_expands_variants_instead_of_targeting_the_parent(): void {
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => 3,
+				],
+				[
+					'remote_id' => 'v2',
+					'sku'       => 'SKU-1-V2',
+					'stock'     => null,
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 2, $writer->writes );
+
+		$stocks = array_map( static fn ( array $write ): CanonicalStock => $write['item'], $writer->writes );
+
+		$this->assertSame( 'v1', $stocks[0]->variant_ref );
+		$this->assertSame( 'SKU-1-V1', $stocks[0]->sku );
+		$this->assertSame( 3, $stocks[0]->quantity );
+		$this->assertTrue( $stocks[0]->in_stock );
+
+		$this->assertSame( 'v2', $stocks[1]->variant_ref );
+		$this->assertNull( $stocks[1]->quantity );
+		$this->assertTrue( $stocks[1]->in_stock );
+	}
+
+	public function test_sample_stock_page_targets_the_product_when_it_has_no_variants(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1', 5 ) ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 1, $writer->writes );
+
+		$stock = $writer->writes[0]['item'];
+		$this->assertNull( $stock->variant_ref );
+		$this->assertSame( 'p1', $stock->product_ref );
+		$this->assertSame( 5, $stock->quantity );
 	}
 }

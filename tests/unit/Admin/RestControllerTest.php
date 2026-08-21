@@ -251,6 +251,32 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 501, $response->get_status() );
 	}
 
+	public function test_start_run_rejects_an_unknown_type_as_a_bad_request_not_export(): void {
+		// typoや不正な値は「エクスポート未実装」(501)ではなく、JobManagerの型検証による
+		// 400として扱われるべき（実際にはエクスポートを要求していないため）。
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'not-a-real-type',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
 	public function test_start_run_returns_404_for_an_unknown_platform(): void {
 		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
 		$request->set_body_params(
