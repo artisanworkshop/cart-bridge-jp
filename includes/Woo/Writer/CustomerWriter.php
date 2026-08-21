@@ -68,8 +68,10 @@ final class CustomerWriter implements EntityWriter {
 			// アカウントが後から昇格したケース）が管理者・スタッフ権限を持つ場合、
 			// プロフィール（氏名・住所・extras）を一切上書きしない。受注等からの
 			// 顧客参照解決に必要なmappingの記録（呼び出し元Importerがlocal_idを見て行う）
-			// のみは維持する。
-			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $user_id );
+			// のみは維持する。detailはOrderWriter側の同名警告・F1-6の結果レポート契約
+			// （ASP側remote_idで問題箇所を特定する）と揃え、Woo内部のuser IDではなく
+			// ASP側remote_idにする。
+			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
 
 			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
@@ -194,7 +196,9 @@ final class CustomerWriter implements EntityWriter {
 				'kana'           => $item->kana,
 				'department'     => $item->department,
 				'birthday'       => $item->birthday,
-				'mailmag_opt_in' => null === $item->mailmag_opt_in ? null : ( $item->mailmag_opt_in ? '1' : '0' ),
+				// bool→'1'/'0'変換・null→削除は`ExtrasMeta::apply_via()`が既に汎用的に行うため、
+				// ここで個別変換する必要は無い。
+				'mailmag_opt_in' => $item->mailmag_opt_in,
 				'note'           => $item->note,
 				'full_name'      => $item->name,
 			]

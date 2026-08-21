@@ -51,6 +51,49 @@ final class VariationWriterTest extends WooTestCase {
 		$this->assertSame( 'instock', $variation->get_stock_status() );
 	}
 
+	public function test_duplicate_remote_id_within_same_sync_call_does_not_orphan_a_variation(): void {
+		// ループ開始前に一括プリロードした既存mappingスナップショットは、ループ内で行われた
+		// upsert()を反映しない。同一sync()呼び出し内（ASP側APIレスポンスの異常）に同じ
+		// remote_idのvariantが複数含まれると、後続のvariantが「未作成」と誤認して別の
+		// 孤立variationを新規作成してしまっていた（mappingは最後に処理した方だけを指す）。
+		$product_id = $this->make_parent();
+		$writer     = new VariationWriter( 'colorme', $this->mappings );
+
+		$writer->sync(
+			$product_id,
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'V1',
+					'option1_name'  => 'Size',
+					'option1_value' => 'S',
+					'price'         => '1200',
+					'stock'         => 3,
+				],
+			],
+			[ 'Size' ]
+		);
+
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v1' );
+		$this->assertNotNull( $variation_id );
+
+		// 2件目が1件目を正しく更新している（別のvariationを新規作成していない）ことを、
+		// 最終的な価格が2件目の値になっていることで確認する。
+		$variation = wc_get_product( $variation_id );
+		$this->assertSame( '1200', $variation->get_regular_price() );
+
+		$all_variations = wc_get_product( $product_id )->get_children();
+		$this->assertCount( 1, $all_variations );
+	}
+
 	public function test_removes_stale_variation_no_longer_present(): void {
 		$product_id = $this->make_parent();
 		$writer     = new VariationWriter( 'colorme', $this->mappings );

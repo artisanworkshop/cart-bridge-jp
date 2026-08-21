@@ -74,7 +74,7 @@ final class OrderItemBuilder {
 
 		$item->set_quantity( $quantity );
 
-		[ $excl_tax, $tax, $tax_warning ] = $this->split_line_amount( $line_item, $quantity );
+		[ $excl_tax, $tax, $tax_warning ] = $this->split_line_amount( $line_item, $quantity, $remote_product_id ?? '' );
 		$item->set_subtotal( $excl_tax );
 		$item->set_total( $excl_tax );
 		// `set_subtotal_tax()`/`set_total_tax()`単体では次回読込時に値が失われる: WooCommerceは
@@ -114,13 +114,38 @@ final class OrderItemBuilder {
 	 * @param array<string,mixed> $line_item
 	 * @return array{0:string,1:string,2:?string}
 	 */
-	private function split_line_amount( array $line_item, int $quantity ): array {
+	private function split_line_amount( array $line_item, int $quantity, string $remote_product_id ): array {
 		$unit_price_incl = Value::string( $line_item['price'] ?? null ) ?? '0';
+
+		// `subtotal`欠損時のフォールバック計算に使う`price`自体を検証しないと、非数値
+		// （桁区切り付き文字列等）が`(float)`キャストで静かに切り詰められ、先頭の数字部分だけが
+		// 生き残る。`wc_format_decimal()`後は一見正常な数値に見えてしまい、直後の
+		// `$line_total_incl`側の検証をすり抜けて誤った金額が無警告で確定してしまう。
+		if ( ! is_numeric( $unit_price_incl ) || (float) $unit_price_incl < 0.0 ) {
+			return [ '0', '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
+		}
+
 		$line_total_incl = Value::string( $line_item['subtotal'] ?? null ) ?? wc_format_decimal( (float) $unit_price_incl * $quantity );
+
+		// `price`/`subtotal`はshipping.fee/payment.fee/totals.gift_chargesと異なり符号未検証の
+		// まま`set_subtotal()`/`set_total()`へ渡っていた。非数値・負の値をそのまま適用すると
+		// 符号未検証のマイナス明細行が作られてしまう金銭的リスクがあるため、他の金額フィールドと
+		// 同じ規約で0円へフェイルクローズする。detailは同メソッド内の他の警告
+		// （`ORDER_LINE_PRODUCT_UNRESOLVED`等）と同じくremote_product_idにする: 金額の値自体を
+		// detailに入れると、1注文に複数明細がある場合にF1-6の結果レポートからどの明細が
+		// 壊れているか特定できない。
+		if ( ! is_numeric( $line_total_incl ) || (float) $line_total_incl < 0.0 ) {
+			return [ '0', '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
+		}
+
 		$unit_price_excl = Value::string( $line_item['unit_price_excl_tax'] ?? null );
 
 		if ( null === $unit_price_excl ) {
 			return [ $line_total_incl, '0', WarningCode::ORDER_TAX_SPLIT_UNAVAILABLE ];
+		}
+
+		if ( ! is_numeric( $unit_price_excl ) || (float) $unit_price_excl < 0.0 ) {
+			return [ $line_total_incl, '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
 		}
 
 		$line_total_excl = wc_format_decimal( (float) $unit_price_excl * $quantity );
@@ -181,12 +206,7 @@ final class OrderItemBuilder {
 		}
 
 		if ( 0.0 !== (float) $payment_fee ) {
-			$fee = new WC_Order_Item_Fee();
-			$fee->set_name( __( 'Payment fee', 'cart-bridge-jp' ) );
-			$fee->set_amount( $payment_fee );
-			$fee->set_total( $payment_fee );
-			$fee->set_tax_status( 'none' );
-			$items[] = $fee;
+			$items[] = $this->make_fee_item( __( 'Payment fee', 'cart-bridge-jp' ), $payment_fee );
 		}
 
 		[ $gift_charges, $gift_charges_warning ] = $this->validate_amount( Value::string( $totals['gift_charges'] ?? null ) );
@@ -196,18 +216,27 @@ final class OrderItemBuilder {
 		}
 
 		if ( 0.0 !== (float) $gift_charges ) {
-			$fee = new WC_Order_Item_Fee();
-			$fee->set_name( __( 'Gift wrapping', 'cart-bridge-jp' ) );
-			$fee->set_amount( $gift_charges );
-			$fee->set_total( $gift_charges );
-			$fee->set_tax_status( 'none' );
-			$items[] = $fee;
+			$items[] = $this->make_fee_item( __( 'Gift wrapping', 'cart-bridge-jp' ), $gift_charges );
 		}
 
 		return [
 			'items'    => $items,
 			'warnings' => $warnings,
 		];
+	}
+
+	/**
+	 * `build_fee_items()`が扱う手数料種別（決済手数料/ギフト包装料、将来追加されうる他の
+	 * 手数料種別）で共通のFee行組み立てを行う。
+	 */
+	private function make_fee_item( string $name, string $amount ): WC_Order_Item_Fee {
+		$fee = new WC_Order_Item_Fee();
+		$fee->set_name( $name );
+		$fee->set_amount( $amount );
+		$fee->set_total( $amount );
+		$fee->set_tax_status( 'none' );
+
+		return $fee;
 	}
 
 	/**

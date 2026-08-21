@@ -96,7 +96,9 @@ final class CustomerWriterTest extends WooTestCase {
 		// 変更されなかった（skipped）ことを示す。
 		$this->assertSame( $existing_id, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $existing_id ), $result->warnings );
+		// detailはWoo内部のuser IDではなくASP側remote_id（OrderWriter側の同名警告・
+		// F1-6の結果レポート契約と揃える）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $result->warnings );
 
 		// 既存ユーザーのロール・氏名・住所は一切変更されていない。
 		$user = get_userdata( $existing_id );

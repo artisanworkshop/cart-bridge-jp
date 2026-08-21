@@ -248,6 +248,37 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'no-qty' ), $result->warnings );
 	}
 
+	public function test_non_numeric_line_item_price_with_no_subtotal_fails_closed(): void {
+		// `subtotal`欠損時のフォールバック計算に使う`price`自体を検証しないと、桁区切り付き
+		// 文字列（`"1,200"`）が`(float)`キャストで`1.0`へ静かに切り詰められ、誤った金額
+		// （数量2なら合計¥2）が無警告で確定してしまっていた。
+		$order = $this->make_order(
+			'3020',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'bad-price',
+					'name'                => 'Malformed price',
+					'price'               => '1,200',
+					'unit_price_excl_tax' => null,
+					'subtotal'            => null,
+					'quantity'            => 2,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( '0', $items[0]->get_total() );
+		// detailは金額の値自体ではなくremote_product_id（同メソッド内の他の警告・
+		// F1-6の結果レポートがどの明細か特定できるようにする契約と揃える）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, 'bad-price' ), $result->warnings );
+	}
+
 	public function test_zero_or_negative_line_item_quantity_falls_back_to_one_with_warning(): void {
 		// 0以下の数量をそのまま`set_quantity()`に渡すと負/ゼロ数量の明細行になり、
 		// 注文の集計・返金計算が破綻しうるため、欠損時と同じフェイルクローズ扱いにする。

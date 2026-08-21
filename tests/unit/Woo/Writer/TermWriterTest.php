@@ -109,6 +109,47 @@ final class TermWriterTest extends WooTestCase {
 		);
 	}
 
+	public function test_manually_set_thumbnail_is_not_cleared_when_image_url_is_absent(): void {
+		// `thumbnail_id`はWoo標準のカテゴリ画像で、店舗がwp-adminから手動設定していることも
+		// ある。ASP側でimage_urlが無い（未設定）だけで無条件に削除すると、店舗が手動設定した
+		// 画像を消してしまう（`ProductWriter::apply_images()`がユーザー追加画像を保護する
+		// のと同じ理由）。
+		$term_id       = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		$attachment_id = self::factory()->attachment->create();
+		update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
+
+		$category = new CanonicalCategory( '100', 'Apparel', null, null );
+		$this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( (string) $attachment_id, get_term_meta( $term_id, 'thumbnail_id', true ) );
+	}
+
+	public function test_own_previously_imported_thumbnail_is_cleared_when_image_url_is_removed(): void {
+		// 逆に、以前このwriter自身が取り込んだ添付（`_cbjp_source_url`を持つ）であれば、
+		// ASP側でimage_urlが削除された場合に古い画像を残さない。
+		$term_id       = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		$attachment_id = self::factory()->attachment->create();
+		update_post_meta( $attachment_id, '_cbjp_source_url', 'https://example.test/old-thumb.png' );
+		update_term_meta( $term_id, 'thumbnail_id', $attachment_id );
+
+		$category = new CanonicalCategory( '100', 'Apparel', null, null );
+		$this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( '', get_term_meta( $term_id, 'thumbnail_id', true ) );
+	}
+
+	public function test_manually_set_sort_order_is_not_cleared_when_sort_is_absent(): void {
+		// `order`はWoo標準の並び順メタで、`_cbjp_*`と異なりこのプラグインが書いたものか
+		// 店舗が手動設定したものかを判別できない。sortが欠損しても既存値を消してはいけない。
+		$term_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		update_term_meta( $term_id, 'order', 7 );
+
+		$category = new CanonicalCategory( '100', 'Apparel', null, null );
+		$this->make_writer()->write( $category, $term_id );
+
+		$this->assertSame( '7', get_term_meta( $term_id, 'order', true ) );
+	}
+
 	public function test_updates_existing_term_by_mapping(): void {
 		$term_id  = wp_insert_term( 'Old name', 'product_cat' )['term_id'];
 		$category = new CanonicalCategory( '100', 'New name', null, null );

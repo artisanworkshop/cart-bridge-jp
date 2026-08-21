@@ -166,11 +166,19 @@ final class TermWriter implements EntityWriter {
 		if ( null !== $sort ) {
 			update_term_meta( $term_id, 'order', $sort );
 		}
+		// `order`はWoo標準のterm並び順で、`_cbjp_*`と異なりこのプラグインが書いたものか
+		// 店舗がwp-adminで手動設定したものかを判別するタグを持たない（ProductWriterの
+		// `weight`/`low_stock_amount`等の`_cbjp_`名前空間外のclear-on-nullとは異なり、
+		// このプラグイン以外の書き込みと衝突しうる）。値が無いことをもって「削除された」と
+		// 断定できないため、sortが欠損した場合は既存値を上書きしない
+		// （クラスdocblockの「既存Wooデータの無関係な上書きを避けるユーザー方針」を優先する）。
 
 		$meta_tag = Value::array_or_null( $extras['meta_tag'] ?? null );
 
 		if ( null !== $meta_tag ) {
 			update_term_meta( $term_id, '_cbjp_meta_tag', wp_json_encode( $meta_tag ) );
+		} else {
+			delete_term_meta( $term_id, '_cbjp_meta_tag' );
 		}
 
 		$image_url = Value::string( $extras['image_url'] ?? null );
@@ -185,6 +193,8 @@ final class TermWriter implements EntityWriter {
 				// （`ProductWriter::apply_images()`の同種の失敗処理と同じ方針）。
 				$warnings[] = WarningCode::with_detail( WarningCode::IMAGE_DOWNLOAD_FAILED, $image_url );
 			}
+		} else {
+			$this->clear_owned_thumbnail( $term_id );
 		}
 
 		// 上で個別処理した既知キー（sort/meta_tag/image_url）・descriptionは`write()`で既に
@@ -204,5 +214,24 @@ final class TermWriter implements EntityWriter {
 		update_term_meta( $term_id, '_cbjp_remote_id', $item->remote_id() );
 
 		return $warnings;
+	}
+
+	/**
+	 * `thumbnail_id`はWoo標準のカテゴリ画像で、店舗がwp-adminから手動設定していることもある。
+	 * ASP側でimage_urlが削除/欠損したからといって無条件に削除すると、店舗が手動設定した画像を
+	 * 消してしまう（`ProductWriter::apply_images()`がユーザー追加画像を`_cbjp_source_url`の
+	 * 有無で保護しているのと同じ理由）。現在設定されている添付が過去にこのプラグインで
+	 * 取り込んだもの（`_cbjp_source_url`を持つ）と確認できる場合のみ削除する。
+	 */
+	private function clear_owned_thumbnail( int $term_id ): void {
+		$current_attachment_id = (int) get_term_meta( $term_id, 'thumbnail_id', true );
+
+		if ( 0 === $current_attachment_id ) {
+			return;
+		}
+
+		if ( '' !== get_post_meta( $current_attachment_id, '_cbjp_source_url', true ) ) {
+			delete_term_meta( $term_id, 'thumbnail_id' );
+		}
 	}
 }

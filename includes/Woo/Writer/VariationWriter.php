@@ -77,12 +77,24 @@ final class VariationWriter {
 				continue;
 			}
 
-			$seen_remote_ids[]     = $remote_id;
-			$existing_variation_id = $existing[ $remote_id ]['local_id'] ?? null;
-			$warnings              = array_merge(
-				$warnings,
-				$this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names, $existing_variation_id )
-			);
+			$seen_remote_ids[]                          = $remote_id;
+			$existing_variation_id                      = $existing[ $remote_id ]['local_id'] ?? null;
+			[ $variant_warnings, $synced_variation_id ] = $this->sync_one( $product_id, $variant, $remote_id, $price, $axis_names, $existing_variation_id );
+			$warnings                                   = array_merge( $warnings, $variant_warnings );
+
+			// ループ開始前に一括プリロードした`$existing`はこのループ内で行われた更新を
+			// 反映しない。同一write()呼び出し内（ASP側APIレスポンスの異常）に同じremote_idの
+			// variantが複数含まれると、後続のvariantがこの古いスナップショットを見て
+			// 「未作成」と誤認し、別の孤立variationを新規作成してしまう
+			// （`upsert()`はremote_id単位でON DUPLICATE KEY UPDATEするため、mappingは
+			// 最後に処理したvariationだけを指し、先行するvariationは孤立して残る）。
+			// 直前に確定したlocal_idでこの場で更新し、以後の同一remote_idの再利用に備える。
+			if ( null !== $synced_variation_id ) {
+				$existing[ $remote_id ] = [
+					'local_id' => $synced_variation_id,
+					'checksum' => null,
+				];
+			}
 		}
 
 		// stale削除・variable同期の判定で二重に`wc_get_product()`しないよう、ここで一度だけ取得する。
@@ -104,7 +116,7 @@ final class VariationWriter {
 	/**
 	 * @param array<string,mixed> $variant
 	 * @param array<int,string>   $axis_names
-	 * @return array<int,string>
+	 * @return array{0:array<int,string>,1:?int} 警告と、保存に成功した場合のvariation ID（失敗時null）。
 	 */
 	private function sync_one( int $product_id, array $variant, string $remote_id, string $price, array $axis_names, ?int $existing_variation_id ): array {
 		$warnings = [];
@@ -170,12 +182,12 @@ final class VariationWriter {
 			// StockWriter/ProductResolverの以後の解決が全て存在しない商品ID 0を指してしまう。
 			$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_SAVE_FAILED, $remote_id );
 
-			return $warnings;
+			return [ $warnings, null ];
 		}
 
 		$this->mappings->upsert( $this->platform, 'variant', $remote_id, $variation_id, null );
 
-		return $warnings;
+		return [ $warnings, $variation_id ];
 	}
 
 	/**

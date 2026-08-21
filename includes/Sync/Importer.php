@@ -141,11 +141,15 @@ final class Importer {
 
 		// ページ内アイテムの既存mapping（local_id/checksum）を一括プリロードし、
 		// アイテム毎のSELECTを避ける。dry-runでも読み取り専用で使い、新規/更新/スキップを分類する（D16）。
+		// `remote_id_of()`はアダプタの契約違反（remote_id欠損）をnullで表す（例外を投げない）。
+		// ここで例外を投げると、ページ内の1件だけが契約違反でも`array_map()`がループに入る前に
+		// 中断し、下のforeachで確立している「1件の異常データで移行全体を止めない」方針
+		// （186行目以降）が、このremote_id解決自体には適用されずページ全体が失敗してしまう。
 		$remote_ids = array_map(
-			fn( CanonicalModel $item ): string => $this->remote_id_of( $entity, $item ),
+			fn( CanonicalModel $item ): ?string => $this->remote_id_of( $item ),
 			$items
 		);
-		$existing   = $this->mappings->find_many( $platform, $entity, $remote_ids );
+		$existing   = $this->mappings->find_many( $platform, $entity, array_filter( $remote_ids, static fn ( ?string $id ): bool => null !== $id ) );
 
 		// 残枠はページ開始時に一度だけ解決する（アイテム毎のCOUNT(*)を避ける）。
 		// 上限は新規作成のみを対象とし、既存mappingの更新は阻まない（D16の上書きポリシー前提）。
@@ -159,7 +163,18 @@ final class Importer {
 				continue;
 			}
 
-			$remote_id         = $remote_ids[ $index ];
+			$remote_id = $remote_ids[ $index ];
+
+			if ( null === $remote_id ) {
+				// アダプタの契約違反（`extras['remote_id']`欠損）。この1件はmappingを解決できず
+				// 永続化もできないため、ページ全体を止めずこのアイテムだけをskipped扱いにする
+				// （下の`catch`節と同じ「1件の異常データで移行全体を止めない」方針）。
+				++$totals['skipped'];
+				++$totals['warned'];
+				$this->logger->error( "Adapter returned a \"{$entity}\" item without a remote id.", [], $job_id );
+				continue;
+			}
+
 			$row               = $existing[ $remote_id ] ?? null;
 			$existing_local_id = $row['local_id'] ?? null;
 
@@ -227,6 +242,18 @@ final class Importer {
 
 			if ( $did_persist ) {
 				$this->mappings->upsert( $platform, $entity, $remote_id, $result->local_id, $item->checksum() );
+
+				// ループ開始前に一括プリロードした`$existing`はこのループ内で行われた更新を
+				// 反映しない。同一ページ内（アダプタのページング境界バグ等）に同じremote_idの
+				// アイテムが複数含まれると、後続のアイテムがこの古いスナップショットを見て
+				// 「未作成」と誤認し、別の孤立エンティティを新規作成してしまう
+				// （`upsert()`はremote_id単位でON DUPLICATE KEY UPDATEするため、mappingは
+				// 最後に処理したエンティティだけを指し、先行するエンティティは孤立して残る）。
+				// 直前に確定したlocal_idでこの場で更新し、以後の同一remote_idの再利用に備える。
+				$existing[ $remote_id ] = [
+					'local_id' => $result->local_id,
+					'checksum' => $item->checksum(),
+				];
 			} elseif ( $consumed_quota_slot ) {
 				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した
 				// ことにしない。
@@ -290,13 +317,7 @@ final class Importer {
 		return '';
 	}
 
-	private function remote_id_of( string $entity, CanonicalModel $item ): string {
-		$remote_id = $item->remote_id();
-
-		if ( null === $remote_id ) {
-			throw new RuntimeException( "Adapter returned a \"{$entity}\" item without a remote id (extras['remote_id'] is required)." );
-		}
-
-		return $remote_id;
+	private function remote_id_of( CanonicalModel $item ): ?string {
+		return $item->remote_id();
 	}
 }

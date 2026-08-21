@@ -106,7 +106,9 @@ final class StockWriterTest extends WooTestCase {
 		$stock  = new CanonicalStock( '1', null, null, 5, true );
 		$result = $this->make_writer()->write( $stock, $product_id );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $product_id ), $result->warnings );
+		// detailはWoo内部のpost IDではなくASP側remote_id（F1-6のdry-run結果レポートが
+		// remote_idで問題箇所を特定する契約のため、STOCK_PRODUCT_UNRESOLVEDと同じ規約）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, '1' ), $result->warnings );
 
 		$updated = wc_get_product( $product_id );
 		$this->assertFalse( $updated->get_manage_stock() );
@@ -177,7 +179,7 @@ final class StockWriterTest extends WooTestCase {
 		$stock  = new CanonicalStock( '1', 'v-unmapped', 'PARENT-SKU', 99, true );
 		$result = $this->make_writer()->write( $stock, $product_id );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $product_id ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, 'v-unmapped' ), $result->warnings );
 
 		$updated = wc_get_product( $product_id );
 		$this->assertFalse( $updated->get_manage_stock() );

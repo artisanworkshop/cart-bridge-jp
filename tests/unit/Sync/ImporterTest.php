@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\LimitPolicy;
@@ -51,6 +52,78 @@ final class ImporterTest extends WP_UnitTestCase {
 
 		$this->assertSame( 1, $writer->calls );
 		$this->assertNull( $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+	}
+
+	/**
+	 * ループ開始前に一括プリロードした既存mappingスナップショットは、ループ内で行われた
+	 * upsert()を反映しない。同一ページ内（アダプタのページング境界バグ等）に同じremote_id
+	 * のアイテムが複数含まれると、後続のアイテムが「未作成」と誤認して別の孤立エンティティを
+	 * 作成してしまっていた（mappingは最後に処理した方だけを指す）。
+	 */
+	public function test_duplicate_remote_id_within_same_page_is_treated_as_an_update(): void {
+		$adapter = new MockPlatformAdapter(
+			products: [
+				CanonicalFactory::product( 'p1', 'SKU-1', 5 ),
+				CanonicalFactory::product( 'p1', 'SKU-1', 9 ),
+			]
+		);
+		$writer  = new class() implements WooWriter {
+			public array $existing_local_ids_seen = [];
+			private int $next_id                  = 100;
+
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				$this->existing_local_ids_seen[] = $existing_local_id;
+
+				if ( null !== $existing_local_id ) {
+					return new WriteResult( $existing_local_id, WriteResult::OPERATION_UPDATED, [] );
+				}
+
+				return new WriteResult( $this->next_id++, WriteResult::OPERATION_CREATED, [] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		// 2件目は1件目が作成したlocal_id(100)を「既存」として認識し、更新経路を通る
+		// （nullのまま=未作成と誤認して別の孤立商品を作らない）。
+		$this->assertSame( [ null, 100 ], $writer->existing_local_ids_seen );
+		$this->assertSame( 100, $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+	}
+
+	/**
+	 * `remote_id_of()`が例外を投げていた頃は、ページ内の1件がアダプタの契約違反
+	 * （`extras['remote_id']`欠損）だけで`array_map()`がループに入る前に中断し、ページ全体が
+	 * 失敗していた。「1件の異常データで移行全体を止めない」方針（writer例外時の処理と同じ）を
+	 * remote_id解決自体にも適用し、その1件だけをskippedにして他のアイテムは処理を継続することを
+	 * 確認する。
+	 */
+	public function test_item_missing_remote_id_is_skipped_without_aborting_the_page(): void {
+		$missing_remote_id = new CanonicalProduct( 'No remote id', 'SKU-X', '1000', null, null, [], [], [], [], null, 'publish', [] );
+		$adapter           = new MockPlatformAdapter(
+			products: [
+				$missing_remote_id,
+				CanonicalFactory::product( 'p1', 'SKU-1' ),
+			]
+		);
+		$writer            = new class() implements WooWriter {
+			public array $seen = [];
+
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				$this->seen[] = $item->remote_id();
+
+				return new WriteResult( 42, WriteResult::OPERATION_CREATED, [] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		// remote_id欠損のアイテムはwriterに渡らず、正常な2件目は処理されている。
+		$this->assertSame( [ 'p1' ], $writer->seen );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 1, $result['totals']['created'] );
 	}
 
 	/**

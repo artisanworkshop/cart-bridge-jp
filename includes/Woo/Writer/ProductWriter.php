@@ -86,9 +86,9 @@ final class ProductWriter implements EntityWriter {
 
 		$sort = Value::int( $item->extras['sort'] ?? null );
 
-		if ( null !== $sort ) {
-			$product->set_menu_order( $sort );
-		}
+		// sortが削除/欠損した場合、古い並び順を残さない（同メソッド内のfew_num/weightで
+		// 確立しているclear-on-nullの規約と揃える）。
+		$product->set_menu_order( $sort ?? 0 );
 
 		$product->set_virtual( ! $item->requires_shipping );
 

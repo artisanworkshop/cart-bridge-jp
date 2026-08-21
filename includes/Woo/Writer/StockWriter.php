@@ -29,13 +29,14 @@ final class StockWriter implements EntityWriter {
 			throw new RuntimeException( 'StockWriter received an unsupported Canonical model.' );
 		}
 
+		// 対象商品がまだ未インポート等で解決できない場合・STOCK_PARENT_OF_VARIABLE警告の
+		// detailに使う（F1-6のdry-run結果レポートはASP側remote_idで問題箇所を特定する契約の
+		// ため、Woo内部のpost IDではなくこちらを使う）。
+		$ref    = $item->variant_ref ?? $item->product_ref;
 		$target = $this->resolver->resolve_stock_target( $item->variant_ref, $item->product_ref, $item->sku );
 
 		if ( null === $target ) {
-			// 対象商品がまだ未インポート等で解決できない。local_id 0 はImporterに
-			// mappingsを書かせない契約なので、次回実行時に再試行できる。
-			$ref = $item->variant_ref ?? $item->product_ref;
-
+			// local_id 0 はImporterにmappingsを書かせない契約なので、次回実行時に再試行できる。
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, $ref ) ] );
 		}
 
@@ -49,7 +50,7 @@ final class StockWriter implements EntityWriter {
 			// SKUフォールバックが親商品自身のSKU（SkuGuardで親にも設定され得る）にマッチして
 			// 親が返ってくるケースでも、variant_refの有無に関わらずここで弾く必要がある。
 			StockApplier::apply( $target, null, $item->in_stock );
-			$warnings[] = WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, (string) $target->get_id() );
+			$warnings[] = WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, $ref );
 		} else {
 			StockApplier::apply( $target, $item->quantity, $item->in_stock );
 		}
