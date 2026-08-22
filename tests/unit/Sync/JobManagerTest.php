@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\FixedWooWriterFactory;
@@ -216,6 +217,51 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$totals = json_decode( (string) $job['totals_json'], true );
 		// product同様、§10.2 #5後半の補完でサンプル商品はp1・p2の2件になる。
 		$this->assertSame( 2, $totals['total'] );
+	}
+
+	/**
+	 * バリエーションを持つサンプル商品は複数件のCanonicalStockに展開される
+	 * （`Importer::stocks_for_sample_product()`）。進捗率の分母（`total`）にサンプル商品数を
+	 * そのまま使うと、展開後の処理件数（processed）がtotalを超えてしまう。
+	 */
+	public function test_totals_total_for_stock_import_reflects_variant_expansion_not_product_count(): void {
+		$orders = array_map(
+			static fn ( int $n ): CanonicalOrder => CanonicalFactory::order( (string) ( 1000 + $n ), null, [ "p{$n}" ] ),
+			range( 1, 10 )
+		);
+		// 受注10件すべてを揃え、§10.2 #5後半の商品補完（top-up）が発生しないようにする
+		// （補完が入ると分母の計算対象がp1以外にも広がり検証が複雑になるため）。
+		$products = [
+			CanonicalFactory::product(
+				'p1',
+				'SKU-1',
+				5,
+				[
+					[
+						'remote_id' => 'v1',
+						'sku'       => 'SKU-1-V1',
+						'stock'     => 3,
+					],
+					[
+						'remote_id' => 'v2',
+						'sku'       => 'SKU-1-V2',
+						'stock'     => 4,
+					],
+				]
+			),
+		];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job    = $this->jobs->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		// サンプル商品はp1のみ（1件）だが、p1は2バリエーションに展開されるためtotal=2。
+		$this->assertSame( 2, $totals['total'] );
+		$this->assertSame( 2, $totals['processed'] );
 	}
 
 	public function test_starting_a_second_run_while_one_is_in_progress_throws(): void {

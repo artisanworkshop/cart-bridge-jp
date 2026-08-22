@@ -7,12 +7,12 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Sync;
 
+use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
-use CartBridgeJP\Tests\Fixtures\CustomerFetchDisabledAdapter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
 
@@ -143,8 +143,12 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 	public function test_customer_top_up_is_skipped_when_the_adapter_cannot_fetch_customers(): void {
 		$orders    = [ CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ) ];
 		$customers = [ CanonicalFactory::customer( 'cust-2', 'customer2@example.com' ) ];
-		$inner     = new MockPlatformAdapter( customers: $customers, orders: $orders );
-		$adapter   = new CustomerFetchDisabledAdapter( $inner );
+		// BASE等、顧客一覧取得に対応しないアダプタ（D12）を`capabilities_override`で再現する。
+		$adapter = new MockPlatformAdapter(
+			customers: $customers,
+			orders: $orders,
+			capabilities_override: new Capabilities( true, true, false, true, true, true, true, true, true, true, 600 )
+		);
 
 		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
 

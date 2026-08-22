@@ -409,9 +409,12 @@ final class ImporterTest extends WP_UnitTestCase {
 		$writer  = new InMemoryWriter();
 
 		$importer = new Importer( $this->mappings );
-		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+		$result   = $importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
 
 		$this->assertCount( 2, $writer->writes );
+		// 進捗率の分母はサンプル商品数（1件）ではなく、バリエーション展開後の実処理件数（2件）。
+		// 商品数のまま報告すると`JobManager`側でprocessedがtotalを超えてしまう。
+		$this->assertSame( 2, $result['total'] );
 
 		$stocks = array_map( static fn ( array $write ): CanonicalStock => $write['item'], $writer->writes );
 

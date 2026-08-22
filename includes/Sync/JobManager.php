@@ -258,10 +258,13 @@ final class JobManager {
 
 		if ( 'stock' === $entity && $sampling_active ) {
 			// §10.2 #4: 在庫の全量走査はレート制限を浪費するため、サンプル商品のID指定取得から導出する。
+			// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は
+			// サンプル商品数（`count($sample->product_remote_ids)`）ではなく`Importer`が実際に
+			// 処理した件数（`$result['total']`）を使う（商品数のままだとprocessedがtotalを超えうる）。
 			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'] );
 
-			return [ array_merge( $result['totals'], [ 'total' => count( $sample->product_remote_ids ) ] ), null ];
+			return [ array_merge( $result['totals'], [ 'total' => $result['total'] ] ), null ];
 		}
 
 		$cursor       = Cursor::from_json( $job['cursor_json'] );

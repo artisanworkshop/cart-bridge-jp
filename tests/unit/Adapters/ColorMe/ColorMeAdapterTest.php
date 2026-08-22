@@ -837,6 +837,56 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertCount( 2, $orders );
 	}
 
+	public function test_fetch_latest_orders_widens_the_requested_limit_when_a_row_is_permanently_broken(): void {
+		// 上位N件（新しい順）に恒久的に壊れた行が1件混ざっている場合、探索窓（after）を
+		// どれだけ過去へ広げても同じ上位集合が返り続け、有効件数は増えない
+		// （壊れた行がどの窓でも同じ順位を占め続けるため）。要求件数（limit）自体を
+		// 広げないと候補が増えず、有効な受注を追加で拾えないことを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$sales  = FixtureLoader::load( 'colorme', 'sales' );
+		$valid  = $sales['sales'][0];
+		$broken = $sales['sales'][1];
+		unset( $broken['id'] );
+
+		$captured_limits = [];
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( &$captured_limits, $valid, $broken ) {
+				if ( str_contains( $url, 'payments.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'payments' ) );
+				}
+
+				if ( str_contains( $url, 'deliveries.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'deliveries' ) );
+				}
+
+				if ( str_contains( $url, 'sales.json' ) ) {
+					wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+					$limit             = (int) $query['limit'];
+					$captured_limits[] = $limit;
+
+					// APIは常に「新しい順の上位limit件」を返す。壊れた行は常に2番目に位置し続ける
+					// ため、limitを広げない限り有効行は1件（$valid）のまま増えない。
+					$rows = array_fill( 0, max( 0, $limit - 1 ), $valid );
+					array_splice( $rows, 1, 0, [ $broken ] );
+
+					return $this->json_response( [ 'sales' => array_slice( $rows, 0, $limit ) ] );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled request: {$url}" );
+			},
+			10,
+			3
+		);
+
+		$orders = $adapter->fetch_latest_orders( 2 );
+
+		$this->assertCount( 2, $orders );
+		$this->assertGreaterThan( 2, max( $captured_limits ) );
+	}
+
 	/**
 	 * @return array<string,mixed>
 	 */

@@ -67,6 +67,11 @@ final class ColorMeAdapter implements PlatformAdapter {
 	private const LATEST_ORDERS_INITIAL_WINDOW_DAYS = 7;
 
 	/**
+	 * `GET /sales.json` の `limit` 上限（swagger）。`fetchLatestOrders` が要求件数を広げる際の上限に使う。
+	 */
+	private const SALES_MAX_REQUEST_LIMIT = 100;
+
+	/**
 	 * `payments.json`/`deliveries.json` から組み立てた名称マップを持つ`OrderTransformer`。
 	 * `AdapterRegistry::get()`はプラットフォーム単位でアダプタインスタンスを静的キャッシュするため、
 	 * このキャッシュの実際の寿命は「同一PHPプロセス内で処理された全ジョブアクション」（Action
@@ -342,31 +347,38 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * 各リクエストは前回より広い窓での取得（常に現在時刻を`before`側の起点とする上位集合）に
 	 * なるため、レスポンスのマージは不要で最後の取得結果をそのまま使う。
 	 *
+	 * 探索窓を広げるだけでは、APIが新しい順に返す上位`$limit`件の中に変換失敗行（id/make_date/
+	 * total_price欠損）が永続的に含まれるケース（その行がどれだけ過去へ遡っても同じ上位集合の
+	 * 一部であり続ける）を救えない。不足件数の分だけ要求`limit`自体も広げ、より多くの候補の中から
+	 * 有効な受注を拾えるようにする（API上限=100まで）。
+	 *
 	 * @return array<int,CanonicalOrder>
 	 */
 	public function fetch_latest_orders( int $limit ): array {
-		$orders       = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $limit ] ), fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
-		$orders_count = count( $orders );
-		$window_days  = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
+		$request_limit = $limit;
+		$orders        = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $request_limit ] ), fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+		$orders_count  = count( $orders );
+		$window_days   = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
 
 		// 取得件数ではなく変換に成功した件数で判定する。行欠損（id/make_date/total_price欠損）で
 		// `transform_rows()`が一部の行を落とした場合、取得件数だけを見ていると`$limit`件揃った
 		// ように誤認して探索を打ち切ってしまい、より過去に遡れば集まったはずの有効な受注を
 		// 取りこぼす。
 		while ( $orders_count < $limit ) {
-			$window_days *= 4;
-			$after        = $this->history_floor_or_days_ago( $window_days );
-			$orders       = $this->transform_rows(
+			$window_days  *= 4;
+			$after         = $this->history_floor_or_days_ago( $window_days );
+			$request_limit = min( self::SALES_MAX_REQUEST_LIMIT, $request_limit + ( $limit - $orders_count ) );
+			$orders        = $this->transform_rows(
 				$this->fetch_sales_raw(
 					[
-						'limit' => $limit,
+						'limit' => $request_limit,
 						'after' => $after,
 					]
 				),
 				fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ),
 				'order'
 			);
-			$orders_count = count( $orders );
+			$orders_count  = count( $orders );
 
 			if ( self::HISTORY_FLOOR === $after ) {
 				break;

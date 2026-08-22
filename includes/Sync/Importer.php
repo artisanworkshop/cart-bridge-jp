@@ -93,7 +93,7 @@ final class Importer {
 	 * サンプル商品のID指定取得結果（CanonicalProduct.stock/variants）から在庫を導出して書き込む。
 	 *
 	 * @param array<int,string> $product_remote_ids
-	 * @return array{totals:array<string,int>}
+	 * @return array{totals:array<string,int>,total:int}
 	 */
 	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
@@ -108,7 +108,14 @@ final class Importer {
 			array_push( $items, ...$this->stocks_for_sample_product( (string) $remote_id, $product ) );
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ) ];
+		// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は
+		// `$product_remote_ids`の商品数ではなく実際に処理する`$items`件数を報告する
+		// （呼び出し側=JobManagerが商品数をそのままtotalにすると、バリエーション展開分だけ
+		// processedがtotalを超えてしまう）。
+		return [
+			'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ),
+			'total'  => count( $items ),
+		];
 	}
 
 	/**
