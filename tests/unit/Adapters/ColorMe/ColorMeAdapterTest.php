@@ -403,6 +403,67 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 3, $page->next_cursor->get( 'offset' ) );
 	}
 
+	public function test_fetch_products_continues_paging_when_meta_total_is_negative(): void {
+		// meta.totalが負値等の不整合な値（スキーマ崩壊・プロキシ異常等）の場合、そのまま
+		// 終端判定に使うと、まだ残っているはずの行を含むフルページを「完了」と誤認し、
+		// 静かな部分移行を招く。totalを信頼できないとみなし、空ページに達するまで継続すべき。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$all_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [
+						'products' => $all_products,
+						'meta'     => [
+							'total'  => -1,
+							'limit'  => 50,
+							'offset' => 0,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertNotNull( $page->next_cursor );
+		$this->assertSame( count( $all_products ), $page->next_cursor->get( 'offset' ) );
+	}
+
+	public function test_fetch_products_continues_paging_when_meta_total_is_smaller_than_rows_already_fetched(): void {
+		// totalが「これまでの累計取得件数」にも満たない不整合な値の場合も同様に、totalを
+		// 信頼せず継続する（この時点で既にtotal件以上を取得済みという矛盾が生じているため）。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$all_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [
+						'products' => $all_products,
+						'meta'     => [
+							'total'  => 1,
+							'limit'  => 50,
+							'offset' => 0,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertNotNull( $page->next_cursor );
+		$this->assertSame( count( $all_products ), $page->next_cursor->get( 'offset' ) );
+	}
+
 	public function test_fetch_products_terminates_when_meta_total_disagrees_with_zero_fetched_items(): void {
 		// meta.totalがoffsetより大きい値を報告していても、実際に0件しか取れなかった場合
 		// （並行削除等）はoffsetを進めるすべが無い。offset不変のCursorを返すと同じページを
@@ -654,26 +715,30 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 					'body'   => [
 						'shop_coupons' => [
 							[
-								'id'               => 1,
-								'code'             => 'VALID500',
-								'coupon_type'      => 'amount',
-								'discount_amount'  => 500,
-								'group_limit_type' => 'none',
-								'usage_limit'      => 'indisposable',
-								'starts_at'        => $now - DAY_IN_SECONDS,
-								'ends_at'          => $now + DAY_IN_SECONDS,
-								'status'           => 'available',
+								'id'                => 1,
+								'code'              => 'VALID500',
+								'coupon_type'       => 'amount',
+								'discount_amount'   => 500,
+								'minimum_amount'    => 0,
+								'total_usage_limit' => 100,
+								'group_limit_type'  => 'none',
+								'usage_limit'       => 'indisposable',
+								'starts_at'         => $now - DAY_IN_SECONDS,
+								'ends_at'           => $now + DAY_IN_SECONDS,
+								'status'            => 'available',
 							],
 							[
-								'id'               => 2,
-								'code'             => 'DISABLED500',
-								'coupon_type'      => 'amount',
-								'discount_amount'  => 500,
-								'group_limit_type' => 'none',
-								'usage_limit'      => 'indisposable',
-								'starts_at'        => $now - DAY_IN_SECONDS,
-								'ends_at'          => $now + DAY_IN_SECONDS,
-								'status'           => 'unavailable',
+								'id'                => 2,
+								'code'              => 'DISABLED500',
+								'coupon_type'       => 'amount',
+								'discount_amount'   => 500,
+								'minimum_amount'    => 0,
+								'total_usage_limit' => 100,
+								'group_limit_type'  => 'none',
+								'usage_limit'       => 'indisposable',
+								'starts_at'         => $now - DAY_IN_SECONDS,
+								'ends_at'           => $now + DAY_IN_SECONDS,
+								'status'            => 'unavailable',
 							],
 						],
 					],
@@ -711,9 +776,10 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNull( $adapter->fetch_product_by_remote_id( '999' ) );
 	}
 
-	public function test_fetch_product_by_remote_id_returns_null_when_the_envelope_is_malformed(): void {
-		// 200応答でも`product`envelopeの中身が配列でない場合（スキーマ変更等）は、404（正当な削除済み）
-		// と同じnullへフェイルクローズする。ログには残すが、呼び出し側の契約はnullのまま変わらない。
+	public function test_fetch_product_by_remote_id_fails_when_the_envelope_is_malformed(): void {
+		// 200応答でも`product`envelopeの中身が配列でない場合（スキーマ変更等）を404と同じnullに
+		// フェイルクローズすると、`run_sample_page()`がサンプル対象を診断もリトライも無く
+		// 静かに欠落させたままジョブを「完了」させてしまう。例外を投げてジョブを失敗させる。
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -726,7 +792,29 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			]
 		);
 
-		$this->assertNull( $adapter->fetch_product_by_remote_id( '999' ) );
+		$this->expectException( RuntimeException::class );
+
+		$adapter->fetch_product_by_remote_id( '999' );
+	}
+
+	public function test_fetch_product_by_remote_id_fails_when_the_envelope_key_is_missing_entirely(): void {
+		// envelopeキー自体が欠損した200応答も、非配列値の場合と同じくスキーマ崩壊として扱い、
+		// 404と区別なくnullを返して黙ってスキップしない。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'products/999.json' => [
+					'status' => 200,
+					'body'   => [],
+				],
+			]
+		);
+
+		$this->expectException( RuntimeException::class );
+
+		$adapter->fetch_product_by_remote_id( '999' );
 	}
 
 	public function test_fetch_product_by_remote_id_returns_the_transformed_product(): void {

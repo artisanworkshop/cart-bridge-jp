@@ -469,17 +469,13 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return $item;
 		}
 
-		// 200応答でも envelope キーの中身が期待した配列でない場合（スキーマ変更等）は、
-		// 404（=正当な削除済み）と区別が付かなくなってしまう。無言でnullを返すと本番で
-		// トラブルシュートする手段が無くなるため、ここでだけログを残す。
-		if ( null !== $item ) {
-			$this->logger->warning(
-				"ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was not an array.",
-				[ 'path' => $path ]
-			);
-		}
-
-		return null;
+		// 200応答でも envelope キー自体が欠損、またはその中身が期待した配列でない場合
+		// （スキーマ変更・プロキシ異常等）を無言でnullにすると、404（=正当な削除済み）と
+		// 区別が付かなくなる。`run_sample_page()`はnullを「対象が存在しない」として黙って
+		// スキップするため、そのままだとサンプル対象が診断もリトライも無く欠落したまま
+		// ジョブが「完了」してしまう。例外を投げ`JobManager`の`catch(Throwable)`でジョブを
+		// 失敗させる（`list_from()`と同じ方針）。
+		throw new RuntimeException( "ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was missing or not an array." );
 	}
 
 	/**
@@ -594,14 +590,22 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return null;
 		}
 
-		if ( null !== $total ) {
-			return ( $offset + $raw_count ) < $total ? new Cursor( [ 'offset' => $offset + $raw_count ] ) : null;
+		$next_offset = $offset + $raw_count;
+
+		// `meta.total`が負値、またはここまでの累計行数（`$next_offset`）にも満たない不整合な値
+		// （スキーマ崩壊・プロキシ異常等）の場合は、totalを信頼できないとみなし「総件数不明」と
+		// 同じ扱い（下のフォールバック＝空ページに達するまで継続）に倒す。不整合なtotalを
+		// そのまま終端判定に使うと、実際にはまだ残っている行を含むページを「完了」と誤認し、
+		// 静かな部分移行を招く（フェイルクローズ原則）。
+		if ( null !== $total && $total >= $next_offset ) {
+			return $next_offset < $total ? new Cursor( [ 'offset' => $next_offset ] ) : null;
 		}
 
-		// `meta.total`が得られない場合、「取得件数がページサイズ未満＝最終ページ」とは推測しない
-		// （APIが実際にはページサイズ分の行を返していても、`$raw_count`自体がそのままページサイズと
-		// 一致しない構成のエンドポイントがありうるため）。0件になるまで走査を続ける（安全側=継続に倒す）。
-		return new Cursor( [ 'offset' => $offset + $raw_count ] );
+		// `meta.total`が得られない（または上記で信頼できないと判定された）場合、「取得件数が
+		// ページサイズ未満＝最終ページ」とは推測しない（APIが実際にはページサイズ分の行を
+		// 返していても、`$raw_count`自体がそのままページサイズと一致しない構成のエンドポイントが
+		// ありうるため）。0件になるまで走査を続ける（安全側=継続に倒す）。
+		return new Cursor( [ 'offset' => $next_offset ] );
 	}
 
 	/**

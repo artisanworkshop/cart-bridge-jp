@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Canonical\CanonicalProduct;
+use RuntimeException;
 
 /**
  * `GET /v1/products.json` `GET /v1/products/{id}.json` の1要素を `CanonicalProduct` へ変換する。
@@ -252,10 +253,16 @@ final class ProductTransformer {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private function variants( array $raw, string $product_remote_id ): array {
-		$variants = $raw['variants'] ?? [];
+		$variants = $raw['variants'] ?? null;
 
+		// `variants`はColorMe APIが常に配列で返すフィールド（バリエーション無しの商品も`[]`）。
+		// 欠損・非配列は正当な「バリエーション無し」ではなくスキーマ崩壊等の不完全なレスポンスであり、
+		// ここで`[]`にフォールバックすると`ProductWriter`が「variable→simpleへの意図的な変更」と
+		// 誤認し、既存商品のバリエーションを破壊的に全削除してしまう（CLAUDE.md 破壊的操作の禁止）。
+		// 例外を投げてこの行の変換自体を失敗させ、`ColorMeAdapter::transform_rows_flat()`の
+		// per-row catchでこの行だけをスキップさせる（Woo側の既存データには一切触れない）。
 		if ( ! is_array( $variants ) ) {
-			return [];
+			throw new RuntimeException( 'ColorMe product row is missing a valid "variants" array.' );
 		}
 
 		$product_price = Cast::money( $raw['sales_price_including_tax'] ?? null );

@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use RuntimeException;
 use WP_UnitTestCase;
 
 final class ProductTransformerTest extends WP_UnitTestCase {
@@ -428,6 +429,28 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$product = $this->transformer->transform( $raw );
 
 		$this->assertSame( 0, $product->variants[0]['stock'] );
+	}
+
+	public function test_missing_variants_field_fails_the_transform_instead_of_yielding_a_simple_product(): void {
+		// `variants`はColorMe APIが常に配列で返すフィールド（バリエーション無しの商品も`[]`）。
+		// 欠損・非配列を「バリエーション無し」に丸めると、`ProductWriter`が既存のバリアブル商品を
+		// 「意図的なvariable→simpleへの変更」と誤認し、既存のバリエーションを破壊的に全削除して
+		// しまう。ここでは例外で行全体の変換を失敗させ、呼び出し側にこの行だけをスキップさせる。
+		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		unset( $raw['variants'] );
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
+	}
+
+	public function test_non_array_variants_field_fails_the_transform(): void {
+		$raw             = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		$raw['variants'] = 'unexpected-string';
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
 	}
 
 	public function test_variant_specific_overrides_are_preserved_not_just_product_level_values(): void {
