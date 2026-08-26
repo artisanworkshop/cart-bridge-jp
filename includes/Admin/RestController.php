@@ -498,14 +498,22 @@ final class RestController {
 	}
 
 	public function start_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$type     = (string) $request->get_param( 'type' );
-		$platform = (string) $request->get_param( 'platform' );
-		$entities = (array) ( $request->get_param( 'entities' ) ?? [] );
+		// このルートは`args`スキーマ（type検証）を定義していないため、`type`/`platform`は
+		// `?type[]=import`のように配列でも渡り得る。配列を`(string)`キャストすると
+		// "Array to string conversion" 警告付きでリテラル文字列"Array"になり、意図しない
+		// 404/400を誤答してしまう（CLAUDE.md参照）。スカラーのみ受け付け、それ以外は
+		// 「未指定」として下流の検証（400）に委ねる。
+		$type         = (string) ( $this->scalar_query_param( $request, 'type' ) ?? '' );
+		$platform     = (string) ( $this->scalar_query_param( $request, 'platform' ) ?? '' );
+		$entities_raw = $request->get_param( 'entities' );
+		$entities     = is_array( $entities_raw ) ? array_values( array_filter( $entities_raw, 'is_scalar' ) ) : [];
 
-		if ( JobManager::TYPE_DRY_RUN !== $type ) {
+		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。type未知の値（typo等）はここで
+		// 「エクスポート未実装」と誤答させず、下の`JobManager::start_run()`の型検証（400）に委ねる。
+		if ( JobManager::TYPE_EXPORT === $type ) {
 			return new WP_Error(
 				'cbjp_not_implemented',
-				__( 'Only dry-run is supported until platform adapters ship in Phase 1.', 'cart-bridge-jp' ),
+				__( 'Export is not implemented yet.', 'cart-bridge-jp' ),
 				[ 'status' => 501 ]
 			);
 		}

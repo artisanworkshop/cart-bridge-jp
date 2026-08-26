@@ -32,6 +32,14 @@ final readonly class CanonicalStock implements CanonicalModel {
 		return $this->variant_ref ?? $this->product_ref;
 	}
 
+	/**
+	 * 在庫管理外（`null`）または在庫管理中で数量が正の場合に在庫ありとする共通ルール。
+	 * アダプタ・`Sync\Importer`の複数箇所で同一の導出が必要なため、判断基準をここに集約する。
+	 */
+	public static function is_in_stock( ?int $quantity ): bool {
+		return null === $quantity || $quantity > 0;
+	}
+
 	public function to_array(): array {
 		return [
 			'product_ref' => $this->product_ref,

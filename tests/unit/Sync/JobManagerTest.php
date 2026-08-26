@@ -8,7 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
-use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\FixedWooWriterFactory;
@@ -193,8 +193,10 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 		$job    = $this->jobs->find_by_run( $run_id )[0];
 		$totals = json_decode( (string) $job['totals_json'], true );
-		// 最新注文由来のサンプルはp1のみ（1件）。
-		$this->assertSame( 1, $totals['total'] );
+		// 最新注文由来のサンプルはp1のみ（1件）だが、受注が10件未満（1件）のため
+		// SampleSelectorが§10.2 #5後半の補完を行い、通常一覧の先頭ページ（MockPlatformAdapterの
+		// ページサイズ=2件、p1・p2）からp2が追加され2件になる。
+		$this->assertSame( 2, $totals['total'] );
 	}
 
 	public function test_totals_total_is_set_from_the_sample_size_for_stock_import(): void {
@@ -213,7 +215,53 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 		$job    = $this->jobs->find_by_run( $run_id )[0];
 		$totals = json_decode( (string) $job['totals_json'], true );
-		$this->assertSame( 1, $totals['total'] );
+		// product同様、§10.2 #5後半の補完でサンプル商品はp1・p2の2件になる。
+		$this->assertSame( 2, $totals['total'] );
+	}
+
+	/**
+	 * バリエーションを持つサンプル商品は複数件のCanonicalStockに展開される
+	 * （`Importer::stocks_for_sample_product()`）。進捗率の分母（`total`）にサンプル商品数を
+	 * そのまま使うと、展開後の処理件数（processed）がtotalを超えてしまう。
+	 */
+	public function test_totals_total_for_stock_import_reflects_variant_expansion_not_product_count(): void {
+		$orders = array_map(
+			static fn ( int $n ): CanonicalOrder => CanonicalFactory::order( (string) ( 1000 + $n ), null, [ "p{$n}" ] ),
+			range( 1, 10 )
+		);
+		// 受注10件すべてを揃え、§10.2 #5後半の商品補完（top-up）が発生しないようにする
+		// （補完が入ると分母の計算対象がp1以外にも広がり検証が複雑になるため）。
+		$products = [
+			CanonicalFactory::product(
+				'p1',
+				'SKU-1',
+				5,
+				[
+					[
+						'remote_id' => 'v1',
+						'sku'       => 'SKU-1-V1',
+						'stock'     => 3,
+					],
+					[
+						'remote_id' => 'v2',
+						'sku'       => 'SKU-1-V2',
+						'stock'     => 4,
+					],
+				]
+			),
+		];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job    = $this->jobs->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		// サンプル商品はp1のみ（1件）だが、p1は2バリエーションに展開されるためtotal=2。
+		$this->assertSame( 2, $totals['total'] );
+		$this->assertSame( 2, $totals['processed'] );
 	}
 
 	public function test_starting_a_second_run_while_one_is_in_progress_throws(): void {
@@ -268,6 +316,8 @@ final class JobManagerTest extends WP_UnitTestCase {
 			CanonicalFactory::product( 'p3', 'SKU-3' ),
 		];
 		// 最新注文（fetch_latest_ordersはordersの先頭からlimit件）はp1のみを参照する。
+		// 受注が10件未満（1件）のため、§10.2 #5後半の補完で通常一覧の先頭ページ
+		// （MockPlatformAdapterのページサイズ=2件）からp2も追加され、p3は対象外のまま。
 		$orders = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
 
 		$this->register_adapter( products: $products, orders: $orders );
@@ -278,8 +328,34 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
 		$manager->run_to_completion( $run_id );
 
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertSame( 2, $this->mappings->count( 'mock', 'product' ) );
 		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
+		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'product', 'p2' ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p3' ) );
+	}
+
+	public function test_free_tier_product_sample_import_respects_the_cumulative_limit_not_just_the_sample_size(): void {
+		// サンプル選定の上限（50件、`SampleSelector::PRODUCT_HARD_CAP`）は「1回に選ばれる
+		// サンプルセットのサイズ」しか制限しない。クリーンアップ→再選定（§10.2 #7）を経て
+		// 複数回サンプルが入れ替わった場合、`cbjp_mappings`の累積件数を見る`LimitPolicy`が
+		// 効いていないと、無料版の商品上限を超えて何度でも新規作成できてしまう。
+		add_filter( 'cbjp/limits/product', static fn () => 1 );
+		// 既に上限（1件）に達している状態を、過去のサンプルで作成済みのmappingとして再現する。
+		$this->mappings->upsert( 'mock', 'product', 'already-imported', 999, null );
+
+		$products = [ CanonicalFactory::product( 'p1', 'SKU-1' ) ];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
+		$manager->run_to_completion( $run_id );
+
+		// 残枠は0（上限1件 - 既存1件）のため、サンプルに含まれるp1は新規作成されない。
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
 	}
 
 	public function test_free_tier_stock_import_derives_from_sample_products(): void {
@@ -298,9 +374,11 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
 		$manager->run_to_completion( $run_id );
 
-		// §10.2 #4: 全量走査せず、サンプル商品（p1）分の在庫のみ書き込まれる。
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'stock' ) );
+		// §10.2 #4: 全量走査せず、サンプル商品（p1・§10.2 #5後半の補完によるp2）分の
+		// 在庫のみ書き込まれる。
+		$this->assertSame( 2, $this->mappings->count( 'mock', 'stock' ) );
 		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'stock', 'p1' ) );
+		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'stock', 'p2' ) );
 	}
 
 	public function test_pro_unlock_imports_all_stock_without_sample_filtering(): void {
@@ -465,23 +543,5 @@ final class JobManagerTest extends WP_UnitTestCase {
 			// 再エンキューされていること（retry_jobがpendingに戻すだけで放置しない）。
 			$this->assertTrue( as_has_scheduled_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' ) );
 		}
-	}
-
-	public function test_start_run_rejects_platforms_whose_adapter_does_not_implement_fetching_yet(): void {
-		add_filter(
-			'cbjp/adapters/register',
-			static function ( array $adapters ) {
-				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
-
-				return $adapters;
-			}
-		);
-		AdapterRegistry::reset_cache();
-
-		$manager = $this->make_manager( new InMemoryWriter() );
-
-		$this->expectException( \RuntimeException::class );
-
-		$manager->start_run( 'dry_run', ColorMeAdapter::ID, [ 'product' ] );
 	}
 }

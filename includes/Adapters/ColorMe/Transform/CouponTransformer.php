@@ -91,6 +91,26 @@ final class CouponTransformer {
 			return null;
 		}
 
+		// `minimum_amount`/`total_usage_limit`はswagger上`nullable`指定の無い必須フィールド
+		// （`starts_at`/`ends_at`と異なり0が「制限無し」を表す正当な値になりうる）。欠損・非数値を
+		// そのまま`CanonicalCoupon`へ渡すと`CouponWriter`がnullを「制限無し」と解釈し、店舗が
+		// 設定した最低利用額・総利用回数制限が消えて実質的に緩いクーポンが作られてしまう
+		// （金銭的リスク）。0を含む明示的な数値のみ受け付け、パースできない場合は除外する。
+		$minimum_amount = Cast::to_int_or_null( $raw['minimum_amount'] ?? null );
+
+		if ( null === $minimum_amount ) {
+			return null;
+		}
+
+		// `total_usage_limit` が発行総数（int）。ColorMeの `usage_limit` フィールドは
+		// `indisposable`/`disposable` の1ユーザーあたり上限を表す列挙文字列であり別物
+		// （`(int) 'indisposable' === 0` になる罠のため混同しないこと）。
+		$total_usage_limit = Cast::to_int_or_null( $raw['total_usage_limit'] ?? null );
+
+		if ( null === $total_usage_limit ) {
+			return null;
+		}
+
 		$remote_id        = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
 		$is_free_shipping = 'delivery_charge' === $coupon_type;
 
@@ -98,12 +118,9 @@ final class CouponTransformer {
 			Cast::to_string_or_null( $raw['code'] ?? null ) ?? '',
 			'rate' === $coupon_type ? 'percent' : 'fixed',
 			$is_free_shipping ? '0' : Cast::money( $raw['discount_amount'] ?? null ),
-			Cast::to_string_or_null( $raw['minimum_amount'] ?? null ),
+			(string) $minimum_amount,
 			$expires_at,
-			// `total_usage_limit` が発行総数（int）。ColorMeの `usage_limit` フィールドは
-			// `indisposable`/`disposable` の1ユーザーあたり上限を表す列挙文字列であり別物
-			// （`(int) 'indisposable' === 0` になる罠のため混同しないこと）。
-			Cast::to_int_or_null( $raw['total_usage_limit'] ?? null ),
+			$total_usage_limit,
 			$this->extras( $raw, $remote_id, $is_free_shipping ),
 			$is_free_shipping,
 			// `disposable`はWooの usage_limit_per_user=1 に、`indisposable`は無制限（null）に対応する。

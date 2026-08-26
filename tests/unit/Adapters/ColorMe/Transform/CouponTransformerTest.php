@@ -187,6 +187,42 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->transform( $this->raw( [ 'starts_at' => 'invalid' ] ) ) );
 	}
 
+	public function test_coupon_with_missing_or_unparseable_minimum_amount_is_excluded(): void {
+		// minimum_amountはswagger上nullable指定の無い必須フィールド。欠損・非数値を「制限無し」
+		// にフォールスルーさせると、CouponWriterがnullを最低利用額の制限無しと解釈してしまい、
+		// 店舗が設定した最低利用額が消えて実質的に緩いクーポンが作られる（金銭的リスク）。
+		$raw = $this->raw( [] );
+		unset( $raw['minimum_amount'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'minimum_amount' => 'invalid' ] ) ) );
+	}
+
+	public function test_coupon_with_explicit_zero_minimum_amount_is_not_excluded(): void {
+		// 0（最低利用額なし）は正当な明示値であり、パース失敗と区別して受け付ける。
+		$coupon = $this->transformer->transform( $this->raw( [ 'minimum_amount' => 0 ] ) );
+
+		$this->assertNotNull( $coupon );
+		$this->assertSame( '0', $coupon->min_amount );
+	}
+
+	public function test_coupon_with_missing_or_unparseable_total_usage_limit_is_excluded(): void {
+		// total_usage_limitも同じ理由（欠損時にnull=無制限へフォールスルーすると、店舗が設定した
+		// 総利用回数制限が消えてしまう）でフェイルクローズする。
+		$raw = $this->raw( [] );
+		unset( $raw['total_usage_limit'] );
+
+		$this->assertNull( $this->transformer->transform( $raw ) );
+		$this->assertNull( $this->transformer->transform( $this->raw( [ 'total_usage_limit' => 'invalid' ] ) ) );
+	}
+
+	public function test_coupon_with_explicit_zero_total_usage_limit_is_not_excluded(): void {
+		$coupon = $this->transformer->transform( $this->raw( [ 'total_usage_limit' => 0 ] ) );
+
+		$this->assertNotNull( $coupon );
+		$this->assertSame( 0, $coupon->usage_limit );
+	}
+
 	public function test_group_id_of_zero_is_not_dropped_from_extras(): void {
 		// コールバック無しのarray_filterは'0'のようなfalsy文字列も落ちてしまう罠の回帰テスト。
 		$coupon = $this->transformer->transform( $this->raw( [ 'group_ids' => [ 0, 1 ] ] ) );

@@ -44,6 +44,11 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 * @param \Throwable|null              $fetch_failure 指定すると全fetch系メソッドがこの例外を投げる（障害シナリオのテスト用）。
 	 * @param array<int,mixed>|null        $connection_fields_override 指定すると connection_fields() がこの値をそのまま返す
 	 *   （ConnectionField以外の混入など、契約違反アダプタのシナリオのテスト用）。
+	 * @param ?Capabilities                $capabilities_override 指定すると capabilities() がこの値をそのまま返す
+	 *   （BASE等、特定capabilityがfalseのアダプタのシナリオのテスト用）。
+	 * @param ?CanonicalProduct             $product_by_remote_id_override 指定すると
+	 *   fetch_product_by_remote_id() が要求IDを無視してこの商品をそのまま返す
+	 *   （要求IDと異なる商品を返す契約違反アダプタのシナリオのテスト用）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -51,7 +56,9 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly array $orders = [],
 		private readonly array $categories = [],
 		private readonly ?\Throwable $fetch_failure = null,
-		private readonly ?array $connection_fields_override = null
+		private readonly ?array $connection_fields_override = null,
+		private readonly ?Capabilities $capabilities_override = null,
+		private readonly ?CanonicalProduct $product_by_remote_id_override = null
 	) {}
 
 	public function id(): string {
@@ -69,7 +76,7 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function capabilities(): Capabilities {
-		return new Capabilities( true, true, true, true, true, true, true, true, true, true, 600 );
+		return $this->capabilities_override ?? new Capabilities( true, true, true, true, true, true, true, true, true, true, 600 );
 	}
 
 	public function test_connection(): ConnectionResult {
@@ -137,6 +144,10 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct {
+		if ( null !== $this->product_by_remote_id_override ) {
+			return $this->product_by_remote_id_override;
+		}
+
 		foreach ( $this->products as $product ) {
 			if ( (string) $product->extras['remote_id'] === $remote_id ) {
 				return $product;

@@ -17,7 +17,11 @@ use CartBridgeJP\Canonical\CanonicalProduct;
  */
 final class CanonicalFactory {
 
-	public static function product( string $remote_id, string $sku, int $stock = 5 ): CanonicalProduct {
+	/**
+	 * @param array<int,array<string,mixed>> $variants `remote_id`/`sku`/`stock`キー規約は
+	 *   `Woo\Writer\VariationWriter` 参照。
+	 */
+	public static function product( string $remote_id, string $sku, int $stock = 5, array $variants = [] ): CanonicalProduct {
 		return new CanonicalProduct(
 			"Product {$remote_id}",
 			$sku,
@@ -25,7 +29,7 @@ final class CanonicalFactory {
 			null,
 			null,
 			[],
-			[],
+			$variants,
 			[],
 			[],
 			$stock,

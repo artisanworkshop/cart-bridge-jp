@@ -11,9 +11,11 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Woo\Support\Value;
 use RuntimeException;
 use Throwable;
 
@@ -65,10 +67,16 @@ final class Importer {
 	 * サンプルID指定取得エンティティ（product/customer）をまとめて処理する（D15 #4）。
 	 * ページングは不要（サンプル件数は上限で有界）。
 	 *
+	 * `$limit_policy`は`SampleSelector`のサンプル件数上限（50/10件）とは別に必要: サンプル上限は
+	 * 「1回の選定で作られるサンプルセットのサイズ」しか制限せず、クリーンアップ→再選定
+	 * （§10.2 #7）を経て複数回サンプルが入れ替わった場合の**累積**作成数までは制限しない。
+	 * `cbjp_mappings`の累積件数を正とする`LimitPolicy`を渡すことで、`run_page()`の
+	 * カーソル走査と同じ累積上限をこの経路にも適用する。
+	 *
 	 * @param array<int,string> $remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
+	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?LimitPolicy $limit_policy = null, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $remote_ids as $remote_id ) {
@@ -83,36 +91,112 @@ final class Importer {
 			}
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null, $job_id ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, null, $job_id ) ];
 	}
 
 	/**
 	 * 無料版の在庫取込（§10.2 #4）: `fetchStocks` の全量走査はレート制限を浪費するため使わず、
-	 * サンプル商品のID指定取得結果（CanonicalProduct.stock）から在庫を導出して書き込む。
+	 * サンプル商品のID指定取得結果（CanonicalProduct.stock/variants）から在庫を導出して書き込む。
 	 *
 	 * @param array<int,string> $product_remote_ids
-	 * @return array{totals:array<string,int>}
+	 * @return array{totals:array<string,int>,total:int}
 	 */
 	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $product_remote_ids as $remote_id ) {
-			$product = $adapter->fetch_product_by_remote_id( (string) $remote_id );
+			$remote_id = (string) $remote_id;
+			$product   = $adapter->fetch_product_by_remote_id( $remote_id );
 
 			if ( null === $product ) {
 				continue;
 			}
 
+			// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
+			// 要求したIDと異なる商品を返した場合（契約違反アダプタのバグ等）、下で要求ID
+			// （`ProductResolver`が解決する対象＝正しい商品）と`$product`の在庫・SKU（別の商品の
+			// データ）を組み合わせてしまうと、誤った商品の在庫が正しい商品に書き込まれ、
+			// 本来在庫切れの商品が購入可能になりかねない。IDが一致しない場合は取得失敗と
+			// 同様に扱いスキップする。
+			if ( $product->remote_id() !== $remote_id ) {
+				continue;
+			}
+
+			array_push( $items, ...$this->stocks_for_sample_product( $remote_id, $product ) );
+		}
+
+		// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は
+		// `$product_remote_ids`の商品数ではなく実際に処理する`$items`件数を報告する
+		// （呼び出し側=JobManagerが商品数をそのままtotalにすると、バリエーション展開分だけ
+		// processedがtotalを超えてしまう）。
+		return [
+			'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ),
+			'total'  => count( $items ),
+		];
+	}
+
+	/**
+	 * バリエーションを持つ商品は、親レベルではなくバリエーション単位（`CanonicalProduct::$variants`。
+	 * ASP非依存の `remote_id`/`sku`/`stock` キー規約は `Woo\Writer\VariationWriter` 参照）で
+	 * `CanonicalStock` を作る。variable商品の親には在庫を書かない
+	 * （`WC_Product_Variable::sync()` が子から導出するため親への直接書込は無効。CLAUDE.md）ので、
+	 * 親レベルの1件だけを返すと `Woo\Writer\StockWriter` が対象を
+	 * `WC_Product_Variable` と判定してスキップし、無料版のサンプル在庫が実質書き込まれない。
+	 * バリエーションが無い商品は従来どおり商品レベル1件を返す。
+	 *
+	 * @return array<int,CanonicalStock>
+	 */
+	private function stocks_for_sample_product( string $remote_id, CanonicalProduct $product ): array {
+		$variants = $product->variants;
+
+		if ( [] === $variants ) {
+			return [
+				new CanonicalStock(
+					$remote_id,
+					null,
+					$product->sku,
+					$product->stock,
+					CanonicalStock::is_in_stock( $product->stock )
+				),
+			];
+		}
+
+		$items = [];
+
+		foreach ( $variants as $variant ) {
+			// `$variant`はアダプタが返す`CanonicalProduct::$variants`（配列<string,mixed>）で、
+			// 型宣言はドキュメント上の契約でしかない（アーキテクチャ原則8）。要素自体が配列でない
+			// 場合（オブジェクト等）にオフセットアクセスするとTypeError/Errorになりジョブ全体が
+			// 失敗してしまうため、`ProductTransformer::variants()`/`StockTransformer`と同じく
+			// この1件だけをスキップする。
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			// `VariationWriter`が同じremote_id/sku/stock契約に使う`Value`ヘルパーで防御的に取り出し、
+			// 非スカラー値が来ても在庫管理商品を無条件に「在庫あり」扱いしないようフェイルクローズする。
+			$variant_remote_id = Value::string( $variant['remote_id'] ?? null );
+
+			if ( null === $variant_remote_id ) {
+				continue;
+			}
+
+			// キー欠損/明示的nullは「在庫管理外」という正当な契約（CLAUDE.md）だが、値が存在するのに
+			// `Value::int()` でパースできない（配列等の不正値）場合は同じnullに丸められてしまい、
+			// `is_in_stock(null)`が「在庫あり」と誤判定する。両者を区別し、後者は0にフェイルクローズする。
+			$raw_stock = $variant['stock'] ?? null;
+			$quantity  = null === $raw_stock ? null : ( Value::int( $raw_stock ) ?? 0 );
+
 			$items[] = new CanonicalStock(
-				(string) $remote_id,
-				null,
-				$product->sku,
-				$product->stock,
-				null === $product->stock || $product->stock > 0
+				$remote_id,
+				$variant_remote_id,
+				Value::string( $variant['sku'] ?? null ),
+				$quantity,
+				CanonicalStock::is_in_stock( $quantity )
 			);
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ) ];
+		return $items;
 	}
 
 	/**

@@ -202,7 +202,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $run_id, $poll_response->get_data()['run_id'] );
 	}
 
-	public function test_import_type_is_not_yet_implemented(): void {
+	public function test_import_type_starts_a_run(): void {
 		add_filter(
 			'cbjp/adapters/register',
 			static function ( array $adapters ) {
@@ -223,7 +223,58 @@ final class RestControllerTest extends WP_UnitTestCase {
 		);
 		$response = $this->server->dispatch( $request );
 
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertIsString( $response->get_data()['run_id'] );
+	}
+
+	public function test_export_type_is_not_yet_implemented(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'export',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
 		$this->assertSame( 501, $response->get_status() );
+	}
+
+	public function test_start_run_rejects_an_unknown_type_as_a_bad_request_not_export(): void {
+		// typoや不正な値は「エクスポート未実装」(501)ではなく、JobManagerの型検証による
+		// 400として扱われるべき（実際にはエクスポートを要求していないため）。
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'not-a-real-type',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
 	}
 
 	public function test_start_run_returns_404_for_an_unknown_platform(): void {
@@ -239,6 +290,73 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 404, $response->get_status() );
 		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
+
+	public function test_start_run_treats_an_array_valued_type_as_a_bad_request_not_a_literal_array_string(): void {
+		// このルートにはargsスキーマ（type検証）が無いため`?type[]=import`のように配列でも
+		// 渡り得る。配列を(string)キャストすると"Array to string conversion"警告付きで
+		// リテラル文字列"Array"になり、意図しない404/400を誤答してしまう（CLAUDE.md参照）。
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => [ 'import' ],
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_start_run_treats_an_array_valued_platform_as_unknown_not_a_literal_array_string(): void {
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => [ 'mock' ],
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_start_run_filters_non_scalar_entities_instead_of_stringifying_them(): void {
+		// `entities`の各要素も同じ理由でスカラーのみ受け付ける。`array_map('strval', ...)`に
+		// ネストした配列要素をそのまま渡すと同じ警告・誤変換が起きる。
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'import',
+				'platform' => 'mock',
+				'entities' => [ 'category', [ 'nested' ] ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
 	}
 
 	public function test_list_logs_treats_array_valued_query_params_as_no_filter(): void {

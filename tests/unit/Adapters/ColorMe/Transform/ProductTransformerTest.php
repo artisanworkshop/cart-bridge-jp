@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use RuntimeException;
 use WP_UnitTestCase;
 
 final class ProductTransformerTest extends WP_UnitTestCase {
@@ -163,6 +164,23 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$within_window['sale_start_date'] = time() - 3600;
 		$within_window['sale_end_date']   = time() + 3600;
 		$this->assertSame( 'publish', $this->transformer->transform( $within_window )->status );
+	}
+
+	public function test_product_with_unparseable_sale_start_date_is_kept_private(): void {
+		// sale_start_date/sale_end_dateの欠損・明示的nullは「掲載期間の制限無し」という正当な値だが、
+		// 値が存在するのにパースできない（配列等の不正値）場合に同じ「制限無し」に丸めると、
+		// 本来まだ非公開のはずの商品が公開されてしまう。非公開側にフェイルクローズする。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['sale_start_date'] = [ 'unexpected' => 'shape' ];
+
+		$this->assertSame( 'private', $this->transformer->transform( $raw )->status );
+	}
+
+	public function test_product_with_unparseable_sale_end_date_is_kept_private(): void {
+		$raw                  = $this->product_fixture( 192616831 );
+		$raw['sale_end_date'] = [ 'unexpected' => 'shape' ];
+
+		$this->assertSame( 'private', $this->transformer->transform( $raw )->status );
 	}
 
 	public function test_sold_out_product_hidden_by_shop_setting_is_kept_private(): void {
@@ -428,6 +446,28 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$product = $this->transformer->transform( $raw );
 
 		$this->assertSame( 0, $product->variants[0]['stock'] );
+	}
+
+	public function test_missing_variants_field_fails_the_transform_instead_of_yielding_a_simple_product(): void {
+		// `variants`はColorMe APIが常に配列で返すフィールド（バリエーション無しの商品も`[]`）。
+		// 欠損・非配列を「バリエーション無し」に丸めると、`ProductWriter`が既存のバリアブル商品を
+		// 「意図的なvariable→simpleへの変更」と誤認し、既存のバリエーションを破壊的に全削除して
+		// しまう。ここでは例外で行全体の変換を失敗させ、呼び出し側にこの行だけをスキップさせる。
+		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		unset( $raw['variants'] );
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
+	}
+
+	public function test_non_array_variants_field_fails_the_transform(): void {
+		$raw             = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
+		$raw['variants'] = 'unexpected-string';
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
 	}
 
 	public function test_variant_specific_overrides_are_preserved_not_just_product_level_values(): void {

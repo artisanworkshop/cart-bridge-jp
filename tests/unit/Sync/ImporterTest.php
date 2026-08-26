@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\LimitPolicy;
@@ -17,6 +18,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\InMemoryWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
 
@@ -377,5 +379,137 @@ final class ImporterTest extends WP_UnitTestCase {
 		$importer->run_page( $adapter, $writer, 'product', Cursor::start(), false );
 
 		$this->assertSame( 99, $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
+	}
+
+	/**
+	 * `run_sample_stock_page()`は無料版のサンプル在庫取込経路（§10.2 #4）。バリエーションを持つ
+	 * 商品を親レベル1件のCanonicalStockに丸めると、`Woo\Writer\StockWriter`が書込対象を
+	 * `WC_Product_Variable`（親）と判定して書込をスキップしてしまい、サンプル在庫が
+	 * 実質書き込まれなくなる。バリエーション単位に展開されることを確認する。
+	 */
+	public function test_sample_stock_page_expands_variants_instead_of_targeting_the_parent(): void {
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => 3,
+				],
+				[
+					'remote_id' => 'v2',
+					'sku'       => 'SKU-1-V2',
+					'stock'     => null,
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 2, $writer->writes );
+		// 進捗率の分母はサンプル商品数（1件）ではなく、バリエーション展開後の実処理件数（2件）。
+		// 商品数のまま報告すると`JobManager`側でprocessedがtotalを超えてしまう。
+		$this->assertSame( 2, $result['total'] );
+
+		$stocks = array_map( static fn ( array $write ): CanonicalStock => $write['item'], $writer->writes );
+
+		$this->assertSame( 'v1', $stocks[0]->variant_ref );
+		$this->assertSame( 'SKU-1-V1', $stocks[0]->sku );
+		$this->assertSame( 3, $stocks[0]->quantity );
+		$this->assertTrue( $stocks[0]->in_stock );
+
+		$this->assertSame( 'v2', $stocks[1]->variant_ref );
+		$this->assertNull( $stocks[1]->quantity );
+		$this->assertTrue( $stocks[1]->in_stock );
+	}
+
+	public function test_sample_stock_page_fails_closed_when_variant_stock_is_present_but_unparseable(): void {
+		// `variants`はCanonicalModelコンストラクタ同様、外部アダプタ拡張点の信頼境界（ドキュメント上の
+		// 契約のみで型は強制されない）。キー欠損/nullは「在庫管理外」という正当な契約だが、値が
+		// 存在するのに配列等でパースできない場合にnullへ丸めると「在庫あり」に誤判定してしまうため、
+		// 0（在庫切れ）にフェイルクローズすることを確認する。
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => [ 'unexpected' => 'shape' ],
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$stock = $writer->writes[0]['item'];
+		$this->assertSame( 0, $stock->quantity );
+		$this->assertFalse( $stock->in_stock );
+	}
+
+	public function test_sample_stock_page_skips_a_non_array_variant_entry_instead_of_failing_the_job(): void {
+		// `$variant`はアダプタ拡張点の信頼境界（アーキテクチャ原則8）。要素自体が配列でない
+		// 場合にオフセットアクセスするとTypeError/Errorになりジョブ全体が失敗してしまうため、
+		// この1件だけをスキップし、他の正当なバリエーションの在庫は書き込まれることを確認する。
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				'not-an-array',
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => 3,
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 'v1', $writer->writes[0]['item']->variant_ref );
+	}
+
+	public function test_sample_stock_page_skips_a_product_whose_returned_id_does_not_match_the_requested_id(): void {
+		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
+		// 要求IDと異なる商品を返した場合（契約違反アダプタのバグ）、要求ID（正しい商品への参照）と
+		// 返却された別商品の在庫・SKUを組み合わせてしまうと、誤った商品の在庫データが
+		// 正しい商品に書き込まれてしまう。IDが一致しない場合は取得失敗と同様にスキップする。
+		$mismatched_product = CanonicalFactory::product( 'p2', 'SKU-2', 99 );
+		$adapter            = new MockPlatformAdapter( product_by_remote_id_override: $mismatched_product );
+		$writer             = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 0, $writer->writes );
+	}
+
+	public function test_sample_stock_page_targets_the_product_when_it_has_no_variants(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1', 5 ) ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 1, $writer->writes );
+
+		$stock = $writer->writes[0]['item'];
+		$this->assertNull( $stock->variant_ref );
+		$this->assertSame( 'p1', $stock->product_ref );
+		$this->assertSame( 5, $stock->quantity );
 	}
 }
