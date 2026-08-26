@@ -428,6 +428,34 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertTrue( $stocks[1]->in_stock );
 	}
 
+	public function test_sample_stock_page_fails_closed_when_variant_stock_is_present_but_unparseable(): void {
+		// `variants`はCanonicalModelコンストラクタ同様、外部アダプタ拡張点の信頼境界（ドキュメント上の
+		// 契約のみで型は強制されない）。キー欠損/nullは「在庫管理外」という正当な契約だが、値が
+		// 存在するのに配列等でパースできない場合にnullへ丸めると「在庫あり」に誤判定してしまうため、
+		// 0（在庫切れ）にフェイルクローズすることを確認する。
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => [ 'unexpected' => 'shape' ],
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$stock = $writer->writes[0]['item'];
+		$this->assertSame( 0, $stock->quantity );
+		$this->assertFalse( $stock->in_stock );
+	}
+
 	public function test_sample_stock_page_targets_the_product_when_it_has_no_variants(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1', 5 ) ] );
 		$writer  = new InMemoryWriter();

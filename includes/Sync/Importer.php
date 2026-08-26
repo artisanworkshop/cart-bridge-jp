@@ -157,7 +157,11 @@ final class Importer {
 				continue;
 			}
 
-			$quantity = Value::int( $variant['stock'] ?? null );
+			// キー欠損/明示的nullは「在庫管理外」という正当な契約（CLAUDE.md）だが、値が存在するのに
+			// `Value::int()` でパースできない（配列等の不正値）場合は同じnullに丸められてしまい、
+			// `is_in_stock(null)`が「在庫あり」と誤判定する。両者を区別し、後者は0にフェイルクローズする。
+			$raw_stock = $variant['stock'] ?? null;
+			$quantity  = null === $raw_stock ? null : ( Value::int( $raw_stock ) ?? 0 );
 
 			$items[] = new CanonicalStock(
 				$remote_id,

@@ -74,6 +74,17 @@ final class StockTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '1802130613', $stocks[0]->variant_ref );
 	}
 
+	public function test_product_missing_id_yields_no_stock_rows(): void {
+		// idが無い行を空文字のproduct_refとして通すと、無関係なWoo商品に在庫が誤って
+		// 書き込まれたり複数の壊れた行が同一の空remote_idに衝突しうる（variant欠損時と同じ理由）。
+		$raw = $this->product_fixture( 192616831 );
+		unset( $raw['id'] );
+
+		$stocks = $this->transformer->transform( $raw );
+
+		$this->assertSame( [], $stocks );
+	}
+
 	public function test_sku_derivation_matches_product_transformer(): void {
 		$raw = $this->product_fixture( 192616832 );
 

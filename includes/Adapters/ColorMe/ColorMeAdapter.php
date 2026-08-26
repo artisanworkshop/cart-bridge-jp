@@ -33,6 +33,7 @@ use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -533,6 +534,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * 一覧エンベロープキー（例: `products`）はAPI契約上必ず配列で返る前提。キー自体の欠損や
+	 * 非配列値はショップの仕様変更・プロキシ異常等によるスキーマ崩壊であり、`[]`（正当な0件）と
+	 * 区別せず返すと、呼び出し元がページ終端と誤認しジョブを「完了」させてしまい、
+	 * データ欠落がリトライ可能な失敗として表面化しない（フェイルクローズ原則。CLAUDE.md）。
+	 * ここで例外を投げ`JobManager`の`catch(Throwable)`でジョブを失敗させる。
+	 *
 	 * @param array<string,mixed> $body
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -540,7 +547,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$list = $body[ $key ] ?? null;
 
 		if ( ! is_array( $list ) ) {
-			return [];
+			throw new RuntimeException( "ColorMe API response is missing the expected \"{$key}\" list envelope." );
 		}
 
 		return array_values( array_filter( $list, 'is_array' ) );

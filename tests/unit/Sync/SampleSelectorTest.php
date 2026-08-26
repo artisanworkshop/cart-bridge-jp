@@ -140,6 +140,21 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'p1' ], $sample->product_remote_ids );
 	}
 
+	public function test_top_up_skips_malformed_items_instead_of_failing_the_whole_run(): void {
+		// `Page::$items`の要素型はドキュメント上の契約でしかない（アーキテクチャ原則8）。
+		// 外部アダプタ拡張点が契約に反する要素を返しても、そのアイテムだけをスキップし、
+		// 他の正当な要素からの補完やジョブ全体の失敗を招かないことを確認する。
+		$adapter = new MockPlatformAdapter(
+			// @phpstan-ignore-next-line 契約違反アダプタ（非CanonicalModel要素混入）のシナリオを意図的に再現する。
+			products: [ 'not-a-canonical-model', CanonicalFactory::product( 'p1', 'SKU-1' ) ],
+			orders: []
+		);
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ 'p1' ], $sample->product_remote_ids );
+	}
+
 	public function test_customer_top_up_is_skipped_when_the_adapter_cannot_fetch_customers(): void {
 		$orders    = [ CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ) ];
 		$customers = [ CanonicalFactory::customer( 'cust-2', 'customer2@example.com' ) ];

@@ -25,12 +25,23 @@ use CartBridgeJP\Canonical\CanonicalStock;
 final class StockTransformer {
 
 	/**
+	 * `id`欠損の行は`''`にフォールバックせずスキップする。空文字を通すと
+	 * `CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）が空のproduct_refを
+	 * そのまま使ってしまい（バリエーション欠損時と異なり`??`のフォールバック元を持たない）、
+	 * 無関係なWoo商品に在庫が誤って書き込まれたり、複数の不正行が同一の空remote_idに衝突する
+	 * （`variant_remote_id()`と同じ理由。CLAUDE.md フェイルクローズ原則）。
+	 *
 	 * @param array<string,mixed> $raw `products[]` の1要素、または `product` 単体。
 	 * @return array<int,CanonicalStock>
 	 */
 	public function transform( array $raw ): array {
-		$remote_id = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
-		$variants  = $raw['variants'] ?? [];
+		$remote_id = Cast::to_string_or_null( $raw['id'] ?? null );
+
+		if ( null === $remote_id ) {
+			return [];
+		}
+
+		$variants = $raw['variants'] ?? [];
 
 		if ( ! is_array( $variants ) || [] === $variants ) {
 			return [ $this->stock_for_product( $raw, $remote_id ) ];

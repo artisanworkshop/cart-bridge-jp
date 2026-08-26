@@ -9,6 +9,7 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use Throwable;
@@ -161,6 +162,13 @@ final class SampleSelector {
 		foreach ( $page->items as $item ) {
 			if ( count( $existing ) >= $target ) {
 				break;
+			}
+
+			// `Page::$items`の要素型はドキュメント上の契約でしかない（アーキテクチャ原則8）。
+			// 上のtry/catchはfetch呼び出しのみを保護しており、ここは範囲外のため、
+			// 不正な要素で`remote_id()`を呼ぶと補完だけでなくジョブ全体が失敗してしまう。
+			if ( ! $item instanceof CanonicalModel ) {
+				continue;
 			}
 
 			$remote_id = $item->remote_id();

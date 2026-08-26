@@ -14,6 +14,7 @@ use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use RuntimeException;
 use WP_Error;
 use WP_UnitTestCase;
 
@@ -347,6 +348,26 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertCount( 2, $page->items );
 		$this->assertNotNull( $page->next_cursor );
 		$this->assertSame( 2, $page->next_cursor->get( 'offset' ) );
+	}
+
+	public function test_fetch_products_throws_when_the_products_envelope_is_missing(): void {
+		// スキーマ崩壊等で`products`キー自体が欠損した200応答は、正当な0件（`[]`）と区別し
+		// ページ終端と誤認させず例外で失敗させる（JobManagerがリトライ可能な失敗として扱えるように）。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [ 'meta' => [ 'total' => 0 ] ],
+				],
+			]
+		);
+
+		$this->expectException( RuntimeException::class );
+
+		$adapter->fetch_products( Cursor::start() );
 	}
 
 	public function test_fetch_products_advances_the_cursor_by_the_raw_row_count_not_the_filtered_count(): void {
