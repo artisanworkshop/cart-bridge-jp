@@ -165,9 +165,16 @@ final class Importer {
 
 		foreach ( $variants as $variant ) {
 			// `$variant`はアダプタが返す`CanonicalProduct::$variants`（配列<string,mixed>）で、
-			// 型宣言はドキュメント上の契約でしかない（アーキテクチャ原則8）。`VariationWriter`が
-			// 同じremote_id/sku/stock契約に使う`Value`ヘルパーで防御的に取り出し、非スカラー値が
-			// 来ても在庫管理商品を無条件に「在庫あり」扱いしないようフェイルクローズする。
+			// 型宣言はドキュメント上の契約でしかない（アーキテクチャ原則8）。要素自体が配列でない
+			// 場合（オブジェクト等）にオフセットアクセスするとTypeError/Errorになりジョブ全体が
+			// 失敗してしまうため、`ProductTransformer::variants()`/`StockTransformer`と同じく
+			// この1件だけをスキップする。
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			// `VariationWriter`が同じremote_id/sku/stock契約に使う`Value`ヘルパーで防御的に取り出し、
+			// 非スカラー値が来ても在庫管理商品を無条件に「在庫あり」扱いしないようフェイルクローズする。
 			$variant_remote_id = Value::string( $variant['remote_id'] ?? null );
 
 			if ( null === $variant_remote_id ) {

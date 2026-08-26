@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Canonical\CanonicalStock;
+use RuntimeException;
 
 /**
  * `GET /v1/products.json` `GET /v1/products/{id}.json` の1要素を `CanonicalStock` の配列へ変換する。
@@ -41,9 +42,19 @@ final class StockTransformer {
 			return [];
 		}
 
-		$variants = $raw['variants'] ?? [];
+		$variants = $raw['variants'] ?? null;
 
-		if ( ! is_array( $variants ) || [] === $variants ) {
+		// `variants`はColorMe APIが常に配列で返すフィールド（バリエーション無しの商品も`[]`）。
+		// 欠損・非配列は正当な「バリエーション無し」ではなくスキーマ崩壊等の不完全なレスポンスであり、
+		// `ProductTransformer::variants()`と同じ理由で商品レベルの1件に丸めず例外で行全体を弾く
+		// （呼び出し側=`ColorMeAdapter::transform_rows_flat()`のper-row catchがこの行だけを
+		// ログ＋スキップする。ここで丸めると、実際はバリエーションを持つ商品の在庫が商品レベル
+		// 1件として書き込まれ、`StockWriter`が変数商品と判定して黙ってスキップし在庫が更新されない）。
+		if ( ! is_array( $variants ) ) {
+			throw new RuntimeException( 'ColorMe product row is missing a valid "variants" array.' );
+		}
+
+		if ( [] === $variants ) {
 			return [ $this->stock_for_product( $raw, $remote_id ) ];
 		}
 

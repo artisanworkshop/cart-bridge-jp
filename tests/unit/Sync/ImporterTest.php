@@ -456,6 +456,33 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertFalse( $stock->in_stock );
 	}
 
+	public function test_sample_stock_page_skips_a_non_array_variant_entry_instead_of_failing_the_job(): void {
+		// `$variant`はアダプタ拡張点の信頼境界（アーキテクチャ原則8）。要素自体が配列でない
+		// 場合にオフセットアクセスするとTypeError/Errorになりジョブ全体が失敗してしまうため、
+		// この1件だけをスキップし、他の正当なバリエーションの在庫は書き込まれることを確認する。
+		$product = CanonicalFactory::product(
+			'p1',
+			'SKU-1',
+			5,
+			[
+				'not-an-array',
+				[
+					'remote_id' => 'v1',
+					'sku'       => 'SKU-1-V1',
+					'stock'     => 3,
+				],
+			]
+		);
+		$adapter = new MockPlatformAdapter( products: [ $product ] );
+		$writer  = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 'v1', $writer->writes[0]['item']->variant_ref );
+	}
+
 	public function test_sample_stock_page_skips_a_product_whose_returned_id_does_not_match_the_requested_id(): void {
 		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
 		// 要求IDと異なる商品を返した場合（契約違反アダプタのバグ）、要求ID（正しい商品への参照）と

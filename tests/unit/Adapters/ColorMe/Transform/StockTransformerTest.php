@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Adapters\ColorMe\Transform\StockTransformer;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use RuntimeException;
 use WP_UnitTestCase;
 
 final class StockTransformerTest extends WP_UnitTestCase {
@@ -83,6 +84,28 @@ final class StockTransformerTest extends WP_UnitTestCase {
 		$stocks = $this->transformer->transform( $raw );
 
 		$this->assertSame( [], $stocks );
+	}
+
+	public function test_missing_variants_field_throws_instead_of_yielding_a_product_level_row(): void {
+		// `variants`はColorMe APIが常に配列で返すフィールド（バリエーション無しの商品も`[]`）。
+		// 欠損・非配列を「バリエーション無し」に丸めて商品レベル1件を返すと、実際は
+		// バリエーションを持つ商品の在庫が`StockWriter`に変数商品と判定されて黙ってスキップされ、
+		// 在庫が更新されない（`ProductTransformer::variants()`と同じ理由で例外にする）。
+		$raw = $this->product_fixture( 192616831 );
+		unset( $raw['variants'] );
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
+	}
+
+	public function test_non_array_variants_field_throws(): void {
+		$raw             = $this->product_fixture( 192616831 );
+		$raw['variants'] = 'unexpected-string';
+
+		$this->expectException( RuntimeException::class );
+
+		$this->transformer->transform( $raw );
 	}
 
 	public function test_sku_derivation_matches_product_transformer(): void {
