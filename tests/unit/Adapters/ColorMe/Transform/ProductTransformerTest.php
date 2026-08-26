@@ -166,6 +166,23 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'publish', $this->transformer->transform( $within_window )->status );
 	}
 
+	public function test_product_with_unparseable_sale_start_date_is_kept_private(): void {
+		// sale_start_date/sale_end_dateの欠損・明示的nullは「掲載期間の制限無し」という正当な値だが、
+		// 値が存在するのにパースできない（配列等の不正値）場合に同じ「制限無し」に丸めると、
+		// 本来まだ非公開のはずの商品が公開されてしまう。非公開側にフェイルクローズする。
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['sale_start_date'] = [ 'unexpected' => 'shape' ];
+
+		$this->assertSame( 'private', $this->transformer->transform( $raw )->status );
+	}
+
+	public function test_product_with_unparseable_sale_end_date_is_kept_private(): void {
+		$raw                  = $this->product_fixture( 192616831 );
+		$raw['sale_end_date'] = [ 'unexpected' => 'shape' ];
+
+		$this->assertSame( 'private', $this->transformer->transform( $raw )->status );
+	}
+
 	public function test_sold_out_product_hidden_by_shop_setting_is_kept_private(): void {
 		// 店舗側が明示的に「売り切れ時は非表示」（soldout_display: false）と設定している場合、
 		// 在庫管理中で在庫が0であればWoo側で再露出させず非公開に留める。

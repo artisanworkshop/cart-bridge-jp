@@ -168,6 +168,39 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		( new OrderTransformer() )->transform( $raw );
 	}
 
+	public function test_missing_details_field_throws_instead_of_yielding_a_zero_item_order(): void {
+		// `details`欠損・非配列を「明細0件」にフォールバックすると、`OrderWriter`が再同期時に
+		// 既存の明細を全削除した後この空リストから再構築してしまい、報告済みの合計金額は
+		// そのままなのに明細が消えた不整合な注文履歴が残る。他の必須フィールド欠損時と同じく
+		// 注文全体を弾く。
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		unset( $raw['details'] );
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
+	public function test_non_array_details_field_throws(): void {
+		$raw            = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'] = 'unexpected-string';
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
+	public function test_non_array_detail_element_throws_instead_of_being_silently_skipped(): void {
+		// 個々の明細を黙って読み飛ばすと、実際には注文に含まれていた商品が復元できないまま
+		// 静かに欠落し、上記と同じ不整合な注文履歴を招く。
+		$raw               = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0] = 'unexpected-string';
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
 	public function test_multi_delivery_order_uses_order_level_shipping_charge_not_first_leg(): void {
 		$raw                          = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['delivery_total_charge'] = 1800;

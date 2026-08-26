@@ -147,17 +147,23 @@ final class OrderTransformer {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private function line_items( array $raw ): array {
-		$details = $raw['details'] ?? [];
+		$details = $raw['details'] ?? null;
 
+		// `details`欠損・非配列を「明細0件の注文」として`[]`にフォールバックすると、
+		// `OrderWriter::write()`が再同期時に`remove_order_items()`で既存の明細を全削除した後、
+		// この空リストから再構築してしまい、報告済みの合計金額はそのままなのに明細が消えた
+		// 不整合な注文履歴が残る（他の必須フィールド欠損時と同じくフェイルクローズする）。
 		if ( ! is_array( $details ) ) {
-			return [];
+			throw new RuntimeException( 'ColorMe sale is missing a valid "details" array; cannot determine line items.' );
 		}
 
 		$result = [];
 
 		foreach ( $details as $detail ) {
 			if ( ! is_array( $detail ) ) {
-				continue;
+				// 個々の明細を黙って読み飛ばすと、実際には注文に含まれていた商品が復元できない
+				// まま静かに欠落し、上と同じ理由で不整合な注文履歴になる。
+				throw new RuntimeException( 'ColorMe sale detail is not a valid array; cannot determine line items.' );
 			}
 
 			$quantity = Cast::to_int_or_null( $detail['product_num'] ?? null );

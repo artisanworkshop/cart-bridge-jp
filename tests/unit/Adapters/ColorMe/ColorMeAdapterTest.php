@@ -464,6 +464,37 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( count( $all_products ), $page->next_cursor->get( 'offset' ) );
 	}
 
+	public function test_fetch_products_continues_paging_when_meta_total_is_fractional(): void {
+		// `Cast::to_int_or_null()`は小数を暗黙に切り捨てる（例: 4.5→4）。ページ内の実際の行数
+		// （$next_offset）とちょうど一致する切り捨て後の値をそのまま終端判定に使うと、本来
+		// 小数という時点で信頼できないtotalなのに「ちょうど最終ページ」と誤認してしまう。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$all_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [
+						'products' => $all_products,
+						'meta'     => [
+							'total'  => count( $all_products ) + 0.5,
+							'limit'  => 50,
+							'offset' => 0,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertNotNull( $page->next_cursor );
+		$this->assertSame( count( $all_products ), $page->next_cursor->get( 'offset' ) );
+	}
+
 	public function test_fetch_products_terminates_when_meta_total_disagrees_with_zero_fetched_items(): void {
 		// meta.totalがoffsetより大きい値を報告していても、実際に0件しか取れなかった場合
 		// （並行削除等）はoffsetを進めるすべが無い。offset不変のCursorを返すと同じページを

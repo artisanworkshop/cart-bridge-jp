@@ -456,6 +456,21 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertFalse( $stock->in_stock );
 	}
 
+	public function test_sample_stock_page_skips_a_product_whose_returned_id_does_not_match_the_requested_id(): void {
+		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
+		// 要求IDと異なる商品を返した場合（契約違反アダプタのバグ）、要求ID（正しい商品への参照）と
+		// 返却された別商品の在庫・SKUを組み合わせてしまうと、誤った商品の在庫データが
+		// 正しい商品に書き込まれてしまう。IDが一致しない場合は取得失敗と同様にスキップする。
+		$mismatched_product = CanonicalFactory::product( 'p2', 'SKU-2', 99 );
+		$adapter            = new MockPlatformAdapter( product_by_remote_id_override: $mismatched_product );
+		$writer             = new InMemoryWriter();
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
+
+		$this->assertCount( 0, $writer->writes );
+	}
+
 	public function test_sample_stock_page_targets_the_product_when_it_has_no_variants(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1', 5 ) ] );
 		$writer  = new InMemoryWriter();

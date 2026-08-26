@@ -67,10 +67,16 @@ final class Importer {
 	 * サンプルID指定取得エンティティ（product/customer）をまとめて処理する（D15 #4）。
 	 * ページングは不要（サンプル件数は上限で有界）。
 	 *
+	 * `$limit_policy`は`SampleSelector`のサンプル件数上限（50/10件）とは別に必要: サンプル上限は
+	 * 「1回の選定で作られるサンプルセットのサイズ」しか制限せず、クリーンアップ→再選定
+	 * （§10.2 #7）を経て複数回サンプルが入れ替わった場合の**累積**作成数までは制限しない。
+	 * `cbjp_mappings`の累積件数を正とする`LimitPolicy`を渡すことで、`run_page()`の
+	 * カーソル走査と同じ累積上限をこの経路にも適用する。
+	 *
 	 * @param array<int,string> $remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
+	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?LimitPolicy $limit_policy = null, ?int $job_id = null ): array {
 		$items = [];
 
 		foreach ( $remote_ids as $remote_id ) {
@@ -85,7 +91,7 @@ final class Importer {
 			}
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, null, null, $job_id ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, null, $job_id ) ];
 	}
 
 	/**
@@ -99,13 +105,24 @@ final class Importer {
 		$items = [];
 
 		foreach ( $product_remote_ids as $remote_id ) {
-			$product = $adapter->fetch_product_by_remote_id( (string) $remote_id );
+			$remote_id = (string) $remote_id;
+			$product   = $adapter->fetch_product_by_remote_id( $remote_id );
 
 			if ( null === $product ) {
 				continue;
 			}
 
-			array_push( $items, ...$this->stocks_for_sample_product( (string) $remote_id, $product ) );
+			// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
+			// 要求したIDと異なる商品を返した場合（契約違反アダプタのバグ等）、下で要求ID
+			// （`ProductResolver`が解決する対象＝正しい商品）と`$product`の在庫・SKU（別の商品の
+			// データ）を組み合わせてしまうと、誤った商品の在庫が正しい商品に書き込まれ、
+			// 本来在庫切れの商品が購入可能になりかねない。IDが一致しない場合は取得失敗と
+			// 同様に扱いスキップする。
+			if ( $product->remote_id() !== $remote_id ) {
+				continue;
+			}
+
+			array_push( $items, ...$this->stocks_for_sample_product( $remote_id, $product ) );
 		}
 
 		// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は

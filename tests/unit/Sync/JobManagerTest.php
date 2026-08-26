@@ -334,6 +334,30 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p3' ) );
 	}
 
+	public function test_free_tier_product_sample_import_respects_the_cumulative_limit_not_just_the_sample_size(): void {
+		// サンプル選定の上限（50件、`SampleSelector::PRODUCT_HARD_CAP`）は「1回に選ばれる
+		// サンプルセットのサイズ」しか制限しない。クリーンアップ→再選定（§10.2 #7）を経て
+		// 複数回サンプルが入れ替わった場合、`cbjp_mappings`の累積件数を見る`LimitPolicy`が
+		// 効いていないと、無料版の商品上限を超えて何度でも新規作成できてしまう。
+		add_filter( 'cbjp/limits/product', static fn () => 1 );
+		// 既に上限（1件）に達している状態を、過去のサンプルで作成済みのmappingとして再現する。
+		$this->mappings->upsert( 'mock', 'product', 'already-imported', 999, null );
+
+		$products = [ CanonicalFactory::product( 'p1', 'SKU-1' ) ];
+		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
+		$this->register_adapter( products: $products, orders: $orders );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
+		$manager->run_to_completion( $run_id );
+
+		// 残枠は0（上限1件 - 既存1件）のため、サンプルに含まれるp1は新規作成されない。
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
+	}
+
 	public function test_free_tier_stock_import_derives_from_sample_products(): void {
 		$products = [
 			CanonicalFactory::product( 'p1', 'SKU-1', 7 ),

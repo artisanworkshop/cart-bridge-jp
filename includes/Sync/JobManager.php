@@ -250,7 +250,7 @@ final class JobManager {
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, (int) $job['id'] );
+			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'] );
 
 			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
 			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];

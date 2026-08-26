@@ -124,18 +124,33 @@ final class ProductTransformer {
 	}
 
 	/**
+	 * キー欠損・明示的nullは「掲載期間の制限無し」という正当な値（swagger必須ではない）だが、
+	 * 値が存在するのに`Cast::to_int_or_null()`でパースできない（配列等の不正値）場合、同じnullに
+	 * 丸めて「制限無し」と誤判定すると、本来まだ非公開/既に終了しているはずの商品が公開期間外に
+	 * 公開されてしまう。両者を区別し、後者は掲載期間外（private）にフェイルクローズする。
+	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function is_within_sale_window( array $raw ): bool {
 		$now = time();
 
-		$start = Cast::to_int_or_null( $raw['sale_start_date'] ?? null );
+		$raw_start = $raw['sale_start_date'] ?? null;
+		$start     = Cast::to_int_or_null( $raw_start );
+
+		if ( null !== $raw_start && null === $start ) {
+			return false;
+		}
 
 		if ( null !== $start && $start > $now ) {
 			return false;
 		}
 
-		$end = Cast::to_int_or_null( $raw['sale_end_date'] ?? null );
+		$raw_end = $raw['sale_end_date'] ?? null;
+		$end     = Cast::to_int_or_null( $raw_end );
+
+		if ( null !== $raw_end && null === $end ) {
+			return false;
+		}
 
 		if ( null !== $end && $end < $now ) {
 			return false;
@@ -271,6 +286,12 @@ final class ProductTransformer {
 
 		foreach ( $variants as $variant ) {
 			if ( ! is_array( $variant ) ) {
+				// この行を丸ごと読み飛ばすと`$result`が「元々このバリエーションは無かった」ように
+				// 見えてしまい、`VariationWriter::sync()`が対応する既存variationをstale（削除対象）
+				// と誤認する。同ライターは`remote_id`が解決できないvariantが1件でもあれば
+				// スナップショットを不完全とみなしstale削除自体を中止する安全機構を既に持つため、
+				// remote_idを欠く空のプレースホルダーを残してその機構を発動させる。
+				$result[] = [];
 				continue;
 			}
 

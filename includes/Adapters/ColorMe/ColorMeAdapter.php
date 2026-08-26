@@ -555,7 +555,26 @@ final class ColorMeAdapter implements PlatformAdapter {
 	private function total_from_meta( array $body ): ?int {
 		$meta = $body['meta'] ?? null;
 
-		return is_array( $meta ) ? Cast::to_int_or_null( $meta['total'] ?? null ) : null;
+		return is_array( $meta ) ? self::exact_int_or_null( $meta['total'] ?? null ) : null;
+	}
+
+	/**
+	 * `meta.total`はページング終端の境界値として使うため、`Cast::to_int_or_null()`の暗黙の
+	 * 切り捨て（例: 50.5→50件目までしか無いページを「50件で完了」と誤認）をそのまま許すと、
+	 * 実際にはより多くの行が残るページを誤って終端と判定しかねない。整数として厳密に
+	 * 表現できる値のみ受け付け、小数はnullに倒す（null＝「総件数不明」として`next_cursor()`が
+	 * 空ページに達するまで継続する）。
+	 */
+	private static function exact_int_or_null( mixed $value ): ?int {
+		if ( is_string( $value ) && is_numeric( $value ) ) {
+			$value = $value + 0;
+		}
+
+		if ( is_int( $value ) ) {
+			return $value;
+		}
+
+		return is_float( $value ) && (float) (int) $value === $value ? (int) $value : null;
 	}
 
 	/**
