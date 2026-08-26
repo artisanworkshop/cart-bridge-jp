@@ -231,7 +231,11 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
 		$total       = $this->total_from_meta( $body );
 
-		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $total ), $total );
+		// customer/order/stockと同じ理由（`meta.total`は生の行数であり、`list_from()`の非配列行
+		// フィルタや`ProductTransformer::transform()`の変換失敗（例: `variants`欠損によるスキーマ
+		// 崩壊）で`items`件数がそれと1:1対応するとは限らない）。ページング終端の判定にだけ使い、
+		// 進捗率の分母として`Page`側には報告しない。
+		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $total ), null );
 	}
 
 	/**

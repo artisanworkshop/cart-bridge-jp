@@ -295,7 +295,11 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$adapter->fetch_reviews( Cursor::start() );
 	}
 
-	public function test_fetch_products_reads_envelope_and_reports_total_from_meta(): void {
+	public function test_fetch_products_reads_envelope_and_does_not_report_meta_total_as_the_progress_denominator(): void {
+		// customer/order/stockと同じ理由: `meta.total`は生の行数であり、`list_from()`の非配列行
+		// フィルタや`ProductTransformer::transform()`の変換失敗（`variants`欠損等）で`items`件数が
+		// それと1:1対応するとは限らない。ページング終端の判定にだけ使い、`Page::$total`には
+		// 報告しない。
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -315,7 +319,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$page = $adapter->fetch_products( Cursor::start() );
 
 		$this->assertCount( 4, $page->items );
-		$this->assertSame( 4, $page->total );
+		$this->assertNull( $page->total );
 		$this->assertNull( $page->next_cursor );
 		$this->assertStringContainsString( 'limit=50', (string) $captured );
 		$this->assertStringContainsString( 'offset=0', (string) $captured );
