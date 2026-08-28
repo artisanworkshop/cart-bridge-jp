@@ -41,25 +41,40 @@ final class CustomerWriter implements EntityWriter {
 
 		$warnings = [];
 		$billing  = AddressMapper::to_woo( $this->platform, $item->address, $item->name, $item->email, $item->phone, $item->company );
+		$resolved = $this->resolve_target( $item, $existing_local_id );
 
-		// mappingsが指すユーザーが手動削除等で既に存在しない場合、existing_local_idを
-		// 信用せず新規作成へフォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。
-		// 信用したまま進むと、has_protected_role()は存在しないIDに対してfalseを返して
-		// 保護をすり抜け、wp_update_user()の失敗（WP_Error）も無視されたまま「更新成功」
-		// として扱われ、存在しないユーザーIDに孤立したusermetaだけが書き込まれてしまう。
-		if ( null !== $existing_local_id && ! get_userdata( $existing_local_id ) ) {
-			$existing_local_id = null;
+		if ( null !== $resolved->reuse_warning ) {
+			$warnings[] = $resolved->reuse_warning;
 		}
 
-		[ $user_id, $operation, $reuse_warning ] = null !== $existing_local_id
-			? [ $existing_local_id, WriteResult::OPERATION_UPDATED, null ]
-			: $this->find_or_create( $item, $billing );
+		$user_id = $resolved->user_id;
 
-		if ( null !== $reuse_warning ) {
-			$warnings[] = $reuse_warning;
+		if ( $resolved->is_new ) {
+			$created = wc_create_new_customer(
+				$item->email,
+				'',
+				wp_generate_password( 24, true, true ),
+				[
+					'first_name'   => $billing['first_name'],
+					'last_name'    => $billing['last_name'],
+					'display_name' => $item->name,
+				]
+			);
+
+			if ( $created instanceof WP_Error ) {
+				// パスワードポリシー系プラグインの拒否・DB制約違反等で作成に失敗。無警告で
+				// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
+				// `validate()`では実際に作成を試みないため判定できない（dry-run除外・
+				// `Woo\WarningCode`のdocblock参照）。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ] ) );
+			}
+
+			$user_id = $created;
 		}
 
 		if ( null === $user_id ) {
+			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非nullだが、
+			// PHPの型システムはこの相関を表現できないため防御的に確認する。
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
@@ -76,7 +91,7 @@ final class CustomerWriter implements EntityWriter {
 			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
-		if ( WriteResult::OPERATION_UPDATED === $operation ) {
+		if ( WriteResult::OPERATION_UPDATED === $resolved->operation ) {
 			// 既存ユーザーのロールは変更しない（管理者と同じメールアドレスの場合に権限を壊さないため）。
 			// user_emailも同期する: mappings経由の再利用（existing_local_id指定）では、ASP側で
 			// 前回インポート後にメールアドレスが変更されている可能性があり、同期しないとWPアカウント
@@ -120,7 +135,39 @@ final class CustomerWriter implements EntityWriter {
 		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
 		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
 
-		return new WriteResult( $user_id, $operation, $warnings );
+		return new WriteResult( $user_id, $resolved->operation, $warnings );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		if ( ! $item instanceof CanonicalCustomer ) {
+			throw new RuntimeException( 'CustomerWriter received an unsupported Canonical model.' );
+		}
+
+		$resolved = $this->resolve_target( $item, $existing_local_id );
+		$warnings = [];
+
+		if ( null !== $resolved->reuse_warning ) {
+			$warnings[] = $resolved->reuse_warning;
+		}
+
+		if ( $resolved->is_new ) {
+			// `CUSTOMER_CREATE_FAILED`は実際に`wc_create_new_customer()`を呼ばないと判定できない
+			// （パスワードポリシー系プラグインの拒否等）ため、dry-runでは出ない。
+			return new ValidationResult( WriteResult::OPERATION_CREATED, $warnings );
+		}
+
+		// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
+		$user_id = $resolved->user_id ?? 0;
+
+		if ( self::has_protected_role( $user_id ) ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
+
+			return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
+		}
+
+		// `CUSTOMER_EMAIL_CONFLICT`は`wp_update_user()`のメール一意性チェックがDB書込直前に
+		// 行われるため、実際に呼ばないと判定できず dry-run では出ない。
+		return new ValidationResult( $resolved->operation, $warnings );
 	}
 
 	/**
@@ -138,34 +185,37 @@ final class CustomerWriter implements EntityWriter {
 	}
 
 	/**
-	 * @param array<string,string> $billing
-	 * @return array{0:?int,1:string,2:?string}
+	 * mappingsが指すユーザーが手動削除等で既に存在しない場合、`$existing_local_id`を信用せず
+	 * 新規作成へフォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。信用したまま
+	 * 進むと、`has_protected_role()`は存在しないIDに対してfalseを返して保護をすり抜け、
+	 * `wp_update_user()`の失敗（WP_Error）も無視されたまま「更新成功」として扱われ、
+	 * 存在しないユーザーIDに孤立したusermetaだけが書き込まれてしまう。
+	 *
+	 * email突合（`get_user_by('email')`）はDB読取のみで完結するため、`write()`/`validate()`の
+	 * 両方が同じ判定を共有できる。実際のユーザー作成（`wc_create_new_customer()`）は
+	 * 永続化を伴うため`write()`側にのみ残す。
 	 */
-	private function find_or_create( CanonicalCustomer $item, array $billing ): array {
+	private function resolve_target( CanonicalCustomer $item, ?int $existing_local_id ): CustomerResolution {
+		if ( null !== $existing_local_id && ! get_userdata( $existing_local_id ) ) {
+			$existing_local_id = null;
+		}
+
+		if ( null !== $existing_local_id ) {
+			return new CustomerResolution( $existing_local_id, WriteResult::OPERATION_UPDATED, false, null );
+		}
+
 		$existing_user = get_user_by( 'email', $item->email );
 
 		if ( $existing_user instanceof WP_User ) {
-			return [ $existing_user->ID, WriteResult::OPERATION_UPDATED, WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID ) ];
+			return new CustomerResolution(
+				$existing_user->ID,
+				WriteResult::OPERATION_UPDATED,
+				false,
+				WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID )
+			);
 		}
 
-		$created = wc_create_new_customer(
-			$item->email,
-			'',
-			wp_generate_password( 24, true, true ),
-			[
-				'first_name'   => $billing['first_name'],
-				'last_name'    => $billing['last_name'],
-				'display_name' => $item->name,
-			]
-		);
-
-		if ( $created instanceof WP_Error ) {
-			// パスワードポリシー系プラグインの拒否・DB制約違反等で作成に失敗。無警告で
-			// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
-			return [ null, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ];
-		}
-
-		return [ $created, WriteResult::OPERATION_CREATED, null ];
+		return new CustomerResolution( null, WriteResult::OPERATION_CREATED, true, null );
 	}
 
 	/**

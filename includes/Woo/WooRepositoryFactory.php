@@ -16,6 +16,7 @@ use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
 use CartBridgeJP\Woo\Writer\CouponWriter;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
+use CartBridgeJP\Woo\Writer\EntityWriter;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
 use CartBridgeJP\Woo\Writer\ProductWriter;
@@ -29,13 +30,28 @@ use CartBridgeJP\Woo\Writer\VariationWriter;
 final class WooRepositoryFactory implements WooWriterFactory {
 
 	public function for_platform( string $platform ): WooWriter {
+		return new WooRepository( new SideEffectGuard(), $this->writers( $platform ) );
+	}
+
+	/**
+	 * `for_platform()`と同じ`Writer\EntityWriter`群を使うが、`DryRunRepository`は
+	 * `write()`ではなく`validate()`しか呼ばないため何も永続化しない（F1-6）。
+	 */
+	public function for_dry_run( string $platform ): WooWriter {
+		return new DryRunRepository( new SideEffectGuard(), $this->writers( $platform ) );
+	}
+
+	/**
+	 * @return array<string,EntityWriter>
+	 */
+	private function writers( string $platform ): array {
 		$mappings   = new MappingRepository();
 		$media      = new MediaImporter( $platform );
 		$resolver   = new ProductResolver( $platform, $mappings );
 		$variations = new VariationWriter( $platform, $mappings );
 		$methods    = new MethodMap( $platform );
 
-		$writers = [
+		return [
 			'category' => new TermWriter( 'product_cat', $platform, $mappings, $media ),
 			'tag'      => new TermWriter( 'product_tag', $platform, $mappings, $media ),
 			'product'  => new ProductWriter( $platform, $mappings, $variations, $media ),
@@ -44,7 +60,5 @@ final class WooRepositoryFactory implements WooWriterFactory {
 			'stock'    => new StockWriter( $resolver ),
 			'coupon'   => new CouponWriter( $platform ),
 		];
-
-		return new WooRepository( new SideEffectGuard(), $writers );
 	}
 }

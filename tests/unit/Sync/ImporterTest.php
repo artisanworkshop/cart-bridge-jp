@@ -512,4 +512,35 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 'p1', $stock->product_ref );
 		$this->assertSame( 5, $stock->quantity );
 	}
+
+	public function test_dry_run_records_one_row_per_item_with_its_warnings(): void {
+		$adapter = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				return new WriteResult( 0, WriteResult::OPERATION_CREATED, [ 'category_parent_unresolved:999' ] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-1' );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-1', 0, 10 );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'category', $rows[0]['entity'] );
+		$this->assertSame( 'c1', $rows[0]['remote_id'] );
+		$this->assertSame( 'Category 1', $rows[0]['label'] );
+		$this->assertSame( [ 'category_parent_unresolved:999' ], json_decode( (string) $rows[0]['warnings_json'], true ) );
+	}
+
+	public function test_real_import_does_not_record_dry_run_rows(): void {
+		$adapter  = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer   = new InMemoryWriter();
+		$importer = new Importer( $this->mappings );
+
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), false, null, null, 1, 'run-real-1' );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-real-1', 0, 10 );
+		$this->assertSame( [], $rows );
+	}
 }

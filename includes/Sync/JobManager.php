@@ -53,8 +53,9 @@ final class JobManager {
 
 	/**
 	 * 既定の配線でJobManagerを生成する共有ファクトリ。
-	 * `Woo\WooRepositoryFactory` が実移行のwriterを組み立てる
-	 * （dry-run は内部で `DryRunReporter` に差し替わるため到達しない）。
+	 * `Woo\WooRepositoryFactory` が実移行・dry-run双方のwriterを組み立てる
+	 * （dry-runは`Woo\DryRunRepository`に差し替わり、`Writer\EntityWriter::validate()`
+	 * のみを呼ぶため何も永続化しない。F1-6）。
 	 */
 	public static function create( ?WooWriterFactory $writer_factory = null ): self {
 		$mappings = new MappingRepository();
@@ -174,7 +175,7 @@ final class JobManager {
 			// 下のcatchで確実に拾い`mark_failed()`させるため、tryの外に出さない
 			// （tryの外に置くと、例外発生時にジョブがmark_failed()もされずSTATUS_RUNNINGのまま
 			// 停止してしまう）。
-			$writer                        = $is_dry_run ? new DryRunReporter() : $this->writer_factory->for_platform( $job['platform'] );
+			$writer                        = $is_dry_run ? $this->writer_factory->for_dry_run( $job['platform'] ) : $this->writer_factory->for_platform( $job['platform'] );
 			[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
@@ -250,7 +251,7 @@ final class JobManager {
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
 			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'] );
+			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
 
 			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
 			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
@@ -262,7 +263,7 @@ final class JobManager {
 			// サンプル商品数（`count($sample->product_remote_ids)`）ではなく`Importer`が実際に
 			// 処理した件数（`$result['total']`）を使う（商品数のままだとprocessedがtotalを超えうる）。
 			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'] );
+			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'], (string) $job['run_id'] );
 
 			return [ array_merge( $result['totals'], [ 'total' => $result['total'] ] ), null ];
 		}
@@ -273,7 +274,7 @@ final class JobManager {
 			: null;
 		$limit_policy = $is_dry_run ? null : $this->limits;
 
-		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample, (int) $job['id'] );
+		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample, (int) $job['id'], (string) $job['run_id'] );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {

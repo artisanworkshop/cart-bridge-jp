@@ -243,4 +243,55 @@ final class StockWriterTest extends WooTestCase {
 		$untouched = wc_get_product( $foreign_id );
 		$this->assertSame( 42, $untouched->get_stock_quantity() );
 	}
+
+	// --- validate()（F1-6 dry-run）
+
+	public function test_validate_matches_write_for_unresolved_product(): void {
+		$stock      = new CanonicalStock( 'missing', null, null, 5, true );
+		$validation = $this->make_writer()->validate( $stock, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, 'missing' ), $validation->warnings );
+	}
+
+	public function test_validate_resolved_product_is_updated_without_persisting(): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'P' );
+		$product->set_manage_stock( false );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$stock      = new CanonicalStock( '1', null, null, 7, true );
+		$validation = $this->make_writer()->validate( $stock, $product_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+
+		// 何も永続化していない。
+		$untouched = wc_get_product( $product_id );
+		$this->assertFalse( $untouched->get_manage_stock() );
+	}
+
+	public function test_validate_variable_parent_matches_write_without_touching_the_parent(): void {
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Variable' );
+		$product->set_manage_stock( true );
+		$product->set_stock_quantity( 50 );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->save();
+
+		$stock      = new CanonicalStock( '1', null, null, null, true );
+		$validation = $this->make_writer()->validate( $stock, $product_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, '1' ), $validation->warnings );
+
+		$untouched = wc_get_product( $product_id );
+		$this->assertTrue( $untouched->get_manage_stock() );
+		$this->assertSame( 50, $untouched->get_stock_quantity() );
+	}
 }

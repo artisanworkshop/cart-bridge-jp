@@ -74,23 +74,8 @@ final class OrderWriter implements EntityWriter {
 		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 
 		try {
-			// 明細（line item/shipping/fee）の組み立てはこの時点では`WC_Order_Item`
-			// オブジェクトを作るだけで、`$order`へは何も反映しない（`remove_order_items()`を
-			// 呼ぶ前に、失敗しうる処理を全て済ませておくため。理由は下のコメント参照）。
-			$built_line_items     = $this->build_line_items( $item->line_items );
-			$built_shipping_items = $this->build_shipping_and_fees( $item );
-			$warnings             = array_merge( $built_line_items['warnings'], $built_shipping_items['warnings'] );
-
-			$this->apply_totals( $order, $item->totals );
-			$this->apply_currency_and_tax_settings( $order, $warnings );
-			$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status ) );
-			$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
-			$this->apply_addresses( $order, $item );
-			$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
-			$this->apply_dates( $order, $item, null === $existing_local_id );
-			$warnings = array_merge( $warnings, $this->totals_warnings( $item->totals ) );
-
-			$this->apply_meta( $order, $item, $warnings );
+			$prepared = $this->prepare( $order, $item, WriteResult::OPERATION_CREATED === $operation );
+			$warnings = $prepared->warnings;
 
 			// 再実行時は明細を作り直す（冪等）。ここまでで組み立て・各種設定が全て成功した後、
 			// 最後にまとめて削除→追加する。`remove_order_items()`はWooCommerce 11.0.0で
@@ -100,7 +85,7 @@ final class OrderWriter implements EntityWriter {
 			// 既存の明細が失われないよう、失敗しうる処理を全て終えてから削除・追加・保存を行う。
 			$order->remove_order_items();
 
-			foreach ( array_merge( $built_line_items['items'], $built_shipping_items['items'] ) as $order_item ) {
+			foreach ( array_merge( $prepared->line_items, $prepared->shipping_items ) as $order_item ) {
 				$order->add_item( $order_item );
 			}
 
@@ -131,6 +116,63 @@ final class OrderWriter implements EntityWriter {
 		}
 
 		return new WriteResult( $order_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		if ( ! $item instanceof CanonicalOrder ) {
+			throw new RuntimeException( 'OrderWriter received an unsupported Canonical model.' );
+		}
+
+		$totals_warning = $this->validate_totals( $item->totals );
+
+		if ( null !== $totals_warning ) {
+			return new ValidationResult( WriteResult::OPERATION_SKIPPED, [ $totals_warning ] );
+		}
+
+		// `wc_get_order()`は読み取りのみ。stale-IDの場合は`write()`と同じくフォールバックする。
+		$existing_order = null !== $existing_local_id ? wc_get_order( $existing_local_id ) : false;
+		$is_new_order   = ! $existing_order instanceof WC_Order;
+		// `wc_create_order()`（write専用。呼んだ瞬間にDBへ注文行を作る）は使わず、未保存の
+		// `WC_Order`インスタンスへ組み立てる。`set_*()`/`update_meta_data()`は全てメモリ上の
+		// 操作で`save()`まで永続化されないため、破棄しても何も残らない
+		// （`Woo\WarningCode`のdocblockの「試みないと判定できない警告」とは別の理由で
+		// `ORDER_CREATE_FAILED`はここでは判定できない=dry-run除外）。
+		$order = $is_new_order ? new WC_Order() : $existing_order;
+
+		$prepared = $this->prepare( $order, $item, $is_new_order );
+
+		return new ValidationResult(
+			$is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED,
+			$prepared->warnings
+		);
+	}
+
+	/**
+	 * 明細・配送/手数料行の組み立てと、`$order`への`set_*`/`update_meta_data()`（全てメモリ上の
+	 * 操作）をここに集約する。`$order->save()`を呼ばないため`write()`/`validate()`の両方が
+	 * driftなく共有できる。呼び出し順序は現行のまま維持すること（CLAUDE.mdの制約: `apply_dates()`
+	 * は`apply_status()`より後でなければならない。`set_status()`が`date_paid`を打刻するため）。
+	 */
+	private function prepare( WC_Order $order, CanonicalOrder $item, bool $is_new_order ): OrderPrepared {
+		// 明細（line item/shipping/fee）の組み立てはこの時点では`WC_Order_Item`
+		// オブジェクトを作るだけで、`$order`へは何も反映しない（`write()`が
+		// `remove_order_items()`を呼ぶ前に、失敗しうる処理を全て済ませておくため）。
+		$built_line_items     = $this->build_line_items( $item->line_items );
+		$built_shipping_items = $this->build_shipping_and_fees( $item );
+		$warnings             = array_merge( $built_line_items['warnings'], $built_shipping_items['warnings'] );
+
+		$this->apply_totals( $order, $item->totals );
+		$this->apply_currency_and_tax_settings( $order, $warnings );
+		$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status ) );
+		$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
+		$this->apply_addresses( $order, $item );
+		$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
+		$this->apply_dates( $order, $item, $is_new_order );
+		$warnings = array_merge( $warnings, $this->totals_warnings( $item->totals ) );
+
+		$this->apply_meta( $order, $item, $warnings );
+
+		return new OrderPrepared( $warnings, $built_line_items['items'], $built_shipping_items['items'] );
 	}
 
 	/**

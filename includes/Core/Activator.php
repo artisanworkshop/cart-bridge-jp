@@ -14,7 +14,7 @@ namespace CartBridgeJP\Core;
  */
 final class Activator {
 
-	public const DB_VERSION = '0.1.0';
+	public const DB_VERSION = '0.2.0';
 
 	public const DB_VERSION_OPTION = 'cbjp_db_version';
 
@@ -46,9 +46,10 @@ final class Activator {
 		$charset_collate = $wpdb->get_charset_collate();
 		$prefix          = $wpdb->prefix;
 
-		$jobs_table     = $prefix . 'cbjp_jobs';
-		$mappings_table = $prefix . 'cbjp_mappings';
-		$logs_table     = $prefix . 'cbjp_logs';
+		$jobs_table          = $prefix . 'cbjp_jobs';
+		$mappings_table      = $prefix . 'cbjp_mappings';
+		$logs_table          = $prefix . 'cbjp_logs';
+		$dry_run_items_table = $prefix . 'cbjp_dry_run_items';
 
 		$sql = "CREATE TABLE {$jobs_table} (
   id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -87,6 +88,22 @@ CREATE TABLE {$logs_table} (
   created_at datetime NOT NULL,
   PRIMARY KEY  (id),
   KEY job_level (job_id, level),
+  KEY created_at (created_at)
+) {$charset_collate};
+CREATE TABLE {$dry_run_items_table} (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  run_id char(36) NOT NULL,
+  job_id bigint(20) unsigned NOT NULL,
+  entity varchar(20) NOT NULL,
+  remote_id varchar(191) NOT NULL,
+  label varchar(255) NOT NULL DEFAULT '',
+  operation varchar(10) NOT NULL,
+  existing_local_id bigint(20) unsigned NOT NULL DEFAULT 0,
+  warnings_json text NOT NULL,
+  created_at datetime NOT NULL,
+  PRIMARY KEY  (id),
+  UNIQUE KEY job_entity_remote (job_id, entity, remote_id),
+  KEY run_entity_id (run_id, entity, id),
   KEY created_at (created_at)
 ) {$charset_collate};";
 

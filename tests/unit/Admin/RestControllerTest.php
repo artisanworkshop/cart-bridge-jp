@@ -672,4 +672,66 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		remove_all_filters( 'pre_http_request' );
 	}
+
+	public function test_get_run_report_returns_404_for_unknown_run(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/does-not-exist/report' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_run_report_requires_permission(): void {
+		wp_set_current_user( 0 );
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/does-not-exist/report' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+	}
+
+	public function test_get_run_report_rejects_unknown_entity(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$request->set_query_params( [ 'entity' => 'not-a-real-entity' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_get_run_report_returns_csv_headers_for_a_known_run(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$headers = $response->get_headers();
+		$this->assertSame( 'text/csv; charset=utf-8', $headers['Content-Type'] );
+		$this->assertStringContainsString( "cart-bridge-jp-dry-run-{$run_id}.csv", $headers['Content-Disposition'] );
+	}
+
+	private function start_mock_dry_run(): string {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		return (string) $response->get_data()['run_id'];
+	}
 }

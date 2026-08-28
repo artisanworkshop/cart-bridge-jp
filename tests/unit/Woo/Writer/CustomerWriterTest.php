@@ -265,4 +265,73 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 'note text', get_user_meta( $result->local_id, '_cbjp_note', true ) );
 		$this->assertSame( 'Sales', get_user_meta( $result->local_id, '_cbjp_department', true ) );
 	}
+
+	// --- validate()（F1-6 dry-run）
+
+	public function test_validate_matches_write_for_new_customer(): void {
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertFalse( get_user_by( 'email', 'taro@example.com' ) );
+	}
+
+	public function test_validate_reuses_existing_customer_by_email_without_persisting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'taro@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+
+		// 何も永続化していない（氏名は未反映のまま）。
+		$user = get_userdata( $existing_id );
+		$this->assertSame( '', $user->first_name );
+	}
+
+	public function test_validate_detects_protected_account_without_overwriting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'admin-taro',
+				'user_email' => 'taro@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'administrator',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $validation->warnings );
+	}
+
+	public function test_validate_updated_existing_mapping_without_persisting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+
+		// 何も永続化していない（メールは同期されない）。
+		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+	}
 }

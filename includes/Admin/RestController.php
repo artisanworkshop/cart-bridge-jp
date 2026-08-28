@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
@@ -133,6 +134,33 @@ final class RestController {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'cancel_run' ],
 				'permission_callback' => [ $this, 'check_permission' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/runs/(?P<run_id>[a-zA-Z0-9-]+)/report',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'get_run_report' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => [
+					'run_id'        => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+					'entity'        => [
+						'type'     => 'string',
+						'enum'     => self::ENTITY_TYPES,
+						'required' => false,
+					],
+					'only_warnings' => [
+						'type'     => 'boolean',
+						'default'  => false,
+						'required' => false,
+					],
+				],
 			]
 		);
 
@@ -573,6 +601,53 @@ final class RestController {
 				'jobs'   => $formatted,
 			]
 		);
+	}
+
+	/**
+	 * dry-run結果のCSVダウンロード（D17）。JSON化してJS側でBlob化する方式は採らず、
+	 * サーバー側で`Content-Disposition`を吐いてストリーミングする
+	 * （数万行を配列/JSON文字列として複数回メモリに載せるのを避けるため）。
+	 *
+	 * `<a download href>`はカスタムヘッダー（`X-WP-Nonce`）を送れないため、WP REST の
+	 * cookie認証が受け付ける`?_wpnonce=`クエリパラメータ経由での呼び出しを想定する
+	 * （`rest_cookie_check_errors`）。`fetch`+Blob経路（`X-WP-Nonce`ヘッダー）でも同じ
+	 * ルートがそのまま使える。
+	 */
+	public function get_run_report( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$run_id = (string) $request->get_param( 'run_id' );
+
+		if ( [] === ( new JobRepository() )->find_by_run( $run_id ) ) {
+			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
+		}
+
+		$entity        = $this->scalar_query_param( $request, 'entity' );
+		$entity        = is_string( $entity ) && in_array( $entity, self::ENTITY_TYPES, true ) ? $entity : null;
+		$only_warnings = (bool) $request->get_param( 'only_warnings' );
+
+		$response = new WP_REST_Response( null, 200 );
+		$response->header( 'Content-Type', 'text/csv; charset=utf-8' );
+		$response->header( 'Content-Disposition', 'attachment; filename="' . sanitize_file_name( "cart-bridge-jp-dry-run-{$run_id}.csv" ) . '"' );
+		$response->header( 'X-Content-Type-Options', 'nosniff' );
+		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate' );
+
+		$exporter = new DryRunReportCsv( new DryRunItemRepository() );
+
+		// `rest_pre_serve_request` はWP RESTでJSON以外のレスポンスボディ（CSV等）を返すための
+		// 正規の手段。このルートのレスポンスに限定してJSONシリアライズを迂回する。1回発火したら
+		// 自身を`remove_filter()`する: 同一PHPプロセス内で複数リクエストが処理されうる文脈
+		// （PHPUnitの`$server->dispatch()`連続呼び出し等）で、このクロージャが蓄積して
+		// 無関係な後続リクエストにまでCSV出力を割り込ませないようにするため。
+		$callback = null;
+		// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found -- $served はrest_pre_serve_requestフィルターの契約上の引数で、このコールバックはCSVを直接出力するため使わない。
+		$callback = static function ( bool $served ) use ( $exporter, $run_id, $entity, $only_warnings, &$callback ): bool {
+			remove_filter( 'rest_pre_serve_request', $callback );
+			$exporter->stream( $run_id, $entity, $only_warnings );
+
+			return true;
+		};
+		add_filter( 'rest_pre_serve_request', $callback );
+
+		return $response;
 	}
 
 	public function cancel_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {

@@ -38,6 +38,58 @@ final class TermWriter implements EntityWriter {
 	) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+		$plan = $this->plan( $item, $existing_local_id );
+
+		[ $term_id, $operation, $term_warnings ] = null !== $existing_local_id
+			? $this->update_existing( $existing_local_id, $plan->name, $plan->args )
+			: $this->create_or_reuse( $plan->name, $plan->args, $plan->preresolved_conflict_term_id );
+
+		$warnings = array_merge( $plan->warnings, $term_warnings );
+
+		if ( null === $term_id ) {
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+		}
+
+		$warnings = array_merge( $warnings, $this->apply_extras( $term_id, $plan->item ) );
+
+		return new WriteResult( $term_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		$plan = $this->plan( $item, $existing_local_id );
+
+		if ( null !== $existing_local_id && $plan->existing_term_exists ) {
+			// 更新パスの`duplicate_term_slug`等のバリデーション失敗は、実際に`wp_update_term()`を
+			// 呼ばないと判定できないため dry-run では出ない（`Woo\WarningCode`のdocblock参照）。
+			return new ValidationResult( WriteResult::OPERATION_UPDATED, $plan->warnings );
+		}
+
+		// 新規作成、または対象タームが手動削除等で既に存在しない（`existing_term_exists`が
+		// false）場合は、`write()`の`update_existing()`内`invalid_term`フォールバックと同じく
+		// 新規作成パスとして扱う（TermWriterクラスdocblock・他writerのstale-ID対応と同じ方針）。
+		if ( null === $plan->preresolved_conflict_term_id ) {
+			return new ValidationResult( WriteResult::OPERATION_CREATED, $plan->warnings );
+		}
+
+		if ( ! PlatformOwnership::owns_term( $plan->preresolved_conflict_term_id, $this->platform ) ) {
+			return new ValidationResult(
+				WriteResult::OPERATION_SKIPPED,
+				array_merge( $plan->warnings, [ WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $plan->preresolved_conflict_term_id ) ] )
+			);
+		}
+
+		return new ValidationResult(
+			WriteResult::OPERATION_UPDATED,
+			array_merge( $plan->warnings, [ WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $plan->preresolved_conflict_term_id ) ] )
+		);
+	}
+
+	/**
+	 * 親タームの解決（DB読取のみ）と、新規作成パスでの名前衝突の事前判定
+	 * （`term_exists()`。`wp_insert_term()`が内部で使うのと同じコアの重複判定関数で、
+	 * 実際に挿入を試みずに調べられる）を`write()`/`validate()`の両方で共有する。
+	 */
+	private function plan( CanonicalModel $item, ?int $existing_local_id ): TermPlan {
 		if ( ! $item instanceof CanonicalCategory && ! $item instanceof CanonicalTag ) {
 			throw new RuntimeException( 'TermWriter received an unsupported Canonical model.' );
 		}
@@ -66,19 +118,37 @@ final class TermWriter implements EntityWriter {
 			'parent'      => $parent_id,
 		];
 
-		[ $term_id, $operation, $term_warnings ] = null !== $existing_local_id
-			? $this->update_existing( $existing_local_id, $name, $args )
-			: $this->create_or_reuse( $name, $args );
+		// `get_term()`はDB読取のみ（`wp_update_term()`が内部の`get_term()`呼び出しで同じ判定を
+		// 行い、対象が無ければ`invalid_term`エラーを返す）。`validate()`は実際に`wp_update_term()`を
+		// 呼べないため、ここで同じ存在確認を行い、更新パスのstale-IDフォールバック
+		// （TermWriterの他writerと同種の対応）を`write()`とdriftなく共有する。
+		$existing_term_exists = null !== $existing_local_id && get_term( $existing_local_id, $this->taxonomy ) instanceof WP_Term;
 
-		$warnings = array_merge( $warnings, $term_warnings );
+		$preresolved_conflict_term_id = ( null === $existing_local_id || ! $existing_term_exists )
+			? $this->find_conflicting_term_id( $name, $parent_id )
+			: null;
 
-		if ( null === $term_id ) {
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+		return new TermPlan( $item, $name, $args, $warnings, $preresolved_conflict_term_id, $existing_term_exists );
+	}
+
+	/**
+	 * `term_exists()`はコアの重複判定関数（`wp_insert_term()`が同名・同親タームの拒否に
+	 * 内部で使うのと同じ判定）で、実際に挿入せずに衝突の有無を調べられる。
+	 *
+	 * @return int|null 衝突する既存term_id（無ければnull）。
+	 */
+	private function find_conflicting_term_id( string $name, int $parent_id ): ?int {
+		$result = term_exists( $name, $this->taxonomy, $parent_id );
+
+		if ( is_array( $result ) && isset( $result['term_id'] ) ) {
+			return (int) $result['term_id'];
 		}
 
-		$warnings = array_merge( $warnings, $this->apply_extras( $term_id, $item ) );
+		if ( is_numeric( $result ) && 0 !== (int) $result ) {
+			return (int) $result;
+		}
 
-		return new WriteResult( $term_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+		return null;
 	}
 
 	/**
@@ -93,7 +163,7 @@ final class TermWriter implements EntityWriter {
 				// 対象タームが既に存在しない（手動削除等）。`wp_update_term()`はこの場合
 				// `invalid_term_id`ではなく`invalid_term`を返す（`wp-includes/taxonomy.php`の
 				// `get_term()`が空を返した分岐）。新規作成へフォールバックする。
-				return $this->create_or_reuse( $name, $args );
+				return $this->create_or_reuse( $name, $args, $this->find_conflicting_term_id( $name, $args['parent'] ) );
 			}
 
 			// `duplicate_term_slug`等、対象タームは実在するがバリデーションで弾かれた場合
@@ -117,33 +187,37 @@ final class TermWriter implements EntityWriter {
 	 * @param array{description:string,parent:int} $args
 	 * @return array{0:?int,1:string,2:array<int,string>}
 	 */
-	private function create_or_reuse( string $name, array $args ): array {
-		$inserted = wp_insert_term( $name, $this->taxonomy, $args );
+	private function create_or_reuse( string $name, array $args, ?int $preresolved_conflict_term_id ): array {
+		if ( null === $preresolved_conflict_term_id ) {
+			$inserted = wp_insert_term( $name, $this->taxonomy, $args );
 
-		if ( ! $inserted instanceof WP_Error ) {
-			return [ (int) $inserted['term_id'], WriteResult::OPERATION_CREATED, [] ];
+			if ( ! $inserted instanceof WP_Error ) {
+				return [ (int) $inserted['term_id'], WriteResult::OPERATION_CREATED, [] ];
+			}
+
+			$race_conflict_id = $inserted->get_error_data( 'term_exists' );
+
+			if ( ! is_numeric( $race_conflict_id ) ) {
+				// term_exists以外の理由（empty_term_name・DBエラー等）での失敗。無警告で
+				// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
+				return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_CREATE_FAILED, $inserted->get_error_code() ) ] ];
+			}
+
+			// `find_conflicting_term_id()`の事前チェック後、別プロセスが同名タームを作成した
+			// 場合のレース対策バックストップ（通常はここに到達せず、事前チェックで検出される）。
+			$preresolved_conflict_term_id = (int) $race_conflict_id;
 		}
-
-		$existing_term_id = $inserted->get_error_data( 'term_exists' );
-
-		if ( ! is_numeric( $existing_term_id ) ) {
-			// term_exists以外の理由（empty_term_name・DBエラー等）での失敗。無警告で
-			// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
-			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_CREATE_FAILED, $inserted->get_error_code() ) ] ];
-		}
-
-		$term_id = (int) $existing_term_id;
 
 		// WPの技術的制約（同名・同親のタームを重複作成できない）による再利用は、
 		// `_cbjp_platform`が自分自身と一致する場合のみ許す（CouponWriter/VariationWriterの
 		// 同種の他プラットフォーム保護と同じ理由）。一致しない場合（店舗独自カテゴリ・
 		// 別プラットフォーム由来のカテゴリと名前が衝突）は上書きせず、保存自体を見送る。
-		if ( ! PlatformOwnership::owns_term( $term_id, $this->platform ) ) {
-			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $term_id ) ] ];
+		if ( ! PlatformOwnership::owns_term( $preresolved_conflict_term_id, $this->platform ) ) {
+			return [ null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $preresolved_conflict_term_id ) ] ];
 		}
 
-		$warnings      = [ WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $term_id ) ];
-		$update_result = wp_update_term( $term_id, $this->taxonomy, $args );
+		$warnings      = [ WarningCode::with_detail( WarningCode::TERM_REUSED_EXISTING, (string) $preresolved_conflict_term_id ) ];
+		$update_result = wp_update_term( $preresolved_conflict_term_id, $this->taxonomy, $args );
 
 		if ( $update_result instanceof WP_Error ) {
 			// 再利用自体（term_idの解決）は成功しても、description/parent等の反映が失敗した
@@ -152,7 +226,7 @@ final class TermWriter implements EntityWriter {
 			$warnings[] = WarningCode::with_detail( WarningCode::TERM_UPDATE_FAILED, $update_result->get_error_code() );
 		}
 
-		return [ $term_id, WriteResult::OPERATION_UPDATED, $warnings ];
+		return [ $preresolved_conflict_term_id, WriteResult::OPERATION_UPDATED, $warnings ];
 	}
 
 	/**

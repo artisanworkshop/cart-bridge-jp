@@ -30,7 +30,7 @@ final class Uninstaller {
 
 		$prefix = $wpdb->prefix;
 
-		foreach ( [ 'cbjp_jobs', 'cbjp_mappings', 'cbjp_logs' ] as $table ) {
+		foreach ( [ 'cbjp_jobs', 'cbjp_mappings', 'cbjp_logs', 'cbjp_dry_run_items' ] as $table ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名は固定接頭辞+定数、ユーザー入力なし。
 			$wpdb->query( "DROP TABLE IF EXISTS {$prefix}{$table}" );
 		}

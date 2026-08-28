@@ -296,4 +296,78 @@ final class CouponWriterTest extends WooTestCase {
 		$untouched = new \WC_Coupon( $foreign_id );
 		$this->assertSame( '50', $untouched->get_amount() );
 	}
+
+	// --- validate()（F1-6 dry-run）: write()と同じ検証ロジックを共有するため、
+	// 警告・operationが一致し、かつ何も永続化しないことを確認する。ここが崩れると
+	// dry-runの警告が実移行の実態とずれる（無料版の価値=D14を毀損する）。
+
+	public function test_validate_matches_write_for_new_coupon(): void {
+		$coupon = new CanonicalCoupon( 'SAVE500', 'fixed', '500', null, '2026-12-31', 10, [ 'remote_id' => '1' ] );
+
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'SAVE500' ) );
+	}
+
+	public function test_validate_detects_code_conflict_without_persisting(): void {
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'DUPLICATE' );
+		$existing->set_amount( '9999' );
+		$existing->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$existing_id = $existing->save();
+
+		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $validation->warnings );
+		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
+	}
+
+	public function test_validate_detects_group_limit_unsupported(): void {
+		$coupon = new CanonicalCoupon(
+			'MEMBERS-ONLY',
+			'fixed',
+			'500',
+			null,
+			null,
+			null,
+			[
+				'remote_id'        => '6',
+				'group_limit_type' => 'specified',
+			]
+		);
+
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED, $validation->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
+	}
+
+	public function test_validate_detects_negative_amount(): void {
+		$coupon     = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ] );
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '-100' ), $validation->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'NEGATIVE' ) );
+	}
+
+	public function test_validate_reuses_existing_coupon_warning_without_persisting(): void {
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'DUPLICATE' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
+		$existing_id = $existing->save();
+
+		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+		// 金額は未設定のデフォルトのまま保たれている。dry-runの検証が何も保存していない証拠。
+		$this->assertSame( '0', ( new \WC_Coupon( $existing_id ) )->get_amount() );
+	}
 }

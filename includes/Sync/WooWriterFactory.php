@@ -15,4 +15,10 @@ namespace CartBridgeJP\Sync;
 interface WooWriterFactory {
 
 	public function for_platform( string $platform ): WooWriter;
+
+	/**
+	 * dry-run用。`for_platform()`と同じ参照解決ロジックを使うが、何も永続化しない
+	 * （`Woo\Writer\EntityWriter::validate()`経由。F1-6）。
+	 */
+	public function for_dry_run( string $platform ): WooWriter;
 }
