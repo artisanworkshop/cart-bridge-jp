@@ -250,6 +250,26 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 'Apparel', $term->name );
 	}
 
+	public function test_distinct_name_sharing_a_sanitized_slug_is_not_treated_as_a_duplicate(): void {
+		// PRレビュー指摘（実機検証で再現）: sanitize_title()後のslugが偶然一致するだけで
+		// 名前が異なるターム同士（例: 名前"foo-bar"が既にslug"foo-bar"を持つ状態で、別の
+		// 名前"Foo Bar"も同じslugへsanitizeされる）を、term_exists()ベースの事前チェックは
+		// 誤って衝突と判定していた。wp_insert_term()自身はこれを拒否せず一意なslugを
+		// 付けて新規作成するため、TermWriterもそれに揃えて新規作成できる必要がある。
+		$existing_id = wp_insert_term( 'foo-bar', 'product_cat' )['term_id'];
+		update_term_meta( $existing_id, '_cbjp_platform', 'colorme' );
+
+		$category = new CanonicalCategory( '100', 'Foo Bar', null, null );
+		$result   = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( $existing_id, $result->local_id );
+		$this->assertSame( [], array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::TERM_NAME_CONFLICT ) || str_starts_with( $w, WarningCode::TERM_REUSED_EXISTING ) ) );
+
+		$new_term = get_term( $result->local_id, 'product_cat' );
+		$this->assertSame( 'Foo Bar', $new_term->name );
+	}
+
 	public function test_stale_term_id_falls_back_to_create_when_term_was_manually_deleted(): void {
 		// `wp_update_term()`は対象タームが既に存在しない場合、`invalid_term_id`ではなく
 		// `invalid_term`を返す（`wp-includes/taxonomy.php`の`get_term()`が空を返した分岐）。
@@ -442,5 +462,17 @@ final class TermWriterTest extends WooTestCase {
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
 		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $other_platform_term_id ), $validation->warnings );
+	}
+
+	public function test_validate_does_not_flag_a_slug_only_collision_as_a_conflict(): void {
+		// write()側の同種テスト（test_distinct_name_sharing_a_sanitized_slug_is_not_treated_
+		// as_a_duplicate）とvalidate()がdriftしないことを確認する。
+		wp_insert_term( 'foo-bar', 'product_cat' );
+
+		$category   = new CanonicalCategory( '100', 'Foo Bar', null, null );
+		$validation = $this->make_writer()->validate( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
 	}
 }

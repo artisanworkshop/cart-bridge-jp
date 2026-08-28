@@ -16,6 +16,7 @@ use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Woo\Support\Value;
+use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
 
@@ -323,6 +324,21 @@ final class Importer {
 					],
 					$job_id
 				);
+
+				if ( $is_dry_run ) {
+					// この分岐は`try`ブロック内の成功パス（371行目以降）を通らないため、
+					// 何もしないとtotals['warned']は加算されるのにCSVレポートには当該アイテムの
+					// 行が一切現れない（`warned`件数とCSVの行数が食い違う）。例外詳細は
+					// `Support\Logger`と同じ理由でCSVにも含めない（固定コードのみ）。
+					$dry_run_rows[] = [
+						'entity'            => $entity,
+						'remote_id'         => $remote_id,
+						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'operation'         => WriteResult::OPERATION_SKIPPED,
+						'existing_local_id' => $existing_local_id ?? 0,
+						'warnings'          => [ WarningCode::VALIDATION_EXCEPTION ],
+					];
+				}
 
 				continue;
 			}

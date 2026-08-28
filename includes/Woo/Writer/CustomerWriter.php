@@ -150,19 +150,31 @@ final class CustomerWriter implements EntityWriter {
 			$warnings[] = $resolved->reuse_warning;
 		}
 
+		if ( ! $resolved->is_new ) {
+			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
+			// 保護ロール判定は新規作成パスには存在しない（新規WPユーザーが最初から
+			// administrator等になることはない）ため、write()と同じくこの分岐内でのみ行う。
+			$user_id = $resolved->user_id ?? 0;
+
+			if ( self::has_protected_role( $user_id ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
+
+				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
+			}
+		}
+
+		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定で、write()は
+		// 新規作成/更新どちらのパスでも（保護ロールでない場合）警告を積む。ここも同じ位置で
+		// 呼ぶ: write()側でだけ判定すると、実際には移行後に付く警告がdry-runのCSVレポート
+		// から欠落する。
+		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
+			$warnings[] = WarningCode::ADDRESS_OVERSEAS;
+		}
+
 		if ( $resolved->is_new ) {
 			// `CUSTOMER_CREATE_FAILED`は実際に`wc_create_new_customer()`を呼ばないと判定できない
 			// （パスワードポリシー系プラグインの拒否等）ため、dry-runでは出ない。
 			return new ValidationResult( WriteResult::OPERATION_CREATED, $warnings );
-		}
-
-		// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
-		$user_id = $resolved->user_id ?? 0;
-
-		if ( self::has_protected_role( $user_id ) ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
-
-			return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
 		// `CUSTOMER_EMAIL_CONFLICT`は`wp_update_user()`のメール一意性チェックがDB書込直前に

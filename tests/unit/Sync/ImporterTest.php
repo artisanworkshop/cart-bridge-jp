@@ -543,4 +543,32 @@ final class ImporterTest extends WP_UnitTestCase {
 		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-real-1', 0, 10 );
 		$this->assertSame( [], $rows );
 	}
+
+	/**
+	 * PRレビュー指摘: `EntityWriter::validate()`が例外を投げた場合、catch節はtotals（skipped/
+	 * warned）を加算するだけで`continue`しており、成功パスにしかない`$dry_run_rows[]`追加を
+	 * 通らないため、CSVレポートには当該アイテムの行が一切現れなかった（warned件数とCSVの
+	 * 行数が食い違う）。catch節でも1行記録されることを確認する。
+	 */
+	public function test_dry_run_records_a_row_when_the_writer_throws(): void {
+		$adapter = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				throw new \RuntimeException( 'simulated validate() failure' );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-throw' );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-throw', 0, 10 );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'c1', $rows[0]['remote_id'] );
+		$this->assertSame( 'skipped', $rows[0]['operation'] );
+		$this->assertSame( [ 'validation_exception' ], json_decode( (string) $rows[0]['warnings_json'], true ) );
+	}
 }

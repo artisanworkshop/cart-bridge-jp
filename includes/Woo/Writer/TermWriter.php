@@ -86,7 +86,7 @@ final class TermWriter implements EntityWriter {
 
 	/**
 	 * 親タームの解決（DB読取のみ）と、新規作成パスでの名前衝突の事前判定
-	 * （`term_exists()`。`wp_insert_term()`が内部で使うのと同じコアの重複判定関数で、
+	 * （`find_conflicting_term_id()`。`wp_insert_term()`自身の重複判定を再現し、
 	 * 実際に挿入を試みずに調べられる）を`write()`/`validate()`の両方で共有する。
 	 */
 	private function plan( CanonicalModel $item, ?int $existing_local_id ): TermPlan {
@@ -132,20 +132,38 @@ final class TermWriter implements EntityWriter {
 	}
 
 	/**
-	 * `term_exists()`はコアの重複判定関数（`wp_insert_term()`が同名・同親タームの拒否に
-	 * 内部で使うのと同じ判定）で、実際に挿入せずに衝突の有無を調べられる。
+	 * `wp_insert_term()`自身の重複判定（`wp-includes/taxonomy.php`の`$name_matches`計算）を
+	 * 再現する: 同じ親配下で`name`が大文字小文字を無視して一致するタームのみを衝突とみなす。
+	 *
+	 * `term_exists()`は使わない: `sanitize_title()`後のslugが偶然一致するだけで名前が
+	 * 異なるターム（例: 名前"Foo Bar"とslug"foo-bar"の既存タームが、実機検証で衝突と
+	 * 誤検知される）まで一致として返してしまい、`wp_insert_term()`自身はこのケースを
+	 * 拒否せず一意なslug（`foo-bar-2`等）を付けて新規作成する。この関数の結果を
+	 * `create_or_reuse()`のプレフライトとして使うと、本来別タームとして作成されるべき
+	 * アイテムを誤って既存タームの再利用・`TERM_NAME_CONFLICT`によるskipに倒してしまう
+	 * （write()の実挙動自体が壊れる。Codexレビュー指摘・wp-env実機検証で確認済み）。
 	 *
 	 * @return int|null 衝突する既存term_id（無ければnull）。
 	 */
 	private function find_conflicting_term_id( string $name, int $parent_id ): ?int {
-		$result = term_exists( $name, $this->taxonomy, $parent_id );
+		$matches = get_terms(
+			[
+				'taxonomy'               => $this->taxonomy,
+				'name'                   => $name,
+				'hide_empty'             => false,
+				'parent'                 => $parent_id,
+				'update_term_meta_cache' => false,
+			]
+		);
 
-		if ( is_array( $result ) && isset( $result['term_id'] ) ) {
-			return (int) $result['term_id'];
+		if ( ! is_array( $matches ) ) {
+			return null;
 		}
 
-		if ( is_numeric( $result ) && 0 !== (int) $result ) {
-			return (int) $result;
+		foreach ( $matches as $match ) {
+			if ( $match instanceof WP_Term && strtolower( $name ) === strtolower( $match->name ) ) {
+				return (int) $match->term_id;
+			}
 		}
 
 		return null;

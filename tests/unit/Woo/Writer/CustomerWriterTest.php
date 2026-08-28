@@ -12,6 +12,7 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
+use WP_User;
 
 final class CustomerWriterTest extends WooTestCase {
 
@@ -333,5 +334,32 @@ final class CustomerWriterTest extends WooTestCase {
 
 		// 何も永続化していない（メールは同期されない）。
 		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+	}
+
+	public function test_validate_warns_on_overseas_address_matching_write(): void {
+		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定のため、write()と
+		// 同じ警告がvalidate()でも出ることを確認する（PRレビュー指摘: validate()は元々この
+		// チェックを一切呼んでおらず、実際に移行後に付く警告がdry-run CSVから欠落していた）。
+		$customer = new CanonicalCustomer(
+			'overseas-dry-run@example.com',
+			'John Smith',
+			null,
+			null,
+			null,
+			[
+				'pref_id'  => 48,
+				'address1' => 'Somewhere',
+			],
+			null,
+			null,
+			null,
+			null,
+			[ 'remote_id' => '2' ]
+		);
+
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertContains( WarningCode::ADDRESS_OVERSEAS, $validation->warnings );
+		$this->assertFalse( get_user_by( 'email', 'overseas-dry-run@example.com' ) instanceof WP_User );
 	}
 }
