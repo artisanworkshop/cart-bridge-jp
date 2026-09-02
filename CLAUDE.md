@@ -71,6 +71,10 @@ npm run build                # 本番ビルド
 - WooCommerceのAPI挙動は「同系クラスだから同じはず」の推測が外れる。判断前に wp-env 内の実ソース（`wp-env run cli -- grep -n -A20 "function xxx" /var/www/html/wp-content/plugins/woocommerce.latest-stable/...`）か `wp eval-file` での実測で確認すること。例: `WC_Coupon::__construct()` は `'shop_coupon' === get_post_type($data)` でpost typeを検証するため、削除済みIDでも例外を投げず新規作成扱いになる（他writerで必要なstale-IDフォールバックはCouponWriterには不要）。レビュー指摘に対してテストを書いたら修正なしで通った場合は、指摘自体が誤りである可能性をまず疑うこと
 - `WC_Order::set_status()` はステータスが実際に遷移したとき `maybe_set_date_paid()`/`maybe_set_date_completed()` を呼び、`date_paid`/`date_completed` に **`time()`（＝移行の実行時刻）** を打刻する。過去の受注日を保つため、日付の設定・補正は必ず `set_status()` より**後**に行うこと
 - variable商品の親の `stock_status` は子variationから導出され（`WC_Product_Variable::sync()`）、親へ直接 `set_stock_status()` しても保存時に子由来の値へ戻る。さらに `set_manage_stock(false)` を書くと `WC_Product::validate_props()` が `stock_quantity` を空にし、店舗が設定した親レベル在庫管理が消える。variable親には在庫を書かないこと
+- `term_exists()` は名前だけでなく `sanitize_title()` 由来のslugでもフォールバック照合するため、名前が異なるのにslugが衝突する2つのタームを誤って「重複」と判定することがある（実測: `foo-bar` 作成後に `Foo Bar` を `term_exists()` で照合すると誤って前者のIDを返す）。一方 `wp_insert_term()` 自身はこの場合を拒否せず、自動サフィックス付きslugで新規作成する。重複の事前チェックは `term_exists()` ではなく `get_terms()` による名前＋親の直接比較を使うこと（`TermWriter::find_conflicting_term_id()` 参照）
+- writerの `validate()`（dry-run）で「保存しないと判定できない」と決めつける前に、対応する `write()` 内のコア関数呼び出し自体が読取専用の事前チェックで完結していないか確認すること。例: `wp_update_user()` のメール重複チェック（`wp_insert_user()` 内部）は `email_exists()` のみで再現可能。安易に「保存依存の警告」として `validate()` 対象外に倒すと、無料版dry-runの警告カバレッジが不必要に狭まる
+- CSV出力の無害化（OWASP CSVインジェクション対策）はセル先頭が `=`/`+`/`-`/`@` かどうかの判定だけでは不十分。値中に生のタブ/CR/LFが残っていると `fputcsv()` のクォートでCSV自体は壊れなくても、改行区切り前提の後続パーサーで行構造が崩れうる。数式判定の前に全ASCII制御文字を除去すること（`DryRunReportCsv::harden()` 参照。Pro版の301リダイレクトCSV等、今後のCSV出力機能にも適用すること）
+- `rest_pre_serve_request` 等「1回だけ発火して自身をremove_filterする」前提のフィルターコールバックは、そのフィルターが必ず発火するとは限らない経路（`rest_do_request()`/`$server->dispatch()` 直接呼び出し等）があると自己解除されず残留し、後続の無関係な呼び出しで誤発火しうる。コールバック内でオブジェクト同一性等により「自分宛の呼び出しか」を判定するガードを必ず入れること。コア由来フィルターの引数型はdocblockで確認する（`rest_pre_serve_request` の第2引数は `WP_REST_Response` ではなく `WP_HTTP_Response`）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
