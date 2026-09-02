@@ -18,6 +18,13 @@ final class WarningCode {
 
 	public const ENTITY_NOT_SUPPORTED = 'entity_not_supported';
 
+	/**
+	 * `Sync\Importer::process_items()`の汎用catch-allが`EntityWriter::write()`/`validate()`の
+	 * 例外を拾った際に積む固定コード（F1-6のdry-run結果レポート用）。`Support\Logger`と同じ
+	 * 個人情報禁止ルールのため、例外メッセージ自体は含めない。
+	 */
+	public const VALIDATION_EXCEPTION = 'validation_exception';
+
 	public const PRICES_INCLUDE_TAX_DISABLED = 'prices_include_tax_disabled';
 	public const CURRENCY_MISMATCH           = 'currency_mismatch';
 

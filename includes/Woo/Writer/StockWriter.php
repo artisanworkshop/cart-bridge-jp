@@ -25,6 +25,44 @@ final class StockWriter implements EntityWriter {
 	public function __construct( private readonly ProductResolver $resolver ) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+		$prepared = $this->prepare( $item );
+
+		if ( null === $prepared->target ) {
+			return new WriteResult( $prepared->local_id_if_unwritable, WriteResult::OPERATION_SKIPPED, $prepared->warnings );
+		}
+
+		StockApplier::apply( $prepared->target, $prepared->stock->quantity, $prepared->stock->in_stock );
+
+		// `resolve_stock_target()` は既存の商品/バリエーションをmappings/SKUで解決するのみで
+		// 新規作成することは無いため、`$existing_local_id`（stockエンティティのmapping有無）に
+		// 関わらず実体としては常に更新である。ここをexisting_local_idで判定すると、
+		// stockのmapping行が初回（null）のケースで実際は更新なのにcreatedと報告され、
+		// 結果レポートの件数が不正確になる。
+		$target_id = $prepared->target->save();
+
+		if ( $prepared->target instanceof WC_Product_Variation ) {
+			// variationの在庫を変えたら親の価格レンジ・stock_statusを子から再計算し直す。
+			WC_Product_Variable::sync( $prepared->target->get_parent_id() );
+		}
+
+		return new WriteResult( $target_id, WriteResult::OPERATION_UPDATED );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		$prepared = $this->prepare( $item );
+
+		return new ValidationResult(
+			null === $prepared->target ? WriteResult::OPERATION_SKIPPED : WriteResult::OPERATION_UPDATED,
+			$prepared->warnings
+		);
+	}
+
+	/**
+	 * 対象商品/バリエーションの解決と、書き込み不可なケース（未解決・variable親）の判定は
+	 * 参照解決だけで完結し（`ProductResolver`はDB読取のみ）、在庫の`set_*`・`save()`には
+	 * 依存しない。`write()`/`validate()`の両方がこの結果を使うことで警告のdriftを防ぐ。
+	 */
+	private function prepare( CanonicalModel $item ): StockPrepared {
 		if ( ! $item instanceof CanonicalStock ) {
 			throw new RuntimeException( 'StockWriter received an unsupported Canonical model.' );
 		}
@@ -37,7 +75,7 @@ final class StockWriter implements EntityWriter {
 
 		if ( null === $target ) {
 			// local_id 0 はImporterにmappingsを書かせない契約なので、次回実行時に再試行できる。
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, $ref ) ] );
+			return new StockPrepared( null, $item, 0, [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, $ref ) ] );
 		}
 
 		if ( $target instanceof WC_Product_Variable ) {
@@ -66,23 +104,9 @@ final class StockWriter implements EntityWriter {
 			// local_idは解決できた親のIDを返す（`STOCK_PRODUCT_UNRESOLVED`と異なり対象自体は
 			// 特定できているため）。この状況は再実行しても解消し得ない終端状態であり、
 			// `Importer`にmappingとchecksumを記録させることで毎回同じ警告を積み直さない。
-			return new WriteResult( $target->get_id(), WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, $ref ) ] );
+			return new StockPrepared( null, $item, $target->get_id(), [ WarningCode::with_detail( WarningCode::STOCK_PARENT_OF_VARIABLE, $ref ) ] );
 		}
 
-		StockApplier::apply( $target, $item->quantity, $item->in_stock );
-
-		// `resolve_stock_target()` は既存の商品/バリエーションをmappings/SKUで解決するのみで
-		// 新規作成することは無いため、`$existing_local_id`（stockエンティティのmapping有無）に
-		// 関わらず実体としては常に更新である。ここをexisting_local_idで判定すると、
-		// stockのmapping行が初回（null）のケースで実際は更新なのにcreatedと報告され、
-		// 結果レポートの件数が不正確になる。
-		$target_id = $target->save();
-
-		if ( $target instanceof WC_Product_Variation ) {
-			// variationの在庫を変えたら親の価格レンジ・stock_statusを子から再計算し直す。
-			WC_Product_Variable::sync( $target->get_parent_id() );
-		}
-
-		return new WriteResult( $target_id, WriteResult::OPERATION_UPDATED );
+		return new StockPrepared( $target, $item, 0, [] );
 	}
 }

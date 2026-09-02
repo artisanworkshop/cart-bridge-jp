@@ -58,6 +58,76 @@ final class ProductWriter implements EntityWriter {
 			throw new RuntimeException( 'ProductWriter received an unsupported Canonical model.' );
 		}
 
+		$prepared = $this->prepare( $item, $existing_local_id );
+		$product  = $prepared->product;
+		$warnings = $prepared->warnings;
+
+		try {
+			$product_id = $product->save();
+
+			if ( 0 === $product_id ) {
+				// `WC_Product_Data_Store_CPT::create()` は `wp_insert_post()` が失敗（DB障害等）した場合、
+				// 例外を投げず黙ってIDを未設定のまま返す（`WC_Product::save()`は`get_id()`=0を返す）。
+				// このまま`variations->sync(0, ...)`/`apply_images()`を走らせると、parent_id=0の
+				// 孤立バリエーションを作りかねない。`WriteResult::$local_id === 0`はImporterが
+				// mappingsを書かない契約のため、ここで打ち切らないと警告も無いまま永久に気付けない
+				// （OrderWriter/CustomerWriter/TermWriter/VariationWriterの同種の作成失敗ガードと同じ方針）。
+				$warnings[] = WarningCode::PRODUCT_SAVE_FAILED;
+
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
+			}
+
+			$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
+
+			if ( $prepared->has_variants ) {
+				$warnings = array_merge(
+					$warnings,
+					$this->variations->sync( $product_id, $item->variants, $prepared->variation_axis_names )
+				);
+			} elseif ( [] !== $prepared->stale_variations ) {
+				$warnings = array_merge( $warnings, $this->variations->remove_all( $prepared->stale_variations ) );
+			}
+		} catch ( Throwable $exception ) {
+			// `$product->save()`は直後にDBへ永続化するため、ここで例外が伝播すると呼び出し元
+			// Importerはmappingsを書けない（OrderWriterの同種の対応と同じ理由）。新規作成
+			// だった場合、再試行時に同一remote productに対して重複した孤立商品を作ってしまう
+			// ため、ここで削除してから例外を再送出し、次回はクリーンな状態からやり直せるようにする。
+			// `save()`自体がフックの例外等で失敗した場合も`WC_Product`オブジェクトには既にIDが
+			// セットされていることがあるため（`create()`はID採番後にpost保存＋フック発火する）、
+			// ローカル変数の`$product_id`ではなく`$product->get_id()`で判定する。
+			if ( WriteResult::OPERATION_CREATED === $prepared->operation && 0 !== $product->get_id() ) {
+				// `variations->sync()`は複数variantを1件ずつ保存・upsertするため、後続のvariantで
+				// 例外が起きた時点で先行するvariantは既に保存済み・mapping済みのことがある。
+				// `product`投稿型は非階層のため`$product->delete(true)`は子のvariation投稿を
+				// カスケード削除せず、そのまま放置すると親を失った孤立variationと、存在しない
+				// 親を指したままのmapping行が残ってしまう。`find_owned_variation_remote_ids()`は
+				// stale-variation掃除と同じ手法（post_parent＋プラットフォーム所有権）で
+				// これらを検出できるため、親を削除する前にここでも同様に掃除する。
+				$this->variations->remove_all( $this->variations->find_owned_variation_remote_ids( $product->get_id() ) );
+				$product->delete( true );
+			}
+
+			throw $exception;
+		}
+
+		return new WriteResult( $product_id, $prepared->operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		$prepared = $this->prepare( $item, $existing_local_id );
+
+		return new ValidationResult( $prepared->operation, $prepared->warnings );
+	}
+
+	/**
+	 * 参照解決・値検証・`WC_Product`への`set_*`をここに集約する。`$product->save()`を呼ばないため
+	 * `write()`/`validate()`の両方がdriftなく共有できる。
+	 */
+	private function prepare( CanonicalModel $item, ?int $existing_local_id ): ProductPrepared {
+		if ( ! $item instanceof CanonicalProduct ) {
+			throw new RuntimeException( 'ProductWriter received an unsupported Canonical model.' );
+		}
+
 		$warnings     = [];
 		$has_variants = [] !== $item->variants;
 		$type         = $has_variants ? 'variable' : 'simple';
@@ -176,55 +246,7 @@ final class ProductWriter implements EntityWriter {
 			? $this->variations->find_owned_variation_remote_ids( $original_existing_local_id )
 			: [];
 
-		try {
-			$product_id = $product->save();
-
-			if ( 0 === $product_id ) {
-				// `WC_Product_Data_Store_CPT::create()` は `wp_insert_post()` が失敗（DB障害等）した場合、
-				// 例外を投げず黙ってIDを未設定のまま返す（`WC_Product::save()`は`get_id()`=0を返す）。
-				// このまま`variations->sync(0, ...)`/`apply_images()`を走らせると、parent_id=0の
-				// 孤立バリエーションを作りかねない。`WriteResult::$local_id === 0`はImporterが
-				// mappingsを書かない契約のため、ここで打ち切らないと警告も無いまま永久に気付けない
-				// （OrderWriter/CustomerWriter/TermWriter/VariationWriterの同種の作成失敗ガードと同じ方針）。
-				$warnings[] = WarningCode::PRODUCT_SAVE_FAILED;
-
-				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
-			}
-
-			$warnings = array_merge( $warnings, $this->apply_images( $product, $item->images ) );
-
-			if ( $has_variants ) {
-				$warnings = array_merge(
-					$warnings,
-					$this->variations->sync( $product_id, $item->variants, $variation_axis_names )
-				);
-			} elseif ( [] !== $stale_variations ) {
-				$warnings = array_merge( $warnings, $this->variations->remove_all( $stale_variations ) );
-			}
-		} catch ( Throwable $exception ) {
-			// `$product->save()`は直後にDBへ永続化するため、ここで例外が伝播すると呼び出し元
-			// Importerはmappingsを書けない（OrderWriterの同種の対応と同じ理由）。新規作成
-			// だった場合、再試行時に同一remote productに対して重複した孤立商品を作ってしまう
-			// ため、ここで削除してから例外を再送出し、次回はクリーンな状態からやり直せるようにする。
-			// `save()`自体がフックの例外等で失敗した場合も`WC_Product`オブジェクトには既にIDが
-			// セットされていることがあるため（`create()`はID採番後にpost保存＋フック発火する）、
-			// ローカル変数の`$product_id`ではなく`$product->get_id()`で判定する。
-			if ( null === $existing_local_id && 0 !== $product->get_id() ) {
-				// `variations->sync()`は複数variantを1件ずつ保存・upsertするため、後続のvariantで
-				// 例外が起きた時点で先行するvariantは既に保存済み・mapping済みのことがある。
-				// `product`投稿型は非階層のため`$product->delete(true)`は子のvariation投稿を
-				// カスケード削除せず、そのまま放置すると親を失った孤立variationと、存在しない
-				// 親を指したままのmapping行が残ってしまう。`find_owned_variation_remote_ids()`は
-				// stale-variation掃除と同じ手法（post_parent＋プラットフォーム所有権）で
-				// これらを検出できるため、親を削除する前にここでも同様に掃除する。
-				$this->variations->remove_all( $this->variations->find_owned_variation_remote_ids( $product->get_id() ) );
-				$product->delete( true );
-			}
-
-			throw $exception;
-		}
-
-		return new WriteResult( $product_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+		return new ProductPrepared( $product, $has_variants, $variation_axis_names, $stale_variations, $operation, $warnings );
 	}
 
 	/**

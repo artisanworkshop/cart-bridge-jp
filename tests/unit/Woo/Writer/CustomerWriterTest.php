@@ -12,6 +12,7 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
+use WP_User;
 
 final class CustomerWriterTest extends WooTestCase {
 
@@ -182,7 +183,8 @@ final class CustomerWriterTest extends WooTestCase {
 		$customer = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$result   = $this->make_writer()->write( $customer, $existing_id );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, 'taken@example.com' ), $result->warnings );
+		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $result->warnings );
 
 		// 衝突のためメールは更新されず、既存アカウントの元のメールのまま残る。
 		$user = get_userdata( $existing_id );
@@ -264,5 +266,135 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( '0', get_user_meta( $result->local_id, '_cbjp_mailmag_opt_in', true ) );
 		$this->assertSame( 'note text', get_user_meta( $result->local_id, '_cbjp_note', true ) );
 		$this->assertSame( 'Sales', get_user_meta( $result->local_id, '_cbjp_department', true ) );
+	}
+
+	// --- validate()（F1-6 dry-run）
+
+	public function test_validate_matches_write_for_new_customer(): void {
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertFalse( get_user_by( 'email', 'taro@example.com' ) );
+	}
+
+	public function test_validate_reuses_existing_customer_by_email_without_persisting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'taro@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+
+		// 何も永続化していない（氏名は未反映のまま）。
+		$user = get_userdata( $existing_id );
+		$this->assertSame( '', $user->first_name );
+	}
+
+	public function test_validate_detects_protected_account_without_overwriting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'admin-taro',
+				'user_email' => 'taro@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'administrator',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $validation->warnings );
+	}
+
+	public function test_validate_updated_existing_mapping_without_persisting(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+
+		// 何も永続化していない（メールは同期されない）。
+		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+	}
+
+	public function test_validate_warns_on_overseas_address_matching_write(): void {
+		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定のため、write()と
+		// 同じ警告がvalidate()でも出ることを確認する（PRレビュー指摘: validate()は元々この
+		// チェックを一切呼んでおらず、実際に移行後に付く警告がdry-run CSVから欠落していた）。
+		$customer = new CanonicalCustomer(
+			'overseas-dry-run@example.com',
+			'John Smith',
+			null,
+			null,
+			null,
+			[
+				'pref_id'  => 48,
+				'address1' => 'Somewhere',
+			],
+			null,
+			null,
+			null,
+			null,
+			[ 'remote_id' => '2' ]
+		);
+
+		$validation = $this->make_writer()->validate( $customer, null );
+
+		$this->assertContains( WarningCode::ADDRESS_OVERSEAS, $validation->warnings );
+		$this->assertFalse( get_user_by( 'email', 'overseas-dry-run@example.com' ) instanceof WP_User );
+	}
+
+	public function test_validate_detects_email_conflict_matching_write(): void {
+		// PRレビュー指摘: `CUSTOMER_EMAIL_CONFLICT`は「実際にwp_update_user()を呼ばないと
+		// 判定できない」という前提でvalidate()から除外されていたが、`wp_insert_user()`の
+		// メール一意性チェック自体は`email_exists()`のみで完結する読取専用の判定であり、
+		// write()を呼ばずに再現できる（wp evalでの実測により確認済み）。
+		wp_insert_user(
+			[
+				'user_login' => 'other',
+				'user_email' => 'taken@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $validation->warnings );
+
+		// 何も永続化していない。
+		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
 	}
 }

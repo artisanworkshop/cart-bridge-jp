@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
@@ -20,6 +21,7 @@ use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use RuntimeException;
 use Throwable;
 use WP_Error;
+use WP_HTTP_Response;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -133,6 +135,33 @@ final class RestController {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'cancel_run' ],
 				'permission_callback' => [ $this, 'check_permission' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/runs/(?P<run_id>[a-zA-Z0-9-]+)/report',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'get_run_report' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => [
+					'run_id'        => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+					'entity'        => [
+						'type'     => 'string',
+						'enum'     => self::ENTITY_TYPES,
+						'required' => false,
+					],
+					'only_warnings' => [
+						'type'     => 'boolean',
+						'default'  => false,
+						'required' => false,
+					],
+				],
 			]
 		);
 
@@ -573,6 +602,66 @@ final class RestController {
 				'jobs'   => $formatted,
 			]
 		);
+	}
+
+	/**
+	 * dry-run結果のCSVダウンロード（D17）。JSON化してJS側でBlob化する方式は採らず、
+	 * サーバー側で`Content-Disposition`を吐いてストリーミングする
+	 * （数万行を配列/JSON文字列として複数回メモリに載せるのを避けるため）。
+	 *
+	 * `<a download href>`はカスタムヘッダー（`X-WP-Nonce`）を送れないため、WP REST の
+	 * cookie認証が受け付ける`?_wpnonce=`クエリパラメータ経由での呼び出しを想定する
+	 * （`rest_cookie_check_errors`）。`fetch`+Blob経路（`X-WP-Nonce`ヘッダー）でも同じ
+	 * ルートがそのまま使える。
+	 */
+	public function get_run_report( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$run_id = (string) $request->get_param( 'run_id' );
+
+		if ( [] === ( new JobRepository() )->find_by_run( $run_id ) ) {
+			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
+		}
+
+		$entity        = $this->scalar_query_param( $request, 'entity' );
+		$entity        = is_string( $entity ) && in_array( $entity, self::ENTITY_TYPES, true ) ? $entity : null;
+		$only_warnings = (bool) $request->get_param( 'only_warnings' );
+
+		$response = new WP_REST_Response( null, 200 );
+		$response->header( 'Content-Type', 'text/csv; charset=utf-8' );
+		$response->header( 'Content-Disposition', 'attachment; filename="' . sanitize_file_name( "cart-bridge-jp-dry-run-{$run_id}.csv" ) . '"' );
+		$response->header( 'X-Content-Type-Options', 'nosniff' );
+		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate' );
+
+		$exporter = new DryRunReportCsv( new DryRunItemRepository() );
+
+		// `rest_pre_serve_request` はWP RESTでJSON以外のレスポンスボディ（CSV等）を返すための
+		// 正規の手段。このルートのレスポンスに限定してJSONシリアライズを迂回する。
+		// `rest_pre_serve_request`は`WP_REST_Server::serve_request()`経由のリクエストでのみ
+		// 発火し、`rest_do_request()`/`$server->dispatch()`直接呼び出し（PHPUnitのREST
+		// テスト等）では発火しないため、その場合コールバックは`remove_filter()`されないまま
+		// 残留する。「1回発火したら自身を外す」方式だけに頼ると、残留したコールバックが
+		// 同一PHPプロセス内の後続の無関係なリクエスト（次に`rest_pre_serve_request`が
+		// 実際に発火したとき）のCSVを誤って横取りしてしまう。この応答オブジェクト自身
+		// （`$response`、オブジェクト同一性で判定）宛のときだけ動作するようガードし、
+		// 一致しない呼び出しには手を出さず素通りさせる。第2引数の型は`WP_REST_Response`ではなく
+		// コア側のフィルター契約通り`WP_HTTP_Response`にする: `rest_post_dispatch`は任意の
+		// プラグイン/ルートがフックできる汎用フィルターで、他ルートの応答が素の
+		// `WP_HTTP_Response`（`WP_REST_Response`のサブクラスでない）としてここに渡ってくる
+		// ことがありうる。`WP_REST_Response`で型宣言すると、この残留コールバックが無関係な
+		// ルートで発火した際、`!==`比較に達する前に`TypeError`で落ちてしまう。
+		$callback = null;
+		$callback = static function ( bool $served, WP_HTTP_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $response, &$callback ): bool {
+			if ( $result !== $response ) {
+				return $served;
+			}
+
+			remove_filter( 'rest_pre_serve_request', $callback );
+			$exporter->stream( $run_id, $entity, $only_warnings );
+
+			return true;
+		};
+		add_filter( 'rest_pre_serve_request', $callback, 10, 2 );
+
+		return $response;
 	}
 
 	public function cancel_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {

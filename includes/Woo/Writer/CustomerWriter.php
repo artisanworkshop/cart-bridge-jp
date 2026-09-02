@@ -41,25 +41,40 @@ final class CustomerWriter implements EntityWriter {
 
 		$warnings = [];
 		$billing  = AddressMapper::to_woo( $this->platform, $item->address, $item->name, $item->email, $item->phone, $item->company );
+		$resolved = $this->resolve_target( $item, $existing_local_id );
 
-		// mappingsが指すユーザーが手動削除等で既に存在しない場合、existing_local_idを
-		// 信用せず新規作成へフォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。
-		// 信用したまま進むと、has_protected_role()は存在しないIDに対してfalseを返して
-		// 保護をすり抜け、wp_update_user()の失敗（WP_Error）も無視されたまま「更新成功」
-		// として扱われ、存在しないユーザーIDに孤立したusermetaだけが書き込まれてしまう。
-		if ( null !== $existing_local_id && ! get_userdata( $existing_local_id ) ) {
-			$existing_local_id = null;
+		if ( null !== $resolved->reuse_warning ) {
+			$warnings[] = $resolved->reuse_warning;
 		}
 
-		[ $user_id, $operation, $reuse_warning ] = null !== $existing_local_id
-			? [ $existing_local_id, WriteResult::OPERATION_UPDATED, null ]
-			: $this->find_or_create( $item, $billing );
+		$user_id = $resolved->user_id;
 
-		if ( null !== $reuse_warning ) {
-			$warnings[] = $reuse_warning;
+		if ( $resolved->is_new ) {
+			$created = wc_create_new_customer(
+				$item->email,
+				'',
+				wp_generate_password( 24, true, true ),
+				[
+					'first_name'   => $billing['first_name'],
+					'last_name'    => $billing['last_name'],
+					'display_name' => $item->name,
+				]
+			);
+
+			if ( $created instanceof WP_Error ) {
+				// パスワードポリシー系プラグインの拒否・DB制約違反等で作成に失敗。無警告で
+				// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
+				// `validate()`では実際に作成を試みないため判定できない（dry-run除外・
+				// `Woo\WarningCode`のdocblock参照）。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ] ) );
+			}
+
+			$user_id = $created;
 		}
 
 		if ( null === $user_id ) {
+			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非nullだが、
+			// PHPの型システムはこの相関を表現できないため防御的に確認する。
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
@@ -76,7 +91,7 @@ final class CustomerWriter implements EntityWriter {
 			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
-		if ( WriteResult::OPERATION_UPDATED === $operation ) {
+		if ( WriteResult::OPERATION_UPDATED === $resolved->operation ) {
 			// 既存ユーザーのロールは変更しない（管理者と同じメールアドレスの場合に権限を壊さないため）。
 			// user_emailも同期する: mappings経由の再利用（existing_local_id指定）では、ASP側で
 			// 前回インポート後にメールアドレスが変更されている可能性があり、同期しないとWPアカウント
@@ -96,7 +111,10 @@ final class CustomerWriter implements EntityWriter {
 			);
 
 			if ( $update_result instanceof WP_Error ) {
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+				// detailはメールアドレス自体（PII）ではなくASP側remote_idにする。dry-runの
+				// 結果は`cbjp_dry_run_items`に最大30日間永続化されCSVにも出力されるため
+				// （`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
 
 				// `wp_update_user()`はメール重複等のエラー時、渡した全フィールド（氏名・
 				// display_name含む）を一切適用しない。それにも関わらずここから先を続行すると、
@@ -120,7 +138,65 @@ final class CustomerWriter implements EntityWriter {
 		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
 		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
 
-		return new WriteResult( $user_id, $operation, $warnings );
+		return new WriteResult( $user_id, $resolved->operation, $warnings );
+	}
+
+	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
+		if ( ! $item instanceof CanonicalCustomer ) {
+			throw new RuntimeException( 'CustomerWriter received an unsupported Canonical model.' );
+		}
+
+		$resolved = $this->resolve_target( $item, $existing_local_id );
+		$warnings = [];
+
+		if ( null !== $resolved->reuse_warning ) {
+			$warnings[] = $resolved->reuse_warning;
+		}
+
+		if ( ! $resolved->is_new ) {
+			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
+			// 保護ロール判定は新規作成パスには存在しない（新規WPユーザーが最初から
+			// administrator等になることはない）ため、write()と同じくこの分岐内でのみ行う。
+			$user_id = $resolved->user_id ?? 0;
+
+			if ( self::has_protected_role( $user_id ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
+
+				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
+			}
+
+			// `wp_update_user()`→`wp_insert_user()`のメール一意性チェック（wp-includes/user.php）を
+			// 読取専用で再現する: 新メールが現在の値と（大文字小文字を区別せず）異なり、かつ
+			// 他の誰かが既にそのメールを使っている場合にのみ`existing_user_email`エラーになる
+			// （`email_exists()`はIDを除外しないため、まずメール自体の変更有無を先に見る必要がある）。
+			// wp evalでの実測により、この判定はwrite()の`wp_update_user()`呼び出し結果と一致することを確認済み。
+			$current_user  = get_userdata( $user_id );
+			$current_email = $current_user instanceof WP_User ? $current_user->user_email : '';
+
+			if ( 0 !== strcasecmp( $item->email, $current_email ) && false !== email_exists( $item->email ) ) {
+				// write()と同じくdetailはメールアドレス自体ではなくASP側remote_idにする
+				// （PII保護。上のwrite()側コメント参照）。
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
+
+				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
+			}
+		}
+
+		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定で、write()は
+		// 新規作成/更新どちらのパスでも（保護ロールでない場合）警告を積む。ここも同じ位置で
+		// 呼ぶ: write()側でだけ判定すると、実際には移行後に付く警告がdry-runのCSVレポート
+		// から欠落する。
+		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
+			$warnings[] = WarningCode::ADDRESS_OVERSEAS;
+		}
+
+		if ( $resolved->is_new ) {
+			// `CUSTOMER_CREATE_FAILED`は実際に`wc_create_new_customer()`を呼ばないと判定できない
+			// （パスワードポリシー系プラグインの拒否等）ため、dry-runでは出ない。
+			return new ValidationResult( WriteResult::OPERATION_CREATED, $warnings );
+		}
+
+		return new ValidationResult( $resolved->operation, $warnings );
 	}
 
 	/**
@@ -138,34 +214,37 @@ final class CustomerWriter implements EntityWriter {
 	}
 
 	/**
-	 * @param array<string,string> $billing
-	 * @return array{0:?int,1:string,2:?string}
+	 * mappingsが指すユーザーが手動削除等で既に存在しない場合、`$existing_local_id`を信用せず
+	 * 新規作成へフォールバックする（TermWriterの同種のstale-ID対応と同じ方針）。信用したまま
+	 * 進むと、`has_protected_role()`は存在しないIDに対してfalseを返して保護をすり抜け、
+	 * `wp_update_user()`の失敗（WP_Error）も無視されたまま「更新成功」として扱われ、
+	 * 存在しないユーザーIDに孤立したusermetaだけが書き込まれてしまう。
+	 *
+	 * email突合（`get_user_by('email')`）はDB読取のみで完結するため、`write()`/`validate()`の
+	 * 両方が同じ判定を共有できる。実際のユーザー作成（`wc_create_new_customer()`）は
+	 * 永続化を伴うため`write()`側にのみ残す。
 	 */
-	private function find_or_create( CanonicalCustomer $item, array $billing ): array {
+	private function resolve_target( CanonicalCustomer $item, ?int $existing_local_id ): CustomerResolution {
+		if ( null !== $existing_local_id && ! get_userdata( $existing_local_id ) ) {
+			$existing_local_id = null;
+		}
+
+		if ( null !== $existing_local_id ) {
+			return new CustomerResolution( $existing_local_id, WriteResult::OPERATION_UPDATED, false, null );
+		}
+
 		$existing_user = get_user_by( 'email', $item->email );
 
 		if ( $existing_user instanceof WP_User ) {
-			return [ $existing_user->ID, WriteResult::OPERATION_UPDATED, WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID ) ];
+			return new CustomerResolution(
+				$existing_user->ID,
+				WriteResult::OPERATION_UPDATED,
+				false,
+				WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID )
+			);
 		}
 
-		$created = wc_create_new_customer(
-			$item->email,
-			'',
-			wp_generate_password( 24, true, true ),
-			[
-				'first_name'   => $billing['first_name'],
-				'last_name'    => $billing['last_name'],
-				'display_name' => $item->name,
-			]
-		);
-
-		if ( $created instanceof WP_Error ) {
-			// パスワードポリシー系プラグインの拒否・DB制約違反等で作成に失敗。無警告で
-			// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
-			return [ null, WriteResult::OPERATION_SKIPPED, WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ];
-		}
-
-		return [ $created, WriteResult::OPERATION_CREATED, null ];
+		return new CustomerResolution( null, WriteResult::OPERATION_CREATED, true, null );
 	}
 
 	/**

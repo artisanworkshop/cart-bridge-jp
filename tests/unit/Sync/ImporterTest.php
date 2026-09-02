@@ -512,4 +512,102 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 'p1', $stock->product_ref );
 		$this->assertSame( 5, $stock->quantity );
 	}
+
+	public function test_dry_run_records_one_row_per_item_with_its_warnings(): void {
+		$adapter = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				return new WriteResult( 0, WriteResult::OPERATION_CREATED, [ 'category_parent_unresolved:999' ] );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-1' );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-1', 0, 10 );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'category', $rows[0]['entity'] );
+		$this->assertSame( 'c1', $rows[0]['remote_id'] );
+		$this->assertSame( 'Category 1', $rows[0]['label'] );
+		$this->assertSame( [ 'category_parent_unresolved:999' ], json_decode( (string) $rows[0]['warnings_json'], true ) );
+	}
+
+	public function test_real_import_does_not_record_dry_run_rows(): void {
+		$adapter  = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer   = new InMemoryWriter();
+		$importer = new Importer( $this->mappings );
+
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), false, null, null, 1, 'run-real-1' );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-real-1', 0, 10 );
+		$this->assertSame( [], $rows );
+	}
+
+	/**
+	 * PRレビュー指摘: `EntityWriter::validate()`が例外を投げた場合、catch節はtotals（skipped/
+	 * warned）を加算するだけで`continue`しており、成功パスにしかない`$dry_run_rows[]`追加を
+	 * 通らないため、CSVレポートには当該アイテムの行が一切現れなかった（warned件数とCSVの
+	 * 行数が食い違う）。catch節でも1行記録されることを確認する。
+	 */
+	public function test_dry_run_records_a_row_when_the_writer_throws(): void {
+		$adapter = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				throw new \RuntimeException( 'simulated validate() failure' );
+			}
+		};
+
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-throw' );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-throw', 0, 10 );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'c1', $rows[0]['remote_id'] );
+		$this->assertSame( 'skipped', $rows[0]['operation'] );
+		$this->assertSame( [ 'validation_exception' ], json_decode( (string) $rows[0]['warnings_json'], true ) );
+	}
+
+	/**
+	 * PRレビュー指摘: checksum一致スキップ（差分なし）は`continue`するだけで`$dry_run_rows[]`に
+	 * 一切追加されないため、既にインポート済みの店舗で再度dry-runを実行すると、CSVレポートが
+	 * ほぼ空になっていた（03 §10.4の「全量出力」契約に反する）。checksum一致の場合もwriterは
+	 * 一切呼ばず（既存の冪等性最適化を保つ）、warningsなしのskipped行として記録されることを
+	 * 確認する。
+	 */
+	public function test_dry_run_records_a_skipped_row_when_checksum_is_unchanged(): void {
+		$item    = CanonicalFactory::category( 'c1', 'Category 1' );
+		$adapter = new MockPlatformAdapter( categories: [ $item ] );
+
+		// 事前に実インポートを走らせ、mappingsにchecksumをキャッシュさせる。
+		$real_writer = new InMemoryWriter();
+		$importer    = new Importer( $this->mappings );
+		$importer->run_page( $adapter, $real_writer, 'category', Cursor::start(), false );
+
+		$existing_local_id = $this->mappings->find_local_id( $adapter->id(), 'category', 'c1' );
+		$this->assertNotNull( $existing_local_id );
+
+		$dry_writer = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				throw new \RuntimeException( 'checksum-matched items must not be re-validated' );
+			}
+		};
+
+		$result = $importer->run_page( $adapter, $dry_writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-checksum' );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['warned'] );
+
+		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-checksum', 0, 10 );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'c1', $rows[0]['remote_id'] );
+		$this->assertSame( 'skipped', $rows[0]['operation'] );
+		$this->assertSame( $existing_local_id, (int) $rows[0]['existing_local_id'] );
+		$this->assertSame( [], json_decode( (string) $rows[0]['warnings_json'], true ) );
+	}
 }

@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use WP_HTTP_Response;
 use WP_REST_Request;
 use WP_REST_Server;
 use WP_UnitTestCase;
@@ -671,5 +672,98 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertTrue( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
 
 		remove_all_filters( 'pre_http_request' );
+	}
+
+	public function test_get_run_report_returns_404_for_unknown_run(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/does-not-exist/report' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_run_report_requires_permission(): void {
+		wp_set_current_user( 0 );
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/does-not-exist/report' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 401, $response->get_status() );
+	}
+
+	public function test_get_run_report_rejects_unknown_entity(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$request->set_query_params( [ 'entity' => 'not-a-real-entity' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_get_run_report_returns_csv_headers_for_a_known_run(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$headers = $response->get_headers();
+		$this->assertSame( 'text/csv; charset=utf-8', $headers['Content-Type'] );
+		$this->assertStringContainsString( "cart-bridge-jp-dry-run-{$run_id}.csv", $headers['Content-Disposition'] );
+	}
+
+	/**
+	 * PRレビュー指摘: `rest_pre_serve_request`は`WP_REST_Server::serve_request()`経由の
+	 * リクエストでのみ発火し、`$server->dispatch()`直接呼び出し（このテストクラスが常に
+	 * 使う経路）では発火しない。そのため`get_run_report()`が登録したコールバックは
+	 * `remove_filter()`されないまま残留する。この残留コールバックが、後から実際に
+	 * `rest_pre_serve_request`が発火した際に無関係なレスポンスまでCSVにすり替えないことを
+	 * 確認する（オブジェクト同一性で自分宛のレスポンスかどうかを判定するガード）。
+	 * 応答オブジェクトはコア側のフィルター契約通り`WP_HTTP_Response`（`WP_REST_Response`の
+	 * 親クラス）を使う: `rest_post_dispatch`は他ルート/プラグインが素の`WP_HTTP_Response`を
+	 * 返しうる汎用フィルターのため、コールバックの型宣言を`WP_REST_Response`のままにすると
+	 * この残留コールバックがここで`TypeError`を投げていた（別のPRレビュー指摘で修正済み）。
+	 */
+	public function test_stale_report_filter_does_not_hijack_an_unrelated_response(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$this->server->dispatch( $request );
+
+		$unrelated_response = new WP_HTTP_Response( [ 'ok' => true ], 200 );
+		$unrelated_request  = new WP_REST_Request( 'GET', '/cbjp/v1/unrelated' );
+
+		ob_start();
+		$served = apply_filters( 'rest_pre_serve_request', false, $unrelated_response, $unrelated_request, $this->server );
+		$output = ob_get_clean();
+
+		$this->assertFalse( $served );
+		$this->assertSame( '', $output );
+
+		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	private function start_mock_dry_run(): string {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		return (string) $response->get_data()['run_id'];
 	}
 }

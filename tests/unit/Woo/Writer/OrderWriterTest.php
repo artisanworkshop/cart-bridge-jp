@@ -1008,4 +1008,191 @@ final class OrderWriterTest extends WooTestCase {
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
+
+	// --- validate()（F1-6 dry-run）: `wc_create_order()`は呼んだ瞬間にDBへ注文行を作るため、
+	// `validate()`は未保存の`WC_Order`（`new WC_Order()`）へ組み立てる設計になっている。
+	// ここでは特に「dry-runが実際に注文を作っていないこと」を`wc_get_orders()`で確認する。
+
+	public function test_validate_new_order_matches_write_without_creating_an_order(): void {
+		$before_count = count(
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+				]
+			)
+		);
+
+		$order      = $this->make_order( '5001', 'processing' );
+		$validation = $this->make_writer()->validate( $order, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		// テスト環境のデフォルト通貨がJPYでないため`CURRENCY_MISMATCH`が乗る。テストの主眼
+		// （このシナリオ固有の警告が出ないこと）とは無関係なので除外して比較する。
+		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::CURRENCY_MISMATCH ] ) );
+		$this->assertSame(
+			$before_count,
+			count(
+				wc_get_orders(
+					[
+						'return' => 'ids',
+						'limit'  => -1,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_negative_total_is_rejected_without_creating_an_order(): void {
+		$before_count = count(
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+				]
+			)
+		);
+
+		$order = $this->make_order(
+			'5002',
+			'processing',
+			null,
+			[],
+			[],
+			[],
+			[
+				'total'        => '-100',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			]
+		);
+
+		$validation = $this->make_writer()->validate( $order, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $validation->warnings );
+		$this->assertSame(
+			$before_count,
+			count(
+				wc_get_orders(
+					[
+						'return' => 'ids',
+						'limit'  => -1,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_unknown_status_matches_write_without_creating_an_order(): void {
+		$before_count = count(
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+				]
+			)
+		);
+
+		$order      = $this->make_order( '5003', 'some-unknown-status' );
+		$validation = $this->make_writer()->validate( $order, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $validation->warnings );
+		$this->assertSame(
+			$before_count,
+			count(
+				wc_get_orders(
+					[
+						'return' => 'ids',
+						'limit'  => -1,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_unmapped_payment_method_matches_write(): void {
+		$order = $this->make_order(
+			'5004',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'unmapped-pay',
+				'method_name' => 'Unmapped',
+			]
+		);
+
+		$validation = $this->make_writer()->validate( $order, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'unmapped-pay' ), $validation->warnings );
+	}
+
+	public function test_validate_resolves_line_item_by_sku_without_creating_an_order(): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Widget' );
+		$product->set_sku( 'WIDGET-VALIDATE' );
+		$product->update_meta_data( '_cbjp_platform', 'colorme' );
+		$product->save();
+
+		$before_count = count(
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+				]
+			)
+		);
+
+		$order = $this->make_order(
+			'5005',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => 'WIDGET-VALIDATE',
+					'remote_product_id'   => 'p1',
+					'name'                => 'Widget (at purchase)',
+					'price'               => '1100',
+					'unit_price_excl_tax' => '1000',
+					'subtotal'            => '1100',
+					'quantity'            => 1,
+				],
+			]
+		);
+
+		$validation = $this->make_writer()->validate( $order, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		// テスト環境のデフォルト通貨がJPYでないため`CURRENCY_MISMATCH`が乗る。テストの主眼
+		// （このシナリオ固有の警告が出ないこと）とは無関係なので除外して比較する。
+		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::CURRENCY_MISMATCH ] ) );
+		$this->assertSame(
+			$before_count,
+			count(
+				wc_get_orders(
+					[
+						'return' => 'ids',
+						'limit'  => -1,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_existing_order_is_updated_without_persisting_changes(): void {
+		$order = $this->make_order( '5006', 'processing' );
+		$first = $this->make_writer()->write( $order, null );
+
+		$resynced   = $this->make_order( '5006', 'completed' );
+		$validation = $this->make_writer()->validate( $resynced, $first->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+
+		// 何も永続化していない（ステータスは元のままprocessing）。
+		$this->assertSame( 'processing', wc_get_order( $first->local_id )->get_status() );
+	}
 }

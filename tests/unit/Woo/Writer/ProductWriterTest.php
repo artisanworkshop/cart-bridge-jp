@@ -821,4 +821,93 @@ final class ProductWriterTest extends WooTestCase {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テスト専用ヘルパー。テーブル名のみの埋め込みで値はプレースホルダー経由。
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_cbjp_source_url' AND meta_value = %s LIMIT 1", $url ) );
 	}
+
+	// --- validate()（F1-6 dry-run）
+
+	public function test_validate_matches_write_for_new_product_without_persisting(): void {
+		$product = new CanonicalProduct( 'T-Shirt', 'SKU-100', '3300', null, 'desc', [], [], [], [], 10, 'publish', [ 'remote_id' => '100' ] );
+
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		// テスト環境は`woocommerce_prices_include_tax`がデフォルト`no`のため
+		// `PRICES_INCLUDE_TAX_DISABLED`が乗る。テストの主眼（このシナリオ固有の警告が
+		// 出ないこと）とは無関係なので除外して比較する。
+		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) );
+		$this->assertSame( 0, wc_get_product_id_by_sku( 'SKU-100' ) );
+	}
+
+	public function test_validate_detects_unknown_tax_class(): void {
+		$product = new CanonicalProduct( 'P', 'SKU-101', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '101' ], true, [], null, 'nonexistent-class' );
+
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'nonexistent-class' ), $validation->warnings );
+	}
+
+	public function test_validate_detects_sku_conflict_without_creating_a_product(): void {
+		$existing = new CanonicalProduct( 'Existing', 'DUP-SKU-2', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'existing2' ] );
+		$this->make_writer()->write( $existing, null );
+
+		$product    = new CanonicalProduct( 'New', 'DUP-SKU-2', '200', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'new2' ] );
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::SKU_DUPLICATE, 'DUP-SKU-2' ), $validation->warnings );
+		// SKUの持ち主（既存商品）は1件のまま。dry-runが2件目を作っていない。
+		$this->assertSame(
+			1,
+			count(
+				wc_get_products(
+					[
+						'sku'   => 'DUP-SKU-2',
+						'limit' => -1,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_detects_unresolved_category_ref(): void {
+		$product    = new CanonicalProduct( 'P', 'SKU-102', '100', null, null, [], [], [], [ '999' ], null, 'publish', [ 'remote_id' => '102' ] );
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '999' ), $validation->warnings );
+	}
+
+	public function test_validate_resolves_categories_and_tags_via_mapping_without_warning(): void {
+		$category_term_id = wp_insert_term( 'Cat2', 'product_cat' )['term_id'];
+		$tag_term_id      = wp_insert_term( 'Tag2', 'product_tag' )['term_id'];
+		$this->seed_mapping( 'colorme', 'category', '10', $category_term_id );
+		$this->seed_mapping( 'colorme', 'tag', '20', $tag_term_id );
+
+		$product    = new CanonicalProduct( 'P', 'SKU-103', '100', null, null, [], [], [], [ '10' ], null, 'publish', [ 'remote_id' => '103' ], true, [ '20' ] );
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		// テスト環境は`woocommerce_prices_include_tax`がデフォルト`no`のため
+		// `PRICES_INCLUDE_TAX_DISABLED`が乗る。テストの主眼（このシナリオ固有の警告が
+		// 出ないこと）とは無関係なので除外して比較する。
+		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) );
+	}
+
+	public function test_validate_detects_invalid_price(): void {
+		$product    = new CanonicalProduct( 'P', 'SKU-104', 'not-a-number', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '104' ] );
+		$validation = $this->make_writer()->validate( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::PRODUCT_PRICE_INVALID, 'not-a-number' ), $validation->warnings );
+	}
+
+	public function test_validate_existing_product_is_updated(): void {
+		$original = new CanonicalProduct( 'P', 'SKU-105', '100', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '105' ] );
+		$first    = $this->make_writer()->write( $original, null );
+
+		$resynced   = new CanonicalProduct( 'P renamed', 'SKU-105', '150', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '105' ] );
+		$validation = $this->make_writer()->validate( $resynced, $first->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		// 何も永続化していない（名前・価格は変更されない）。
+		$wc_product = wc_get_product( $first->local_id );
+		$this->assertSame( 'P', $wc_product->get_name() );
+		$this->assertSame( '100', $wc_product->get_regular_price() );
+	}
 }

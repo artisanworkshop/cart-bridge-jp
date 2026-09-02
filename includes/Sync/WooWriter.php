@@ -11,7 +11,8 @@ use CartBridgeJP\Canonical\CanonicalModel;
 
 /**
  * Importerの書き込み先インターフェース。実移行では `Woo\WooRepository`（Phase 1）が、
- * dry-runでは `DryRunReporter` が実装を差し替える。
+ * dry-runでは `Woo\DryRunRepository`（F1-6。`Writer\EntityWriter::validate()`のみを呼び
+ * 何も永続化しない）が実装を差し替える。
  */
 interface WooWriter {
 

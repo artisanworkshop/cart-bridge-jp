@@ -413,8 +413,19 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 ### 10.4 付帯機能（D17）
 
-- **dry-runレポートのCSVダウンロード**: 変換結果・警告（未マッピング決済方法、SKU重複、バリエーション軸超過等）を全量出力
+- **dry-runレポートのCSVダウンロード**: 変換結果・警告（未マッピング決済方法、SKU重複、バリエーション軸超過等）を全量出力（F1-6 PR-A実装済み）
 - **移行後検証レポート**: エンティティ別件数と受注合計金額の ASP / Woo 突合を実行結果画面に表示
 - **301リダイレクトCSV**（Pro機能・Pro側で実装）: 旧商品URL→新商品URLの対応表を mappings から生成
 - **エクスポート実行前の本番書込み警告**: 無料版のサンプル10件でも ASP 本番環境に書き込むため、
   実行前に確認ダイアログでテストショップの利用を推奨する
+
+#### dry-runレポートCSVの実装詳細（F1-6 PR-A）
+
+- **生成経路**: `Woo\Writer\EntityWriter::validate()`（`write()`と参照解決・値検証ロジックを共有する新設メソッド）
+  → `Woo\DryRunRepository`（`Sync\WooWriter`実装。`validate()`しか呼ばず何も永続化しない）
+  → `Sync\Importer::process_items()`がページ単位で`Sync\DryRunItemRepository`へバッチ記録
+  → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
+- **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
+- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_unresolved_reference()`が真の警告に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
+- **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み

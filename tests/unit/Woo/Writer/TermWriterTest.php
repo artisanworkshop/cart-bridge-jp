@@ -250,6 +250,26 @@ final class TermWriterTest extends WooTestCase {
 		$this->assertSame( 'Apparel', $term->name );
 	}
 
+	public function test_distinct_name_sharing_a_sanitized_slug_is_not_treated_as_a_duplicate(): void {
+		// PRレビュー指摘（実機検証で再現）: sanitize_title()後のslugが偶然一致するだけで
+		// 名前が異なるターム同士（例: 名前"foo-bar"が既にslug"foo-bar"を持つ状態で、別の
+		// 名前"Foo Bar"も同じslugへsanitizeされる）を、term_exists()ベースの事前チェックは
+		// 誤って衝突と判定していた。wp_insert_term()自身はこれを拒否せず一意なslugを
+		// 付けて新規作成するため、TermWriterもそれに揃えて新規作成できる必要がある。
+		$existing_id = wp_insert_term( 'foo-bar', 'product_cat' )['term_id'];
+		update_term_meta( $existing_id, '_cbjp_platform', 'colorme' );
+
+		$category = new CanonicalCategory( '100', 'Foo Bar', null, null );
+		$result   = $this->make_writer()->write( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( $existing_id, $result->local_id );
+		$this->assertSame( [], array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::TERM_NAME_CONFLICT ) || str_starts_with( $w, WarningCode::TERM_REUSED_EXISTING ) ) );
+
+		$new_term = get_term( $result->local_id, 'product_cat' );
+		$this->assertSame( 'Foo Bar', $new_term->name );
+	}
+
 	public function test_stale_term_id_falls_back_to_create_when_term_was_manually_deleted(): void {
 		// `wp_update_term()`は対象タームが既に存在しない場合、`invalid_term_id`ではなく
 		// `invalid_term`を返す（`wp-includes/taxonomy.php`の`get_term()`が空を返した分岐）。
@@ -313,5 +333,146 @@ final class TermWriterTest extends WooTestCase {
 
 		$term = get_term( $result->local_id, 'product_tag' );
 		$this->assertSame( 'Sale', $term->name );
+	}
+
+	// --- validate()（F1-6 dry-run）: 新規作成パスの名前衝突判定は`term_exists()`による
+	// 事前チェック（`write()`と共有）を使うため、write()と同じ結果になることを確認する。
+
+	public function test_validate_matches_write_for_new_category(): void {
+		$category   = new CanonicalCategory( '100', 'Apparel', null, null );
+		$validation = $this->make_writer()->validate( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertSame(
+			0,
+			count(
+				get_terms(
+					[
+						'taxonomy'   => 'product_cat',
+						'name'       => 'Apparel',
+						'hide_empty' => false,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_warns_when_parent_unresolved_without_creating_term(): void {
+		$child      = new CanonicalCategory( '100-1', 'Child', '999', null );
+		$validation = $this->make_writer()->validate( $child, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CATEGORY_PARENT_UNRESOLVED, '999' ), $validation->warnings );
+		$this->assertSame(
+			0,
+			count(
+				get_terms(
+					[
+						'taxonomy'   => 'product_cat',
+						'name'       => 'Child',
+						'hide_empty' => false,
+					]
+				)
+			)
+		);
+	}
+
+	public function test_validate_reuses_existing_term_on_name_conflict_when_platform_matches(): void {
+		$existing_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+		update_term_meta( $existing_id, '_cbjp_platform', 'colorme' );
+
+		$category   = new CanonicalCategory( '100', 'Apparel', null, null );
+		$validation = $this->make_writer()->validate( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertTrue(
+			(bool) array_filter(
+				$validation->warnings,
+				static fn ( string $w ): bool => str_starts_with( $w, WarningCode::TERM_REUSED_EXISTING )
+			)
+		);
+
+		// 何も永続化していない（descriptionは書き込まれない）。
+		$term = get_term( $existing_id, 'product_cat' );
+		$this->assertSame( '', $term->description );
+	}
+
+	public function test_validate_name_conflict_with_another_platform_is_skipped(): void {
+		$existing_id = wp_insert_term( 'Apparel', 'product_cat' )['term_id'];
+
+		$category   = new CanonicalCategory( '100', 'Apparel', null, null );
+		$validation = $this->make_writer()->validate( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $existing_id ), $validation->warnings );
+	}
+
+	public function test_validate_resolves_parent_via_mapping(): void {
+		$parent_term_id = wp_insert_term( 'Parent', 'product_cat' )['term_id'];
+		$this->seed_mapping( 'colorme', 'category', '100', $parent_term_id );
+
+		$child      = new CanonicalCategory( '100-1', 'Child', '100', null );
+		$validation = $this->make_writer()->validate( $child, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+	}
+
+	public function test_validate_does_not_flag_a_conflict_when_updating_a_term_to_its_own_name(): void {
+		// term_exists()による事前チェックが、更新対象自身の既存名を「衝突」と誤検知しない
+		// ことを確認する（term_exists()は既存タームを検索するため、更新パスでは新規作成の
+		// 衝突判定自体を行わない設計になっている）。
+		$term_id  = wp_insert_term( 'Same name', 'product_cat' )['term_id'];
+		$category = new CanonicalCategory( '100', 'Same name', null, null );
+
+		$validation = $this->make_writer()->validate( $category, $term_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+	}
+
+	public function test_validate_stale_term_id_falls_back_to_create_when_term_was_manually_deleted(): void {
+		// write()の`update_existing()`はwp_update_term()が返す`invalid_term`（対象タームが
+		// 手動削除済み）を新規作成へフォールバックする（test_stale_term_id_falls_back_to_create_
+		// when_term_was_manually_deleted参照）。validate()はwp_update_term()を呼べないため、
+		// 同じ判定をget_term()の読み取りだけで再現できていないと、実際には新規作成される
+		// アイテムを「更新される」と誤って報告してしまう。
+		$term_id = wp_insert_term( 'Old', 'product_cat' )['term_id'];
+		wp_delete_term( $term_id, 'product_cat' );
+
+		$category   = new CanonicalCategory( '100', 'New', null, null );
+		$validation = $this->make_writer()->validate( $category, $term_id );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+	}
+
+	public function test_validate_stale_term_id_reports_name_conflict_matching_write(): void {
+		// stale-IDフォールバック後に他プラットフォーム由来の同名タームと衝突する場合、
+		// write()のcreate_or_reuse()はTERM_NAME_CONFLICTでskipする。validate()も同じ結果に
+		// なることを確認する（ドリフト防止）。
+		$term_id = wp_insert_term( 'Old', 'product_cat' )['term_id'];
+		wp_delete_term( $term_id, 'product_cat' );
+
+		$other_platform_term_id = wp_insert_term( 'New', 'product_cat' )['term_id'];
+
+		$category   = new CanonicalCategory( '100', 'New', null, null );
+		$validation = $this->make_writer()->validate( $category, $term_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::TERM_NAME_CONFLICT, (string) $other_platform_term_id ), $validation->warnings );
+	}
+
+	public function test_validate_does_not_flag_a_slug_only_collision_as_a_conflict(): void {
+		// write()側の同種テスト（test_distinct_name_sharing_a_sanitized_slug_is_not_treated_
+		// as_a_duplicate）とvalidate()がdriftしないことを確認する。
+		wp_insert_term( 'foo-bar', 'product_cat' );
+
+		$category   = new CanonicalCategory( '100', 'Foo Bar', null, null );
+		$validation = $this->make_writer()->validate( $category, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
 	}
 }

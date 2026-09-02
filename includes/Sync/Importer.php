@@ -16,6 +16,7 @@ use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Woo\Support\Value;
+use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
 
@@ -33,7 +34,8 @@ final class Importer {
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
-		private readonly Logger $logger = new Logger()
+		private readonly Logger $logger = new Logger(),
+		private readonly DryRunItemRepository $dry_run_items = new DryRunItemRepository()
 	) {}
 
 	/**
@@ -50,11 +52,12 @@ final class Importer {
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy = null,
 		?SampleSet $sample = null,
-		?int $job_id = null
+		?int $job_id = null,
+		?string $run_id = null
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample, $job_id );
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample, $job_id, $run_id );
 
 		return [
 			'next_cursor' => $next_cursor,
@@ -76,7 +79,7 @@ final class Importer {
 	 * @param array<int,string> $remote_ids
 	 * @return array{totals:array<string,int>}
 	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?LimitPolicy $limit_policy = null, ?int $job_id = null ): array {
+	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?LimitPolicy $limit_policy = null, ?int $job_id = null, ?string $run_id = null ): array {
 		$items = [];
 
 		foreach ( $remote_ids as $remote_id ) {
@@ -91,7 +94,7 @@ final class Importer {
 			}
 		}
 
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, null, $job_id ) ];
+		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, null, $job_id, $run_id ) ];
 	}
 
 	/**
@@ -101,7 +104,7 @@ final class Importer {
 	 * @param array<int,string> $product_remote_ids
 	 * @return array{totals:array<string,int>,total:int}
 	 */
-	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null ): array {
+	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null, ?string $run_id = null ): array {
 		$items = [];
 
 		foreach ( $product_remote_ids as $remote_id ) {
@@ -130,7 +133,7 @@ final class Importer {
 		// （呼び出し側=JobManagerが商品数をそのままtotalにすると、バリエーション展開分だけ
 		// processedがtotalを超えてしまう）。
 		return [
-			'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id ),
+			'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id, $run_id ),
 			'total'  => count( $items ),
 		];
 	}
@@ -211,7 +214,8 @@ final class Importer {
 		bool $is_dry_run,
 		?LimitPolicy $limit_policy,
 		?SampleSet $sample,
-		?int $job_id = null
+		?int $job_id = null,
+		?string $run_id = null
 	): array {
 		$totals = [
 			'processed' => 0,
@@ -220,6 +224,14 @@ final class Importer {
 			'skipped'   => 0,
 			'warned'    => 0,
 		];
+
+		// dry-run実行が処理した各アイテムを1行ずつ`cbjp_dry_run_items`へ記録する（F1-6のCSV
+		// レポート用）。ループを抜けてから1回のバッチINSERTでまとめて書き込む
+		// （アイテム毎にINSERTするとページ内アイテム数だけクエリが積み重なるため）。
+		// サンプル外スキップ（無料版のサンプル選定対象外。件数は`totals`で確認できる）と、
+		// remote_id欠損（キーが作れない）は記録の対象外。checksum一致スキップは記録する
+		// （下記参照）。
+		$dry_run_rows = [];
 
 		$platform = $adapter->id();
 
@@ -265,6 +277,24 @@ final class Importer {
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性）。
 			if ( null !== $row && null !== $row['checksum'] && $row['checksum'] === $item->checksum() ) {
 				++$totals['skipped'];
+
+				// dry-runはCSVレポートを「全量出力」する契約（03 §10.4）のため、この分岐で
+				// `continue`するとCSVに当該アイテムの行が一切現れず、再実行（差分なし）の
+				// dry-runがほぼ空のCSVになってしまう。validate()は呼ばない（checksum一致を
+				// 判定するためだけに毎回全アイテムを再検証すると、このスキップ自体の
+				// パフォーマンス上の意味がなくなる）ため、warningsは前回時点のものを再掲せず
+				// 空のまま「変更なし」として記録する。
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = [
+						'entity'            => $entity,
+						'remote_id'         => $remote_id,
+						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'operation'         => WriteResult::OPERATION_SKIPPED,
+						'existing_local_id' => $existing_local_id ?? 0,
+						'warnings'          => [],
+					];
+				}
+
 				continue;
 			}
 
@@ -314,13 +344,28 @@ final class Importer {
 					$job_id
 				);
 
+				if ( $is_dry_run ) {
+					// この分岐は`try`ブロック内の成功パス（371行目以降）を通らないため、
+					// 何もしないとtotals['warned']は加算されるのにCSVレポートには当該アイテムの
+					// 行が一切現れない（`warned`件数とCSVの行数が食い違う）。例外詳細は
+					// `Support\Logger`と同じ理由でCSVにも含めない（固定コードのみ）。
+					$dry_run_rows[] = [
+						'entity'            => $entity,
+						'remote_id'         => $remote_id,
+						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'operation'         => WriteResult::OPERATION_SKIPPED,
+						'existing_local_id' => $existing_local_id ?? 0,
+						'warnings'          => [ WarningCode::VALIDATION_EXCEPTION ],
+					];
+				}
+
 				continue;
 			}
 
 			// local_id 0 は「ローカル実体を作成/更新できなかった」ことを表す契約
 			// （例: stockの対象商品がまだ未インポート）。checksumを保存すると次回実行時の
 			// checksum一致スキップに掛かり永久に再試行できなくなるため、mappingsを書かない。
-			// dry-runは`DryRunReporter`が仕様として常にlocal_id=0でcreated/updatedを返す
+			// dry-runは`Woo\DryRunRepository`が仕様として常にlocal_id=0でcreated/updatedを返す
 			// （何も永続化しないため）ため、この判定の対象外にする。
 			$did_persist = ! $is_dry_run && 0 !== $result->local_id;
 
@@ -366,6 +411,21 @@ final class Importer {
 			if ( [] !== $result->warnings ) {
 				++$totals['warned'];
 			}
+
+			if ( $is_dry_run ) {
+				$dry_run_rows[] = [
+					'entity'            => $entity,
+					'remote_id'         => $remote_id,
+					'label'             => DryRunLabel::for_entity( $entity, $item ),
+					'operation'         => $operation,
+					'existing_local_id' => $existing_local_id ?? 0,
+					'warnings'          => $result->warnings,
+				];
+			}
+		}
+
+		if ( $is_dry_run && [] !== $dry_run_rows && null !== $run_id && null !== $job_id ) {
+			$this->dry_run_items->insert_many( $run_id, $job_id, $dry_run_rows );
 		}
 
 		return $totals;
