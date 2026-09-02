@@ -14,6 +14,7 @@ use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_REST_Request;
+use WP_REST_Response;
 use WP_REST_Server;
 use WP_UnitTestCase;
 
@@ -709,6 +710,33 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$headers = $response->get_headers();
 		$this->assertSame( 'text/csv; charset=utf-8', $headers['Content-Type'] );
 		$this->assertStringContainsString( "cart-bridge-jp-dry-run-{$run_id}.csv", $headers['Content-Disposition'] );
+	}
+
+	/**
+	 * PRレビュー指摘: `rest_pre_serve_request`は`WP_REST_Server::serve_request()`経由の
+	 * リクエストでのみ発火し、`$server->dispatch()`直接呼び出し（このテストクラスが常に
+	 * 使う経路）では発火しない。そのため`get_run_report()`が登録したコールバックは
+	 * `remove_filter()`されないまま残留する。この残留コールバックが、後から実際に
+	 * `rest_pre_serve_request`が発火した際に無関係なレスポンスまでCSVにすり替えないことを
+	 * 確認する（オブジェクト同一性で自分宛のレスポンスかどうかを判定するガード）。
+	 */
+	public function test_stale_report_filter_does_not_hijack_an_unrelated_response(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$this->server->dispatch( $request );
+
+		$unrelated_response = new WP_REST_Response( [ 'ok' => true ], 200 );
+		$unrelated_request  = new WP_REST_Request( 'GET', '/cbjp/v1/unrelated' );
+
+		ob_start();
+		$served = apply_filters( 'rest_pre_serve_request', false, $unrelated_response, $unrelated_request, $this->server );
+		$output = ob_get_clean();
+
+		$this->assertFalse( $served );
+		$this->assertSame( '', $output );
+
+		remove_all_filters( 'rest_pre_serve_request' );
 	}
 
 	private function start_mock_dry_run(): string {

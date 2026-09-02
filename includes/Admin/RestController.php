@@ -633,19 +633,27 @@ final class RestController {
 		$exporter = new DryRunReportCsv( new DryRunItemRepository() );
 
 		// `rest_pre_serve_request` はWP RESTでJSON以外のレスポンスボディ（CSV等）を返すための
-		// 正規の手段。このルートのレスポンスに限定してJSONシリアライズを迂回する。1回発火したら
-		// 自身を`remove_filter()`する: 同一PHPプロセス内で複数リクエストが処理されうる文脈
-		// （PHPUnitの`$server->dispatch()`連続呼び出し等）で、このクロージャが蓄積して
-		// 無関係な後続リクエストにまでCSV出力を割り込ませないようにするため。
+		// 正規の手段。このルートのレスポンスに限定してJSONシリアライズを迂回する。
+		// `rest_pre_serve_request`は`WP_REST_Server::serve_request()`経由のリクエストでのみ
+		// 発火し、`rest_do_request()`/`$server->dispatch()`直接呼び出し（PHPUnitのREST
+		// テスト等）では発火しないため、その場合コールバックは`remove_filter()`されないまま
+		// 残留する。「1回発火したら自身を外す」方式だけに頼ると、残留したコールバックが
+		// 同一PHPプロセス内の後続の無関係なリクエスト（次に`rest_pre_serve_request`が
+		// 実際に発火したとき）のCSVを誤って横取りしてしまう。この応答オブジェクト自身
+		// （`$response`、オブジェクト同一性で判定）宛のときだけ動作するようガードし、
+		// 一致しない呼び出しには手を出さず素通りさせる。
 		$callback = null;
-		// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found -- $served はrest_pre_serve_requestフィルターの契約上の引数で、このコールバックはCSVを直接出力するため使わない。
-		$callback = static function ( bool $served ) use ( $exporter, $run_id, $entity, $only_warnings, &$callback ): bool {
+		$callback = static function ( bool $served, WP_REST_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $response, &$callback ): bool {
+			if ( $result !== $response ) {
+				return $served;
+			}
+
 			remove_filter( 'rest_pre_serve_request', $callback );
 			$exporter->stream( $run_id, $entity, $only_warnings );
 
 			return true;
 		};
-		add_filter( 'rest_pre_serve_request', $callback );
+		add_filter( 'rest_pre_serve_request', $callback, 10, 2 );
 
 		return $response;
 	}

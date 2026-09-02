@@ -111,7 +111,10 @@ final class CustomerWriter implements EntityWriter {
 			);
 
 			if ( $update_result instanceof WP_Error ) {
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+				// detailはメールアドレス自体（PII）ではなくASP側remote_idにする。dry-runの
+				// 結果は`cbjp_dry_run_items`に最大30日間永続化されCSVにも出力されるため
+				// （`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
 
 				// `wp_update_user()`はメール重複等のエラー時、渡した全フィールド（氏名・
 				// display_name含む）を一切適用しない。それにも関わらずここから先を続行すると、
@@ -171,7 +174,9 @@ final class CustomerWriter implements EntityWriter {
 			$current_email = $current_user instanceof WP_User ? $current_user->user_email : '';
 
 			if ( 0 !== strcasecmp( $item->email, $current_email ) && false !== email_exists( $item->email ) ) {
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+				// write()と同じくdetailはメールアドレス自体ではなくASP側remote_idにする
+				// （PII保護。上のwrite()側コメント参照）。
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
 
 				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 			}

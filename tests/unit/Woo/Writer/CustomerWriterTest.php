@@ -183,7 +183,8 @@ final class CustomerWriterTest extends WooTestCase {
 		$customer = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$result   = $this->make_writer()->write( $customer, $existing_id );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, 'taken@example.com' ), $result->warnings );
+		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $result->warnings );
 
 		// 衝突のためメールは更新されず、既存アカウントの元のメールのまま残る。
 		$user = get_userdata( $existing_id );
@@ -390,7 +391,8 @@ final class CustomerWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $customer, $existing_id );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, 'taken@example.com' ), $validation->warnings );
+		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $validation->warnings );
 
 		// 何も永続化していない。
 		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
