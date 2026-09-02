@@ -228,8 +228,9 @@ final class Importer {
 		// dry-run実行が処理した各アイテムを1行ずつ`cbjp_dry_run_items`へ記録する（F1-6のCSV
 		// レポート用）。ループを抜けてから1回のバッチINSERTでまとめて書き込む
 		// （アイテム毎にINSERTするとページ内アイテム数だけクエリが積み重なるため）。
-		// checksum一致スキップ・サンプル外スキップ（件数は`totals`で確認できる）と、
-		// remote_id欠損（キーが作れない）は記録の対象外。
+		// サンプル外スキップ（無料版のサンプル選定対象外。件数は`totals`で確認できる）と、
+		// remote_id欠損（キーが作れない）は記録の対象外。checksum一致スキップは記録する
+		// （下記参照）。
 		$dry_run_rows = [];
 
 		$platform = $adapter->id();
@@ -276,6 +277,24 @@ final class Importer {
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性）。
 			if ( null !== $row && null !== $row['checksum'] && $row['checksum'] === $item->checksum() ) {
 				++$totals['skipped'];
+
+				// dry-runはCSVレポートを「全量出力」する契約（03 §10.4）のため、この分岐で
+				// `continue`するとCSVに当該アイテムの行が一切現れず、再実行（差分なし）の
+				// dry-runがほぼ空のCSVになってしまう。validate()は呼ばない（checksum一致を
+				// 判定するためだけに毎回全アイテムを再検証すると、このスキップ自体の
+				// パフォーマンス上の意味がなくなる）ため、warningsは前回時点のものを再掲せず
+				// 空のまま「変更なし」として記録する。
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = [
+						'entity'            => $entity,
+						'remote_id'         => $remote_id,
+						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'operation'         => WriteResult::OPERATION_SKIPPED,
+						'existing_local_id' => $existing_local_id ?? 0,
+						'warnings'          => [],
+					];
+				}
+
 				continue;
 			}
 

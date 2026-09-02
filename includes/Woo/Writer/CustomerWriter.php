@@ -161,6 +161,20 @@ final class CustomerWriter implements EntityWriter {
 
 				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 			}
+
+			// `wp_update_user()`→`wp_insert_user()`のメール一意性チェック（wp-includes/user.php）を
+			// 読取専用で再現する: 新メールが現在の値と（大文字小文字を区別せず）異なり、かつ
+			// 他の誰かが既にそのメールを使っている場合にのみ`existing_user_email`エラーになる
+			// （`email_exists()`はIDを除外しないため、まずメール自体の変更有無を先に見る必要がある）。
+			// wp evalでの実測により、この判定はwrite()の`wp_update_user()`呼び出し結果と一致することを確認済み。
+			$current_user  = get_userdata( $user_id );
+			$current_email = $current_user instanceof WP_User ? $current_user->user_email : '';
+
+			if ( 0 !== strcasecmp( $item->email, $current_email ) && false !== email_exists( $item->email ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->email );
+
+				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
+			}
 		}
 
 		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定で、write()は
@@ -177,8 +191,6 @@ final class CustomerWriter implements EntityWriter {
 			return new ValidationResult( WriteResult::OPERATION_CREATED, $warnings );
 		}
 
-		// `CUSTOMER_EMAIL_CONFLICT`は`wp_update_user()`のメール一意性チェックがDB書込直前に
-		// 行われるため、実際に呼ばないと判定できず dry-run では出ない。
 		return new ValidationResult( $resolved->operation, $warnings );
 	}
 

@@ -362,4 +362,37 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::ADDRESS_OVERSEAS, $validation->warnings );
 		$this->assertFalse( get_user_by( 'email', 'overseas-dry-run@example.com' ) instanceof WP_User );
 	}
+
+	public function test_validate_detects_email_conflict_matching_write(): void {
+		// PRレビュー指摘: `CUSTOMER_EMAIL_CONFLICT`は「実際にwp_update_user()を呼ばないと
+		// 判定できない」という前提でvalidate()から除外されていたが、`wp_insert_user()`の
+		// メール一意性チェック自体は`email_exists()`のみで完結する読取専用の判定であり、
+		// write()を呼ばずに再現できる（wp evalでの実測により確認済み）。
+		wp_insert_user(
+			[
+				'user_login' => 'other',
+				'user_email' => 'taken@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, 'taken@example.com' ), $validation->warnings );
+
+		// 何も永続化していない。
+		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+	}
 }
