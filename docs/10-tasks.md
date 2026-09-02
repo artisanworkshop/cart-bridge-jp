@@ -124,7 +124,7 @@
     `write()`と参照解決・値検証ロジックを共有（詳細は `03-design-decisions.md` §10.4「dry-runレポートCSVの実装詳細」）。
     `Woo\DryRunRepository`（validate()のみ呼び何も永続化しない）+ `cbjp_dry_run_items` テーブル + `Sync\DryRunItemRepository`
     + `Admin\DryRunReportCsv` + `GET /runs/{run_id}/report` を実装。ユニットテストのみで検証が閉じ、
-    `composer lint && composer analyze && composer test:wpenv` 通過済み（579テスト）。TermWriterは`term_exists()`による
+    `composer lint && composer analyze && composer test:wpenv` 通過済み（589テスト）。TermWriterは`term_exists()`による
     事前衝突判定を`write()`にも統合（従来の`wp_insert_term()`エラー依存から変更。既存テスト全通過で回帰なしを確認）。
   - **PR-B（未着手）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・
     結果レポート・Pro案内）と Logs タブ。PR-Aの `GET /runs/{run_id}`・`GET /runs/{run_id}/report`・`GET /limits` を消費するのみ。
