@@ -146,16 +146,19 @@ final class DryRunReportCsv {
 	}
 
 	/**
-	 * OWASP CSV Injection対策。`=`/`+`/`-`/`@`/タブ/CRで始まるセルは、Excel等が数式として
+	 * OWASP CSV Injection対策。`=`/`+`/`-`/`@`で始まるセルは、Excel等が数式として
 	 * 評価しうる（`=cmd|'/c calc'!A1`等）。先頭に単一引用符を付けて無害化する。
 	 * ASP由来の商品名・警告detailが値に入るため必須。
 	 */
 	private static function harden( string $value ): string {
-		// 制御文字を除去する（改行はCSVとしてはクォートされるが、値の途中にある生の制御文字は
-		// 表計算ソフトによって解釈が割れるため）。
-		$value = (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value );
+		// タブ・CR・LFを含む全てのASCII制御文字を除去する。`fputcsv()`は値中の改行を
+		// クォートで囲むためCSVとしては壊れないが、生の改行・タブが値の途中に残っていると
+		// 表計算ソフトで1セルが複数行に見えたり、改行区切り前提の後続パーサーで行構造が
+		// 崩れて見えることがある。数式判定より前に取り除く（除去後は先頭がタブ/CRになり
+		// 得ないため、判定対象は`=`/`+`/`-`/`@`の4種のみでよい）。
+		$value = (string) preg_replace( '/[\x00-\x1F\x7F]/', '', $value );
 
-		if ( '' !== $value && in_array( $value[0], [ '=', '+', '-', '@', "\t", "\r" ], true ) ) {
+		if ( '' !== $value && in_array( $value[0], [ '=', '+', '-', '@' ], true ) ) {
 			return "'" . $value;
 		}
 

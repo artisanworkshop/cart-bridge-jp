@@ -131,7 +131,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	}
 
 	public function test_csv_injection_payloads_are_hardened(): void {
-		$payloads = [ '=cmd|test', '+1+1', '-1+1', '@SUM(A1)', "\ttab", "\rcr" ];
+		$payloads = [ '=cmd|test', '+1+1', '-1+1', '@SUM(A1)' ];
 
 		foreach ( $payloads as $payload ) {
 			$this->items->insert_many(
@@ -157,6 +157,33 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			$this->assertSame( "'", $row[1][0] );
 			$this->assertSame( "'", $row[2][0] );
 		}
+	}
+
+	/**
+	 * PRレビュー指摘: `harden()`は「制御文字を除去する」と謳いながら正規表現がタブ/CR/LFを
+	 * 除外対象から外しており、実際には値中に残っていた。埋め込まれた生の改行はCSVとしては
+	 * `fputcsv()`のクォートで壊れないものの、改行区切り前提の後続パーサーでは行構造が崩れて
+	 * 見えるため、他の制御文字と同様に取り除かれることを確認する。
+	 */
+	public function test_control_characters_including_tab_cr_lf_are_stripped(): void {
+		$this->items->insert_many(
+			'run-8b',
+			1,
+			[
+				$this->row(
+					[
+						'remote_id' => "p\t1",
+						'label'     => "line1\r\nline2\x00tail",
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-8b', null, false );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'p1', $rows[0][1] );
+		$this->assertSame( 'line1line2tail', $rows[0][2] );
 	}
 
 	public function test_paginates_beyond_a_single_batch(): void {
