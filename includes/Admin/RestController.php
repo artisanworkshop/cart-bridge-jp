@@ -21,6 +21,7 @@ use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use RuntimeException;
 use Throwable;
 use WP_Error;
+use WP_HTTP_Response;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -641,9 +642,14 @@ final class RestController {
 		// 同一PHPプロセス内の後続の無関係なリクエスト（次に`rest_pre_serve_request`が
 		// 実際に発火したとき）のCSVを誤って横取りしてしまう。この応答オブジェクト自身
 		// （`$response`、オブジェクト同一性で判定）宛のときだけ動作するようガードし、
-		// 一致しない呼び出しには手を出さず素通りさせる。
+		// 一致しない呼び出しには手を出さず素通りさせる。第2引数の型は`WP_REST_Response`ではなく
+		// コア側のフィルター契約通り`WP_HTTP_Response`にする: `rest_post_dispatch`は任意の
+		// プラグイン/ルートがフックできる汎用フィルターで、他ルートの応答が素の
+		// `WP_HTTP_Response`（`WP_REST_Response`のサブクラスでない）としてここに渡ってくる
+		// ことがありうる。`WP_REST_Response`で型宣言すると、この残留コールバックが無関係な
+		// ルートで発火した際、`!==`比較に達する前に`TypeError`で落ちてしまう。
 		$callback = null;
-		$callback = static function ( bool $served, WP_REST_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $response, &$callback ): bool {
+		$callback = static function ( bool $served, WP_HTTP_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $response, &$callback ): bool {
 			if ( $result !== $response ) {
 				return $served;
 			}

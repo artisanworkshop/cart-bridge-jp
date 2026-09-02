@@ -13,8 +13,8 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use WP_HTTP_Response;
 use WP_REST_Request;
-use WP_REST_Response;
 use WP_REST_Server;
 use WP_UnitTestCase;
 
@@ -719,6 +719,10 @@ final class RestControllerTest extends WP_UnitTestCase {
 	 * `remove_filter()`されないまま残留する。この残留コールバックが、後から実際に
 	 * `rest_pre_serve_request`が発火した際に無関係なレスポンスまでCSVにすり替えないことを
 	 * 確認する（オブジェクト同一性で自分宛のレスポンスかどうかを判定するガード）。
+	 * 応答オブジェクトはコア側のフィルター契約通り`WP_HTTP_Response`（`WP_REST_Response`の
+	 * 親クラス）を使う: `rest_post_dispatch`は他ルート/プラグインが素の`WP_HTTP_Response`を
+	 * 返しうる汎用フィルターのため、コールバックの型宣言を`WP_REST_Response`のままにすると
+	 * この残留コールバックがここで`TypeError`を投げていた（別のPRレビュー指摘で修正済み）。
 	 */
 	public function test_stale_report_filter_does_not_hijack_an_unrelated_response(): void {
 		$run_id = $this->start_mock_dry_run();
@@ -726,7 +730,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
 		$this->server->dispatch( $request );
 
-		$unrelated_response = new WP_REST_Response( [ 'ok' => true ], 200 );
+		$unrelated_response = new WP_HTTP_Response( [ 'ok' => true ], 200 );
 		$unrelated_request  = new WP_REST_Request( 'GET', '/cbjp/v1/unrelated' );
 
 		ob_start();
