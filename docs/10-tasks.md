@@ -105,19 +105,40 @@
   - **要検証#1（画像書き込み可否）/#14（受注の新しい順ソート）/#15（商品・顧客のID指定取得）をここで確定** → 03 §9 と Capabilities を更新
   - テストショップにサンプルデータ（バリエーション商品・オプション商品・法人顧客・各決済の受注）を登録し、各エンドポイントの実レスポンスJSONをフィクスチャ保存
 - [x] **F1-1: ColorMeClient**（GET/POST/PUT、errors[]→ApiException、RateLimiter統合）+ ユニットテスト
-- [x] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。要検証#7は未確定のまま据え置き=ユーザー判断で後回し。自動リダイレクト・OOB手動貼付の両対応で実装済み）
+- [x] **F1-2: ColorMeOAuth + 接続ウィザードUI**（認可URL生成、callback REST、state検証、code手動貼付フォールバック、shop.json接続テスト。要検証#7はF1-5実機確認で「httpのlocalhostでも自動リダイレクト可」と確定。自動リダイレクト・OOB手動貼付の両対応で実装済み）
 - [x] **F1-3: Transformer 4種+**（Product/Customer/Order/Category + Tag(groups)/Coupon読取。フィクスチャベースのユニットテスト。マッピング表は 01 §4）
 - [x] **F1-4: WooRepository**（商品/カテゴリ/タグ/顧客/受注/在庫のupsert書込。画像sideload、受注は 03 §5 の詳細仕様・HPOS対応CRUDのみ使用）+ テスト。
   `tests/bootstrap.php` にWooCommerceのテーブル作成（`WC_Install::install()`）とHPOS権威データストアの明示的有効化を追加。
   `Sync\WooWriterFactory`（platform単位でwriterを組み立てる）を新設し `JobManager` を配線変更、`NotImplementedWriter` を削除。
   extrasメタのキー規約は `_cbjp_*`（汎用）に統一（01 §4を更新）。既存Wooデータとの突合は顧客のみemail突合、商品/カテゴリ/タグはmappings欠損時は常に新規作成（既存データの誤上書きを避ける）
-- [ ] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**。§10.2 #5後半の受注10件未満時フォールバック補完の実装を含む）。
+- [x] **F1-5: ColorMeAdapter.fetch\* + Importer結合**（カーソル=offset、`fetchLatestOrders`/ID指定取得含む、dry-run + **サンプル選定〜上限強制の実機確認=D15**。§10.2 #5後半の受注10件未満時フォールバック補完の実装を含む）。
   実装・ユニットテスト（フィクスチャベース）は完了、`JobManager`/`RestController`のColorMe向けブロックも解除済み。
   在庫は`GET /products.json`の`variants[].id`から導出（`GET /stocks.json`はバリエーションIDを返さず
   remote_id衝突するため不採用。01 §2更新）。`fetch_latest_orders`は`after`を4倍ずつ過去へ広げる方式
   （`before`は常に省略し暗黙の現在時刻に固定。03 §9 #14更新）。
-  **残作業**: テストショップでの実機接続確認（サンプル選定〜上限強制の動作、要検証#14の実測）が未実施
-  （OAuth接続にはユーザー操作が必要なため）。F1-8（実データE2E）着手前に実施すること
+  **実機確認（2026-09-03、issue #18）**: テストショップ（商品5・受注2・非会員顧客5）でOAuth接続→dry-run全量→
+  サンプルインポート→再インポートを実施。サンプル選定（受注2件→フォールバックで商品5件補完、`used_fallback=true`）、
+  `GET /limits`の使用数（product 5/50, order 2/10）とmappings累積の一致、再インポートの冪等性（checksum一致skip・重複ゼロ）、
+  受注合計/税額/受注日時のUTC保持、CSVレポート（BOM・`reference_pending_import`注記）を確認。要検証#14/#16を実測で確定。
+  判明した不具合と修正: (1) カラーミー`options[]`はバリエーション軸の定義そのものなのに`CanonicalProduct::$options`
+  （非バリエーション属性）にも重複出力しており、全バリエーション商品に`attribute_name_collision`が付いていた
+  →`ProductTransformer::options()`で軸名と一致するものを除外。(2) dry-run CSVの`note`列が`stock_product_unresolved`に
+  `reference_pending_import`を付けず、初回dry-runで在庫全件が「実際の不整合」に見えていた→`WarningCode::indicates_pending_import()`を追加。
+  **未検証のまま残る経路**（テストショップ側のデータ不足。F1-8の事前準備に含めること）: 顧客インポート（全顧客が`member=false`で
+  仕様どおり除外され0件。会員登録した顧客の受注が必要）、画像sideload（全商品`image_url=null`）、クーポン（0件）、
+  `stock_managed=true`かつ`stocks=null`の商品（フェイルクローズで在庫0=outofstockにしている。店頭での購入可否を要確認）
+- [ ] **F1-5後続: 実機確認で判明した改善**（F1-8着手前に実施。単独で動作確認可能な単位ごとにPR）
+  - **定価→`regular_price`マッピング**（要検証#16確定分の実装）: `ProductTransformer`に`shop.json`の税設定
+    （`tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`）を渡し、`price`（定価）を税込換算して`CanonicalProduct.price`、
+    `sales_price_including_tax`を`sale_price`に載せ替える（定価未設定・定価≦販売価格なら従来どおり）。01 §4 / 03 §9 #16 参照
+  - **受注明細のバリエーション解決**: カラーミーの受注明細は親商品IDと`option1_value`/`option2_value`（最新値）しか持たず、
+    `ProductResolver`はvariable親への解決を未解決扱いにするため、現状バリエーション商品の明細は全件が商品リンク無しの
+    カスタム行（`order_line_product_unresolved`）になる。実店舗では明細の大半がこれに該当する。親の`variant` mappings
+    から`option1_name/value`の一致でvariationを特定する経路を追加する（一致しなければ従来どおり未解決＝フェイルクローズ。
+    option名変更後の受注は`pristine_product_full_name`のみが注文時の値である点に注意）。F1-7のリンク再構築とも連携
+  - **決済/配送マッピング設定**: `GET/PUT /settings/mappings/{platform}`が501のままで、`MethodMap`が読む
+    `cbjp_settings_{platform}`を書く経路が無い。受注は全件`payment_method_unmapped`/`shipping_method_unmapped`になる。
+    F1-6 PR-B（Import UI）のスコープに含めるか、独立PRにするかを決めて着手する（03 §6のルート定義済み）
 - [ ] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）。
   着手前調査で「dry-run が実writerの検証ロジックを一切呼ばず警告が常に空」という前提バグが判明したため、
   **PR-A（バックエンド・完了）とPR-B（フロントエンド・未着手）に分割**して進めている（隣接タスクのまとめ方針の応用）。

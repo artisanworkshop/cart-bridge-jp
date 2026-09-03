@@ -260,7 +260,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 - コールバックURL: `{site_url}/wp-json/cbjp/v1/connect/{platform}/callback`（ユーザーが各ASPのアプリ登録画面に登録する。設定画面にコピー用で表示）
 - `state` = ワンタイムトークン（transient、10分、管理ユーザーIDに紐付け）で CSRF 対策。`permission_callback` は `__return_true` とし、state 検証を必須にする
 - code→トークン交換後、管理画面（接続タブ）へリダイレクト
-- **フォールバック**: ローカル開発（http://localhost:8888）でASP側がhttpsリダイレクトURIを要求する場合に備え、「認可後のURLからcodeを手動貼り付け」する入力欄も用意（要検証#7/#9。BASEの認可コード有効期限は約1時間なので手動貼付でも運用可能）
+- **フォールバック**: ASP側がhttpsリダイレクトURIを要求する場合に備え、「認可後のURLからcodeを手動貼り付け」する入力欄も用意（カラーミーはhttp/localhostでも自動リダイレクト可と実機確認済み=要検証#7。BASEは要検証#9で確認。BASEの認可コード有効期限は約1時間なので手動貼付でも運用可能）
 - BASE固有: トークン交換・リフレッシュ時に `redirect_uri` パラメータが**毎回必須**（BaseOAuthで保持）
 
 ### React アプリ（src/）
@@ -312,16 +312,16 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 4 | MakeShop: createProduct の画像入力形式 | Phase 2 タスク M2-0 | 未 |
 | 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | Phase 4 タスク E4-3（テストショップ実測） | 未 |
 | 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-8）で計測 | 未 |
-| 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | 未 |
+| 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | **済（実機確認 2026-09-03）**: デベロッパーコンソールに `http://localhost:8898/wp-json/cbjp/v1/connect/colorme/callback` を登録でき、自動リダイレクト方式で接続完了した。**httpsは必須ではない**（ローカル開発でも自動リダイレクトが使える）。OOB手動貼付フォールバックは引き続き保持する（BASE=要検証#9は別途） |
 | 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | Phase 2 タスク M2-0 | 未 |
 | 9 | BASE: リダイレクトURIのhttps要否・localhost可否 | Phase 3 タスク B3-0 | 未 |
 | 10 | BASE: 明細単位発送ステータスの注文全体への集約規則（dispatch_statusの実値一覧含む） | Phase 3 タスク B3-0 | 未 |
 | 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | Phase 3 タスク B3-0 | 未 |
 | 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | Phase 3 タスク B3-0（公式FAQ確認） | 未 |
 | 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
-| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は探索窓（`after`）を過去方向へ4倍ずつ広げて複数回リクエストし、10件集まるか受注履歴の下限（2000-01-01）に達するまで走査する（**F1-5実装済み**: `before`は常に省略し暗黙の現在時刻に固定したまま`after`のみを広げる方式。`fetch_orders`によるカーソル全量走査も`after=2000-01-01`を明示することで直近7日制限を回避する。テストショップでの実測未確認、F1-8で確認）。MakeShop/BASEは未 |
+| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済（実機確認済み 2026-09-03）**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は探索窓（`after`）を過去方向へ4倍ずつ広げて複数回リクエストし、10件集まるか受注履歴の下限（2000-01-01）に達するまで走査する（**F1-5実装済み**: `before`は常に省略し暗黙の現在時刻に固定したまま`after`のみを広げる方式。`fetch_orders`によるカーソル全量走査も`after=2000-01-01`を明示することで直近7日制限を回避する）。**テストショップ実測**: 直近7日の受注0件・全履歴2件の店舗で、`after`省略→28日→112日→448日→1792日→7168日→2000-01-01 の7回の`sales.json`呼び出し（＋`payments.json`/`deliveries.json`各1回）で下限に到達し2件を取得、所要1.7秒。直近7日に10件以上ある店舗では1回で確定する。MakeShop/BASEは未 |
 | 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
-| 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | 未（`ProductTransformer`実装時、PR#9のCodexレビューで指摘）。`price`には`sales_price_including_tax`のような税込版フィールドがAPI上存在しない（swagger.json実測確認）ため、税抜/税込を推測せず`extras['list_price']`に生値を退避し`sale_price`は`null`のままとしている。定価と実売価格が異なる商品（セール品）を持つ実店舗のデータで両フィールドの関係を実測してから、`CanonicalProduct.price`/`sale_price`への反映方法を確定する |
+| 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う（`ProductTransformer`に店舗税設定を渡す設計変更が必要）。実装は`docs/10-tasks.md`のF1-5後続タスクへ。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -369,8 +369,8 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
    （単発リクエストでは不足しうる。**F1-5実装確定**: `before`は常に省略し現在時刻を暗黙の上限に
    固定したまま`after`のみを過去へ広げる。swagger記述（`after`パラメータの説明文）を読むと
    `before`省略時のデフォルトは`after`の有無に関わらず常に現在時刻であるため、`before`を
-   明示的にずらす必要はない。ただし要検証#14はテストショップでの実測確認までは行っていない
-   ため、実データでの挙動確認はF1-8（実データE2E）で行うこと）
+   明示的にずらす必要はない。要検証#14はF1-5実機確認（2026-09-03）で実測済み: 直近7日の受注が
+   0件の店舗で7回の`sales.json`呼び出し・1.7秒で下限に到達し全受注を取得した）
 2. 明細から商品 remote_id、購入者（email / remote_id）を抽出し重複排除（ゲスト購入は顧客枠にカウントしない）
 3. サンプルセットをオプション `cbjp_sample_{platform}`（autoload無効）に保存。再実行は同一セットの upsert
 4. 商品・顧客は **ID指定取得**（`fetchProductByRemoteId` / `fetchCustomerByRemoteId`）で取り込む
@@ -426,6 +426,6 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   → `Sync\Importer::process_items()`がページ単位で`Sync\DryRunItemRepository`へバッチ記録
   → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
 - **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
-- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_unresolved_reference()`が真の警告に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
