@@ -14,6 +14,10 @@
 	margin-top: 1.5em;
 }
 
+.cbjp-connection-card .components-base-control + .components-button {
+	margin-top: 1em;
+}
+
 .cbjp-connection-card__oauth,
 .cbjp-connection-card__manual,
 .cbjp-connection-card__actions {
