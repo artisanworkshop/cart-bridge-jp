@@ -313,11 +313,20 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 							disabled={ null !== busy }
 							onClick={ () => connect( 'redirect' ) }
 						>
-							{ sprintf(
-								/* translators: %s: platform label, e.g. "Color Me Shop" */
-								__( 'Connect to %s', 'cart-bridge-jp' ),
-								connection.label
-							) }
+							{ connection.connected
+								? sprintf(
+										/* translators: %s: platform label, e.g. "Color Me Shop" */
+										__(
+											'Reconnect to %s',
+											'cart-bridge-jp'
+										),
+										connection.label
+								  )
+								: sprintf(
+										/* translators: %s: platform label, e.g. "Color Me Shop" */
+										__( 'Connect to %s', 'cart-bridge-jp' ),
+										connection.label
+								  ) }
 						</Button>{ ' ' }
 						<Button
 							variant="tertiary"
