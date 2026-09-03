@@ -1,0 +1,21 @@
+/**
+ * Cart Bridge JP admin app styles.
+ *
+ * Tab navigation itself reuses WordPress core's nav-tab-wrapper / nav-tab
+ * classes (wp-admin/css/common.css), so only the spacing that core doesn't
+ * already provide for this app's own layout is defined here.
+ */
+
+.cbjp-admin__content {
+	margin-top: 1.5em;
+}
+
+.cbjp-connection-card + .cbjp-connection-card {
+	margin-top: 1.5em;
+}
+
+.cbjp-connection-card__oauth,
+.cbjp-connection-card__manual,
+.cbjp-connection-card__actions {
+	margin-top: 1em;
+}

@@ -4,6 +4,7 @@
 import { createRoot } from '@wordpress/element';
 import { configureApiFetch } from './api';
 import App from './App';
+import './style.css';
 
 configureApiFetch();
 
