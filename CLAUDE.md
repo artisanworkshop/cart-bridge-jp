@@ -42,6 +42,7 @@ composer lint                # PHPCS (WordPress Coding Standards)
 composer analyze             # PHPStan (level 6+)
 composer test                # PHPUnit（wp-envコンテナ内で直接実行する場合。ホストからは動かない）
 composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
+npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
 ```
@@ -74,6 +75,10 @@ npm run build                # 本番ビルド
 - `term_exists()` は名前だけでなく `sanitize_title()` 由来のslugでもフォールバック照合するため、名前が異なるのにslugが衝突する2つのタームを誤って「重複」と判定することがある（実測: `foo-bar` 作成後に `Foo Bar` を `term_exists()` で照合すると誤って前者のIDを返す）。一方 `wp_insert_term()` 自身はこの場合を拒否せず、自動サフィックス付きslugで新規作成する。重複の事前チェックは `term_exists()` ではなく `get_terms()` による名前＋親の直接比較を使うこと（`TermWriter::find_conflicting_term_id()` 参照）
 - writerの `validate()`（dry-run）で「保存しないと判定できない」と決めつける前に、対応する `write()` 内のコア関数呼び出し自体が読取専用の事前チェックで完結していないか確認すること。例: `wp_update_user()` のメール重複チェック（`wp_insert_user()` 内部）は `email_exists()` のみで再現可能。安易に「保存依存の警告」として `validate()` 対象外に倒すと、無料版dry-runの警告カバレッジが不必要に狭まる
 - CSV出力の無害化（OWASP CSVインジェクション対策）はセル先頭が `=`/`+`/`-`/`@` かどうかの判定だけでは不十分。値中に生のタブ/CR/LFが残っていると `fputcsv()` のクォートでCSV自体は壊れなくても、改行区切り前提の後続パーサーで行構造が崩れうる。数式判定の前に全ASCII制御文字を除去すること（`DryRunReportCsv::harden()` 参照。Pro版の301リダイレクトCSV等、今後のCSV出力機能にも適用すること）
+- カラーミー `product.options[]` はバリエーション軸の定義そのもの（`variants[].option1/option2.name` と同名）。`CanonicalProduct::$options`（非バリエーション属性）へ転記すると `ProductWriter` が同名衝突とみなし全バリエーション商品に `attribute_name_collision` が付く。軸名と一致するものは変換層で除外すること
+- 変換層と writer をフィクスチャで別々にテストしても、`CanonicalProduct::$options` のような「配列プロパティの意味論」の層間ズレは検出できない（上の options 問題はユニットテスト全通過のまま実機 dry-run で初めて判明した）。Canonical の配列プロパティの意味を変える／新しく使うときは transformer→writer を通す結合テストか実機 dry-run で確認すること
+- `wc_prices_include_tax()` は `woocommerce_calc_taxes=yes` が前提。税計算OFFの店舗では `woocommerce_prices_include_tax=yes` でも false を返し `prices_include_tax_disabled` 警告が出る（誤りではなく仕様。検証環境では税計算ONと税率登録まで行うこと）
+- `rest_do_request()` に渡す `WP_REST_Request` のルートにクエリ文字列（`/limits?platform=x`）を含めると `rest_no_route` になる。`set_query_params()` を使うこと。また `rest_pre_serve_request` でストリーミングするルート（CSVレポート等）は `rest_do_request()` では body が null になるため、実HTTP（アプリケーションパスワード等）で確認すること
 - `rest_pre_serve_request` 等「1回だけ発火して自身をremove_filterする」前提のフィルターコールバックは、そのフィルターが必ず発火するとは限らない経路（`rest_do_request()`/`$server->dispatch()` 直接呼び出し等）があると自己解除されず残留し、後続の無関係な呼び出しで誤発火しうる。コールバック内でオブジェクト同一性等により「自分宛の呼び出しか」を判定するガードを必ず入れること。コア由来フィルターの引数型はdocblockで確認する（`rest_pre_serve_request` の第2引数は `WP_REST_Response` ではなく `WP_HTTP_Response`）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
