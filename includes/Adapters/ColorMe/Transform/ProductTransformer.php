@@ -400,7 +400,8 @@ final class ProductTransformer {
 
 	/**
 	 * `variants[].option1.name` / `option2.name` に現れる軸名の一覧（重複なし・出現順）。
-	 * `variants()` と同様に非配列の行は読み飛ばす。
+	 * 非配列の行は軸名の収集対象に含めない（`variants()` はその行を空のプレースホルダーとして残し
+	 * `VariationWriter` にスナップショット不完全と判定させるが、軸名には寄与しないため、ここでは単に飛ばす）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<int,string>
