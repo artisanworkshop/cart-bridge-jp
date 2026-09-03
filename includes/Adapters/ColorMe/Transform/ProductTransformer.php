@@ -356,6 +356,13 @@ final class ProductTransformer {
 	}
 
 	/**
+	 * カラーミーの `options[]` はバリエーション軸（`variants[].option1/option2`）の定義そのものであり、
+	 * `CanonicalProduct::$options`（`ProductWriter`が「非バリエーション属性」として扱う）とは意味が
+	 * 異なる。軸として `variants` 側に既に現れている名前をそのまま `options` にも載せると、
+	 * `ProductWriter::build_attributes()` が同名の軸と衝突したとみなし、バリエーション商品すべてに
+	 * `attribute_name_collision` 警告が付く（テストショップの実機dry-runで判明）。軸名と一致する
+	 * ものは除外し、軸として使われていないオプション（`variants` が空の商品など）だけを残す。
+	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -366,22 +373,63 @@ final class ProductTransformer {
 			return [];
 		}
 
-		$result = [];
+		$axis_names = self::variant_axis_names( $raw );
+		$result     = [];
 
 		foreach ( $options as $option ) {
 			if ( ! is_array( $option ) ) {
 				continue;
 			}
 
+			$name = Cast::to_string_or_null( $option['name'] ?? null ) ?? '';
+
+			if ( in_array( $name, $axis_names, true ) ) {
+				continue;
+			}
+
 			$values = $option['values'] ?? [];
 
 			$result[] = [
-				'name'   => Cast::to_string_or_null( $option['name'] ?? null ) ?? '',
+				'name'   => $name,
 				'values' => is_array( $values ) ? Cast::strings( $values ) : [],
 			];
 		}
 
 		return $result;
+	}
+
+	/**
+	 * `variants[].option1.name` / `option2.name` に現れる軸名の一覧（重複なし・出現順）。
+	 * 非配列の行は軸名の収集対象に含めない（`variants()` はその行を空のプレースホルダーとして残し
+	 * `VariationWriter` にスナップショット不完全と判定させるが、軸名には寄与しないため、ここでは単に飛ばす）。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return array<int,string>
+	 */
+	private static function variant_axis_names( array $raw ): array {
+		$variants = $raw['variants'] ?? null;
+
+		if ( ! is_array( $variants ) ) {
+			return [];
+		}
+
+		$names = [];
+
+		foreach ( $variants as $variant ) {
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			foreach ( [ 'option1', 'option2' ] as $key ) {
+				$name = Cast::to_string_or_null( $variant[ $key ]['name'] ?? null );
+
+				if ( null !== $name && ! in_array( $name, $names, true ) ) {
+					$names[] = $name;
+				}
+			}
+		}
+
+		return $names;
 	}
 
 	/**

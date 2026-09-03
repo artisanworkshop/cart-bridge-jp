@@ -129,4 +129,20 @@ final class WarningCode {
 
 		return false;
 	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「参照先がまだ
+	 * インポートされていないこと」だけに起因し、参照先を先にインポートすれば消える見込みか。
+	 *
+	 * {@see indicates_unresolved_reference()} の集合に `STOCK_PRODUCT_UNRESOLVED` を加えたもの。
+	 * 在庫は親商品が未解決だとアイテム自体を保存しない（＝mappings/checksumを持たない）ため
+	 * checksumキャッシュ判定の対象外だが、レポート上は「初回dry-runで商品より前に判定される
+	 * 未インポート起因の未解決」であり、他の参照未解決と同じ注記で区別されるべき
+	 * （テストショップの実機dry-runでは在庫全件がこの警告になり、注記無しだと実際の不整合と
+	 * 見分けが付かなかった）。
+	 */
+	public static function indicates_pending_import( string $warning ): bool {
+		return self::indicates_unresolved_reference( [ $warning ] )
+			|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0];
+	}
 }

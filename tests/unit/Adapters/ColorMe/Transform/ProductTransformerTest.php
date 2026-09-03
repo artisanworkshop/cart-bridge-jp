@@ -408,6 +408,50 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_options_that_define_variant_axes_are_not_duplicated_as_plain_attributes(): void {
+		// カラーミーの`options[]`はバリエーション軸の定義そのもの。`variants[].option1/option2`に
+		// 軸として現れる名前を`CanonicalProduct::$options`（非バリエーション属性）にも載せると、
+		// `ProductWriter`が同名衝突とみなして全バリエーション商品に`attribute_name_collision`を
+		// 付けてしまう（テストショップの実機dry-runで判明）。
+		$raw = $this->product_fixture( 192817159 ); // フィクスチャ_バリエーション商品（カラー×サイズ）
+
+		$this->assertSame( [ 'カラー', 'サイズ' ], array_column( $raw['options'], 'name' ) );
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( [], $product->options );
+		$this->assertSame( 'カラー', $product->variants[0]['option1_name'] );
+		$this->assertSame( 'サイズ', $product->variants[0]['option2_name'] );
+	}
+
+	public function test_options_not_used_as_a_variant_axis_are_kept(): void {
+		// 軸として使われていないオプション（`variants`が空の商品や、軸に現れない追加オプション）は
+		// 従来どおり非バリエーション属性として残す。
+		$raw              = $this->product_fixture( 192817398 ); // フィクスチャ_オプション商品（サイズ）
+		$raw['options'][] = [
+			'id'     => 1,
+			'name'   => 'ラッピング',
+			'values' => [ 'あり', 'なし' ],
+		];
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame(
+			[
+				[
+					'name'   => 'ラッピング',
+					'values' => [ 'あり', 'なし' ],
+				],
+			],
+			$product->options
+		);
+
+		$raw_without_variants             = $this->product_fixture( 192817398 );
+		$raw_without_variants['variants'] = [];
+
+		$this->assertSame( [ 'サイズ' ], array_column( $this->transformer->transform( $raw_without_variants )->options, 'name' ) );
+	}
+
 	public function test_two_axis_variants_use_option_objects_not_title(): void {
 		$raw = FixtureLoader::load( 'colorme', 'product_variant_detail' )['product'];
 
@@ -491,15 +535,10 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'サイズ', $first['option1_name'] );
 		$this->assertNull( $first['option2_name'] );
 		$this->assertNull( $first['option2_value'] );
-		$this->assertSame(
-			[
-				[
-					'name'   => 'サイズ',
-					'values' => [ 'S', 'M', 'L' ],
-				],
-			],
-			$product->options
-		);
+		// `options[]`の「サイズ」は軸として`variants`側に既に現れているため、非バリエーション属性
+		// としては重複出力しない（`test_options_that_define_variant_axes_are_not_duplicated_as_plain_attributes`）。
+		$this->assertSame( [ 'S', 'M', 'L' ], $raw['options'][0]['values'] );
+		$this->assertSame( [], $product->options );
 	}
 
 	public function test_option_value_of_zero_is_not_dropped(): void {
