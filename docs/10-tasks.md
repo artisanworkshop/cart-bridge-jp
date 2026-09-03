@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-07-09
+最終更新: 2026-09-03
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -16,7 +16,8 @@
    `F1-5(Adapter.fetch*+Importer結合)`＝最初にE2Eで動く統合ポイントは単独PRのまま。
    Phase 2/3でも同じ考え方を類推適用する）
 3. plan モードで実装計画を立ててから着手
-4. **完了条件**: 各タスク記載の成果物 + `composer lint && composer analyze && composer test` が通ること（npm を含むタスクは `npm run lint && npm run build` も）
+4. **完了条件**: 各タスク記載の成果物 + `composer lint && composer analyze && composer test:wpenv` が通ること（npm を含むタスクは `npm run lint && npm run build` も）。
+   `composer test` はwp-envコンテナ内専用でホストからは動かない（CLAUDE.md「コマンド」参照）
 5. PR 作成（gh コマンド）→ CI 通過 → マージ → 本ファイルのチェックボックスを更新
 6. 要検証事項（03 §9）が確定したら 03 と該当計画ドキュメントを更新
 7. フィクスチャ収集タスク（F1-0 / M2-0 / B3-0）では、コミット前に必ず
