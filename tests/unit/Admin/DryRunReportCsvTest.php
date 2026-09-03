@@ -96,6 +96,29 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertSame( 'reference_pending_import', $rows[0][7] );
 	}
 
+	public function test_stock_with_unimported_parent_product_is_flagged_as_pending_import(): void {
+		// 在庫は親商品が未解決だとアイテム自体が保存されないため`indicates_unresolved_reference()`
+		// （checksumキャッシュ判定用）の対象外だが、レポート上は他の参照未解決と同じ
+		// 「未インポート起因」の注記を付ける（実機dry-runで在庫全件がこの警告になった）。
+		$this->items->insert_many(
+			'run-5b',
+			1,
+			[
+				$this->row(
+					[
+						'entity'    => 'stock',
+						'operation' => 'skipped',
+						'warnings'  => [ 'stock_product_unresolved:193326769' ],
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-5b', null, false );
+
+		$this->assertSame( 'reference_pending_import', $rows[0][7] );
+	}
+
 	public function test_unrelated_warning_leaves_the_note_column_empty(): void {
 		$this->items->insert_many( 'run-6', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
 
