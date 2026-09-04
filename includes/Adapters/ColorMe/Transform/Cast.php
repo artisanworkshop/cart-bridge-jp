@@ -59,6 +59,17 @@ final class Cast {
 	}
 
 	/**
+	 * `money()`と異なり、欠損・非数値を`0`へ丸めず`null`のまま透過する。呼び出し先が
+	 * 「金額が0円」と「金額を復元できない」を区別してフェイルクローズ処理を分岐する場合に使う
+	 * （例: `OrderItemBuilder::split_line_amount()`の`ORDER_TAX_SPLIT_UNAVAILABLE`経路）。
+	 */
+	public static function money_or_null( mixed $value ): ?string {
+		$int = self::to_int_or_null( $value );
+
+		return null === $int ? null : (string) $int;
+	}
+
+	/**
 	 * ColorMeのUNIXタイムスタンプ（秒）をUTCのISO-8601文字列に変換する。
 	 */
 	public static function unix_to_iso( mixed $value ): ?string {
