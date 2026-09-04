@@ -59,12 +59,16 @@ export default function App() {
 	return (
 		<div className="cbjp-admin">
 			<h1>{ __( 'Cart Bridge JP', 'cart-bridge-jp' ) }</h1>
-			<nav className="cbjp-admin__tabs">
+			<nav className="nav-tab-wrapper wp-clearfix">
 				{ TABS.map( ( tab ) => (
 					<a
 						key={ tab.id }
 						href={ `#/${ tab.id }` }
-						className={ tab.id === activeTab ? 'is-active' : '' }
+						className={
+							tab.id === activeTab
+								? 'nav-tab nav-tab-active'
+								: 'nav-tab'
+						}
 					>
 						{ tab.label }
 					</a>

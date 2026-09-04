@@ -39,10 +39,12 @@ final class Assets {
 			wp_set_script_translations( self::HANDLE, 'cart-bridge-jp', CBJP_PATH . 'languages' );
 		}
 
-		if ( file_exists( CBJP_PATH . 'build/index.css' ) ) {
+		// wp-scriptsのビルドはJSエントリー「index」に対応するCSSを
+		// 「index.css」ではなく「style-index.css」として出力する。
+		if ( file_exists( CBJP_PATH . 'build/style-index.css' ) ) {
 			wp_enqueue_style(
 				self::HANDLE,
-				CBJP_URL . 'build/index.css',
+				CBJP_URL . 'build/style-index.css',
 				[ 'wp-components' ],
 				$asset['version']
 			);
