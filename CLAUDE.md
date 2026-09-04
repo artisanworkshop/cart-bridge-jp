@@ -80,6 +80,9 @@ npm run build                # 本番ビルド
 - `wc_prices_include_tax()` は `woocommerce_calc_taxes=yes` が前提。税計算OFFの店舗では `woocommerce_prices_include_tax=yes` でも false を返し `prices_include_tax_disabled` 警告が出る（誤りではなく仕様。検証環境では税計算ONと税率登録まで行うこと）
 - `rest_do_request()` に渡す `WP_REST_Request` のルートにクエリ文字列（`/limits?platform=x`）を含めると `rest_no_route` になる。`set_query_params()` を使うこと。また `rest_pre_serve_request` でストリーミングするルート（CSVレポート等）は `rest_do_request()` では body が null になるため、実HTTP（アプリケーションパスワード等）で確認すること
 - `rest_pre_serve_request` 等「1回だけ発火して自身をremove_filterする」前提のフィルターコールバックは、そのフィルターが必ず発火するとは限らない経路（`rest_do_request()`/`$server->dispatch()` 直接呼び出し等）があると自己解除されず残留し、後続の無関係な呼び出しで誤発火しうる。コールバック内でオブジェクト同一性等により「自分宛の呼び出しか」を判定するガードを必ず入れること。コア由来フィルターの引数型はdocblockで確認する（`rest_pre_serve_request` の第2引数は `WP_REST_Response` ではなく `WP_HTTP_Response`）
+- `wp-scripts build` はJSエントリー（例: `index`）からimportしたCSSを `build/index.css` ではなく `build/style-index.css`（`style-<エントリー名>.css`）として出力する。`wp_enqueue_style()` 側のパスをこれに合わせないと `file_exists()` ガードが常にfalseになりCSSが一切enqueueされない（`wp-components` のコアCSSも道連れで読み込まれず、管理画面が丸ごと無スタイルになった実例あり。`includes/Admin/Assets.php` 参照）
+- 管理画面のタブナビゲーションは自前CSSではなくWordPressコア標準の `nav-tab-wrapper` / `nav-tab` / `nav-tab-active` クラス（`wp-admin/css/common.css` に定義済み）を使うこと。間隔・アクティブ状態の表示が無料で手に入る。自前CSSはコアクラスがカバーしない余白調整のみに留める（`src/App.tsx`, `src/style.css` 参照）
+- `TokenStore::is_connected()` と `needs_reconnect()` は排他（保存済みトークンが復号できない場合、`needs_reconnect()` はtrueを返すが `is_connected()` は必ずfalse）。UIで接続状態を判定する際は `connected` 単体ではなく両フラグの組み合わせで見ること。`connected` だけを見ると「要再接続」状態を「未接続」と区別できず、再接続を促す文言・ボタンラベルの出し分けを取りこぼす
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
