@@ -191,7 +191,12 @@ final class OrderTransformer {
 				'sku'                     => Cast::to_string_or_null( $detail['product_model_number'] ?? null ),
 				'name'                    => Cast::first_non_empty( $detail['pristine_product_full_name'] ?? null, $detail['product_name'] ?? null ),
 				'price'                   => Cast::money( $detail['price_with_tax'] ?? null ),
-				'unit_price_excl_tax'     => Cast::money( $detail['price'] ?? null ),
+				// `Cast::money()`で欠損・非数値を無言で'0'に丸めると、税込単価(price)は非ゼロなのに
+				// 税抜単価だけ0円という不整合になり得る（issue #14）。`money_or_null()`でnullを
+				// 透過し、`OrderItemBuilder::split_line_amount()`が用意している
+				// `ORDER_TAX_SPLIT_UNAVAILABLE`フォールバック（税込金額を税抜側に丸め税額0＋警告）に
+				// 正しく乗せる。
+				'unit_price_excl_tax'     => Cast::money_or_null( $detail['price'] ?? null ),
 				'quantity'                => $quantity,
 				// 数量の単位（箱・セット・重量単位等）。欠けると梱包・出荷資料側で数量ラベルを
 				// 復元できない。
