@@ -83,6 +83,7 @@ npm run build                # 本番ビルド
 - `wp-scripts build` はJSエントリー（例: `index`）からimportしたCSSを `build/index.css` ではなく `build/style-index.css`（`style-<エントリー名>.css`）として出力する。`wp_enqueue_style()` 側のパスをこれに合わせないと `file_exists()` ガードが常にfalseになりCSSが一切enqueueされない（`wp-components` のコアCSSも道連れで読み込まれず、管理画面が丸ごと無スタイルになった実例あり。`includes/Admin/Assets.php` 参照）
 - 管理画面のタブナビゲーションは自前CSSではなくWordPressコア標準の `nav-tab-wrapper` / `nav-tab` / `nav-tab-active` クラス（`wp-admin/css/common.css` に定義済み）を使うこと。間隔・アクティブ状態の表示が無料で手に入る。自前CSSはコアクラスがカバーしない余白調整のみに留める（`src/App.tsx`, `src/style.css` 参照）
 - `TokenStore::is_connected()` と `needs_reconnect()` は排他（保存済みトークンが復号できない場合、`needs_reconnect()` はtrueを返すが `is_connected()` は必ずfalse）。UIで接続状態を判定する際は `connected` 単体ではなく両フラグの組み合わせで見ること。`connected` だけを見ると「要再接続」状態を「未接続」と区別できず、再接続を促す文言・ボタンラベルの出し分けを取りこぼす
+- `Adapters\ColorMe\Transform\Cast::money()` は欠損・非数値を無言で`0`に丸める。税込/税抜のように対になったフィールドで片方だけこれを使うと、一方は非ゼロなのにもう一方が黙って`0`という財務的に矛盾した値になり得る（`OrderTransformer`の`unit_price_excl_tax`が実例。issue #14）。「金額が0円」と「復元できない」を区別してフェイルクローズの分岐に使いたい場合は`Cast::money_or_null()`（null透過）を使うこと
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
