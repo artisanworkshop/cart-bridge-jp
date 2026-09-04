@@ -313,7 +313,7 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 							disabled={ null !== busy }
 							onClick={ () => connect( 'redirect' ) }
 						>
-							{ connection.connected
+							{ connection.connected || connection.needs_reconnect
 								? sprintf(
 										/* translators: %s: platform label, e.g. "Color Me Shop" */
 										__(
