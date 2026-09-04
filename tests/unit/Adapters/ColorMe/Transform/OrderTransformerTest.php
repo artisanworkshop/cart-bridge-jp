@@ -182,6 +182,19 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( '3080', $order->line_items[0]['price'] );
 	}
 
+	public function test_non_numeric_line_item_excl_tax_price_yields_null_instead_of_zero(): void {
+		// 欠損だけでなく非数値（型不正なレスポンス）でも`Cast::money_or_null()`がnullを
+		// 透過することを確認する。将来`to_int_or_null()`の判定条件が変わっても、非数値ケースで
+		// `unit_price_excl_tax`が'0'に戻らないことを回帰的に固定する。
+		$raw                        = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['price'] = 'not-a-number';
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->line_items[0]['unit_price_excl_tax'] );
+		$this->assertSame( '3080', $order->line_items[0]['price'] );
+	}
+
 	public function test_missing_details_field_throws_instead_of_yielding_a_zero_item_order(): void {
 		// `details`欠損・非配列を「明細0件」にフォールバックすると、`OrderWriter`が再同期時に
 		// 既存の明細を全削除した後この空リストから再構築してしまい、報告済みの合計金額は
