@@ -81,6 +81,13 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 */
 	private ?OrderTransformer $order_transformer = null;
 
+	/**
+	 * `shop.json`の税設定を注入した`ProductTransformer`。`$order_transformer`と同じ理由で
+	 * インスタンス単位にキャッシュする（同一プロセス内で処理される全ページで`shop.json`を
+	 * 1回だけ叩けば足りる）。
+	 */
+	private ?ProductTransformer $product_transformer = null;
+
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
 		private readonly Logger $logger = new Logger()
@@ -227,7 +234,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 			]
 		);
 		$raw         = $this->list_from( $body, 'products' );
-		$transformer = new ProductTransformer();
+		$transformer = $this->product_transformer();
 		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
 		$total       = $this->total_from_meta( $body );
 
@@ -402,8 +409,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return null;
 		}
 
+		// `product_transformer()`（初回呼び出し時に`shop.json`を叩く）をtry節の外で解決する。
+		// 中に置くと、shop.json取得失敗（認証切れ等の基盤障害）がこの商品「1件」の変換失敗と
+		// 誤って混同され、ジョブ全体を失敗させリトライに委ねるべき障害が静かに握り潰されてしまう
+		// （CLAUDE.md「境界データはフェイルクローズで検証」の趣旨に反する静かな部分移行を招く）。
+		$transformer = $this->product_transformer();
+
 		try {
-			return ( new ProductTransformer() )->transform( $product );
+			return $transformer->transform( $product );
 		} catch ( Throwable $exception ) {
 			$this->log_transform_failure( 'product', $product, $exception );
 
@@ -509,6 +522,28 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 
 		return $this->order_transformer;
+	}
+
+	/**
+	 * 定価（`price`）の税込換算に必要な店舗税設定（`shop.tax_type`/`tax`/`reduce_tax_rate`/
+	 * `tax_rounding_method`）を`GET /v1/shop.json`から注入する（03 §9 #16）。値が欠損・非期待型の
+	 * 場合はnullのまま`ProductTransformer`へ渡し、同クラス側のフェイルクローズ
+	 * （既知の許可値のみ肯定判定・不明時は換算せず現行フォールバック）に委ねる。
+	 */
+	private function product_transformer(): ProductTransformer {
+		if ( null === $this->product_transformer ) {
+			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = is_array( $shop ) ? $shop : [];
+
+			$this->product_transformer = new ProductTransformer(
+				Cast::to_string_or_null( $shop['tax_type'] ?? null ),
+				Cast::to_int_or_null( $shop['tax'] ?? null ),
+				Cast::to_int_or_null( $shop['reduce_tax_rate'] ?? null ),
+				Cast::to_string_or_null( $shop['tax_rounding_method'] ?? null )
+			);
+		}
+
+		return $this->product_transformer;
 	}
 
 	/**

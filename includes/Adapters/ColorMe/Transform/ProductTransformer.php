@@ -13,20 +13,42 @@ use RuntimeException;
 /**
  * `GET /v1/products.json` `GET /v1/products/{id}.json` の1要素を `CanonicalProduct` へ変換する。
  * マッピングの詳細は `docs/01-plan-colorme.md` §4。
+ *
+ * `sale`と異なり`product.price`（定価）は税込版フィールドを持たないため、`shop.json`の税設定
+ * （`tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`）をコンストラクタで受け取る
+ * （呼び出し側=ColorMeAdapterが注入する。`OrderTransformer`の名称マップ注入と同じパターン）。
  */
 final class ProductTransformer {
+
+	/**
+	 * 全て省略可能（デフォルトnull）。未注入の場合は定価の税込換算を行わず、従来どおり
+	 * `price = sales_price_including_tax` / `sale_price = null` にフォールバックする。
+	 *
+	 * @param ?string $shop_tax_type `shop.tax_type`（'excluded'|'included'）。
+	 * @param ?int $shop_tax_rate `shop.tax`（標準税率、%）。
+	 * @param ?int $shop_reduce_tax_rate `shop.reduce_tax_rate`（軽減税率、%）。
+	 * @param ?string $shop_tax_rounding_method `shop.tax_rounding_method`
+	 *   （'round_off'|'round_down'|'round_up'）。
+	 */
+	public function __construct(
+		private readonly ?string $shop_tax_type = null,
+		private readonly ?int $shop_tax_rate = null,
+		private readonly ?int $shop_reduce_tax_rate = null,
+		private readonly ?string $shop_tax_rounding_method = null
+	) {}
 
 	/**
 	 * @param array<string,mixed> $raw `products[]` の1要素、または `product` 単体。
 	 */
 	public function transform( array $raw ): CanonicalProduct {
-		$remote_id = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
+		$remote_id              = Cast::to_string_or_null( $raw['id'] ?? null ) ?? '';
+		[ $price, $sale_price ] = $this->prices( $raw );
 
 		return new CanonicalProduct(
 			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
 			self::sku( $raw, $remote_id ),
-			Cast::money( $raw['sales_price_including_tax'] ?? null ),
-			null,
+			$price,
+			$sale_price,
 			Cast::sanitize_html( $raw['expl'] ?? null ),
 			$this->images( $raw ),
 			$this->variants( $raw, $remote_id ),
@@ -40,6 +62,75 @@ final class ProductTransformer {
 			Cast::to_int_or_null( $raw['weight'] ?? null ),
 			$this->tax_class( $raw )
 		);
+	}
+
+	/**
+	 * Wooの`regular_price`/`sale_price`を決める。定価（`price`）が販売価格（税込）より
+	 * 高い税込換算値を持つ場合のみ「セール中」として両方を出し分け、それ以外
+	 * （定価未設定・定価≦販売価格・税設定未注入や未知のenum値で換算不可）は従来どおり
+	 * `price = sales_price_including_tax` / `sale_price = null` にフォールバックする
+	 * （03 §9 #16）。
+	 *
+	 * @param array<string,mixed> $raw
+	 * @return array{0:string,1:?string}
+	 */
+	private function prices( array $raw ): array {
+		$sales_price_including_tax = Cast::money( $raw['sales_price_including_tax'] ?? null );
+		$list_price_including_tax  = $this->list_price_including_tax( $raw );
+
+		if ( null !== $list_price_including_tax && $list_price_including_tax > (int) $sales_price_including_tax ) {
+			return [ (string) $list_price_including_tax, $sales_price_including_tax ];
+		}
+
+		return [ $sales_price_including_tax, null ];
+	}
+
+	/**
+	 * 定価（`price`）の税込換算額。`price`はswaggerの税込版フィールドが無く、常に
+	 * `sales_price`と同じ税基準（`shop.tax_type=excluded`なら税抜）で返る（実機確認済み、
+	 * 03 §9 #16）。既知の許可値のみ肯定形で判定し（CLAUDE.mdアーキテクチャ原則9）、
+	 * 未知値・欠損は換算不可としてnullを返す。
+	 *
+	 * @param array<string,mixed> $raw
+	 */
+	private function list_price_including_tax( array $raw ): ?int {
+		$list_price = Cast::to_int_or_null( $raw['price'] ?? null );
+
+		if ( null === $list_price ) {
+			return null;
+		}
+
+		if ( 'included' === $this->shop_tax_type ) {
+			return $list_price;
+		}
+
+		if ( 'excluded' !== $this->shop_tax_type ) {
+			return null;
+		}
+
+		$rate = true === Cast::to_bool_or_null( $raw['tax_reduced'] ?? null )
+			? $this->shop_reduce_tax_rate
+			: $this->shop_tax_rate;
+
+		if ( null === $rate ) {
+			return null;
+		}
+
+		return $this->round_tax( $list_price * ( 100 + $rate ) / 100 );
+	}
+
+	/**
+	 * `shop.tax_rounding_method`に従って端数処理する。未知の方式（欠損含む）は
+	 * どの丸め方が正しいか判定できないため、換算自体を諦めてnullを返す
+	 * （呼び出し元が現行フォールバックに倒す）。
+	 */
+	private function round_tax( float $amount ): ?int {
+		return match ( $this->shop_tax_rounding_method ) {
+			'round_off' => (int) round( $amount ),
+			'round_down' => (int) floor( $amount ),
+			'round_up' => (int) ceil( $amount ),
+			default => null,
+		};
 	}
 
 	/**
@@ -490,7 +581,8 @@ final class ProductTransformer {
 			'smartphone_description'      => Cast::sanitize_html( $raw['smartphone_expl'] ?? null ),
 			// タグ紐付け自体は `tag_refs()`（正規モデルの `tag_refs`）が担う。ここではASP側の生値の保持のみが目的。
 			'group_ids'                   => Cast::strings( is_array( $raw['group_ids'] ?? null ) ? $raw['group_ids'] : [] ),
-			// 定価（税抜/税込どちらか不明）。Transformerはショップの税設定を持たないため税込換算を作らずそのまま退避する。
+			// 定価の生値（税抜/税込どちらかは店舗の税設定依存）。税込換算した値は`prices()`が
+			// 正規モデルの本体価格/セール価格フィールドへ反映するため、ここは往復移行用の生値保持のみが目的。
 			'list_price'                  => Cast::to_int_or_null( $raw['price'] ?? null ),
 			'members_price_including_tax' => Cast::to_int_or_null( $raw['members_price_including_tax'] ?? null ),
 			'tax_reduced'                 => Cast::to_bool_or_null( $raw['tax_reduced'] ?? null ),
