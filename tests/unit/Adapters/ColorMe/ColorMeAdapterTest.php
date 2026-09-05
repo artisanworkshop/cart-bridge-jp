@@ -996,6 +996,45 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( '6600', $page->items[0]->sale_price );
 	}
 
+	public function test_fetch_products_ignores_a_non_integer_shop_tax_rate(): void {
+		// `shop.tax`はswagger上integerだが、スキーマ崩壊等で`8.9`のような小数が返った場合、
+		// `(int)`丸めで黙って`8`として通すと、実際には不正な税率でもっともらしいが誤った
+		// 定価を計算してしまう（レビュー指摘: PR #24）。換算不可としてフォールバックすることを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product                              = $this->product_fixture( 192616831 );
+		$product['price']                     = 8000;
+		$product['sales_price_including_tax'] = 6600;
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [ 'products' => [ $product ] ],
+				],
+				'shop.json'     => [
+					'status' => 200,
+					'body'   => [
+						'shop' => [
+							'id'                  => 'PA000001',
+							'tax_type'            => 'excluded',
+							'tax'                 => 8.9,
+							'tax_rounding_method' => 'round_off',
+							'reduce_tax_rate'     => 8,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertCount( 1, $page->items );
+		$this->assertSame( '6600', $page->items[0]->price );
+		$this->assertNull( $page->items[0]->sale_price );
+	}
+
 	public function test_product_transformer_fetches_shop_json_only_once_per_adapter_instance(): void {
 		// `order_transformer()`と同じキャッシュ規約: 同一アダプタインスタンスでの複数回の
 		// fetch_products呼び出しでも`shop.json`は1回しか叩かない。

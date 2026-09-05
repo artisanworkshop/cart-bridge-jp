@@ -537,8 +537,8 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 			$this->product_transformer = new ProductTransformer(
 				Cast::to_string_or_null( $shop['tax_type'] ?? null ),
-				Cast::to_int_or_null( $shop['tax'] ?? null ),
-				Cast::to_int_or_null( $shop['reduce_tax_rate'] ?? null ),
+				self::valid_tax_rate_or_null( $shop['tax'] ?? null ),
+				self::valid_tax_rate_or_null( $shop['reduce_tax_rate'] ?? null ),
 				Cast::to_string_or_null( $shop['tax_rounding_method'] ?? null )
 			);
 		}
@@ -614,6 +614,20 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 
 		return is_float( $value ) && (float) (int) $value === $value ? (int) $value : null;
+	}
+
+	/**
+	 * `shop.tax`/`shop.reduce_tax_rate`（パーセント表記の税率）用のバリデーション。
+	 * swagger上はinteger型だが、`Cast::to_int_or_null()`は小数（例: `8.9`）を`(int)`丸めで
+	 * 黙って通してしまうため、`exact_int_or_null()`と同じ理由（`meta.total`参照）で厳密な
+	 * 整数のみを受け付ける。さらに負値・非現実的に大きい値（プロキシ異常等でのスキーマ崩壊）
+	 * を弾き、現実的な税率レンジ（0〜100%）外の値は換算不可としてフェイルクローズする
+	 * （レビュー指摘: PR #24。誤った税率でもっともらしいが誤った定価を計算してしまうことを防ぐ）。
+	 */
+	private static function valid_tax_rate_or_null( mixed $value ): ?int {
+		$rate = self::exact_int_or_null( $value );
+
+		return null !== $rate && $rate >= 0 && $rate <= 100 ? $rate : null;
 	}
 
 	/**
