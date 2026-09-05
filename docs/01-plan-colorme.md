@@ -1,6 +1,6 @@
 # カラーミーショップ アダプタ実装計画
 
-最終更新: 2026-07-08 / 対象: `includes/Adapters/ColorMe/`
+最終更新: 2026-09-05 / 対象: `includes/Adapters/ColorMe/` / リリース: **v1.0**（Phase 1 インポート・Phase 2 エクスポート。D18）
 
 ## 1. API基本仕様
 
@@ -131,8 +131,8 @@ rateLimitPerMinute: 100
 4. [ ] Transformer4種 + フィクスチャベースのユニットテスト
 5. [ ] `ColorMeAdapter.fetch*` 実装（カーソル=offset）→ Importer結合でカラーミー→Wooインポート成立
 6. [ ] テストショップで実データインポートE2E（商品100件・受注50件規模）
-7. [ ] `push*` 実装（Phase 4）: 商品upsert → 顧客upsert → 受注作成 → 在庫更新
-8. [ ] カテゴリマッピングUI・画像代替フロー
+7. [ ] `push*` 実装（Phase 2 / E2-3）: 商品upsert → 顧客upsert → 受注作成 → 在庫更新
+8. [ ] カテゴリマッピングUI・画像代替フロー（Phase 2 / E2-1・E2-4）
 
 ## 7. テストショップ
 

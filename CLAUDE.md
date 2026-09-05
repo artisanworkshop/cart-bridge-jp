@@ -2,6 +2,8 @@
 
 日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。無料版は挙動確認用サンプル移行、Pro版（別プラグイン）で無制限化する（`docs/03-design-decisions.md` D14）。
 
+リリースは1ASPずつ: **v1.0=カラーミーショップのみ（インポート＋エクスポート）、v2.0=BASE追加、v3.0=MakeShop追加**（D18、2026-09-05）。v1.0 完了前に BASE/MakeShop のアダプタ実装へ着手しない。3ASP対応を前提に実装済みの基盤（TokenStoreのリフレッシュ構造、`canFetchCustomers` 等）は削除しない。
+
 ## 開発計画ドキュメント（必読）
 
 作業前に必ず該当ドキュメントを読むこと:
