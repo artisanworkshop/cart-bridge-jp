@@ -81,6 +81,13 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 */
 	private ?OrderTransformer $order_transformer = null;
 
+	/**
+	 * `shop.json`の税設定を注入した`ProductTransformer`。`$order_transformer`と同じ理由で
+	 * インスタンス単位にキャッシュする（同一プロセス内で処理される全ページで`shop.json`を
+	 * 1回だけ叩けば足りる）。
+	 */
+	private ?ProductTransformer $product_transformer = null;
+
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
 		private readonly Logger $logger = new Logger()
@@ -227,7 +234,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 			]
 		);
 		$raw         = $this->list_from( $body, 'products' );
-		$transformer = new ProductTransformer();
+		$transformer = $this->product_transformer();
 		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
 		$total       = $this->total_from_meta( $body );
 
@@ -402,8 +409,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return null;
 		}
 
+		// `product_transformer()`（初回呼び出し時に`shop.json`を叩く）をtry節の外で解決する。
+		// 中に置くと、shop.json取得失敗（認証切れ等の基盤障害）がこの商品「1件」の変換失敗と
+		// 誤って混同され、ジョブ全体を失敗させリトライに委ねるべき障害が静かに握り潰されてしまう
+		// （CLAUDE.md「境界データはフェイルクローズで検証」の趣旨に反する静かな部分移行を招く）。
+		$transformer = $this->product_transformer();
+
 		try {
-			return ( new ProductTransformer() )->transform( $product );
+			return $transformer->transform( $product );
 		} catch ( Throwable $exception ) {
 			$this->log_transform_failure( 'product', $product, $exception );
 
@@ -512,6 +525,28 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * 定価（`price`）の税込換算に必要な店舗税設定（`shop.tax_type`/`tax`/`reduce_tax_rate`/
+	 * `tax_rounding_method`）を`GET /v1/shop.json`から注入する（03 §9 #16）。値が欠損・非期待型の
+	 * 場合はnullのまま`ProductTransformer`へ渡し、同クラス側のフェイルクローズ
+	 * （既知の許可値のみ肯定判定・不明時は換算せず現行フォールバック）に委ねる。
+	 */
+	private function product_transformer(): ProductTransformer {
+		if ( null === $this->product_transformer ) {
+			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = is_array( $shop ) ? $shop : [];
+
+			$this->product_transformer = new ProductTransformer(
+				Cast::to_string_or_null( $shop['tax_type'] ?? null ),
+				self::valid_tax_rate_or_null( $shop['tax'] ?? null ),
+				self::valid_tax_rate_or_null( $shop['reduce_tax_rate'] ?? null ),
+				Cast::to_string_or_null( $shop['tax_rounding_method'] ?? null )
+			);
+		}
+
+		return $this->product_transformer;
+	}
+
+	/**
 	 * `sale`は`payment_id`/`delivery_id`のみを持ち名称を含まないため、`OrderTransformer`が
 	 * 参照する`id => name`マップをここで組み立てる（同クラスdocblock参照）。
 	 *
@@ -579,6 +614,20 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 
 		return is_float( $value ) && (float) (int) $value === $value ? (int) $value : null;
+	}
+
+	/**
+	 * `shop.tax`/`shop.reduce_tax_rate`（パーセント表記の税率）用のバリデーション。
+	 * swagger上はinteger型だが、`Cast::to_int_or_null()`は小数（例: `8.9`）を`(int)`丸めで
+	 * 黙って通してしまうため、`exact_int_or_null()`と同じ理由（`meta.total`参照）で厳密な
+	 * 整数のみを受け付ける。さらに負値・非現実的に大きい値（プロキシ異常等でのスキーマ崩壊）
+	 * を弾き、現実的な税率レンジ（0〜100%）外の値は換算不可としてフェイルクローズする
+	 * （レビュー指摘: PR #24。誤った税率でもっともらしいが誤った定価を計算してしまうことを防ぐ）。
+	 */
+	private static function valid_tax_rate_or_null( mixed $value ): ?int {
+		$rate = self::exact_int_or_null( $value );
+
+		return null !== $rate && $rate >= 0 && $rate <= 100 ? $rate : null;
 	}
 
 	/**

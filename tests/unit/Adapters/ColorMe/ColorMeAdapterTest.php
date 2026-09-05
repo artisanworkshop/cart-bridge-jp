@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
@@ -303,14 +304,26 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
+		// `product_transformer()`が定価換算用に`shop.json`も叩くため、products.jsonへの
+		// リクエストURLだけを捕捉する（`$captured`を毎回上書きすると最後に叩かれた
+		// shop.jsonのURLで検証してしまう）。他の`respond_from_map()`利用テストと同じく、
+		// 想定外のURLは`WP_Error`で失敗させ、意図しないHTTPリクエストの混入を検出できるようにする。
 		$captured = null;
 		$fixture  = FixtureLoader::load( 'colorme', 'products' );
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $parsed_args, $url ) use ( &$captured, $fixture ) {
-				$captured = $url;
+				if ( str_contains( $url, 'products.json' ) ) {
+					$captured = $url;
 
-				return $this->json_response( $fixture );
+					return $this->json_response( $fixture );
+				}
+
+				if ( str_contains( $url, 'shop.json' ) ) {
+					return $this->json_response( [ 'shop' => [] ] );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled ColorMe API request: {$url}" );
 			},
 			10,
 			3
@@ -873,6 +886,187 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( '192616831', $result->extras['remote_id'] );
 	}
 
+	public function test_fetch_product_by_remote_id_propagates_shop_json_failures_instead_of_swallowing_them(): void {
+		// `shop.json`の取得失敗（認証切れ等の基盤障害）を、この商品「1件」だけのtransform失敗
+		// （`RuntimeException`等）と同じ扱いでnullに握り潰すと、実際にはAPI接続自体が壊れている
+		// のに「この商品は解決できなかった」という個別行の欠落として静かにスキップされてしまう。
+		// ジョブ全体の失敗としてリトライに委ねるべきであることを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = $this->product_fixture( 192616831 );
+
+		$this->respond_from_map(
+			[
+				'products/192616831.json' => [
+					'status' => 200,
+					'body'   => [ 'product' => $product ],
+				],
+				'shop.json'               => [
+					'status' => 401,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 401001,
+								'message' => 'アクセストークンが無効です。',
+								'status'  => 401,
+							],
+						],
+					],
+				],
+			]
+		);
+
+		$this->expectException( ApiException::class );
+
+		$adapter->fetch_product_by_remote_id( '192616831' );
+	}
+
+	public function test_fetch_product_by_remote_id_converts_list_price_using_shop_tax_settings(): void {
+		// `product_transformer()`が`shop.json`の税設定を実際にProductTransformerへ注入することを
+		// 結合レベルで検証する（換算式自体の網羅はProductTransformerTestの責務）。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product                              = $this->product_fixture( 192616831 );
+		$product['price']                     = 8000;
+		$product['sales_price_including_tax'] = 6600;
+
+		$this->respond_from_map(
+			[
+				'products/192616831.json' => [
+					'status' => 200,
+					'body'   => [ 'product' => $product ],
+				],
+				'shop.json'               => [
+					'status' => 200,
+					'body'   => [
+						'shop' => [
+							'id'                  => 'PA000001',
+							'tax_type'            => 'excluded',
+							'tax'                 => 10,
+							'tax_rounding_method' => 'round_off',
+							'reduce_tax_rate'     => 8,
+						],
+					],
+				],
+			]
+		);
+
+		$result = $adapter->fetch_product_by_remote_id( '192616831' );
+
+		$this->assertNotNull( $result );
+		$this->assertSame( '8800', $result->price );
+		$this->assertSame( '6600', $result->sale_price );
+	}
+
+	public function test_fetch_products_converts_list_price_using_shop_tax_settings(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product                              = $this->product_fixture( 192616831 );
+		$product['price']                     = 8000;
+		$product['sales_price_including_tax'] = 6600;
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [ 'products' => [ $product ] ],
+				],
+				'shop.json'     => [
+					'status' => 200,
+					'body'   => [
+						'shop' => [
+							'id'                  => 'PA000001',
+							'tax_type'            => 'excluded',
+							'tax'                 => 10,
+							'tax_rounding_method' => 'round_off',
+							'reduce_tax_rate'     => 8,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertCount( 1, $page->items );
+		$this->assertSame( '8800', $page->items[0]->price );
+		$this->assertSame( '6600', $page->items[0]->sale_price );
+	}
+
+	public function test_fetch_products_ignores_a_non_integer_shop_tax_rate(): void {
+		// `shop.tax`はswagger上integerだが、スキーマ崩壊等で`8.9`のような小数が返った場合、
+		// `(int)`丸めで黙って`8`として通すと、実際には不正な税率でもっともらしいが誤った
+		// 定価を計算してしまう（レビュー指摘: PR #24）。換算不可としてフォールバックすることを検証する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product                              = $this->product_fixture( 192616831 );
+		$product['price']                     = 8000;
+		$product['sales_price_including_tax'] = 6600;
+
+		$this->respond_from_map(
+			[
+				'products.json' => [
+					'status' => 200,
+					'body'   => [ 'products' => [ $product ] ],
+				],
+				'shop.json'     => [
+					'status' => 200,
+					'body'   => [
+						'shop' => [
+							'id'                  => 'PA000001',
+							'tax_type'            => 'excluded',
+							'tax'                 => 8.9,
+							'tax_rounding_method' => 'round_off',
+							'reduce_tax_rate'     => 8,
+						],
+					],
+				],
+			]
+		);
+
+		$page = $adapter->fetch_products( Cursor::start() );
+
+		$this->assertCount( 1, $page->items );
+		$this->assertSame( '6600', $page->items[0]->price );
+		$this->assertNull( $page->items[0]->sale_price );
+	}
+
+	public function test_product_transformer_fetches_shop_json_only_once_per_adapter_instance(): void {
+		// `order_transformer()`と同じキャッシュ規約: 同一アダプタインスタンスでの複数回の
+		// fetch_products呼び出しでも`shop.json`は1回しか叩かない。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$shop_requests = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( &$shop_requests ) {
+				if ( str_contains( $url, 'shop.json' ) ) {
+					++$shop_requests;
+
+					return $this->json_response( [ 'shop' => [] ] );
+				}
+
+				if ( str_contains( $url, 'products.json' ) ) {
+					return $this->json_response( [ 'products' => [] ] );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled ColorMe API request: {$url}" );
+			},
+			10,
+			3
+		);
+
+		$adapter->fetch_products( Cursor::start() );
+		$adapter->fetch_products( Cursor::start() );
+
+		$this->assertSame( 1, $shop_requests );
+	}
+
 	public function test_fetch_customer_by_remote_id_returns_null_on_404(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -1059,10 +1253,20 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	/**
 	 * URLに含まれる文字列をキーに、モックする応答を振り分ける。
 	 * 各エントリは `['status' => int, 'body' => array]`。
+	 * `product_transformer()`が定価の税込換算用に`shop.json`を叩くため、呼び出し元が
+	 * 明示的に指定しない限り空のshop応答（税設定なし＝従来どおりのフォールバック）を
+	 * デフォルトで用意する。
 	 *
 	 * @param array<string,array<string,mixed>> $map
 	 */
 	private function respond_from_map( array $map ): void {
+		$map += [
+			'shop.json' => [
+				'status' => 200,
+				'body'   => [ 'shop' => [] ],
+			],
+		];
+
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $parsed_args, $url ) use ( $map ) {

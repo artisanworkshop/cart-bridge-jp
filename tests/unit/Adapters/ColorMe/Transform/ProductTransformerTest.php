@@ -645,6 +645,177 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( [ '3197760', '3197761' ], $product->extras['group_ids'] );
 	}
 
+	public function test_regular_price_reflects_tax_inclusive_list_price_when_higher_than_sale_price(): void {
+		// 03 §9 #16 の実機実測ケースの縮図: 定価(税抜)を税込換算した額が販売価格(税込)より
+		// 高ければ、Wooのregular_price=定価税込換算額、sale_price=販売価格税込にする。
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+		$raw['tax_reduced']               = false;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '8800', $product->price );
+		$this->assertSame( '6600', $product->sale_price );
+	}
+
+	public function test_reduced_tax_rate_applies_to_tax_reduced_products(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 1000;
+		$raw['sales_price_including_tax'] = 900;
+		$raw['tax_reduced']               = true;
+
+		$product = $transformer->transform( $raw );
+
+		// 1000 * 1.08 = 1080（標準税率10%を使うと1100になり区別できる）。
+		$this->assertSame( '1080', $product->price );
+		$this->assertSame( '900', $product->sale_price );
+	}
+
+	public function test_included_tax_type_uses_list_price_as_is(): void {
+		$transformer                      = new ProductTransformer( 'included', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '8000', $product->price );
+		$this->assertSame( '6600', $product->sale_price );
+	}
+
+	public function test_round_down_truncates_the_fractional_yen(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_down' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 1009; // 1009 * 1.10 = 1109.9
+		$raw['sales_price_including_tax'] = 1000;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '1109', $product->price );
+	}
+
+	public function test_round_up_rounds_any_fraction_up(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_up' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 1001; // 1001 * 1.10 = 1101.1
+		$raw['sales_price_including_tax'] = 1000;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '1102', $product->price );
+	}
+
+	public function test_round_off_rounds_half_away_from_zero(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 1005; // 1005 * 1.10 = 1105.5
+		$raw['sales_price_including_tax'] = 1000;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '1106', $product->price );
+	}
+
+	public function test_list_price_at_or_below_sale_price_keeps_sale_price_null_even_with_tax_settings(): void {
+		// フィクスチャの定価は3000円・販売価格税込は3300円（3000円の10%税込換算とちょうど一致するため
+		// セール扱いにならない）。
+		$transformer = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw         = $this->product_fixture( 192616831 );
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '3300', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_unknown_tax_type_falls_back_to_no_conversion(): void {
+		// 既知の許可値（excluded/included）のみ肯定形で判定し、未知値は換算不可として
+		// 現行のフォールバックに倒す（CLAUDE.mdアーキテクチャ原則9）。
+		$transformer                      = new ProductTransformer( 'unexpected-enum-value', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_unknown_rounding_method_falls_back_to_no_conversion(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'unexpected-method' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_missing_reduce_tax_rate_falls_back_to_no_conversion_for_tax_reduced_products(): void {
+		$transformer                      = new ProductTransformer( 'excluded', 10, null, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+		$raw['tax_reduced']               = true;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_missing_tax_reduced_falls_back_to_no_conversion_instead_of_assuming_standard_rate(): void {
+		// `tax_reduced`はswaggerで必須ではないため、欠損・非boolean値は「対象か不明」を
+		// 意味する。標準税率にフォールバックして換算すると、実際は軽減税率対象の商品が
+		// 誤った税率で換算されうる（レビュー指摘: PR #24）。
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+		unset( $raw['tax_reduced'] );
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_free_sales_price_keeps_product_free_even_with_a_higher_list_price(): void {
+		// `sales_price_including_tax: 0`（正規の無料商品）に定価が設定されている場合、
+		// 出し分けると`sale_price='0'`になり、`ProductWriter::resolve_sale_price()`が
+		// `sale_price <= 0`を不正と判定して定価（有料）を有効価格に採用してしまう
+		// （無料商品が定価の有料商品に化ける。レビュー指摘: PR #24）。
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 0;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '0', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_missing_shop_tax_settings_falls_back_to_no_conversion(): void {
+		// コンストラクタに税設定を注入しない場合（未接続・shop.json取得前等）は
+		// 従来どおりの挙動を維持する。
+		$transformer                      = new ProductTransformer();
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
 	/**
 	 * @return array<string,mixed>
 	 */
