@@ -306,7 +306,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		// `product_transformer()`が定価換算用に`shop.json`も叩くため、products.jsonへの
 		// リクエストURLだけを捕捉する（`$captured`を毎回上書きすると最後に叩かれた
-		// shop.jsonのURLで検証してしまう）。
+		// shop.jsonのURLで検証してしまう）。他の`respond_from_map()`利用テストと同じく、
+		// 想定外のURLは`WP_Error`で失敗させ、意図しないHTTPリクエストの混入を検出できるようにする。
 		$captured = null;
 		$fixture  = FixtureLoader::load( 'colorme', 'products' );
 		add_filter(
@@ -318,7 +319,11 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 					return $this->json_response( $fixture );
 				}
 
-				return $this->json_response( [ 'shop' => [] ] );
+				if ( str_contains( $url, 'shop.json' ) ) {
+					return $this->json_response( [ 'shop' => [] ] );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled ColorMe API request: {$url}" );
 			},
 			10,
 			3

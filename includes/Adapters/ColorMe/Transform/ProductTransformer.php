@@ -116,19 +116,23 @@ final class ProductTransformer {
 			return null;
 		}
 
-		return $this->round_tax( $list_price * ( 100 + $rate ) / 100 );
+		return $this->round_tax( $list_price * ( 100 + $rate ) );
 	}
 
 	/**
-	 * `shop.tax_rounding_method`に従って端数処理する。未知の方式（欠損含む）は
+	 * `shop.tax_rounding_method`に従って端数処理する。`CanonicalProduct::$price`が浮動小数点
+	 * 誤差を避けるため文字列で金額を保持する設計（`docs/`各所参照）に揃え、ここも浮動小数点
+	 * 除算（`$amount / 100`）を使わず整数演算のみで丸める。未知の方式（欠損含む）は
 	 * どの丸め方が正しいか判定できないため、換算自体を諦めてnullを返す
 	 * （呼び出し元が現行フォールバックに倒す）。
+	 *
+	 * @param int $amount 税抜金額 × 100（パーセント表記の税率をそのまま乗じた値）。
 	 */
-	private function round_tax( float $amount ): ?int {
+	private function round_tax( int $amount ): ?int {
 		return match ( $this->shop_tax_rounding_method ) {
-			'round_off' => (int) round( $amount ),
-			'round_down' => (int) floor( $amount ),
-			'round_up' => (int) ceil( $amount ),
+			'round_off' => intdiv( $amount + 50, 100 ),
+			'round_down' => intdiv( $amount, 100 ),
+			'round_up' => intdiv( $amount + 99, 100 ),
 			default => null,
 		};
 	}
