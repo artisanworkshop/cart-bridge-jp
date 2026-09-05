@@ -1,9 +1,28 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-04
+最終更新: 2026-09-05
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
+
+## リリース計画（D18・2026-09-05改訂）
+
+| バージョン | 対応プラットフォーム | フェーズ | 状態 |
+|---|---|---|---|
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 進行中（F1-5後続〜F1-8 残） |
+| **v2.0** | + BASE（インポート＋エクスポート※） | Phase 4〜5 | 未着手（v1.0 公開後） |
+| **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
+| Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
+
+※ BASE のエクスポートは API 制約により商品・カテゴリ・在庫のみ（受注作成・顧客APIなし）。
+
+旧計画（0基盤→1カラーミー→2MakeShop→3BASE→4エクスポート→5公開、v1.0はBASE込み）からの変更点:
+MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエクスポートを v1.0 に前倒し。BASE と MakeShop の
+順序を入れ替え（BASE→MakeShop）。タスクIDは新フェーズ番号で採番し直した（旧 `M2-*`→`M6-*`、
+旧 `B3-*`→`B4-*`、旧 `E4-1/2/3`→`E2-1/2/3`、旧 `E4-5`→`E5-1`、旧 `E4-4/6`→`E7-1/2`、旧 `R5-*`→`R3-*`）。
+いずれも未着手だったため実装・PRへの影響なし。コード内コメントに残る旧ID（`ColorMeAdapter` の `E4-3`、
+`RestController` の `E4-2`）は該当タスク着手時に直す。
+**v1.0 完了（Phase 3）前に Phase 4 以降へ着手しない。**
 
 ## 進め方（各セッション共通）
 
@@ -14,13 +33,13 @@
    （例: Phase 1では `F1-1(Client)+F1-2(OAuth/接続UI)`＝「接続できる」単位、
    `F1-3(Transformer)+F1-4(WooRepository)`＝フィクスチャ検証のみで閉じる単位、でまとめ、
    `F1-5(Adapter.fetch*+Importer結合)`＝最初にE2Eで動く統合ポイントは単独PRのまま。
-   Phase 2/3でも同じ考え方を類推適用する）
+   Phase 2以降でも同じ考え方を類推適用する）
 3. plan モードで実装計画を立ててから着手
 4. **完了条件**: 各タスク記載の成果物 + `composer lint && composer analyze && composer test:wpenv` が通ること（npm を含むタスクは `npm run lint && npm run build` も）。
    `composer test` はwp-envコンテナ内専用でホストからは動かない（CLAUDE.md「コマンド」参照）
 5. PR 作成（gh コマンド）→ CI 通過 → マージ → 本ファイルのチェックボックスを更新
 6. 要検証事項（03 §9）が確定したら 03 と該当計画ドキュメントを更新
-7. フィクスチャ収集タスク（F1-0 / M2-0 / B3-0）では、コミット前に必ず
+7. フィクスチャ収集タスク（F1-0 / B4-0 / M6-0）では、コミット前に必ず
    `tests/fixtures/README.md` の匿名化ルールを適用する（public リポジトリのため個人情報厳禁）
 
 ---
@@ -96,7 +115,7 @@
 
 ---
 
-## Phase 1: カラーミー → Woo インポート（MVP）
+## Phase 1: カラーミー → Woo インポート（MVP・v1.0）
 
 > 前提: デベロッパー登録・テストショップ・アプリ登録済み（D2）。詳細は `01-plan-colorme.md`。
 
@@ -155,63 +174,90 @@
 
 ---
 
-## Phase 2: MakeShop → Woo インポート
+## Phase 2: Woo → カラーミー エクスポート（v1.0）
 
-> 前提: 自社利用登録・エンドポイント・永続トークン取得済み（D2）。詳細は `02-plan-makeshop.md`。
-> アーキテクチャ検証: Importer本体を変更せずアダプタ追加のみで成立させること。
+> 旧計画の Phase 4（Woo → ASP エクスポート）からカラーミー分を切り出し、v1.0 に前倒し（D18）。
+> Exporter パイプライン・マッピングUIは ASP 非依存に作り、v2.0/v3.0 では各アダプタの `push*` 追加と
+> capability 分岐（カテゴリ自動作成等）の有効化だけで成立させる。
+> 前提: F1-8 完了（インポート側の実データE2Eで Canonical⇔Woo の変換が実データに耐えることを確認済み）。
 
-- [ ] **M2-0: フィクスチャ収集 + スキーマ精査**（searchProduct/searchMember/searchOrder/createProduct。**要検証#2/#3/#4/#8と、MakeShop分の#14/#15（受注ソート・ID指定取得）を確定**）
-- [ ] **M2-1: GraphQLClient**（Bearer認証、errors[]変換、partial data処理、リトライ、RateLimiter統合）+ ユニットテスト
-- [ ] **M2-2: 接続設定UI**（endpoint+token入力、getShop接続テスト）
-- [ ] **M2-3: Transformer 4種+**（Product/Member/Order/Category + Coupon/Review。フィクスチャテスト）
-- [ ] **M2-4: MakeShopAdapter.fetch\* + Importer結合**（ページング実装、dry-run）
-- [ ] **M2-5: 実ショップE2E**
+- [ ] **E2-1: マッピングUI**（カテゴリ: カラーミーは作成不可（`canCreateCategory=false`）のため既存カテゴリ選択のみ。自動作成の分岐点は capability 判定として用意し、実装は v2.0 E5-1 / 決済・配送・注文ステータス対応表。F1-5後続の `GET/PUT /settings/mappings/{platform}` と設定ストア `cbjp_settings_{platform}` を共用）
+- [ ] **E2-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run。**無料版はインポートと同基準のサンプル上限（Woo側の最新受注10件起点）を適用=D15。実行前の本番書込み警告=D17**。`RestController` の `type=export` 501 を解除）
+- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替）
+- [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
+
+**Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。
 
 ---
 
-## Phase 3: BASE → Woo インポート
+## Phase 3: v1.0 仕上げ・公開
+
+- [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認）
+- [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
+- [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断）
+- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release）
+- [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
+
+> **要判断（v1.0公開前）**: 無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。
+> Pro 版アドオンは別リポジトリ（本ファイル末尾）で、本リポジトリ側の拡張ポイントは Phase 0 で提供済み。
+
+---
+
+## Phase 4: BASE → Woo インポート（v2.0）
 
 > 前提: BASE Developersアプリ登録済み・テストショップあり（D2）。詳細は `04-plan-base.md`。
-> BASE固有の制約: 顧客一覧API・注文作成API・クーポンAPIなし。トークンは1時間期限+リフレッシュ30日ローテーション（D13）。
+> BASE固有の制約: 顧客一覧API・注文作成API・クーポンAPIなし。トークンは1時間期限+リフレッシュ30日ローテーション（D13。TokenStore 側の構造化ペイロード・排他ロックは Phase 0 で実装済み）。
+> **アーキテクチャ検証**: プラットフォーム固有分岐をアダプタ外（Importer/JobManager本体）に持ち込まずに成立させること（旧計画で MakeShop が担っていた検証観点を引き継ぐ）。ただしプラットフォーム非依存のコア拡張点の追加は許容する（B4-5の顧客永続化フック、E5-1のリトライ遅延拡張点。D18）。
+> 旧タスクID `B3-*` を `B4-*` に採番し直した（内容は同じ）。
 
-- [ ] **B3-0: フィクスチャ収集 + 仕様実測**
+- [ ] **B4-0: フィクスチャ収集 + 仕様実測**
   - テストショップにサンプルデータ（バリエーション商品・複数カテゴリ商品・各決済の受注・一部発送の受注）を登録
   - items / items/detail / categories / item_categories / orders / orders/detail / users/me の実レスポンスを `tests/fixtures/base/` に保存
   - **要検証#9（redirect_uriのhttps要否）/#10（発送ステータス集約規則）/#11（エラー形式・レート制限挙動）/#12（費用・スコープ承認）と、BASE分の#14/#15（受注ソート・商品ID指定取得）をここで確定** → 03 §9 と Capabilities を更新
-- [ ] **B3-1: BaseOAuth**（認可URL生成、callback REST（カラーミーと共通基盤）、**リフレッシュ+ローテーション+排他ロック**、TokenStore統合）+ ユニットテスト
-- [ ] **B3-2: BaseClient**（GET/POST、**HTTP 400のレート制限コード判別**、期限切れ時の自動リフレッシュ、RateLimiter統合）+ ユニットテスト
-- [ ] **B3-3: 接続ウィザードUI**（client_id/secret入力 → 認可 → users/me接続テスト。code手動貼付フォールバック）
-- [ ] **B3-4: Transformer**（Product/Order/Category + **CustomerExtractor**（受注購入者のemail名寄せ=D12）。フィクスチャベースのユニットテスト）
-- [ ] **B3-5: BaseAdapter.fetch\* + Importer結合**（カーソル=offset、受注は一覧→詳細の2段取得、dry-run動作確認）
-- [ ] **B3-6: 実ショップE2E**（商品・受注・顧客抽出の冪等性確認）
+- [ ] **B4-1: BaseOAuth**（認可URL生成、callback REST（カラーミーと共通基盤）、**リフレッシュ+ローテーション+排他ロック**、TokenStore統合）+ ユニットテスト
+- [ ] **B4-2: BaseClient**（GET/POST、**HTTP 400のレート制限コード判別**（`HttpClient` の `$rate_limit_detector` を使用）、期限切れ時の自動リフレッシュ、RateLimiter統合）+ ユニットテスト
+- [ ] **B4-3: 接続ウィザードUI**（client_id/secret入力 → 認可 → users/me接続テスト。code手動貼付フォールバック）
+- [ ] **B4-4: Transformer**（Product/Order/Category + **CustomerExtractor**（受注購入者のemail名寄せ=D12）。フィクスチャベースのユニットテスト）
+- [ ] **B4-5: BaseAdapter.fetch\* + Importer結合**（カーソル=offset、受注は一覧→詳細の2段取得、dry-run動作確認。`Page::$total` は変換層で行の除外・展開がありうるため 1:1 を保証できなければ null）
+- [ ] **B4-6: 実ショップE2E**（商品・受注・顧客抽出の冪等性確認）
 
 ---
 
-## Phase 4: Woo → ASP エクスポート
+## Phase 5: Woo → BASE エクスポート + v2.0 公開
 
-- [ ] **E4-1: マッピングUI**（カテゴリ: カラーミーは既存選択・MakeShop/BASEは自動作成（BASEは3階層まで） / 決済・配送・注文ステータス対応表）
-- [ ] **E4-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run。**無料版はインポートと同基準のサンプル上限（Woo側の最新受注10件起点）を適用=D15。実行前の本番書込み警告=D17**）
-- [ ] **E4-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像不可なら画像URL一覧CSV出力フロー）
-- [ ] **E4-4: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
-- [ ] **E4-5: BASE push\***（カテゴリ自動作成→商品upsert→画像add_image(URL方式・**要検証#13**)→在庫edit_stock。**1日1,000件制限の分割実行**、バリエーション1軸化・絵文字除去のdry-run警告。受注・顧客は対象外）
-- [ ] **E4-6: importProductBulk 経路**（MakeShop 1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
+- [ ] **E5-1: BASE push\***（カテゴリ自動作成（E2-1 のマッピングUIに `canCreateCategory=true` 分岐を実装、3階層まで・4階層以上は平坦化+警告）→商品upsert→画像add_image(URL方式・**要検証#13**)→在庫edit_stock。**1日1,000件制限の分割実行**（`paused`→翌日再エンキュー）、バリエーション1軸化・絵文字除去のdry-run警告。受注・顧客は対象外（capabilityでUI非表示））。
+  **既知の設計課題**: 現状の `Sync\JobManager` は `RateLimitExhaustedException` を固定 `PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装のため、このままでは1日上限到達時に翌日リセットまで待たず1分おきに再試行し続ける。「翌日再エンキュー」を実現するには、E2-2（Exporterパイプライン）または本タスクで再試行遅延を可変にする拡張点（例外側で希望の再試行時刻を指定できるようにする等）をJobManagerに追加する必要がある（D18が許容するプラットフォーム非依存のコア拡張点。プラットフォーム固有分岐はアダプタ外に書かない原則自体は維持する）
+- [ ] **R5-1: v2.0 公開**（BASE往復E2Eに加え、E5-1でマッピングUI・`JobManager`のリトライ挙動を変更しているため**カラーミーの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に BASE を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`。R3-2と同じ手順）、**セキュリティ監査**（BASE OAuth・トークンリフレッシュ・`BaseClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 2.0.0、wordpress.org 更新）
 
 ---
 
-## Phase 5: 仕上げ・公開
+## Phase 6: MakeShop → Woo インポート（v3.0）
 
-- [ ] **R5-1: 全件E2Eリハーサル**（3ASPのテストショップで実データ移行、往復移行のデータ欠損確認）
-- [ ] **R5-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
-- [ ] **R5-3: readme.txt + アセット**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及）
-- [ ] **R5-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過。参考スキル: wp-org-release）
-- [ ] **R5-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
+> 前提: 自社利用登録・エンドポイント・永続トークン取得済み（D2）。詳細は `02-plan-makeshop.md`。
+> 旧タスクID `M2-*` を `M6-*` に採番し直した（内容は同じ）。
+
+- [ ] **M6-0: フィクスチャ収集 + スキーマ精査**（searchProduct/searchMember/searchOrder/createProduct。**要検証#2/#3/#4/#8と、MakeShop分の#14/#15（受注ソート・ID指定取得）を確定**）
+- [ ] **M6-1: GraphQLClient**（Bearer認証、errors[]変換、partial data処理、リトライ、RateLimiter統合）+ ユニットテスト
+- [ ] **M6-2: 接続設定UI**（endpoint+token入力、getShop接続テスト）
+- [ ] **M6-3: Transformer 4種+**（Product/Member/Order/Category + Coupon/Review。フィクスチャテスト）
+- [ ] **M6-4: MakeShopAdapter.fetch\* + Importer結合**（ページング実装、dry-run）
+- [ ] **M6-5: 実ショップE2E**
 
 ---
 
-## Phase 6（Pro版アドオン・別リポジトリ）
+## Phase 7: Woo → MakeShop エクスポート + v3.0 公開
+
+- [ ] **E7-1: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
+- [ ] **E7-2: importProductBulk 経路**（MakeShop 1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
+- [ ] **R7-1: v3.0 公開**（MakeShop往復E2Eに加え、**カラーミー・BASEの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に MakeShop を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`）、**セキュリティ監査**（MakeShop認証・`GraphQLClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 3.0.0、wordpress.org 更新）
+
+---
+
+## Pro版アドオン（別リポジトリ・フェーズ番号なし）
 
 > 本リポジトリのスコープ外（無料版に Pro 固有コードを含めない）。無料版側は `cbjp/limits/*` フィルターと
 > AdapterRegistry の拡張ポイントを提供するのみ（P0-6 / P0-5 に含む）。継続同期は販売しない（D14）。
+> 上限解除はプラットフォーム非依存のため、v2.0/v3.0 のアダプタ追加で Pro 側の変更は不要。
 
 - Pro プラグイン: `cbjp/limits/*` による上限解除、301リダイレクトCSV生成（D17）
 - ライセンス統合: WooCommerce API Manager クライアント（アクティベーション・アップデート取得）
