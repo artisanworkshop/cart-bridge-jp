@@ -1,11 +1,11 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-07-09
+最終更新: 2026-09-05
 
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -19,13 +19,14 @@
 | D8 | ブランチ運用 | `main` をデフォルトに、フェーズ/タスクごとに `feat/xxx` ブランチ → PR → CI通過でマージ。既存の `trunk` ブランチは `main` に統合して廃止 |
 | D9 | 作者表記 | Author: Artisan Workshop（GitHub org と一致。Author URI は実装時に実URLを確認） |
 | D10 | 受注明細の未マッチ商品 | Woo側に商品が無い明細は**カスタム行**（注文時商品名・単価・数量をそのまま）として作成し、元商品IDをメタ保存。スキップしない |
-| D11 | BASE対応の追加 | 対応プラットフォームに **BASE を追加**し、**Phase 3（MakeShopの次）**でインポートを実装。エクスポートはAPIが許す範囲（商品・カテゴリ・在庫のみ）で Phase 4 に含める。**v1.0公開はBASE込み**（フェーズ構成: 0基盤→1カラーミー→2MakeShop→3BASE→4エクスポート→5公開）。詳細は `04-plan-base.md` |
+| D11 | BASE対応の追加 | 対応プラットフォームに **BASE を追加**し、インポートと、APIが許す範囲（商品・カテゴリ・在庫のみ）のエクスポートを実装する。詳細は `04-plan-base.md`。~~Phase 3（MakeShopの次）でインポート、Phase 4でエクスポート、v1.0公開はBASE込み（0基盤→1カラーミー→2MakeShop→3BASE→4エクスポート→5公開）~~ → **提供時期は D18 で改訂**: v1.0 には含めず **v2.0（Phase 4〜5）**で提供 |
 | D12 | BASEの顧客移行方式 | BASEには顧客一覧APIが無いため、**受注インポート時に購入者情報からemail名寄せで顧客を生成**（オプション、デフォルトON。初回作成のみで上書きしない）。単独の顧客エンティティとしてはUIに出さない（`canFetchCustomers: false`） |
 | D13 | 有効期限付きトークン対応 | BASEのアクセストークン1時間+リフレッシュトークン30日ローテーションに対応するため、**TokenStoreはPhase 0から構造化ペイロード（access/refresh/expires_at）+リフレッシュ排他ロックを前提に設計**する（§4参照。カラーミー/MakeShopは単一トークンとして同構造に格納） |
 | D14 | ビジネスモデル | 無料版=挙動確認用（**dry-runは全量無料**+実移行はサンプルのみ）。Pro版=買切り**「移行プロジェクトライセンス」**: サイト数無制限・**初回アクティベーションから3ヶ月**のアップデート&サポート・認証済みサイトは期限後も永続動作（新規サイト認証と更新のみ不可）・価格 ¥19,800 前後・自社サイト直販（**WooCommerce API Manager**）・返金保証なし（無料版で事前検証可能なことを明記）。**継続同期（Pro同期）は販売しない**。詳細は §10.1 |
 | D15 | 無料版の実行上限 | **最新受注10件起点のサンプル移行**: サンプル受注に紐づく商品（ハードキャップ50件）・顧客（最大10件）・受注10件のみ実インポート/エクスポート可。カテゴリ/タグは全量無料。上限はサーバーサイド（JobManager）で強制し、`cbjp/limits/{entity}` フィルター（総称表記: `cbjp/limits/*`）でPro版が解除。詳細は §10.2 |
 | D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
 | D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
+| D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は Importer/Exporter 本体を変えずアダプタ追加のみで成立させることを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -290,6 +291,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
  */
 ```
 
+- **Description の v1.0 化（D18）**: 上記ヘッダーと `composer.json` の Description は3ASPを併記しているが、v1.0 公開時（R3-3）に「Color Me Shop」のみへ改め、BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - アンインストール: `uninstall.php`。オプション `cbjp_delete_data_on_uninstall`（デフォルトfalse）が true の場合のみテーブル・オプション削除
@@ -306,21 +308,21 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 | # | 項目 | 確定タイミング | 状態 |
 |---|---|---|---|
-| 1 | カラーミー: 商品POST/PUTの画像登録可否 | Phase 1 タスク F1-0（swagger精査+実測） | **済（プラン依存）**: `products.json`のcreate/update本体に画像フィールドはないが、専用エンドポイント`POST /v1/products/{product_id}/images`（マルチパート、`image`+`position`）が別途存在する。**ただしプレミアムプラン契約ショップのみ利用可**（レギュラープラン等は403想定・要実機確認）。`canPushImages`は固定falseではなく、`GET /shop.json`の`contract_plan`を見てプラン依存で判定する設計に変更（F1-5で実装、E4-3で画像push実装時に403時のCSVフォールバックへの切替を含める） |
-| 2 | MakeShop: レート制限値 | Phase 2 タスク M2-0（FAQ/問い合わせ） | 未 |
-| 3 | MakeShop: 自社利用登録の条件（プラン・費用） | 取得済みのため契約内容をREADME用に記録（M2-0） | 未 |
-| 4 | MakeShop: createProduct の画像入力形式 | Phase 2 タスク M2-0 | 未 |
-| 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | Phase 4 タスク E4-3（テストショップ実測） | 未 |
+| 1 | カラーミー: 商品POST/PUTの画像登録可否 | Phase 1 タスク F1-0（swagger精査+実測） | **済（プラン依存）**: `products.json`のcreate/update本体に画像フィールドはないが、専用エンドポイント`POST /v1/products/{product_id}/images`（マルチパート、`image`+`position`）が別途存在する。**ただしプレミアムプラン契約ショップのみ利用可**（レギュラープラン等は403想定・要実機確認）。`canPushImages`は固定falseではなく、`GET /shop.json`の`contract_plan`を見てプラン依存で判定する設計に変更（F1-5で実装、E2-3で画像push実装時に403時のCSVフォールバックへの切替を含める） |
+| 2 | MakeShop: レート制限値 | v3.0 Phase 6 タスク M6-0（FAQ/問い合わせ） | 未 |
+| 3 | MakeShop: 自社利用登録の条件（プラン・費用） | 取得済みのため契約内容をREADME用に記録（v3.0 M6-0） | 未 |
+| 4 | MakeShop: createProduct の画像入力形式 | v3.0 Phase 6 タスク M6-0 | 未 |
+| 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | v1.0 Phase 2 タスク E2-3（テストショップ実測） | 未 |
 | 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-8）で計測 | 未 |
 | 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | **済（実機確認 2026-09-03）**: デベロッパーコンソールに `http://localhost:8888/wp-json/cbjp/v1/connect/colorme/callback`（wp-env 既定ポート。実際に登録するURLは `GET /connections` が返す `callback_url` を使うこと。実測環境では wp-env が 8898 にバインドされていたが結果は同じ）を登録でき、自動リダイレクト方式で接続完了した。**httpsは必須ではない**（ローカル開発でも自動リダイレクトが使える）。OOB手動貼付フォールバックは引き続き保持する（BASE=要検証#9は別途） |
-| 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | Phase 2 タスク M2-0 | 未 |
-| 9 | BASE: リダイレクトURIのhttps要否・localhost可否 | Phase 3 タスク B3-0 | 未 |
-| 10 | BASE: 明細単位発送ステータスの注文全体への集約規則（dispatch_statusの実値一覧含む） | Phase 3 タスク B3-0 | 未 |
-| 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | Phase 3 タスク B3-0 | 未 |
-| 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | Phase 3 タスク B3-0（公式FAQ確認） | 未 |
-| 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | Phase 4 タスク E4-5 | 未 |
-| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済（実機確認済み 2026-09-03）**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は探索窓（`after`）を過去方向へ4倍ずつ広げて複数回リクエストし、10件集まるか受注履歴の下限（2000-01-01）に達するまで走査する（**F1-5実装済み**: `before`は常に省略し暗黙の現在時刻に固定したまま`after`のみを広げる方式。`fetch_orders`によるカーソル全量走査も`after=2000-01-01`を明示することで直近7日制限を回避する）。**テストショップ実測**: 直近7日の受注0件・全履歴2件の店舗で、`after`省略→28日→112日→448日→1792日→7168日→2000-01-01 の7回の`sales.json`呼び出し（＋`payments.json`/`deliveries.json`各1回）で下限に到達し2件を取得、所要1.7秒。直近7日に10件以上ある店舗では1回で確定する。MakeShop/BASEは未 |
-| 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / M2-0 / B3-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
+| 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | v3.0 Phase 6 タスク M6-0 | 未 |
+| 9 | BASE: リダイレクトURIのhttps要否・localhost可否 | v2.0 Phase 4 タスク B4-0 | 未 |
+| 10 | BASE: 明細単位発送ステータスの注文全体への集約規則（dispatch_statusの実値一覧含む） | v2.0 Phase 4 タスク B4-0 | 未 |
+| 11 | BASE: エラーレスポンス形式・レート制限超過時の挙動（Retry-Afterヘッダー有無） | v2.0 Phase 4 タスク B4-0 | 未 |
+| 12 | BASE: API利用費用・スコープ承認フロー（README前提条件用） | v2.0 Phase 4 タスク B4-0（公式FAQ確認） | 未 |
+| 13 | BASE: add_image のURL取得要件（Basic認証下・ローカルURLの挙動）と canPushImages 最終確定 | v2.0 Phase 5 タスク E5-1 | 未 |
+| 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / B4-0 / M6-0 | **カラーミー済（実機確認済み 2026-09-03）**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は探索窓（`after`）を過去方向へ4倍ずつ広げて複数回リクエストし、10件集まるか受注履歴の下限（2000-01-01）に達するまで走査する（**F1-5実装済み**: `before`は常に省略し暗黙の現在時刻に固定したまま`after`のみを広げる方式。`fetch_orders`によるカーソル全量走査も`after=2000-01-01`を明示することで直近7日制限を回避する）。**テストショップ実測**: 直近7日の受注0件・全履歴2件の店舗で、`after`省略→28日→112日→448日→1792日→7168日→2000-01-01 の7回の`sales.json`呼び出し（＋`payments.json`/`deliveries.json`各1回）で下限に到達し2件を取得、所要1.7秒。直近7日に10件以上ある店舗では1回で確定する。MakeShop/BASEは未 |
+| 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / B4-0 / M6-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。

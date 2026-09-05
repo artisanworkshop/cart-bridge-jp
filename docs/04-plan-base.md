@@ -1,6 +1,6 @@
 # BASE アダプタ実装計画
 
-最終更新: 2026-07-08 / 対象: `includes/Adapters/Base/`
+最終更新: 2026-09-05 / 対象: `includes/Adapters/Base/` / リリース: **v2.0**（Phase 4 インポート・Phase 5 エクスポート。D18。v1.0 には含めない）
 
 > BASE API は「β版」と明記されており仕様変更の可能性がある。実装時は必ず
 > https://docs.thebase.in/api/ で最新仕様を再確認すること。
@@ -148,9 +148,9 @@ BASEは**明細単位**の `status` と注文単位の `dispatch_status` を持�
 3. [ ] `BaseClient`（GET/POST、エラー→例外変換、**HTTP 400のレート制限エラーコード判別**、RateLimiter統合、期限切れ時の自動リフレッシュ）+ ユニットテスト
 4. [ ] 接続ウィザードUI（client_id/secret入力 → 認可 → callback → `/1/users/me` 接続テスト）
 5. [ ] Transformer（Product / Order / CustomerExtractor / Category）+ フィクスチャベースのユニットテスト
-6. [ ] `BaseAdapter.fetch*` 実装（カーソル=offset、受注は一覧→詳細の2段取得）→ Importer結合でBASE→Wooインポート成立
+6. [ ] `BaseAdapter.fetch*` 実装（カーソル=offset、受注は一覧→詳細の2段取得）→ Importer結合でBASE→Wooインポート成立（Importer本体を変えずアダプタ追加のみで成立することを確認するアーキテクチャ検証マイルストーン=D18）
 7. [ ] テストショップで実データインポートE2E
-8. [ ] `push*` 実装（Phase 4）: カテゴリ自動作成 → 商品upsert → 画像add_image → 在庫edit_stock（1日1,000件制御）
+8. [ ] `push*` 実装（Phase 5 / E5-1）: カテゴリ自動作成 → 商品upsert → 画像add_image → 在庫edit_stock（1日1,000件制御）
 
 ## 7. カラーミー/MakeShopとの差分まとめ（アダプタ設計の検証観点）
 
