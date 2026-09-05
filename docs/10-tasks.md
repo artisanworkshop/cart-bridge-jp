@@ -227,7 +227,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 - [ ] **E5-1: BASE push\***（カテゴリ自動作成（E2-1 のマッピングUIに `canCreateCategory=true` 分岐を実装、3階層まで・4階層以上は平坦化+警告）→商品upsert→画像add_image(URL方式・**要検証#13**)→在庫edit_stock。**1日1,000件制限の分割実行**（`paused`→翌日再エンキュー）、バリエーション1軸化・絵文字除去のdry-run警告。受注・顧客は対象外（capabilityでUI非表示））。
   **既知の設計課題**: 現状の `Sync\JobManager` は `RateLimitExhaustedException` を固定 `PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装のため、このままでは1日上限到達時に翌日リセットまで待たず1分おきに再試行し続ける。「翌日再エンキュー」を実現するには、E2-2（Exporterパイプライン）または本タスクで再試行遅延を可変にする拡張点（例外側で希望の再試行時刻を指定できるようにする等）をJobManagerに追加する必要がある
-- [ ] **R5-1: v2.0 公開**（BASEテストショップでの往復E2E、readme.txt / プラグインヘッダー / `composer.json` の Description に BASE を追記、ja.po 追補、バージョン 2.0.0、wordpress.org 更新）
+- [ ] **R5-1: v2.0 公開**（BASE往復E2Eに加え、E5-1でマッピングUI・`JobManager`のリトライ挙動を変更しているため**カラーミーの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に BASE を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`。R3-2と同じ手順）、**セキュリティ監査**（BASE OAuth・トークンリフレッシュ・`BaseClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 2.0.0、wordpress.org 更新）
 
 ---
 
@@ -249,7 +249,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 - [ ] **E7-1: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
 - [ ] **E7-2: importProductBulk 経路**（MakeShop 1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
-- [ ] **R7-1: v3.0 公開**（MakeShop実ショップでの往復E2E、readme.txt / プラグインヘッダー / `composer.json` の Description に MakeShop を追記、ja.po 追補、バージョン 3.0.0、wordpress.org 更新）
+- [ ] **R7-1: v3.0 公開**（MakeShop往復E2Eに加え、**カラーミー・BASEの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に MakeShop を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`）、**セキュリティ監査**（MakeShop認証・`GraphQLClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 3.0.0、wordpress.org 更新）
 
 ---
 
