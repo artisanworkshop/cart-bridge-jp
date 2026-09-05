@@ -139,7 +139,8 @@ final class ProductTransformer {
 	 * どの丸め方が正しいか判定できないため、換算自体を諦めてnullを返す
 	 * （呼び出し元が現行フォールバックに倒す）。
 	 *
-	 * @param int $amount 税抜金額 × 100（パーセント表記の税率をそのまま乗じた値）。
+	 * @param int $amount 税込換算後の金額を100倍した値（`$list_price * ( 100 + $rate )`）。
+	 *   100で割った商が実際の税込金額になる。
 	 */
 	private function round_tax( int $amount ): ?int {
 		return match ( $this->shop_tax_rounding_method ) {
