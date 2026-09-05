@@ -770,6 +770,38 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $product->sale_price );
 	}
 
+	public function test_missing_tax_reduced_falls_back_to_no_conversion_instead_of_assuming_standard_rate(): void {
+		// `tax_reduced`はswaggerで必須ではないため、欠損・非boolean値は「対象か不明」を
+		// 意味する。標準税率にフォールバックして換算すると、実際は軽減税率対象の商品が
+		// 誤った税率で換算されうる（レビュー指摘: PR #24）。
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 6600;
+		unset( $raw['tax_reduced'] );
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '6600', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
+	public function test_free_sales_price_keeps_product_free_even_with_a_higher_list_price(): void {
+		// `sales_price_including_tax: 0`（正規の無料商品）に定価が設定されている場合、
+		// 出し分けると`sale_price='0'`になり、`ProductWriter::resolve_sale_price()`が
+		// `sale_price <= 0`を不正と判定して定価（有料）を有効価格に採用してしまう
+		// （無料商品が定価の有料商品に化ける。レビュー指摘: PR #24）。
+		$transformer                      = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+		$raw                              = $this->product_fixture( 192616831 );
+		$raw['price']                     = 8000;
+		$raw['sales_price_including_tax'] = 0;
+
+		$product = $transformer->transform( $raw );
+
+		$this->assertSame( '0', $product->price );
+		$this->assertNull( $product->sale_price );
+	}
+
 	public function test_missing_shop_tax_settings_falls_back_to_no_conversion(): void {
 		// コンストラクタに税設定を注入しない場合（未接続・shop.json取得前等）は
 		// 従来どおりの挙動を維持する。

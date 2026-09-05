@@ -65,20 +65,24 @@ final class ProductTransformer {
 	}
 
 	/**
-	 * Wooの`regular_price`/`sale_price`を決める。定価（`price`）が販売価格（税込）より
-	 * 高い税込換算値を持つ場合のみ「セール中」として両方を出し分け、それ以外
+	 * Wooの`regular_price`/`sale_price`を決める。販売価格（税込）が正の値で、かつ定価が
+	 * それより高い税込換算値を持つ場合のみ「セール中」として両方を出し分け、それ以外
 	 * （定価未設定・定価≦販売価格・税設定未注入や未知のenum値で換算不可）は従来どおり
 	 * `price = sales_price_including_tax` / `sale_price = null` にフォールバックする
-	 * （03 §9 #16）。
+	 * （03 §9 #16）。販売価格が`0`（正規の無料商品）の場合は定価の大小に関わらず出し分けない。
+	 * `ProductWriter::resolve_sale_price()`は`sale_price <= 0`を不正として`regular_price`
+	 * （＝この場合定価）を有効価格に採用するため、出し分けると無料商品が定価の有料商品に
+	 * 化けてしまう（レビュー指摘: PR #24）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array{0:string,1:?string}
 	 */
 	private function prices( array $raw ): array {
 		$sales_price_including_tax = Cast::money( $raw['sales_price_including_tax'] ?? null );
+		$sales_price_int           = (int) $sales_price_including_tax;
 		$list_price_including_tax  = $this->list_price_including_tax( $raw );
 
-		if ( null !== $list_price_including_tax && $list_price_including_tax > (int) $sales_price_including_tax ) {
+		if ( $sales_price_int > 0 && null !== $list_price_including_tax && $list_price_including_tax > $sales_price_int ) {
 			return [ (string) $list_price_including_tax, $sales_price_including_tax ];
 		}
 
@@ -108,9 +112,18 @@ final class ProductTransformer {
 			return null;
 		}
 
-		$rate = true === Cast::to_bool_or_null( $raw['tax_reduced'] ?? null )
-			? $this->shop_reduce_tax_rate
-			: $this->shop_tax_rate;
+		// `tax_reduced`はswaggerのProductスキーマで必須指定されていないフィールドのため、
+		// 欠損・非boolean値は「軽減税率対象ではない」ではなく「対象か不明」を意味する。
+		// ここを標準税率にフォールバックすると、実際は軽減税率(8%)対象の商品が
+		// 標準税率(10%)で換算され、誤った定価・誤ったセール判定を招きかねない
+		// （レビュー指摘: PR #24）。既知の真偽値が確定している場合のみ換算する。
+		$tax_reduced = Cast::to_bool_or_null( $raw['tax_reduced'] ?? null );
+
+		if ( null === $tax_reduced ) {
+			return null;
+		}
+
+		$rate = $tax_reduced ? $this->shop_reduce_tax_rate : $this->shop_tax_rate;
 
 		if ( null === $rate ) {
 			return null;
