@@ -90,6 +90,9 @@ npm run build                # 本番ビルド
 - ASPのboolean系フィールド（例: `tax_reduced`）がswaggerで必須指定されていない場合、`true === Cast::to_bool_or_null(...) ? A : B`のような三項演算子は欠損・非boolean値も無条件にBへ倒す。その分岐が税率選択等の金額計算に影響するなら、欠損は「Bとみなす」のではなく「不明」としてnullを返し換算自体を諦めること（`ProductTransformer::list_price_including_tax()`参照。issue #24）
 - `ProductWriter::resolve_sale_price()`は`sale_price <= 0`を不正とみなし`regular_price`を有効価格として採用する。この仕様を知らずにTransformer側で新しい価格分岐ロジックを書くと、正規の無料商品（`sales_price=0`）に高い定価が設定されている場合、無料商品が定価の有料商品に化ける。価格を条件分岐させるTransformerを書く際は対応するWriterの無効値判定を必ず確認すること（issue #24）
 - `ColorMeAdapter`のようにAPI由来の設定（`shop.json`の税設定等）をインスタンス単位でキャッシュするTransformerは、`TokenStore::get()`のペイロードキャッシュ（インスタンス単位で永続）・`AdapterRegistry`（プラットフォーム単位でPHPプロセス単位に静的キャッシュ）と同じ寿命を共有する。同一プロセス内で片方だけ新しくなることはない（再接続は別プロセス・別インスタンスで行われるため、次のプロセスで両方作り直される）。「再接続時にキャッシュだけ古くなる」という指摘を見たら、まずこの寿命が本当にズレるか確認すること（issue #24）
+- `Sync\JobManager::filter_and_order_entities()`は`can_fetch_customers=false`のアダプタ（BASE等）では顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()`も既存`mappings`の解決のみで新規顧客作成は行わない。受注インポート時に抽出した顧客（`CustomerExtractor`等、D12）を永続化する経路は現状存在しないため、そのようなアダプタを実装する際はImporter/JobManager側にプラットフォーム非依存の新しい拡張点を設計する必要がある（`docs/04-plan-base.md` B4-5参照。issue #26）
+- `Sync\JobManager`は`RateLimitExhaustedException`を固定`PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装で、日次上限のような長時間（翌日まで等）の再試行遅延を指定する仕組みが無い。1日◯件のような上限を持つASP（BASE等）のexport実装時は、再試行遅延を可変にする拡張点をJobManagerに追加する必要がある（`docs/10-tasks.md` E5-1参照。issue #26）
+- カラーミーAPIのswagger.json（OpenAPI定義）のパステンプレート（例: `/v1/sales`）は拡張子なしだが、実際のAPIリクエストパスは`.json`拡張子付き（`GET/POST /v1/sales.json`）が正しい（swagger内のAPI利用説明・curl例、`ColorMeAdapter`の実装で確認可能）。レビューbotがswagger定義の生パスへの統一を提案してくることがあるが、鵜呑みにせず実装・利用例と照合すること（issue #26）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
