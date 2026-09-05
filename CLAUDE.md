@@ -84,6 +84,10 @@ npm run build                # 本番ビルド
 - 管理画面のタブナビゲーションは自前CSSではなくWordPressコア標準の `nav-tab-wrapper` / `nav-tab` / `nav-tab-active` クラス（`wp-admin/css/common.css` に定義済み）を使うこと。間隔・アクティブ状態の表示が無料で手に入る。自前CSSはコアクラスがカバーしない余白調整のみに留める（`src/App.tsx`, `src/style.css` 参照）
 - `TokenStore::is_connected()` と `needs_reconnect()` は排他（保存済みトークンが復号できない場合、`needs_reconnect()` はtrueを返すが `is_connected()` は必ずfalse）。UIで接続状態を判定する際は `connected` 単体ではなく両フラグの組み合わせで見ること。`connected` だけを見ると「要再接続」状態を「未接続」と区別できず、再接続を促す文言・ボタンラベルの出し分けを取りこぼす
 - `Adapters\ColorMe\Transform\Cast::money()` は欠損・非数値を無言で`0`に丸める。税込/税抜のように対になったフィールドで片方だけこれを使うと、一方は非ゼロなのにもう一方が黙って`0`という財務的に矛盾した値になり得る（`OrderTransformer`の`unit_price_excl_tax`が実例。issue #14）。「金額が0円」と「復元できない」を区別してフェイルクローズの分岐に使いたい場合は`Cast::money_or_null()`（null透過）を使うこと
+- 税込換算等の金額計算はfloat除算（`$amount / 100`等）を避け、整数演算（先に乗算してから`intdiv()`に`+50`/`+99`等の丸め調整値を足す）で行うこと。`CanonicalProduct::$price`が浮動小数点誤差を避けるため金額を文字列で保持する設計と揃える。境界値（税率0〜100・価格1〜200万円）を網羅してもfloatの丸め誤りは実際には再現しなかったが、財務計算では確定的な整数演算を優先する（`ProductTransformer::round_tax()`参照。issue #24）
+- ASPのboolean系フィールド（例: `tax_reduced`）がswaggerで必須指定されていない場合、`true === Cast::to_bool_or_null(...) ? A : B`のような三項演算子は欠損・非boolean値も無条件にBへ倒す。その分岐が税率選択等の金額計算に影響するなら、欠損は「Bとみなす」のではなく「不明」としてnullを返し換算自体を諦めること（`ProductTransformer::list_price_including_tax()`参照。issue #24）
+- `ProductWriter::resolve_sale_price()`は`sale_price <= 0`を不正とみなし`regular_price`を有効価格として採用する。この仕様を知らずにTransformer側で新しい価格分岐ロジックを書くと、正規の無料商品（`sales_price=0`）に高い定価が設定されている場合、無料商品が定価の有料商品に化ける。価格を条件分岐させるTransformerを書く際は対応するWriterの無効値判定を必ず確認すること（issue #24）
+- `ColorMeAdapter`のようにAPI由来の設定（`shop.json`の税設定等）をインスタンス単位でキャッシュするTransformerは、`TokenStore::get()`のペイロードキャッシュ（インスタンス単位で永続）・`AdapterRegistry`（プラットフォーム単位でPHPプロセス単位に静的キャッシュ）と同じ寿命を共有する。同一プロセス内で片方だけ新しくなることはない（再接続は別プロセス・別インスタンスで行われるため、次のプロセスで両方作り直される）。「再接続時にキャッシュだけ古くなる」という指摘を見たら、まずこの寿命が本当にズレるか確認すること（issue #24）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
