@@ -112,7 +112,7 @@ Woo→MakeShop方向は `updateOrderDeliveryStatus`（未配送/配送指示/配
 3. [ ] `GraphQLClient` + ユニットテスト（errors[]変換、リトライ、RateLimiter統合）
 4. [ ] 接続設定UI（エンドポイント+トークン入力、`getShop` で接続テスト）
 5. [ ] Transformer4種 + フィクスチャテスト
-6. [ ] `fetch*` 実装 → 既存Importerに結合し MakeShop→Woo インポート成立（Importer本体を変えずアダプタ追加のみで成立することを確認。v2.0 の BASE で検証した観点の再確認）
+6. [ ] `fetch*` 実装 → 既存Importerに結合し MakeShop→Woo インポート成立（プラットフォーム固有分岐をアダプタ外に持ち込まずに成立することを確認。v2.0 の BASE で検証した観点の再確認。D18が許容するプラットフォーム非依存のコア拡張点自体は追加可）
 7. [ ] 実ショップでインポートE2E
 8. [ ] `push*` 実装（Phase 7 / E7-1）: カテゴリ自動作成 → 商品upsert → 会員upsert → 注文作成（決済なしモード）→ 在庫更新
 9. [ ] 大量データ時の `importProductBulk` 経路（任意。Phase 7 / E7-2）
