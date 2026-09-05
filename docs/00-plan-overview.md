@@ -152,6 +152,7 @@ BASE/MakeShop を見込んで先行実装した基盤（TokenStoreのリフレ�
 - カテゴリマッピングUI（カラーミーは作成不可のため既存カテゴリ選択。自動作成の分岐は capability `canCreateCategory` で切り替えられる構造にし、実装は v2.0）
 - 商品・顧客・受注・在庫のエクスポート。SKU/email突合でupsert。無料版はWoo側の最新受注10件起点のサンプル上限（D15）、実行前の本番書込み警告（D17）
 - 画像: `canPushImages`（プレミアムプラン判定。03 §9 #1）が false のショップは画像URL一覧CSVの代替フロー案内
+- **受注**: `canCreateOrder`（`POST /sales.json` はプレミアムプラン契約ショップのみ利用可=`ColorMeAdapter::is_premium_plan()`）が false のショップでは受注エクスポート不可。エクスポート先エンティティ選択UIは capability を尊重し、レギュラープランでは受注を選択肢から除外する（画像同様プラン依存であることをE2-1のマッピングUI・E2-2のExporterで扱う）
 
 #### Phase 3: v1.0 仕上げ・公開
 
