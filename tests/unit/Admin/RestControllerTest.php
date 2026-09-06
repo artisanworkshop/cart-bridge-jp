@@ -576,38 +576,84 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 404, $response->get_status() );
 	}
 
-	public function test_get_settings_mappings_array_query_param_does_not_crash(): void {
+	public function test_get_settings_mappings_ignores_array_query_param(): void {
 		// このルートは`args`スキーマを定義していないため、`WP_REST_Request::get_params()`は
 		// GETリクエストでクエリ文字列をURLパスより優先してマージする
-		// （`get_parameter_order()`参照）。`?platform[]=x`のような配列値のクエリパラメータで
-		// URLパスの`platform`（スカラー）を上書きできてしまうと、`(string)`キャストが
-		// 配列に対して警告付きで`'Array'`という誤ったプラットフォームIDになる
-		// （Codexレビュー指摘）。スカラーでない場合は404（unknown platform）に倒し、
-		// 警告やクラッシュを起こさないことを確認する。
+		// （`get_parameter_order()`参照）。`platform_param()`はURLキャプチャのみを見るため、
+		// `?platform[]=x`のような配列値のクエリパラメータがあっても影響を受けず、
+		// URLパスが指すリソース（`colorme`）がそのまま使われることを確認する
+		// （Codexレビュー指摘。以前の`(string)`キャストは配列に対して警告付きで
+		// `'Array'`という誤ったプラットフォームIDになっていた）。
 		$this->register_colorme_adapter();
 
 		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
-		$request->set_query_params( [ 'platform' => [ 'colorme' ] ] );
+		$request->set_query_params( [ 'platform' => [ 'not-a-real-platform' ] ] );
 		$response = $this->server->dispatch( $request );
 
-		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 200, $response->get_status() );
 	}
 
-	public function test_save_settings_mappings_array_body_param_does_not_crash(): void {
+	public function test_get_settings_mappings_ignores_conflicting_scalar_query_param(): void {
+		// `platform`が配列でなくスカラーの別プラットフォーム名であっても、クエリ文字列は
+		// GETリクエストでURLパスより優先してマージされるため、以前は上書きが通ってしまい
+		// URLが名指ししたリソースとは異なる`cbjp_settings_{platform}`を読んでしまっていた
+		// （Codexレビュー指摘）。URLキャプチャのみを見ることでこれを構造的に防ぐ。
+		$this->register_colorme_adapter();
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', $response->get_data()['payment_map']->{'3'} );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_save_settings_mappings_ignores_array_body_param(): void {
 		// PUT/POST等ではボディがURLパスより優先してマージされるため、上と同じ問題が
-		// ボディ側の`platform`キーでも起こりうる。
+		// ボディ側の`platform`キーでも起こりうる。URLキャプチャのみを見ることで
+		// URLパスが指すリソース（`colorme`）へ正しく保存されることを確認する。
 		$this->register_colorme_adapter();
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
-				'platform'    => [ 'colorme' ],
+				'platform'    => [ 'not-a-real-platform' ],
 				'payment_map' => [ '3' => 'bacs' ],
 			]
 		);
 		$response = $this->server->dispatch( $request );
 
-		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_save_settings_mappings_ignores_conflicting_scalar_body_param(): void {
+		// ボディに`platform`という別プラットフォーム名のスカラー値を混ぜても、PUT/POST等では
+		// ボディがURLパスより優先してマージされるため、以前は上書きが通ってしまい
+		// URLが名指ししたのとは異なる`cbjp_settings_{platform}`を書き換えてしまっていた
+		// （Codexレビュー指摘）。URLキャプチャのみを見ることでこれを構造的に防ぐ。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'platform'    => 'not-a-real-platform',
+				'payment_map' => [ '3' => 'bacs' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
+
+		delete_option( 'cbjp_settings_colorme' );
 	}
 
 	public function test_get_settings_mappings_serializes_empty_maps_as_json_objects(): void {

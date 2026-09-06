@@ -442,17 +442,18 @@ final class RestController {
 	}
 
 	/**
-	 * URLパス（`(?P<platform>[a-z0-9_-]+)`）は必ずスカラーだが、`WP_REST_Request::get_param()`は
-	 * リクエストパラメータ種別（GET: URLよりクエリ文字列が優先、PUT/DELETE等: URLよりボディが優先。
-	 * `WP_REST_Request::get_parameter_order()`参照）を跨いで同名キーを1つにマージするため、
-	 * クエリ文字列やボディに`platform[]=x`のような配列値を渡すとURLパスの値を上書きしうる
+	 * URLパスが名指ししたプラットフォーム（`(?P<platform>[a-z0-9_-]+)`）を、リクエストの
+	 * 他の場所にある同名パラメータに惑わされず取得する。`WP_REST_Request::get_param()`は
+	 * リクエストパラメータ種別（GET: URLよりクエリ文字列が優先、PUT/DELETE等: URLより
+	 * ボディが優先。`WP_REST_Request::get_parameter_order()`参照）を跨いで同名キーを
+	 * 1つにマージするため、クエリ文字列やボディに`platform`（配列値だけでなくスカラー値でも）
+	 * を渡すとURLパスが指すリソースとは異なる`cbjp_settings_{platform}`を読み書きしうる
 	 * （このルートは`args`スキーマを定義していないため型検証がここでしか行われない）。
-	 * `(string)`キャストへそのまま渡すと配列に対して警告付きで`'Array'`という誤った
-	 * プラットフォームIDになるため、スカラーでない場合は空文字列にし`unknown_platform_error()`
-	 * の通常経路へ倒す。
+	 * URLキャプチャそのもの（`get_url_params()`）だけを見ることで、リクエストデータによる
+	 * リソースの取り違えを構造的に防ぐ。
 	 */
 	private function platform_param( WP_REST_Request $request ): string {
-		$platform = $request->get_param( 'platform' );
+		$platform = $request->get_url_params()['platform'] ?? null;
 
 		return is_string( $platform ) ? $platform : '';
 	}
