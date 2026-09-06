@@ -9,14 +9,19 @@ namespace CartBridgeJP\Tests\Woo\Writer;
 
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
+use CartBridgeJP\Woo\Writer\ProductWriter;
+use CartBridgeJP\Woo\Writer\VariationWriter;
 use WC_Product_Simple;
 use WC_Product_Variable;
+use WC_Product_Variation;
 
 final class OrderWriterTest extends WooTestCase {
 
@@ -49,6 +54,32 @@ final class OrderWriterTest extends WooTestCase {
 		array $extras = []
 	): CanonicalOrder {
 		return new CanonicalOrder( $number, $status, $customer_ref, $line_items, $shipping, $payment, $totals, '2026-01-01T00:00:00+00:00', null, $extras );
+	}
+
+	/**
+	 * `ProductWriter`+`VariationWriter`の実パイプラインでvariable親商品+variationを作る
+	 * （手組みの`WC_Product_Attribute`/`WC_Product_Variation`だと本番の属性構造とズレて
+	 * `ProductResolver::resolve_variation_by_options()`の前提が崩れやすいため）。
+	 *
+	 * @param array<int,array<string,mixed>> $variants `CanonicalFactory::product()`と同じ
+	 *   `option1_name`/`option1_value`等のキー規約。
+	 * @return int 親商品のローカルID。
+	 */
+	private function make_variable_product( string $product_remote_id, array $variants ): int {
+		$writer    = new ProductWriter( 'colorme', $this->mappings, new VariationWriter( 'colorme', $this->mappings ), new MediaImporter( 'colorme' ) );
+		$canonical = CanonicalFactory::product( $product_remote_id, "SKU-{$product_remote_id}", 5, $variants );
+		$result    = $writer->write( $canonical, null );
+
+		// テスト環境のWooCommerce税設定（`prices_include_tax_disabled`）はこのヘルパーの
+		// 関心事ではないため、その警告だけ除外して他に予期しない警告が無いことを確認する。
+		$this->assertSame(
+			[],
+			array_values( array_diff( $result->warnings, [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) )
+		);
+
+		$this->seed_mapping( 'colorme', 'product', $product_remote_id, $result->local_id );
+
+		return $result->local_id;
 	}
 
 	public function test_resolves_line_item_by_sku(): void {
@@ -217,6 +248,213 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+	}
+
+	public function test_line_item_resolves_to_variation_by_single_axis_option_value(): void {
+		$parent_id    = $this->make_variable_product(
+			'vp-single',
+			[
+				[
+					'remote_id'     => 'v-red',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v-blue',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '青',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v-red' );
+
+		$order = $this->make_order(
+			'4001',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-single',
+					'name'                  => '商品（カラー：赤）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( $parent_id, $items[0]->get_product_id() );
+		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+		);
+	}
+
+	public function test_line_item_resolves_to_variation_by_two_axis_option_values(): void {
+		$this->make_variable_product(
+			'vp-double',
+			[
+				[
+					'remote_id'     => 'v-red-s',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'option2_name'  => 'Size',
+					'option2_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v-red-m',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'option2_name'  => 'Size',
+					'option2_value' => 'M',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+		$expected_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v-red-m' );
+
+		$order = $this->make_order(
+			'4002',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-double',
+					'name'                  => '商品（カラー：赤、サイズ：M）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+					'option2_value_current' => 'M',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		// 「赤」だけならv-red-s/v-red-mの2件に一致してしまうため、option2（Size）まで
+		// 揃って初めて一意にv-red-mへ絞り込めていることを確認する。
+		$this->assertSame( $expected_variation_id, $items[0]->get_variation_id() );
+	}
+
+	public function test_line_item_option_value_not_matching_any_variation_remains_unresolved(): void {
+		// `option1_value_current`はASP側APIの「最新の商品情報」であり注文時点の値ではない
+		// （オプション名変更後の受注では一致しないことがある）。捏造した一致を返さず、
+		// 従来どおり未解決としてフェイルクローズすることを確認する。
+		$this->make_variable_product(
+			'vp-nomatch',
+			[
+				[
+					'remote_id'     => 'v-red',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+
+		$order = $this->make_order(
+			'4003',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-nomatch',
+					'name'                  => '商品（カラー：緑）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '緑',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
+	}
+
+	public function test_line_item_ambiguous_variation_match_remains_unresolved(): void {
+		// 2件のvariationが偶然同じ属性値を持つ（データ不整合等）場合、どちらか一方を
+		// 恣意的に選ばず未解決としてフェイルクローズすることを確認する。
+		$parent_id = $this->make_variable_product(
+			'vp-dup',
+			[
+				[
+					'remote_id'     => 'v-a',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+
+		// 属性値が重複する2件目のvariationを直接作成する（正規のVariationWriter経路は
+		// remote_id単位のupsertのため、このような重複状態を通常は生まないが、
+		// リンク再構築ツール（D16）等で別経路からデータが混入した場合の防御として検証する）。
+		$duplicate = new WC_Product_Variation();
+		$duplicate->set_parent_id( $parent_id );
+		$duplicate->set_attributes( [ 'color' => '赤' ] );
+		$duplicate->set_regular_price( '1000' );
+		$duplicate->update_meta_data( '_cbjp_platform', 'colorme' );
+		$duplicate->update_meta_data( '_cbjp_remote_id', 'v-a-dup' );
+		$duplicate->save();
+
+		$order = $this->make_order(
+			'4004',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-dup',
+					'name'                  => '商品（カラー：赤）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
 	}
 
 	public function test_missing_line_item_quantity_falls_back_to_one_with_warning(): void {

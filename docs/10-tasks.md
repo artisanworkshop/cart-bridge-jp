@@ -150,11 +150,13 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   - [x] **定価→`regular_price`マッピング**（要検証#16確定分の実装）: `ProductTransformer`に`shop.json`の税設定
     （`tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`）を渡し、`price`（定価）を税込換算して`CanonicalProduct.price`、
     `sales_price_including_tax`を`sale_price`に載せ替える（定価未設定・定価≦販売価格なら従来どおり）。01 §4 / 03 §9 #16 参照
-  - **受注明細のバリエーション解決**: カラーミーの受注明細は親商品IDと`option1_value`/`option2_value`（最新値）しか持たず、
-    `ProductResolver`はvariable親への解決を未解決扱いにするため、現状バリエーション商品の明細は全件が商品リンク無しの
-    カスタム行（`order_line_product_unresolved`）になる。実店舗では明細の大半がこれに該当する。親の`variant` mappings
-    から`option1_name/value`の一致でvariationを特定する経路を追加する（一致しなければ従来どおり未解決＝フェイルクローズ。
-    option名変更後の受注は`pristine_product_full_name`のみが注文時の値である点に注意）。F1-7のリンク再構築とも連携
+  - [x] **受注明細のバリエーション解決**: `ProductResolver::resolve_by_sku_or_remote_id()`がremote_idで親のvariable商品に
+    解決した場合、`option1_value_current`/`option2_value_current`（明細の「最新の商品情報」）を親の`is_variation()`属性
+    （軸の並びはoption1→option2の順、`ProductWriter::build_attributes()`と同じ規約）と全軸一致で照合し、
+    一意に特定できたvariationへ解決するように変更（`OrderItemBuilder`が明細からこの2値を渡す）。一致が0件・複数件
+    （値欠損・重複データ等で一意に特定できない）の場合は従来どおり未解決＝フェイルクローズのまま
+    （`order_line_product_unresolved`。option名変更後の受注は`pristine_product_full_name`のみが注文時の値である点は
+    未解決のまま残る既知の限界）。F1-7のリンク再構築とも連携
   - **決済/配送マッピング設定**: `GET/PUT /settings/mappings/{platform}`が501のままで、`MethodMap`が読む
     `cbjp_settings_{platform}`を書く経路が無い。受注は全件`payment_method_unmapped`/`shipping_method_unmapped`になる。
     F1-6 PR-B（Import UI）のスコープに含めるか、独立PRにするかを決めて着手する（03 §6のルート定義済み）

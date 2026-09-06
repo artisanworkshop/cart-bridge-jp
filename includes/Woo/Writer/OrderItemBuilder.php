@@ -32,7 +32,12 @@ final class OrderItemBuilder {
 		$warnings          = [];
 		$sku               = Value::string( $line_item['sku'] ?? null );
 		$remote_product_id = Value::string( $line_item['remote_product_id'] ?? null );
-		$product           = $this->resolver->resolve_by_sku_or_remote_id( $sku, $remote_product_id );
+		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（注文時点の
+		// 値ではない）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
+		// 購入だったかを一意に特定するための唯一の手がかりになる（`ProductResolver`参照）。
+		$option1_value = Value::string( $line_item['option1_value_current'] ?? null );
+		$option2_value = Value::string( $line_item['option2_value_current'] ?? null );
+		$product       = $this->resolver->resolve_by_sku_or_remote_id( $sku, $remote_product_id, $option1_value, $option2_value );
 
 		$item = new WC_Order_Item_Product();
 		// 注文時点の商品名を使う（`set_product()`は現在の商品名・価格で上書きしてしまうため使わない）。
