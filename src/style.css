@@ -23,3 +23,67 @@
 .cbjp-connection-card__actions {
 	margin-top: 1em;
 }
+
+.cbjp-import__run {
+	margin-top: 1.5em;
+}
+
+.cbjp-import__run .components-card__header {
+	justify-content: space-between;
+}
+
+.cbjp-import__actions {
+	margin-top: 1em;
+}
+
+.cbjp-run-progress__toolbar {
+	align-items: center;
+	display: flex;
+	gap: 1em;
+	margin-bottom: 1.5em;
+}
+
+.cbjp-run-progress__job + .cbjp-run-progress__job {
+	border-top: 1px solid #dcdcde;
+	margin-top: 1.5em;
+	padding-top: 1.5em;
+}
+
+.cbjp-run-progress__job-header {
+	align-items: center;
+	display: flex;
+	gap: 0.5em;
+	justify-content: space-between;
+	margin-bottom: 0.5em;
+}
+
+.cbjp-run-progress__status {
+	font-weight: 600;
+}
+
+.cbjp-run-progress__status--completed {
+	color: #007017;
+}
+
+.cbjp-run-progress__status--failed {
+	color: #d63638;
+}
+
+.cbjp-run-progress__status--paused,
+.cbjp-run-progress__status--cancelled {
+	color: #996800;
+}
+
+.cbjp-logs__filters {
+	display: flex;
+	gap: 1.5em;
+	max-width: 40em;
+}
+
+.cbjp-logs__table {
+	margin-top: 1em;
+}
+
+.cbjp-logs__pagination {
+	margin-top: 1em;
+}
