@@ -70,6 +70,11 @@ final class OrderWriterTest extends WooTestCase {
 		$canonical = CanonicalFactory::product( $product_remote_id, "SKU-{$product_remote_id}", 5, $variants );
 		$result    = $writer->write( $canonical, null );
 
+		// local_id=0（保存失敗）のまま`seed_mapping()`へ進むと、無効なmappingが登録されて
+		// このヘルパーを呼んだ各テストの失敗理由が「variationが解決できない」等の的外れな
+		// ものになり、本当の原因（商品保存失敗）の診断が難しくなる。ここで即座に落とす。
+		$this->assertNotSame( 0, $result->local_id );
+
 		// テスト環境のWooCommerce税設定（`prices_include_tax_disabled`）はこのヘルパーの
 		// 関心事ではないため、その警告だけ除外して他に予期しない警告が無いことを確認する。
 		$this->assertSame(
