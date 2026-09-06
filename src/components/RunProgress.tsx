@@ -37,19 +37,21 @@ const STATUS_LABELS: Record< JobStatus, string > = {
 };
 
 function totalsSummary( job: Job ): string {
-	const { created, updated, skipped, warned, failed } = job.totals;
+	const { created, updated, skipped, warned } = job.totals;
 
+	// `totals.failed`は`Sync\Importer`が値を書き込む経路が無く常に0のままなので
+	// （項目レベルの失敗は`warned`に集約されるか、ジョブ全体が例外で`status=failed`+
+	// `job.error`になる形でのみ表現される）、意味の無い「Failed: 0」をここには含めない。
 	return sprintf(
-		/* translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count, 5: failed count */
+		/* translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count */
 		__(
-			'Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d / Failed: %5$d',
+			'Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d',
 			'cart-bridge-jp'
 		),
 		created,
 		updated,
 		skipped,
-		warned,
-		failed
+		warned
 	);
 }
 
@@ -60,6 +62,7 @@ function JobRow( {
 	onRetry,
 	retrying,
 	reportsAvailable,
+	onlyWarnings,
 }: {
 	job: Job;
 	label: string;
@@ -67,6 +70,7 @@ function JobRow( {
 	onRetry: ( jobId: number ) => void;
 	retrying: boolean;
 	reportsAvailable: boolean;
+	onlyWarnings: boolean;
 } ) {
 	const inProgress = 'pending' === job.status || 'running' === job.status;
 	// アダプタが総数を保証できないエンティティ（CLAUDE.md参照）は`total`が0のまま
@@ -127,7 +131,10 @@ function JobRow( {
 
 			{ ! inProgress && <p>{ totalsSummary( job ) }</p> }
 
-			{ job.error && (
+			{ /* バックエンドはリトライ成功時に過去の`error_json`をクリアしないため、
+			     `job.status`が`failed`のときだけ表示する（完了後も古いエラーが
+			     残って見えるのを防ぐ）。 */ }
+			{ 'failed' === job.status && job.error && (
 				<Notice status="error" isDismissible={ false }>
 					{ job.error.message }
 				</Notice>
@@ -148,7 +155,10 @@ function JobRow( {
 				( 'completed' === job.status || 'failed' === job.status ) && (
 					<Button
 						variant="link"
-						href={ buildReportUrl( runId, { entity: job.entity } ) }
+						href={ buildReportUrl( runId, {
+							entity: job.entity,
+							onlyWarnings,
+						} ) }
 					>
 						{ __(
 							'Download this entity’s report (CSV)',
@@ -190,27 +200,31 @@ export default function RunProgress( {
 						</Button>
 					) }
 					{ reportsAvailable && (
-						<>
-							<CheckboxControl
-								label={ __(
-									'Only include warnings in the CSV report',
-									'cart-bridge-jp'
-								) }
-								checked={ onlyWarnings }
-								onChange={ onOnlyWarningsChange }
-							/>
-							<Button
-								variant="secondary"
-								href={ buildReportUrl( run.run_id, {
-									onlyWarnings,
-								} ) }
-							>
-								{ __(
-									'Download full report (CSV)',
-									'cart-bridge-jp'
-								) }
-							</Button>
-						</>
+						<CheckboxControl
+							label={ __(
+								'Only include warnings in the CSV report',
+								'cart-bridge-jp'
+							) }
+							checked={ onlyWarnings }
+							onChange={ onOnlyWarningsChange }
+						/>
+					) }
+					{ /* 実行中はページ単位でレポート行が書き込まれている途中のため、
+					     「全体」レポートと称して不完全な行のみのCSVを配布しないよう
+					     runがterminalになるまで隠す（エンティティ単位のリンクは各ジョブが
+					     completed/failedになった時点で書き込みが確定しているため対象外）。 */ }
+					{ reportsAvailable && isTerminal && (
+						<Button
+							variant="secondary"
+							href={ buildReportUrl( run.run_id, {
+								onlyWarnings,
+							} ) }
+						>
+							{ __(
+								'Download full report (CSV)',
+								'cart-bridge-jp'
+							) }
+						</Button>
 					) }
 				</div>
 			) }
@@ -224,6 +238,7 @@ export default function RunProgress( {
 					onRetry={ onRetry }
 					retrying={ retryingJobId === job.id }
 					reportsAvailable={ reportsAvailable }
+					onlyWarnings={ onlyWarnings }
 				/>
 			) ) }
 		</div>
