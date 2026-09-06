@@ -460,6 +460,94 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 404, $response->get_status() );
 	}
 
+	public function test_get_settings_mappings_defaults_to_empty_maps(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'payment_map'  => [],
+				'shipping_map' => [],
+				'status_map'   => [],
+			],
+			$response->get_data()
+		);
+	}
+
+	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/not-a-real-platform' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_persists_and_is_read_back(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'payment_map'  => [ '3' => 'bacs' ],
+				'shipping_map' => [ '5' => 'flat_rate:1' ],
+				'status_map'   => [ 'pending' => 'on-hold' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', $response->get_data()['payment_map']['3'] );
+		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
+		// （`sanitize_key()`はコロンを除去するため使っていない）。
+		$this->assertSame( 'flat_rate:1', $response->get_data()['shipping_map']['5'] );
+
+		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
+		$this->assertSame(
+			[
+				'payment_map'  => [ '3' => 'bacs' ],
+				'shipping_map' => [ '5' => 'flat_rate:1' ],
+				'status_map'   => [ 'pending' => 'on-hold' ],
+			],
+			$get_response->get_data()
+		);
+	}
+
+	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {
+		$this->register_colorme_adapter();
+
+		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$this->server->dispatch( $first );
+
+		// shipping_mapを省略した2回目の保存が、1回目に保存したpayment_mapを消さないこと
+		// （UIが1種類だけ編集した場合に他方を意図せず消さないための仕様）を確認する。
+		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$second->set_body_params( [ 'shipping_map' => [ '5' => 'flat_rate:1' ] ] );
+		$response = $this->server->dispatch( $second );
+
+		$this->assertSame( 'bacs', $response->get_data()['payment_map']['3'] );
+		$this->assertSame( 'flat_rate:1', $response->get_data()['shipping_map']['5'] );
+	}
+
+	public function test_save_settings_mappings_rejects_non_object_map(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => 'not-an-object' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_returns_404_for_unknown_platform(): void {
+		$request  = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/not-a-real-platform' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {
 		$this->register_colorme_adapter();
 

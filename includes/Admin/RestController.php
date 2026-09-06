@@ -28,7 +28,7 @@ use WP_REST_Response;
 /**
  * REST API（namespace: `cbjp/v1`）。`docs/03-design-decisions.md` §6 のルート定義。
  *
- * connections/runs/logs/limits はSync/Support層と接続済み。OAuth・設定マッピング・
+ * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
  * ツール系（sample-cleanup/rebuild-mappings）はPhase 1以降の実装のため501を返す。
  */
 final class RestController {
@@ -36,6 +36,11 @@ final class RestController {
 	private const NAMESPACE = 'cbjp/v1';
 
 	private const ENTITY_TYPES = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
+
+	/**
+	 * `Woo\Support\MethodMap`が読む`cbjp_settings_{platform}`オプションのトップレベルキー。
+	 */
+	private const SETTINGS_MAP_KEYS = [ 'payment_map', 'shipping_map', 'status_map' ];
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -191,12 +196,12 @@ final class RestController {
 			[
 				[
 					'methods'             => 'GET',
-					'callback'            => [ $this, 'not_implemented' ],
+					'callback'            => [ $this, 'get_settings_mappings' ],
 					'permission_callback' => [ $this, 'check_permission' ],
 				],
 				[
 					'methods'             => 'PUT',
-					'callback'            => [ $this, 'not_implemented' ],
+					'callback'            => [ $this, 'save_settings_mappings' ],
 					'permission_callback' => [ $this, 'check_permission' ],
 				],
 			]
@@ -371,6 +376,107 @@ final class RestController {
 		}
 
 		return rest_ensure_response( [ 'saved' => true ] );
+	}
+
+	/**
+	 * 決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
+	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は3種とも空マップを返す。
+	 */
+	public function get_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = (string) $request->get_param( 'platform' );
+
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		return rest_ensure_response( $this->read_settings_mappings( $platform ) );
+	}
+
+	/**
+	 * 決済/配送/注文ステータスのマッピング設定を保存する。`payment_map`/`shipping_map`/
+	 * `status_map`はそれぞれ独立に全置換する（キー自体を省略したマップは既存値を保持する。
+	 * 例えばUIが決済方法だけを編集した場合に配送方法の設定を意図せず消さないため）。
+	 * 値はWooのゲートウェイID/配送方法インスタンスID（`flat_rate:5`のようにコロンを含みうる）
+	 * ・注文ステータススラッグという不透明な内部IDのため、`save_connection()`の資格情報と
+	 * 同じ理由で`sanitize_text_field()`ではなく制御文字除去のみに留める
+	 * （`sanitize_key()`は`:`等を除去し配送方法インスタンスIDを壊すため使わない）。
+	 */
+	public function save_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = (string) $request->get_param( 'platform' );
+
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$body    = $request->get_params();
+		$current = $this->read_settings_mappings( $platform );
+		$updated = $current;
+
+		foreach ( self::SETTINGS_MAP_KEYS as $map_key ) {
+			if ( ! array_key_exists( $map_key, $body ) ) {
+				continue;
+			}
+
+			if ( ! is_array( $body[ $map_key ] ) ) {
+				return new WP_Error(
+					'cbjp_invalid_request',
+					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
+					sprintf( __( '"%s" must be an object of ASP method/status id to WooCommerce id.', 'cart-bridge-jp' ), $map_key ),
+					[ 'status' => 400 ]
+				);
+			}
+
+			$updated[ $map_key ] = $this->sanitize_settings_map( $body[ $map_key ] );
+		}
+
+		update_option( "cbjp_settings_{$platform}", $updated, false );
+
+		return rest_ensure_response( $updated );
+	}
+
+	/**
+	 * @return array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
+	 */
+	private function read_settings_mappings( string $platform ): array {
+		$stored = get_option( "cbjp_settings_{$platform}", [] );
+		$stored = is_array( $stored ) ? $stored : [];
+
+		$result = [];
+
+		foreach ( self::SETTINGS_MAP_KEYS as $map_key ) {
+			$result[ $map_key ] = $this->sanitize_settings_map( $stored[ $map_key ] ?? null );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @param mixed $value
+	 * @return array<string,string>
+	 */
+	private function sanitize_settings_map( mixed $value ): array {
+		if ( ! is_array( $value ) ) {
+			return [];
+		}
+
+		$map = [];
+
+		foreach ( $value as $key => $item ) {
+			if ( ! is_scalar( $item ) ) {
+				continue;
+			}
+
+			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
+			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+
+			if ( '' === $key_string || '' === $item_string ) {
+				continue;
+			}
+
+			$map[ $key_string ] = $item_string;
+		}
+
+		return $map;
 	}
 
 	public function test_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
