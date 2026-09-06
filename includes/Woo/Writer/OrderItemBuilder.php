@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Writer;
 
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\Value;
@@ -178,10 +179,20 @@ final class OrderItemBuilder {
 
 		$item = new WC_Order_Item_Shipping();
 		$item->set_method_title( $title );
-		// `method_id`にはWooの配送方法ID（マッピング済みIDのみ）を設定する。未マッピングの
-		// ASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが記録され、
-		// 拡張機能等の配送方法判定処理が誤動作しうる。
-		$item->set_method_id( $mapped_method_id ?? '' );
+		// `method_id`/`instance_id`にはWooの配送方法ID（マッピング済みIDのみ）を設定する。
+		// 未マッピングのASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが
+		// 記録され、拡張機能等の配送方法判定処理が誤動作しうる。マッピング値が`flat_rate:5`
+		// のようなゾーンインスタンスID付きの場合、`method_id`（方式）と`instance_id`
+		// （インスタンス番号）へ分割して別プロパティとして設定する
+		// （`MethodMap::split_shipping_method_id()`参照。両者を1つの複合文字列のまま
+		// `set_method_id()`へ渡すと`get_method_id()`が実在しない方式IDを返してしまう）。
+		if ( null !== $mapped_method_id ) {
+			[ $bare_method_id, $instance_id ] = MethodMap::split_shipping_method_id( $mapped_method_id );
+			$item->set_method_id( $bare_method_id );
+			$item->set_instance_id( (string) $instance_id );
+		} else {
+			$item->set_method_id( '' );
+		}
 
 		[ $fee, $fee_warning ] = $this->validate_amount( Value::string( $shipping['fee'] ?? null ) );
 		$item->set_total( $fee );

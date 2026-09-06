@@ -47,12 +47,32 @@ final class MethodMap {
 
 	/**
 	 * Woo配送方法IDから表示タイトルを解決する。登録されていないIDの場合はnull。
+	 * `flat_rate:5`のようなインスタンスID付きの値も受け付ける
+	 * （`split_shipping_method_id()`参照。`WC()->shipping()->get_shipping_methods()`は
+	 * ゾーンに紐付かない方式そのものの一覧のためインスタンスID部分では引けない）。
 	 */
 	public function shipping_method_title( string $method_id ): ?string {
+		[ $bare_method_id ] = self::split_shipping_method_id( $method_id );
+
 		$methods = WC()->shipping()->get_shipping_methods();
-		$method  = $methods[ $method_id ] ?? null;
+		$method  = $methods[ $bare_method_id ] ?? null;
 
 		return $method instanceof WC_Shipping_Method ? $method->get_method_title() : null;
+	}
+
+	/**
+	 * Wooの配送方法IDを`method_id`（方式そのもの。例: `flat_rate`）と`instance_id`
+	 * （ゾーン内のインスタンス番号。無ければ0）に分割する。`WC_Order_Item_Shipping`は
+	 * この2つを別プロパティとして持つため、`flat_rate:5`のような複合IDを`method_id`へ
+	 * 丸ごと設定すると`get_method_id()`が実在しない方式IDを返し、配送方法IDで判定する
+	 * 他のコード（レポート・拡張機能等）と噛み合わなくなる。
+	 *
+	 * @return array{0:string,1:int}
+	 */
+	public static function split_shipping_method_id( string $mapped_id ): array {
+		$parts = explode( ':', $mapped_id, 2 );
+
+		return [ $parts[0], isset( $parts[1] ) && is_numeric( $parts[1] ) ? (int) $parts[1] : 0 ];
 	}
 
 	/**
