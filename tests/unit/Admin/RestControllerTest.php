@@ -560,6 +560,20 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, $response->get_status() );
 	}
 
+	public function test_save_settings_mappings_rejects_json_list(): void {
+		// JSONリスト（例: `["bacs","cod"]`）は`is_array()`だけでは弾けず、連番インデックスを
+		// キーとする無意味なマッピング（`{"0":"bacs","1":"cod"}`）として保存されてしまう
+		// ため、明示的に拒否することを確認する（空配列＝全クリアの意図は許容する。
+		// `test_save_settings_mappings_explicit_empty_map_clears_existing_value`参照）。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ 'bacs', 'cod' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
 	public function test_save_settings_mappings_returns_404_for_unknown_platform(): void {
 		$request  = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/not-a-real-platform' );
 		$response = $this->server->dispatch( $request );

@@ -417,7 +417,14 @@ final class RestController {
 				continue;
 			}
 
-			if ( ! is_array( $body[ $map_key ] ) ) {
+			// `is_array()`だけではJSONリスト（例: `["a","b"]`）も通ってしまい、
+			// `sanitize_settings_map()`が連番インデックスをキーとして扱うため
+			// `{"0":"a","1":"b"}`という意味のないマッピングが無警告で保存されてしまう。
+			// 空配列（`{}`＝全クリアの意図）は`array_is_list()`がtrueを返すが正当な入力のため、
+			// 空でないリストのみを拒否する（`{"0":"x"}`と`["x"]`はどちらもPHP側では
+			// 同じ配列表現になり区別できないが、この規約ではプラットフォーム側method_idが
+			// 0になることは実運用上ないため許容する）。
+			if ( ! is_array( $body[ $map_key ] ) || ( [] !== $body[ $map_key ] && array_is_list( $body[ $map_key ] ) ) ) {
 				return new WP_Error(
 					'cbjp_invalid_request',
 					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
