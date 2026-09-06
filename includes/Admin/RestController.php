@@ -383,13 +383,13 @@ final class RestController {
 	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は3種とも空マップを返す。
 	 */
 	public function get_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 
 		if ( ! AdapterRegistry::has( $platform ) ) {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		return rest_ensure_response( $this->read_settings_mappings( $platform ) );
+		return rest_ensure_response( $this->settings_mappings_response( $this->read_settings_mappings( $platform ) ) );
 	}
 
 	/**
@@ -402,7 +402,7 @@ final class RestController {
 	 * （`sanitize_key()`は`:`等を除去し配送方法インスタンスIDを壊すため使わない）。
 	 */
 	public function save_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 
 		if ( ! AdapterRegistry::has( $platform ) ) {
 			return $this->unknown_platform_error( $platform );
@@ -438,7 +438,36 @@ final class RestController {
 
 		update_option( "cbjp_settings_{$platform}", $updated, false );
 
-		return rest_ensure_response( $updated );
+		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
+	}
+
+	/**
+	 * URLパス（`(?P<platform>[a-z0-9_-]+)`）は必ずスカラーだが、`WP_REST_Request::get_param()`は
+	 * リクエストパラメータ種別（GET: URLよりクエリ文字列が優先、PUT/DELETE等: URLよりボディが優先。
+	 * `WP_REST_Request::get_parameter_order()`参照）を跨いで同名キーを1つにマージするため、
+	 * クエリ文字列やボディに`platform[]=x`のような配列値を渡すとURLパスの値を上書きしうる
+	 * （このルートは`args`スキーマを定義していないため型検証がここでしか行われない）。
+	 * `(string)`キャストへそのまま渡すと配列に対して警告付きで`'Array'`という誤った
+	 * プラットフォームIDになるため、スカラーでない場合は空文字列にし`unknown_platform_error()`
+	 * の通常経路へ倒す。
+	 */
+	private function platform_param( WP_REST_Request $request ): string {
+		$platform = $request->get_param( 'platform' );
+
+		return is_string( $platform ) ? $platform : '';
+	}
+
+	/**
+	 * `payment_map`等が空の場合、PHPの空配列は`wp_json_encode()`でJSON配列`[]`になり、
+	 * 値がある場合のJSONオブジェクト`{"3":"bacs"}`と型が食い違う（クライアント側が
+	 * `Record<string,string>`として一貫した型を期待できない）。空でも常にJSONオブジェクトで
+	 * 返すよう`stdClass`へキャストする（内部の配列表現はマージ処理のため`array`のまま保つ）。
+	 *
+	 * @param array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
+	 * @return array{payment_map:object,shipping_map:object,status_map:object}
+	 */
+	private function settings_mappings_response( array $mappings ): array {
+		return array_map( static fn ( array $map ): object => (object) $map, $mappings );
 	}
 
 	/**

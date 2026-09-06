@@ -467,14 +467,12 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame(
-			[
-				'payment_map'  => [],
-				'shipping_map' => [],
-				'status_map'   => [],
-			],
-			$response->get_data()
-		);
+		$data = $response->get_data();
+		// 空マップも常にJSONオブジェクトとして返す（`test_get_settings_mappings_serializes_empty_maps_as_json_objects`
+		// 参照）ため、レスポンスデータ自体も`array`ではなく`stdClass`。
+		$this->assertEquals( (object) [], $data['payment_map'] );
+		$this->assertEquals( (object) [], $data['shipping_map'] );
+		$this->assertEquals( (object) [], $data['status_map'] );
 	}
 
 	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
@@ -498,20 +496,16 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 'bacs', $response->get_data()['payment_map']['3'] );
+		$data = $response->get_data();
+		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
 		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
 		// （`sanitize_key()`はコロンを除去するため使っていない）。
-		$this->assertSame( 'flat_rate:1', $response->get_data()['shipping_map']['5'] );
+		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
 
-		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
-		$this->assertSame(
-			[
-				'payment_map'  => [ '3' => 'bacs' ],
-				'shipping_map' => [ '5' => 'flat_rate:1' ],
-				'status_map'   => [ 'pending' => 'on-hold' ],
-			],
-			$get_response->get_data()
-		);
+		$get_data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) )->get_data();
+		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
+		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
+		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
 	}
 
 	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {
@@ -527,8 +521,9 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$second->set_body_params( [ 'shipping_map' => [ '5' => 'flat_rate:1' ] ] );
 		$response = $this->server->dispatch( $second );
 
-		$this->assertSame( 'bacs', $response->get_data()['payment_map']['3'] );
-		$this->assertSame( 'flat_rate:1', $response->get_data()['shipping_map']['5'] );
+		$data = $response->get_data();
+		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
+		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
 	}
 
 	public function test_save_settings_mappings_explicit_empty_map_clears_existing_value(): void {
@@ -544,10 +539,10 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$second->set_body_params( [ 'payment_map' => [] ] );
 		$response = $this->server->dispatch( $second );
 
-		$this->assertSame( [], $response->get_data()['payment_map'] );
+		$this->assertEquals( (object) [], $response->get_data()['payment_map'] );
 
 		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
-		$this->assertSame( [], $get_response->get_data()['payment_map'] );
+		$this->assertEquals( (object) [], $get_response->get_data()['payment_map'] );
 	}
 
 	public function test_save_settings_mappings_rejects_non_object_map(): void {
@@ -579,6 +574,53 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_settings_mappings_array_query_param_does_not_crash(): void {
+		// このルートは`args`スキーマを定義していないため、`WP_REST_Request::get_params()`は
+		// GETリクエストでクエリ文字列をURLパスより優先してマージする
+		// （`get_parameter_order()`参照）。`?platform[]=x`のような配列値のクエリパラメータで
+		// URLパスの`platform`（スカラー）を上書きできてしまうと、`(string)`キャストが
+		// 配列に対して警告付きで`'Array'`という誤ったプラットフォームIDになる
+		// （Codexレビュー指摘）。スカラーでない場合は404（unknown platform）に倒し、
+		// 警告やクラッシュを起こさないことを確認する。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_query_params( [ 'platform' => [ 'colorme' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_array_body_param_does_not_crash(): void {
+		// PUT/POST等ではボディがURLパスより優先してマージされるため、上と同じ問題が
+		// ボディ側の`platform`キーでも起こりうる。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'platform'    => [ 'colorme' ],
+				'payment_map' => [ '3' => 'bacs' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_settings_mappings_serializes_empty_maps_as_json_objects(): void {
+		// PHPの空配列`[]`は`wp_json_encode()`でJSON配列`[]`になり、値がある場合の
+		// JSONオブジェクト`{"3":"bacs"}`と型が食い違う（クライアント側が
+		// `Record<string,string>`として一貫した型を期待できない。Codexレビュー指摘）。
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$json = wp_json_encode( $response->get_data() );
+		$this->assertSame( '{"payment_map":{},"shipping_map":{},"status_map":{}}', $json );
 	}
 
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {
