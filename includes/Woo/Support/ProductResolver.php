@@ -86,11 +86,15 @@ final class ProductResolver {
 
 	/**
 	 * 親のvariable商品配下から、option1/2の値が全軸で一致するvariationを1件だけ特定する。
-	 * 軸の並び（option1→option2）は`ProductWriter::build_attributes()`が`is_variation()=true`の
-	 * 属性を位置順に積む規約と揃えている。
 	 *
-	 * 一致が0件、または複数件（値欠損・重複データ等で一意に特定できない）の場合はnullを返す
-	 * （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
+	 * `$option1_value`/`$option2_value`を軸のスロット番号（0=option1, 1=option2）に固定して
+	 * 対応付けない。`ProductWriter::variation_axis_names()`はoption1が無くoption2のみ持つ
+	 * 商品（ColorMeのoption1/2は独立フィールドで構造的にありうる）も軸の欠番として保持するが、
+	 * 保存後のWC属性（`get_attributes()`）にはどちらのスロット由来かを示す情報が残らず、
+	 * `get_position()`も単なる出現順（欠番があっても0番から詰められる）でしかない。
+	 * そのためスロット番号ではなく、非null値を出現順に並べたリストと軸の「数」だけを
+	 * 突き合わせる: 数が一致すれば位置ペアで対応付け、一致しなければ一意に対応付けられない
+	 * ため未解決とする（境界データはフェイルクローズで検証する。CLAUDE.md参照）。
 	 */
 	private function resolve_variation_by_options( WC_Product_Variable $parent_product, ?string $option1_value, ?string $option2_value ): ?WC_Product_Variation {
 		$axis_slugs = $this->variation_axis_slugs( $parent_product );
@@ -99,21 +103,18 @@ final class ProductResolver {
 			return null;
 		}
 
-		$expected = [];
+		$provided_values = array_values(
+			array_filter(
+				[ $option1_value, $option2_value ],
+				static fn ( ?string $value ): bool => null !== $value
+			)
+		);
 
-		foreach ( [ $option1_value, $option2_value ] as $index => $value ) {
-			if ( ! isset( $axis_slugs[ $index ] ) ) {
-				continue;
-			}
-
-			if ( null === $value ) {
-				// 軸は存在するのに対応する値が無い場合、その軸で一意に絞り込めない
-				// （値の欠損を「どのvariationでもよい」とは解釈しない）。
-				return null;
-			}
-
-			$expected[ $axis_slugs[ $index ] ] = $value;
+		if ( count( $provided_values ) !== count( $axis_slugs ) ) {
+			return null;
 		}
+
+		$expected = array_combine( $axis_slugs, $provided_values );
 
 		$matches = [];
 
