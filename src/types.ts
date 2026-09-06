@@ -114,9 +114,13 @@ export interface Limits {
 	entities: Record< EntityType, LimitEntity >;
 }
 
+/**
+ * `GET /logs`は`$wpdb->get_results(..., ARRAY_A)`の生の行をそのまま返すため、
+ * `id`/`job_id`を含む数値カラムも文字列で返る（wpdb/MySQLiの一般的な挙動）。
+ */
 export interface LogEntry {
-	id: number;
-	job_id: number | null;
+	id: string;
+	job_id: string | null;
 	level: 'debug' | 'info' | 'warning' | 'error';
 	message: string;
 	context_json: string | null;

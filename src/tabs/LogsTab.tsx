@@ -67,6 +67,9 @@ export default function LogsTab() {
 			} )
 			.catch( ( err: unknown ) => {
 				if ( ! cancelled ) {
+					// 直前のフィルタ/ページの結果を残したままにすると、新しい絞り込み条件の
+					// 下に古い一覧が表示され続け、一致した結果と誤認されうる。
+					setLogs( null );
 					setError( errorMessage( err ) );
 				}
 			} );
@@ -76,10 +79,18 @@ export default function LogsTab() {
 		};
 	}, [ jobId, level, page ] );
 
-	// フィルタが変わったら1ページ目に戻す。
-	useEffect( () => {
+	// フィルタ変更時に1ページ目へ戻す（`onChange`側で直接`setPage(1)`する。別effectに
+	// すると、フィルタ変更時に「古いpageで1回・リセット後のpage=1でもう1回」と
+	// 無駄なAPIリクエストが発生するため避ける）。
+	function handleJobIdChange( value: string ) {
+		setJobId( value );
 		setPage( 1 );
-	}, [ jobId, level ] );
+	}
+
+	function handleLevelChange( value: string ) {
+		setLevel( value );
+		setPage( 1 );
+	}
 
 	return (
 		<div className="cbjp-logs">
@@ -88,13 +99,13 @@ export default function LogsTab() {
 					label={ __( 'Job ID', 'cart-bridge-jp' ) }
 					type="number"
 					value={ jobId }
-					onChange={ setJobId }
+					onChange={ handleJobIdChange }
 				/>
 				<SelectControl
 					label={ __( 'Level', 'cart-bridge-jp' ) }
 					value={ level }
 					options={ LEVEL_OPTIONS }
-					onChange={ setLevel }
+					onChange={ handleLevelChange }
 				/>
 			</div>
 

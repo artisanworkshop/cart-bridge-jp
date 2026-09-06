@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from '@wordpress/element';
+import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import {
 	Button,
@@ -130,6 +130,8 @@ export default function ImportTab() {
 		Record< EntityType, number >
 	> | null >( null );
 	const [ limits, setLimits ] = useState< Limits | null >( null );
+	const platformRef = useRef( platform );
+	platformRef.current = platform;
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -219,12 +221,23 @@ export default function ImportTab() {
 			return;
 		}
 
+		// このリクエストを発行した時点のプラットフォームを閉じ込めておく。応答が
+		// 届くまでの間にユーザーが別プラットフォームへ切り替えていた場合、そちらの
+		// `limits`（platform-change時にnullへリセット済み）を古い応答で上書きしない。
+		const requestedPlatform = platform;
+
 		apiFetch< Limits >( {
 			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
 				platform
 			) }`,
 		} )
-			.then( setLimits )
+			.then( ( data ) => {
+				if ( platformRef.current !== requestedPlatform ) {
+					return;
+				}
+
+				setLimits( data );
+			} )
 			.catch( () => {
 				// アップセル表示は付加情報のため、取得失敗時は黙って表示を省略する。
 			} );
@@ -256,10 +269,15 @@ export default function ImportTab() {
 
 		if (
 			'import' === type &&
+			// Pro版で上限が解除されている場合、この実行はサンプルではなく全件書込みに
+			// なる（`Sync\JobManager`のサンプリング分岐参照）。「サンプルのみ」と誤って
+			// 断定すると、Proユーザーが小規模な操作だと誤解したまま全カタログ・全顧客・
+			// 全受注の書込みを承認してしまいかねないため、無料版/Pro版どちらでも正しい
+			// 表現にとどめる。
 			// eslint-disable-next-line no-alert
 			! window.confirm(
 				__(
-					'This will write real WooCommerce data (products, orders, customers, etc.) for the free version’s sample. Continue?',
+					'This will write real WooCommerce data (products, orders, customers, etc.) to this site, up to the current plan’s limits. Continue?',
 					'cart-bridge-jp'
 				)
 			)
@@ -425,6 +443,7 @@ export default function ImportTab() {
 							disabled={
 								anyRunActive ||
 								dryRunState.starting ||
+								importState.starting ||
 								0 === selectedEntities.size
 							}
 							onClick={ () => startRun( 'dry_run' ) }
@@ -439,6 +458,7 @@ export default function ImportTab() {
 							isBusy={ importState.starting }
 							disabled={
 								anyRunActive ||
+								dryRunState.starting ||
 								importState.starting ||
 								0 === selectedEntities.size
 							}
@@ -458,7 +478,9 @@ export default function ImportTab() {
 						</strong>
 						<Button
 							variant="tertiary"
-							disabled={ ! dryRunTerminal }
+							disabled={
+								! dryRunTerminal && ! dryRunPolling.error
+							}
 							onClick={ () => clearRun( 'dry_run' ) }
 						>
 							{ __( 'Clear', 'cart-bridge-jp' ) }
@@ -508,7 +530,9 @@ export default function ImportTab() {
 						</strong>
 						<Button
 							variant="tertiary"
-							disabled={ ! importTerminal }
+							disabled={
+								! importTerminal && ! importPolling.error
+							}
 							onClick={ () => clearRun( 'import' ) }
 						>
 							{ __( 'Clear', 'cart-bridge-jp' ) }
