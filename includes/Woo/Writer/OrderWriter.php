@@ -209,11 +209,11 @@ final class OrderWriter implements EntityWriter {
 		$shipping_method_id = Value::string( $item->shipping['method_id'] ?? null );
 		$mapped_method_id   = null !== $shipping_method_id ? $this->methods->mapped_shipping_method_id( $shipping_method_id ) : null;
 
-		// 保存されているマッピング値自体が壊れた形式（`MethodMap::split_shipping_method_id()`が
-		// nullを返す。例: 方式部が空、インスタンス部が非整数）の場合、それらしい組へ黙って
-		// 解決せず「未マッピング」と同じ経路（下のSHIPPING_METHOD_UNMAPPED警告）へ倒す
+		// 保存されているマッピング値が壊れた形式（例: 方式部が空、インスタンス部が非整数）、
+		// または形式は正しくても実在しない（ゾーンから削除された等）場合、それらしい組へ
+		// 黙って解決せず「未マッピング」と同じ経路（下のSHIPPING_METHOD_UNMAPPED警告）へ倒す
 		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
-		if ( null !== $mapped_method_id && null === MethodMap::split_shipping_method_id( $mapped_method_id ) ) {
+		if ( null !== $mapped_method_id && ! MethodMap::shipping_method_exists( $mapped_method_id ) ) {
 			$mapped_method_id = null;
 		}
 
@@ -424,6 +424,15 @@ final class OrderWriter implements EntityWriter {
 		$method_id   = Value::string( $payment['method_id'] ?? null );
 		$method_name = Value::string( $payment['method_name'] ?? null );
 		$mapped_id   = null !== $method_id ? $this->methods->mapped_payment_gateway_id( $method_id ) : null;
+
+		// マッピング先のゲートウェイがプラグイン削除・無効化等で現在実在しない場合、
+		// `payment_gateway_title()`はID自体をフォールバック表示するだけで警告なく
+		// 実在しないゲートウェイを注文へ書き込んでしまう。実在確認できないマッピングは
+		// 「未マッピング」と同じ経路（下のPAYMENT_METHOD_UNMAPPED警告）へ倒す
+		// （境界データはフェイルクローズで検証する。CLAUDE.md参照。Codexレビュー指摘）。
+		if ( null !== $mapped_id && ! MethodMap::payment_gateway_exists( $mapped_id ) ) {
+			$mapped_id = null;
+		}
 
 		if ( null !== $mapped_id ) {
 			$order->set_payment_method( $mapped_id );

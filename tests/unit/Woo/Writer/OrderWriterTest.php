@@ -25,6 +25,7 @@ use CartBridgeJP\Woo\Writer\VariationWriter;
 use WC_Product_Simple;
 use WC_Product_Variable;
 use WC_Product_Variation;
+use WC_Shipping_Zone;
 
 final class OrderWriterTest extends WooTestCase {
 
@@ -1323,6 +1324,35 @@ final class OrderWriterTest extends WooTestCase {
 		delete_option( 'cbjp_settings_colorme' );
 	}
 
+	public function test_mapped_payment_method_to_unregistered_gateway_is_treated_as_unmapped(): void {
+		// マッピング先のゲートウェイIDがプラグイン削除・無効化・単なる設定ミス等で
+		// 現在実在しない場合、`payment_gateway_title()`はID自体をフォールバック表示する
+		// だけで警告なく実在しないゲートウェイが注文へ書き込まれてしまっていた。
+		// 未マッピングと同じ`PAYMENT_METHOD_UNMAPPED`警告に倒すことを確認する
+		// （Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ 'pay-1' => 'no-such-gateway' ] ] );
+
+		$order = $this->make_order(
+			'1019',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => '銀行振込',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( '', $wc_order->get_payment_method() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
 	public function test_mapped_shipping_method_sets_woo_method_id_not_the_asp_raw_id(): void {
 		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate' ] ] );
 
@@ -1353,12 +1383,21 @@ final class OrderWriterTest extends WooTestCase {
 	}
 
 	public function test_mapped_shipping_method_with_zone_instance_id_splits_method_and_instance(): void {
-		// マッピング値がゾーンインスタンスID付き（`flat_rate:5`）の場合、`method_id`
-		// （方式そのもの）と`instance_id`（ゾーン内のインスタンス番号）を別プロパティとして
-		// 設定することを確認する（Codexレビュー指摘）。両者を1つの複合文字列のまま
-		// `set_method_id()`へ渡すと`get_method_id()`が実在しない方式ID（`flat_rate:5`）を
-		// 返してしまい、配送方法IDで判定する他のコード（レポート・拡張機能等）と噛み合わない。
-		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate:5' ] ] );
+		// マッピング値がゾーンインスタンスID付き（`flat_rate:{instance_id}`）の場合、
+		// `method_id`（方式そのもの）と`instance_id`（ゾーン内のインスタンス番号）を
+		// 別プロパティとして設定することを確認する（Codexレビュー指摘）。両者を1つの
+		// 複合文字列のまま`set_method_id()`へ渡すと`get_method_id()`が実在しない方式ID
+		// （`flat_rate:5`）を返してしまい、配送方法IDで判定する他のコード
+		// （レポート・拡張機能等）と噛み合わない。実在するゾーンインスタンスを使う
+		// （実在しないインスタンスは`test_stale_shipping_instance_mapping_is_treated_as_unmapped`
+		// で別途検証する）。
+		$zone = new WC_Shipping_Zone();
+		$zone->set_zone_name( 'Test Zone' );
+		$zone->save();
+		$instance_id = $zone->add_shipping_method( 'flat_rate' );
+		$this->assertIsInt( $instance_id );
+
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => "flat_rate:{$instance_id}" ] ] );
 
 		$order = $this->make_order(
 			'1015',
@@ -1377,7 +1416,39 @@ final class OrderWriterTest extends WooTestCase {
 		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
 		$this->assertCount( 1, $shipping_items );
 		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
-		$this->assertSame( '5', $shipping_items[0]->get_instance_id() );
+		$this->assertSame( (string) $instance_id, $shipping_items[0]->get_instance_id() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+		);
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_stale_shipping_instance_mapping_is_treated_as_unmapped(): void {
+		// マッピング値の形式自体は正しくても（`flat_rate:999999`）、ゾーンから削除された・
+		// 一度も存在しなかったインスタンスIDを指す場合、それを「マッピング済み」として
+		// 扱うと消えた配送設定へ黙って注文が紐付いてしまう。未マッピングと同じ
+		// `SHIPPING_METHOD_UNMAPPED`警告に倒すことを確認する（Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate:999999' ] ] );
+
+		$order = $this->make_order(
+			'1018',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( '', $shipping_items[0]->get_method_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
