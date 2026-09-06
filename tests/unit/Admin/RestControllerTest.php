@@ -531,6 +531,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'flat_rate:1', $response->get_data()['shipping_map']['5'] );
 	}
 
+	public function test_save_settings_mappings_explicit_empty_map_clears_existing_value(): void {
+		$this->register_colorme_adapter();
+
+		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$this->server->dispatch( $first );
+
+		// キーを省略した場合は既存値を保持する（上のテスト）のに対し、キーを明示的に
+		// 空配列で送った場合は実際にクリアされることを確認する（両方向の経路を検証）。
+		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$second->set_body_params( [ 'payment_map' => [] ] );
+		$response = $this->server->dispatch( $second );
+
+		$this->assertSame( [], $response->get_data()['payment_map'] );
+
+		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
+		$this->assertSame( [], $get_response->get_data()['payment_map'] );
+	}
+
 	public function test_save_settings_mappings_rejects_non_object_map(): void {
 		$this->register_colorme_adapter();
 
