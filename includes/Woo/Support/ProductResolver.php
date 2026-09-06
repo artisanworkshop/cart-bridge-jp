@@ -9,7 +9,9 @@ namespace CartBridgeJP\Woo\Support;
 
 use CartBridgeJP\Sync\MappingRepository;
 use WC_Product;
+use WC_Product_Attribute;
 use WC_Product_Variable;
+use WC_Product_Variation;
 
 /**
  * SKU/remote_id からWooの商品・バリエーションを解決する（受注明細・在庫更新で共用）。
@@ -27,13 +29,18 @@ final class ProductResolver {
 	 *
 	 * ColorMeの受注明細は`remote_product_id`として常に親商品のIDしか持たない（どのvariationかは
 	 * option1/2の値でしか特定できない）ため、mappingsの'product'側は必ず親を指す。SKU解決に
-	 * 失敗した場合にこのremote_idフォールバックだけで解決すると、明細が実際にはvariationの
-	 * 購入だったとしても親のvariable商品そのものが返ってしまう。variable商品は単体では
-	 * 購入対象にならない（実購入は常にどれかのvariation）ため、そのまま明細に結びつけると
-	 * 数量・在庫・価格が不整合な注文行になる。呼び出し元が気付けるよう、SKU・remote_idの
-	 * どちらの経路でもvariable商品への解決は「未解決」として扱う。
+	 * 失敗しremote_idが親のvariable商品に解決した場合、`$option1_value`/`$option2_value`
+	 * （F1-5後続。呼び出し元=`OrderItemBuilder`が明細の`option1_value_current`/
+	 * `option2_value_current`を渡す）で子variationの一意特定を試みる（`resolve_variation_by_options()`）。
+	 * 一致が0件・複数件（値欠損・重複等で一意に特定できない）の場合は、variable商品単体を
+	 * 返さず「未解決」として扱う（variable商品は単体では購入対象にならないため、そのまま
+	 * 明細に結びつけると数量・在庫・価格が不整合な注文行になる）。
+	 *
+	 * `$option1_value`/`$option2_value`はASP側APIの「最新の商品情報」であり注文時点の値では
+	 * ない（オプション名変更後の受注では一致しないことがある）ため、一致しない場合も
+	 * フェイルクローズで未解決のままにする（捏造した一致を返さない）。
 	 */
-	public function resolve_by_sku_or_remote_id( ?string $sku, ?string $remote_id ): ?WC_Product {
+	public function resolve_by_sku_or_remote_id( ?string $sku, ?string $remote_id, ?string $option1_value = null, ?string $option2_value = null ): ?WC_Product {
 		if ( null !== $sku ) {
 			$product_id = wc_get_product_id_by_sku( $sku );
 
@@ -54,9 +61,15 @@ final class ProductResolver {
 			$local_id = $this->mappings->find_local_id( $this->platform, 'product', $remote_id );
 
 			if ( null !== $local_id ) {
-				$product = $this->as_orderable_product( $local_id );
+				$product = $this->as_product( $local_id );
 
-				if ( null !== $product ) {
+				if ( $product instanceof WC_Product_Variable ) {
+					$variation = $this->resolve_variation_by_options( $product, $option1_value, $option2_value );
+
+					if ( null !== $variation ) {
+						return $variation;
+					}
+				} elseif ( null !== $product ) {
 					return $product;
 				}
 			}
@@ -69,6 +82,94 @@ final class ProductResolver {
 		$product = $this->as_product( $id );
 
 		return null !== $product && ! $product instanceof WC_Product_Variable ? $product : null;
+	}
+
+	/**
+	 * 親のvariable商品配下から、option1/2の値が全軸で一致するvariationを1件だけ特定する。
+	 *
+	 * `$option1_value`/`$option2_value`を軸のスロット番号（0=option1, 1=option2）に固定して
+	 * 対応付けない。`ProductWriter::variation_axis_names()`はoption1が無くoption2のみ持つ
+	 * 商品（ColorMeのoption1/2は独立フィールドで構造的にありうる）も軸の欠番として保持するが、
+	 * 保存後のWC属性（`get_attributes()`）にはどちらのスロット由来かを示す情報が残らず、
+	 * `get_position()`も単なる出現順（欠番があっても0番から詰められる）でしかない。
+	 * そのためスロット番号ではなく、非null値を出現順に並べたリストと軸の「数」だけを
+	 * 突き合わせる: 数が一致すれば位置ペアで対応付け、一致しなければ一意に対応付けられない
+	 * ため未解決とする（境界データはフェイルクローズで検証する。CLAUDE.md参照）。
+	 */
+	private function resolve_variation_by_options( WC_Product_Variable $parent_product, ?string $option1_value, ?string $option2_value ): ?WC_Product_Variation {
+		$axis_slugs = $this->variation_axis_slugs( $parent_product );
+
+		if ( [] === $axis_slugs ) {
+			return null;
+		}
+
+		$provided_values = array_values(
+			array_filter(
+				[ $option1_value, $option2_value ],
+				static fn ( ?string $value ): bool => null !== $value
+			)
+		);
+
+		if ( count( $provided_values ) !== count( $axis_slugs ) ) {
+			return null;
+		}
+
+		$expected = array_combine( $axis_slugs, $provided_values );
+
+		$matches = [];
+
+		foreach ( $parent_product->get_children() as $variation_id ) {
+			// 別プラットフォーム由来・このプラグイン外で作成されたvariationは対象外
+			// （`VariationWriter`のstale削除・`ProductResolver::resolve_stock_target()`と同じ
+			// ownershipガード）。
+			if ( ! PlatformOwnership::owns_post( $variation_id, $this->platform ) ) {
+				continue;
+			}
+
+			$variation = wc_get_product( $variation_id );
+
+			if ( ! $variation instanceof WC_Product_Variation ) {
+				continue;
+			}
+
+			$attributes = $variation->get_attributes();
+			$is_match   = true;
+
+			foreach ( $expected as $slug => $value ) {
+				if ( ( $attributes[ $slug ] ?? null ) !== $value ) {
+					$is_match = false;
+					break;
+				}
+			}
+
+			if ( $is_match ) {
+				$matches[] = $variation;
+			}
+		}
+
+		return 1 === count( $matches ) ? $matches[0] : null;
+	}
+
+	/**
+	 * @return array<int,string> 位置0=option1軸、1=option2軸のスラッグ。
+	 */
+	private function variation_axis_slugs( WC_Product_Variable $parent_product ): array {
+		$axis_attributes = array_values(
+			array_filter(
+				$parent_product->get_attributes(),
+				static fn ( $attribute ): bool => $attribute instanceof WC_Product_Attribute && $attribute->get_variation()
+			)
+		);
+
+		usort(
+			$axis_attributes,
+			static fn ( WC_Product_Attribute $a, WC_Product_Attribute $b ): int => $a->get_position() <=> $b->get_position()
+		);
+
+		return array_map(
+			static fn ( WC_Product_Attribute $attribute ): string => sanitize_title( $attribute->get_name() ),
+			$axis_attributes
+		);
 	}
 
 	/**

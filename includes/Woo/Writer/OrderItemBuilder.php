@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Writer;
 
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\Value;
@@ -32,7 +33,12 @@ final class OrderItemBuilder {
 		$warnings          = [];
 		$sku               = Value::string( $line_item['sku'] ?? null );
 		$remote_product_id = Value::string( $line_item['remote_product_id'] ?? null );
-		$product           = $this->resolver->resolve_by_sku_or_remote_id( $sku, $remote_product_id );
+		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（注文時点の
+		// 値ではない）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
+		// 購入だったかを一意に特定するための唯一の手がかりになる（`ProductResolver`参照）。
+		$option1_value = Value::string( $line_item['option1_value_current'] ?? null );
+		$option2_value = Value::string( $line_item['option2_value_current'] ?? null );
+		$product       = $this->resolver->resolve_by_sku_or_remote_id( $sku, $remote_product_id, $option1_value, $option2_value );
 
 		$item = new WC_Order_Item_Product();
 		// 注文時点の商品名を使う（`set_product()`は現在の商品名・価格で上書きしてしまうため使わない）。
@@ -173,10 +179,24 @@ final class OrderItemBuilder {
 
 		$item = new WC_Order_Item_Shipping();
 		$item->set_method_title( $title );
-		// `method_id`にはWooの配送方法ID（マッピング済みIDのみ）を設定する。未マッピングの
-		// ASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが記録され、
-		// 拡張機能等の配送方法判定処理が誤動作しうる。
-		$item->set_method_id( $mapped_method_id ?? '' );
+		// `method_id`/`instance_id`にはWooの配送方法ID（マッピング済みIDのみ）を設定する。
+		// 未マッピングのASP側生IDをそのまま入れると、Woo標準の配送方法として実在しないIDが
+		// 記録され、拡張機能等の配送方法判定処理が誤動作しうる。マッピング値が`flat_rate:5`
+		// のようなゾーンインスタンスID付きの場合、`method_id`（方式）と`instance_id`
+		// （インスタンス番号）へ分割して別プロパティとして設定する
+		// （`MethodMap::split_shipping_method_id()`参照。両者を1つの複合文字列のまま
+		// `set_method_id()`へ渡すと`get_method_id()`が実在しない方式IDを返してしまう）。
+		// `OrderWriter::build_shipping_and_fees()`が形式不正なマッピング値を事前にnullへ
+		// 落としているため通常はここに到達しないが、防御的に同じ規約（未マッピングと同じ
+		// 空扱い）を守る。
+		$split = null !== $mapped_method_id ? MethodMap::split_shipping_method_id( $mapped_method_id ) : null;
+
+		if ( null !== $split ) {
+			$item->set_method_id( $split[0] );
+			$item->set_instance_id( (string) $split[1] );
+		} else {
+			$item->set_method_id( '' );
+		}
 
 		[ $fee, $fee_warning ] = $this->validate_amount( Value::string( $shipping['fee'] ?? null ) );
 		$item->set_total( $fee );

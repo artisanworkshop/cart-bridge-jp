@@ -7,16 +7,25 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Writer;
 
+use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
+use CartBridgeJP\Woo\Writer\ProductWriter;
+use CartBridgeJP\Woo\Writer\VariationWriter;
 use WC_Product_Simple;
 use WC_Product_Variable;
+use WC_Product_Variation;
+use WC_Shipping_Zone;
 
 final class OrderWriterTest extends WooTestCase {
 
@@ -49,6 +58,37 @@ final class OrderWriterTest extends WooTestCase {
 		array $extras = []
 	): CanonicalOrder {
 		return new CanonicalOrder( $number, $status, $customer_ref, $line_items, $shipping, $payment, $totals, '2026-01-01T00:00:00+00:00', null, $extras );
+	}
+
+	/**
+	 * `ProductWriter`+`VariationWriter`の実パイプラインでvariable親商品+variationを作る
+	 * （手組みの`WC_Product_Attribute`/`WC_Product_Variation`だと本番の属性構造とズレて
+	 * `ProductResolver::resolve_variation_by_options()`の前提が崩れやすいため）。
+	 *
+	 * @param array<int,array<string,mixed>> $variants `CanonicalFactory::product()`と同じ
+	 *   `option1_name`/`option1_value`等のキー規約。
+	 * @return int 親商品のローカルID。
+	 */
+	private function make_variable_product( string $product_remote_id, array $variants ): int {
+		$writer    = new ProductWriter( 'colorme', $this->mappings, new VariationWriter( 'colorme', $this->mappings ), new MediaImporter( 'colorme' ) );
+		$canonical = CanonicalFactory::product( $product_remote_id, "SKU-{$product_remote_id}", 5, $variants );
+		$result    = $writer->write( $canonical, null );
+
+		// local_id=0（保存失敗）のまま`seed_mapping()`へ進むと、無効なmappingが登録されて
+		// このヘルパーを呼んだ各テストの失敗理由が「variationが解決できない」等の的外れな
+		// ものになり、本当の原因（商品保存失敗）の診断が難しくなる。ここで即座に落とす。
+		$this->assertNotSame( 0, $result->local_id );
+
+		// テスト環境のWooCommerce税設定（`prices_include_tax_disabled`）はこのヘルパーの
+		// 関心事ではないため、その警告だけ除外して他に予期しない警告が無いことを確認する。
+		$this->assertSame(
+			[],
+			array_values( array_diff( $result->warnings, [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) )
+		);
+
+		$this->seed_mapping( 'colorme', 'product', $product_remote_id, $result->local_id );
+
+		return $result->local_id;
 	}
 
 	public function test_resolves_line_item_by_sku(): void {
@@ -217,6 +257,310 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+	}
+
+	public function test_line_item_resolves_to_variation_by_single_axis_option_value(): void {
+		$parent_id    = $this->make_variable_product(
+			'vp-single',
+			[
+				[
+					'remote_id'     => 'v-red',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v-blue',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '青',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v-red' );
+
+		$order = $this->make_order(
+			'4001',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-single',
+					'name'                  => '商品（カラー：赤）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( $parent_id, $items[0]->get_product_id() );
+		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+		);
+	}
+
+	public function test_line_item_resolves_to_variation_when_only_option2_axis_is_populated(): void {
+		// ColorMeのoption1/option2は独立フィールドで、option1が無くoption2のみ持つ商品も
+		// 構造的にありうる（`ProductWriter::variation_axis_names()`参照）。この場合
+		// `option1_value_current`は常にnullで`option2_value_current`だけが値を持つが、
+		// 保存後のWC属性はどちらのスロット由来かを覚えていないため、スロット番号（0=option1）
+		// に固定して対応付けると常に未解決になってしまっていた（Codexレビュー指摘）。
+		$parent_id    = $this->make_variable_product(
+			'vp-option2-only',
+			[
+				[
+					'remote_id'     => 'v-m',
+					'sku'           => null,
+					'option2_name'  => 'Size',
+					'option2_value' => 'M',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v-l',
+					'sku'           => null,
+					'option2_name'  => 'Size',
+					'option2_value' => 'L',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v-m' );
+
+		$order = $this->make_order(
+			'4005',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-option2-only',
+					'name'                  => '商品（サイズ：M）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option2_value_current' => 'M',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( $parent_id, $items[0]->get_product_id() );
+		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
+	}
+
+	public function test_line_item_resolves_to_variation_by_two_axis_option_values(): void {
+		$this->make_variable_product(
+			'vp-double',
+			[
+				[
+					'remote_id'     => 'v-red-s',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'option2_name'  => 'Size',
+					'option2_value' => 'S',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'v-red-m',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'option2_name'  => 'Size',
+					'option2_value' => 'M',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+		$expected_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'v-red-m' );
+
+		$order = $this->make_order(
+			'4002',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-double',
+					'name'                  => '商品（カラー：赤、サイズ：M）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+					'option2_value_current' => 'M',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		// 「赤」だけならv-red-s/v-red-mの2件に一致してしまうため、option2（Size）まで
+		// 揃って初めて一意にv-red-mへ絞り込めていることを確認する。
+		$this->assertSame( $expected_variation_id, $items[0]->get_variation_id() );
+	}
+
+	public function test_line_item_option_value_not_matching_any_variation_remains_unresolved(): void {
+		// `option1_value_current`はASP側APIの「最新の商品情報」であり注文時点の値ではない
+		// （オプション名変更後の受注では一致しないことがある）。捏造した一致を返さず、
+		// 従来どおり未解決としてフェイルクローズすることを確認する。
+		$this->make_variable_product(
+			'vp-nomatch',
+			[
+				[
+					'remote_id'     => 'v-red',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+
+		$order = $this->make_order(
+			'4003',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-nomatch',
+					'name'                  => '商品（カラー：緑）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '緑',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
+	}
+
+	public function test_line_item_ambiguous_variation_match_remains_unresolved(): void {
+		// 2件のvariationが偶然同じ属性値を持つ（データ不整合等）場合、どちらか一方を
+		// 恣意的に選ばず未解決としてフェイルクローズすることを確認する。
+		$parent_id = $this->make_variable_product(
+			'vp-dup',
+			[
+				[
+					'remote_id'     => 'v-a',
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+
+		// 属性値が重複する2件目のvariationを直接作成する（正規のVariationWriter経路は
+		// remote_id単位のupsertのため、このような重複状態を通常は生まないが、
+		// リンク再構築ツール（D16）等で別経路からデータが混入した場合の防御として検証する）。
+		$duplicate = new WC_Product_Variation();
+		$duplicate->set_parent_id( $parent_id );
+		$duplicate->set_attributes( [ 'color' => '赤' ] );
+		$duplicate->set_regular_price( '1000' );
+		$duplicate->update_meta_data( '_cbjp_platform', 'colorme' );
+		$duplicate->update_meta_data( '_cbjp_remote_id', 'v-a-dup' );
+		$duplicate->save();
+
+		$order = $this->make_order(
+			'4004',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-dup',
+					'name'                  => '商品（カラー：赤）',
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
+	}
+
+	public function test_real_colorme_variation_purchase_resolves_through_transformer_and_writer(): void {
+		// 上記のvariation解決テストは`CanonicalProduct`/`CanonicalOrder`をテストコード側で
+		// 直接組み立てているため、writerがテストコードが書いたキーと整合することしか
+		// 証明できない。`ProductTransformer`/`OrderTransformer`が実際に出力するキー・値と
+		// writer側の前提がずれていないかは、実フィクスチャを両方の変換層に通して初めて
+		// 検証できる（CLAUDE.md「変換層とwriterをフィクスチャで別々にテストしても...層間ズレは
+		// 検出できない」の適用例。Codexレビュー指摘）。
+		//
+		// `products.json`のid=192817159（バリエーション商品）と、その option1=赤/option2=S の
+		// variant（remote_id=1847906909）を購入した`sale_daibiki_detail.json`を実際に
+		// ProductTransformer/OrderTransformerへ通し、Woo書込み後に正しいvariationへ解決される
+		// ことを確認する。
+		$raw_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+		$raw_product  = current(
+			array_filter( $raw_products, static fn ( array $p ): bool => 192817159 === ( $p['id'] ?? null ) )
+		);
+		$this->assertIsArray( $raw_product, 'Fixture product 192817159 not found; fixtures/colorme/products.json may have changed.' );
+
+		$canonical_product = ( new ProductTransformer() )->transform( $raw_product );
+		$product_writer    = new ProductWriter( 'colorme', $this->mappings, new VariationWriter( 'colorme', $this->mappings ), new MediaImporter( 'colorme' ) );
+		$product_result    = $product_writer->write( $canonical_product, null );
+		$this->assertNotSame( 0, $product_result->local_id );
+		$this->seed_mapping( 'colorme', 'product', $canonical_product->remote_id(), $product_result->local_id );
+
+		$expected_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', '1847906909' );
+		$this->assertNotNull( $expected_variation_id, 'Fixture variant 1847906909 (option1=赤/option2=S) not found after write.' );
+
+		$raw_sale        = FixtureLoader::load( 'colorme', 'sale_daibiki_detail' )['sale'];
+		$canonical_order = ( new OrderTransformer() )->transform( $raw_sale );
+
+		$order_result = $this->make_writer()->write( $canonical_order, null );
+		$wc_order     = wc_get_order( $order_result->local_id );
+		$items        = array_values( $wc_order->get_items() );
+
+		$this->assertCount( 1, $items );
+		$this->assertSame( $product_result->local_id, $items[0]->get_product_id() );
+		$this->assertSame( $expected_variation_id, $items[0]->get_variation_id() );
+		$this->assertEmpty(
+			array_filter( $order_result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+		);
 	}
 
 	public function test_missing_line_item_quantity_falls_back_to_one_with_warning(): void {
@@ -980,6 +1324,35 @@ final class OrderWriterTest extends WooTestCase {
 		delete_option( 'cbjp_settings_colorme' );
 	}
 
+	public function test_mapped_payment_method_to_unregistered_gateway_is_treated_as_unmapped(): void {
+		// マッピング先のゲートウェイIDがプラグイン削除・無効化・単なる設定ミス等で
+		// 現在実在しない場合、`payment_gateway_title()`はID自体をフォールバック表示する
+		// だけで警告なく実在しないゲートウェイが注文へ書き込まれてしまっていた。
+		// 未マッピングと同じ`PAYMENT_METHOD_UNMAPPED`警告に倒すことを確認する
+		// （Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ 'pay-1' => 'no-such-gateway' ] ] );
+
+		$order = $this->make_order(
+			'1019',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => '銀行振込',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( '', $wc_order->get_payment_method() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
 	public function test_mapped_shipping_method_sets_woo_method_id_not_the_asp_raw_id(): void {
 		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate' ] ] );
 
@@ -1005,6 +1378,106 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertEmpty(
 			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
 		);
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_mapped_shipping_method_with_zone_instance_id_splits_method_and_instance(): void {
+		// マッピング値がゾーンインスタンスID付き（`flat_rate:{instance_id}`）の場合、
+		// `method_id`（方式そのもの）と`instance_id`（ゾーン内のインスタンス番号）を
+		// 別プロパティとして設定することを確認する（Codexレビュー指摘）。両者を1つの
+		// 複合文字列のまま`set_method_id()`へ渡すと`get_method_id()`が実在しない方式ID
+		// （`flat_rate:5`）を返してしまい、配送方法IDで判定する他のコード
+		// （レポート・拡張機能等）と噛み合わない。実在するゾーンインスタンスを使う
+		// （実在しないインスタンスは`test_stale_shipping_instance_mapping_is_treated_as_unmapped`
+		// で別途検証する）。
+		$zone = new WC_Shipping_Zone();
+		$zone->set_zone_name( 'Test Zone' );
+		$zone->save();
+		$instance_id = $zone->add_shipping_method( 'flat_rate' );
+		$this->assertIsInt( $instance_id );
+
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => "flat_rate:{$instance_id}" ] ] );
+
+		$order = $this->make_order(
+			'1015',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
+		$this->assertSame( (string) $instance_id, $shipping_items[0]->get_instance_id() );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+		);
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_stale_shipping_instance_mapping_is_treated_as_unmapped(): void {
+		// マッピング値の形式自体は正しくても（`flat_rate:999999`）、ゾーンから削除された・
+		// 一度も存在しなかったインスタンスIDを指す場合、それを「マッピング済み」として
+		// 扱うと消えた配送設定へ黙って注文が紐付いてしまう。未マッピングと同じ
+		// `SHIPPING_METHOD_UNMAPPED`警告に倒すことを確認する（Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate:999999' ] ] );
+
+		$order = $this->make_order(
+			'1018',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( '', $shipping_items[0]->get_method_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_malformed_shipping_instance_mapping_is_treated_as_unmapped(): void {
+		// `flat_rate:abc`（インスタンス部が非数値）のような壊れたマッピング値を、
+		// 黙って`flat_rate`+インスタンス0のような「それらしい」組へ解決してしまうと、
+		// 設定ミスが警告なく別のインスタンスとして書き込まれてしまう。未マッピングと
+		// 同じ`SHIPPING_METHOD_UNMAPPED`警告に倒すことを確認する（Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate:abc' ] ] );
+
+		$order = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( '', $shipping_items[0]->get_method_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}

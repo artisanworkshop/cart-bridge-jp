@@ -146,18 +146,23 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **未検証のまま残る経路**（テストショップ側のデータ不足。F1-8の事前準備に含めること）: 顧客インポート（全顧客が`member=false`で
   仕様どおり除外され0件。会員登録した顧客の受注が必要）、画像sideload（全商品`image_url=null`）、クーポン（0件）、
   `stock_managed=true`かつ`stocks=null`の商品（フェイルクローズで在庫0=outofstockにしている。店頭での購入可否を要確認）
-- [ ] **F1-5後続: 実機確認で判明した改善**（F1-8着手前に実施。単独で動作確認可能な単位ごとにPR）
+- [x] **F1-5後続: 実機確認で判明した改善**（F1-8着手前に実施。単独で動作確認可能な単位ごとにPR）
   - [x] **定価→`regular_price`マッピング**（要検証#16確定分の実装）: `ProductTransformer`に`shop.json`の税設定
     （`tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`）を渡し、`price`（定価）を税込換算して`CanonicalProduct.price`、
     `sales_price_including_tax`を`sale_price`に載せ替える（定価未設定・定価≦販売価格なら従来どおり）。01 §4 / 03 §9 #16 参照
-  - **受注明細のバリエーション解決**: カラーミーの受注明細は親商品IDと`option1_value`/`option2_value`（最新値）しか持たず、
-    `ProductResolver`はvariable親への解決を未解決扱いにするため、現状バリエーション商品の明細は全件が商品リンク無しの
-    カスタム行（`order_line_product_unresolved`）になる。実店舗では明細の大半がこれに該当する。親の`variant` mappings
-    から`option1_name/value`の一致でvariationを特定する経路を追加する（一致しなければ従来どおり未解決＝フェイルクローズ。
-    option名変更後の受注は`pristine_product_full_name`のみが注文時の値である点に注意）。F1-7のリンク再構築とも連携
-  - **決済/配送マッピング設定**: `GET/PUT /settings/mappings/{platform}`が501のままで、`MethodMap`が読む
-    `cbjp_settings_{platform}`を書く経路が無い。受注は全件`payment_method_unmapped`/`shipping_method_unmapped`になる。
-    F1-6 PR-B（Import UI）のスコープに含めるか、独立PRにするかを決めて着手する（03 §6のルート定義済み）
+  - [x] **受注明細のバリエーション解決**: `ProductResolver::resolve_by_sku_or_remote_id()`がremote_idで親のvariable商品に
+    解決した場合、`option1_value_current`/`option2_value_current`（明細の「最新の商品情報」）を親の`is_variation()`属性
+    （軸の並びはoption1→option2の順、`ProductWriter::build_attributes()`と同じ規約）と全軸一致で照合し、
+    一意に特定できたvariationへ解決するように変更（`OrderItemBuilder`が明細からこの2値を渡す）。一致が0件・複数件
+    （値欠損・重複データ等で一意に特定できない）の場合は従来どおり未解決＝フェイルクローズのまま
+    （`order_line_product_unresolved`。option名変更後の受注は`pristine_product_full_name`のみが注文時の値である点は
+    未解決のまま残る既知の限界）。F1-7のリンク再構築とも連携
+  - [x] **決済/配送マッピング設定**: `GET/PUT /settings/mappings/{platform}`を実装し、`MethodMap`が読む
+    `cbjp_settings_{platform}`オプション（`payment_map`/`shipping_map`/`status_map`）を読み書きできるようにした
+    （バックエンドのみの独立PRとして実装。UI配線はF1-6 PR-Bのスコープ）。PUTはトップレベルの3キーを
+    それぞれ全置換し、省略したキーは既存値を保持する（UIが一部のマップだけ編集しても他方を消さないため）。
+    値はWooゲートウェイID/配送方法インスタンスID（`flat_rate:5`等コロンを含みうる）という不透明な内部IDのため、
+    `sanitize_key()`ではなく制御文字除去のみで保存する（`save_connection()`の資格情報と同じ方針）
 - [ ] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）。
   着手前調査で「dry-run が実writerの検証ロジックを一切呼ばず警告が常に空」という前提バグが判明したため、
   **PR-A（バックエンド・完了）とPR-B（フロントエンド・未着手）に分割**して進めている（隣接タスクのまとめ方針の応用）。

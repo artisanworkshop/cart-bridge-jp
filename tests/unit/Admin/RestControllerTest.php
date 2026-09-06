@@ -460,6 +460,234 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 404, $response->get_status() );
 	}
 
+	public function test_get_settings_mappings_defaults_to_empty_maps(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		// 空マップも常にJSONオブジェクトとして返す（`test_get_settings_mappings_serializes_empty_maps_as_json_objects`
+		// 参照）ため、レスポンスデータ自体も`array`ではなく`stdClass`。
+		$this->assertEquals( (object) [], $data['payment_map'] );
+		$this->assertEquals( (object) [], $data['shipping_map'] );
+		$this->assertEquals( (object) [], $data['status_map'] );
+	}
+
+	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/not-a-real-platform' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_persists_and_is_read_back(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'payment_map'  => [ '3' => 'bacs' ],
+				'shipping_map' => [ '5' => 'flat_rate:1' ],
+				'status_map'   => [ 'pending' => 'on-hold' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
+		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
+		// （`sanitize_key()`はコロンを除去するため使っていない）。
+		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
+
+		$get_data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) )->get_data();
+		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
+		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
+		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
+	}
+
+	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {
+		$this->register_colorme_adapter();
+
+		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$this->server->dispatch( $first );
+
+		// shipping_mapを省略した2回目の保存が、1回目に保存したpayment_mapを消さないこと
+		// （UIが1種類だけ編集した場合に他方を意図せず消さないための仕様）を確認する。
+		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$second->set_body_params( [ 'shipping_map' => [ '5' => 'flat_rate:1' ] ] );
+		$response = $this->server->dispatch( $second );
+
+		$data = $response->get_data();
+		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
+		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
+	}
+
+	public function test_save_settings_mappings_explicit_empty_map_clears_existing_value(): void {
+		$this->register_colorme_adapter();
+
+		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$this->server->dispatch( $first );
+
+		// キーを省略した場合は既存値を保持する（上のテスト）のに対し、キーを明示的に
+		// 空配列で送った場合は実際にクリアされることを確認する（両方向の経路を検証）。
+		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$second->set_body_params( [ 'payment_map' => [] ] );
+		$response = $this->server->dispatch( $second );
+
+		$this->assertEquals( (object) [], $response->get_data()['payment_map'] );
+
+		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
+		$this->assertEquals( (object) [], $get_response->get_data()['payment_map'] );
+	}
+
+	public function test_save_settings_mappings_rejects_non_object_map(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => 'not-an-object' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_rejects_entry_with_non_scalar_value_instead_of_dropping_it(): void {
+		// 読取専用の`sanitize_settings_map()`を書込みにも流用していた際、非スカラー値の
+		// エントリ（例: `{"1094475":[]}`）だけを黙って読み飛ばし、送信したマップが1件しか
+		// 無ければ結果は空マップでの全置換となり、200が返るのに正当な既存マッピングが
+		// 消えてしまっていた（Codexレビュー指摘）。書込み側は1件でも不正なエントリが
+		// あればリクエスト全体を拒否し、既存の正当なマッピングを消さないことを確認する。
+		$this->register_colorme_adapter();
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ '1094475' => [] ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_save_settings_mappings_rejects_json_list(): void {
+		// JSONリスト（例: `["bacs","cod"]`）は`is_array()`だけでは弾けず、連番インデックスを
+		// キーとする無意味なマッピング（`{"0":"bacs","1":"cod"}`）として保存されてしまう
+		// ため、明示的に拒否することを確認する（空配列＝全クリアの意図は許容する。
+		// `test_save_settings_mappings_explicit_empty_map_clears_existing_value`参照）。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ 'bacs', 'cod' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_save_settings_mappings_returns_404_for_unknown_platform(): void {
+		$request  = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/not-a-real-platform' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_settings_mappings_ignores_array_query_param(): void {
+		// このルートは`args`スキーマを定義していないため、`WP_REST_Request::get_params()`は
+		// GETリクエストでクエリ文字列をURLパスより優先してマージする
+		// （`get_parameter_order()`参照）。`platform_param()`はURLキャプチャのみを見るため、
+		// `?platform[]=x`のような配列値のクエリパラメータがあっても影響を受けず、
+		// URLパスが指すリソース（`colorme`）がそのまま使われることを確認する
+		// （Codexレビュー指摘。以前の`(string)`キャストは配列に対して警告付きで
+		// `'Array'`という誤ったプラットフォームIDになっていた）。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_query_params( [ 'platform' => [ 'not-a-real-platform' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+	}
+
+	public function test_get_settings_mappings_ignores_conflicting_scalar_query_param(): void {
+		// `platform`が配列でなくスカラーの別プラットフォーム名であっても、クエリ文字列は
+		// GETリクエストでURLパスより優先してマージされるため、以前は上書きが通ってしまい
+		// URLが名指ししたリソースとは異なる`cbjp_settings_{platform}`を読んでしまっていた
+		// （Codexレビュー指摘）。URLキャプチャのみを見ることでこれを構造的に防ぐ。
+		$this->register_colorme_adapter();
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', $response->get_data()['payment_map']->{'3'} );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_save_settings_mappings_ignores_array_body_param(): void {
+		// PUT/POST等ではボディがURLパスより優先してマージされるため、上と同じ問題が
+		// ボディ側の`platform`キーでも起こりうる。URLキャプチャのみを見ることで
+		// URLパスが指すリソース（`colorme`）へ正しく保存されることを確認する。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'platform'    => [ 'not-a-real-platform' ],
+				'payment_map' => [ '3' => 'bacs' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_save_settings_mappings_ignores_conflicting_scalar_body_param(): void {
+		// ボディに`platform`という別プラットフォーム名のスカラー値を混ぜても、PUT/POST等では
+		// ボディがURLパスより優先してマージされるため、以前は上書きが通ってしまい
+		// URLが名指ししたのとは異なる`cbjp_settings_{platform}`を書き換えてしまっていた
+		// （Codexレビュー指摘）。URLキャプチャのみを見ることでこれを構造的に防ぐ。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params(
+			[
+				'platform'    => 'not-a-real-platform',
+				'payment_map' => [ '3' => 'bacs' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	public function test_get_settings_mappings_serializes_empty_maps_as_json_objects(): void {
+		// PHPの空配列`[]`は`wp_json_encode()`でJSON配列`[]`になり、値がある場合の
+		// JSONオブジェクト`{"3":"bacs"}`と型が食い違う（クライアント側が
+		// `Record<string,string>`として一貫した型を期待できない。Codexレビュー指摘）。
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$json = wp_json_encode( $response->get_data() );
+		$this->assertSame( '{"payment_map":{},"shipping_map":{},"status_map":{}}', $json );
+	}
+
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {
 		$this->register_colorme_adapter();
 
