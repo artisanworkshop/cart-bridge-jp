@@ -29,6 +29,18 @@ export function useRunPolling( runId: string | null ) {
 	const timerRef = useRef< number | null >( null );
 	const runIdRef = useRef( runId );
 	runIdRef.current = runId;
+	// コンポーネントが完全にアンマウントされた後も、送信済みの`apiFetch`が解決した
+	// 時点でタイマーを再スケジュールし続けないようにするガード（`runId`の変更による
+	// クリーンアップでは`true`のまま。真の型アンマウント時のみ`false`にする）。
+	const mountedRef = useRef( true );
+
+	useEffect( () => {
+		mountedRef.current = true;
+
+		return () => {
+			mountedRef.current = false;
+		};
+	}, [] );
 
 	const clearTimer = useCallback( () => {
 		if ( null !== timerRef.current ) {
@@ -46,7 +58,7 @@ export function useRunPolling( runId: string | null ) {
 
 		apiFetch< Run >( { path: `/cbjp/v1/runs/${ id }` } )
 			.then( ( data ) => {
-				if ( runIdRef.current !== id ) {
+				if ( ! mountedRef.current || runIdRef.current !== id ) {
 					return;
 				}
 
@@ -62,7 +74,7 @@ export function useRunPolling( runId: string | null ) {
 				}
 			} )
 			.catch( ( err: unknown ) => {
-				if ( runIdRef.current !== id ) {
+				if ( ! mountedRef.current || runIdRef.current !== id ) {
 					return;
 				}
 
