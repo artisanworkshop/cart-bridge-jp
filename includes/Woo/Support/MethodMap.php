@@ -46,16 +46,20 @@ final class MethodMap {
 	}
 
 	/**
-	 * Woo配送方法IDから表示タイトルを解決する。登録されていないIDの場合はnull。
+	 * Woo配送方法IDから表示タイトルを解決する。登録されていないID・不正な形式の場合はnull。
 	 * `flat_rate:5`のようなインスタンスID付きの値も受け付ける
 	 * （`split_shipping_method_id()`参照。`WC()->shipping()->get_shipping_methods()`は
 	 * ゾーンに紐付かない方式そのものの一覧のためインスタンスID部分では引けない）。
 	 */
 	public function shipping_method_title( string $method_id ): ?string {
-		[ $bare_method_id ] = self::split_shipping_method_id( $method_id );
+		$split = self::split_shipping_method_id( $method_id );
+
+		if ( null === $split ) {
+			return null;
+		}
 
 		$methods = WC()->shipping()->get_shipping_methods();
-		$method  = $methods[ $bare_method_id ] ?? null;
+		$method  = $methods[ $split[0] ] ?? null;
 
 		return $method instanceof WC_Shipping_Method ? $method->get_method_title() : null;
 	}
@@ -67,12 +71,34 @@ final class MethodMap {
 	 * 丸ごと設定すると`get_method_id()`が実在しない方式IDを返し、配送方法IDで判定する
 	 * 他のコード（レポート・拡張機能等）と噛み合わなくなる。
 	 *
-	 * @return array{0:string,1:int}
+	 * `/settings/mappings/{platform}`は値を不透明な文字列としてしか検証しないため、
+	 * `flat_rate:abc`（数値でないインスタンス部）・`flat_rate:1.5`（整数でない）・`:5`
+	 * （方式部が空）のような壊れた値が保存されうる。これらを`0`やインスタンス切り捨てで
+	 * 黙って「それらしい」組へ解決すると、設定ミスが警告なく別のインスタンスとして
+	 * 書き込まれてしまう（境界データはフェイルクローズで検証する。CLAUDE.md参照）ため、
+	 * 形式が不正な場合はnullを返し、呼び出し元に「未マッピングと同様に扱う」判断を委ねる。
+	 *
+	 * @return ?array{0:string,1:int}
 	 */
-	public static function split_shipping_method_id( string $mapped_id ): array {
-		$parts = explode( ':', $mapped_id, 2 );
+	public static function split_shipping_method_id( string $mapped_id ): ?array {
+		$parts          = explode( ':', $mapped_id, 2 );
+		$bare_method_id = $parts[0];
 
-		return [ $parts[0], isset( $parts[1] ) && is_numeric( $parts[1] ) ? (int) $parts[1] : 0 ];
+		if ( '' === $bare_method_id ) {
+			return null;
+		}
+
+		if ( ! isset( $parts[1] ) ) {
+			return [ $bare_method_id, 0 ];
+		}
+
+		// `is_numeric()`は`'1.5'`や`'1e2'`も真になるため、非負整数のみを許容する形式
+		// （数字のみ）を明示的に要求する。
+		if ( 1 !== preg_match( '/^\d+$/', $parts[1] ) ) {
+			return null;
+		}
+
+		return [ $bare_method_id, (int) $parts[1] ];
 	}
 
 	/**

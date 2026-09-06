@@ -208,8 +208,17 @@ final class OrderWriter implements EntityWriter {
 		$warnings           = [];
 		$shipping_method_id = Value::string( $item->shipping['method_id'] ?? null );
 		$mapped_method_id   = null !== $shipping_method_id ? $this->methods->mapped_shipping_method_id( $shipping_method_id ) : null;
-		$mapped_title       = null !== $mapped_method_id ? $this->methods->shipping_method_title( $mapped_method_id ) : null;
-		$shipping_built     = $this->items->build_shipping_item( $item->shipping, $mapped_method_id, $mapped_title );
+
+		// 保存されているマッピング値自体が壊れた形式（`MethodMap::split_shipping_method_id()`が
+		// nullを返す。例: 方式部が空、インスタンス部が非整数）の場合、それらしい組へ黙って
+		// 解決せず「未マッピング」と同じ経路（下のSHIPPING_METHOD_UNMAPPED警告）へ倒す
+		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
+		if ( null !== $mapped_method_id && null === MethodMap::split_shipping_method_id( $mapped_method_id ) ) {
+			$mapped_method_id = null;
+		}
+
+		$mapped_title   = null !== $mapped_method_id ? $this->methods->shipping_method_title( $mapped_method_id ) : null;
+		$shipping_built = $this->items->build_shipping_item( $item->shipping, $mapped_method_id, $mapped_title );
 
 		$items[]  = $shipping_built['item'];
 		$warnings = array_merge( $warnings, $shipping_built['warnings'] );

@@ -186,10 +186,14 @@ final class OrderItemBuilder {
 		// （インスタンス番号）へ分割して別プロパティとして設定する
 		// （`MethodMap::split_shipping_method_id()`参照。両者を1つの複合文字列のまま
 		// `set_method_id()`へ渡すと`get_method_id()`が実在しない方式IDを返してしまう）。
-		if ( null !== $mapped_method_id ) {
-			[ $bare_method_id, $instance_id ] = MethodMap::split_shipping_method_id( $mapped_method_id );
-			$item->set_method_id( $bare_method_id );
-			$item->set_instance_id( (string) $instance_id );
+		// `OrderWriter::build_shipping_and_fees()`が形式不正なマッピング値を事前にnullへ
+		// 落としているため通常はここに到達しないが、防御的に同じ規約（未マッピングと同じ
+		// 空扱い）を守る。
+		$split = null !== $mapped_method_id ? MethodMap::split_shipping_method_id( $mapped_method_id ) : null;
+
+		if ( null !== $split ) {
+			$item->set_method_id( $split[0] );
+			$item->set_instance_id( (string) $split[1] );
 		} else {
 			$item->set_method_id( '' );
 		}

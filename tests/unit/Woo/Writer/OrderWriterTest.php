@@ -1382,6 +1382,35 @@ final class OrderWriterTest extends WooTestCase {
 		delete_option( 'cbjp_settings_colorme' );
 	}
 
+	public function test_malformed_shipping_instance_mapping_is_treated_as_unmapped(): void {
+		// `flat_rate:abc`（インスタンス部が非数値）のような壊れたマッピング値を、
+		// 黙って`flat_rate`+インスタンス0のような「それらしい」組へ解決してしまうと、
+		// 設定ミスが警告なく別のインスタンスとして書き込まれてしまう。未マッピングと
+		// 同じ`SHIPPING_METHOD_UNMAPPED`警告に倒すことを確認する（Codexレビュー指摘）。
+		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ 'ship-1' => 'flat_rate:abc' ] ] );
+
+		$order = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( '', $shipping_items[0]->get_method_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
 	// --- validate()（F1-6 dry-run）: `wc_create_order()`は呼んだ瞬間にDBへ注文行を作るため、
 	// `validate()`は未保存の`WC_Order`（`new WC_Order()`）へ組み立てる設計になっている。
 	// ここでは特に「dry-runが実際に注文を作っていないこと」を`wc_get_orders()`で確認する。
