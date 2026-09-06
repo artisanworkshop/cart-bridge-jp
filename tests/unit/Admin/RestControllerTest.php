@@ -555,6 +555,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, $response->get_status() );
 	}
 
+	public function test_save_settings_mappings_rejects_entry_with_non_scalar_value_instead_of_dropping_it(): void {
+		// 読取専用の`sanitize_settings_map()`を書込みにも流用していた際、非スカラー値の
+		// エントリ（例: `{"1094475":[]}`）だけを黙って読み飛ばし、送信したマップが1件しか
+		// 無ければ結果は空マップでの全置換となり、200が返るのに正当な既存マッピングが
+		// 消えてしまっていた（Codexレビュー指摘）。書込み側は1件でも不正なエントリが
+		// あればリクエスト全体を拒否し、既存の正当なマッピングを消さないことを確認する。
+		$this->register_colorme_adapter();
+		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ '1094475' => [] ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
 	public function test_save_settings_mappings_rejects_json_list(): void {
 		// JSONリスト（例: `["bacs","cod"]`）は`is_array()`だけでは弾けず、連番インデックスを
 		// キーとする無意味なマッピング（`{"0":"bacs","1":"cod"}`）として保存されてしまう

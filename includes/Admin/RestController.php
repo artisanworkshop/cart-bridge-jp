@@ -433,7 +433,25 @@ final class RestController {
 				);
 			}
 
-			$updated[ $map_key ] = $this->sanitize_settings_map( $body[ $map_key ] );
+			$validated = $this->validate_settings_map( $body[ $map_key ] );
+
+			if ( null === $validated ) {
+				// `sanitize_settings_map()`（読取専用。DB内の既存値が壊れていても
+				// エンドポイント自体を落とさないための寛容な読み取り用）を書込みにも
+				// 流用すると、不正な値（例: `{"1094475":[]}`のような非スカラー値）を
+				// 含むエントリだけを黙って読み飛ばして「保存成功（200）」を返してしまう。
+				// 送信されたマップが1件しか無ければ結果は空マップでの全置換となり、
+				// 見た目は成功しているのに正当な既存マッピングが消える（Codexレビュー指摘）。
+				// 書込み側は1件でも不正なエントリがあればリクエスト全体を拒否する。
+				return new WP_Error(
+					'cbjp_invalid_request',
+					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
+					sprintf( __( '"%s" contains an invalid entry.', 'cart-bridge-jp' ), $map_key ),
+					[ 'status' => 400 ]
+				);
+			}
+
+			$updated[ $map_key ] = $validated;
 		}
 
 		update_option( "cbjp_settings_{$platform}", $updated, false );
@@ -488,6 +506,12 @@ final class RestController {
 	}
 
 	/**
+	 * DBに保存済みの値を**読む**専用の寛容なサニタイズ。過去のバグ・手動編集等でオプションが
+	 * 壊れていてもエンドポイント自体を落とさないよう、不正なエントリは黙って読み飛ばす。
+	 * PUTの入力検証には使わないこと（`validate_settings_map()`参照。不正なエントリを
+	 * 黙って読み飛ばすと、PUTでは「1件しか送っていないのに保存後は空マップ」のような
+	 * 気付きにくいデータ消失になる）。
+	 *
 	 * @param mixed $value
 	 * @return array<string,string>
 	 */
@@ -508,6 +532,36 @@ final class RestController {
 
 			if ( '' === $key_string || '' === $item_string ) {
 				continue;
+			}
+
+			$map[ $key_string ] = $item_string;
+		}
+
+		return $map;
+	}
+
+	/**
+	 * PUTで送られてきたマップを**書き込み用に**検証する。`sanitize_settings_map()`と異なり
+	 * 1件でも不正なエントリ（非スカラー値、制御文字除去後に空文字列になるキー/値）があれば
+	 * 黙って読み飛ばさずnullを返し、呼び出し元にリクエスト全体を拒否させる
+	 * （境界データはフェイルクローズで検証する。CLAUDE.md参照。Codexレビュー指摘）。
+	 *
+	 * @param array<int|string,mixed> $value
+	 * @return ?array<string,string>
+	 */
+	private function validate_settings_map( array $value ): ?array {
+		$map = [];
+
+		foreach ( $value as $key => $item ) {
+			if ( ! is_scalar( $item ) ) {
+				return null;
+			}
+
+			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
+			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+
+			if ( '' === $key_string || '' === $item_string ) {
+				return null;
 			}
 
 			$map[ $key_string ] = $item_string;
