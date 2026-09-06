@@ -7,9 +7,12 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Writer;
 
+use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
+use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
@@ -515,6 +518,48 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
+	}
+
+	public function test_real_colorme_variation_purchase_resolves_through_transformer_and_writer(): void {
+		// 上記のvariation解決テストは`CanonicalProduct`/`CanonicalOrder`をテストコード側で
+		// 直接組み立てているため、writerがテストコードが書いたキーと整合することしか
+		// 証明できない。`ProductTransformer`/`OrderTransformer`が実際に出力するキー・値と
+		// writer側の前提がずれていないかは、実フィクスチャを両方の変換層に通して初めて
+		// 検証できる（CLAUDE.md「変換層とwriterをフィクスチャで別々にテストしても...層間ズレは
+		// 検出できない」の適用例。Codexレビュー指摘）。
+		//
+		// `products.json`のid=192817159（バリエーション商品）と、その option1=赤/option2=S の
+		// variant（remote_id=1847906909）を購入した`sale_daibiki_detail.json`を実際に
+		// ProductTransformer/OrderTransformerへ通し、Woo書込み後に正しいvariationへ解決される
+		// ことを確認する。
+		$raw_products = FixtureLoader::load( 'colorme', 'products' )['products'];
+		$raw_product  = current(
+			array_filter( $raw_products, static fn ( array $p ): bool => 192817159 === ( $p['id'] ?? null ) )
+		);
+		$this->assertIsArray( $raw_product, 'Fixture product 192817159 not found; fixtures/colorme/products.json may have changed.' );
+
+		$canonical_product = ( new ProductTransformer() )->transform( $raw_product );
+		$product_writer    = new ProductWriter( 'colorme', $this->mappings, new VariationWriter( 'colorme', $this->mappings ), new MediaImporter( 'colorme' ) );
+		$product_result    = $product_writer->write( $canonical_product, null );
+		$this->assertNotSame( 0, $product_result->local_id );
+		$this->seed_mapping( 'colorme', 'product', $canonical_product->remote_id(), $product_result->local_id );
+
+		$expected_variation_id = $this->mappings->find_local_id( 'colorme', 'variant', '1847906909' );
+		$this->assertNotNull( $expected_variation_id, 'Fixture variant 1847906909 (option1=赤/option2=S) not found after write.' );
+
+		$raw_sale        = FixtureLoader::load( 'colorme', 'sale_daibiki_detail' )['sale'];
+		$canonical_order = ( new OrderTransformer() )->transform( $raw_sale );
+
+		$order_result = $this->make_writer()->write( $canonical_order, null );
+		$wc_order     = wc_get_order( $order_result->local_id );
+		$items        = array_values( $wc_order->get_items() );
+
+		$this->assertCount( 1, $items );
+		$this->assertSame( $product_result->local_id, $items[0]->get_product_id() );
+		$this->assertSame( $expected_variation_id, $items[0]->get_variation_id() );
+		$this->assertEmpty(
+			array_filter( $order_result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+		);
 	}
 
 	public function test_missing_line_item_quantity_falls_back_to_one_with_warning(): void {
