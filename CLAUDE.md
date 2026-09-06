@@ -59,7 +59,7 @@ npm run build                # 本番ビルド
 - APIトークン等の機密情報は暗号化して保存（`Support\TokenStore` 経由。オプションテーブルに平文保存禁止）
 - nonce/capabilityチェック必須（管理操作は `manage_woocommerce`）
 - `$wpdb->insert()`/`update()` はnull値を特別扱いしSQLのNULLとして書き込むが、生の `$wpdb->prepare()` + `query()` はnullを `%s` プレースホルダー経由で空文字列に変換してしまう（`vsprintf()` の挙動）。NULL許容カラムへ生クエリでnullを書く場合は `NULLIF(%s, '')` 等で明示的に変換すること
-- `register_rest_route()` で `args` スキーマ（type検証）を定義しないルートは、クエリパラメータが配列（例: `?job_id[]=1`）で渡り得る。スカラー値を期待するパラメータは `is_scalar()` で検証してから使うこと
+- `register_rest_route()` で `args` スキーマ（type検証）を定義しないルートは、クエリパラメータが配列（例: `?job_id[]=1`）で渡り得る。スカラー値を期待するパラメータは `is_scalar()` で検証してから使うこと。さらに `WP_REST_Request::get_param()`/`get_params()` はGETはクエリ文字列、PUT/POST/DELETE等はボディを**URLパスより優先**してマージする（`get_parameter_order()`）ため、URLパスがリソースを名指しするパラメータ（例: `/settings/mappings/{platform}` の `platform`）を `get_param()` で読むと、クエリ/ボディの同名スカラー値で意図しない別リソースへ読み書きが向いてしまう。リソースを識別するパスパラメータは必ず `get_url_params()` で取得すること
 - フィクスチャの匿名化で実ドメイン（例: `shop-pro.jp`）を部分置換（サブドメイン名だけ変更）すると、ドメイン全体が予約済みexampleドメインでないため匿名化ルール違反になる。ドメインは丸ごと `example.com`/`example.jp` に置き換えること。自由入力欄（`note`/`other`/`answer_free_form*`等）は中身が無害に見えても内容に関わらず必ずプレースホルダーへ置換する
 - OAuth認可ポップアップは `window.open()` をクリックハンドラから同期的に呼ぶ（await後だとブロックされうる）。`noopener`指定時は成否に関わらず戻り値が常に`null`になる仕様なので、ポーリング等でウィンドウハンドルが必要な場合は`noopener`を使わず、生成できたハンドル側で`.opener = null`を手動設定してreverse tabnabbing対策すること
 - PHPの`??`（null合体）演算子はベースがnullの配列アクセス（例: `$possiblyNull['key'] ?? $default`）でも警告を出さない。Copilotレビューはこのパターンを誤って「null配列アクセス警告」と指摘することがあるため、同種の指摘は鵜呑みにせず`php -r`等で実際に検証すること
@@ -94,6 +94,9 @@ npm run build                # 本番ビルド
 - `Sync\JobManager::filter_and_order_entities()`は`can_fetch_customers=false`のアダプタ（BASE等）では顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()`も既存`mappings`の解決のみで新規顧客作成は行わない。受注インポート時に抽出した顧客（`CustomerExtractor`等、D12）を永続化する経路は現状存在しないため、そのようなアダプタを実装する際はImporter/JobManager側にプラットフォーム非依存の新しい拡張点を設計する必要がある（`docs/04-plan-base.md` B4-5参照。issue #26）
 - `Sync\JobManager`は`RateLimitExhaustedException`を固定`PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装で、日次上限のような長時間（翌日まで等）の再試行遅延を指定する仕組みが無い。1日◯件のような上限を持つASP（BASE等）のexport実装時は、再試行遅延を可変にする拡張点をJobManagerに追加する必要がある（`docs/10-tasks.md` E5-1参照。issue #26）
 - カラーミーAPIのswagger.json（OpenAPI定義）のパステンプレート（例: `/v1/sales`）は拡張子なしだが、実際のAPIリクエストパスは`.json`拡張子付き（`GET/POST /v1/sales.json`）が正しい（swagger内のAPI利用説明・curl例、`ColorMeAdapter`の実装で確認可能）。レビューbotがswagger定義の生パスへの統一を提案してくることがあるが、鵜呑みにせず実装・利用例と照合すること（issue #26）
+- `ProductWriter::variation_axis_names()`はoption1が無くoption2のみの商品（ColorMeのoption1/2は独立フィールドで構造的にありうる）も配列キーの欠番（`[1 => 'Size']`）として保持するが、保存後のWC商品属性は`WC_Product_Attribute::get_position()`が単なる出現順で欠番があっても0番から詰められ、どちらのスロット（option1/2）由来だったかを覚えていない。永続化後のデータから受注明細のoption1/2値と属性を対応付ける処理を書く際は、スロット番号（0=option1固定）で対応付けず、非null値の「個数」と軸の数を突き合わせて位置ペアで対応付けること（`ProductResolver::resolve_variation_by_options()`参照。issue #27）
+- 配送方法のゾーンインスタンス（`flat_rate:5`のようなコロン付きID）の実在確認・タイトル取得には`WC_Shipping_Zones::get_shipping_method( $instance_id )`（`bool|WC_Shipping_Method`を返す）を使うこと。内部で使われる`WC_Data_Store::load('shipping-zone')->get_method()`を直接呼ぶとPHPStanが動的解決される戻り値の型を追えず`Call to an undefined method`エラーになる（issue #27）
+- DBに保存済みの値を読む用の寛容なサニタイズ関数（不正なエントリを黙って読み飛ばし、エンドポイント自体を落とさないためのもの）を、REST PUT等の書込み入力検証に流用しないこと。書込み側で使うと、1件でも不正な値（非スカラー等）を含むリクエストがそのエントリだけ読み飛ばされて「成功（200）」を返し、既存の正当なデータが黙って消える。書込み検証は専用の関数（1件でも不正なら`null`を返しリクエスト全体を拒否）に分離すること（issue #27）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
