@@ -244,9 +244,9 @@ export default function ImportTab() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ importPolling.run?.run_id, importTerminal, platform ] );
 
-	const anyRunActive =
-		( null !== dryRunState.runId && ! dryRunTerminal ) ||
-		( null !== importState.runId && ! importTerminal );
+	const dryRunActive = null !== dryRunState.runId && ! dryRunTerminal;
+	const importActive = null !== importState.runId && ! importTerminal;
+	const anyRunActive = dryRunActive || importActive;
 
 	function toggleEntity( entity: EntityType, checked: boolean ) {
 		setSelectedEntities( ( prev ) => {
@@ -524,6 +524,7 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ dryRunState.cancelling }
+								retryDisabled={ importActive }
 								isTerminal={ dryRunTerminal }
 								reportsAvailable
 								onlyWarnings={ dryRunState.onlyWarnings }
@@ -584,6 +585,7 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ importState.cancelling }
+								retryDisabled={ dryRunActive }
 								isTerminal={ importTerminal }
 								reportsAvailable={ false }
 								onlyWarnings={ importState.onlyWarnings }

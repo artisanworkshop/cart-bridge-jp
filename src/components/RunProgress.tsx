@@ -25,6 +25,14 @@ interface Props {
 	 * ダウンロードUIを表示する。
 	 */
 	reportsAvailable: boolean;
+	/**
+	 * このrun自体はterminalでも、同じプラットフォームの別run種別（dry-run/import）が
+	 * 現在アクティブな場合はtrue。`JobManager::retry()`は`start_run()`が課す
+	 * プラットフォーム単位の同時実行ガードを見ないため、片方が終端しても
+	 * もう片方が動いている間はRetryで新たなジョブをpendingへ戻させない
+	 * （二重の実行を防ぐ）。
+	 */
+	retryDisabled: boolean;
 }
 
 const STATUS_LABELS: Record< JobStatus, string > = {
@@ -62,6 +70,7 @@ function JobRow( {
 	onRetry,
 	retrying,
 	cancelling,
+	retryDisabled,
 	reportsAvailable,
 	onlyWarnings,
 }: {
@@ -71,6 +80,7 @@ function JobRow( {
 	onRetry: ( jobId: number ) => void;
 	retrying: boolean;
 	cancelling: boolean;
+	retryDisabled: boolean;
 	reportsAvailable: boolean;
 	onlyWarnings: boolean;
 } ) {
@@ -142,15 +152,18 @@ function JobRow( {
 				</Notice>
 			) }
 
-			{ /* cancel実行中はRetryを止める: 先にキャンセルされたジョブをリトライで
-			     pendingへ戻すと、キャンセル済みのはずのrunが裏で再開してしまう
-			     （`RestController::cancel_run()`は既にfailed/completed等terminalの
-			     ジョブには触れないため、そのジョブだけリトライで蘇りうる）。 */ }
+			{ /* cancel実行中・同じプラットフォームの別run種別が稼働中はRetryを止める:
+			     先にキャンセルされたジョブをリトライでpendingへ戻すと、キャンセル済みの
+			     はずのrunが裏で再開してしまう（`RestController::cancel_run()`は既に
+			     failed/completed等terminalのジョブには触れないため、そのジョブだけ
+			     リトライで蘇りうる）。`JobManager::retry()`は`start_run()`が課す
+			     プラットフォーム単位の同時実行ガードを見ないため、もう片方の
+			     run種別が稼働中はRetryで二重実行を作らせない。 */ }
 			{ 'failed' === job.status && (
 				<Button
 					variant="secondary"
 					isBusy={ retrying }
-					disabled={ retrying || cancelling }
+					disabled={ retrying || cancelling || retryDisabled }
 					onClick={ () => onRetry( job.id ) }
 				>
 					{ __( 'Retry', 'cart-bridge-jp' ) }
@@ -187,6 +200,7 @@ export default function RunProgress( {
 	onlyWarnings,
 	onOnlyWarningsChange,
 	reportsAvailable,
+	retryDisabled,
 }: Props ) {
 	const anyActive = ! isTerminal;
 
@@ -244,6 +258,7 @@ export default function RunProgress( {
 					onRetry={ onRetry }
 					retrying={ retryingJobId === job.id }
 					cancelling={ cancelling }
+					retryDisabled={ retryDisabled }
 					reportsAvailable={ reportsAvailable }
 					onlyWarnings={ onlyWarnings }
 				/>
