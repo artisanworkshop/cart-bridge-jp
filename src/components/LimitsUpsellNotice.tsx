@@ -20,6 +20,26 @@ interface UpsellLine {
 	message: string;
 }
 
+/**
+ * stock/reviewは`LimitPolicy`の数値上限が常にnull（`unlocked`も常にtrue）だが、
+ * これは「無制限」ではなく「サンプル商品への紐付けで間接的に制限される」ため
+ * （D15/§10.2「stock/reviewはサンプル商品分のみ」）。実際に free/Pro のどちらの
+ * 状態かは、紐付け先である商品（product）の`unlocked`が示す。これを見ずに
+ * 自身の`unlocked`（常にtrue）だけで判定すると、無料版でも stock/review の
+ * アップセルが一切出せなくなる（Codexレビュー指摘）。
+ * @param entity
+ * @param limits
+ */
+function isEntityRestricted( entity: EntityType, limits: Limits ): boolean {
+	if ( 'stock' === entity || 'review' === entity ) {
+		return false === ( limits.entities.product?.unlocked ?? true );
+	}
+
+	const info = limits.entities[ entity ];
+
+	return ! ( info?.unlocked ?? true ) && null !== ( info?.limit ?? null );
+}
+
 function buildUpsellLine(
 	entity: EntityType,
 	label: string,
@@ -28,7 +48,7 @@ function buildUpsellLine(
 ): UpsellLine | null {
 	const info = limits.entities[ entity ];
 
-	if ( ! info || info.unlocked || null === info.limit ) {
+	if ( ! info || ! isEntityRestricted( entity, limits ) ) {
 		return null;
 	}
 
@@ -52,7 +72,7 @@ function buildUpsellLine(
 		};
 	}
 
-	if ( used >= info.limit ) {
+	if ( null !== info.limit && used >= info.limit ) {
 		return {
 			entity,
 			message: sprintf(
