@@ -98,6 +98,11 @@ npm run build                # 本番ビルド
 - 配送方法のゾーンインスタンス（`flat_rate:5`のようなコロン付きID）の実在確認・タイトル取得には`WC_Shipping_Zones::get_shipping_method( $instance_id )`（`bool|WC_Shipping_Method`を返す）を使うこと。内部で使われる`WC_Data_Store::load('shipping-zone')->get_method()`を直接呼ぶとPHPStanが動的解決される戻り値の型を追えず`Call to an undefined method`エラーになる（issue #27）
 - DBに保存済みの値を読む用の寛容なサニタイズ関数（不正なエントリを黙って読み飛ばし、エンドポイント自体を落とさないためのもの）を、REST PUT等の書込み入力検証に流用しないこと。書込み側で使うと、1件でも不正な値（非スカラー等）を含むリクエストがそのエントリだけ読み飛ばされて「成功（200）」を返し、既存の正当なデータが黙って消える。書込み検証は専用の関数（1件でも不正なら`null`を返しリクエスト全体を拒否）に分離すること（issue #27）
 
+## フロントエンド（React/TypeScript）規約
+
+- ポーリングhook（`useRunPolling`等）の`refetch()`が一時的な通信エラーを内部でcatchして自動再試行する設計の場合、そのPromiseは通信の成否に関わらず正常解決する。呼び出し元が「`await refetch()`が解決した＝新しいstateが反映された」と決め打ちすると、一時的な失敗時に古いstateのまま後続処理（例: ボタンの再有効化）が進んでしまう。真に「新しいデータが届いた」ことを検知したい場合は、Promiseの解決ではなくstate自体（成功時のみ新しい参照になるオブジェクト等）の変化をeffectで監視すること（`src/hooks/useRunPolling.ts`, `src/tabs/ImportTab.tsx`のretryJob参照。issue #30）
+- 複数ジョブから成るrunの「終端判定」（`isTerminal`: 全ジョブがcompleted/failed/cancelledのいずれか）と「成功判定」（全ジョブがcompleted）を混同しないこと。キャンセル・一部失敗したrunも`isTerminal`はtrueになるため、「完了時のみ出す」UI（全体レポートDL・アップセル集計等）を`isTerminal`だけでゲートすると、部分的・失敗した結果を完全な結果として提示してしまう。個別の判定（全ジョブcompleted）を別途用意すること（`src/components/RunProgress.tsx`のallCompleted参照。issue #30）
+
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
 1. **アダプタパターン**: 各ASPは `Adapters\PlatformAdapter` インターフェースの実装。プラットフォーム固有コードをアダプタ外に書かない
