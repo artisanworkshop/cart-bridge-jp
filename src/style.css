@@ -36,6 +36,10 @@
 	margin-top: 1em;
 }
 
+.cbjp-import__entities .components-checkbox-control + .components-checkbox-control {
+	margin-top: 0.5em;
+}
+
 .cbjp-run-progress__toolbar {
 	align-items: center;
 	display: flex;

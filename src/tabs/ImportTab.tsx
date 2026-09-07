@@ -427,9 +427,11 @@ export default function ImportTab() {
 						</strong>
 					</p>
 
-					{ currentConnection &&
-						availableEntities( currentConnection.capabilities ).map(
-							( entity ) => (
+					<div className="cbjp-import__entities">
+						{ currentConnection &&
+							availableEntities(
+								currentConnection.capabilities
+							).map( ( entity ) => (
 								<CheckboxControl
 									key={ entity }
 									label={ ENTITY_LABELS[ entity ] }
@@ -439,8 +441,8 @@ export default function ImportTab() {
 										toggleEntity( entity, checked )
 									}
 								/>
-							)
-						) }
+							) ) }
+					</div>
 
 					{ startError && (
 						<Notice
