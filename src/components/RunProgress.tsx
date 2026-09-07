@@ -203,6 +203,15 @@ export default function RunProgress( {
 	retryDisabled,
 }: Props ) {
 	const anyActive = ! isTerminal;
+	// `isTerminal`はfailed/cancelledのジョブも含めて全ジョブが終端状態なら真になる。
+	// キャンセルされたrun・一部の実体でジョブが失敗したrunでは、後続のページの
+	// レポート行が書き込まれる前に止まっているため「全体」レポートと呼ぶには
+	// 不完全になりうる。全ジョブがcompletedのときだけ「全体」ダウンロードを出す
+	// （エンティティ単位のリンクは各ジョブがcompleted/failedになった時点で
+	// そのジョブの書込みは確定しているため対象外）。
+	const allCompleted = run.jobs.every(
+		( job ) => 'completed' === job.status
+	);
 
 	return (
 		<div className="cbjp-run-progress">
@@ -233,7 +242,7 @@ export default function RunProgress( {
 					     「全体」レポートと称して不完全な行のみのCSVを配布しないよう
 					     runがterminalになるまで隠す（エンティティ単位のリンクは各ジョブが
 					     completed/failedになった時点で書き込みが確定しているため対象外）。 */ }
-					{ reportsAvailable && isTerminal && (
+					{ reportsAvailable && isTerminal && allCompleted && (
 						<Button
 							variant="secondary"
 							href={ buildReportUrl( run.run_id, {
