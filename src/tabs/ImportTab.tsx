@@ -286,6 +286,12 @@ export default function ImportTab() {
 		}
 
 		const setState = 'dry_run' === type ? setDryRunState : setImportState;
+		// このリクエストを発行した時点のプラットフォームを閉じ込める。応答が届くまでの
+		// 間にユーザーが別プラットフォームへ切り替えていた場合、共有state（dryRunState/
+		// importState）は既に新プラットフォーム用にリセットされているため、そこへ
+		// 旧プラットフォームのrun_idを紛れ込ませない（localStorageへは引き続き
+		// 旧プラットフォームのキーで保存し、後で切り戻したときに発見できるようにする）。
+		const requestedPlatform = platform;
 
 		setStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -296,18 +302,27 @@ export default function ImportTab() {
 				method: 'POST',
 				data: {
 					type,
-					platform,
+					platform: requestedPlatform,
 					entities: Array.from( selectedEntities ),
 				},
 			} );
 
-			storeRunId( platform, type, response.run_id );
+			storeRunId( requestedPlatform, type, response.run_id );
+
+			if ( platformRef.current !== requestedPlatform ) {
+				return;
+			}
+
 			setState( ( prev ) => ( {
 				...prev,
 				runId: response.run_id,
 				starting: false,
 			} ) );
 		} catch ( err ) {
+			if ( platformRef.current !== requestedPlatform ) {
+				return;
+			}
+
 			setStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
 		}
@@ -479,7 +494,7 @@ export default function ImportTab() {
 						<Button
 							variant="tertiary"
 							disabled={
-								! dryRunTerminal && ! dryRunPolling.error
+								! dryRunTerminal && ! dryRunPolling.notFound
 							}
 							onClick={ () => clearRun( 'dry_run' ) }
 						>
@@ -531,7 +546,7 @@ export default function ImportTab() {
 						<Button
 							variant="tertiary"
 							disabled={
-								! importTerminal && ! importPolling.error
+								! importTerminal && ! importPolling.notFound
 							}
 							onClick={ () => clearRun( 'import' ) }
 						>
