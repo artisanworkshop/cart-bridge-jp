@@ -22,6 +22,21 @@ function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
 }
 
+/**
+ * `Logger::write_to_db()`は`current_time('mysql', true)`でUTCの
+ * `Y-m-d H:i:s`形式（例: `2026-09-06 07:15:49`）を保存する。スペース区切りの
+ * まま`Date`に渡すとブラウザのローカル時刻として誤解釈されるため、ISO 8601の
+ * UTC表記に変換してから閲覧者のローカル時刻へ変換する（サイトのタイムゾーン設定
+ * ではなく閲覧者のブラウザのタイムゾーンになるが、管理画面を見る本人が自分の
+ * ローカル時刻で確認できることを優先する）。
+ * @param createdAt
+ */
+function formatLogTime( createdAt: string ): string {
+	const date = new Date( `${ createdAt.replace( ' ', 'T' ) }Z` );
+
+	return isNaN( date.getTime() ) ? createdAt : date.toLocaleString();
+}
+
 function formatContext( contextJson: string | null ): string | null {
 	if ( ! contextJson ) {
 		return null;
@@ -137,7 +152,7 @@ export default function LogsTab() {
 
 							return (
 								<tr key={ log.id }>
-									<td>{ log.created_at }</td>
+									<td>{ formatLogTime( log.created_at ) }</td>
 									<td>{ log.level }</td>
 									<td>{ log.job_id ?? '—' }</td>
 									<td>
