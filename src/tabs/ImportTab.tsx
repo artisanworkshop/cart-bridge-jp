@@ -132,6 +132,15 @@ export default function ImportTab() {
 	const [ limits, setLimits ] = useState< Limits | null >( null );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
+	// リトライ後、次に成功したポーリング応答が届くまで`retryingJobId`を解除しない
+	// ためのラッチ。`useRunPolling`は失敗時も内部で自動的に再試行し続けるため、
+	// 「リトライ後の確認フェッチ」が一時的な通信エラーで一旦失敗しても
+	// （そのエラーはpoll()内部でcatchされ`refetch()`自体は成功扱いで解決する）、
+	// ここでは古い（リトライ前の）terminalスナップショットのまま「解除できた」と
+	// 誤認しない。`run`はpoll成功時にのみ新しい参照になるため、これを監視すれば
+	// 「本当に新しいスナップショットが届いたか」を確実に検出できる。
+	const dryRunRetryConfirmPendingRef = useRef( false );
+	const importRetryConfirmPendingRef = useRef( false );
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -260,6 +269,28 @@ export default function ImportTab() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ importPolling.run, importTerminal, platform ] );
 
+	// リトライ後、最初に届いた「新しい」（＝ポーリング成功による）スナップショットで
+	// `retryingJobId`ラッチを解除する。`retryJob()`参照。
+	useEffect( () => {
+		if ( ! dryRunRetryConfirmPendingRef.current ) {
+			return;
+		}
+
+		dryRunRetryConfirmPendingRef.current = false;
+		setDryRunState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ dryRunPolling.run ] );
+
+	useEffect( () => {
+		if ( ! importRetryConfirmPendingRef.current ) {
+			return;
+		}
+
+		importRetryConfirmPendingRef.current = false;
+		setImportState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ importPolling.run ] );
+
 	const dryRunActive = null !== dryRunState.runId && ! dryRunTerminal;
 	const importActive = null !== importState.runId && ! importTerminal;
 	// `dryRunActive`/`importActive`はrun_idが確定してからterminalになるまでしか
@@ -368,6 +399,10 @@ export default function ImportTab() {
 		const setState = 'dry_run' === type ? setDryRunState : setImportState;
 		const refetch =
 			'dry_run' === type ? dryRunPolling.refetch : importPolling.refetch;
+		const confirmPendingRef =
+			'dry_run' === type
+				? dryRunRetryConfirmPendingRef
+				: importRetryConfirmPendingRef;
 
 		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
 
@@ -376,13 +411,19 @@ export default function ImportTab() {
 				path: `/cbjp/v1/jobs/${ jobId }/retry`,
 				method: 'POST',
 			} );
-			// 反映を待たずに`retryingJobId`を解除すると、ジョブがpendingへ戻った直後の
-			// 一瞬（このrefetchの応答が届くまで）は`run`がまだ古いterminalな
-			// スナップショットのままになり、その隙に「Clear」が誤って有効化されうる。
-			await refetch();
+			// `refetch()`（=`poll()`）は一時的な通信エラーを内部でcatchして解決する
+			// （ポーリングを止めないため）。そのため単に`await refetch()`した直後に
+			// `retryingJobId`を解除すると、確認フェッチがちょうど失敗した場合に
+			// 古い（リトライ前の）terminalスナップショットのままClear/開始操作が
+			// 再度有効になってしまう。ラッチを立てておき、実際に新しいスナップショットが
+			// 届いた時点（`run`オブジェクトの参照が変わった時点＝ポーリング成功時のみ）で
+			// 上のeffectが解除する。
+			confirmPendingRef.current = true;
+			refetch();
 		} catch ( err ) {
+			// リトライAPI呼び出し自体が失敗した場合は何もrequeueされていないため、
+			// ただちに解除してよい。
 			setStartError( errorMessage( err ) );
-		} finally {
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 		}
 	}

@@ -64,18 +64,14 @@ export function useRunPolling( runId: string | null ) {
 		}
 	}, [] );
 
-	// `refetch()`の呼び出し元（`retryJob()`）がこのフェッチ結果の反映を待ってから
-	// 「retry中」状態を解除できるよう、Promiseを返す（結果を待たずに`retryingJobId`を
-	// 先に解除すると、ジョブがpendingへ戻った直後の一瞬だけ`run`がまだ古いterminalな
-	// スナップショットのままになり、その隙に「Clear」が誤って有効化されうるため）。
-	const poll = useCallback( (): Promise< void > => {
+	const poll = useCallback( () => {
 		const id = runIdRef.current;
 
 		if ( null === id ) {
-			return Promise.resolve();
+			return;
 		}
 
-		return apiFetch< Run >( { path: `/cbjp/v1/runs/${ id }` } )
+		apiFetch< Run >( { path: `/cbjp/v1/runs/${ id }` } )
 			.then( ( data ) => {
 				if ( ! mountedRef.current || runIdRef.current !== id ) {
 					return;
