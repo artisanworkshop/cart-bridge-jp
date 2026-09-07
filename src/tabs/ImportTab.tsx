@@ -212,8 +212,14 @@ export default function ImportTab() {
 		// 置き換えではなくマージする: 対象エンティティを絞った再dry-runの後も、
 		// 直前の広いdry-runで判明していた他エンティティの総数（Pro案内の分母）を保持するため。
 		setDryRunTotals( ( prev ) => ( { ...prev, ...totals } ) );
+		// `run_id`（文字列）ではなく`run`オブジェクト自体を依存に使う: 失敗ジョブの
+		// リトライが完了した際、ポーリングが中間の非terminal状態を観測できないまま
+		// 「terminal（failed含む）→terminal（全completed）」と直接遷移することがあり、
+		// その場合`run_id`も`dryRunTerminal`（true→true）も値として変化しないため
+		// 再計算がスキップされてしまう（同一run_idでも`setRun()`は毎回新しい
+		// オブジェクトを作るため、参照の変化でこの遷移を検出できる）。
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ dryRunPolling.run?.run_id, dryRunTerminal ] );
+	}, [ dryRunPolling.run, dryRunTerminal ] );
 
 	// 実移行が完了したら上限使用状況を取得し、Pro案内に使う。
 	useEffect( () => {
@@ -239,14 +245,37 @@ export default function ImportTab() {
 				setLimits( data );
 			} )
 			.catch( () => {
+				if ( platformRef.current !== requestedPlatform ) {
+					return;
+				}
+
 				// アップセル表示は付加情報のため、取得失敗時は黙って表示を省略する。
+				// ただし直前の実移行の`limits`を残したままにすると、新しいrunの
+				// ジョブ一覧と組み合わさって古い使用数のまま表示されうるため破棄する。
+				setLimits( null );
 			} );
+		// `run_id`ではなく`run`オブジェクト自体を依存にする理由はdry-run側の
+		// totalsキャッシュeffectと同じ（失敗ジョブのリトライがterminal→terminalと
+		// 中間状態を挟まず遷移しうるため）。
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ importPolling.run?.run_id, importTerminal, platform ] );
+	}, [ importPolling.run, importTerminal, platform ] );
 
 	const dryRunActive = null !== dryRunState.runId && ! dryRunTerminal;
 	const importActive = null !== importState.runId && ! importTerminal;
-	const anyRunActive = dryRunActive || importActive;
+	// `dryRunActive`/`importActive`はrun_idが確定してからterminalになるまでしか
+	// trueにならない。POSTがまだ応答を返していない`starting`中や、失敗ジョブを
+	// pendingへ戻す`retryingJobId`中もプラットフォームを占有しうる（`start_run()`の
+	// 同時実行ガードも`JobManager::retry()`のジョブ復帰も、この「行間」を互いに
+	// 認識しない）ため、もう片方のセクションのRetry/開始操作を塞ぐ判定には
+	// これらも含める。
+	const dryRunBusy =
+		dryRunActive ||
+		dryRunState.starting ||
+		null !== dryRunState.retryingJobId;
+	const importBusy =
+		importActive ||
+		importState.starting ||
+		null !== importState.retryingJobId;
 
 	function toggleEntity( entity: EntityType, checked: boolean ) {
 		setSelectedEntities( ( prev ) => {
@@ -313,6 +342,13 @@ export default function ImportTab() {
 				return;
 			}
 
+			// 前回の実移行の`/limits`スナップショットを、新しいrunのジョブ一覧と
+			// 組み合わせて`LimitsUpsellNotice`に渡さないようにする（新runがterminalに
+			// なるまで`limits`を自然に取り直さないため、明示的にリセットが必要）。
+			if ( 'import' === type ) {
+				setLimits( null );
+			}
+
 			setState( ( prev ) => ( {
 				...prev,
 				runId: response.run_id,
@@ -340,7 +376,10 @@ export default function ImportTab() {
 				path: `/cbjp/v1/jobs/${ jobId }/retry`,
 				method: 'POST',
 			} );
-			refetch();
+			// 反映を待たずに`retryingJobId`を解除すると、ジョブがpendingへ戻った直後の
+			// 一瞬（このrefetchの応答が届くまで）は`run`がまだ古いterminalな
+			// スナップショットのままになり、その隙に「Clear」が誤って有効化されうる。
+			await refetch();
 		} catch ( err ) {
 			setStartError( errorMessage( err ) );
 		} finally {
@@ -436,7 +475,7 @@ export default function ImportTab() {
 									key={ entity }
 									label={ ENTITY_LABELS[ entity ] }
 									checked={ selectedEntities.has( entity ) }
-									disabled={ anyRunActive }
+									disabled={ dryRunBusy || importBusy }
 									onChange={ ( checked ) =>
 										toggleEntity( entity, checked )
 									}
@@ -458,9 +497,8 @@ export default function ImportTab() {
 							variant="secondary"
 							isBusy={ dryRunState.starting }
 							disabled={
-								anyRunActive ||
-								dryRunState.starting ||
-								importState.starting ||
+								dryRunBusy ||
+								importBusy ||
 								0 === selectedEntities.size
 							}
 							onClick={ () => startRun( 'dry_run' ) }
@@ -474,9 +512,8 @@ export default function ImportTab() {
 							variant="primary"
 							isBusy={ importState.starting }
 							disabled={
-								anyRunActive ||
-								dryRunState.starting ||
-								importState.starting ||
+								dryRunBusy ||
+								importBusy ||
 								0 === selectedEntities.size
 							}
 							onClick={ () => startRun( 'import' ) }
@@ -496,7 +533,8 @@ export default function ImportTab() {
 						<Button
 							variant="tertiary"
 							disabled={
-								! dryRunTerminal && ! dryRunPolling.notFound
+								null !== dryRunState.retryingJobId ||
+								( ! dryRunTerminal && ! dryRunPolling.notFound )
 							}
 							onClick={ () => clearRun( 'dry_run' ) }
 						>
@@ -524,7 +562,7 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ dryRunState.cancelling }
-								retryDisabled={ importActive }
+								retryDisabled={ importBusy }
 								isTerminal={ dryRunTerminal }
 								reportsAvailable
 								onlyWarnings={ dryRunState.onlyWarnings }
@@ -549,7 +587,8 @@ export default function ImportTab() {
 						<Button
 							variant="tertiary"
 							disabled={
-								! importTerminal && ! importPolling.notFound
+								null !== importState.retryingJobId ||
+								( ! importTerminal && ! importPolling.notFound )
 							}
 							onClick={ () => clearRun( 'import' ) }
 						>
@@ -585,7 +624,7 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ importState.cancelling }
-								retryDisabled={ dryRunActive }
+								retryDisabled={ dryRunBusy }
 								isTerminal={ importTerminal }
 								reportsAvailable={ false }
 								onlyWarnings={ importState.onlyWarnings }
