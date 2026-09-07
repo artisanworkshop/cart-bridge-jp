@@ -1,0 +1,46 @@
+# Development & build tooling
+.claude/
+.github/
+.nvmrc
+.wp-env.json
+.wp-env.override.json
+.wp-env/
+node_modules/
+src/
+tsconfig.json
+
+# Test suites
+tests/
+phpunit.xml.dist
+
+# PHP quality tools config
+phpcs.xml.dist
+phpstan.neon.dist
+
+# Composer manifests (vendor/ itself is kept — the plugin autoloads via vendor/autoload.php at runtime)
+composer.json
+composer.lock
+
+# JS build manifests (build/ output is kept)
+package.json
+package-lock.json
+
+# Project documentation (dev-only)
+docs/
+CLAUDE.md
+AGENTS.md
+
+# Local OAuth testing credentials — never ship these
+colorme.env
+colorme.sample.env
+
+# Git
+.git/
+.gitignore
+.gitattributes
+.editorconfig
+.distignore
+
+# Misc
+.DS_Store
+*.DS_Store
