@@ -61,6 +61,7 @@ function JobRow( {
 	runId,
 	onRetry,
 	retrying,
+	cancelling,
 	reportsAvailable,
 	onlyWarnings,
 }: {
@@ -69,6 +70,7 @@ function JobRow( {
 	runId: string;
 	onRetry: ( jobId: number ) => void;
 	retrying: boolean;
+	cancelling: boolean;
 	reportsAvailable: boolean;
 	onlyWarnings: boolean;
 } ) {
@@ -140,11 +142,15 @@ function JobRow( {
 				</Notice>
 			) }
 
+			{ /* cancel実行中はRetryを止める: 先にキャンセルされたジョブをリトライで
+			     pendingへ戻すと、キャンセル済みのはずのrunが裏で再開してしまう
+			     （`RestController::cancel_run()`は既にfailed/completed等terminalの
+			     ジョブには触れないため、そのジョブだけリトライで蘇りうる）。 */ }
 			{ 'failed' === job.status && (
 				<Button
 					variant="secondary"
 					isBusy={ retrying }
-					disabled={ retrying }
+					disabled={ retrying || cancelling }
 					onClick={ () => onRetry( job.id ) }
 				>
 					{ __( 'Retry', 'cart-bridge-jp' ) }
@@ -193,7 +199,7 @@ export default function RunProgress( {
 							variant="secondary"
 							isDestructive
 							isBusy={ cancelling }
-							disabled={ cancelling }
+							disabled={ cancelling || null !== retryingJobId }
 							onClick={ onCancel }
 						>
 							{ __( 'Cancel run', 'cart-bridge-jp' ) }
@@ -237,6 +243,7 @@ export default function RunProgress( {
 					runId={ run.run_id }
 					onRetry={ onRetry }
 					retrying={ retryingJobId === job.id }
+					cancelling={ cancelling }
 					reportsAvailable={ reportsAvailable }
 					onlyWarnings={ onlyWarnings }
 				/>
