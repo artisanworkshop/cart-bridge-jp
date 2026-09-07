@@ -96,7 +96,13 @@ export default function LimitsUpsellNotice( {
 	entityLabels,
 	dryRunTotals,
 }: Props ) {
+	// failed/cancelledのジョブは`used`（実際に永続化された件数）が本来の実行結果を
+	// 反映していない（例: 書込み前にキャンセルされた場合`used`は0のまま）。それを
+	// 「見つかった件数のうち0件しか移行できず、残り全件がPro版必須」と読める
+	// メッセージにしてしまうと、無料版のサンプル移行がまだ試せる状態なのに
+	// 誤解を与える。実際に完了したジョブのみを対象にする。
 	const lines = jobs
+		.filter( ( job ) => 'completed' === job.status )
 		.map( ( job ) =>
 			buildUpsellLine(
 				job.entity,
