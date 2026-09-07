@@ -96,10 +96,21 @@ export function useRunPolling( runId: string | null ) {
 
 				// 一時的なネットワークエラーでポーリングを永久停止させない。次回成功時に
 				// エラー表示は自動でクリアされる（成功分岐の`setError(null)`参照）。
+				// ただし「run_idがもう存在しない」という確定的なエラーは再試行しても
+				// 解決し得ないため、ここで止める（さもないとタブを開いたまま放置された
+				// 場合に404を永久に送り続けてしまう）。`refetch()`を呼べば再開できる。
+				const notFoundError = isRunNotFoundError( err );
+
 				setError( errorMessage( err ) );
-				setNotFound( isRunNotFoundError( err ) );
+				setNotFound( notFoundError );
 				clearTimer();
-				timerRef.current = window.setTimeout( poll, POLL_INTERVAL_MS );
+
+				if ( ! notFoundError ) {
+					timerRef.current = window.setTimeout(
+						poll,
+						POLL_INTERVAL_MS
+					);
+				}
 			} );
 	}, [ clearTimer ] );
 
