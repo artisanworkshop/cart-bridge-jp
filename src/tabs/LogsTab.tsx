@@ -73,8 +73,11 @@ export default function LogsTab() {
 
 		// フィルタ/ページ変更のたびに、応答が届くまで前回の結果を表示し続けない
 		// （新しい条件の下に古い一覧が残っていると一致した結果と誤認されうる。
-		// スピナーが「今選択中の条件」を表すようにする）。
+		// スピナーが「今選択中の条件」を表すようにする）。`error`も同時にクリア
+		// しないと、前回失敗時のエラー表示が残ったまま
+		// （`null === logs && ! error`が偽になり）スピナーが出せなくなる。
 		setLogs( null );
+		setError( null );
 
 		apiFetch< LogEntry[] >( {
 			path: `/cbjp/v1/logs?${ params.toString() }`,
