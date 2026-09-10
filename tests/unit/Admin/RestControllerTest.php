@@ -460,6 +460,38 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 404, $response->get_status() );
 	}
 
+	public function test_save_connection_ignores_conflicting_scalar_body_param(): void {
+		// save_settings_mappings()と同じ理由（PUT/DELETE等はボディがURLパスより優先して
+		// マージされる）で、save_connection()もボディに紛れ込んだ`platform`に惑わされず
+		// URLパス（colorme）へ保存することを検証する（platform_param()参照）。
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/connections/colorme' );
+		$request->set_body_params(
+			[
+				'platform'      => 'not-a-real-platform',
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'my-client-secret',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'my-client-id', ( new TokenStore( ColorMeAdapter::ID ) )->settings()['client_id'] );
+	}
+
+	public function test_delete_connection_ignores_conflicting_scalar_body_param(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings( [ 'client_id' => 'my-client-id' ] );
+
+		$request = new WP_REST_Request( 'DELETE', '/cbjp/v1/connections/colorme' );
+		$request->set_body_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], ( new TokenStore( ColorMeAdapter::ID ) )->settings() );
+	}
+
 	public function test_get_settings_mappings_defaults_to_empty_maps(): void {
 		$this->register_colorme_adapter();
 
