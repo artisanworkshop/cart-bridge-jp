@@ -304,7 +304,7 @@ final class RestController {
 	}
 
 	public function delete_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 
 		if ( ! AdapterRegistry::has( $platform ) ) {
 			return $this->unknown_platform_error( $platform );
@@ -321,7 +321,7 @@ final class RestController {
 	 * （外部フィルター経由で登録され得るアダプタの契約違反への防御。§18のCLAUDE.md方針と同様）。
 	 */
 	public function save_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 		$adapter  = AdapterRegistry::get( $platform );
 
 		if ( null === $adapter ) {
@@ -466,8 +466,9 @@ final class RestController {
 	 * リクエストパラメータ種別（GET: URLよりクエリ文字列が優先、PUT/DELETE等: URLより
 	 * ボディが優先。`WP_REST_Request::get_parameter_order()`参照）を跨いで同名キーを
 	 * 1つにマージするため、クエリ文字列やボディに`platform`（配列値だけでなくスカラー値でも）
-	 * を渡すとURLパスが指すリソースとは異なる`cbjp_settings_{platform}`を読み書きしうる
-	 * （このルートは`args`スキーマを定義していないため型検証がここでしか行われない）。
+	 * を渡すとURLパスが指すリソースとは異なるプラットフォーム（`cbjp_token_{platform}`/
+	 * `cbjp_settings_{platform}`等）を読み書きしうる（これらのルートは`args`スキーマを
+	 * 定義していないため型検証がここでしか行われない）。
 	 * URLキャプチャそのもの（`get_url_params()`）だけを見ることで、リクエストデータによる
 	 * リソースの取り違えを構造的に防ぐ。
 	 */
@@ -572,7 +573,7 @@ final class RestController {
 	}
 
 	public function test_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 		$adapter  = AdapterRegistry::get( $platform );
 
 		if ( null === $adapter ) {
@@ -607,7 +608,7 @@ final class RestController {
 	 * （要検証#7が未確定のため、自動リダイレクトが使えるかは環境依存。03 §9）。
 	 */
 	public function get_authorize_url( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 		$oauth    = $this->oauth_for( $platform );
 
 		if ( null === $oauth ) {
@@ -638,7 +639,7 @@ final class RestController {
 	 * REST応答として返すことでユニットテスト可能にしている）。
 	 */
 	public function handle_oauth_callback( WP_REST_Request $request ): WP_REST_Response {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 		$oauth    = $this->oauth_for( $platform );
 
 		if ( null === $oauth ) {
@@ -672,7 +673,7 @@ final class RestController {
 	 * 通常のnonce+capability保護のみで、独自のstate検証は行わない。
 	 */
 	public function exchange_code( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) $request->get_param( 'platform' );
+		$platform = $this->platform_param( $request );
 		$oauth    = $this->oauth_for( $platform );
 
 		if ( null === $oauth ) {

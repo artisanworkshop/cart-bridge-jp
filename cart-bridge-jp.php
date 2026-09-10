@@ -41,7 +41,7 @@ add_action(
 	}
 );
 
-register_activation_hook( CBJP_FILE, [ Core\Activator::class, 'activate' ] );
+register_activation_hook( CBJP_FILE, array( Core\Activator::class, 'activate' ) );
 
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_bootstrap' );
 

@@ -18,6 +18,23 @@
 	margin-top: 1em;
 }
 
+/*
+ * wp-components ships a different Notice layout depending on the version WordPress
+ * core/WooCommerce happens to have registered on the page (flex + 8px padding vs.
+ * grid + 12px padding in newer builds), so the vertical breathing room around
+ * `.is-info` text is inconsistent across environments. Pin it explicitly instead of
+ * relying on whichever upstream default happens to be loaded.
+ */
+.components-notice.is-info {
+	padding-top: 14px;
+	padding-bottom: 14px;
+}
+
+.components-notice.is-info .components-notice__content {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+
 .cbjp-connection-card__oauth,
 .cbjp-connection-card__manual,
 .cbjp-connection-card__actions {

@@ -278,6 +278,15 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 					/>
 				) }
 
+				{ connection.has_settings && textFields.length > 0 && (
+					<Notice status="info" isDismissible={ false }>
+						{ __(
+							'Credentials are already saved. The fields below are intentionally left blank for security — fill them in only if you want to replace the saved values.',
+							'cart-bridge-jp'
+						) }
+					</Notice>
+				) }
+
 				{ textFields.map( ( field ) => (
 					<TextControl
 						key={ field.key }
