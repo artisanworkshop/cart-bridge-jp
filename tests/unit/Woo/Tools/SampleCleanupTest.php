@@ -229,7 +229,9 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertInstanceOf( WP_User::class, get_userdata( $admin_id ) );
 		$this->assertInstanceOf( WP_User::class, get_userdata( $self_id ) );
 		$this->assertSame( '', get_user_meta( $admin_id, '_cbjp_platform', true ) );
-		$this->assertSame( '', get_user_meta( $self_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		// 作成マーカーは unlink では外さない（作成元の記録として残し、再リンク後に削除できるようにする）。
+		$this->assertSame( 'mock', get_user_meta( $self_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '', get_user_meta( $self_id, '_cbjp_platform', true ) );
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'customer' ) );
 	}
 
@@ -305,6 +307,54 @@ final class SampleCleanupTest extends WooTestCase {
 		// 採用した側の unlink は作成元（A）のマーカーを消さない（A のクリーンアップが削除できなくなるため）。
 		$this->assertSame( 'other', get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
 		$this->assertSame( '', get_user_meta( $user_id, '_cbjp_platform', true ) );
+	}
+
+	public function test_creator_platform_can_delete_its_account_once_the_adopting_platform_unlinked_it(): void {
+		// A が作成 → B が採用（`_cbjp_platform`=B）。B がリンク中は A も削除しない（B の受注が参照している）。
+		$user_id = $this->import( 'other', 'customer', CanonicalFactory::customer( 'a1', 'shared2@example.com' ) );
+		update_user_meta( $user_id, '_cbjp_platform', 'mock' );
+
+		$cleanup_a = new SampleCleanup( $this->mappings );
+		$result    = $cleanup_a->run( 'other' );
+
+		$this->assertSame( 0, $result['deleted']['customer'] );
+		$this->assertSame( 1, $result['unlinked']['customer'] );
+		$this->assertInstanceOf( WP_User::class, get_userdata( $user_id ) );
+		$this->assertSame( 'mock', get_user_meta( $user_id, '_cbjp_platform', true ), 'B のリンクは壊さない' );
+		$this->assertSame( 'other', get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ), '作成マーカーは残す' );
+
+		// B がリンクを解いた後に A が再び取り込む（email 突合で再リンク）と、A は削除できる。
+		delete_user_meta( $user_id, '_cbjp_platform' );
+		$this->assertSame( $user_id, $this->import( 'other', 'customer', CanonicalFactory::customer( 'a1', 'shared2@example.com' ) ) );
+
+		$result = $cleanup_a->run( 'other' );
+
+		$this->assertSame( 1, $result['deleted']['customer'] );
+		$this->assertFalse( get_userdata( $user_id ) );
+	}
+
+	public function test_shared_term_thumbnail_is_kept_while_another_term_still_uses_it(): void {
+		// `MediaImporter` は同一 URL の画像を複数タームで共有する。片方のタームだけが消える場合は画像を残す。
+		$this->stub_image_http();
+
+		$doomed_id   = $this->import( 'mock', 'category', new CanonicalCategory( 'c1', 'Category 1', null, null, [ 'image_url' => 'https://example.test/shared.png' ] ) );
+		$survivor_id = $this->import( 'mock', 'category', new CanonicalCategory( 'c2', 'Category 2', null, null, [ 'image_url' => 'https://example.test/shared.png' ] ) );
+		$thumbnail   = (int) get_term_meta( $doomed_id, 'thumbnail_id', true );
+		$this->assertGreaterThan( 0, $thumbnail );
+		$this->assertSame( $thumbnail, (int) get_term_meta( $survivor_id, 'thumbnail_id', true ), '同一URLの画像は共有される' );
+
+		// c2 の mapping だけ失われた状態でクリーンアップ。
+		$this->mappings->delete_one( 'mock', 'category', 'c2' );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+
+		$this->assertSame( 0, $cleanup->preview( 'mock' )['delete']['attachment'] );
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertSame( 1, $result['deleted']['category'] );
+		$this->assertSame( 0, $result['deleted']['attachment'] );
+		$this->assertInstanceOf( \WP_Post::class, get_post( $thumbnail ) );
+		$this->assertInstanceOf( \WP_Term::class, get_term( $survivor_id, 'product_cat' ) );
 	}
 
 	public function test_preview_counts_cascaded_variations_even_when_their_mappings_were_lost(): void {

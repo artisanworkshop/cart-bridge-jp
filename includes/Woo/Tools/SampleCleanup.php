@@ -118,7 +118,7 @@ final class SampleCleanup {
 		$delete['variant'] = count( $doomed_variations );
 
 		// 削除対象の画像: 既に孤児のものに加え、上で「削除される」と判定した商品・タームが使っているもの。
-		$delete['attachment'] = count( $this->deletable_attachment_ids( $platform, $doomed_products, $this->term_thumbnail_ids( $doomed_terms ) ) );
+		$delete['attachment'] = count( $this->deletable_attachment_ids( $platform, $doomed_products, $doomed_terms ) );
 
 		return [
 			'delete'                => $delete,
@@ -338,7 +338,7 @@ final class SampleCleanup {
 	 * @return 'deleted'|'unlinked'
 	 */
 	private function remove_customer( int $user_id, string $platform ): string {
-		if ( ! get_userdata( $user_id ) instanceof WP_User || get_user_meta( $user_id, '_cbjp_platform', true ) !== $platform ) {
+		if ( ! get_userdata( $user_id ) instanceof WP_User ) {
 			return 'unlinked';
 		}
 
@@ -350,16 +350,14 @@ final class SampleCleanup {
 			}
 		}
 
-		// email突合で採用した既存アカウント（または削除できなかったアカウント）はリンク用メタだけ外して残す。
-		foreach ( self::LINK_USER_META_KEYS as $meta_key ) {
-			delete_user_meta( $user_id, $meta_key );
-		}
-
-		// 作成マーカーは自プラットフォームの値のときだけ外す。別プラットフォームが作成したアカウントを
-		// 採用していた場合にその値を消すと、作成元のクリーンアップが削除できなくなり、作成元の
-		// 無料版顧客上限だけがリセットされてアカウントが残り続ける。
-		if ( get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform ) {
-			delete_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META );
+		// 削除しない場合はリンク用メタだけ外して残す。ただし外すのは自プラットフォームがリンクしている
+		// ときだけ（別プラットフォームが採用中のリンクは壊さない）。作成マーカーは外さない: 作成元を
+		// 記録し続けることで、別プラットフォームがリンクを解いた後に作成元が再び取り込んだ（email 突合で
+		// 再リンクした）際に削除できる。
+		if ( get_user_meta( $user_id, '_cbjp_platform', true ) === $platform ) {
+			foreach ( self::LINK_USER_META_KEYS as $meta_key ) {
+				delete_user_meta( $user_id, $meta_key );
+			}
 		}
 
 		return 'unlinked';
@@ -374,10 +372,12 @@ final class SampleCleanup {
 	 */
 	private function can_delete_user( int $user_id, string $platform ): bool {
 		return get_userdata( $user_id ) instanceof WP_User
-			&& get_user_meta( $user_id, '_cbjp_platform', true ) === $platform
-			// マーカーは作成したプラットフォームを保持する。別プラットフォームが email 突合で採用して
-			// `_cbjp_platform` を書き換えたアカウントは「採用した側」から見ると作成していないため削除しない。
+			// 作成元の判定はマーカー（不変）を正とする。`_cbjp_platform` は email 突合による採用で
+			// 別プラットフォームに書き換わりうるため、これで作成元を判定すると採用→リンク解除の後に
+			// 作成元が二度と削除できなくなる。
 			&& get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform
+			// ただし別プラットフォームが現在リンク中（採用中）のアカウントは、その受注が参照しているため削除しない。
+			&& in_array( get_user_meta( $user_id, '_cbjp_platform', true ), [ '', $platform ], true )
 			&& ! CustomerWriter::has_protected_role( $user_id )
 			&& get_current_user_id() !== $user_id
 			&& current_user_can( 'delete_user', $user_id );
@@ -388,13 +388,14 @@ final class SampleCleanup {
 	 * 「`_cbjp_source_url` あり かつ `_cbjp_platform` が自プラットフォーム」（＝`MediaImporter` が
 	 * 取り込んだ画像）。そのうち次のいずれかに該当するものだけを返す:
 	 * - 親投稿（`media_sideload_image()` の紐付け先＝商品）が無い、または `$doomed_product_ids` に含まれる
-	 * - タームの `thumbnail_id` として参照されていない、または参照元が `$doomed_term_thumbnail_ids` に含まれる
+	 * - タームの `thumbnail_id` として参照されていない、または参照する**全ての**タームが `$doomed_term_ids` に含まれる
+	 *   （`MediaImporter` は同一 URL の画像を複数タームで共有するため、1つのタームが消えるだけでは消せない）
 	 *
-	 * @param array<int,int> $doomed_product_ids        これから削除される（mapping 経由の）商品ID。
-	 * @param array<int,int> $doomed_term_thumbnail_ids これから削除されるタームの thumbnail_id。
+	 * @param array<int,int> $doomed_product_ids これから削除される（mapping 経由の）商品ID。
+	 * @param array<int,int> $doomed_term_ids    これから削除されるタームID。
 	 * @return array<int,int>
 	 */
-	private function deletable_attachment_ids( string $platform, array $doomed_product_ids = [], array $doomed_term_thumbnail_ids = [] ): array {
+	private function deletable_attachment_ids( string $platform, array $doomed_product_ids = [], array $doomed_term_ids = [] ): array {
 		$ids = get_posts(
 			[
 				'post_type'      => 'attachment',
@@ -435,10 +436,10 @@ final class SampleCleanup {
 
 		_prime_post_caches( array_values( array_filter( $parent_ids ) ), false, false );
 
-		$referencing_thumbnails = $this->term_thumbnail_ids( $this->term_ids_with_thumbnail() );
-		$doomed_products        = array_flip( $doomed_product_ids );
-		$doomed_thumbnails      = array_flip( $doomed_term_thumbnail_ids );
-		$deletable              = [];
+		$referencing_terms = $this->terms_by_thumbnail();
+		$doomed_products   = array_flip( $doomed_product_ids );
+		$doomed_terms      = array_flip( $doomed_term_ids );
+		$deletable         = [];
 
 		foreach ( $ids as $attachment_id ) {
 			$parent_id = $parent_ids[ $attachment_id ];
@@ -447,14 +448,41 @@ final class SampleCleanup {
 				continue;
 			}
 
-			if ( in_array( $attachment_id, $referencing_thumbnails, true ) && ! isset( $doomed_thumbnails[ $attachment_id ] ) ) {
-				continue;
+			foreach ( $referencing_terms[ $attachment_id ] ?? [] as $term_id ) {
+				if ( ! isset( $doomed_terms[ $term_id ] ) ) {
+					// 生き残るタームが参照している共有画像は消さない。
+					continue 2;
+				}
 			}
 
 			$deletable[] = $attachment_id;
 		}
 
 		return $deletable;
+	}
+
+	/**
+	 * @return array<int,array<int,int>> thumbnail の attachment ID => それを参照する term ID の一覧。
+	 */
+	private function terms_by_thumbnail(): array {
+		$term_ids = $this->term_ids_with_thumbnail();
+
+		if ( [] === $term_ids ) {
+			return [];
+		}
+
+		update_termmeta_cache( $term_ids );
+		$map = [];
+
+		foreach ( $term_ids as $term_id ) {
+			$thumbnail_id = (int) get_term_meta( $term_id, 'thumbnail_id', true );
+
+			if ( $thumbnail_id > 0 ) {
+				$map[ $thumbnail_id ][] = $term_id;
+			}
+		}
+
+		return $map;
 	}
 
 	/**
@@ -477,31 +505,6 @@ final class SampleCleanup {
 		);
 
 		return is_array( $term_ids ) ? array_map( 'intval', $term_ids ) : [];
-	}
-
-	/**
-	 * @param array<int,int> $term_ids
-	 * @return array<int,int> 各タームの `thumbnail_id`（未設定は除外）。
-	 */
-	private function term_thumbnail_ids( array $term_ids ): array {
-		$term_ids = array_values( array_unique( array_map( 'intval', $term_ids ) ) );
-
-		if ( [] === $term_ids ) {
-			return [];
-		}
-
-		update_termmeta_cache( $term_ids );
-		$thumbnail_ids = [];
-
-		foreach ( $term_ids as $term_id ) {
-			$thumbnail_id = (int) get_term_meta( $term_id, 'thumbnail_id', true );
-
-			if ( $thumbnail_id > 0 ) {
-				$thumbnail_ids[] = $thumbnail_id;
-			}
-		}
-
-		return array_values( array_unique( $thumbnail_ids ) );
 	}
 
 	/**

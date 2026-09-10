@@ -78,7 +78,7 @@ final class VerificationReportTest extends WP_UnitTestCase {
 		$this->assertNotNull( $report );
 		$this->assertSame( 'mock', $report['platform'] );
 		$this->assertSame( JobManager::TYPE_IMPORT, $report['type'] );
-		$this->assertSame( get_woocommerce_currency(), $report['currency'] );
+		$this->assertSame( get_woocommerce_currency(), $report['currency'], '受注に保存された通貨（取込時の店舗通貨）' );
 		$this->assertSame( 'JPY', $report['platform_currency'] );
 		$this->assertSame( 'JPY' !== get_woocommerce_currency(), $report['currency_mismatch'] );
 		$this->assertCount( 1, $report['entities'] );
@@ -117,6 +117,24 @@ final class VerificationReportTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $row['missing'] );
 		$this->assertSame( '2000.00', $row['remote_amount'] );
 		$this->assertSame( '1000.00', $row['local_amount'] );
+	}
+
+	public function test_currency_comes_from_the_imported_orders_not_the_current_store_setting(): void {
+		// USD の店舗で取り込んだ受注は USD のまま残る。後から店舗通貨を JPY に変えても、
+		// 受注側の通貨で判定して「不一致」のままにする（数値だけ一致する偽の突合を避ける）。
+		update_option( 'woocommerce_currency', 'USD' );
+		$this->register_adapter_with_orders();
+
+		$manager = JobManager::create();
+		$run_id  = $manager->start_run( JobManager::TYPE_IMPORT, 'mock', [ 'order' ] );
+		$manager->run_to_completion( $run_id );
+
+		update_option( 'woocommerce_currency', 'JPY' );
+
+		$report = $this->build( $run_id );
+
+		$this->assertSame( 'USD', $report['currency'] );
+		$this->assertTrue( $report['currency_mismatch'] );
 	}
 
 	public function test_non_order_entities_have_no_amounts(): void {

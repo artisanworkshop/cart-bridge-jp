@@ -37,22 +37,29 @@ final class LocalEntityLookup {
 	}
 
 	/**
-	 * 実在する受注の合計金額（`WC_Order::get_total()`）を1/100単位で合算する。
+	 * 実在する受注の合計金額（`WC_Order::get_total()`）を1/100単位で合算し、受注に保存されている
+	 * 通貨の一覧も返す（店舗通貨は後から変更されうるため、突合の通貨判定は受注側の値を正とする）。
 	 *
 	 * @param array<int,int> $order_ids
+	 * @return array{total_minor:int,currencies:array<int,string>}
 	 */
-	public function sum_order_totals( array $order_ids ): int {
-		$sum = 0;
+	public function summarize_orders( array $order_ids ): array {
+		$sum        = 0;
+		$currencies = [];
 
 		foreach ( $this->normalize_ids( $order_ids ) as $order_id ) {
 			$order = $this->load_order( $order_id );
 
 			if ( null !== $order ) {
-				$sum += Money::to_minor_units( $order->get_total() ) ?? 0;
+				$sum                                 += Money::to_minor_units( $order->get_total() ) ?? 0;
+				$currencies[ $order->get_currency() ] = true;
 			}
 		}
 
-		return $sum;
+		return [
+			'total_minor' => $sum,
+			'currencies'  => array_keys( $currencies ),
+		];
 	}
 
 	/**
