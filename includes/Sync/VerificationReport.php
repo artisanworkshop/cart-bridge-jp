@@ -62,7 +62,9 @@ final class VerificationReport {
 			];
 
 			if ( 'order' === $entity ) {
-				$row['remote_amount'] = Money::format_minor_units( $totals['remote_amount'] );
+				// F1-7 より前に作られたジョブの totals_json には `remote_amount` が無い。0 として扱うと
+				// 「ASP 側 0.00 / Woo 側 N」という偽の不一致になるため、キーが無ければ「不明」（null）にする。
+				$row['remote_amount'] = $this->has_remote_amount( $job['totals_json'] ) ? Money::format_minor_units( $totals['remote_amount'] ) : null;
 				$row['local_amount']  = Money::format_minor_units( $this->lookup->sum_order_totals( $existing ) );
 			}
 
@@ -77,6 +79,12 @@ final class VerificationReport {
 			'currency' => get_woocommerce_currency(),
 			'entities' => $entities,
 		];
+	}
+
+	private function has_remote_amount( ?string $totals_json ): bool {
+		$decoded = null !== $totals_json ? json_decode( $totals_json, true ) : null;
+
+		return is_array( $decoded ) && array_key_exists( 'remote_amount', $decoded );
 	}
 
 	/**

@@ -17,6 +17,13 @@ namespace CartBridgeJP\Support;
  */
 final class Money {
 
+	/**
+	 * 整数部として受け付ける最大桁数（16桁）。1/100単位に変換しても PHP_INT_MAX（約9.2e18）に収まる。
+	 */
+	private const MAX_MAJOR_DIGITS = 16;
+
+	private const MAX_MAJOR_UNITS = 9999999999999999;
+
 	private function __construct() {}
 
 	/**
@@ -25,7 +32,7 @@ final class Money {
 	 */
 	public static function to_minor_units( mixed $amount ): ?int {
 		if ( is_int( $amount ) ) {
-			return $amount * 100;
+			return abs( $amount ) > self::MAX_MAJOR_UNITS ? null : $amount * 100;
 		}
 
 		if ( is_float( $amount ) ) {
@@ -38,6 +45,13 @@ final class Money {
 		}
 
 		if ( 1 !== preg_match( '/^\s*(-?)(\d+)(?:\.(\d*))?\s*$/', $amount, $matches ) ) {
+			return null;
+		}
+
+		// `(int)` は int の範囲を超える数値文字列を PHP_INT_MAX に飽和させ、×100 で float に化けて
+		// 戻り値型（?int）の TypeError になる。外部アダプタ（信頼境界）由来の異常値でジョブ全体を
+		// 落とさないよう、整数部の桁数で先に弾く（16桁 = 1京円未満まで）。
+		if ( strlen( ltrim( $matches[2], '0' ) ) > self::MAX_MAJOR_DIGITS ) {
 			return null;
 		}
 

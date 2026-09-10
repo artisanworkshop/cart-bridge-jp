@@ -122,6 +122,10 @@ export default function ToolsTab() {
 	);
 	const [ rebuildDone, setRebuildDone ] = useState( false );
 	const [ rebuildError, setRebuildError ] = useState< string | null >( null );
+	// バッチ上限やエラーで止まった再構築を、先頭からやり直さずに続きから再開するための cursor。
+	const [ rebuildCursor, setRebuildCursor ] = useState< string | null >(
+		null
+	);
 
 	// 実行中にプラットフォームを切り替えた場合、遅れて届いた応答で別プラットフォームの
 	// 表示を上書きしないための参照（ImportTab と同じ手法）。
@@ -160,6 +164,7 @@ export default function ToolsTab() {
 		setRebuildCounts( null );
 		setRebuildDone( false );
 		setRebuildError( null );
+		setRebuildCursor( null );
 	}
 
 	const currentConnection =
@@ -205,6 +210,7 @@ export default function ToolsTab() {
 		}
 
 		const confirmed =
+			0 === previewTotal ||
 			// eslint-disable-next-line no-alert -- 破壊的操作の確認。ImportTab の実行前確認と同じ流儀。
 			window.confirm(
 				sprintf(
@@ -278,7 +284,7 @@ export default function ToolsTab() {
 
 		const requested = platform;
 		let counts: Counts = {};
-		let cursor: string | null = null;
+		let cursor: string | null = rebuildCursor;
 
 		setRebuilding( true );
 		setRebuildError( null );
@@ -303,6 +309,7 @@ export default function ToolsTab() {
 				counts = mergeCounts( counts, result.counts );
 				setRebuildCounts( counts );
 				cursor = result.cursor;
+				setRebuildCursor( cursor );
 
 				if ( null === cursor ) {
 					setRebuildDone( true );
@@ -313,7 +320,7 @@ export default function ToolsTab() {
 
 			setRebuildError(
 				__(
-					'The rebuild did not finish within the expected number of batches. Run it again to continue.',
+					'The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped.',
 					'cart-bridge-jp'
 				)
 			);
@@ -352,8 +359,12 @@ export default function ToolsTab() {
 	}
 
 	const previewTotal = preview
-		? sumCounts( preview.counts ) + preview.attachments
+		? sumCounts( preview.delete ) + sumCounts( preview.unlink )
 		: 0;
+	const cleanupBlocked =
+		null !== preview &&
+		( preview.run_in_progress ||
+			( preview.requires_delete_users && ! preview.can_delete_users ) );
 
 	return (
 		<div className="cbjp-tools">
@@ -427,62 +438,93 @@ export default function ToolsTab() {
 									) }
 								</Notice>
 							) }
+							{ preview.requires_delete_users &&
+								! preview.can_delete_users && (
+									<Notice
+										status="warning"
+										isDismissible={ false }
+									>
+										{ __(
+											'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.',
+											'cart-bridge-jp'
+										) }
+									</Notice>
+								) }
 							{ 0 === previewTotal ? (
 								<p>
-									{ __(
-										'Nothing to delete for this platform.',
-										'cart-bridge-jp'
-									) }
+									{ preview.sample_selected
+										? __(
+												'Nothing is linked any more, but a sample selection is still stored. Clear it so the next import selects a fresh sample.',
+												'cart-bridge-jp'
+										  )
+										: __(
+												'Nothing to delete for this platform.',
+												'cart-bridge-jp'
+										  ) }
 								</p>
 							) : (
 								<>
-									<p>
-										<strong>
-											{ __(
-												'The following linked records will be removed:',
-												'cart-bridge-jp'
-											) }
-										</strong>
-									</p>
-									<CountList
-										counts={ {
-											...preview.counts,
-											attachment: preview.attachments,
-										} }
-										keys={ CLEANUP_KEYS }
-									/>
-									{ preview.customers.delete +
-										preview.customers.unlink >
-										0 && (
-										<p>
-											{ sprintf(
-												/* translators: 1: accounts to delete, 2: accounts to unlink */
-												__(
-													'Customers: %1$d accounts created by the import will be deleted, %2$d existing accounts will only be unlinked.',
-													'cart-bridge-jp'
-												),
-												preview.customers.delete,
-												preview.customers.unlink
-											) }
-										</p>
+									{ sumCounts( preview.delete ) > 0 && (
+										<>
+											<p>
+												<strong>
+													{ __(
+														'The following records will be deleted:',
+														'cart-bridge-jp'
+													) }
+												</strong>
+											</p>
+											<CountList
+												counts={ preview.delete }
+												keys={ CLEANUP_KEYS }
+											/>
+										</>
 									) }
-									<div className="cbjp-tools__actions">
-										<Button
-											variant="primary"
-											isDestructive
-											isBusy={ cleaning }
-											disabled={
-												busy || preview.run_in_progress
-											}
-											onClick={ () => void runCleanup() }
-										>
-											{ __(
-												'Delete sample data',
-												'cart-bridge-jp'
-											) }
-										</Button>
-									</div>
+									{ sumCounts( preview.unlink ) > 0 && (
+										<>
+											<p>
+												<strong>
+													{ __(
+														'The following records will only be unlinked (kept):',
+														'cart-bridge-jp'
+													) }
+												</strong>
+											</p>
+											<CountList
+												counts={ preview.unlink }
+												keys={ CLEANUP_KEYS }
+											/>
+											<p>
+												{ __(
+													'Unlinked records are customer accounts that existed before the import, records owned by another platform, or links whose target no longer exists.',
+													'cart-bridge-jp'
+												) }
+											</p>
+										</>
+									) }
 								</>
+							) }
+							{ ( previewTotal > 0 ||
+								preview.sample_selected ) && (
+								<div className="cbjp-tools__actions">
+									<Button
+										variant="primary"
+										isDestructive={ previewTotal > 0 }
+										isBusy={ cleaning }
+										disabled={ busy || cleanupBlocked }
+										onClick={ () => void runCleanup() }
+									>
+										{ previewTotal > 0
+											? __(
+													'Delete sample data',
+													'cart-bridge-jp'
+											  )
+											: __(
+													'Clear sample selection',
+													'cart-bridge-jp'
+											  ) }
+									</Button>
+								</div>
 							) }
 						</div>
 					) }

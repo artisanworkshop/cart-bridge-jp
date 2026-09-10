@@ -15,6 +15,7 @@ use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
 use CartBridgeJP\Woo\WooRepositoryFactory;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
@@ -127,21 +128,20 @@ final class SampleCleanupTest extends WooTestCase {
 		$cleanup = new SampleCleanup( $this->mappings );
 		$preview = $cleanup->preview( 'mock' );
 
-		$this->assertSame( 1, $preview['counts']['category'] );
-		$this->assertSame( 2, $preview['counts']['product'] );
-		$this->assertSame( 1, $preview['counts']['variant'] );
-		$this->assertSame( 2, $preview['counts']['customer'] );
-		$this->assertSame( 1, $preview['counts']['order'] );
-		$this->assertSame( 1, $preview['counts']['stock'] );
-		$this->assertSame( 1, $preview['counts']['coupon'] );
-		$this->assertSame( 1, $preview['attachments'] );
-		$this->assertSame(
-			[
-				'delete' => 1,
-				'unlink' => 1,
-			],
-			$preview['customers']
-		);
+		// プレビューは mapping 行数ではなく「実際に削除される／mapping を外すだけ」を `run()` と同じ判定で分ける。
+		$this->assertSame( 1, $preview['delete']['category'] );
+		$this->assertSame( 1, $preview['delete']['product'] );
+		$this->assertSame( 1, $preview['unlink']['product'], '別プラットフォーム所有の実体は unlink' );
+		$this->assertSame( 1, $preview['delete']['variant'] );
+		$this->assertSame( 1, $preview['delete']['customer'] );
+		$this->assertSame( 1, $preview['unlink']['customer'], 'email突合で採用した既存アカウントは unlink' );
+		$this->assertSame( 1, $preview['delete']['order'] );
+		$this->assertSame( 1, $preview['unlink']['stock'] );
+		$this->assertSame( 1, $preview['delete']['coupon'] );
+		$this->assertSame( 1, $preview['delete']['attachment'] );
+		$this->assertTrue( $preview['requires_delete_users'] );
+		$this->assertTrue( $preview['can_delete_users'] );
+		$this->assertTrue( $preview['sample_selected'] );
 
 		$result = $cleanup->run( 'mock' );
 
@@ -210,7 +210,7 @@ final class SampleCleanupTest extends WooTestCase {
 		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
 		update_user_meta( $admin_id, '_cbjp_platform', 'mock' );
 		update_user_meta( $admin_id, '_cbjp_remote_id', 'cu-admin' );
-		update_user_meta( $admin_id, CustomerWriter::CREATED_BY_IMPORT_META, '1' );
+		update_user_meta( $admin_id, CustomerWriter::CREATED_BY_IMPORT_META, 'mock' );
 		$this->mappings->upsert( 'mock', 'customer', 'cu-admin', $admin_id, null );
 
 		$self_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu-self', 'self@example.com' ) );
@@ -233,28 +233,146 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'customer' ) );
 	}
 
-	public function test_shop_manager_can_only_unlink_customer_accounts(): void {
+	public function test_shop_manager_cannot_run_cleanup_while_import_created_accounts_exist(): void {
 		// `manage_woocommerce` は持つが `delete_users` は持たない shop_manager が、WP 管理画面では
-		// できないアカウント削除をこのツール経由で行えてはならない。
+		// できないアカウント削除をこのツール経由で行えてはならない。かといって unlink だけして
+		// mappings とサンプルセットをリセットすると、無料版の顧客上限を回避してアカウントを増やし続けられる
+		// ため、実行自体を拒否する。
 		$user_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu1', 'cu1@example.com' ) );
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
 
 		$cleanup = new SampleCleanup( $this->mappings );
+		$preview = $cleanup->preview( 'mock' );
 
-		$this->assertSame(
+		$this->assertTrue( $preview['requires_delete_users'] );
+		$this->assertFalse( $preview['can_delete_users'] );
+		$this->assertSame( 0, $preview['delete']['customer'] );
+		$this->assertSame( 1, $preview['unlink']['customer'] );
+
+		$this->expectException( CleanupNotPermittedException::class );
+
+		try {
+			$cleanup->run( 'mock' );
+		} finally {
+			$this->assertInstanceOf( WP_User::class, get_userdata( $user_id ) );
+			$this->assertSame( 'mock', get_user_meta( $user_id, '_cbjp_platform', true ), '拒否時は何も変更しない' );
+			$this->assertSame( 1, $this->mappings->count( 'mock', 'customer' ) );
+		}
+	}
+
+	public function test_shop_manager_can_clean_up_when_no_import_created_accounts_remain(): void {
+		// 採用した既存アカウントしか無ければ削除権限は不要（unlink のみ）。
+		$existing_id = wp_insert_user(
 			[
-				'delete' => 0,
-				'unlink' => 1,
-			],
-			$cleanup->preview( 'mock' )['customers']
+				'user_login' => 'existing2',
+				'user_email' => 'existing2@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
 		);
+		$this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu2', 'existing2@example.com' ) );
+		$this->import( 'mock', 'category', CanonicalFactory::category( 'c1', 'Category 1' ) );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$this->assertFalse( $cleanup->preview( 'mock' )['requires_delete_users'] );
+
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertSame( 1, $result['deleted']['category'] );
+		$this->assertSame( 1, $result['unlinked']['customer'] );
+		$this->assertInstanceOf( WP_User::class, get_userdata( $existing_id ) );
+	}
+
+	public function test_marker_from_another_platform_prevents_deletion(): void {
+		// A が作成したアカウントを B が email 突合で採用した場合、B のクリーンアップは削除ではなく unlink。
+		$user_id = $this->import( 'other', 'customer', CanonicalFactory::customer( 'a1', 'shared@example.com' ) );
+		$this->assertSame( 'other', get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+
+		$adopted_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'b1', 'shared@example.com' ) );
+		$this->assertSame( $user_id, $adopted_id );
+		$this->assertSame( 'mock', get_user_meta( $user_id, '_cbjp_platform', true ) );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$this->assertFalse( $cleanup->requires_user_deletion( 'mock' ) );
 
 		$result = $cleanup->run( 'mock' );
 
 		$this->assertSame( 0, $result['deleted']['customer'] );
 		$this->assertSame( 1, $result['unlinked']['customer'] );
 		$this->assertInstanceOf( WP_User::class, get_userdata( $user_id ) );
-		$this->assertSame( '', get_user_meta( $user_id, '_cbjp_platform', true ) );
+	}
+
+	public function test_budget_exhausted_by_variations_stops_the_page_early(): void {
+		$product_a = $this->import(
+			'mock',
+			'product',
+			CanonicalFactory::product(
+				'pa',
+				'SKU-A',
+				5,
+				[
+					[
+						'remote_id'     => 'va1',
+						'sku'           => 'SKU-A-1',
+						'option1_name'  => 'Size',
+						'option1_value' => 'S',
+						'price'         => '1000',
+						'stock'         => null,
+					],
+					[
+						'remote_id'     => 'va2',
+						'sku'           => 'SKU-A-2',
+						'option1_name'  => 'Size',
+						'option1_value' => 'M',
+						'price'         => '1000',
+						'stock'         => null,
+					],
+					[
+						'remote_id'     => 'va3',
+						'sku'           => 'SKU-A-3',
+						'option1_name'  => 'Size',
+						'option1_value' => 'L',
+						'price'         => '1000',
+						'stock'         => null,
+					],
+				]
+			)
+		);
+		$product_b = $this->import( 'mock', 'product', CanonicalFactory::product( 'pb', 'SKU-B' ) );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$first   = $cleanup->run( 'mock', 2 );
+
+		// 商品 A（+ variation 3 件）で予算 2 を使い切るため、同じページに含まれる商品 B は次のバッチへ回る。
+		$this->assertTrue( $first['has_more'] );
+		$this->assertSame( 1, $first['deleted']['product'] );
+		$this->assertSame( 3, $first['deleted']['variant'] );
+		$this->assertNull( get_post( $product_a ) );
+		$this->assertInstanceOf( WC_Product::class, wc_get_product( $product_b ) );
+
+		$second = $cleanup->run( 'mock', 2 );
+
+		$this->assertFalse( $second['has_more'] );
+		$this->assertSame( 1, $second['deleted']['product'] );
+		$this->assertNull( get_post( $product_b ) );
+	}
+
+	public function test_run_with_nothing_linked_still_clears_the_sample_selection(): void {
+		update_option( SampleSelector::option_name_for( 'mock' ), [ 'order_remote_ids' => [ '1' ] ], false );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$preview = $cleanup->preview( 'mock' );
+
+		$this->assertSame( 0, array_sum( $preview['delete'] ) + array_sum( $preview['unlink'] ) );
+		$this->assertTrue( $preview['sample_selected'] );
+
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertFalse( get_option( SampleSelector::option_name_for( 'mock' ) ) );
+		$this->assertFalse( $cleanup->preview( 'mock' )['sample_selected'] );
 	}
 
 	public function test_images_of_products_that_are_still_linked_elsewhere_or_unmapped_are_preserved(): void {
@@ -270,7 +388,7 @@ final class SampleCleanupTest extends WooTestCase {
 
 		$cleanup = new SampleCleanup( $this->mappings );
 
-		$this->assertSame( 0, $cleanup->preview( 'mock' )['attachments'] );
+		$this->assertSame( 0, $cleanup->preview( 'mock' )['delete']['attachment'] );
 
 		$result = $cleanup->run( 'mock' );
 
@@ -294,14 +412,14 @@ final class SampleCleanupTest extends WooTestCase {
 
 		$cleanup = new SampleCleanup( $this->mappings );
 
-		$this->assertSame( 0, $cleanup->preview( 'mock' )['attachments'] );
+		$this->assertSame( 0, $cleanup->preview( 'mock' )['delete']['attachment'] );
 		$cleanup->run( 'mock' );
 
 		$this->assertInstanceOf( \WP_Post::class, get_post( $thumbnail ) );
 
 		// mapping があれば、タームと一緒に画像も消える。
 		$this->mappings->upsert( 'mock', 'category', 'c1', $category_id, null );
-		$this->assertSame( 1, $cleanup->preview( 'mock' )['attachments'] );
+		$this->assertSame( 1, $cleanup->preview( 'mock' )['delete']['attachment'] );
 		$result = $cleanup->run( 'mock' );
 
 		$this->assertSame( 1, $result['deleted']['category'] );

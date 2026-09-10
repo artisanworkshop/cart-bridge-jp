@@ -68,53 +68,77 @@ final class SampleCleanup {
 	) {}
 
 	/**
-	 * 実行前の確認表示用（§10.3「実行前に削除件数を表示して確認を取る」）。
+	 * 実行前の確認表示用（§10.3「実行前に削除件数を表示して確認を取る」）。`run()` と同じ所有権・実在・
+	 * 権限の判定（`can_delete_entity()`）で「実際に削除される件数」と「mapping を外すだけの件数」を分けて返す
+	 * （mapping 行数をそのまま出すと、他プラットフォーム所有・削除済みの実体まで「削除される」と表示してしまう）。
 	 *
-	 * @return array{counts:array<string,int>,attachments:int,customers:array{delete:int,unlink:int}}
+	 * @return array{delete:array<string,int>,unlink:array<string,int>,requires_delete_users:bool,can_delete_users:bool,sample_selected:bool}
 	 */
 	public function preview( string $platform ): array {
-		$counts = [];
+		$delete          = array_fill_keys( self::RESULT_KEYS, 0 );
+		$unlink          = array_fill_keys( self::RESULT_KEYS, 0 );
+		$doomed_products = [];
+		$doomed_terms    = [];
 
-		foreach ( self::RESULT_KEYS as $key ) {
-			if ( 'attachment' !== $key ) {
-				$counts[ $key ] = $this->mappings->count( $platform, $key );
+		foreach ( self::RESULT_KEYS as $entity ) {
+			if ( 'attachment' === $entity ) {
+				continue;
+			}
+
+			foreach ( $this->mappings->local_ids( $platform, $entity ) as $local_id ) {
+				if ( ! $this->can_delete_entity( $platform, $entity, $local_id ) ) {
+					++$unlink[ $entity ];
+					continue;
+				}
+
+				++$delete[ $entity ];
+
+				if ( 'product' === $entity ) {
+					$doomed_products[] = $local_id;
+				} elseif ( 'category' === $entity || 'tag' === $entity ) {
+					$doomed_terms[] = $local_id;
+				}
 			}
 		}
 
-		$delete = 0;
-		$unlink = 0;
-
-		foreach ( $this->mappings->local_ids( $platform, 'customer' ) as $user_id ) {
-			if ( $this->can_delete_user( $user_id, $platform ) ) {
-				++$delete;
-			} else {
-				++$unlink;
-			}
-		}
-
-		// 削除対象の画像: 既に孤児のものに加え、mapping 経由で消える商品・タームが使っているもの。
-		$doomed_terms = array_merge( $this->mappings->local_ids( $platform, 'category' ), $this->mappings->local_ids( $platform, 'tag' ) );
+		// 削除対象の画像: 既に孤児のものに加え、上で「削除される」と判定した商品・タームが使っているもの。
+		$delete['attachment'] = count( $this->deletable_attachment_ids( $platform, $doomed_products, $this->term_thumbnail_ids( $doomed_terms ) ) );
 
 		return [
-			'counts'      => $counts,
-			'attachments' => count(
-				$this->deletable_attachment_ids(
-					$platform,
-					$this->mappings->local_ids( $platform, 'product' ),
-					$this->term_thumbnail_ids( $doomed_terms )
-				)
-			),
-			'customers'   => [
-				'delete' => $delete,
-				'unlink' => $unlink,
-			],
+			'delete'                => $delete,
+			'unlink'                => $unlink,
+			'requires_delete_users' => $this->requires_user_deletion( $platform ),
+			'can_delete_users'      => current_user_can( 'delete_users' ),
+			'sample_selected'       => false !== get_option( SampleSelector::option_name_for( $platform ) ),
 		];
 	}
 
 	/**
+	 * 本プラグインが作成した顧客アカウント（マーカー = platform）が mapping に残っているか。
+	 * 該当する場合、実行者に `delete_users` が無いと削除できずアカウントだけが残り、mapping と
+	 * サンプルセットのリセットにより無料版の顧客上限（`LimitPolicy`）を回避してアカウントを
+	 * 増やし続けられてしまうため、`run()` は実行自体を拒否する。
+	 */
+	public function requires_user_deletion( string $platform ): bool {
+		foreach ( $this->mappings->local_ids( $platform, 'customer' ) as $user_id ) {
+			if ( get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * @return array{deleted:array<string,int>,unlinked:array<string,int>,has_more:bool}
+	 *
+	 * @throws CleanupNotPermittedException 本プラグインが作成した顧客アカウントがあるのに実行者が `delete_users` を持たない場合。
 	 */
 	public function run( string $platform, int $budget = self::DEFAULT_BUDGET ): array {
+		if ( $this->requires_user_deletion( $platform ) && ! current_user_can( 'delete_users' ) ) {
+			throw new CleanupNotPermittedException( 'Cleanup requires the delete_users capability while import-created customer accounts exist.' );
+		}
+
 		// 削除に伴うメール（アカウント削除通知等）・在庫復元をインポート時と同様に抑止する（D10）。
 		return ( new SideEffectGuard() )->run( fn (): array => $this->run_batch( $platform, max( 1, $budget ) ) );
 	}
@@ -137,6 +161,12 @@ final class SampleCleanup {
 				}
 
 				foreach ( $page as $remote_id => $local_id ) {
+					if ( $remaining <= 0 ) {
+						// 直前の商品のバリエーション削除で予算を使い切った場合、取得済みページの残りも
+						// 次のバッチへ回す（1リクエストの破壊的操作を予算内に収める）。
+						break;
+					}
+
 					$variants_before = $deleted['variant'];
 					$outcome         = $this->remove_entity( $platform, $entity, $local_id, $variations, $deleted );
 					// 商品削除に伴う variation の削除数（`remove_entity()` が `$deleted['variant']` に加算する分）。
@@ -193,67 +223,97 @@ final class SampleCleanup {
 	}
 
 	/**
-	 * @param array<string,int> $deleted `variant` の削除数を加算するため参照渡し。
-	 * @return 'deleted'|'unlinked'
+	 * `run()` が実体を削除してよいか（所有権・実在・種別・顧客は権限）。`preview()` も同じ判定で
+	 * 「削除される／mapping を外すだけ」を分ける。stock / review は独立した実体を持たないため常に false。
 	 */
-	private function remove_entity( string $platform, string $entity, int $local_id, VariationWriter $variations, array &$deleted ): string {
+	private function can_delete_entity( string $platform, string $entity, int $local_id ): bool {
 		switch ( $entity ) {
 			case 'order':
 				$order = wc_get_order( $local_id );
 
-				if ( $order instanceof WC_Order && $order->get_meta( '_cbjp_platform' ) === $platform ) {
-					$order->delete( true );
-
-					return 'deleted';
-				}
-
-				return 'unlinked';
+				return $order instanceof WC_Order && $order->get_meta( '_cbjp_platform' ) === $platform;
 
 			case 'product':
 				$product = wc_get_product( $local_id );
 
-				if ( $product instanceof WC_Product && ! $product instanceof WC_Product_Variation && PlatformOwnership::owns_post( $local_id, $platform ) ) {
+				return $product instanceof WC_Product && ! $product instanceof WC_Product_Variation && PlatformOwnership::owns_post( $local_id, $platform );
+
+			case 'variant':
+				return wc_get_product( $local_id ) instanceof WC_Product_Variation && PlatformOwnership::owns_post( $local_id, $platform );
+
+			case 'coupon':
+				return 'shop_coupon' === get_post_type( $local_id ) && PlatformOwnership::owns_post( $local_id, $platform );
+
+			case 'customer':
+				return $this->can_delete_user( $local_id, $platform );
+
+			case 'category':
+				return get_term( $local_id, 'product_cat' ) instanceof WP_Term && PlatformOwnership::owns_term( $local_id, $platform );
+
+			case 'tag':
+				return get_term( $local_id, 'product_tag' ) instanceof WP_Term && PlatformOwnership::owns_term( $local_id, $platform );
+
+			default:
+				return false;
+		}
+	}
+
+	/**
+	 * @param array<string,int> $deleted `variant` の削除数を加算するため参照渡し。
+	 * @return 'deleted'|'unlinked'
+	 */
+	private function remove_entity( string $platform, string $entity, int $local_id, VariationWriter $variations, array &$deleted ): string {
+		if ( 'customer' === $entity ) {
+			return $this->remove_customer( $local_id, $platform );
+		}
+
+		if ( ! $this->can_delete_entity( $platform, $entity, $local_id ) ) {
+			return 'unlinked';
+		}
+
+		switch ( $entity ) {
+			case 'order':
+				$order = wc_get_order( $local_id );
+
+				if ( $order instanceof WC_Order ) {
+					$order->delete( true );
+				}
+
+				return 'deleted';
+
+			case 'product':
+				$product = wc_get_product( $local_id );
+
+				if ( $product instanceof WC_Product ) {
 					// `product` 投稿型は非階層のため親の削除で variation はカスケードしない
 					// （`ProductWriter::write()` の失敗時掃除と同じ理由）。所有 variation を先に消す。
 					$deleted['variant'] += count( $variations->remove_all( $variations->find_owned_variation_remote_ids( $local_id ) ) );
 					$product->delete( true );
-
-					return 'deleted';
 				}
 
-				return 'unlinked';
+				return 'deleted';
 
 			case 'variant':
 				$variation = wc_get_product( $local_id );
 
-				if ( $variation instanceof WC_Product_Variation && PlatformOwnership::owns_post( $local_id, $platform ) ) {
+				if ( $variation instanceof WC_Product ) {
 					$variation->delete( true );
-
-					return 'deleted';
 				}
 
-				return 'unlinked';
+				return 'deleted';
 
 			case 'coupon':
-				if ( 'shop_coupon' === get_post_type( $local_id ) && PlatformOwnership::owns_post( $local_id, $platform ) ) {
-					( new WC_Coupon( $local_id ) )->delete( true );
+				( new WC_Coupon( $local_id ) )->delete( true );
 
-					return 'deleted';
-				}
-
-				return 'unlinked';
-
-			case 'customer':
-				return $this->remove_customer( $local_id, $platform );
+				return 'deleted';
 
 			case 'category':
-				return $this->remove_term( $local_id, 'product_cat', $platform );
+				return true === wp_delete_term( $local_id, 'product_cat' ) ? 'deleted' : 'unlinked';
 
 			case 'tag':
-				return $this->remove_term( $local_id, 'product_tag', $platform );
+				return true === wp_delete_term( $local_id, 'product_tag' ) ? 'deleted' : 'unlinked';
 
 			default:
-				// stock / review: mapping 行のみ。
 				return 'unlinked';
 		}
 	}
@@ -283,7 +343,7 @@ final class SampleCleanup {
 	}
 
 	/**
-	 * 本プラグインが作成し（`_cbjp_created_by_import`）、店舗スタッフ権限を持たず、実行中の
+	 * このプラットフォームの import が作成し（`_cbjp_created_by_import` = platform）、店舗スタッフ権限を持たず、実行中の
 	 * 管理者自身でもないアカウントを、**実行者がユーザー削除権限（`delete_user`）を持つ場合のみ**
 	 * 削除できる（`wp_delete_user()` 自体は capability を見ない。ルートの `manage_woocommerce` だけでは
 	 * shop_manager が WP 管理画面でできないアカウント削除をここ経由で行えてしまう）。
@@ -292,21 +352,12 @@ final class SampleCleanup {
 	private function can_delete_user( int $user_id, string $platform ): bool {
 		return get_userdata( $user_id ) instanceof WP_User
 			&& get_user_meta( $user_id, '_cbjp_platform', true ) === $platform
-			&& '1' === get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true )
+			// マーカーは作成したプラットフォームを保持する。別プラットフォームが email 突合で採用して
+			// `_cbjp_platform` を書き換えたアカウントは「採用した側」から見ると作成していないため削除しない。
+			&& get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform
 			&& ! CustomerWriter::has_protected_role( $user_id )
 			&& get_current_user_id() !== $user_id
 			&& current_user_can( 'delete_user', $user_id );
-	}
-
-	/**
-	 * @return 'deleted'|'unlinked'
-	 */
-	private function remove_term( int $term_id, string $taxonomy, string $platform ): string {
-		if ( get_term( $term_id, $taxonomy ) instanceof WP_Term && PlatformOwnership::owns_term( $term_id, $platform ) && true === wp_delete_term( $term_id, $taxonomy ) ) {
-			return 'deleted';
-		}
-
-		return 'unlinked';
 	}
 
 	/**

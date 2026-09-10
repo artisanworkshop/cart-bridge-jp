@@ -19,6 +19,7 @@ use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
+use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
 use InvalidArgumentException;
@@ -1088,7 +1089,17 @@ final class RestController {
 			return $this->run_in_progress_error();
 		}
 
-		return rest_ensure_response( ( new SampleCleanup( new MappingRepository() ) )->run( $platform ) );
+		try {
+			$result = ( new SampleCleanup( new MappingRepository() ) )->run( $platform );
+		} catch ( CleanupNotPermittedException ) {
+			return new WP_Error(
+				'cbjp_cleanup_forbidden',
+				__( 'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.', 'cart-bridge-jp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		return rest_ensure_response( $result );
 	}
 
 	/**

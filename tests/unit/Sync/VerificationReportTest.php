@@ -141,6 +141,32 @@ final class VerificationReportTest extends WP_UnitTestCase {
 		$this->assertNull( $row['local_amount'] );
 	}
 
+	public function test_legacy_jobs_without_remote_amount_report_the_platform_total_as_unknown(): void {
+		// F1-7 より前に完了したジョブの totals_json には `remote_amount` が無い。0.00 として突合すると
+		// 偽の「Totals differ」になるため null（不明）で返す。
+		$jobs   = new JobRepository();
+		$job_id = $jobs->create( 'legacy-run', JobManager::TYPE_IMPORT, 'mock', 'order' );
+		$jobs->update_progress(
+			$job_id,
+			null,
+			[
+				'total'     => 1,
+				'processed' => 1,
+				'created'   => 1,
+				'updated'   => 0,
+				'skipped'   => 0,
+				'warned'    => 0,
+				'failed'    => 0,
+			]
+		);
+		$jobs->update_status( $job_id, JobRepository::STATUS_COMPLETED );
+
+		$row = $this->build( 'legacy-run' )['entities'][0];
+
+		$this->assertNull( $row['remote_amount'] );
+		$this->assertSame( '0.00', $row['local_amount'] );
+	}
+
 	public function test_dry_run_type_is_passed_through_for_the_endpoint_to_reject(): void {
 		$this->register_adapter_with_orders();
 

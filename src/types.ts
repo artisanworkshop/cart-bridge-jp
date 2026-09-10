@@ -134,17 +134,17 @@ export interface LogEntry {
 
 /**
  * `GET /tools/sample-cleanup?platform=` の応答（`Woo\Tools\SampleCleanup::preview()`）。
- * `counts` のキーは `SampleCleanup::RESULT_KEYS` から `attachment` を除いたもの。
+ * `delete` / `unlink` のキーは `SampleCleanup::RESULT_KEYS`（`attachment` は `delete` のみ意味を持つ）。
+ * `requires_delete_users` が true で `can_delete_users` が false のとき、実行は 403 で拒否される。
  */
 export interface CleanupPreview {
 	platform: string;
 	run_in_progress: boolean;
-	counts: Record< string, number >;
-	attachments: number;
-	customers: {
-		delete: number;
-		unlink: number;
-	};
+	delete: Record< string, number >;
+	unlink: Record< string, number >;
+	requires_delete_users: boolean;
+	can_delete_users: boolean;
+	sample_selected: boolean;
 }
 
 /**

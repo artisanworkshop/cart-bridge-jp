@@ -86,7 +86,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$result   = $this->make_writer()->write( $customer, null );
 
 		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
-		$this->assertSame( '1', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ), 'マーカーは作成したプラットフォームを保持する' );
 		$this->assertSame( 'colorme', get_user_meta( $result->local_id, '_cbjp_platform', true ) );
 	}
 

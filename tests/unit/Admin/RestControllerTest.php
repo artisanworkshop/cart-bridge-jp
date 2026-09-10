@@ -16,6 +16,7 @@ use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
@@ -1051,8 +1052,31 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( 'mock', $data['platform'] );
 		$this->assertFalse( $data['run_in_progress'] );
-		$this->assertSame( 1, $data['counts']['category'] );
-		$this->assertSame( 0, $data['attachments'] );
+		// 実体が無い mapping は「削除」ではなく「unlink」として数える。
+		$this->assertSame( 0, $data['delete']['category'] );
+		$this->assertSame( 1, $data['unlink']['category'] );
+		$this->assertSame( 0, $data['delete']['attachment'] );
+		$this->assertFalse( $data['requires_delete_users'] );
+		$this->assertTrue( $data['can_delete_users'] );
+		$this->assertFalse( $data['sample_selected'] );
+	}
+
+	public function test_run_sample_cleanup_is_forbidden_for_users_who_cannot_delete_users(): void {
+		$this->register_mock_adapter();
+		$customer_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+		update_user_meta( $customer_id, '_cbjp_platform', 'mock' );
+		update_user_meta( $customer_id, '_cbjp_remote_id', 'cu1' );
+		update_user_meta( $customer_id, CustomerWriter::CREATED_BY_IMPORT_META, 'mock' );
+		( new MappingRepository() )->upsert( 'mock', 'customer', 'cu1', $customer_id, null );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'cbjp_cleanup_forbidden', $response->as_error()->get_error_code() );
+		$this->assertSame( 1, ( new MappingRepository() )->count( 'mock', 'customer' ) );
 	}
 
 	public function test_run_sample_cleanup_is_rejected_while_a_run_is_active(): void {
