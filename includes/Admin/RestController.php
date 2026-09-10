@@ -281,8 +281,10 @@ final class RestController {
 				'args'                => array_merge(
 					$platform_arg,
 					[
+						// 管理画面は初回に `cursor: null` を送るため null を許容する（`type: string` のみだと
+						// `rest_parse_request_arg` が JSON の null を型エラーとして 400 にする）。
 						'cursor' => [
-							'type'              => 'string',
+							'type'              => [ 'string', 'null' ],
 							'required'          => false,
 							'validate_callback' => 'rest_validate_request_arg',
 						],
@@ -518,6 +520,16 @@ final class RestController {
 	 * URLキャプチャそのもの（`get_url_params()`）だけを見ることで、リクエストデータによる
 	 * リソースの取り違えを構造的に防ぐ。
 	 */
+	/**
+	 * `/runs/{run_id}/...` のパスパラメータ。`platform_param()` と同じ理由でパス由来の値だけを読む
+	 * （`get_param()` はGETでもクエリ文字列の同名値をパスより優先する）。
+	 */
+	private function run_id_param( WP_REST_Request $request ): string {
+		$run_id = $request->get_url_params()['run_id'] ?? null;
+
+		return is_string( $run_id ) ? $run_id : '';
+	}
+
 	private function platform_param( WP_REST_Request $request ): string {
 		$platform = $request->get_url_params()['platform'] ?? null;
 
@@ -815,7 +827,7 @@ final class RestController {
 	}
 
 	public function get_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id = (string) $request->get_param( 'run_id' );
+		$run_id = $this->run_id_param( $request );
 		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
 
 		if ( [] === $jobs ) {
@@ -856,7 +868,7 @@ final class RestController {
 	 * ルートがそのまま使える。
 	 */
 	public function get_run_report( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id = (string) $request->get_param( 'run_id' );
+		$run_id = $this->run_id_param( $request );
 
 		if ( [] === ( new JobRepository() )->find_by_run( $run_id ) ) {
 			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
@@ -906,7 +918,7 @@ final class RestController {
 	}
 
 	public function cancel_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id     = (string) $request->get_param( 'run_id' );
+		$run_id     = $this->run_id_param( $request );
 		$repository = new JobRepository();
 		$jobs       = $repository->find_by_run( $run_id );
 
@@ -926,7 +938,7 @@ final class RestController {
 	}
 
 	public function retry_job( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$id         = (int) $request->get_param( 'id' );
+		$id         = (int) ( $request->get_url_params()['id'] ?? 0 );
 		$repository = new JobRepository();
 		$job        = $repository->find( $id );
 
@@ -1019,7 +1031,7 @@ final class RestController {
 	 * （dry-run は Woo 側に何も書かないため突合対象が無い）。
 	 */
 	public function get_run_verification( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id = (string) $request->get_param( 'run_id' );
+		$run_id = $this->run_id_param( $request );
 		$report = ( new VerificationReport( new JobRepository(), new MappingRepository() ) )->build( $run_id );
 
 		if ( null === $report ) {

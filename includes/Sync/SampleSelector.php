@@ -52,8 +52,9 @@ final class SampleSelector {
 
 	/**
 	 * サンプルセットを破棄する。サンプルのやり直しは「クリーンアップ→再選定」でのみ行う（§10.2 #7）。
+	 * サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）がアダプタを介さずに呼べるよう static。
 	 */
-	public function clear( string $platform ): void {
+	public static function clear( string $platform ): void {
 		delete_option( self::option_name_for( $platform ) );
 	}
 

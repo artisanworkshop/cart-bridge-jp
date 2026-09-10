@@ -290,7 +290,10 @@ export default function ToolsTab() {
 				const result: RebuildResult = await apiFetch< RebuildResult >( {
 					path: '/cbjp/v1/tools/rebuild-mappings',
 					method: 'POST',
-					data: { platform: requested, cursor },
+					data:
+						null === cursor
+							? { platform: requested }
+							: { platform: requested, cursor },
 				} );
 
 				if ( platformRef.current !== requested ) {

@@ -41,16 +41,107 @@ export function formatAmount( amount: string, currency: string ): string {
 }
 
 /**
- * ASP側（この run で取得した全件）と Woo側（リンク済みで実在する全件）が件数・金額とも一致し、
- * 実体を失った mapping（missing）も無い状態。無料版で上限に達した run では一致しないのが正常。
+ * ASP側（この run で取得した全件）と Woo側（リンク済みで実在する全件）はスコープが違う
+ * （後者はプラットフォーム全体・全期間）ため、単なる一致/不一致ではなく差の向きを返す:
+ * - `missing`: mapping はあるが Woo 側の実体が無い（要 Rebuild links / 再 import）
+ * - `fewer`: 取得件数より Woo 側が少ない（無料版の上限・スキップ・警告。上限到達時は正常）
+ * - `more`: 取得件数より Woo 側が多い（過去の run で取り込んだ分。ASP 側で減った場合など）
+ * - `amount`: 件数は一致するが受注合計が一致しない
+ * - `reconciled`: 件数・金額とも一致し missing も無い
  * @param row
  */
-export function isReconciled( row: VerificationEntity ): boolean {
-	return (
-		0 === row.missing &&
-		row.existing === row.processed &&
-		( null === row.remote_amount || row.remote_amount === row.local_amount )
-	);
+export type RowStatus = 'reconciled' | 'missing' | 'fewer' | 'more' | 'amount';
+
+export function rowStatus( row: VerificationEntity ): RowStatus {
+	if ( row.missing > 0 ) {
+		return 'missing';
+	}
+
+	if ( row.existing < row.processed ) {
+		return 'fewer';
+	}
+
+	if ( row.existing > row.processed ) {
+		return 'more';
+	}
+
+	if (
+		null !== row.remote_amount &&
+		row.remote_amount !== row.local_amount
+	) {
+		return 'amount';
+	}
+
+	return 'reconciled';
+}
+
+const STATUS_LABELS: Record< RowStatus, string > = {
+	reconciled: __( 'Reconciled', 'cart-bridge-jp' ),
+	missing: __( 'Missing links', 'cart-bridge-jp' ),
+	fewer: __( 'Fewer in WooCommerce', 'cart-bridge-jp' ),
+	more: __( 'More in WooCommerce', 'cart-bridge-jp' ),
+	amount: __( 'Totals differ', 'cart-bridge-jp' ),
+};
+
+interface StatusNotice {
+	status: 'success' | 'info' | 'warning';
+	message: string;
+}
+
+function buildNotices( statuses: Set< RowStatus > ): StatusNotice[] {
+	const notices: StatusNotice[] = [];
+
+	if ( statuses.has( 'missing' ) ) {
+		notices.push( {
+			status: 'warning',
+			message: __(
+				'Some linked records no longer exist in WooCommerce. Run “Rebuild links” on the Tools tab or import again to restore them.',
+				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	if ( statuses.has( 'fewer' ) ) {
+		notices.push( {
+			status: 'info',
+			message: __(
+				'Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report.',
+				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	if ( statuses.has( 'more' ) ) {
+		notices.push( {
+			status: 'info',
+			message: __(
+				'WooCommerce holds more linked records than this run fetched. They were imported by earlier runs (for example records that have since been removed on the platform).',
+				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	if ( statuses.has( 'amount' ) ) {
+		notices.push( {
+			status: 'warning',
+			message: __(
+				'The order totals differ between the platform and WooCommerce even though the counts match. Check the orders with warnings.',
+				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	if ( 0 === notices.length ) {
+		notices.push( {
+			status: 'success',
+			message: __(
+				'Every record fetched in this run exists in WooCommerce and the order totals match.',
+				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	return notices;
 }
 
 export default function VerificationReport( { runId, entityLabels }: Props ) {
@@ -96,7 +187,7 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 		return <Spinner />;
 	}
 
-	const allReconciled = report.entities.every( isReconciled );
+	const statuses = new Set( report.entities.map( rowStatus ) );
 	const hasAmounts = report.entities.some(
 		( row ) => null !== row.remote_amount
 	);
@@ -104,20 +195,15 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 	return (
 		<div className="cbjp-verification">
 			<h3>{ __( 'Verification report', 'cart-bridge-jp' ) }</h3>
-			<Notice
-				status={ allReconciled ? 'success' : 'info' }
-				isDismissible={ false }
-			>
-				{ allReconciled
-					? __(
-							'Every record fetched in this run exists in WooCommerce and the order totals match.',
-							'cart-bridge-jp'
-					  )
-					: __(
-							'Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report.',
-							'cart-bridge-jp'
-					  ) }
-			</Notice>
+			{ buildNotices( statuses ).map( ( notice ) => (
+				<Notice
+					key={ notice.message }
+					status={ notice.status }
+					isDismissible={ false }
+				>
+					{ notice.message }
+				</Notice>
+			) ) }
 			<div className="cbjp-verification__scroll">
 				<table className="widefat striped cbjp-verification__table">
 					<thead>
@@ -190,11 +276,7 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 										</td>
 									</>
 								) }
-								<td>
-									{ isReconciled( row )
-										? __( 'Reconciled', 'cart-bridge-jp' )
-										: __( 'Differs', 'cart-bridge-jp' ) }
-								</td>
+								<td>{ STATUS_LABELS[ rowStatus( row ) ] }</td>
 							</tr>
 						) ) }
 					</tbody>

@@ -29,7 +29,8 @@ use WP_User;
  * `_cbjp_platform` メタで自プラットフォーム所有と確認できるものだけを削除する。
  * 所有権が無い・実体が既に無い行は mapping 行だけ外す（`unlinked`）。email突合で採用した
  * 既存WPユーザー（`CustomerWriter`）は `_cbjp_created_by_import` マーカーが無いため削除せず、
- * リンク用メタを外して残す。
+ * リンク用メタを外して残す。取り込んだ画像（添付）は、それを使っていた商品・タームが無くなって
+ * 孤児になったものだけを消す（`deletable_attachment_ids()`）。
  *
  * 1回の `run()` は予算（`$budget` 実体）まで削除して `has_more` を返し、呼び出し側（管理画面）が
  * 完了までループする（Action Schedulerジョブにはしない: 削除済み行は消えるので cursor 不要で、
@@ -57,6 +58,8 @@ final class SampleCleanup {
 	private const ENTITY_ORDER = [ 'order', 'stock', 'review', 'product', 'variant', 'coupon', 'customer', 'tag', 'category' ];
 
 	private const LINK_USER_META_KEYS = [ '_cbjp_platform', '_cbjp_remote_id', CustomerWriter::CREATED_BY_IMPORT_META ];
+
+	private const IMAGE_TAXONOMIES = [ 'product_cat', 'product_tag' ];
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
@@ -88,9 +91,18 @@ final class SampleCleanup {
 			}
 		}
 
+		// 削除対象の画像: 既に孤児のものに加え、mapping 経由で消える商品・タームが使っているもの。
+		$doomed_terms = array_merge( $this->mappings->local_ids( $platform, 'category' ), $this->mappings->local_ids( $platform, 'tag' ) );
+
 		return [
 			'counts'      => $counts,
-			'attachments' => count( $this->owned_attachment_ids( $platform, -1 ) ),
+			'attachments' => count(
+				$this->deletable_attachment_ids(
+					$platform,
+					$this->mappings->local_ids( $platform, 'product' ),
+					$this->term_thumbnail_ids( $doomed_terms )
+				)
+			),
 			'customers'   => [
 				'delete' => $delete,
 				'unlink' => $unlink,
@@ -124,7 +136,8 @@ final class SampleCleanup {
 				}
 
 				foreach ( $page as $remote_id => $local_id ) {
-					$outcome = $this->remove_entity( $platform, $entity, $local_id, $variations, $deleted );
+					$variants_before = $deleted['variant'];
+					$outcome         = $this->remove_entity( $platform, $entity, $local_id, $variations, $deleted );
 					// `delete_one()` が行を消すため、次の `find_page()` は同じ行を返さない（ループは
 					// `$remaining` の減算で必ず終わる）。
 					$this->mappings->delete_one( $platform, $entity, (string) $remote_id );
@@ -135,7 +148,9 @@ final class SampleCleanup {
 						++$unlinked[ $entity ];
 					}
 
-					--$remaining;
+					// 商品削除に伴う variation の削除も予算に数える（軸の多い商品が並ぶと1リクエストの
+					// 実削除数が予算を大きく超えるため）。
+					$remaining -= 1 + ( $deleted['variant'] - $variants_before );
 				}
 			}
 
@@ -144,10 +159,12 @@ final class SampleCleanup {
 			}
 		}
 
-		// 所有添付（`MediaImporter` が取り込んだ商品画像・カテゴリ画像）。商品・タームを消した後に消す。
-		$attachment_ids = $this->owned_attachment_ids( $platform, $remaining );
+		// 所有添付（`MediaImporter` が取り込んだ商品画像・カテゴリ画像）は、それを使っていた商品・タームが
+		// 無くなって孤児になったものだけを消す（mappings を失った店舗でクリーンアップを実行しても、
+		// 残っている商品・タームの画像を道連れにしない）。候補は毎回全件を判定し直し、予算分だけ消す。
+		$attachment_ids = $this->deletable_attachment_ids( $platform );
 
-		foreach ( $attachment_ids as $attachment_id ) {
+		foreach ( array_slice( $attachment_ids, 0, $remaining ) as $attachment_id ) {
 			if ( ! wp_delete_attachment( $attachment_id, true ) instanceof WP_Post ) {
 				// 削除できない添付を所有メタ付きのまま残すと次のバッチで再び拾い続けて終わらないため、
 				// 所有メタだけ外して対象から除外する。
@@ -159,13 +176,13 @@ final class SampleCleanup {
 			++$deleted['attachment'];
 		}
 
-		if ( count( $attachment_ids ) >= $remaining ) {
+		if ( count( $attachment_ids ) > $remaining ) {
 			return $this->result( $platform, $deleted, $unlinked, true );
 		}
 
 		// 最終処理: 上の順序で拾い切れなかった行（親を失った variant 等）を掃除し、サンプルセットを消す。
 		$this->mappings->delete_for_platform( $platform );
-		delete_option( SampleSelector::option_name_for( $platform ) );
+		SampleSelector::clear( $platform );
 
 		return $this->result( $platform, $deleted, $unlinked, false );
 	}
@@ -262,15 +279,18 @@ final class SampleCleanup {
 
 	/**
 	 * 本プラグインが作成し（`_cbjp_created_by_import`）、店舗スタッフ権限を持たず、実行中の
-	 * 管理者自身でもないアカウントのみ削除できる。マーカー導入前に作成されたアカウントは
-	 * 安全側に倒して unlink 扱いにする。
+	 * 管理者自身でもないアカウントを、**実行者がユーザー削除権限（`delete_user`）を持つ場合のみ**
+	 * 削除できる（`wp_delete_user()` 自体は capability を見ない。ルートの `manage_woocommerce` だけでは
+	 * shop_manager が WP 管理画面でできないアカウント削除をここ経由で行えてしまう）。
+	 * 条件を満たさないアカウント（マーカー導入前に作成されたものを含む）は安全側に倒して unlink 扱いにする。
 	 */
 	private function can_delete_user( int $user_id, string $platform ): bool {
 		return get_userdata( $user_id ) instanceof WP_User
 			&& get_user_meta( $user_id, '_cbjp_platform', true ) === $platform
 			&& '1' === get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true )
 			&& ! CustomerWriter::has_protected_role( $user_id )
-			&& get_current_user_id() !== $user_id;
+			&& get_current_user_id() !== $user_id
+			&& current_user_can( 'delete_user', $user_id );
 	}
 
 	/**
@@ -285,18 +305,22 @@ final class SampleCleanup {
 	}
 
 	/**
-	 * `_cbjp_platform` メタは `Woo\Support\MediaImporter`（と `ProductWriter::apply_images()`）が
-	 * 取り込んだ添付にしか書かないため、これだけで「このプラットフォーム由来の画像」と判定できる。
+	 * 削除してよい所有添付の一覧。所有の判定は `ProductWriter::set_images()` の所有権述語と同じ
+	 * 「`_cbjp_source_url` あり かつ `_cbjp_platform` が自プラットフォーム」（＝`MediaImporter` が
+	 * 取り込んだ画像）。そのうち次のいずれかに該当するものだけを返す:
+	 * - 親投稿（`media_sideload_image()` の紐付け先＝商品）が無い、または `$doomed_product_ids` に含まれる
+	 * - タームの `thumbnail_id` として参照されていない、または参照元が `$doomed_term_thumbnail_ids` に含まれる
 	 *
-	 * @param int $limit -1 で全件。
+	 * @param array<int,int> $doomed_product_ids        これから削除される（mapping 経由の）商品ID。
+	 * @param array<int,int> $doomed_term_thumbnail_ids これから削除されるタームの thumbnail_id。
 	 * @return array<int,int>
 	 */
-	private function owned_attachment_ids( string $platform, int $limit ): array {
+	private function deletable_attachment_ids( string $platform, array $doomed_product_ids = [], array $doomed_term_thumbnail_ids = [] ): array {
 		$ids = get_posts(
 			[
 				'post_type'      => 'attachment',
 				'post_status'    => 'any',
-				'posts_per_page' => $limit,
+				'posts_per_page' => -1,
 				'fields'         => 'ids',
 				'orderby'        => 'ID',
 				'order'          => 'ASC',
@@ -307,11 +331,98 @@ final class SampleCleanup {
 						'key'   => '_cbjp_platform',
 						'value' => $platform,
 					],
+					[
+						'key'     => '_cbjp_source_url',
+						'compare' => 'EXISTS',
+					],
 				],
 			]
 		);
 
-		return array_map( 'intval', $ids );
+		$ids = array_map( 'intval', $ids );
+
+		if ( [] === $ids ) {
+			return [];
+		}
+
+		// `fields => 'ids'` は投稿オブジェクトをキャッシュしないため、親IDの参照前に一括プリロードする
+		// （添付ごとの個別 SELECT を避ける）。親投稿の実在確認も同様に一括で温める。
+		_prime_post_caches( $ids, false, false );
+		$parent_ids = [];
+
+		foreach ( $ids as $attachment_id ) {
+			$parent_ids[ $attachment_id ] = (int) get_post_field( 'post_parent', $attachment_id );
+		}
+
+		_prime_post_caches( array_values( array_filter( $parent_ids ) ), false, false );
+
+		$referencing_thumbnails = $this->term_thumbnail_ids( $this->term_ids_with_thumbnail() );
+		$doomed_products        = array_flip( $doomed_product_ids );
+		$doomed_thumbnails      = array_flip( $doomed_term_thumbnail_ids );
+		$deletable              = [];
+
+		foreach ( $ids as $attachment_id ) {
+			$parent_id = $parent_ids[ $attachment_id ];
+
+			if ( $parent_id > 0 && ! isset( $doomed_products[ $parent_id ] ) && get_post( $parent_id ) instanceof WP_Post ) {
+				continue;
+			}
+
+			if ( in_array( $attachment_id, $referencing_thumbnails, true ) && ! isset( $doomed_thumbnails[ $attachment_id ] ) ) {
+				continue;
+			}
+
+			$deletable[] = $attachment_id;
+		}
+
+		return $deletable;
+	}
+
+	/**
+	 * @return array<int,int> `thumbnail_id` を持つ商品カテゴリ／タグの term ID。
+	 */
+	private function term_ids_with_thumbnail(): array {
+		$term_ids = get_terms(
+			[
+				'taxonomy'   => self::IMAGE_TAXONOMIES,
+				'hide_empty' => false,
+				'fields'     => 'ids',
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツール。タームの画像参照は termmeta にしか無い。
+				'meta_query' => [
+					[
+						'key'     => 'thumbnail_id',
+						'compare' => 'EXISTS',
+					],
+				],
+			]
+		);
+
+		return is_array( $term_ids ) ? array_map( 'intval', $term_ids ) : [];
+	}
+
+	/**
+	 * @param array<int,int> $term_ids
+	 * @return array<int,int> 各タームの `thumbnail_id`（未設定は除外）。
+	 */
+	private function term_thumbnail_ids( array $term_ids ): array {
+		$term_ids = array_values( array_unique( array_map( 'intval', $term_ids ) ) );
+
+		if ( [] === $term_ids ) {
+			return [];
+		}
+
+		update_termmeta_cache( $term_ids );
+		$thumbnail_ids = [];
+
+		foreach ( $term_ids as $term_id ) {
+			$thumbnail_id = (int) get_term_meta( $term_id, 'thumbnail_id', true );
+
+			if ( $thumbnail_id > 0 ) {
+				$thumbnail_ids[] = $thumbnail_id;
+			}
+		}
+
+		return array_values( array_unique( $thumbnail_ids ) );
 	}
 
 	/**

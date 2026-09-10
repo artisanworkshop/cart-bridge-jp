@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
+use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WC_Product_Simple;
@@ -1102,6 +1103,24 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( $product_id, ( new MappingRepository() )->find_local_id( 'mock', 'product', 'p1' ) );
 	}
 
+	public function test_rebuild_mappings_accepts_a_null_cursor(): void {
+		// 管理画面は初回リクエストで `cursor: null` を送る。`type: string` のみの args スキーマだと
+		// `rest_parse_request_arg` が null を型エラー（400）にしてしまう。
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params(
+			[
+				'platform' => 'mock',
+				'cursor'   => null,
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNull( $response->get_data()['cursor'] );
+	}
+
 	public function test_rebuild_mappings_rejects_an_invalid_cursor(): void {
 		$this->register_mock_adapter();
 
@@ -1133,6 +1152,56 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'cbjp_verification_unavailable', $response->as_error()->get_error_code() );
+	}
+
+	public function test_run_routes_read_the_run_id_from_the_path_not_the_query_string(): void {
+		// `get_param()` は GET でもクエリ文字列の同名値をパスより優先する（CLAUDE.md）。
+		// `?run_id=...` で別の run を名指しされても、パスの run を返すこと。
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}" );
+		$request->set_query_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $run_id, $response->get_data()['run_id'] );
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$request->set_query_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		// verification は dry-run に対して 400（run 自体は見つかっている）。404 ならクエリ側を読んでいる。
+		$this->assertSame( 400, $response->get_status() );
+
+		// POST はボディがパスより優先されるため、cancel はボディで別 run を名指しされてもパスの run を止める。
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
+		$request->set_body_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( JobRepository::STATUS_CANCELLED, ( new JobRepository() )->find_by_run( $run_id )[0]['status'] );
+	}
+
+	public function test_retry_job_reads_the_job_id_from_the_path_not_the_body(): void {
+		$this->register_mock_adapter();
+		$jobs   = new JobRepository();
+		$job_a  = $jobs->create( 'run-a', 'import', 'mock', 'category' );
+		$job_b  = $jobs->create( 'run-b', 'import', 'mock', 'category' );
+		$failed = [
+			'code'    => 'exception',
+			'message' => 'boom',
+		];
+		$jobs->mark_failed( $job_a, $failed );
+		$jobs->mark_failed( $job_b, $failed );
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/jobs/{$job_a}/retry" );
+		$request->set_body_params( [ 'id' => $job_b ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $job_a, $response->get_data()['id'] );
+		$this->assertSame( JobRepository::STATUS_PENDING, $jobs->find( $job_a )['status'] );
+		$this->assertSame( JobRepository::STATUS_FAILED, $jobs->find( $job_b )['status'] );
 	}
 
 	public function test_get_run_verification_returns_the_report_for_an_import_run(): void {

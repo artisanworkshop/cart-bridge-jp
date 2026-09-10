@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Tools;
 
 use CartBridgeJP\Support\Logger;
+use Automattic\WooCommerce\Utilities\OrderUtil;
 use CartBridgeJP\Sync\MappingRepository;
 use InvalidArgumentException;
 use WC_Order;
@@ -57,8 +58,8 @@ final class MappingRebuilder {
 		$sources   = count( self::SOURCES );
 
 		while ( $index < $sources && $remaining > 0 ) {
-			$entity = self::SOURCES[ $index ];
-			$rows   = $this->scan( $platform, $entity, $offset, $remaining );
+			$entity                                    = self::SOURCES[ $index ];
+			[ 'scanned' => $scanned, 'rows' => $rows ] = $this->scan( $platform, $entity, $offset, $remaining );
 
 			foreach ( $rows as $local_id => $remote_id ) {
 				if ( '' === $remote_id ) {
@@ -69,17 +70,17 @@ final class MappingRebuilder {
 				++$counts[ $entity ];
 			}
 
-			$fetched = count( $rows );
-
-			if ( $fetched < $remaining ) {
+			// cursor の前進判定は「クエリが返した件数」（所有権フィルタで除外した分を含む）で行う。
+			// upsert 対象の件数で判定すると、除外行が多いページで走査し切ったと誤認して残りを飛ばす。
+			if ( $scanned < $remaining ) {
 				// 要求件数に満たない＝このエンティティは走査し切った。
 				++$index;
 				$offset = 0;
 			} else {
-				$offset += $fetched;
+				$offset += $scanned;
 			}
 
-			$remaining -= $fetched;
+			$remaining -= $scanned;
 		}
 
 		$next_cursor = $index < $sources ? $this->encode_cursor( $index, $offset ) : null;
@@ -100,7 +101,8 @@ final class MappingRebuilder {
 	}
 
 	/**
-	 * @return array<int,string> local_id => remote_id（未設定は ''）。
+	 * @return array{scanned:int,rows:array<int,string>} `scanned` はクエリが返した件数（cursor 用）、
+	 *   `rows` は所有権を確認できた local_id => remote_id（未設定は ''）。
 	 */
 	private function scan( string $platform, string $entity, int $offset, int $limit ): array {
 		return match ( $entity ) {
@@ -111,12 +113,15 @@ final class MappingRebuilder {
 			'coupon'   => $this->scan_posts( 'shop_coupon', $platform, $offset, $limit ),
 			'customer' => $this->scan_users( $platform, $offset, $limit ),
 			'order'    => $this->scan_orders( $platform, $offset, $limit ),
-			default    => [],
+			default    => [
+				'scanned' => 0,
+				'rows'    => [],
+			],
 		};
 	}
 
 	/**
-	 * @return array<int,string>
+	 * @return array{scanned:int,rows:array<int,string>}
 	 */
 	private function scan_terms( string $taxonomy, string $platform, int $offset, int $limit ): array {
 		$terms = get_terms(
@@ -134,7 +139,10 @@ final class MappingRebuilder {
 		);
 
 		if ( ! is_array( $terms ) ) {
-			return [];
+			return [
+				'scanned' => 0,
+				'rows'    => [],
+			];
 		}
 
 		$ids = array_map( 'intval', $terms );
@@ -146,11 +154,14 @@ final class MappingRebuilder {
 			$rows[ $term_id ] = $this->meta_string( get_term_meta( $term_id, '_cbjp_remote_id', true ) );
 		}
 
-		return $rows;
+		return [
+			'scanned' => count( $ids ),
+			'rows'    => $rows,
+		];
 	}
 
 	/**
-	 * @return array<int,string>
+	 * @return array{scanned:int,rows:array<int,string>}
 	 */
 	private function scan_posts( string $post_type, string $platform, int $offset, int $limit ): array {
 		$ids = get_posts(
@@ -178,11 +189,14 @@ final class MappingRebuilder {
 			$rows[ $post_id ] = $this->meta_string( get_post_meta( $post_id, '_cbjp_remote_id', true ) );
 		}
 
-		return $rows;
+		return [
+			'scanned' => count( $ids ),
+			'rows'    => $rows,
+		];
 	}
 
 	/**
-	 * @return array<int,string>
+	 * @return array{scanned:int,rows:array<int,string>}
 	 */
 	private function scan_users( string $platform, int $offset, int $limit ): array {
 		$ids = get_users(
@@ -207,38 +221,56 @@ final class MappingRebuilder {
 			$rows[ $user_id ] = $this->meta_string( get_user_meta( $user_id, '_cbjp_remote_id', true ) );
 		}
 
-		return $rows;
+		return [
+			'scanned' => count( $ids ),
+			'rows'    => $rows,
+		];
 	}
 
 	/**
-	 * 受注は要件どおり WooCommerce CRUD 経由（HPOS の `OrdersTableQuery` は `meta_query` /
-	 * `offset` を解釈する。CPT 構成でも `WP_Query` 経由で同じ引数が通る）。
+	 * 受注は要件どおり WooCommerce CRUD 経由。`meta_query` を解釈するのは HPOS の `OrdersTableQuery` だけで、
+	 * レガシー（投稿型）ストレージでは WC 9.2+ が「非対応引数」として無視し `doing_it_wrong` を出す
+	 * （`WC_Order_Data_Store_CPT::query()`）。そのため絞り込みは HPOS 有効時の最適化としてのみ付け、
+	 * どちらの構成でも取得後に `_cbjp_platform` を検証したものだけを upsert 対象にする（レガシー構成では
+	 * 全受注を offset ページングで走査することになるが、他プラットフォーム由来の受注を誤って紐付けない）。
 	 *
-	 * @return array<int,string>
+	 * @return array{scanned:int,rows:array<int,string>}
 	 */
 	private function scan_orders( string $platform, int $offset, int $limit ): array {
-		$orders = wc_get_orders(
-			[
-				'type'       => 'shop_order',
-				'limit'      => $limit,
-				'offset'     => $offset,
-				'orderby'    => 'ID',
-				'order'      => 'ASC',
-				'return'     => 'objects',
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
-				'meta_query' => $this->ownership_meta_query( $platform ),
-			]
-		);
+		$args = [
+			'type'    => 'shop_order',
+			'limit'   => $limit,
+			'offset'  => $offset,
+			'orderby' => 'ID',
+			'order'   => 'ASC',
+			'return'  => 'objects',
+		];
 
-		$rows = [];
+		if ( OrderUtil::custom_orders_table_usage_is_enabled() ) {
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
+			$args['meta_query'] = $this->ownership_meta_query( $platform );
+		}
+
+		$orders  = wc_get_orders( $args );
+		$scanned = 0;
+		$rows    = [];
 
 		foreach ( (array) $orders as $order ) {
-			if ( $order instanceof WC_Order ) {
+			if ( ! $order instanceof WC_Order ) {
+				continue;
+			}
+
+			++$scanned;
+
+			if ( $order->get_meta( '_cbjp_platform' ) === $platform ) {
 				$rows[ $order->get_id() ] = $this->meta_string( $order->get_meta( '_cbjp_remote_order_number' ) );
 			}
 		}
 
-		return $rows;
+		return [
+			'scanned' => $scanned,
+			'rows'    => $rows,
+		];
 	}
 
 	/**

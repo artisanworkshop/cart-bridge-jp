@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Tools;
 
+use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
@@ -27,6 +28,13 @@ final class SampleCleanupTest extends WooTestCase {
 	 * @var array<string,WooWriter>
 	 */
 	private array $writers = [];
+
+	public function set_up(): void {
+		parent::set_up();
+		// `wp_delete_user()` は capability を見ないため、ツール側で `delete_user` を要求する。
+		// テストは管理者として実行する（shop_manager のケースは個別テストで確認）。
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+	}
 
 	public function tear_down(): void {
 		wp_set_current_user( 0 );
@@ -217,6 +225,82 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertSame( '', get_user_meta( $admin_id, '_cbjp_platform', true ) );
 		$this->assertSame( '', get_user_meta( $self_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'customer' ) );
+	}
+
+	public function test_shop_manager_can_only_unlink_customer_accounts(): void {
+		// `manage_woocommerce` は持つが `delete_users` は持たない shop_manager が、WP 管理画面では
+		// できないアカウント削除をこのツール経由で行えてはならない。
+		$user_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu1', 'cu1@example.com' ) );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+
+		$this->assertSame(
+			[
+				'delete' => 0,
+				'unlink' => 1,
+			],
+			$cleanup->preview( 'mock' )['customers']
+		);
+
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertSame( 0, $result['deleted']['customer'] );
+		$this->assertSame( 1, $result['unlinked']['customer'] );
+		$this->assertInstanceOf( WP_User::class, get_userdata( $user_id ) );
+		$this->assertSame( '', get_user_meta( $user_id, '_cbjp_platform', true ) );
+	}
+
+	public function test_images_of_products_that_are_still_linked_elsewhere_or_unmapped_are_preserved(): void {
+		// mappings を失った店舗（Rebuild links が想定する状況）でクリーンアップを実行しても、
+		// 残っている商品の画像を道連れにしない。
+		$this->stub_image_http();
+
+		$product_id = $this->import( 'mock', 'product', $this->variable_product_with_image( 'p1', 'SKU-KEEP' ) );
+		$image_id   = (int) wc_get_product( $product_id )->get_image_id();
+		$this->assertGreaterThan( 0, $image_id );
+
+		$this->mappings->delete_for_platform( 'mock' );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+
+		$this->assertSame( 0, $cleanup->preview( 'mock' )['attachments'] );
+
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertSame( 0, $result['deleted']['attachment'] );
+		$this->assertInstanceOf( WC_Product::class, wc_get_product( $product_id ) );
+		$this->assertInstanceOf( \WP_Post::class, get_post( $image_id ) );
+	}
+
+	public function test_term_thumbnails_of_surviving_terms_are_preserved(): void {
+		// タームの画像は親投稿 0 で取り込まれる（`TermWriter` → `MediaImporter::import( $url, 0 )`）ため、
+		// 「親が無い」だけで孤児と判定すると残っているカテゴリの画像を消してしまう。
+		$this->stub_image_http();
+
+		$category_id = $this->import( 'mock', 'category', new CanonicalCategory( 'c1', 'Category 1', null, null, [ 'image_url' => 'https://example.test/c1.png' ] ) );
+		$thumbnail   = (int) get_term_meta( $category_id, 'thumbnail_id', true );
+		$this->assertGreaterThan( 0, $thumbnail );
+		$this->assertSame( 'mock', get_post_meta( $thumbnail, '_cbjp_platform', true ) );
+
+		$this->mappings->delete_for_platform( 'mock' );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+
+		$this->assertSame( 0, $cleanup->preview( 'mock' )['attachments'] );
+		$cleanup->run( 'mock' );
+
+		$this->assertInstanceOf( \WP_Post::class, get_post( $thumbnail ) );
+
+		// mapping があれば、タームと一緒に画像も消える。
+		$this->mappings->upsert( 'mock', 'category', 'c1', $category_id, null );
+		$this->assertSame( 1, $cleanup->preview( 'mock' )['attachments'] );
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertSame( 1, $result['deleted']['category'] );
+		$this->assertSame( 1, $result['deleted']['attachment'] );
+		$this->assertNull( get_post( $thumbnail ) );
 	}
 
 	public function test_missing_entities_are_only_unlinked(): void {
