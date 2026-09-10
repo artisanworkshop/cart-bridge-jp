@@ -1,5 +1,5 @@
 import { useEffect, useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import { Notice, Spinner } from '@wordpress/components';
 import apiFetch from '../api';
 import type {
@@ -52,7 +52,10 @@ export function formatAmount( amount: string, currency: string ): string {
  */
 export type RowStatus = 'reconciled' | 'missing' | 'fewer' | 'more' | 'amount';
 
-export function rowStatus( row: VerificationEntity ): RowStatus {
+export function rowStatus(
+	row: VerificationEntity,
+	amountsComparable: boolean
+): RowStatus {
 	if ( row.missing > 0 ) {
 		return 'missing';
 	}
@@ -66,6 +69,7 @@ export function rowStatus( row: VerificationEntity ): RowStatus {
 	}
 
 	if (
+		amountsComparable &&
 		null !== row.remote_amount &&
 		row.remote_amount !== row.local_amount
 	) {
@@ -73,6 +77,17 @@ export function rowStatus( row: VerificationEntity ): RowStatus {
 	}
 
 	return 'reconciled';
+}
+
+/**
+ * 金額の突合が成立した受注行があるか（旧ジョブは ASP 側合計が null、通貨不一致時は比較不能）。
+ * @param report
+ */
+function hasComparedOrderTotals( report: VerificationReportData ): boolean {
+	return (
+		! report.currency_mismatch &&
+		report.entities.some( ( row ) => null !== row.remote_amount )
+	);
 }
 
 const STATUS_LABELS: Record< RowStatus, string > = {
@@ -88,14 +103,19 @@ interface StatusNotice {
 	message: string;
 }
 
-function buildNotices( statuses: Set< RowStatus > ): StatusNotice[] {
+function buildNotices(
+	statuses: Set< RowStatus >,
+	report: VerificationReportData
+): StatusNotice[] {
 	const notices: StatusNotice[] = [];
 
 	if ( statuses.has( 'missing' ) ) {
+		// “Rebuild links” は残っている実体から mapping を作り直すだけで、消えた実体は戻せない。
+		// 消えた実体を作り直せるのは再 import（stale な mapping は writer が新規作成にフォールバック）。
 		notices.push( {
 			status: 'warning',
 			message: __(
-				'Some linked records no longer exist in WooCommerce. Run “Rebuild links” on the Tools tab or import again to restore them.',
+				'Some linked records no longer exist in WooCommerce. Import again to recreate them, or run the sample cleanup to drop the stale links.',
 				'cart-bridge-jp'
 			),
 		} );
@@ -105,8 +125,23 @@ function buildNotices( statuses: Set< RowStatus > ): StatusNotice[] {
 		notices.push( {
 			status: 'info',
 			message: __(
-				'Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report.',
+				'Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab.',
 				'cart-bridge-jp'
+			),
+		} );
+	}
+
+	if ( report.currency_mismatch ) {
+		notices.push( {
+			status: 'warning',
+			message: sprintf(
+				/* translators: 1: platform currency code, 2: store currency code */
+				__(
+					'Platform totals are in %1$s but the store currency is %2$s. Order amounts were stored without conversion, so the totals cannot be reconciled.',
+					'cart-bridge-jp'
+				),
+				report.platform_currency,
+				report.currency
 			),
 		} );
 	}
@@ -134,10 +169,15 @@ function buildNotices( statuses: Set< RowStatus > ): StatusNotice[] {
 	if ( 0 === notices.length ) {
 		notices.push( {
 			status: 'success',
-			message: __(
-				'Every record fetched in this run exists in WooCommerce and the order totals match.',
-				'cart-bridge-jp'
-			),
+			message: hasComparedOrderTotals( report )
+				? __(
+						'Every record fetched in this run exists in WooCommerce and the order totals match.',
+						'cart-bridge-jp'
+				  )
+				: __(
+						'Every record fetched in this run exists in WooCommerce.',
+						'cart-bridge-jp'
+				  ),
 		} );
 	}
 
@@ -187,7 +227,10 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 		return <Spinner />;
 	}
 
-	const statuses = new Set( report.entities.map( rowStatus ) );
+	const amountsComparable = ! report.currency_mismatch;
+	const statuses = new Set(
+		report.entities.map( ( row ) => rowStatus( row, amountsComparable ) )
+	);
 	const hasAmounts = report.entities.some(
 		( row ) => null !== row.remote_amount
 	);
@@ -195,7 +238,7 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 	return (
 		<div className="cbjp-verification">
 			<h3>{ __( 'Verification report', 'cart-bridge-jp' ) }</h3>
-			{ buildNotices( statuses ).map( ( notice ) => (
+			{ buildNotices( statuses, report ).map( ( notice ) => (
 				<Notice
 					key={ notice.message }
 					status={ notice.status }
@@ -262,7 +305,7 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 											{ null !== row.remote_amount
 												? formatAmount(
 														row.remote_amount,
-														report.currency
+														report.platform_currency
 												  )
 												: '—' }
 										</td>
@@ -276,7 +319,13 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 										</td>
 									</>
 								) }
-								<td>{ STATUS_LABELS[ rowStatus( row ) ] }</td>
+								<td>
+									{
+										STATUS_LABELS[
+											rowStatus( row, amountsComparable )
+										]
+									}
+								</td>
 							</tr>
 						) ) }
 					</tbody>

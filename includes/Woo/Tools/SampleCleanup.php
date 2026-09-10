@@ -58,7 +58,7 @@ final class SampleCleanup {
 	 */
 	private const ENTITY_ORDER = [ 'order', 'stock', 'review', 'product', 'variant', 'coupon', 'customer', 'tag', 'category' ];
 
-	private const LINK_USER_META_KEYS = [ '_cbjp_platform', '_cbjp_remote_id', CustomerWriter::CREATED_BY_IMPORT_META ];
+	private const LINK_USER_META_KEYS = [ '_cbjp_platform', '_cbjp_remote_id' ];
 
 	private const IMAGE_TAXONOMIES = [ 'product_cat', 'product_tag' ];
 
@@ -75,10 +75,12 @@ final class SampleCleanup {
 	 * @return array{delete:array<string,int>,unlink:array<string,int>,requires_delete_users:bool,can_delete_users:bool,sample_selected:bool}
 	 */
 	public function preview( string $platform ): array {
-		$delete          = array_fill_keys( self::RESULT_KEYS, 0 );
-		$unlink          = array_fill_keys( self::RESULT_KEYS, 0 );
-		$doomed_products = [];
-		$doomed_terms    = [];
+		$delete            = array_fill_keys( self::RESULT_KEYS, 0 );
+		$unlink            = array_fill_keys( self::RESULT_KEYS, 0 );
+		$doomed_products   = [];
+		$doomed_terms      = [];
+		$doomed_variations = [];
+		$variations        = new VariationWriter( $platform, $this->mappings );
 
 		foreach ( self::RESULT_KEYS as $entity ) {
 			if ( 'attachment' === $entity ) {
@@ -91,15 +93,29 @@ final class SampleCleanup {
 					continue;
 				}
 
+				if ( 'variant' === $entity ) {
+					// variation は mapping 行と、親商品の削除でカスケードする所有 variation の和集合で数える（下記）。
+					$doomed_variations[ $local_id ] = true;
+					continue;
+				}
+
 				++$delete[ $entity ];
 
 				if ( 'product' === $entity ) {
 					$doomed_products[] = $local_id;
+
+					// `run()` は親商品の削除時に `find_owned_variation_remote_ids()` で所有 variation を全て消す
+					// （variation の mapping が失われていても）ため、プレビューも同じ集合で数える。
+					foreach ( array_keys( $variations->find_owned_variation_remote_ids( $local_id ) ) as $variation_id ) {
+						$doomed_variations[ $variation_id ] = true;
+					}
 				} elseif ( 'category' === $entity || 'tag' === $entity ) {
 					$doomed_terms[] = $local_id;
 				}
 			}
 		}
+
+		$delete['variant'] = count( $doomed_variations );
 
 		// 削除対象の画像: 既に孤児のものに加え、上で「削除される」と判定した商品・タームが使っているもの。
 		$delete['attachment'] = count( $this->deletable_attachment_ids( $platform, $doomed_products, $this->term_thumbnail_ids( $doomed_terms ) ) );
@@ -337,6 +353,13 @@ final class SampleCleanup {
 		// email突合で採用した既存アカウント（または削除できなかったアカウント）はリンク用メタだけ外して残す。
 		foreach ( self::LINK_USER_META_KEYS as $meta_key ) {
 			delete_user_meta( $user_id, $meta_key );
+		}
+
+		// 作成マーカーは自プラットフォームの値のときだけ外す。別プラットフォームが作成したアカウントを
+		// 採用していた場合にその値を消すと、作成元のクリーンアップが削除できなくなり、作成元の
+		// 無料版顧客上限だけがリセットされてアカウントが残り続ける。
+		if ( get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform ) {
+			delete_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META );
 		}
 
 		return 'unlinked';

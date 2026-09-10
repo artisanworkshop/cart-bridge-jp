@@ -302,6 +302,29 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertSame( 0, $result['deleted']['customer'] );
 		$this->assertSame( 1, $result['unlinked']['customer'] );
 		$this->assertInstanceOf( WP_User::class, get_userdata( $user_id ) );
+		// 採用した側の unlink は作成元（A）のマーカーを消さない（A のクリーンアップが削除できなくなるため）。
+		$this->assertSame( 'other', get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '', get_user_meta( $user_id, '_cbjp_platform', true ) );
+	}
+
+	public function test_preview_counts_cascaded_variations_even_when_their_mappings_were_lost(): void {
+		$product_id = $this->import( 'mock', 'product', $this->variable_product_with_image( 'p1', 'SKU-CASCADE' ) );
+		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'variant', 'p1-v1' ) );
+
+		// variation の mapping だけ失われても、`run()` は親商品の削除時に所有 variation を消すため、
+		// プレビューも同じ件数を出す。
+		$this->mappings->delete_one( 'mock', 'variant', 'p1-v1' );
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$preview = $cleanup->preview( 'mock' );
+
+		$this->assertSame( 1, $preview['delete']['product'] );
+		$this->assertSame( 1, $preview['delete']['variant'] );
+
+		$result = $cleanup->run( 'mock' );
+
+		$this->assertSame( 1, $result['deleted']['variant'] );
+		$this->assertNull( get_post( $product_id ) );
 	}
 
 	public function test_budget_exhausted_by_variations_stops_the_page_early(): void {

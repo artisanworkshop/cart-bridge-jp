@@ -9,6 +9,7 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Tools\LocalEntityLookup;
+use CartBridgeJP\Woo\Writer\OrderWriter;
 
 /**
  * 移行後検証レポート（D17 / `docs/03-design-decisions.md` §10.4）。
@@ -29,7 +30,7 @@ final class VerificationReport {
 	) {}
 
 	/**
-	 * @return array{run_id:string,platform:string,type:string,currency:string,entities:array<int,array<string,mixed>>}|null run が無ければ null。
+	 * @return array{run_id:string,platform:string,type:string,currency:string,platform_currency:string,currency_mismatch:bool,entities:array<int,array<string,mixed>>}|null run が無ければ null。
 	 */
 	public function build( string $run_id ): ?array {
 		$jobs = $this->jobs->find_by_run( $run_id );
@@ -71,13 +72,19 @@ final class VerificationReport {
 			$entities[] = $row;
 		}
 
+		$currency = get_woocommerce_currency();
+
 		return [
-			'run_id'   => $run_id,
-			'platform' => $platform,
-			'type'     => (string) $jobs[0]['type'],
-			// `Writer\OrderWriter::apply_currency_and_tax_settings()` が受注に設定する通貨と同じ。
-			'currency' => get_woocommerce_currency(),
-			'entities' => $entities,
+			'run_id'            => $run_id,
+			'platform'          => $platform,
+			'type'              => (string) $jobs[0]['type'],
+			// `Writer\OrderWriter::apply_currency_and_tax_settings()` が受注に設定する通貨（店舗通貨）。
+			'currency'          => $currency,
+			// ASP 側の金額の通貨。店舗通貨と異なる場合、`OrderWriter` は数値をそのまま保存しているため
+			// 両者は数値上一致しても同じ金額ではない（UI は金額突合を「不可」として扱う）。
+			'platform_currency' => OrderWriter::PLATFORM_CURRENCY,
+			'currency_mismatch' => OrderWriter::PLATFORM_CURRENCY !== $currency,
+			'entities'          => $entities,
 		];
 	}
 

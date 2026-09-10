@@ -79,6 +79,8 @@ final class VerificationReportTest extends WP_UnitTestCase {
 		$this->assertSame( 'mock', $report['platform'] );
 		$this->assertSame( JobManager::TYPE_IMPORT, $report['type'] );
 		$this->assertSame( get_woocommerce_currency(), $report['currency'] );
+		$this->assertSame( 'JPY', $report['platform_currency'] );
+		$this->assertSame( 'JPY' !== get_woocommerce_currency(), $report['currency_mismatch'] );
 		$this->assertCount( 1, $report['entities'] );
 
 		$row = $report['entities'][0];

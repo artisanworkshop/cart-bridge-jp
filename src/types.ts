@@ -186,6 +186,11 @@ export interface VerificationReport {
 	run_id: string;
 	platform: string;
 	type: RunType;
+	/** 店舗通貨（Woo 側の金額の通貨）。 */
 	currency: string;
+	/** ASP 側の金額の通貨（対応 ASP はすべて JPY）。 */
+	platform_currency: string;
+	/** true のとき金額は数値上一致しても同じ金額ではないため、金額突合は「不可」として扱う。 */
+	currency_mismatch: boolean;
 	entities: VerificationEntity[];
 }
