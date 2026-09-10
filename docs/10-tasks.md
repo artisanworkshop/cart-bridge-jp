@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-05
+最終更新: 2026-09-10
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 進行中（F1-5後続〜F1-8 残） |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 進行中（F1-7〜F1-8 残。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中） |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -112,6 +112,29 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `?string`→`string`に是正（コンストラクタのid相当フィールドが非nullableなためnullを返すことはない）。
   あわせて `composer audit` で判明した `squizlabs/php_codesniffer`/`wp-coding-standards/wpcs`/
   `phpcsstandards/phpcsutils` の脆弱性修正版へのアップグレードも実施
+- [x] **fix: 管理画面をWordPress標準デザインのタブUIに修正**（2026-09-04、PR #21 / issue #20）
+  `src/` にCSSが1つも無く `wp-scripts build` がCSSを出力しないため `Assets.php` の `file_exists()` ガードが常に失敗し、
+  `wp-components` のコアCSSも含めて一切enqueueされていなかった。`src/style.css` を追加、タブをコア標準の
+  `nav-tab-wrapper`/`nav-tab` クラスに変更、enqueue対象パスを `build/style-index.css` に修正
+- [x] **fix: 受注明細の税抜単価欠損を0円に丸めず税分離フォールバックへ乗せる**（2026-09-04、PR #22 / issue #14）
+  `Cast::money_or_null()` を追加し `OrderTransformer` の `unit_price_excl_tax` に適用。欠損時は `null` を透過して
+  `OrderItemBuilder::split_line_amount()` の既存フォールバック（税込→税抜コピー＋`ORDER_TAX_SPLIT_UNAVAILABLE` 警告）を発火させる
+- [x] **chore: GitHub Release ワークフロー + `v0.1.0` リリース**（2026-09-07、PR #31）
+  `.github/workflows/release.yml`（`v*.*.*` タグpushで `composer install --no-dev` + `npm run build` → `.distignore` に従いzip化 →
+  GitHub Releaseに添付）と `.distignore` を追加し、タグ `v0.1.0` で初回リリースを作成。wordpress.org 公開前に実サイト
+  （非wp-env）で動作確認するための配布経路。`vendor/`（PSR-4オートローダー）はzipに同梱する。`readme.txt` 由来の
+  changelog抽出は R3-3 で `readme.txt` を作るまで見送り（`generate_release_notes` で代替）。
+  あわせて `.wp-env.json` にデバッグ用プラグイン（wp-mail-logging / plugin-check / debug-bar）を追加（953d8f0）
+- [x] **fix: 接続設定のplatformパラメータ安全化と保存済みフィールドのUX改善**（2026-09-10、PR #33 / issue #32）
+  `v0.1.0` の実サイト確認で「client_id/secretを保存しても空欄に見える」報告を受けて調査。接続系REST 6箇所
+  （`save_connection`/`delete_connection`/`test_connection`/`get_authorize_url`/`handle_oauth_callback`/`exchange_code`）の
+  `platform` を `get_url_params()` 経由の `platform_param()` に統一（issue #27 指摘の横展開漏れ。回帰テスト2件追加）。
+  保存済み資格情報をAPIが平文で返さない設計は維持し、`ConnectionCard` に「保存済み。変更時のみ入力」の案内Noticeを追加
+- [ ] **fix: `CouponWriter` の会員グループ制限判定をプラットフォーム非依存化**（issue #15、未着手）
+  `extras['group_limit_type']` というColorMe固有キー・enum値で判定しており、他ASPが別キーで同じ概念を表すと
+  フェイルクローズが効かず制限付きクーポンが無制限クーポンとして保存されうる。`CanonicalCoupon` に正規化フィールドを
+  追加（外部アダプタの位置引数互換のため既存引数より後ろ）し、各アダプタのTransformerが判定する形へ移す。
+  v1.0 では `CouponTransformer` が該当クーポンを既に除外しているため実害なし。クーポンAPIを持つ次のアダプタ（M6-3）着手前までに対応
 
 ---
 
@@ -163,19 +186,32 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     それぞれ全置換し、省略したキーは既存値を保持する（UIが一部のマップだけ編集しても他方を消さないため）。
     値はWooゲートウェイID/配送方法インスタンスID（`flat_rate:5`等コロンを含みうる）という不透明な内部IDのため、
     `sanitize_key()`ではなく制御文字除去のみで保存する（`save_connection()`の資格情報と同じ方針）
-- [ ] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）。
+- [x] **F1-6: インポートUI仕上げ**（エンティティ選択→dry-runプレビュー（**CSVダウンロード=D17**）→実行→進捗→結果レポート、Logsタブ。**上限到達時の残件数つきPro案内=D15/§10.3**）。
   着手前調査で「dry-run が実writerの検証ロジックを一切呼ばず警告が常に空」という前提バグが判明したため、
-  **PR-A（バックエンド・完了）とPR-B（フロントエンド・未着手）に分割**して進めている（隣接タスクのまとめ方針の応用）。
-  - **PR-A（完了）**: `Woo\Writer\EntityWriter::validate()` を各writer（Term/Stock/Coupon/Customer/Product/Order）に追加し、
+  **PR-A（バックエンド）とPR-B（フロントエンド）に分割**して進めた（隣接タスクのまとめ方針の応用）。
+  - **PR-A（完了、PR #17・2026-09-02）**: `Woo\Writer\EntityWriter::validate()` を各writer（Term/Stock/Coupon/Customer/Product/Order）に追加し、
     `write()`と参照解決・値検証ロジックを共有（詳細は `03-design-decisions.md` §10.4「dry-runレポートCSVの実装詳細」）。
     `Woo\DryRunRepository`（validate()のみ呼び何も永続化しない）+ `cbjp_dry_run_items` テーブル + `Sync\DryRunItemRepository`
     + `Admin\DryRunReportCsv` + `GET /runs/{run_id}/report` を実装。ユニットテストのみで検証が閉じ、
     `composer lint && composer analyze && composer test:wpenv` 通過済み（589テスト）。TermWriterは`term_exists()`による
     事前衝突判定を`write()`にも統合（従来の`wp_insert_term()`エラー依存から変更。既存テスト全通過で回帰なしを確認）。
-  - **PR-B（未着手）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・
-    結果レポート・Pro案内）と Logs タブ。PR-Aの `GET /runs/{run_id}`・`GET /runs/{run_id}/report`・`GET /limits` を消費するのみ。
+  - **PR-B（完了、PR #30・2026-09-07）**: React Import タブ（`src/tabs/ImportTab.tsx`。接続済みプラットフォーム選択、
+    capability連動のエンティティ選択、Preview（dry-run・無制限）/ Run import（実書込み前の確認ダイアログ）、
+    `useRunPolling` による2秒間隔の進捗ポーリング、結果サマリ、失敗ジョブのRetry・実行中のCancel、CSVレポートDL
+    （全体/エンティティ単位・警告のみフィルタ）、`LimitsUpsellNotice` による上限到達時の具体数つきPro案内、
+    `localStorage` へのrun_id保存によるリロード後の進捗復元）と Logs タブ（`src/tabs/LogsTab.tsx`。Job ID/レベルフィルタ・
+    ページング・コンテキストJSON展開）。PR-Aの `GET /runs/{run_id}`・`GET /runs/{run_id}/report`・`GET /limits` を
+    消費するのみでバックエンド変更なし。設計上の判断: CSVレポートDLはdry-runセクションのみ表示（`Importer` が
+    `cbjp_dry_run_items` へ記録するのはdry-run時のみで、実移行runでは空CSVになるため）、ポーリングは通信エラー時も継続、
+    Clearボタンはrunがterminalになるまで無効化（実行中のrun_idを失わないため）。wp-env + ColorMeテストショップで
+    dry-run→CSV DL→実移行→冪等性→リロード復元→Logs表示をブラウザ実地確認済み（636テスト通過）。
+    **持ち越し（`docs/review-backlog.md` 参照）**: cancelとページ処理完了の競合（f1-6-import-ui/R1-X1）、`POST /runs` の
+    応答を取りこぼしたrun_idを発見する手段が無い（R2-X1。プラットフォーム単位のアクティブrun検索RESTが必要）、
+    保持期限切れdry-runの空CSV DL（R3-X1）。F1-7/F1-8で扱うか別issueにするかは着手時に判断
 - [ ] **F1-7: ツール + 検証レポート**（サンプルクリーンアップ / リンク再構築（`/tools/*` REST + UI、D16）、移行後検証レポート（件数・受注合計金額の突合表示、D17））
-- [ ] **F1-8: 実データE2E**（テストショップから商品100件・受注50件規模。中断→再開、再実行の冪等性、**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16**、実行時間計測=要検証#6）
+- [ ] **F1-8: 実データE2E**（テストショップから商品100件・受注50件規模。中断→再開、再実行の冪等性、**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16**、実行時間計測=要検証#6）。
+  事前準備: F1-5 実機確認で未検証のまま残った経路（会員登録した顧客の受注・画像つき商品・クーポン・`stock_managed=true`かつ`stocks=null`の商品）のテストデータ投入と、
+  `docs/review-backlog.md` に F1-8 で確認するとした項目（`tax_rounding_method=round_off` の丸め挙動を端数の出る価格で実測）を含めること
 
 ---
 
