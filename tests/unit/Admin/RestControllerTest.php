@@ -12,7 +12,10 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\JobManager;
+use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
 use WP_REST_Server;
@@ -1001,6 +1004,160 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( '', $output );
 
 		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	private function register_mock_adapter(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+	}
+
+	public function test_preview_sample_cleanup_returns_404_for_unknown_platform(): void {
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
+
+	public function test_preview_sample_cleanup_rejects_an_array_valued_platform(): void {
+		// ツール系ルートは `args` スキーマ（type=string）で REST 層に配列を弾かせる（CLAUDE.md）。
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => [ 'mock' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_preview_sample_cleanup_reports_linked_counts(): void {
+		$this->register_mock_adapter();
+		( new MappingRepository() )->upsert( 'mock', 'category', 'c1', 123456, null );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'mock', $data['platform'] );
+		$this->assertFalse( $data['run_in_progress'] );
+		$this->assertSame( 1, $data['counts']['category'] );
+		$this->assertSame( 0, $data['attachments'] );
+	}
+
+	public function test_run_sample_cleanup_is_rejected_while_a_run_is_active(): void {
+		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
+		$this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+	}
+
+	public function test_run_sample_cleanup_removes_links_and_reports_counts(): void {
+		$this->register_mock_adapter();
+		$mappings = new MappingRepository();
+		$mappings->upsert( 'mock', 'product', 'p1', 999999, null );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $data['has_more'] );
+		$this->assertSame( 1, $data['unlinked']['product'] );
+		$this->assertSame( 0, $mappings->count( 'mock', 'product' ) );
+	}
+
+	public function test_rebuild_mappings_restores_links_from_ownership_meta(): void {
+		$this->register_mock_adapter();
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Owned' );
+		$product->update_meta_data( '_cbjp_platform', 'mock' );
+		$product->update_meta_data( '_cbjp_remote_id', 'p1' );
+		$product_id = $product->save();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNull( $data['cursor'] );
+		$this->assertSame( 1, $data['counts']['product'] );
+		$this->assertSame( $product_id, ( new MappingRepository() )->find_local_id( 'mock', 'product', 'p1' ) );
+	}
+
+	public function test_rebuild_mappings_rejects_an_invalid_cursor(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params(
+			[
+				'platform' => 'mock',
+				'cursor'   => '{"entity":"nope","offset":0}',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_invalid_cursor', $response->as_error()->get_error_code() );
+	}
+
+	public function test_get_run_verification_returns_404_for_unknown_run(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/no-such-run/verification' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_run_verification_rejects_dry_runs(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_verification_unavailable', $response->as_error()->get_error_code() );
+	}
+
+	public function test_get_run_verification_returns_the_report_for_an_import_run(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'import',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$run_id = (string) $this->server->dispatch( $request )->get_data()['run_id'];
+		JobManager::create()->run_to_completion( $run_id );
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $run_id, $data['run_id'] );
+		$this->assertSame( 'import', $data['type'] );
+		$this->assertSame( 'category', $data['entities'][0]['entity'] );
+		$this->assertSame( 0, $data['entities'][0]['missing'] );
 	}
 
 	private function start_mock_dry_run(): string {

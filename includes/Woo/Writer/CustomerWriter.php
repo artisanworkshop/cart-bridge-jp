@@ -32,6 +32,13 @@ final class CustomerWriter implements EntityWriter {
 	 */
 	private const PROTECTED_ROLES = [ 'administrator', 'shop_manager', 'editor', 'author', 'contributor' ];
 
+	/**
+	 * 本プラグインがこのユーザーを新規作成したことを示すユーザーメタ。email突合で採用した既存
+	 * アカウントには付けない。サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）は、このマーカーが
+	 * あるアカウントだけを削除し、それ以外はリンク用メタを外して残す。
+	 */
+	public const CREATED_BY_IMPORT_META = '_cbjp_created_by_import';
+
 	public function __construct( private readonly string $platform ) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
@@ -137,6 +144,10 @@ final class CustomerWriter implements EntityWriter {
 
 		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
 		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
+
+		if ( $resolved->is_new ) {
+			update_user_meta( $user_id, self::CREATED_BY_IMPORT_META, '1' );
+		}
 
 		return new WriteResult( $user_id, $resolved->operation, $warnings );
 	}

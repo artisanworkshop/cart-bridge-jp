@@ -76,6 +76,18 @@ final class CustomerWriterTest extends WooTestCase {
 		$user = get_userdata( $existing_id );
 		$this->assertContains( 'customer', $user->roles );
 		$this->assertSame( 'Yamada', $user->first_name );
+		// email突合で採用した既存アカウントには「本プラグインが作成した」マーカーを付けない
+		// （サンプルクリーンアップが誤って削除しないため）。
+		$this->assertSame( '', get_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+	}
+
+	public function test_newly_created_customer_is_marked_as_created_by_import(): void {
+		$customer = new CanonicalCustomer( 'hanako@example.com', 'Hanako Sato', null, null, null, [], null, null, null, null, [ 'remote_id' => '2' ] );
+		$result   = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( '1', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, '_cbjp_platform', true ) );
 	}
 
 	public function test_reusing_administrator_account_does_not_overwrite_profile(): void {

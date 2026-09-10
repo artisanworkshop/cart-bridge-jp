@@ -115,6 +115,57 @@ final class MappingRepository {
 	}
 
 	/**
+	 * platform + entity_type の mapping 行を id 昇順で最大 $limit 件返す（remote_id => local_id）。
+	 * サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）が「削除しては先頭から再取得」を繰り返す
+	 * 反復用で、offset は取らない。
+	 *
+	 * @return array<string,int>
+	 */
+	public function find_page( string $platform, string $entity_type, int $limit ): array {
+		global $wpdb;
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"SELECT remote_id, local_id FROM {$this->table()} WHERE platform = %s AND entity_type = %s ORDER BY id ASC LIMIT %d",
+				$platform,
+				$entity_type,
+				max( 1, $limit )
+			),
+			ARRAY_A
+		);
+
+		$page = [];
+
+		foreach ( $rows as $row ) {
+			$page[ (string) $row['remote_id'] ] = (int) $row['local_id'];
+		}
+
+		return $page;
+	}
+
+	/**
+	 * platform + entity_type の mapping が指すローカルIDの一覧（重複除去・昇順）。
+	 * 移行後検証レポート（`VerificationReport`）とクリーンアップのプレビューが Woo 側の実在確認に使う。
+	 *
+	 * @return array<int,int>
+	 */
+	public function local_ids( string $platform, string $entity_type ): array {
+		global $wpdb;
+
+		$values = $wpdb->get_col(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"SELECT DISTINCT local_id FROM {$this->table()} WHERE platform = %s AND entity_type = %s ORDER BY local_id ASC",
+				$platform,
+				$entity_type
+			)
+		);
+
+		return array_map( 'intval', $values );
+	}
+
+	/**
 	 * 無料版上限強制の正となる累積カウント（D15/§10.2）。
 	 */
 	public function count( string $platform, string $entity_type ): int {
