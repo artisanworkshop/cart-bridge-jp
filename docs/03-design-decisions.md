@@ -420,10 +420,13 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 - **サンプルクリーンアップ**（`Woo\Tools\SampleCleanup`、`GET/POST /tools/sample-cleanup`）: `cbjp_mappings`（platform単位）を正とし、
   指す先の実体が `_cbjp_platform` メタで自プラットフォーム所有と確認できるものだけ削除する。所有権が無い・実体が既に無い行は
   mapping 行だけ外す（`unlinked`）。削除順は order → stock/review（mapping行のみ）→ product（`VariationWriter::find_owned_variation_remote_ids()`
-  + `remove_all()` で所有 variation を先に削除）→ variant → coupon → customer → tag → category → 所有添付（`_cbjp_platform` 付き attachment）。
+  + `remove_all()` で所有 variation を先に削除）→ variant → coupon → customer → tag → category → 所有添付（`_cbjp_platform` + `_cbjp_source_url` 付き
+  attachment のうち、親投稿が無い／削除済みで、既存タームの `thumbnail_id` でもない**孤児**のみ。mappings を失った店舗でクリーンアップを実行しても
+  残っている商品・タームの画像を道連れにしない）。
   **顧客**: `CustomerWriter` は email 突合で採用した既存 WP ユーザーにも `_cbjp_platform` を書くため、新規作成時にのみ書く
-  `_cbjp_created_by_import` マーカーがあり、店舗スタッフ権限（`PROTECTED_ROLES`）を持たず、実行中の管理者自身でもないアカウント
-  だけを `wp_delete_user()` する。それ以外はリンク用メタ（`_cbjp_platform`/`_cbjp_remote_id`/マーカー）を外して残す
+  `_cbjp_created_by_import` マーカーがあり、店舗スタッフ権限（`PROTECTED_ROLES`）を持たず、実行中の管理者自身でもないアカウントを、
+  **実行者が `delete_user` 権限を持つ場合のみ** `wp_delete_user()` する（ルートの `manage_woocommerce` だけでは shop_manager が WP 管理画面で
+  できないアカウント削除を行えてしまうため）。それ以外はリンク用メタ（`_cbjp_platform`/`_cbjp_remote_id`/マーカー）を外して残す
   （マーカー導入前に作成されたアカウントも安全側で unlink 扱い）。
   **バッチ契約**: Action Scheduler ジョブにはせず、1リクエストで予算（100実体）まで削除して `has_more` を返し、管理画面がループする
   （削除済み行は消えるため cursor 不要）。全て消え切った呼び出しで残骸 mappings（`delete_for_platform()`）と `cbjp_sample_{platform}` を削除し、
@@ -431,8 +434,10 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   メール・在庫復元を抑止する
 - **リンク再構築**（`Woo\Tools\MappingRebuilder`、`POST /tools/rebuild-mappings`）: D16 の記述（SKU/email/注文番号突合）に対し、実装は
   各 Writer が Woo 側実体へ必ず書く **`_cbjp_platform` + `_cbjp_remote_id`（受注は `_cbjp_remote_order_number` = `CanonicalOrder::remote_id()`）
-  メタを主キー**に走査する（category/tag は term meta、product/variant/coupon は post meta、customer は user meta、order は `wc_get_orders()` の
-  `meta_query`）。SKU/email 突合は「本プラグイン外で作られた Woo データを ASP に紐付ける」動作になり誤リンクの危険があるため採用しない。
+  メタを主キー**に走査する（category/tag は term meta、product/variant/coupon は post meta、customer は user meta、order は `wc_get_orders()`。
+  受注の `meta_query` は HPOS の `OrdersTableQuery` しか解釈せず、レガシー投稿型ストレージでは WC 9.2+ が非対応引数として無視するため、
+  HPOS 有効時の最適化としてのみ付け、どちらの構成でも取得後に `_cbjp_platform` を検証したものだけを対象にする。cursor の前進はクエリが
+  返した件数で判定する）。SKU/email 突合は「本プラグイン外で作られた Woo データを ASP に紐付ける」動作になり誤リンクの危険があるため採用しない。
   checksum は null で upsert し、次回 import で必ず再検証させる。stock（product/variant から再解決される）と review（v1.0 に Writer 無し）は対象外。
   予算 200 件/リクエストで `{entity, offset}` の cursor を返し、管理画面がループする（upsert は走査結果を変えないため offset ページングで安定）
 
@@ -465,7 +470,8 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   ローカルIDの重複除去数）/ `existing`（`Woo\Tools\LocalEntityLookup` が 200 件ずつ実在確認。受注は要件どおり `wc_get_order()` のみで判定し
   ゴミ箱は不在扱い）/ `missing`（= linked − existing）を現在の Woo から算出する。受注は `remote_amount` と、実在するリンク済み受注の
   `WC_Order::get_total()` 合計（`local_amount`）を `"1234.00"` 形式の10進文字列で返す（通貨は `get_woocommerce_currency()`）
-- **解釈**: ASP側は「この run で取得した全件」（無料版の上限でスキップした分を含む）、Woo側は「リンク済みで実在する全件」なので、
-  無料版で上限に達した run では ASP 側が大きくなるのが正常。UI（`src/components/VerificationReport.tsx`）は `missing === 0` かつ
-  件数・金額が一致した行を Reconciled、それ以外を Differs として表示し、全行一致なら success、そうでなければ info（上限・スキップ・警告の案内）
-  の Notice を出す。全ジョブが completed の import run にのみ表示する（failed/cancelled を含む `isTerminal` だけでゲートしない）
+- **解釈**: ASP側は「この run で取得した全件」（無料版の上限でスキップした分を含む）、Woo側は「リンク済みで実在する全件」（プラットフォーム
+  全体・全期間）とスコープが異なる。UI（`src/components/VerificationReport.tsx`）は単なる一致/不一致ではなく差の向きを行ごとに示す:
+  `missing`（実体を失った mapping → warning。Rebuild links / 再 import を案内）、`fewer`（Woo 側が取得件数より少ない → info。無料版の上限・
+  スキップ・警告）、`more`（Woo 側が多い → info。過去の run で取り込んだ分、ASP 側で減った場合等）、`amount`（件数一致で受注合計のみ不一致 → warning）、
+  `reconciled`。全ジョブが completed の import run にのみ表示する（failed/cancelled を含む `isTerminal` だけでゲートしない）

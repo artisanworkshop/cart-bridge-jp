@@ -11,3 +11,4 @@
 |---|---|---|
 | 2026-09-11 | 1 | 計画承認（plan mode） |
 | 2026-09-11 | 2 | 実装コミット 3 件（backend / frontend / docs）。品質チェック green（PHPUnit 680 件、PHPCS/PHPStan/ESLint/tsc/build）。wp-env dev（:8895）で REST 通し確認 |
+| 2026-09-11 | 3 | review-loop R1: High 4 / Medium 2 / Low 5（自己レビュー + 独立サブエージェント）。Critical〜Medium と軽微な Low 3 件を修正（e2ce701）、Low 6 件を backlog へ。品質チェック green（PHPUnit 686 件） |
