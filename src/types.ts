@@ -82,6 +82,11 @@ export interface JobTotals {
 	skipped: number;
 	warned: number;
 	failed: number;
+	/**
+	 * 受注ジョブのみ: この run で取得した受注の合計金額（1/100単位）。
+	 * F1-7 より前に作られたジョブの `totals_json` には無い。
+	 */
+	remote_amount?: number;
 }
 
 export interface JobErrorInfo {
@@ -125,4 +130,62 @@ export interface LogEntry {
 	message: string;
 	context_json: string | null;
 	created_at: string;
+}
+
+/**
+ * `GET /tools/sample-cleanup?platform=` の応答（`Woo\Tools\SampleCleanup::preview()`）。
+ * `counts` のキーは `SampleCleanup::RESULT_KEYS` から `attachment` を除いたもの。
+ */
+export interface CleanupPreview {
+	platform: string;
+	run_in_progress: boolean;
+	counts: Record< string, number >;
+	attachments: number;
+	customers: {
+		delete: number;
+		unlink: number;
+	};
+}
+
+/**
+ * `POST /tools/sample-cleanup` の応答（1バッチ分）。`has_more` が true の間は繰り返し呼ぶ。
+ */
+export interface CleanupResult {
+	deleted: Record< string, number >;
+	unlinked: Record< string, number >;
+	has_more: boolean;
+}
+
+/**
+ * `POST /tools/rebuild-mappings` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
+ */
+export interface RebuildResult {
+	counts: Record< string, number >;
+	cursor: string | null;
+}
+
+/**
+ * `GET /runs/{run_id}/verification` の1行（`Sync\VerificationReport`）。金額は `"1234.00"` 形式の
+ * 10進文字列で、受注以外は null。
+ */
+export interface VerificationEntity {
+	entity: EntityType;
+	status: JobStatus;
+	processed: number;
+	written: number;
+	skipped: number;
+	warned: number;
+	linked: number;
+	existing: number;
+	missing: number;
+	remote_amount: string | null;
+	local_amount: string | null;
+}
+
+export interface VerificationReport {
+	run_id: string;
+	platform: string;
+	type: RunType;
+	currency: string;
+	entities: VerificationEntity[];
 }
