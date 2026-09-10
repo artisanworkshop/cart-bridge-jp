@@ -424,12 +424,18 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   attachment のうち、親投稿が無い／削除済みで、既存タームの `thumbnail_id` でもない**孤児**のみ。mappings を失った店舗でクリーンアップを実行しても
   残っている商品・タームの画像を道連れにしない）。
   **顧客**: `CustomerWriter` は email 突合で採用した既存 WP ユーザーにも `_cbjp_platform` を書くため、新規作成時にのみ書く
-  `_cbjp_created_by_import` マーカーがあり、店舗スタッフ権限（`PROTECTED_ROLES`）を持たず、実行中の管理者自身でもないアカウントを、
-  **実行者が `delete_user` 権限を持つ場合のみ** `wp_delete_user()` する（ルートの `manage_woocommerce` だけでは shop_manager が WP 管理画面で
-  できないアカウント削除を行えてしまうため）。それ以外はリンク用メタ（`_cbjp_platform`/`_cbjp_remote_id`/マーカー）を外して残す
-  （マーカー導入前に作成されたアカウントも安全側で unlink 扱い）。
-  **バッチ契約**: Action Scheduler ジョブにはせず、1リクエストで予算（100実体）まで削除して `has_more` を返し、管理画面がループする
-  （削除済み行は消えるため cursor 不要）。全て消え切った呼び出しで残骸 mappings（`delete_for_platform()`）と `cbjp_sample_{platform}` を削除し、
+  `_cbjp_created_by_import` マーカー（値は**作成したプラットフォームID**。別プラットフォームが後から採用しても、採用した側から見ると
+  「作成していない」ため削除しない）が自プラットフォームと一致し、店舗スタッフ権限（`PROTECTED_ROLES`）を持たず、実行中の管理者自身でもない
+  アカウントを、**実行者が `delete_user` 権限を持つ場合のみ** `wp_delete_user()` する（ルートの `manage_woocommerce` だけでは shop_manager が
+  WP 管理画面でできないアカウント削除を行えてしまうため）。それ以外はリンク用メタ（`_cbjp_platform`/`_cbjp_remote_id`/マーカー）を外して残す。
+  ただし**自プラットフォームが作成したアカウントが mapping に残っているのに実行者が `delete_users` を持たない場合は、実行自体を 403 で拒否**する
+  （unlink だけして mappings とサンプルセットをリセットすると、無料版の顧客上限（`LimitPolicy`）を回避してアカウントを増やし続けられるため。
+  アーキテクチャ原則 7）。
+  **プレビュー**（`GET /tools/sample-cleanup`）は mapping 行数ではなく、`run()` と同じ所有権・実在・権限判定で「削除される件数」と
+  「mapping を外すだけの件数」をエンティティ別に返し、`requires_delete_users` / `can_delete_users` / `sample_selected`（mapping が無くても
+  サンプルセットだけ残っている場合に「選定のクリア」として実行できる）を併せて返す。
+  **バッチ契約**: Action Scheduler ジョブにはせず、1リクエストで予算（100実体。商品削除に伴う variation も数え、予算を使い切った時点で
+  取得済みページの残りも次のバッチへ回す）まで削除して `has_more` を返し、管理画面がループする（削除済み行は消えるため cursor 不要）。全て消え切った呼び出しで残骸 mappings（`delete_for_platform()`）と `cbjp_sample_{platform}` を削除し、
   次回 import でサンプルが再選定される（§10.2 #7）。実行中のジョブ（pending/running/paused）がある間は 409。削除中は `SideEffectGuard` で
   メール・在庫復元を抑止する
 - **リンク再構築**（`Woo\Tools\MappingRebuilder`、`POST /tools/rebuild-mappings`）: D16 の記述（SKU/email/注文番号突合）に対し、実装は
