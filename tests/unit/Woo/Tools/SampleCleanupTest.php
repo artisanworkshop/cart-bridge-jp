@@ -214,7 +214,13 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->mappings->upsert( 'mock', 'customer', 'cu-admin', $admin_id, null );
 
 		$self_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu-self', 'self@example.com' ) );
+		// 実行者に削除権限を持たせたうえで、保護ロール・自分自身のガードだけで unlink に倒れることを確認する
+		// （権限が無いだけで unlink になると、このテストがガードを検証しなくなる）。管理者を対象にした
+		// `delete_user` は WooCommerce の `wc_modify_map_meta_cap` が非管理者に対して拒否するため、
+		// 「自分自身」に対する capability が開いていることで権限側の前提を確認する。
+		( new WP_User( $self_id ) )->add_cap( 'delete_users' );
 		wp_set_current_user( $self_id );
+		$this->assertTrue( current_user_can( 'delete_user', $self_id ) );
 
 		$result = ( new SampleCleanup( $this->mappings ) )->run( 'mock' );
 

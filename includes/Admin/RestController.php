@@ -509,6 +509,16 @@ final class RestController {
 	}
 
 	/**
+	 * `/runs/{run_id}/...` のパスパラメータ。`platform_param()` と同じ理由でパス由来の値だけを読む
+	 * （`get_param()` はGETでもクエリ文字列の同名値をパスより優先する）。
+	 */
+	private function run_id_param( WP_REST_Request $request ): string {
+		$run_id = $request->get_url_params()['run_id'] ?? null;
+
+		return is_string( $run_id ) ? $run_id : '';
+	}
+
+	/**
 	 * URLパスが名指ししたプラットフォーム（`(?P<platform>[a-z0-9_-]+)`）を、リクエストの
 	 * 他の場所にある同名パラメータに惑わされず取得する。`WP_REST_Request::get_param()`は
 	 * リクエストパラメータ種別（GET: URLよりクエリ文字列が優先、PUT/DELETE等: URLより
@@ -520,16 +530,6 @@ final class RestController {
 	 * URLキャプチャそのもの（`get_url_params()`）だけを見ることで、リクエストデータによる
 	 * リソースの取り違えを構造的に防ぐ。
 	 */
-	/**
-	 * `/runs/{run_id}/...` のパスパラメータ。`platform_param()` と同じ理由でパス由来の値だけを読む
-	 * （`get_param()` はGETでもクエリ文字列の同名値をパスより優先する）。
-	 */
-	private function run_id_param( WP_REST_Request $request ): string {
-		$run_id = $request->get_url_params()['run_id'] ?? null;
-
-		return is_string( $run_id ) ? $run_id : '';
-	}
-
 	private function platform_param( WP_REST_Request $request ): string {
 		$platform = $request->get_url_params()['platform'] ?? null;
 

@@ -29,8 +29,9 @@ use WP_User;
  * `_cbjp_platform` メタで自プラットフォーム所有と確認できるものだけを削除する。
  * 所有権が無い・実体が既に無い行は mapping 行だけ外す（`unlinked`）。email突合で採用した
  * 既存WPユーザー（`CustomerWriter`）は `_cbjp_created_by_import` マーカーが無いため削除せず、
- * リンク用メタを外して残す。取り込んだ画像（添付）は、それを使っていた商品・タームが無くなって
- * 孤児になったものだけを消す（`deletable_attachment_ids()`）。
+ * リンク用メタを外して残す。取り込んだ画像（添付）は、取り込み時の親商品が無くなり、既存タームの
+ * `thumbnail_id` でもない孤児だけを消す（`deletable_attachment_ids()`。同一 URL の画像を複数商品が
+ * 共有している場合の他商品からの参照までは追跡しない）。
  *
  * 1回の `run()` は予算（`$budget` 実体）まで削除して `has_more` を返し、呼び出し側（管理画面）が
  * 完了までループする（Action Schedulerジョブにはしない: 削除済み行は消えるので cursor 不要で、
@@ -138,6 +139,10 @@ final class SampleCleanup {
 				foreach ( $page as $remote_id => $local_id ) {
 					$variants_before = $deleted['variant'];
 					$outcome         = $this->remove_entity( $platform, $entity, $local_id, $variations, $deleted );
+					// 商品削除に伴う variation の削除数（`remove_entity()` が `$deleted['variant']` に加算する分）。
+					// この行自身の `++$deleted[ $entity ]` より前に確定させないと、variant エンティティの行で
+					// 二重に数えてしまう。
+					$cascaded_variants = $deleted['variant'] - $variants_before;
 					// `delete_one()` が行を消すため、次の `find_page()` は同じ行を返さない（ループは
 					// `$remaining` の減算で必ず終わる）。
 					$this->mappings->delete_one( $platform, $entity, (string) $remote_id );
@@ -150,7 +155,7 @@ final class SampleCleanup {
 
 					// 商品削除に伴う variation の削除も予算に数える（軸の多い商品が並ぶと1リクエストの
 					// 実削除数が予算を大きく超えるため）。
-					$remaining -= 1 + ( $deleted['variant'] - $variants_before );
+					$remaining -= 1 + $cascaded_variants;
 				}
 			}
 
