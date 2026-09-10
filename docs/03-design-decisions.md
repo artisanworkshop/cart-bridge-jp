@@ -475,7 +475,10 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   `processed`（この run で ASP から取得）/ `written`（created+updated）/ `skipped` / `warned` を totals から、`linked`（mappings が指す
   ローカルIDの重複除去数）/ `existing`（`Woo\Tools\LocalEntityLookup` が 200 件ずつ実在確認。受注は要件どおり `wc_get_order()` のみで判定し
   ゴミ箱は不在扱い）/ `missing`（= linked − existing）を現在の Woo から算出する。受注は `remote_amount` と、実在するリンク済み受注の
-  `WC_Order::get_total()` 合計（`local_amount`）を `"1234.00"` 形式の10進文字列で返す（通貨は `get_woocommerce_currency()`）
+  `WC_Order::get_total()` 合計（`local_amount`）を `"1234.00"` 形式の10進文字列で返す。通貨は店舗通貨（`currency`）と ASP 側
+  （`platform_currency` = `OrderWriter::PLATFORM_CURRENCY` = JPY）を分けて返し、両者が異なる場合（`currency_mismatch`）は `OrderWriter` が
+  金額を換算せずそのまま保存しているため UI は金額突合を「不可」として扱う。F1-7 より前のジョブ（`totals_json` に `remote_amount` 無し）は
+  ASP 側合計を null（不明）で返す
 - **解釈**: ASP側は「この run で取得した全件」（無料版の上限でスキップした分を含む）、Woo側は「リンク済みで実在する全件」（プラットフォーム
   全体・全期間）とスコープが異なる。UI（`src/components/VerificationReport.tsx`）は単なる一致/不一致ではなく差の向きを行ごとに示す:
   `missing`（実体を失った mapping → warning。Rebuild links / 再 import を案内）、`fewer`（Woo 側が取得件数より少ない → info。無料版の上限・
