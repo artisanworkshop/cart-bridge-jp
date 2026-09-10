@@ -60,6 +60,7 @@ npm run build                # 本番ビルド
 - nonce/capabilityチェック必須（管理操作は `manage_woocommerce`）
 - `$wpdb->insert()`/`update()` はnull値を特別扱いしSQLのNULLとして書き込むが、生の `$wpdb->prepare()` + `query()` はnullを `%s` プレースホルダー経由で空文字列に変換してしまう（`vsprintf()` の挙動）。NULL許容カラムへ生クエリでnullを書く場合は `NULLIF(%s, '')` 等で明示的に変換すること
 - `register_rest_route()` で `args` スキーマ（type検証）を定義しないルートは、クエリパラメータが配列（例: `?job_id[]=1`）で渡り得る。スカラー値を期待するパラメータは `is_scalar()` で検証してから使うこと。さらに `WP_REST_Request::get_param()`/`get_params()` はGETはクエリ文字列、PUT/POST/DELETE等はボディを**URLパスより優先**してマージする（`get_parameter_order()`）ため、URLパスがリソースを名指しするパラメータ（例: `/settings/mappings/{platform}` の `platform`）を `get_param()` で読むと、クエリ/ボディの同名スカラー値で意図しない別リソースへ読み書きが向いてしまう。リソースを識別するパスパラメータは必ず `get_url_params()` で取得すること
+- 上記の `get_url_params()` 対応は、指摘された1箇所（`save_settings_mappings()`）にのみ適用され、同一ファイル内の同型の呼び出し6箇所（`save_connection()`/`delete_connection()`/`test_connection()`/`get_authorize_url()`/`handle_oauth_callback()`/`exchange_code()`）には長期間未適用のまま残っていた（issue #32/PR #33で解消）。既知の危険パターンの指摘を受けたら、その1箇所だけでなく同一ファイル内の類似呼び出し全てをgrep等で洗い出し、横展開すること
 - フィクスチャの匿名化で実ドメイン（例: `shop-pro.jp`）を部分置換（サブドメイン名だけ変更）すると、ドメイン全体が予約済みexampleドメインでないため匿名化ルール違反になる。ドメインは丸ごと `example.com`/`example.jp` に置き換えること。自由入力欄（`note`/`other`/`answer_free_form*`等）は中身が無害に見えても内容に関わらず必ずプレースホルダーへ置換する
 - OAuth認可ポップアップは `window.open()` をクリックハンドラから同期的に呼ぶ（await後だとブロックされうる）。`noopener`指定時は成否に関わらず戻り値が常に`null`になる仕様なので、ポーリング等でウィンドウハンドルが必要な場合は`noopener`を使わず、生成できたハンドル側で`.opener = null`を手動設定してreverse tabnabbing対策すること
 - PHPの`??`（null合体）演算子はベースがnullの配列アクセス（例: `$possiblyNull['key'] ?? $default`）でも警告を出さない。Copilotレビューはこのパターンを誤って「null配列アクセス警告」と指摘することがあるため、同種の指摘は鵜呑みにせず`php -r`等で実際に検証すること
@@ -102,6 +103,7 @@ npm run build                # 本番ビルド
 
 - ポーリングhook（`useRunPolling`等）の`refetch()`が一時的な通信エラーを内部でcatchして自動再試行する設計の場合、そのPromiseは通信の成否に関わらず正常解決する。呼び出し元が「`await refetch()`が解決した＝新しいstateが反映された」と決め打ちすると、一時的な失敗時に古いstateのまま後続処理（例: ボタンの再有効化）が進んでしまう。真に「新しいデータが届いた」ことを検知したい場合は、Promiseの解決ではなくstate自体（成功時のみ新しい参照になるオブジェクト等）の変化をeffectで監視すること（`src/hooks/useRunPolling.ts`, `src/tabs/ImportTab.tsx`のretryJob参照。issue #30）
 - 複数ジョブから成るrunの「終端判定」（`isTerminal`: 全ジョブがcompleted/failed/cancelledのいずれか）と「成功判定」（全ジョブがcompleted）を混同しないこと。キャンセル・一部失敗したrunも`isTerminal`はtrueになるため、「完了時のみ出す」UI（全体レポートDL・アップセル集計等）を`isTerminal`だけでゲートすると、部分的・失敗した結果を完全な結果として提示してしまう。個別の判定（全ジョブcompleted）を別途用意すること（`src/components/RunProgress.tsx`のallCompleted参照。issue #30）
+- WordPressコアが登録する`wp-components`等の共有アセットハンドルは、WooCommerce等の他プラグインが独自バージョンを登録しているとそちらが優先されることがあり、同じ`@wordpress/components`の`Notice`等でも環境によってレイアウト（例: `flex`+`padding: 8px 12px` vs `grid`+`padding: 12px`）が変わりうる。見た目の余白等を安定させたい箇所はアップストリームのデフォルトに依存せず自前CSSで明示的に上書きすること（`src/style.css`の`.components-notice.is-info`参照）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
