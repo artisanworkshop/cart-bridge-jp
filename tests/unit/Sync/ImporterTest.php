@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
@@ -30,6 +31,36 @@ final class ImporterTest extends WP_UnitTestCase {
 		parent::set_up();
 		Activator::activate();
 		$this->mappings = new MappingRepository();
+	}
+
+	/**
+	 * 移行後検証レポート（D17）用の `remote_amount` は、書込の成否・checksum一致スキップに
+	 * 関わらず、この run で ASP から取得した全受注の合計になる（Woo側の「リンク済み受注の合計」と
+	 * 並べて、無料版の上限で取り込めなかった分も金額で見せるため）。
+	 */
+	public function test_remote_amount_accumulates_the_total_of_every_processed_order(): void {
+		$skipped = new CanonicalOrder( '1001', 'processing', null, [], [], [], [ 'total' => '1500.5' ], '2026-07-01 00:00:00', null );
+		$written = new CanonicalOrder( '1002', 'processing', null, [], [], [], [ 'total' => '2000' ], '2026-07-01 00:00:00', null );
+		$adapter = new MockPlatformAdapter( orders: [ $skipped, $written ] );
+
+		// 1件目は checksum 一致でスキップされる経路に乗せる。
+		$this->mappings->upsert( $adapter->id(), 'order', '1001', 501, $skipped->checksum() );
+
+		$writer   = new InMemoryWriter();
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, $writer, 'order', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes, 'checksum一致の1件は書き込まれない' );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 350050, $result['totals']['remote_amount'], '1500.50 + 2000.00 を 1/100 単位で累積' );
+	}
+
+	public function test_remote_amount_stays_zero_for_non_order_entities(): void {
+		$adapter  = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+		$importer = new Importer( $this->mappings );
+		$result   = $importer->run_page( $adapter, new InMemoryWriter(), 'product', Cursor::start(), false );
+
+		$this->assertSame( 0, $result['totals']['remote_amount'] );
 	}
 
 	/**

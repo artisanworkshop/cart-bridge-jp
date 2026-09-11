@@ -18,6 +18,11 @@ use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
+use CartBridgeJP\Sync\VerificationReport;
+use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
+use CartBridgeJP\Woo\Tools\MappingRebuilder;
+use CartBridgeJP\Woo\Tools\SampleCleanup;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 use WP_Error;
@@ -29,7 +34,8 @@ use WP_REST_Response;
  * REST API（namespace: `cbjp/v1`）。`docs/03-design-decisions.md` §6 のルート定義。
  *
  * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
- * ツール系（sample-cleanup/rebuild-mappings）はPhase 1以降の実装のため501を返す。
+ * ツール系（sample-cleanup/rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
+ * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。
  */
 final class RestController {
 
@@ -172,6 +178,24 @@ final class RestController {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/runs/(?P<run_id>[a-zA-Z0-9-]+)/verification',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'get_run_verification' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => [
+					'run_id' => [
+						'type'              => 'string',
+						'required'          => true,
+						'validate_callback' => 'rest_validate_request_arg',
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/jobs/(?P<id>\d+)/retry',
 			[
 				'methods'             => 'POST',
@@ -217,13 +241,34 @@ final class RestController {
 			]
 		);
 
+		// ツール系の `platform` はパスではなくクエリ/ボディ由来のため、`args` スキーマ（type検証）で
+		// 配列混入を REST 層に弾かせる（CLAUDE.md）。`sanitize_callback` を明示すると WP は既定の
+		// `rest_parse_request_arg`（検証＋サニタイズ）を適用しなくなるため、`validate_callback` も明示する。
+		$platform_arg = [
+			'platform' => [
+				'type'              => 'string',
+				'required'          => true,
+				'validate_callback' => 'rest_validate_request_arg',
+				'sanitize_callback' => 'sanitize_text_field',
+			],
+		];
+
 		register_rest_route(
 			self::NAMESPACE,
 			'/tools/sample-cleanup',
 			[
-				'methods'             => 'POST',
-				'callback'            => [ $this, 'not_implemented' ],
-				'permission_callback' => [ $this, 'check_permission' ],
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'preview_sample_cleanup' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+					'args'                => $platform_arg,
+				],
+				[
+					'methods'             => 'POST',
+					'callback'            => [ $this, 'run_sample_cleanup' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+					'args'                => $platform_arg,
+				],
 			]
 		);
 
@@ -232,22 +277,26 @@ final class RestController {
 			'/tools/rebuild-mappings',
 			[
 				'methods'             => 'POST',
-				'callback'            => [ $this, 'not_implemented' ],
+				'callback'            => [ $this, 'rebuild_mappings' ],
 				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => array_merge(
+					$platform_arg,
+					[
+						// 管理画面は初回に `cursor: null` を送るため null を許容する（`type: string` のみだと
+						// `rest_parse_request_arg` が JSON の null を型エラーとして 400 にする）。
+						'cursor' => [
+							'type'              => [ 'string', 'null' ],
+							'required'          => false,
+							'validate_callback' => 'rest_validate_request_arg',
+						],
+					]
+				),
 			]
 		);
 	}
 
 	public function check_permission(): bool {
 		return current_user_can( 'manage_woocommerce' );
-	}
-
-	public function not_implemented(): WP_Error {
-		return new WP_Error(
-			'cbjp_not_implemented',
-			__( 'This endpoint is not implemented yet.', 'cart-bridge-jp' ),
-			[ 'status' => 501 ]
-		);
 	}
 
 	public function get_connections(): WP_REST_Response {
@@ -458,6 +507,16 @@ final class RestController {
 		update_option( "cbjp_settings_{$platform}", $updated, false );
 
 		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
+	}
+
+	/**
+	 * `/runs/{run_id}/...` のパスパラメータ。`platform_param()` と同じ理由でパス由来の値だけを読む
+	 * （`get_param()` はGETでもクエリ文字列の同名値をパスより優先する）。
+	 */
+	private function run_id_param( WP_REST_Request $request ): string {
+		$run_id = $request->get_url_params()['run_id'] ?? null;
+
+		return is_string( $run_id ) ? $run_id : '';
 	}
 
 	/**
@@ -753,11 +812,7 @@ final class RestController {
 		try {
 			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
 		} catch ( RunAlreadyInProgressException ) {
-			return new WP_Error(
-				'cbjp_run_in_progress',
-				__( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
-				[ 'status' => 409 ]
-			);
+			return $this->run_in_progress_error();
 		} catch ( Throwable $exception ) {
 			return new WP_Error(
 				'cbjp_invalid_run',
@@ -773,7 +828,7 @@ final class RestController {
 	}
 
 	public function get_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id = (string) $request->get_param( 'run_id' );
+		$run_id = $this->run_id_param( $request );
 		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
 
 		if ( [] === $jobs ) {
@@ -814,7 +869,7 @@ final class RestController {
 	 * ルートがそのまま使える。
 	 */
 	public function get_run_report( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id = (string) $request->get_param( 'run_id' );
+		$run_id = $this->run_id_param( $request );
 
 		if ( [] === ( new JobRepository() )->find_by_run( $run_id ) ) {
 			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
@@ -864,7 +919,7 @@ final class RestController {
 	}
 
 	public function cancel_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$run_id     = (string) $request->get_param( 'run_id' );
+		$run_id     = $this->run_id_param( $request );
 		$repository = new JobRepository();
 		$jobs       = $repository->find_by_run( $run_id );
 
@@ -884,7 +939,7 @@ final class RestController {
 	}
 
 	public function retry_job( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$id         = (int) $request->get_param( 'id' );
+		$id         = (int) ( $request->get_url_params()['id'] ?? 0 );
 		$repository = new JobRepository();
 		$job        = $repository->find( $id );
 
@@ -969,6 +1024,127 @@ final class RestController {
 				'unlocked' => $all_unlocked,
 				'entities' => $entities,
 			]
+		);
+	}
+
+	/**
+	 * `GET /runs/{run_id}/verification`: 移行後検証レポート（D17）。import の run のみ対象
+	 * （dry-run は Woo 側に何も書かないため突合対象が無い）。
+	 */
+	public function get_run_verification( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$run_id = $this->run_id_param( $request );
+		$report = ( new VerificationReport( new JobRepository(), new MappingRepository() ) )->build( $run_id );
+
+		if ( null === $report ) {
+			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
+		}
+
+		if ( JobManager::TYPE_IMPORT !== $report['type'] ) {
+			return new WP_Error(
+				'cbjp_verification_unavailable',
+				__( 'The verification report is only available for import runs.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		return rest_ensure_response( $report );
+	}
+
+	/**
+	 * `GET /tools/sample-cleanup?platform=`: 削除件数のプレビュー（§10.3「実行前に削除件数を表示して確認を取る」）。
+	 */
+	public function preview_sample_cleanup( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->tool_platform( $request );
+
+		if ( $platform instanceof WP_Error ) {
+			return $platform;
+		}
+
+		$preview = ( new SampleCleanup( new MappingRepository() ) )->preview( $platform );
+
+		return rest_ensure_response(
+			array_merge(
+				[
+					'platform'        => $platform,
+					'run_in_progress' => ( new JobRepository() )->has_active_job_for_platform( $platform ),
+				],
+				$preview
+			)
+		);
+	}
+
+	/**
+	 * `POST /tools/sample-cleanup`: 1バッチ分の削除。`has_more` が true の間、UI が繰り返し呼ぶ。
+	 */
+	public function run_sample_cleanup( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->tool_platform( $request );
+
+		if ( $platform instanceof WP_Error ) {
+			return $platform;
+		}
+
+		// 実行中の import と同時に削除すると、mappings を消した直後に Importer が同じ remote_id を
+		// 「未作成」とみなして作り直す等の競合が起きるため、進行中のジョブがある間は拒否する。
+		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
+			return $this->run_in_progress_error();
+		}
+
+		try {
+			$result = ( new SampleCleanup( new MappingRepository() ) )->run( $platform );
+		} catch ( CleanupNotPermittedException ) {
+			return new WP_Error(
+				'cbjp_cleanup_forbidden',
+				__( 'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.', 'cart-bridge-jp' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * `POST /tools/rebuild-mappings`: 1バッチ分の再構築。`cursor` が null になるまで UI が繰り返し呼ぶ。
+	 */
+	public function rebuild_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->tool_platform( $request );
+
+		if ( $platform instanceof WP_Error ) {
+			return $platform;
+		}
+
+		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
+			return $this->run_in_progress_error();
+		}
+
+		$cursor = $request->get_param( 'cursor' );
+
+		try {
+			$result = ( new MappingRebuilder( new MappingRepository() ) )->run( $platform, is_string( $cursor ) ? $cursor : null );
+		} catch ( InvalidArgumentException ) {
+			return new WP_Error( 'cbjp_invalid_cursor', __( 'The rebuild cursor is invalid.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
+		}
+
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * ツール系ルートの `platform`（クエリ/ボディ由来。`args` スキーマで文字列であることは REST 層が保証済み）。
+	 */
+	private function tool_platform( WP_REST_Request $request ): string|WP_Error {
+		$platform = $request->get_param( 'platform' );
+
+		if ( ! is_string( $platform ) || ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( is_string( $platform ) ? $platform : '' );
+		}
+
+		return $platform;
+	}
+
+	private function run_in_progress_error(): WP_Error {
+		return new WP_Error(
+			'cbjp_run_in_progress',
+			__( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
+			[ 'status' => 409 ]
 		);
 	}
 

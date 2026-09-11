@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-10
+最終更新: 2026-09-11
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 進行中（F1-7〜F1-8 残。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中） |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 進行中（F1-8 残。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中） |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -208,7 +208,18 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     **持ち越し（`docs/review-backlog.md` 参照）**: cancelとページ処理完了の競合（f1-6-import-ui/R1-X1）、`POST /runs` の
     応答を取りこぼしたrun_idを発見する手段が無い（R2-X1。プラットフォーム単位のアクティブrun検索RESTが必要）、
     保持期限切れdry-runの空CSV DL（R3-X1）。F1-7/F1-8で扱うか別issueにするかは着手時に判断
-- [ ] **F1-7: ツール + 検証レポート**（サンプルクリーンアップ / リンク再構築（`/tools/*` REST + UI、D16）、移行後検証レポート（件数・受注合計金額の突合表示、D17））
+- [x] **F1-7: ツール + 検証レポート**（サンプルクリーンアップ / リンク再構築（`/tools/*` REST + UI、D16）、移行後検証レポート（件数・受注合計金額の突合表示、D17））。
+  2026-09-11 実装。詳細は `03-design-decisions.md` §10.3「ツールの実装詳細」/ §10.4「移行後検証レポートの実装詳細」。
+  - `Woo\Tools\SampleCleanup`（`GET/POST /tools/sample-cleanup`）: mappings 起点で `_cbjp_platform` 所有の実体だけ削除し、所有権の無い行・
+    email突合で採用した既存顧客（`CustomerWriter` が新規作成時にのみ書く `_cbjp_created_by_import` マーカーが無い）は unlink のみ。
+    1リクエスト予算100件の `has_more` ループで、完了時に残骸 mappings と `cbjp_sample_{platform}` を削除（→次回 import で再選定=§10.2 #7）
+  - `Woo\Tools\MappingRebuilder`（`POST /tools/rebuild-mappings`）: 各 Writer が Woo 側実体へ必ず書く `_cbjp_platform`+`_cbjp_remote_id`
+    （受注は `_cbjp_remote_order_number`）メタを走査し checksum=null で upsert。D16 の「SKU/email 突合」は誤リンクの危険があるため採用しない
+  - `Sync\VerificationReport`（`GET /runs/{run_id}/verification`）: `Importer` が totals に累積する `remote_amount`（1/100単位 int。`Support\Money`）と
+    Woo 側のリンク済み実在受注の `get_total()` 合計を突合。件数は「この run で取得」vs「リンク済みで実在」、`missing`=実体を失った mapping
+  - UI: Tools タブ（Preview→確認→バッチループ / Rebuild links）、Import 結果の検証レポート（全ジョブ completed のときのみ表示）
+  - 実ショップ（ColorMe）での往復確認は F1-8 で行う。F1-6 の**持ち越し3件**（cancel 競合 R1-X1 / run_id 再発見 R2-X1 / 期限切れ dry-run の
+    空 CSV R3-X1）は F1-7 に含めず別 issue として起票する
 - [ ] **F1-8: 実データE2E**（テストショップから商品100件・受注50件規模。中断→再開、再実行の冪等性、**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16**、実行時間計測=要検証#6）。
   事前準備: F1-5 実機確認で未検証のまま残った経路（会員登録した顧客の受注・画像つき商品・クーポン・`stock_managed=true`かつ`stocks=null`の商品）のテストデータ投入と、
   `docs/review-backlog.md` に F1-8 で確認するとした項目（`tax_rounding_method=round_off` の丸め挙動を端数の出る価格で実測）を含めること

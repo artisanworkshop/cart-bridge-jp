@@ -45,16 +45,17 @@ final class SampleSelector {
 	}
 
 	public function load( string $platform ): ?SampleSet {
-		$stored = get_option( $this->option_name( $platform ) );
+		$stored = get_option( self::option_name_for( $platform ) );
 
 		return is_array( $stored ) ? SampleSet::from_array( $stored ) : null;
 	}
 
 	/**
-	 * サンプルクリーンアップツール（Phase 1 F1-7）から呼ばれる想定。
+	 * サンプルセットを破棄する。サンプルのやり直しは「クリーンアップ→再選定」でのみ行う（§10.2 #7）。
+	 * サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）がアダプタを介さずに呼べるよう static。
 	 */
-	public function clear( string $platform ): void {
-		delete_option( $this->option_name( $platform ) );
+	public static function clear( string $platform ): void {
+		delete_option( self::option_name_for( $platform ) );
 	}
 
 	private function select_and_persist( string $platform ): SampleSet {
@@ -185,10 +186,14 @@ final class SampleSelector {
 	}
 
 	private function persist( string $platform, SampleSet $sample ): void {
-		update_option( $this->option_name( $platform ), $sample->to_array(), false );
+		update_option( self::option_name_for( $platform ), $sample->to_array(), false );
 	}
 
-	private function option_name( string $platform ): string {
+	/**
+	 * サンプルセットの保存先 option 名。サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）が
+	 * アダプタを介さずに削除できるよう公開する。
+	 */
+	public static function option_name_for( string $platform ): string {
 		return 'cbjp_sample_' . $platform;
 	}
 }

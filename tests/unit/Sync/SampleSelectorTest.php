@@ -89,7 +89,7 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$selector = new SampleSelector( $adapter );
 
 		$selector->select_or_load( 'mock' );
-		$selector->clear( 'mock' );
+		SampleSelector::clear( 'mock' );
 
 		$this->assertNull( $selector->load( 'mock' ) );
 	}

@@ -82,6 +82,11 @@ export interface JobTotals {
 	skipped: number;
 	warned: number;
 	failed: number;
+	/**
+	 * 受注ジョブのみ: この run で取得した受注の合計金額（1/100単位）。
+	 * F1-7 より前に作られたジョブの `totals_json` には無い。
+	 */
+	remote_amount?: number;
 }
 
 export interface JobErrorInfo {
@@ -125,4 +130,67 @@ export interface LogEntry {
 	message: string;
 	context_json: string | null;
 	created_at: string;
+}
+
+/**
+ * `GET /tools/sample-cleanup?platform=` の応答（`Woo\Tools\SampleCleanup::preview()`）。
+ * `delete` / `unlink` のキーは `SampleCleanup::RESULT_KEYS`（`attachment` は `delete` のみ意味を持つ）。
+ * `requires_delete_users` が true で `can_delete_users` が false のとき、実行は 403 で拒否される。
+ */
+export interface CleanupPreview {
+	platform: string;
+	run_in_progress: boolean;
+	delete: Record< string, number >;
+	unlink: Record< string, number >;
+	requires_delete_users: boolean;
+	can_delete_users: boolean;
+	sample_selected: boolean;
+}
+
+/**
+ * `POST /tools/sample-cleanup` の応答（1バッチ分）。`has_more` が true の間は繰り返し呼ぶ。
+ */
+export interface CleanupResult {
+	deleted: Record< string, number >;
+	unlinked: Record< string, number >;
+	has_more: boolean;
+}
+
+/**
+ * `POST /tools/rebuild-mappings` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
+ */
+export interface RebuildResult {
+	counts: Record< string, number >;
+	cursor: string | null;
+}
+
+/**
+ * `GET /runs/{run_id}/verification` の1行（`Sync\VerificationReport`）。金額は `"1234.00"` 形式の
+ * 10進文字列で、受注以外は null。
+ */
+export interface VerificationEntity {
+	entity: EntityType;
+	status: JobStatus;
+	processed: number;
+	written: number;
+	skipped: number;
+	warned: number;
+	linked: number;
+	existing: number;
+	missing: number;
+	remote_amount: string | null;
+	local_amount: string | null;
+}
+
+export interface VerificationReport {
+	run_id: string;
+	platform: string;
+	type: RunType;
+	/** 店舗通貨（Woo 側の金額の通貨）。 */
+	currency: string;
+	/** ASP 側の金額の通貨（対応 ASP はすべて JPY）。 */
+	platform_currency: string;
+	/** true のとき金額は数値上一致しても同じ金額ではないため、金額突合は「不可」として扱う。 */
+	currency_mismatch: boolean;
+	entities: VerificationEntity[];
 }

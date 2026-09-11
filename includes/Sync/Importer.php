@@ -11,10 +11,12 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -218,11 +220,12 @@ final class Importer {
 		?string $run_id = null
 	): array {
 		$totals = [
-			'processed' => 0,
-			'created'   => 0,
-			'updated'   => 0,
-			'skipped'   => 0,
-			'warned'    => 0,
+			'processed'     => 0,
+			'created'       => 0,
+			'updated'       => 0,
+			'skipped'       => 0,
+			'warned'        => 0,
+			'remote_amount' => 0,
 		];
 
 		// dry-run実行が処理した各アイテムを1行ずつ`cbjp_dry_run_items`へ記録する（F1-6のCSV
@@ -253,6 +256,13 @@ final class Importer {
 
 		foreach ( $items as $index => $item ) {
 			++$totals['processed'];
+
+			if ( $item instanceof CanonicalOrder ) {
+				// 移行後検証レポート（D17）用: この run で ASP から取得した受注の合計金額を、書込の成否・
+				// スキップに関わらず全 processed 分で累積する（Woo側の「リンク済み受注の合計」と並べ、
+				// 無料版の上限で取り込めなかった分も金額で可視化するため。`JobRepository::empty_totals()`）。
+				$totals['remote_amount'] += Money::to_minor_units( $item->totals['total'] ?? null ) ?? 0;
+			}
 
 			if ( null !== $sample && ! in_array( $this->sample_match_key( $item ), $sample->product_remote_ids, true ) ) {
 				++$totals['skipped'];

@@ -38,6 +38,13 @@ final class OrderWriter implements EntityWriter {
 		private readonly MethodMap $methods
 	) {}
 
+	/**
+	 * 対応 ASP（カラーミー / BASE / MakeShop）の金額はすべて日本円。店舗通貨がこれと異なる場合、
+	 * 金額は換算せずそのまま保存し `CURRENCY_MISMATCH` 警告を出す（移行後検証レポートも同じ前提で
+	 * 通貨不一致を報告する）。
+	 */
+	public const PLATFORM_CURRENCY = 'JPY';
+
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
 		if ( ! $item instanceof CanonicalOrder ) {
 			throw new RuntimeException( 'OrderWriter received an unsupported Canonical model.' );
@@ -299,7 +306,7 @@ final class OrderWriter implements EntityWriter {
 		$currency = get_woocommerce_currency();
 		$order->set_currency( $currency );
 
-		if ( 'JPY' !== $currency ) {
+		if ( self::PLATFORM_CURRENCY !== $currency ) {
 			$warnings[] = WarningCode::CURRENCY_MISMATCH;
 		}
 

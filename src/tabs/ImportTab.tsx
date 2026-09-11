@@ -13,6 +13,8 @@ import {
 import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import RunProgress from '../components/RunProgress';
+import VerificationReport from '../components/VerificationReport';
+import { ENTITY_LABELS } from '../entity-labels';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
 import type {
 	Capabilities,
@@ -22,17 +24,6 @@ import type {
 	RunType,
 } from '../types';
 import { ENTITY_ORDER } from '../types';
-
-const ENTITY_LABELS: Record< EntityType, string > = {
-	category: __( 'Categories', 'cart-bridge-jp' ),
-	tag: __( 'Tags', 'cart-bridge-jp' ),
-	product: __( 'Products', 'cart-bridge-jp' ),
-	customer: __( 'Customers', 'cart-bridge-jp' ),
-	order: __( 'Orders', 'cart-bridge-jp' ),
-	stock: __( 'Stock', 'cart-bridge-jp' ),
-	coupon: __( 'Coupons', 'cart-bridge-jp' ),
-	review: __( 'Reviews', 'cart-bridge-jp' ),
-};
 
 function availableEntities( capabilities: Capabilities ): EntityType[] {
 	return ENTITY_ORDER.filter( ( entity ) => {
@@ -677,6 +668,20 @@ export default function ImportTab() {
 								}
 							/>
 						) }
+						{ /* 検証レポート（D17）は全ジョブが completed のときだけ出す。`isTerminal` は
+						     failed/cancelled を含むため、それだけでゲートすると途中で止まった run の
+						     部分的な結果を「完了した移行」として突合してしまう（RunProgress の
+						     allCompleted と同じ判定）。 */ }
+						{ importTerminal &&
+							importPolling.run &&
+							importPolling.run.jobs.every(
+								( job ) => 'completed' === job.status
+							) && (
+								<VerificationReport
+									runId={ importState.runId }
+									entityLabels={ ENTITY_LABELS }
+								/>
+							) }
 					</CardBody>
 				</Card>
 			) }

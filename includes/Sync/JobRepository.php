@@ -192,17 +192,22 @@ final class JobRepository {
 	}
 
 	/**
-	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,warned:int,failed:int}
+	 * `remote_amount` は受注ジョブのみ意味を持つ: この run で ASP から取得した受注の合計金額
+	 * （1/100単位の整数。`Support\Money`）。移行後検証レポート（D17。`VerificationReport`）が
+	 * Woo 側の受注合計と突合するために `Importer::process_items()` が累積する。
+	 *
+	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,warned:int,failed:int,remote_amount:int}
 	 */
 	public function empty_totals(): array {
 		return [
-			'total'     => 0,
-			'processed' => 0,
-			'created'   => 0,
-			'updated'   => 0,
-			'skipped'   => 0,
-			'warned'    => 0,
-			'failed'    => 0,
+			'total'         => 0,
+			'processed'     => 0,
+			'created'       => 0,
+			'updated'       => 0,
+			'skipped'       => 0,
+			'warned'        => 0,
+			'failed'        => 0,
+			'remote_amount' => 0,
 		];
 	}
 }

@@ -12,7 +12,12 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\JobManager;
+use CartBridgeJP\Sync\JobRepository;
+use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\Writer\CustomerWriter;
+use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
 use WP_REST_Server;
@@ -1001,6 +1006,251 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( '', $output );
 
 		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	private function register_mock_adapter(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+	}
+
+	public function test_preview_sample_cleanup_returns_404_for_unknown_platform(): void {
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
+
+	public function test_preview_sample_cleanup_rejects_an_array_valued_platform(): void {
+		// ツール系ルートは `args` スキーマ（type=string）で REST 層に配列を弾かせる（CLAUDE.md）。
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => [ 'mock' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_preview_sample_cleanup_reports_linked_counts(): void {
+		$this->register_mock_adapter();
+		( new MappingRepository() )->upsert( 'mock', 'category', 'c1', 123456, null );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'mock', $data['platform'] );
+		$this->assertFalse( $data['run_in_progress'] );
+		// 実体が無い mapping は「削除」ではなく「unlink」として数える。
+		$this->assertSame( 0, $data['delete']['category'] );
+		$this->assertSame( 1, $data['unlink']['category'] );
+		$this->assertSame( 0, $data['delete']['attachment'] );
+		$this->assertFalse( $data['requires_delete_users'] );
+		$this->assertTrue( $data['can_delete_users'] );
+		$this->assertFalse( $data['sample_selected'] );
+	}
+
+	public function test_run_sample_cleanup_is_forbidden_for_users_who_cannot_delete_users(): void {
+		$this->register_mock_adapter();
+		$customer_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+		update_user_meta( $customer_id, '_cbjp_platform', 'mock' );
+		update_user_meta( $customer_id, '_cbjp_remote_id', 'cu1' );
+		update_user_meta( $customer_id, CustomerWriter::CREATED_BY_IMPORT_META, 'mock' );
+		( new MappingRepository() )->upsert( 'mock', 'customer', 'cu1', $customer_id, null );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'cbjp_cleanup_forbidden', $response->as_error()->get_error_code() );
+		$this->assertSame( 1, ( new MappingRepository() )->count( 'mock', 'customer' ) );
+	}
+
+	public function test_run_sample_cleanup_is_rejected_while_a_run_is_active(): void {
+		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
+		$this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+	}
+
+	public function test_run_sample_cleanup_removes_links_and_reports_counts(): void {
+		$this->register_mock_adapter();
+		$mappings = new MappingRepository();
+		$mappings->upsert( 'mock', 'product', 'p1', 999999, null );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $data['has_more'] );
+		$this->assertSame( 1, $data['unlinked']['product'] );
+		$this->assertSame( 0, $mappings->count( 'mock', 'product' ) );
+	}
+
+	public function test_rebuild_mappings_restores_links_from_ownership_meta(): void {
+		$this->register_mock_adapter();
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Owned' );
+		$product->update_meta_data( '_cbjp_platform', 'mock' );
+		$product->update_meta_data( '_cbjp_remote_id', 'p1' );
+		$product_id = $product->save();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNull( $data['cursor'] );
+		$this->assertSame( 1, $data['counts']['product'] );
+		$this->assertSame( $product_id, ( new MappingRepository() )->find_local_id( 'mock', 'product', 'p1' ) );
+	}
+
+	public function test_rebuild_mappings_accepts_a_null_cursor(): void {
+		// 管理画面は初回リクエストで `cursor: null` を送る。`type: string` のみの args スキーマだと
+		// `rest_parse_request_arg` が null を型エラー（400）にしてしまう。
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params(
+			[
+				'platform' => 'mock',
+				'cursor'   => null,
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNull( $response->get_data()['cursor'] );
+	}
+
+	public function test_rebuild_mappings_rejects_an_invalid_cursor(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params(
+			[
+				'platform' => 'mock',
+				'cursor'   => '{"entity":"nope","offset":0}',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_invalid_cursor', $response->as_error()->get_error_code() );
+	}
+
+	public function test_get_run_verification_returns_404_for_unknown_run(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/runs/no-such-run/verification' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+	}
+
+	public function test_get_run_verification_rejects_dry_runs(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_verification_unavailable', $response->as_error()->get_error_code() );
+	}
+
+	public function test_run_routes_read_the_run_id_from_the_path_not_the_query_string(): void {
+		// `get_param()` は GET でもクエリ文字列の同名値をパスより優先する（CLAUDE.md）。
+		// `?run_id=...` で別の run を名指しされても、パスの run を返すこと。
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}" );
+		$request->set_query_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $run_id, $response->get_data()['run_id'] );
+
+		$request = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$request->set_query_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		// verification は dry-run に対して 400（run 自体は見つかっている）。404 ならクエリ側を読んでいる。
+		$this->assertSame( 400, $response->get_status() );
+
+		// POST はボディがパスより優先されるため、cancel はボディで別 run を名指しされてもパスの run を止める。
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
+		$request->set_body_params( [ 'run_id' => 'no-such-run' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( JobRepository::STATUS_CANCELLED, ( new JobRepository() )->find_by_run( $run_id )[0]['status'] );
+	}
+
+	public function test_retry_job_reads_the_job_id_from_the_path_not_the_body(): void {
+		$this->register_mock_adapter();
+		$jobs   = new JobRepository();
+		$job_a  = $jobs->create( 'run-a', 'import', 'mock', 'category' );
+		$job_b  = $jobs->create( 'run-b', 'import', 'mock', 'category' );
+		$failed = [
+			'code'    => 'exception',
+			'message' => 'boom',
+		];
+		$jobs->mark_failed( $job_a, $failed );
+		$jobs->mark_failed( $job_b, $failed );
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/jobs/{$job_a}/retry" );
+		$request->set_body_params( [ 'id' => $job_b ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $job_a, $response->get_data()['id'] );
+		$this->assertSame( JobRepository::STATUS_PENDING, $jobs->find( $job_a )['status'] );
+		$this->assertSame( JobRepository::STATUS_FAILED, $jobs->find( $job_b )['status'] );
+	}
+
+	public function test_get_run_verification_returns_the_report_for_an_import_run(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'import',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$run_id = (string) $this->server->dispatch( $request )->get_data()['run_id'];
+		JobManager::create()->run_to_completion( $run_id );
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/verification" );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $run_id, $data['run_id'] );
+		$this->assertSame( 'import', $data['type'] );
+		$this->assertSame( 'category', $data['entities'][0]['entity'] );
+		$this->assertSame( 0, $data['entities'][0]['missing'] );
 	}
 
 	private function start_mock_dry_run(): string {

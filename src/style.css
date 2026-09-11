@@ -108,3 +108,31 @@
 .cbjp-logs__pagination {
 	margin-top: 1em;
 }
+
+.cbjp-tools__card + .cbjp-tools__card {
+	margin-top: 1.5em;
+}
+
+.cbjp-tools__actions,
+.cbjp-tools__preview,
+.cbjp-tools__result {
+	margin-top: 1em;
+}
+
+.cbjp-tools__counts {
+	list-style: disc;
+	margin: 0.5em 0 0 1.5em;
+}
+
+.cbjp-verification {
+	margin-top: 1.5em;
+}
+
+.cbjp-verification__scroll {
+	overflow-x: auto;
+}
+
+.cbjp-verification__table td.cbjp-num {
+	text-align: right;
+	white-space: nowrap;
+}

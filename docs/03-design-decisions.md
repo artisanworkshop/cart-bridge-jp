@@ -246,12 +246,14 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | POST | `/runs` | 移行実行の開始 `{type, platform, entities[]}` |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
+| GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4） |
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
 | GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す |
-| POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。D16/§10.3） |
-| POST | `/tools/rebuild-mappings` | SKU/email/注文番号メタの突合による mappings 再構築（D16/§10.3） |
+| GET | `/tools/sample-cleanup?platform=` | サンプルクリーンアップの削除件数プレビュー（D16/§10.3） |
+| POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3） |
+| POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3） |
 
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
@@ -413,6 +415,39 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 - **アップセル表示**: dry-run で総数が判明するため、上限到達時に
   「移行対象◯件のうち10件を無料版で移行済み。残り◯件は Pro 版で移行できます」と具体数で表示（`GET /limits`）
 
+#### ツールの実装詳細（F1-7）
+
+- **サンプルクリーンアップ**（`Woo\Tools\SampleCleanup`、`GET/POST /tools/sample-cleanup`）: `cbjp_mappings`（platform単位）を正とし、
+  指す先の実体が `_cbjp_platform` メタで自プラットフォーム所有と確認できるものだけ削除する。所有権が無い・実体が既に無い行は
+  mapping 行だけ外す（`unlinked`）。削除順は order → stock/review（mapping行のみ）→ product（`VariationWriter::find_owned_variation_remote_ids()`
+  + `remove_all()` で所有 variation を先に削除）→ variant → coupon → customer → tag → category → 所有添付（`_cbjp_platform` + `_cbjp_source_url` 付き
+  attachment のうち、親投稿が無い／削除済みで、既存タームの `thumbnail_id` でもない**孤児**のみ。mappings を失った店舗でクリーンアップを実行しても
+  残っている商品・タームの画像を道連れにしない）。
+  **顧客**: `CustomerWriter` は email 突合で採用した既存 WP ユーザーにも `_cbjp_platform` を書くため、新規作成時にのみ書く
+  `_cbjp_created_by_import` マーカー（値は**作成したプラットフォームID**。不変で、採用では書き換えない）が自プラットフォームと一致し、
+  別プラットフォームが現在リンク中（`_cbjp_platform` が他プラットフォーム）でなく、店舗スタッフ権限（`PROTECTED_ROLES`）を持たず、
+  実行中の管理者自身でもないアカウントを、**実行者が `delete_user` 権限を持つ場合のみ** `wp_delete_user()` する（ルートの `manage_woocommerce`
+  だけでは shop_manager が WP 管理画面でできないアカウント削除を行えてしまうため）。それ以外はリンク用メタ（`_cbjp_platform`/`_cbjp_remote_id`。
+  自プラットフォームがリンクしている場合のみ）を外して残し、マーカーは残す（別プラットフォームがリンクを解いた後に作成元が再び取り込めば削除できる）。
+  ただし**自プラットフォームが作成したアカウントが mapping に残っているのに実行者が `delete_users` を持たない場合は、実行自体を 403 で拒否**する
+  （unlink だけして mappings とサンプルセットをリセットすると、無料版の顧客上限（`LimitPolicy`）を回避してアカウントを増やし続けられるため。
+  アーキテクチャ原則 7）。
+  **プレビュー**（`GET /tools/sample-cleanup`）は mapping 行数ではなく、`run()` と同じ所有権・実在・権限判定で「削除される件数」と
+  「mapping を外すだけの件数」をエンティティ別に返し、`requires_delete_users` / `can_delete_users` / `sample_selected`（mapping が無くても
+  サンプルセットだけ残っている場合に「選定のクリア」として実行できる）を併せて返す。
+  **バッチ契約**: Action Scheduler ジョブにはせず、1リクエストで予算（100実体。商品削除に伴う variation も数え、予算を使い切った時点で
+  取得済みページの残りも次のバッチへ回す）まで削除して `has_more` を返し、管理画面がループする（削除済み行は消えるため cursor 不要）。全て消え切った呼び出しで残骸 mappings（`delete_for_platform()`）と `cbjp_sample_{platform}` を削除し、
+  次回 import でサンプルが再選定される（§10.2 #7）。実行中のジョブ（pending/running/paused）がある間は 409。削除中は `SideEffectGuard` で
+  メール・在庫復元を抑止する
+- **リンク再構築**（`Woo\Tools\MappingRebuilder`、`POST /tools/rebuild-mappings`）: D16 の記述（SKU/email/注文番号突合）に対し、実装は
+  各 Writer が Woo 側実体へ必ず書く **`_cbjp_platform` + `_cbjp_remote_id`（受注は `_cbjp_remote_order_number` = `CanonicalOrder::remote_id()`）
+  メタを主キー**に走査する（category/tag は term meta、product/variant/coupon は post meta、customer は user meta、order は `wc_get_orders()`。
+  受注の `meta_query` は HPOS の `OrdersTableQuery` しか解釈せず、レガシー投稿型ストレージでは WC 9.2+ が非対応引数として無視するため、
+  HPOS 有効時の最適化としてのみ付け、どちらの構成でも取得後に `_cbjp_platform` を検証したものだけを対象にする。cursor の前進はクエリが
+  返した件数で判定する）。SKU/email 突合は「本プラグイン外で作られた Woo データを ASP に紐付ける」動作になり誤リンクの危険があるため採用しない。
+  checksum は null で upsert し、次回 import で必ず再検証させる。stock（product/variant から再解決される）と review（v1.0 に Writer 無し）は対象外。
+  予算 200 件/リクエストで `{entity, offset}` の cursor を返し、管理画面がループする（upsert は走査結果を変えないため offset ページングで安定）
+
 ### 10.4 付帯機能（D17）
 
 - **dry-runレポートのCSVダウンロード**: 変換結果・警告（未マッピング決済方法、SKU重複、バリエーション軸超過等）を全量出力（F1-6 PR-A実装済み）
@@ -431,3 +466,22 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 - **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
+
+#### 移行後検証レポートの実装詳細（F1-7）
+
+- **ASP側の金額**: `Sync\Importer::process_items()` が `CanonicalOrder` の `totals['total']` を、書込の成否・checksum 一致スキップに関わらず
+  全 processed 分で `remote_amount`（1/100 単位の int。`Support\Money` で文字列解析し float を使わない）へ累積し、`JobRepository::empty_totals()` の
+  キーとして job の `totals_json` に永続化する（`JobManager::merge_totals()` はページ毎に加算）
+- **集計**（`Sync\VerificationReport`、`GET /runs/{run_id}/verification`。`type=import` の run のみ。dry-run は 400）: ジョブごとに
+  `processed`（この run で ASP から取得）/ `written`（created+updated）/ `skipped` / `warned` を totals から、`linked`（mappings が指す
+  ローカルIDの重複除去数）/ `existing`（`Woo\Tools\LocalEntityLookup` が 200 件ずつ実在確認。受注は要件どおり `wc_get_order()` のみで判定し
+  ゴミ箱は不在扱い）/ `missing`（= linked − existing）を現在の Woo から算出する。受注は `remote_amount` と、実在するリンク済み受注の
+  `WC_Order::get_total()` 合計（`local_amount`）を `"1234.00"` 形式の10進文字列で返す。通貨は店舗通貨（`currency`）と ASP 側
+  （`platform_currency` = `OrderWriter::PLATFORM_CURRENCY` = JPY）を分けて返し、両者が異なる場合（`currency_mismatch`）は `OrderWriter` が
+  金額を換算せずそのまま保存しているため UI は金額突合を「不可」として扱う。F1-7 より前のジョブ（`totals_json` に `remote_amount` 無し）は
+  ASP 側合計を null（不明）で返す
+- **解釈**: ASP側は「この run で取得した全件」（無料版の上限でスキップした分を含む）、Woo側は「リンク済みで実在する全件」（プラットフォーム
+  全体・全期間）とスコープが異なる。UI（`src/components/VerificationReport.tsx`）は単なる一致/不一致ではなく差の向きを行ごとに示す:
+  `missing`（実体を失った mapping → warning。Rebuild links / 再 import を案内）、`fewer`（Woo 側が取得件数より少ない → info。無料版の上限・
+  スキップ・警告）、`more`（Woo 側が多い → info。過去の run で取り込んだ分、ASP 側で減った場合等）、`amount`（件数一致で受注合計のみ不一致 → warning）、
+  `reconciled`。全ジョブが completed の import run にのみ表示する（failed/cancelled を含む `isTerminal` だけでゲートしない）
