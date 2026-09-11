@@ -60,7 +60,7 @@ npm run build                # 本番ビルド
 - nonce/capabilityチェック必須（管理操作は `manage_woocommerce`）
 - `$wpdb->insert()`/`update()` はnull値を特別扱いしSQLのNULLとして書き込むが、生の `$wpdb->prepare()` + `query()` はnullを `%s` プレースホルダー経由で空文字列に変換してしまう（`vsprintf()` の挙動）。NULL許容カラムへ生クエリでnullを書く場合は `NULLIF(%s, '')` 等で明示的に変換すること
 - `register_rest_route()` で `args` スキーマ（type検証）を定義しないルートは、クエリパラメータが配列（例: `?job_id[]=1`）で渡り得る。スカラー値を期待するパラメータは `is_scalar()` で検証してから使うこと。さらに `WP_REST_Request::get_param()`/`get_params()` はGETはクエリ文字列、PUT/POST/DELETE等はボディを**URLパスより優先**してマージする（`get_parameter_order()`）ため、URLパスがリソースを名指しするパラメータ（例: `/settings/mappings/{platform}` の `platform`）を `get_param()` で読むと、クエリ/ボディの同名スカラー値で意図しない別リソースへ読み書きが向いてしまう。リソースを識別するパスパラメータは必ず `get_url_params()` で取得すること
-- 上記の `get_url_params()` 対応は、指摘された1箇所（`save_settings_mappings()`）にのみ適用され、同一ファイル内の同型の呼び出し6箇所（`save_connection()`/`delete_connection()`/`test_connection()`/`get_authorize_url()`/`handle_oauth_callback()`/`exchange_code()`）には長期間未適用のまま残っていた（issue #32/PR #33で解消）。既知の危険パターンの指摘を受けたら、その1箇所だけでなく同一ファイル内の類似呼び出し全てをgrep等で洗い出し、横展開すること
+- 既知の危険パターンの指摘を受けたら、その1箇所だけでなく同一ファイル内の類似呼び出し全てを grep 等で洗い出して横展開すること（`platform` の `get_url_params()` 化は issue #32/PR #33 で 6 箇所、`run_id`/`id` は PR #34 で 5 箇所を、いずれも初回の指摘時に取りこぼしていた）
 - フィクスチャの匿名化で実ドメイン（例: `shop-pro.jp`）を部分置換（サブドメイン名だけ変更）すると、ドメイン全体が予約済みexampleドメインでないため匿名化ルール違反になる。ドメインは丸ごと `example.com`/`example.jp` に置き換えること。自由入力欄（`note`/`other`/`answer_free_form*`等）は中身が無害に見えても内容に関わらず必ずプレースホルダーへ置換する
 - OAuth認可ポップアップは `window.open()` をクリックハンドラから同期的に呼ぶ（await後だとブロックされうる）。`noopener`指定時は成否に関わらず戻り値が常に`null`になる仕様なので、ポーリング等でウィンドウハンドルが必要な場合は`noopener`を使わず、生成できたハンドル側で`.opener = null`を手動設定してreverse tabnabbing対策すること
 - PHPの`??`（null合体）演算子はベースがnullの配列アクセス（例: `$possiblyNull['key'] ?? $default`）でも警告を出さない。Copilotレビューはこのパターンを誤って「null配列アクセス警告」と指摘することがあるため、同種の指摘は鵜呑みにせず`php -r`等で実際に検証すること
@@ -104,6 +104,11 @@ npm run build                # 本番ビルド
 - `get_posts()`/`WP_Query` の `post_status => 'any'` はゴミ箱（`trash`）と `auto-draft` を**含まない**（`exclude_from_search` が真のステータスを除外する。実測: ゴミ箱の商品は `any` で0件）。レビューbotが「`any` は trash も返す」と指摘してくることがあるが誤りなので、`wp eval` で実測して返答すること
 - `wc_get_product()` は削除済みの variation ID に対して `false` ではなく中身の無い `WC_Product_Variation` を返しうる（`WC_Product_Variation_Data_Store_CPT::read()` は投稿欠損で例外を投げず、商品種別キャッシュも残るため。実測: `SampleCleanup` で削除直後の ID）。削除済みかどうかは `instanceof` ではなく `get_post()` の有無で判定すること
 - DBに保存済みの値を読む用の寛容なサニタイズ関数（不正なエントリを黙って読み飛ばし、エンドポイント自体を落とさないためのもの）を、REST PUT等の書込み入力検証に流用しないこと。書込み側で使うと、1件でも不正な値（非スカラー等）を含むリクエストがそのエントリだけ読み飛ばされて「成功（200）」を返し、既存の正当なデータが黙って消える。書込み検証は専用の関数（1件でも不正なら`null`を返しリクエスト全体を拒否）に分離すること（issue #27）
+- 破壊的操作（サンプルクリーンアップ等）のプレビュー件数は、実行側と**同じ判定関数**で算出すること。mapping 行数をそのまま出すと、他プラットフォーム所有・削除済み・親削除でカスケードする variation・共有画像の分が実行結果とズレる（PR #34 のボットゲートで G1-3/12・G2-2・G3-2 と 3 ラウンド連続で同種の指摘を受けた。`SampleCleanup::can_delete_entity()` を preview/run で共用する構成を参照）
+- `_cbjp_platform` は email 突合による採用で別プラットフォームに書き換わる**可変**の所有メタ。「誰が作成したか」の判定にはこれを使わず、作成時にのみ書く不変マーカー `_cbjp_created_by_import`（値は作成プラットフォームID）を使うこと。可変メタで判定すると採用→リンク解除の後に作成元が削除できなくなる（G1-4/G2-1/G3-1）
+- `cbjp_mappings` を減らす・リセットする経路（クリーンアップ等）は、対応する実体を削除できない状況（権限不足等）では実行自体を拒否すること。unlink だけして mappings とサンプルセットを消すと `LimitPolicy` の累積カウントが消え、無料版上限（アーキテクチャ原則 7）を回避してデータを増やし続けられる（G1-11）
+- `MediaImporter` は同一 `_cbjp_source_url` の添付を商品・タームをまたいで再利用する。取り込み画像を削除する処理は `post_parent` や単一の参照だけで孤児と判定せず、参照する全ての実体が消える場合のみ削除すること（R2-2/G2-2/G3-2）
+- 金額突合の通貨は現在の店舗設定（`get_woocommerce_currency()`）ではなく、受注に保存された `WC_Order::get_currency()` から判定すること（店舗通貨は後から変えられる。ASP 側通貨は `OrderWriter::PLATFORM_CURRENCY`。G3-3）
 
 ## フロントエンド（React/TypeScript）規約
 
