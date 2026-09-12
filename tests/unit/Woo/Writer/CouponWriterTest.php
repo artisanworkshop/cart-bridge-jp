@@ -158,10 +158,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-
-		// 既存クーポンが「制限を落としたまま有効」で残ることをレポートから特定できるよう、
-		// detailに既存のlocal_idが載る（新規作成の見送りとの区別）。
-		$this->assertContains( WarningCode::with_detail( $expected_code, (string) $existing_id ), $result->warnings );
+		$this->assertContains( $expected_code, $result->warnings );
 
 		// 原則4: Woo側の実体は削除も無効化もせず、値も一切書き換えない。
 		$unchanged = new \WC_Coupon( $existing_id );

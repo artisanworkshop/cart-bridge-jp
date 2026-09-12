@@ -75,16 +75,13 @@ final class WarningCode {
 
 	/**
 	 * `CanonicalCoupon::$has_unsupported_restrictions` が `true`: ASP側の利用制限のうちWooの
-	 * クーポン設定へ写せないものが残っているため保存を見送った。detailは既に取り込み済みの
-	 * WooクーポンID（後から制限が付いた場合。原則4によりWoo側の実体は消さないため、制限を
-	 * 落としたまま有効なクーポンが残っていることを示す）。新規作成の見送りではdetailは付かない。
+	 * クーポン設定へ写せないものが残っているため保存を見送った。
 	 */
 	public const COUPON_RESTRICTIONS_UNSUPPORTED = 'coupon_restrictions_unsupported';
 
 	/**
 	 * `CanonicalCoupon::$has_unsupported_restrictions` が `null`: アダプタが制限の有無を宣言して
 	 * いないため、不明として保存を見送った（楽観的に「制限なし」へ倒さない）。
-	 * detailの意味は {@see COUPON_RESTRICTIONS_UNSUPPORTED} と同じ。
 	 */
 	public const COUPON_RESTRICTIONS_UNKNOWN = 'coupon_restrictions_unknown';
 

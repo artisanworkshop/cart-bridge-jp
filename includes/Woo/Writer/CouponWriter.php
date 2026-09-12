@@ -77,13 +77,12 @@ final class CouponWriter implements EntityWriter {
 		//
 		// 既に取り込み済み（`$existing_local_id`が非null）のクーポンにASP側で後から制限が付いた
 		// 場合、アーキテクチャ原則4によりWoo側の実体は削除も無効化もしない。結果として「制限が
-		// 落ちたまま有効なクーポン」がWooに残り続けるため、新規作成の見送りと区別できるよう
-		// 既存のlocal_idをdetailに載せる（`COUPON_CODE_CONFLICT`と同じ形式）。detailが無いと
-		// 店舗オーナーはレポートから危険なクーポンが生きていることに気付けない。
-		$restriction_detail = null !== $existing_local_id ? (string) $existing_local_id : '';
-
+		// 落ちたまま有効なクーポン」がWooに残り続けるが、dry-runレポートは行ごとに
+		// `existing_local_id`列（`Admin\DryRunReportCsv::HEADER`）を持つため、この警告コードと
+		// 同じ行から対象を特定できる。同じ値をdetailにも載せる必要は無い
+		// （`COUPON_CODE_CONFLICT`のdetailは「衝突した別クーポンのID」＝行に無い情報なので別物）。
 		if ( true === $item->has_unsupported_restrictions ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $restriction_detail ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
 		}
 
 		if ( null === $item->has_unsupported_restrictions ) {
@@ -91,7 +90,7 @@ final class CouponWriter implements EntityWriter {
 			// 信頼境界。CLAUDE.md参照）。「宣言が無い＝制限なし」という楽観的デフォルトへ倒すと、
 			// 上のフェイルクローズをフィールドの未設定だけで回避できてしまうため、不明は
 			// 安全側（保存しない）に倒す（アーキテクチャ原則9）。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $restriction_detail ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
 		}
 
 		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {
