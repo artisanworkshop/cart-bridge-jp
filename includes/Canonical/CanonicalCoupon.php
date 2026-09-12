@@ -38,7 +38,12 @@ final readonly class CanonicalCoupon implements CanonicalModel {
 	 *   アダプタだけなので、判定は各アダプタのTransformerが行い、`Woo\Writer\CouponWriter` は
 	 *   この正規化フィールドだけを見る（アーキテクチャ原則1）。
 	 *   三値の意味:
-	 *   - `false`: 写せない制限は無い（制限自体が無い、またはWooの制限軸へ変換済み）。保存してよい
+	 *   - `false`: 写せない制限は残っていない。保存してよい。**現時点でこれに該当するのは
+	 *     「ASP側に利用制限がそもそも無い」場合だけ**である。このモデルには商品ID・カテゴリ・
+	 *     メールアドレス等の制限を運ぶフィールドが無く、`CouponWriter`も`set_product_ids()`等を
+	 *     呼ばないため、ASP側の制限をWooの制限軸へ写す経路は未実装。「Wooに対応機能があるから
+	 *     写せるはず」を根拠に`false`を立てると、制限が落ちた無制限クーポンが保存される。
+	 *     変換経路を実装する際に、その分だけ`false`にしてよい範囲を広げること
 	 *   - `true`:  写せない制限が残っている。落としたまま保存すると実質「全顧客・全商品に効く
 	 *     無制限クーポン」として機能してしまうため、`CouponWriter` が保存を見送る
 	 *   - `null`:  アダプタが宣言していない（不明）。楽観的に「制限なし」へ倒すと金銭的リスクに
@@ -88,7 +93,11 @@ final readonly class CanonicalCoupon implements CanonicalModel {
 			isset( $data['usage_limit_per_user'] ) ? (int) $data['usage_limit_per_user'] : null,
 			// キー自体が無い（＝宣言されていない）場合はnullのまま保ち、`CouponWriter`の
 			// フェイルクローズ対象にする。`false`へ倒すと復元経路だけが楽観的になってしまう。
-			isset( $data['has_unsupported_restrictions'] ) ? (bool) $data['has_unsupported_restrictions'] : null
+			// 他フィールドと違い`(bool)`キャストを使わないのは、フェイルクローズの可否を決める
+			// 三値だから: `(bool) '0'`は`false`（＝保存してよい）に、`(bool) 'false'`は`true`に
+			// なるため、壊れた値・型違いが「制限なし」の宣言に化けてフェイルクローズを迂回しうる。
+			// 実際のbool以外はすべて「不明」（null）に倒す（アーキテクチャ原則9）。
+			is_bool( $data['has_unsupported_restrictions'] ?? null ) ? $data['has_unsupported_restrictions'] : null
 		);
 	}
 }

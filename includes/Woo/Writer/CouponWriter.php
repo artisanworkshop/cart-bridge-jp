@@ -71,7 +71,10 @@ final class CouponWriter implements EntityWriter {
 		// （`WC_Coupon::set_product_ids()`/`set_product_categories()`/`set_email_restrictions()`等）
 		// への対応付けが可能かの両方を知らないと判定できない。どちらもアダプタの知識のため判定は
 		// 各TransformerがCanonical側のフィールドへ落とし、共有writerであるここはその正規化
-		// フィールドだけを見る（アーキテクチャ原則1）。特定ASPのキー名（ColorMeの
+		// フィールドだけを見る（アーキテクチャ原則1）。なおv1.0時点ではASP側の制限をWooの制限軸へ
+		// 写す経路自体が未実装（`CanonicalCoupon`に制限を運ぶフィールドが無く、このwriterも上記
+		// setterを呼ばない）ため、`false`が立つのは「ASP側に制限が無い」場合だけになる。
+		// 特定ASPのキー名（ColorMeの
 		// `extras['group_limit_type']`等）をここで直接読むと、同じ概念を別キー名で表す他ASPの
 		// アダプタに対しては判定が一切働かず、フェイルクローズが実質的に機能しなくなる（issue #15）。
 		//

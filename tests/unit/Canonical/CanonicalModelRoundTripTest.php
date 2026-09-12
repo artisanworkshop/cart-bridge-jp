@@ -220,6 +220,12 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 			'explicit null'  => [ [ 'has_unsupported_restrictions' => null ], null ],
 			'declared false' => [ [ 'has_unsupported_restrictions' => false ], false ],
 			'declared true'  => [ [ 'has_unsupported_restrictions' => true ], true ],
+			// 非boolは「不明」へ倒す。`(bool)`キャストだと`'0'`が`false`（＝保存してよい）に
+			// 化けて`CouponWriter`のフェイルクローズを迂回できてしまう（Copilot指摘 G1-2）。
+			'string zero'    => [ [ 'has_unsupported_restrictions' => '0' ], null ],
+			'string false'   => [ [ 'has_unsupported_restrictions' => 'false' ], null ],
+			'int one'        => [ [ 'has_unsupported_restrictions' => 1 ], null ],
+			'array'          => [ [ 'has_unsupported_restrictions' => [] ], null ],
 		];
 	}
 }
