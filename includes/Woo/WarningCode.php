@@ -71,16 +71,28 @@ final class WarningCode {
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
 
-	public const COUPON_REUSED_EXISTING         = 'coupon_reused_existing';
-	public const COUPON_GROUP_LIMIT_UNSUPPORTED = 'coupon_group_limit_unsupported';
-	public const COUPON_CODE_CONFLICT           = 'coupon_code_conflict';
-	public const COUPON_TYPE_UNKNOWN            = 'coupon_type_unknown';
-	public const COUPON_AMOUNT_INVALID          = 'coupon_amount_invalid';
-	public const VARIATION_SAVE_FAILED          = 'variation_save_failed';
-	public const PRODUCT_SAVE_FAILED            = 'product_save_failed';
-	public const COUPON_SAVE_FAILED             = 'coupon_save_failed';
-	public const COUPON_EXPIRES_AT_INVALID      = 'coupon_expires_at_invalid';
-	public const COUPON_MIN_AMOUNT_INVALID      = 'coupon_min_amount_invalid';
+	public const COUPON_REUSED_EXISTING = 'coupon_reused_existing';
+
+	/**
+	 * `CanonicalCoupon::$has_unsupported_restrictions` が `true`: ASP側の利用制限のうちWooの
+	 * クーポン設定へ写せないものが残っているため保存を見送った。
+	 */
+	public const COUPON_RESTRICTIONS_UNSUPPORTED = 'coupon_restrictions_unsupported';
+
+	/**
+	 * `CanonicalCoupon::$has_unsupported_restrictions` が `null`: アダプタが制限の有無を宣言して
+	 * いないため、不明として保存を見送った（楽観的に「制限なし」へ倒さない）。
+	 */
+	public const COUPON_RESTRICTIONS_UNKNOWN = 'coupon_restrictions_unknown';
+
+	public const COUPON_CODE_CONFLICT      = 'coupon_code_conflict';
+	public const COUPON_TYPE_UNKNOWN       = 'coupon_type_unknown';
+	public const COUPON_AMOUNT_INVALID     = 'coupon_amount_invalid';
+	public const VARIATION_SAVE_FAILED     = 'variation_save_failed';
+	public const PRODUCT_SAVE_FAILED       = 'product_save_failed';
+	public const COUPON_SAVE_FAILED        = 'coupon_save_failed';
+	public const COUPON_EXPIRES_AT_INVALID = 'coupon_expires_at_invalid';
+	public const COUPON_MIN_AMOUNT_INVALID = 'coupon_min_amount_invalid';
 
 	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。

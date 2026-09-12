@@ -63,15 +63,37 @@ final class CouponWriter implements EntityWriter {
 			throw new RuntimeException( 'CouponWriter received an unsupported Canonical model.' );
 		}
 
-		$group_limit_type = Value::string( $item->extras['group_limit_type'] ?? null );
+		// ASP側の利用制限をWooのクーポン設定へ写せないと判定されたクーポンは保存しない。
+		// 制限を落としたまま保存すると実質「全顧客・全商品に効く無制限クーポン」として機能して
+		// しまい金銭的リスクに直結するため、警告だけでなく保存自体を見送るフェイルクローズにする。
+		//
+		// 何が「写せない制限」に当たるかはASPのAPI固有のキー名・enum値と、Wooの制限軸
+		// （`WC_Coupon::set_product_ids()`/`set_product_categories()`/`set_email_restrictions()`等）
+		// への対応付けが可能かの両方を知らないと判定できない。どちらもアダプタの知識のため判定は
+		// 各TransformerがCanonical側のフィールドへ落とし、共有writerであるここはその正規化
+		// フィールドだけを見る（アーキテクチャ原則1）。なおv1.0時点ではASP側の制限をWooの制限軸へ
+		// 写す経路自体が未実装（`CanonicalCoupon`に制限を運ぶフィールドが無く、このwriterも上記
+		// setterを呼ばない）ため、`false`が立つのは「ASP側に制限が無い」場合だけになる。
+		// 特定ASPのキー名（ColorMeの
+		// `extras['group_limit_type']`等）をここで直接読むと、同じ概念を別キー名で表す他ASPの
+		// アダプタに対しては判定が一切働かず、フェイルクローズが実質的に機能しなくなる（issue #15）。
+		//
+		// 既に取り込み済み（`$existing_local_id`が非null）のクーポンにASP側で後から制限が付いた
+		// 場合、アーキテクチャ原則4によりWoo側の実体は削除も無効化もしない。結果として「制限が
+		// 落ちたまま有効なクーポン」がWooに残り続けるが、dry-runレポートは行ごとに
+		// `existing_local_id`列（`Admin\DryRunReportCsv::HEADER`）を持つため、この警告コードと
+		// 同じ行から対象を特定できる。同じ値をdetailにも載せる必要は無い
+		// （`COUPON_CODE_CONFLICT`のdetailは「衝突した別クーポンのID」＝行に無い情報なので別物）。
+		if ( true === $item->has_unsupported_restrictions ) {
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
+		}
 
-		if ( null !== $group_limit_type && 'none' !== $group_limit_type ) {
-			// 特定会員グループ限定のクーポンはWooに対応機能が無い。制限を無視して保存すると
-			// 実質「全顧客が使える無制限クーポン」として機能してしまい金銭的リスクに直結するため
-			// （ColorMeの`CouponTransformer`はこのケースを既に除外しているが、`extras`経由で
-			// 直接構築されうる外部アダプタは信頼境界のため、ここでも警告だけでなく保存自体を
-			// 見送るフェイルクローズにする）。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED ] );
+		if ( null === $item->has_unsupported_restrictions ) {
+			// アダプタが制限の有無を宣言していない（`cbjp/adapters/register`経由の外部アダプタは
+			// 信頼境界。CLAUDE.md参照）。「宣言が無い＝制限なし」という楽観的デフォルトへ倒すと、
+			// 上のフェイルクローズをフィールドの未設定だけで回避できてしまうため、不明は
+			// 安全側（保存しない）に倒す（アーキテクチャ原則9）。
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
 		}
 
 		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {

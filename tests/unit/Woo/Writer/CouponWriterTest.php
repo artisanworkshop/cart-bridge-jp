@@ -20,7 +20,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_fixed_type_maps_to_fixed_cart(): void {
-		$coupon = new CanonicalCoupon( 'SAVE500', 'fixed', '500', null, '2026-12-31', 10, [ 'remote_id' => '1' ] );
+		$coupon = new CanonicalCoupon( 'SAVE500', 'fixed', '500', null, '2026-12-31', 10, [ 'remote_id' => '1' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -33,7 +33,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_percent_type_maps_to_percent(): void {
-		$coupon = new CanonicalCoupon( 'TENOFF', 'percent', '10', null, null, null, [ 'remote_id' => '2' ] );
+		$coupon = new CanonicalCoupon( 'TENOFF', 'percent', '10', null, null, null, [ 'remote_id' => '2' ], has_unsupported_restrictions: false );
 
 		$result    = $this->make_writer()->write( $coupon, null );
 		$wc_coupon = new \WC_Coupon( $result->local_id );
@@ -42,7 +42,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_free_shipping_flag_is_applied(): void {
-		$coupon = new CanonicalCoupon( 'FREESHIP', 'fixed', '0', null, null, null, [ 'remote_id' => '3' ], true );
+		$coupon = new CanonicalCoupon( 'FREESHIP', 'fixed', '0', null, null, null, [ 'remote_id' => '3' ], true, has_unsupported_restrictions: false );
 
 		$result    = $this->make_writer()->write( $coupon, null );
 		$wc_coupon = new \WC_Coupon( $result->local_id );
@@ -56,7 +56,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
 		$existing_id = $existing->save();
 
-		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, null );
 
 		$this->assertSame( $existing_id, $result->local_id );
@@ -70,7 +70,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->update_meta_data( '_cbjp_platform', 'makeshop' );
 		$existing_id = $existing->save();
 
-		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, null );
 
 		$this->assertSame( 0, $result->local_id );
@@ -87,7 +87,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->set_amount( '9999' );
 		$existing_id = $existing->save();
 
-		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$coupon = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, null );
 
 		$this->assertSame( 0, $result->local_id );
@@ -95,7 +95,7 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
 	}
 
-	public function test_group_limited_coupon_is_skipped_not_saved_unrestricted(): void {
+	public function test_coupon_with_unsupported_restrictions_is_skipped_not_saved_unrestricted(): void {
 		$coupon = new CanonicalCoupon(
 			'MEMBERS-ONLY',
 			'fixed',
@@ -103,18 +103,101 @@ final class CouponWriterTest extends WooTestCase {
 			null,
 			null,
 			null,
-			[
-				'remote_id'        => '6',
-				'group_limit_type' => 'specified',
-			]
+			[ 'remote_id' => '6' ],
+			has_unsupported_restrictions: true
 		);
 
 		$result = $this->make_writer()->write( $coupon, null );
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED, $result->warnings );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
+	}
+
+	public function test_coupon_without_restriction_declaration_is_skipped(): void {
+		// `has_unsupported_restrictions`を渡さない＝制限の有無を宣言していないアダプタ。
+		// 「宣言が無い＝制限なし」へ楽観的に倒すと、フェイルクローズをフィールドの未設定だけで
+		// 回避できてしまうため、不明は保存しない側へ倒す（issue #15）。
+		$coupon = new CanonicalCoupon( 'UNDECLARED', 'fixed', '500', null, null, null, [ 'remote_id' => '13' ] );
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $result->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'UNDECLARED' ) );
+	}
+
+	/**
+	 * @dataProvider restriction_fail_close_provider
+	 */
+	public function test_restricted_coupon_does_not_overwrite_an_already_imported_coupon( ?bool $has_unsupported_restrictions, string $expected_code ): void {
+		// ASP側で後から制限が付いた（またはアダプタが宣言をやめた）ケース。コード衝突の更新パス
+		// （`test_update_path_code_rename_conflict_is_skipped_not_overwritten`）と同じく、判定が
+		// `new WC_Coupon( $existing_local_id )` + `set_*` より後ろへ移動すると既存クーポンを
+		// 書き換え始めてしまうため、更新パス専用の回帰テストを置く。
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'ALREADY-IMPORTED' );
+		$existing->set_amount( '500' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
+		$existing_id = $existing->save();
+
+		$coupon = new CanonicalCoupon(
+			'ALREADY-IMPORTED',
+			'fixed',
+			'900',
+			null,
+			null,
+			null,
+			[ 'remote_id' => '15' ],
+			has_unsupported_restrictions: $has_unsupported_restrictions
+		);
+
+		$result = $this->make_writer()->write( $coupon, $existing_id );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertContains( $expected_code, $result->warnings );
+
+		// 原則4: Woo側の実体は削除も無効化もせず、値も一切書き換えない。
+		$unchanged = new \WC_Coupon( $existing_id );
+		$this->assertSame( '500', $unchanged->get_amount() );
+		$this->assertSame( 'already-imported', $unchanged->get_code() );
+	}
+
+	/**
+	 * @return array<string,array{0:?bool,1:string}>
+	 */
+	public static function restriction_fail_close_provider(): array {
+		return [
+			'unsupported restrictions declared' => [ true, WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ],
+			'no declaration at all'             => [ null, WarningCode::COUPON_RESTRICTIONS_UNKNOWN ],
+		];
+	}
+
+	public function test_platform_specific_extras_key_no_longer_blocks_the_save(): void {
+		// 制限の判定はアダプタのTransformerの責務になったため、共有writerはASP固有のキー名
+		// （ColorMeの`group_limit_type`等）を一切見ない。正規化フィールドが「制限なし」を
+		// 宣言していれば、extrasに何が入っていても保存される（アーキテクチャ原則1）。
+		$coupon = new CanonicalCoupon(
+			'EXTRAS-ONLY',
+			'fixed',
+			'500',
+			null,
+			null,
+			null,
+			[
+				'remote_id'        => '14',
+				'group_limit_type' => 'including',
+			],
+			has_unsupported_restrictions: false
+		);
+
+		$result = $this->make_writer()->write( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 0, $result->local_id );
 	}
 
 	public function test_update_path_code_rename_conflict_is_skipped_not_overwritten(): void {
@@ -133,7 +216,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
 		$existing_id = $existing->save();
 
-		$coupon = new CanonicalCoupon( 'TAKEN', 'fixed', '200', null, null, null, [ 'remote_id' => '8' ] );
+		$coupon = new CanonicalCoupon( 'TAKEN', 'fixed', '200', null, null, null, [ 'remote_id' => '8' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, $existing_id );
 
 		// local_id 0を返す: `Importer`はlocal_id!==0であればoperationに関わらずchecksumを
@@ -156,7 +239,7 @@ final class CouponWriterTest extends WooTestCase {
 		// `cbjp/adapters/register`経由の外部アダプタが未知の値を渡しうる。deny-list判定だと
 		// 未知の値が黙って`fixed_cart`として保存され金銭的リスクになるため、allow-listで
 		// 保存自体を見送ることを確認する。
-		$coupon = new CanonicalCoupon( 'WEIRD', 'buy_one_get_one', '100', null, null, null, [ 'remote_id' => '7' ] );
+		$coupon = new CanonicalCoupon( 'WEIRD', 'buy_one_get_one', '100', null, null, null, [ 'remote_id' => '7' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -170,7 +253,7 @@ final class CouponWriterTest extends WooTestCase {
 		// `WC_Coupon::set_amount()`自身が負値を拒否して例外を投げるが、これまでは他writerと
 		// 異なり事前検証が無く、その例外が`Importer`の汎用catch-allに落ちて専用の警告コードが
 		// 残らなかった。ここで保存自体を見送りフェイルクローズすることを確認する。
-		$coupon = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ] );
+		$coupon = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -181,7 +264,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_percent_amount_over_100_is_skipped_and_warns(): void {
-		$coupon = new CanonicalCoupon( 'TOOMUCH', 'percent', '150', null, null, null, [ 'remote_id' => '9' ] );
+		$coupon = new CanonicalCoupon( 'TOOMUCH', 'percent', '150', null, null, null, [ 'remote_id' => '9' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -196,7 +279,7 @@ final class CouponWriterTest extends WooTestCase {
 		// 文字列（外部アダプタ側の不具合等）を`WC_Coupon::set_date_expires()`にそのまま
 		// 渡すと`Importer`の汎用catch-allに落ちて専用の警告が残らない。事前検証で
 		// フェイルクローズすることを確認する。
-		$coupon = new CanonicalCoupon( 'BADDATE', 'fixed', '100', null, 'not-a-date', null, [ 'remote_id' => '10' ] );
+		$coupon = new CanonicalCoupon( 'BADDATE', 'fixed', '100', null, 'not-a-date', null, [ 'remote_id' => '10' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -207,7 +290,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_null_expires_at_is_accepted_as_no_expiry(): void {
-		$coupon = new CanonicalCoupon( 'FOREVER', 'fixed', '100', null, null, null, [ 'remote_id' => '11' ] );
+		$coupon = new CanonicalCoupon( 'FOREVER', 'fixed', '100', null, null, null, [ 'remote_id' => '11' ], has_unsupported_restrictions: false );
 
 		$result    = $this->make_writer()->write( $coupon, null );
 		$wc_coupon = new \WC_Coupon( $result->local_id );
@@ -220,7 +303,7 @@ final class CouponWriterTest extends WooTestCase {
 		// `WC_Coupon::set_minimum_amount()`は`wc_format_decimal()`を通すのみで符号を検証
 		// しないため、負値がそのまま「最低購入金額」として保存されると意図せずクーポン
 		// 適用条件が緩む金銭的リスクがある。
-		$coupon = new CanonicalCoupon( 'BADMIN', 'fixed', '100', '-500', null, null, [ 'remote_id' => '12' ] );
+		$coupon = new CanonicalCoupon( 'BADMIN', 'fixed', '100', '-500', null, null, [ 'remote_id' => '12' ], has_unsupported_restrictions: false );
 
 		$result = $this->make_writer()->write( $coupon, null );
 
@@ -231,7 +314,7 @@ final class CouponWriterTest extends WooTestCase {
 	}
 
 	public function test_usage_limit_per_user_is_applied(): void {
-		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1 );
+		$coupon = new CanonicalCoupon( 'ONEUSE', 'fixed', '100', null, null, null, [ 'remote_id' => '5' ], false, 1, has_unsupported_restrictions: false );
 
 		$result    = $this->make_writer()->write( $coupon, null );
 		$wc_coupon = new \WC_Coupon( $result->local_id );
@@ -257,7 +340,7 @@ final class CouponWriterTest extends WooTestCase {
 		wp_delete_post( $stale_id, true );
 		$this->assertNull( get_post( $stale_id ) );
 
-		$coupon = new CanonicalCoupon( 'GHOST', 'fixed', '300', null, null, null, [ 'remote_id' => '9' ] );
+		$coupon = new CanonicalCoupon( 'GHOST', 'fixed', '300', null, null, null, [ 'remote_id' => '9' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, $stale_id );
 
 		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
@@ -286,7 +369,7 @@ final class CouponWriterTest extends WooTestCase {
 		$stale_id = $stale->save();
 		wp_delete_post( $stale_id, true );
 
-		$coupon = new CanonicalCoupon( 'SHARED', 'fixed', '999', null, null, null, [ 'remote_id' => '10' ] );
+		$coupon = new CanonicalCoupon( 'SHARED', 'fixed', '999', null, null, null, [ 'remote_id' => '10' ], has_unsupported_restrictions: false );
 		$result = $this->make_writer()->write( $coupon, $stale_id );
 
 		$this->assertSame( 0, $result->local_id );
@@ -302,7 +385,7 @@ final class CouponWriterTest extends WooTestCase {
 	// dry-runの警告が実移行の実態とずれる（無料版の価値=D14を毀損する）。
 
 	public function test_validate_matches_write_for_new_coupon(): void {
-		$coupon = new CanonicalCoupon( 'SAVE500', 'fixed', '500', null, '2026-12-31', 10, [ 'remote_id' => '1' ] );
+		$coupon = new CanonicalCoupon( 'SAVE500', 'fixed', '500', null, '2026-12-31', 10, [ 'remote_id' => '1' ], has_unsupported_restrictions: false );
 
 		$validation = $this->make_writer()->validate( $coupon, null );
 
@@ -318,7 +401,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->update_meta_data( '_cbjp_platform', 'makeshop' );
 		$existing_id = $existing->save();
 
-		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ], has_unsupported_restrictions: false );
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
@@ -326,7 +409,7 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
 	}
 
-	public function test_validate_detects_group_limit_unsupported(): void {
+	public function test_validate_detects_unsupported_restrictions(): void {
 		$coupon = new CanonicalCoupon(
 			'MEMBERS-ONLY',
 			'fixed',
@@ -334,21 +417,28 @@ final class CouponWriterTest extends WooTestCase {
 			null,
 			null,
 			null,
-			[
-				'remote_id'        => '6',
-				'group_limit_type' => 'specified',
-			]
+			[ 'remote_id' => '6' ],
+			has_unsupported_restrictions: true
 		);
 
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED, $validation->warnings );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $validation->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
 	}
 
+	public function test_validate_detects_undeclared_restrictions(): void {
+		$coupon     = new CanonicalCoupon( 'UNDECLARED', 'fixed', '500', null, null, null, [ 'remote_id' => '13' ] );
+		$validation = $this->make_writer()->validate( $coupon, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $validation->warnings );
+		$this->assertSame( 0, wc_get_coupon_id_by_code( 'UNDECLARED' ) );
+	}
+
 	public function test_validate_detects_negative_amount(): void {
-		$coupon     = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ] );
+		$coupon     = new CanonicalCoupon( 'NEGATIVE', 'fixed', '-100', null, null, null, [ 'remote_id' => '8' ], has_unsupported_restrictions: false );
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
@@ -362,7 +452,7 @@ final class CouponWriterTest extends WooTestCase {
 		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
 		$existing_id = $existing->save();
 
-		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ] );
+		$coupon     = new CanonicalCoupon( 'DUPLICATE', 'fixed', '100', null, null, null, [ 'remote_id' => '4' ], has_unsupported_restrictions: false );
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );

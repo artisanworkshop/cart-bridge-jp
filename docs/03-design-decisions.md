@@ -104,7 +104,17 @@ UI・JobManager は capability が false のエンティティを選択肢から
 ### Canonical追加モデル
 
 - `CanonicalTag`（id, name）
-- `CanonicalCoupon`（code, type('fixed'|'percent'), amount, minAmount, expiresAt, usageLimit, extras）
+- `CanonicalCoupon`（code, type('fixed'|'percent'), amount, minAmount, expiresAt, usageLimit, extras,
+  freeShipping, usageLimitPerUser, hasUnsupportedRestrictions）
+  - `hasUnsupportedRestrictions`（`?bool`）はASP側の利用制限のうち、現在の変換経路ではWooのクーポン設定へ
+    **写せない**ものが残っているかの正規化フィールド。Woo自身は商品・カテゴリ・メールアドレスの制限軸を
+    ネイティブに持つ（`WC_Coupon::set_product_ids()` 等）ため「ASPに制限がある」と「写せない」は同義ではない。
+    ただし `CanonicalCoupon` にそれらを運ぶフィールドが無く `CouponWriter` も該当setterを呼ばないため、
+    **v1.0 時点で `false` にしてよいのは「ASP側に制限が無い」場合のみ**（変換経路を実装した分だけ範囲を広げる）。
+    ASP固有のキー名・enum値と写せるかの判定はアダプタしか持たないため判定は各Transformerが行い、
+    `Woo\Writer\CouponWriter` はこのフィールドだけを見て保存を見送る（アーキテクチャ原則1）。
+    `null`＝アダプタが宣言していない（不明）も保存しない側に倒す
+    （原則9。楽観的デフォルトによるフェイルクローズ回避を防ぐ）。issue #15
 - `CanonicalReview`（productRef, authorName, rating, title, content, createdAt, extras）
 
 ## 3. DBスキーマ（DDL確定版）

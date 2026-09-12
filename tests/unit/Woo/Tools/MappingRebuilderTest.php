@@ -73,7 +73,7 @@ final class MappingRebuilderTest extends WooTestCase {
 		);
 		$variation_id = $this->mappings->find_local_id( 'mock', 'variant', 'v1' );
 		$this->assertNotNull( $variation_id );
-		$coupon_id = $this->import( 'mock', 'coupon', new CanonicalCoupon( 'REBUILD10', 'percent', '10', null, null, null, [ 'remote_id' => 'cp1' ] ) );
+		$coupon_id = $this->import( 'mock', 'coupon', new CanonicalCoupon( 'REBUILD10', 'percent', '10', null, null, null, [ 'remote_id' => 'cp1' ], has_unsupported_restrictions: false ) );
 		$user_id   = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu1', 'cu1@example.com' ) );
 		$order_id  = $this->import( 'mock', 'order', CanonicalFactory::order( '1001', 'cu1', [ 'p1' ] ) );
 
