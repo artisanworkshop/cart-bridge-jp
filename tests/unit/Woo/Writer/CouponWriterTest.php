@@ -129,6 +129,56 @@ final class CouponWriterTest extends WooTestCase {
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'UNDECLARED' ) );
 	}
 
+	/**
+	 * @dataProvider restriction_fail_close_provider
+	 */
+	public function test_restricted_coupon_does_not_overwrite_an_already_imported_coupon( ?bool $has_unsupported_restrictions, string $expected_code ): void {
+		// ASP側で後から制限が付いた（またはアダプタが宣言をやめた）ケース。コード衝突の更新パス
+		// （`test_update_path_code_rename_conflict_is_skipped_not_overwritten`）と同じく、判定が
+		// `new WC_Coupon( $existing_local_id )` + `set_*` より後ろへ移動すると既存クーポンを
+		// 書き換え始めてしまうため、更新パス専用の回帰テストを置く。
+		$existing = new \WC_Coupon();
+		$existing->set_code( 'ALREADY-IMPORTED' );
+		$existing->set_amount( '500' );
+		$existing->update_meta_data( '_cbjp_platform', 'colorme' );
+		$existing_id = $existing->save();
+
+		$coupon = new CanonicalCoupon(
+			'ALREADY-IMPORTED',
+			'fixed',
+			'900',
+			null,
+			null,
+			null,
+			[ 'remote_id' => '15' ],
+			has_unsupported_restrictions: $has_unsupported_restrictions
+		);
+
+		$result = $this->make_writer()->write( $coupon, $existing_id );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+
+		// 既存クーポンが「制限を落としたまま有効」で残ることをレポートから特定できるよう、
+		// detailに既存のlocal_idが載る（新規作成の見送りとの区別）。
+		$this->assertContains( WarningCode::with_detail( $expected_code, (string) $existing_id ), $result->warnings );
+
+		// 原則4: Woo側の実体は削除も無効化もせず、値も一切書き換えない。
+		$unchanged = new \WC_Coupon( $existing_id );
+		$this->assertSame( '500', $unchanged->get_amount() );
+		$this->assertSame( 'already-imported', $unchanged->get_code() );
+	}
+
+	/**
+	 * @return array<string,array{0:?bool,1:string}>
+	 */
+	public static function restriction_fail_close_provider(): array {
+		return [
+			'unsupported restrictions declared' => [ true, WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ],
+			'no declaration at all'             => [ null, WarningCode::COUPON_RESTRICTIONS_UNKNOWN ],
+		];
+	}
+
 	public function test_platform_specific_extras_key_no_longer_blocks_the_save(): void {
 		// 制限の判定はアダプタのTransformerの責務になったため、共有writerはASP固有のキー名
 		// （ColorMeの`group_limit_type`等）を一切見ない。正規化フィールドが「制限なし」を

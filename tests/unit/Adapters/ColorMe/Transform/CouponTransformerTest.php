@@ -107,6 +107,7 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		// `Woo\Writer\CouponWriter`が不明としてフェイルクローズし1件も取り込まれない（issue #15）。
 		$coupon = $this->transformer->transform( $this->raw( [] ) );
 
+		$this->assertNotNull( $coupon );
 		$this->assertFalse( $coupon->has_unsupported_restrictions );
 	}
 

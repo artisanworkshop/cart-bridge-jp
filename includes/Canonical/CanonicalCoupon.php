@@ -30,13 +30,16 @@ final readonly class CanonicalCoupon implements CanonicalModel {
 	 * @param array<string,mixed>  $extras ASP固有フィールドの退避先。
 	 * @param ?int                 $usage_limit_per_user 1ユーザーあたりの利用可能回数。WooCommerceの
 	 *   ネイティブなクーポン設定（usage_limit_per_user）に対応する。
-	 * @param ?bool                $has_unsupported_restrictions Wooのネイティブなクーポン設定では
-	 *   表現できない利用制限（特定の商品グループ・会員グループ限定等）がASP側に設定されているか。
-	 *   ASP固有のキー名・enum値を知るのはアダプタだけなので、判定は各アダプタのTransformerが行い、
-	 *   `Woo\Writer\CouponWriter` はこの正規化フィールドだけを見る（アーキテクチャ原則1）。
+	 * @param ?bool                $has_unsupported_restrictions ASP側に設定された利用制限のうち、
+	 *   Wooのクーポン設定へ写せないものが残っているか。Woo自身は商品・カテゴリ・メールアドレス等の
+	 *   制限軸をネイティブに持つ（`WC_Coupon::set_product_ids()`/`set_product_categories()`/
+	 *   `set_email_restrictions()`）ため、「ASPに制限がある」ことと「写せない」ことは同義ではない。
+	 *   ASP固有のキー名・enum値と、それをWooのどの軸へ落とせるか（落とせないか）を知るのは
+	 *   アダプタだけなので、判定は各アダプタのTransformerが行い、`Woo\Writer\CouponWriter` は
+	 *   この正規化フィールドだけを見る（アーキテクチャ原則1）。
 	 *   三値の意味:
-	 *   - `false`: 制限は無い（またはWooで表現できる範囲に収まる）。そのまま保存してよい
-	 *   - `true`:  Wooで表現できない制限がある。無視して保存すると実質「全顧客・全商品に効く
+	 *   - `false`: 写せない制限は無い（制限自体が無い、またはWooの制限軸へ変換済み）。保存してよい
+	 *   - `true`:  写せない制限が残っている。落としたまま保存すると実質「全顧客・全商品に効く
 	 *     無制限クーポン」として機能してしまうため、`CouponWriter` が保存を見送る
 	 *   - `null`:  アダプタが宣言していない（不明）。楽観的に「制限なし」へ倒すと金銭的リスクに
 	 *     直結する（アーキテクチャ原則9）ため、`CouponWriter` は同じく保存を見送る。

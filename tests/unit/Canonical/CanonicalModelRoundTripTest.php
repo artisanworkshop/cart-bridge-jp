@@ -188,17 +188,38 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 		$this->assertNotSame( $model_a->checksum(), $model_b->checksum() );
 	}
 
-	public function test_coupon_restriction_flag_stays_null_when_the_source_array_omits_it(): void {
+	/**
+	 * @dataProvider coupon_restriction_flag_provider
+	 * @param array<string,mixed> $source
+	 */
+	public function test_coupon_restriction_flag_survives_the_round_trip( array $source, ?bool $expected ): void {
 		// 復元経路だけが「キーが無い＝制限なし」へ倒れると、`Woo\Writer\CouponWriter`の
 		// フェイルクローズ（未宣言は保存しない）をシリアライズ往復で回避できてしまう（issue #15）。
+		// `from_array()`は`isset()`判定のため明示的な`null`とキー欠損は同じ`null`に落ちる。
 		$coupon = CanonicalCoupon::from_array(
-			[
-				'code'   => 'SAVE10',
-				'type'   => 'percent',
-				'amount' => '10',
-			]
+			array_merge(
+				[
+					'code'   => 'SAVE10',
+					'type'   => 'percent',
+					'amount' => '10',
+				],
+				$source
+			)
 		);
 
-		$this->assertNull( $coupon->has_unsupported_restrictions );
+		$this->assertSame( $expected, $coupon->has_unsupported_restrictions );
+		$this->assertSame( $expected, $coupon->to_array()['has_unsupported_restrictions'] );
+	}
+
+	/**
+	 * @return array<string,array{0:array<string,mixed>,1:?bool}>
+	 */
+	public static function coupon_restriction_flag_provider(): array {
+		return [
+			'key omitted'    => [ [], null ],
+			'explicit null'  => [ [ 'has_unsupported_restrictions' => null ], null ],
+			'declared false' => [ [ 'has_unsupported_restrictions' => false ], false ],
+			'declared true'  => [ [ 'has_unsupported_restrictions' => true ], true ],
+		];
 	}
 }

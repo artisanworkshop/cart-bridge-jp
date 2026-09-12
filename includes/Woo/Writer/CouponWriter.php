@@ -63,19 +63,27 @@ final class CouponWriter implements EntityWriter {
 			throw new RuntimeException( 'CouponWriter received an unsupported Canonical model.' );
 		}
 
-		// 特定の商品グループ・会員グループ限定といった利用制限はWooのネイティブなクーポン設定
-		// では表現できない。制限を無視して保存すると実質「全顧客・全商品に効く無制限クーポン」
-		// として機能してしまい金銭的リスクに直結するため、警告だけでなく保存自体を見送る
-		// フェイルクローズにする。
+		// ASP側の利用制限をWooのクーポン設定へ写せないと判定されたクーポンは保存しない。
+		// 制限を落としたまま保存すると実質「全顧客・全商品に効く無制限クーポン」として機能して
+		// しまい金銭的リスクに直結するため、警告だけでなく保存自体を見送るフェイルクローズにする。
 		//
-		// 何が制限に当たるかはASPのAPI固有のキー名・enum値でしか判定できないため、判定自体は
-		// 各アダプタのTransformerが行い（`CanonicalCoupon::$has_unsupported_restrictions`）、
-		// 共有writerであるここはその正規化フィールドだけを見る（アーキテクチャ原則1）。
-		// 特定ASPのキー名（ColorMeの`extras['group_limit_type']`等）をここで直接読むと、
-		// 同じ概念を別キー名で表す他ASPのアダプタに対しては判定が一切働かず、フェイルクローズが
-		// 実質的に機能しなくなる（issue #15）。
+		// 何が「写せない制限」に当たるかはASPのAPI固有のキー名・enum値と、Wooの制限軸
+		// （`WC_Coupon::set_product_ids()`/`set_product_categories()`/`set_email_restrictions()`等）
+		// への対応付けが可能かの両方を知らないと判定できない。どちらもアダプタの知識のため判定は
+		// 各TransformerがCanonical側のフィールドへ落とし、共有writerであるここはその正規化
+		// フィールドだけを見る（アーキテクチャ原則1）。特定ASPのキー名（ColorMeの
+		// `extras['group_limit_type']`等）をここで直接読むと、同じ概念を別キー名で表す他ASPの
+		// アダプタに対しては判定が一切働かず、フェイルクローズが実質的に機能しなくなる（issue #15）。
+		//
+		// 既に取り込み済み（`$existing_local_id`が非null）のクーポンにASP側で後から制限が付いた
+		// 場合、アーキテクチャ原則4によりWoo側の実体は削除も無効化もしない。結果として「制限が
+		// 落ちたまま有効なクーポン」がWooに残り続けるため、新規作成の見送りと区別できるよう
+		// 既存のlocal_idをdetailに載せる（`COUPON_CODE_CONFLICT`と同じ形式）。detailが無いと
+		// 店舗オーナーはレポートから危険なクーポンが生きていることに気付けない。
+		$restriction_detail = null !== $existing_local_id ? (string) $existing_local_id : '';
+
 		if ( true === $item->has_unsupported_restrictions ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $restriction_detail ) ] );
 		}
 
 		if ( null === $item->has_unsupported_restrictions ) {
@@ -83,7 +91,7 @@ final class CouponWriter implements EntityWriter {
 			// 信頼境界。CLAUDE.md参照）。「宣言が無い＝制限なし」という楽観的デフォルトへ倒すと、
 			// 上のフェイルクローズをフィールドの未設定だけで回避できてしまうため、不明は
 			// 安全側（保存しない）に倒す（アーキテクチャ原則9）。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $restriction_detail ) ] );
 		}
 
 		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {
