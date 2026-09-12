@@ -142,6 +142,7 @@ npm run build                # 本番ビルド
   `main`への直接pushを許容する。GitHub側のブランチ保護は「PR必須」だが、パス単位の例外は
   設定できず（クラシック保護・Rulesetsとも非対応）、管理者は元々バイパス可能なため、これは
   GitHub側の強制ではなくClaude Codeが守る運用ルールである
+- 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）
