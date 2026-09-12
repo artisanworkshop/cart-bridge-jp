@@ -1,10 +1,10 @@
 # dev-cycle 状態: fix/15-coupon-unsupported-restrictions
 - タスク: issue #15 — `CouponWriter` のクーポン制限判定をプラットフォーム非依存化
 - 開始: 2026-09-12
-- PR: 未作成
-- 現在のステップ: 4（push と PR 作成）
-- Copilot: 依頼 0 回
-- Codex: 依頼 0 回
+- PR: #37 https://github.com/artisanworkshop/cart-bridge-jp/pull/37
+- 現在のステップ: 7（ゲート G2）
+- Copilot: 依頼 2 回 / 未収束（G2 で新規 1 件）
+- Codex: 依頼 1 回 / **収束**（G2 で "Didn't find any major issues"。G1 時点の自動レビューは未発火だった）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -12,3 +12,8 @@
 | 2026-09-12 | 1 | 計画承認（変換層の除外は維持 / 未宣言は `null`＝不明としてフェイルクローズ） |
 | 2026-09-12 | 2 | 実装コミット 2 件（fix / docs）、品質チェック green（PHPUnit 704 tests） |
 | 2026-09-12 | 3 | review-loop R1（Medium 2 / Low 4 を修正）→ R2 **APPROVE**（R1-1 は前提誤りにつき取り消し）。PHPUnit 709 tests green |
+| 2026-09-12 | 4 | push・PR #37 作成 |
+| 2026-09-12 | 5 | CI green（4 ジョブ） |
+| 2026-09-12 | 6-7 | G1: Copilot 新規 5 件（修正 4 / 保留 1）、Codex 自動レビュー未発火（15分TIMEOUT）。修正 push `6865478`、PHPUnit 713 tests green |
+| 2026-09-12 | 5-6 | CI green → G2 として両ボットへ再依頼 |
+| 2026-09-12 | 7 | G2: Codex **収束**（指摘なし）、Copilot 新規 1 件（この状態ファイルの陳腐化）→ 修正 |
