@@ -3,7 +3,7 @@ name: cbj-dev-cycle
 description: >
   Cart Bridge JP 専用の開発サイクル。グローバルの `dev-cycle`（計画→ブランチ→実装→review-loop→PR→CI→
   Codex/Copilot ゲート→最終報告）を、このリポジトリの規約・環境（docs/10-tasks.md のタスク台帳、
-  wp-env のポート固定、`composer test:wpenv`、Codex は `@codex review` コメントで起動、レビュー返信は日本語）
+  wp-env のポート固定、`composer test:wpenv`、Codex は PR 作成時に自動レビュー・再依頼は `@codex review` コメント、レビュー返信は日本語）
   と同梱スクリプト（bot-request / bot-wait / ci-wait / gate-threads / gate-reply / gate-resolve / quality）で
   具体化したもの。「cbj-dev-cycle」「次のタスクを進めて」「F1-8 を実装して PR まで」「ゲートラウンドを回して」
   などと言われたら、`dev-cycle` の代わりにこちらを使う。人間の判断が必要な場面（計画承認・各ゲートラウンドの
@@ -20,7 +20,7 @@ description: >
 
 | 項目 | 値 |
 |---|---|
-| 品質チェック | `scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv` → `npm run lint` → `npm run build`） |
+| 品質チェック | `.claude/skills/cbj-dev-cycle/scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv` → `npm run lint` → `npm run build`） |
 | ブランチ命名 | `feat/{タスクID小文字}-{短い説明}`（例: `feat/f1-7-tools-verification-report`）。バグ対応は `fix/{issue番号}-{短い説明}` |
 | 計画ドキュメント | `docs/10-tasks.md`（着手タスクはここから。隣接タスクのまとめ方は同ファイル「進め方」2 と memory の PR/branch grouping） |
 | 設計ドキュメント | `docs/03-design-decisions.md`（他と矛盾したらこちら優先）、`docs/00〜04`、`docs/20`（v2.0 検討事項） |
@@ -68,12 +68,12 @@ description: >
 
 ## Step 4〜7（push / CI / ボットゲート）はスクリプトで行う
 
-`scripts/` は `.claude/skills/cbj-dev-cycle/scripts/`（リポジトリルートから実行）。
+以下の `scripts/` は `.claude/skills/cbj-dev-cycle/scripts/` の略記。**リポジトリルートから** `.claude/skills/cbj-dev-cycle/scripts/<name>.sh` として実行する（例: `.claude/skills/cbj-dev-cycle/scripts/ci-wait.sh 34`）。
 
 | 目的 | コマンド | 備考 |
 |---|---|---|
 | CI 待ち | `scripts/ci-wait.sh <PR>` | Bash `run_in_background`（timeout 600000）で実行し、完了通知を待つ |
-| ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は `@codex review` コメントで起動（自動レビューは無効） |
+| ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよい |
 | 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT |
 | 新規スレッド取得 | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
