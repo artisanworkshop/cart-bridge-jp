@@ -4,7 +4,7 @@ description: >
   Cart Bridge JP 専用の開発サイクル。グローバルの `dev-cycle`（計画→ブランチ→実装→review-loop→PR→CI→
   Codex/Copilot ゲート→最終報告）を、このリポジトリの規約・環境（docs/10-tasks.md のタスク台帳、
   wp-env のポート固定、`composer test:wpenv`、Codex は PR 作成時に自動レビュー・再依頼は `@codex review` コメント、レビュー返信は日本語）
-  と同梱スクリプト（bot-request / bot-wait / ci-wait / gate-threads / gate-reply / gate-resolve / quality）で
+  と同梱スクリプト（bot-request / bot-wait / ci-wait / gate-threads / gate-bodies / gate-reply / gate-resolve / quality）で
   具体化したもの。「cbj-dev-cycle」「次のタスクを進めて」「F1-8 を実装して PR まで」「ゲートラウンドを回して」
   などと言われたら、`dev-cycle` の代わりにこちらを使う。人間の判断が必要な場面（計画承認・各ゲートラウンドの
   commit 判断・想定外の事象）では必ず停止する。
@@ -75,12 +75,20 @@ description: >
 | CI 待ち | `scripts/ci-wait.sh <PR>` | Bash `run_in_background`（timeout 600000）で実行し、完了通知を待つ |
 | ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよい |
 | 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT |
-| 新規スレッド取得 | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
+| 新規スレッド取得（系統 A） | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
+| レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記） |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
 | Resolve | `scripts/gate-resolve.sh <threadId>...` | **修正したスレッドのみ**。保留は返信だけして未解決のまま残す |
 
+- **指摘の取得元は 2 系統ある。片方だけ見て「指摘なし」と判断しない。** Copilot は判定が
+  「🔵 Needs a closer look」のとき、インラインコメントを 1 件も投稿せず（`Comments generated: 0 new`）、
+  指摘を本文の `Suppressed comments` に畳むことがある（PR #35 の 2 回目のレビューが実例。
+  `gate-threads.sh` だけでは 2 件を丸ごと取り逃していた）。毎ラウンド `gate-threads.sh` と
+  `gate-bodies.sh` の両方を実行し、`path:line` と要旨で重複排除してから仕分ける。
+- 本文指摘（系統 B）は**スレッドが無いため Resolve できない**。`G<n>.md` と PR サマリコメントの
+  記録が唯一の処理済みマーカーになる（記録が無いと、次のラウンドで同じ指摘を再評価することになる）。
 - ラウンド記録 `docs/reviews/<ブランチ>/G<n>.md` は `dev-cycle` のフォーマット。ラウンドのサマリは `gh pr comment` で投稿する
-  （各スレッドの `#discussion_r<dbid>` リンクと sha を含める）。
+  （各スレッドの `#discussion_r<dbid>` リンク、本文指摘は `#pullrequestreview-<id>` リンクと `path:line`、sha を含める）。
 - 指摘の仕分けで迷う項目（設計変更・Sync 層のロック等）は確認ゲートの選択肢として提示し、勝手に決めない。
 - 3 回目の依頼に対する修正は push して CI を待つが、**4 回目の依頼はしない**。
 
