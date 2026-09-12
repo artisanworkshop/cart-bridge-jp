@@ -130,11 +130,19 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   （`save_connection`/`delete_connection`/`test_connection`/`get_authorize_url`/`handle_oauth_callback`/`exchange_code`）の
   `platform` を `get_url_params()` 経由の `platform_param()` に統一（issue #27 指摘の横展開漏れ。回帰テスト2件追加）。
   保存済み資格情報をAPIが平文で返さない設計は維持し、`ConnectionCard` に「保存済み。変更時のみ入力」の案内Noticeを追加
-- [ ] **fix: `CouponWriter` の会員グループ制限判定をプラットフォーム非依存化**（issue #15、未着手）
+- [x] **fix: `CouponWriter` のクーポン制限判定をプラットフォーム非依存化**（2026-09-12、issue #15）
   `extras['group_limit_type']` というColorMe固有キー・enum値で判定しており、他ASPが別キーで同じ概念を表すと
-  フェイルクローズが効かず制限付きクーポンが無制限クーポンとして保存されうる。`CanonicalCoupon` に正規化フィールドを
-  追加（外部アダプタの位置引数互換のため既存引数より後ろ）し、各アダプタのTransformerが判定する形へ移す。
-  v1.0 では `CouponTransformer` が該当クーポンを既に除外しているため実害なし。クーポンAPIを持つ次のアダプタ（M6-3）着手前までに対応
+  フェイルクローズが効かず制限付きクーポンが無制限クーポンとして保存されうる状態だった。`CanonicalCoupon` に
+  三値の `has_unsupported_restrictions`（`?bool`）を最終引数として追加（外部アダプタの位置引数互換のため
+  既存引数より後ろ）し、判定を各アダプタのTransformerの責務に移した。`null`（アダプタが宣言していない）も
+  「不明」として保存を見送るフェイルクローズにしており、楽観的デフォルトによる回避を塞いでいる。
+  警告コードは `coupon_group_limit_unsupported` → `coupon_restrictions_unsupported` に改名し、
+  未宣言用に `coupon_restrictions_unknown` を新設。ColorMeの `CouponTransformer` は従来どおり
+  制限付きクーポンを変換段階で除外するため v1.0 の挙動は不変（`false` を明示宣言するのみ）。
+  **checksum への影響**: `to_array()` にキーが増えるため既存クーポンの checksum が変わり、
+  アップグレード後の初回インポートで既取込みクーポンが1度だけ再書き込みされる（冪等なupdate。マイグレーション不要）。
+  M6-3（クーポンAPIを持つ次のアダプタ）を待たず v1.0 公開前に対応した理由は、公開後だと判定根拠の移行自体が
+  外部アダプタ向けの挙動契約の変更になり、checksum 変化も利用者に及ぶため
 
 ---
 

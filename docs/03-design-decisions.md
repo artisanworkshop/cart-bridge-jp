@@ -104,7 +104,13 @@ UI・JobManager は capability が false のエンティティを選択肢から
 ### Canonical追加モデル
 
 - `CanonicalTag`（id, name）
-- `CanonicalCoupon`（code, type('fixed'|'percent'), amount, minAmount, expiresAt, usageLimit, extras）
+- `CanonicalCoupon`（code, type('fixed'|'percent'), amount, minAmount, expiresAt, usageLimit, extras,
+  freeShipping, usageLimitPerUser, hasUnsupportedRestrictions）
+  - `hasUnsupportedRestrictions`（`?bool`）はWooのネイティブなクーポン設定では表現できない利用制限
+    （特定の商品グループ・会員グループ限定等）がASP側にあるかの正規化フィールド。ASP固有のキー名・enum値で
+    しか判定できないため判定は各アダプタのTransformerが行い、`Woo\Writer\CouponWriter` はこのフィールド
+    だけを見て保存を見送る（アーキテクチャ原則1）。`null`＝アダプタが宣言していない（不明）も
+    保存しない側に倒す（原則9。楽観的デフォルトによるフェイルクローズ回避を防ぐ）。issue #15
 - `CanonicalReview`（productRef, authorName, rating, title, content, createdAt, extras）
 
 ## 3. DBスキーマ（DDL確定版）
