@@ -116,15 +116,16 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 			'coupon'   => [
 				CanonicalCoupon::class,
 				[
-					'code'                 => 'SAVE10',
-					'type'                 => 'percent',
-					'amount'               => '10',
-					'min_amount'           => null,
-					'expires_at'           => null,
-					'usage_limit'          => 100,
-					'extras'               => [],
-					'free_shipping'        => false,
-					'usage_limit_per_user' => null,
+					'code'                         => 'SAVE10',
+					'type'                         => 'percent',
+					'amount'                       => '10',
+					'min_amount'                   => null,
+					'expires_at'                   => null,
+					'usage_limit'                  => 100,
+					'extras'                       => [],
+					'free_shipping'                => false,
+					'usage_limit_per_user'         => null,
+					'has_unsupported_restrictions' => false,
 				],
 			],
 			'review'   => [
@@ -185,5 +186,19 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 		}
 
 		$this->assertNotSame( $model_a->checksum(), $model_b->checksum() );
+	}
+
+	public function test_coupon_restriction_flag_stays_null_when_the_source_array_omits_it(): void {
+		// 復元経路だけが「キーが無い＝制限なし」へ倒れると、`Woo\Writer\CouponWriter`の
+		// フェイルクローズ（未宣言は保存しない）をシリアライズ往復で回避できてしまう（issue #15）。
+		$coupon = CanonicalCoupon::from_array(
+			[
+				'code'   => 'SAVE10',
+				'type'   => 'percent',
+				'amount' => '10',
+			]
+		);
+
+		$this->assertNull( $coupon->has_unsupported_restrictions );
 	}
 }

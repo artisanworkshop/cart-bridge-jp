@@ -100,7 +100,7 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertGreaterThan( 0, $image_id );
 		$this->assertSame( 'mock', get_post_meta( $image_id, '_cbjp_platform', true ) );
 
-		$coupon_id   = $this->import( 'mock', 'coupon', new CanonicalCoupon( 'CLEAN10', 'percent', '10', null, null, null, [ 'remote_id' => 'cp1' ] ) );
+		$coupon_id   = $this->import( 'mock', 'coupon', new CanonicalCoupon( 'CLEAN10', 'percent', '10', null, null, null, [ 'remote_id' => 'cp1' ], has_unsupported_restrictions: false ) );
 		$new_user_id = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu1', 'cu1@example.com' ) );
 
 		// email突合で採用される既存アカウント（本プラグインが作成していない）。

@@ -63,15 +63,27 @@ final class CouponWriter implements EntityWriter {
 			throw new RuntimeException( 'CouponWriter received an unsupported Canonical model.' );
 		}
 
-		$group_limit_type = Value::string( $item->extras['group_limit_type'] ?? null );
+		// 特定の商品グループ・会員グループ限定といった利用制限はWooのネイティブなクーポン設定
+		// では表現できない。制限を無視して保存すると実質「全顧客・全商品に効く無制限クーポン」
+		// として機能してしまい金銭的リスクに直結するため、警告だけでなく保存自体を見送る
+		// フェイルクローズにする。
+		//
+		// 何が制限に当たるかはASPのAPI固有のキー名・enum値でしか判定できないため、判定自体は
+		// 各アダプタのTransformerが行い（`CanonicalCoupon::$has_unsupported_restrictions`）、
+		// 共有writerであるここはその正規化フィールドだけを見る（アーキテクチャ原則1）。
+		// 特定ASPのキー名（ColorMeの`extras['group_limit_type']`等）をここで直接読むと、
+		// 同じ概念を別キー名で表す他ASPのアダプタに対しては判定が一切働かず、フェイルクローズが
+		// 実質的に機能しなくなる（issue #15）。
+		if ( true === $item->has_unsupported_restrictions ) {
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
+		}
 
-		if ( null !== $group_limit_type && 'none' !== $group_limit_type ) {
-			// 特定会員グループ限定のクーポンはWooに対応機能が無い。制限を無視して保存すると
-			// 実質「全顧客が使える無制限クーポン」として機能してしまい金銭的リスクに直結するため
-			// （ColorMeの`CouponTransformer`はこのケースを既に除外しているが、`extras`経由で
-			// 直接構築されうる外部アダプタは信頼境界のため、ここでも警告だけでなく保存自体を
-			// 見送るフェイルクローズにする）。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_GROUP_LIMIT_UNSUPPORTED ] );
+		if ( null === $item->has_unsupported_restrictions ) {
+			// アダプタが制限の有無を宣言していない（`cbjp/adapters/register`経由の外部アダプタは
+			// 信頼境界。CLAUDE.md参照）。「宣言が無い＝制限なし」という楽観的デフォルトへ倒すと、
+			// 上のフェイルクローズをフィールドの未設定だけで回避できてしまうため、不明は
+			// 安全側（保存しない）に倒す（アーキテクチャ原則9）。
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
 		}
 
 		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {

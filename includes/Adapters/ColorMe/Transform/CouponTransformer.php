@@ -124,7 +124,12 @@ final class CouponTransformer {
 			$this->extras( $raw, $remote_id, $is_free_shipping ),
 			$is_free_shipping,
 			// `disposable`はWooの usage_limit_per_user=1 に、`indisposable`は無制限（null）に対応する。
-			'disposable' === $usage_limit ? 1 : null
+			'disposable' === $usage_limit ? 1 : null,
+			// 商品グループ制限つき（`group_limit_type !== 'none'`）の行は上の早期returnで既に
+			// 除外済みのため、ここへ到達するのは制限なしのクーポンだけ。除外条件を緩めて
+			// 制限つきの行もここへ流す実装に変える場合は、代わりに`true`を立てて
+			// `Woo\Writer\CouponWriter`のフェイルクローズへ委ねること。
+			has_unsupported_restrictions: false
 		);
 	}
 

@@ -101,6 +101,15 @@ final class CouponTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->transform( $this->raw( [ 'usage_limit' => 'unknown_future_value' ] ) ) );
 	}
 
+	public function test_transformed_coupon_declares_no_unsupported_restrictions(): void {
+		// 商品グループ制限つきの行は下の2テストのとおり変換層で除外されるため、`CanonicalCoupon`
+		// まで到達したクーポンは常に「Wooで表現できない制限なし」を宣言する。宣言を省略すると
+		// `Woo\Writer\CouponWriter`が不明としてフェイルクローズし1件も取り込まれない（issue #15）。
+		$coupon = $this->transformer->transform( $this->raw( [] ) );
+
+		$this->assertFalse( $coupon->has_unsupported_restrictions );
+	}
+
 	public function test_group_restricted_coupon_is_excluded(): void {
 		// WooCommerceのクーポン制限はタグ単位に対応しておらず、Transformer層だけではColorMeの
 		// グループ→商品ID一覧の展開もできない。そのまま作ると意図せず全商品対象の割引券になり
