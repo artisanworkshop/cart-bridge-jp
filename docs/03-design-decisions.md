@@ -1,11 +1,11 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-09-05
+最終更新: 2026-09-13
 
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -27,6 +27,7 @@
 | D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
 | D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
 | D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は、プラットフォーム固有のコードをアダプタ外に書かない（アーキテクチャ原則1）ことを維持しつつ、プラットフォーム非依存のコア拡張点（例: 受注インポート時に抽出した顧客をImporterが永続化するフック=B4-5、レート制限超過時の再試行遅延をアダプタ側から指定できるJobManagerの拡張点=E5-1）の追加は許容し、Importer/Exporter本体にプラットフォーム固有の分岐を持ち込まないことを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
+| D19 | マッピング候補一覧の取得方式（E2-1） | `PlatformAdapter`（§2「確定版」）に `mappingCandidates(): array` を追加する。`/settings/mappings/{platform}` のマッピングUI（カテゴリ/決済/配送/注文ステータス）が選択肢を動的に描画するための自己記述スキーマで、既存の `connectionFields()` と同じ設計思想。外部アドオンによるカスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換リスクは低いと判断した（該当メソッドが無いカスタムアダプタは致命的エラーになるため、将来外部アダプタが増えた場合はこの追加を周知する）。あわせて `cbjp_settings_{platform}` に `category_map`（キー: Woo側カテゴリID、値: ASP側カテゴリID）を追加。カラーミーがカテゴリ作成不可なため、既存の `payment_map`/`shipping_map`/`status_map`（ASP側ID→Woo側ID）とは向きが逆になる |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -43,6 +44,11 @@ interface PlatformAdapter {
 
     // 接続設定スキーマの宣言（UIが動的にフォーム生成。例: makeshopはendpoint+token）
     public function connectionFields(): array;        // ConnectionField[]
+
+    // `/settings/mappings/{platform}` UI向けのASP側マッピング候補一覧（D19。connectionFields()と
+    // 同じ「自己記述スキーマをUIが消費する」設計）。キーは category/payment/shipping/status。
+    // 該当エンティティ・機能を持たないプラットフォームはキー省略・空配列可。
+    public function mappingCandidates(): array;        // array<string, array<{id,name}>>
 
     // 取得（カーソルベースで再開可能）
     public function fetchProducts( Cursor $cursor ): Page;   // Page<CanonicalProduct>
@@ -259,7 +265,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4） |
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
-| GET/PUT | `/settings/mappings/{platform}` | 決済/配送/注文ステータスのマッピング設定 |
+| GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する |
 | GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す |
 | GET | `/tools/sample-cleanup?platform=` | サンプルクリーンアップの削除件数プレビュー（D16/§10.3） |
 | POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3） |

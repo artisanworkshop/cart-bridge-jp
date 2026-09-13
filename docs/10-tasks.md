@@ -264,7 +264,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 > capability 分岐（カテゴリ自動作成等）の有効化だけで成立させる。
 > 前提: F1-8 完了（インポート側の実データE2Eで Canonical⇔Woo の変換が実データに耐えることを確認済み）。
 
-- [ ] **E2-1: マッピングUI**（カテゴリ: カラーミーは作成不可（`canCreateCategory=false`）のため既存カテゴリ選択のみ。自動作成の分岐点は capability 判定として用意し、実装は v2.0 E5-1 / 決済・配送・注文ステータス対応表。F1-5後続の `GET/PUT /settings/mappings/{platform}` と設定ストア `cbjp_settings_{platform}` を共用）
+- [x] **E2-1: マッピングUI**（カテゴリ: カラーミーは作成不可（`canCreateCategory=false`）のため既存カテゴリ選択のみ。自動作成の分岐点は capability 判定として用意し、実装は v2.0 E5-1 / 決済・配送・注文ステータス対応表。F1-5後続の `GET/PUT /settings/mappings/{platform}` と設定ストア `cbjp_settings_{platform}` を共用）。
+  2026-09-13 実装。`PlatformAdapter`（03 §2）に `mapping_candidates()` を追加（D19。UIが選択肢を動的に描画するための自己記述スキーマで、既存の `connection_fields()` と同じ設計思想）し、`ColorMeAdapter` が `fetch_categories()`/`payments.json`/`deliveries.json`（既存の`id_name_map()`再利用）+ 固定4値の canonical ステータスで実装。Woo側候補は新設 `Woo\Support\MappingCandidates`（プラットフォーム非依存、`get_terms()`/`WC()->payment_gateways()`/`WC_Shipping_Zones`/`wc_get_order_statuses()`）が担う。設定ストアに `category_map`（Woo側カテゴリID→ASP側カテゴリID。カラーミーが作成不可のため他3キー=ASP→Wooとは逆向き）を追加し、`GET/PUT /settings/mappings/{platform}` のレスポンスへ `asp_candidates`/`woo_candidates` を同梱（両者とも取得失敗時は4キー空配列に正規化）。フロントは `ExportTab.tsx` に4テーブル（カテゴリは `can_create_category=false` の時のみ表示）を実装。
+  **実機確認**: 実店舗のColorMe OAuth接続は本セッションでは確立できなかった（developer.shop-pro.jpへのブラウザセッションが無く、ポート変更（8895）に伴うリダイレクトURI再登録とログインが必要。`docs/reviews/feat/e2-1-mapping-ui/final-report.md`参照）ため、wp-env上に一時的なモックアダプタ（mu-plugin、コミットせず削除済み）を用意し、REST応答・候補描画・保存・永続化の一連の流れをブラウザで確認した。実際のColorMe候補データでの確認はE2-3（push*実装、要検証#5でテストショップ接続が必要）まで持ち越し。
 - [ ] **E2-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run。**無料版はインポートと同基準のサンプル上限（Woo側の最新受注10件起点）を適用=D15。実行前の本番書込み警告=D17**。`RestController` の `type=export` 501 を解除）
 - [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替）
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）

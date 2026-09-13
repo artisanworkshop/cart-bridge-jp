@@ -1,6 +1,6 @@
 # カラーミーショップ アダプタ実装計画
 
-最終更新: 2026-09-05 / 対象: `includes/Adapters/ColorMe/` / リリース: **v1.0**（Phase 1 インポート・Phase 2 エクスポート。D18）
+最終更新: 2026-09-13 / 対象: `includes/Adapters/ColorMe/` / リリース: **v1.0**（Phase 1 インポート・Phase 2 エクスポート。D18）
 
 ## 1. API基本仕様
 
@@ -118,7 +118,13 @@ rateLimitPerMinute: 100
 
 ## 5. Woo → ColorMe エクスポートの制約と実装
 
-1. **カテゴリ作成不可**: 事前に `GET /categories.json` で取得し、Wooカテゴリとの対応をユーザーがUIで選択。未対応カテゴリの商品は警告付きでカテゴリ未設定として登録
+1. **カテゴリ作成不可**: 事前に `GET /categories.json` で取得し、Wooカテゴリとの対応をユーザーがUIで選択。未対応カテゴリの商品は警告付きでカテゴリ未設定として登録。
+   **実装済み（E2-1、D19）**: `ColorMeAdapter::mapping_candidates()` が `fetch_categories()`（カテゴリ）・
+   `payments.json`/`deliveries.json`（決済・配送。既存の `id_name_map()` を再利用）・固定4値のcanonical
+   ステータス（pending/processing/completed/cancelled）をUI向けの候補一覧として返す。設定ストアの
+   `category_map`（`cbjp_settings_colorme`）はWoo側カテゴリID→ASP側カテゴリIDの向き（他の
+   `payment_map`/`shipping_map`/`status_map` はASP側→Woo側で逆）。マッピングUI本体は
+   `src/tabs/ExportTab.tsx`
 2. **画像**（要検証#1確定=プラン依存）: `POST /v1/products/{product_id}/images` はプレミアムプラン契約ショップのみ利用可。canPushImages=falseと判定された場合（レギュラープラン等）は、エクスポート結果に「画像URL一覧CSV」を出力し、カラーミー管理画面での一括登録手順を案内
 3. **受注エクスポート**: `POST /sales.json` の必須項目（customer_id, 決済ID, 配送ID等）をテストショップで実測してから実装。顧客が未存在なら先に顧客POST → customer_id取得 → 受注POST の順
 4. **削除不可**: Woo側で削除された商品は `display_state` 非公開への更新を提案（自動では行わない）
