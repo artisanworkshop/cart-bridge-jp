@@ -46,7 +46,11 @@ final class MappingCandidates {
 
 			$candidates[] = [
 				'id'   => (string) $term->term_id,
-				'name' => $term->name,
+				// `$term->name`はDB保存時にエンティティ化された生の値（例: `Men &amp; Women`）を
+				// そのまま返す。HTML出力ならブラウザが1回だけデコードするが、このJSON APIはReactの
+				// テキストノードへそのまま渡るため、Reactが再度エスケープして「Men &amp; Women」が
+				// 文字どおり表示されてしまう。ここでデコードしておく（G3指摘）。
+				'name' => wp_specialchars_decode( $term->name, ENT_QUOTES ),
 			];
 		}
 
