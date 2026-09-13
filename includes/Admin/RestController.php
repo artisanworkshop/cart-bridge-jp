@@ -19,6 +19,7 @@ use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
+use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
@@ -45,8 +46,10 @@ final class RestController {
 
 	/**
 	 * `Woo\Support\MethodMap`が読む`cbjp_settings_{platform}`オプションのトップレベルキー。
+	 * `category_map`のみカラーミー側の作成不可制約により向きが逆（Woo側カテゴリID→ASP側カテゴリID）
+	 * だが、保存・検証ロジックは向きに依存しないため同じキー集合として扱える（03 §6 / E2-1）。
 	 */
-	private const SETTINGS_MAP_KEYS = [ 'payment_map', 'shipping_map', 'status_map' ];
+	private const SETTINGS_MAP_KEYS = [ 'category_map', 'payment_map', 'shipping_map', 'status_map' ];
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -428,8 +431,10 @@ final class RestController {
 	}
 
 	/**
-	 * 決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
-	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は3種とも空マップを返す。
+	 * カテゴリ/決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
+	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は4種とも空マップを返す。
+	 * `asp_candidates`/`woo_candidates`（E2-1・D19）はUIが選択肢を描画するための候補一覧で、
+	 * 保存済みマップ本体とは独立に毎回最新を取得する。
 	 */
 	public function get_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
@@ -438,16 +443,20 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		return rest_ensure_response( $this->settings_mappings_response( $this->read_settings_mappings( $platform ) ) );
+		$response                   = $this->settings_mappings_response( $this->read_settings_mappings( $platform ) );
+		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform );
+		$response['woo_candidates'] = $this->woo_mapping_candidates();
+
+		return rest_ensure_response( $response );
 	}
 
 	/**
-	 * 決済/配送/注文ステータスのマッピング設定を保存する。`payment_map`/`shipping_map`/
-	 * `status_map`はそれぞれ独立に全置換する（キー自体を省略したマップは既存値を保持する。
-	 * 例えばUIが決済方法だけを編集した場合に配送方法の設定を意図せず消さないため）。
-	 * 値はWooのゲートウェイID/配送方法インスタンスID（`flat_rate:5`のようにコロンを含みうる）
-	 * ・注文ステータススラッグという不透明な内部IDのため、`save_connection()`の資格情報と
-	 * 同じ理由で`sanitize_text_field()`ではなく制御文字除去のみに留める
+	 * カテゴリ/決済/配送/注文ステータスのマッピング設定を保存する。`category_map`/`payment_map`/
+	 * `shipping_map`/`status_map`はそれぞれ独立に全置換する（キー自体を省略したマップは既存値を
+	 * 保持する。例えばUIが決済方法だけを編集した場合に配送方法の設定を意図せず消さないため）。
+	 * 値はASP/Wooのカテゴリ・決済ゲートウェイ・配送方法インスタンスID（`flat_rate:5`のように
+	 * コロンを含みうる）・注文ステータススラッグという不透明な内部IDのため、`save_connection()`の
+	 * 資格情報と同じ理由で`sanitize_text_field()`ではなく制御文字除去のみに留める
 	 * （`sanitize_key()`は`:`等を除去し配送方法インスタンスIDを壊すため使わない）。
 	 */
 	public function save_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
@@ -477,8 +486,8 @@ final class RestController {
 			if ( ! is_array( $body[ $map_key ] ) || ( [] !== $body[ $map_key ] && array_is_list( $body[ $map_key ] ) ) ) {
 				return new WP_Error(
 					'cbjp_invalid_request',
-					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
-					sprintf( __( '"%s" must be an object of ASP method/status id to WooCommerce id.', 'cart-bridge-jp' ), $map_key ),
+					/* translators: %s: settings map key (category_map/payment_map/shipping_map/status_map) */
+					sprintf( __( '"%s" must be an object mapping one id to another.', 'cart-bridge-jp' ), $map_key ),
 					[ 'status' => 400 ]
 				);
 			}
@@ -506,7 +515,52 @@ final class RestController {
 
 		update_option( "cbjp_settings_{$platform}", $updated, false );
 
-		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
+		$response                   = $this->settings_mappings_response( $updated );
+		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform );
+		$response['woo_candidates'] = $this->woo_mapping_candidates();
+
+		return rest_ensure_response( $response );
+	}
+
+	/**
+	 * ASP側のマッピング候補一覧（D19）。アダプタ未接続等で取得に失敗した場合、マップ本体の
+	 * 読み書き自体は独立して機能させたいため、エンドポイント全体を失敗させず空配列に倒す
+	 * （候補が空でもUIは「未接続かもしれない」と気付けるが、保存済みマッピングの表示・編集は
+	 * 妨げない）。`PlatformAdapter::mapping_candidates()`の契約上、非対応キーは省略されうるため
+	 * 常に4キー（category/payment/shipping/status）を揃えて返す（フロント側の型を安定させる）。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	private function asp_mapping_candidates( string $platform ): array {
+		$adapter = AdapterRegistry::get( $platform );
+
+		try {
+			$candidates = null !== $adapter ? $adapter->mapping_candidates() : [];
+		} catch ( Throwable ) {
+			$candidates = [];
+		}
+
+		$normalized = [];
+
+		foreach ( [ 'category', 'payment', 'shipping', 'status' ] as $key ) {
+			$normalized[ $key ] = is_array( $candidates[ $key ] ?? null ) ? $candidates[ $key ] : [];
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	private function woo_mapping_candidates(): array {
+		return [
+			'category' => MappingCandidates::categories(),
+			'payment'  => MappingCandidates::payment_gateways(),
+			'shipping' => MappingCandidates::shipping_methods(),
+			'status'   => MappingCandidates::order_statuses(),
+		];
 	}
 
 	/**
@@ -543,15 +597,15 @@ final class RestController {
 	 * `Record<string,string>`として一貫した型を期待できない）。空でも常にJSONオブジェクトで
 	 * 返すよう`stdClass`へキャストする（内部の配列表現はマージ処理のため`array`のまま保つ）。
 	 *
-	 * @param array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
-	 * @return array{payment_map:object,shipping_map:object,status_map:object}
+	 * @param array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
+	 * @return array{category_map:object,payment_map:object,shipping_map:object,status_map:object}
 	 */
 	private function settings_mappings_response( array $mappings ): array {
 		return array_map( static fn ( array $map ): object => (object) $map, $mappings );
 	}
 
 	/**
-	 * @return array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
+	 * @return array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
 	 */
 	private function read_settings_mappings( string $platform ): array {
 		$stored = get_option( "cbjp_settings_{$platform}", [] );

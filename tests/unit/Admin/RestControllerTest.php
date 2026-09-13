@@ -507,9 +507,103 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		// 空マップも常にJSONオブジェクトとして返す（`test_get_settings_mappings_serializes_empty_maps_as_json_objects`
 		// 参照）ため、レスポンスデータ自体も`array`ではなく`stdClass`。
+		$this->assertEquals( (object) [], $data['category_map'] );
 		$this->assertEquals( (object) [], $data['payment_map'] );
 		$this->assertEquals( (object) [], $data['shipping_map'] );
 		$this->assertEquals( (object) [], $data['status_map'] );
+	}
+
+	/**
+	 * ColorMeアダプタは未接続（トークン未保存）のためmapping_candidates()内部の
+	 * `client()`呼び出しが`ApiException`を投げるが、マップ本体の読み取り自体は
+	 * 引きずられて失敗せず、candidatesは4キー空配列に正規化されることを確認する。
+	 */
+	public function test_get_settings_mappings_normalizes_asp_candidates_when_adapter_is_unconnected(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'category' => [],
+				'payment'  => [],
+				'shipping' => [],
+				'status'   => [],
+			],
+			$response->get_data()['asp_candidates']
+		);
+	}
+
+	public function test_get_settings_mappings_passes_through_adapter_mapping_candidates(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					mapping_candidates_override: [
+						'category' => [
+							[
+								'id'   => '1',
+								'name' => 'Books',
+							],
+						],
+						'payment'  => [
+							[
+								'id'   => '3',
+								'name' => 'Bank transfer',
+							],
+						],
+					]
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' );
+		$response = $this->server->dispatch( $request );
+
+		$data = $response->get_data();
+		$this->assertSame(
+			[
+				[
+					'id'   => '1',
+					'name' => 'Books',
+				],
+			],
+			$data['asp_candidates']['category']
+		);
+		$this->assertSame(
+			[
+				[
+					'id'   => '3',
+					'name' => 'Bank transfer',
+				],
+			],
+			$data['asp_candidates']['payment']
+		);
+		// mapping_candidates_override はshipping/statusキーを省略しているが、
+		// 常に4キー揃えて返す正規化（RestController::asp_mapping_candidates()）を確認する。
+		$this->assertSame( [], $data['asp_candidates']['shipping'] );
+		$this->assertSame( [], $data['asp_candidates']['status'] );
+	}
+
+	public function test_get_settings_mappings_includes_woo_candidates(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$woo_candidates = $response->get_data()['woo_candidates'];
+		$this->assertArrayHasKey( 'category', $woo_candidates );
+		$this->assertArrayHasKey( 'payment', $woo_candidates );
+		$this->assertArrayHasKey( 'shipping', $woo_candidates );
+		$this->assertArrayHasKey( 'status', $woo_candidates );
+		// テスト環境のWooCommerceはデフォルトゲートウェイ（bacs等）を登録済み。
+		$payment_ids = array_column( $woo_candidates['payment'], 'id' );
+		$this->assertContains( 'bacs', $payment_ids );
 	}
 
 	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
@@ -525,6 +619,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
+				'category_map' => [ '12' => '7' ],
 				'payment_map'  => [ '3' => 'bacs' ],
 				'shipping_map' => [ '5' => 'flat_rate:1' ],
 				'status_map'   => [ 'pending' => 'on-hold' ],
@@ -534,12 +629,16 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
+		// カテゴリはColorMe側が作成不可のためWoo側カテゴリID→ASP側カテゴリIDという逆向き
+		// （他3キーはASP側→Woo側）だが、保存・検証ロジックは向きに依存しない。
+		$this->assertSame( '7', $data['category_map']->{'12'} );
 		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
 		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
 		// （`sanitize_key()`はコロンを除去するため使っていない）。
 		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
 
 		$get_data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) )->get_data();
+		$this->assertEquals( (object) [ '12' => '7' ], $get_data['category_map'] );
 		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
 		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
 		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
@@ -716,13 +815,27 @@ final class RestControllerTest extends WP_UnitTestCase {
 		// PHPの空配列`[]`は`wp_json_encode()`でJSON配列`[]`になり、値がある場合の
 		// JSONオブジェクト`{"3":"bacs"}`と型が食い違う（クライアント側が
 		// `Record<string,string>`として一貫した型を期待できない。Codexレビュー指摘）。
+		// candidates系（`asp_candidates`/`woo_candidates`）は本来配列であるべきキーのため対象外。
 		$this->register_colorme_adapter();
 
 		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
 		$response = $this->server->dispatch( $request );
 
-		$json = wp_json_encode( $response->get_data() );
-		$this->assertSame( '{"payment_map":{},"shipping_map":{},"status_map":{}}', $json );
+		$decoded = json_decode( (string) wp_json_encode( $response->get_data() ), true );
+		$this->assertSame(
+			[
+				'category_map' => [],
+				'payment_map'  => [],
+				'shipping_map' => [],
+				'status_map'   => [],
+			],
+			[
+				'category_map' => $decoded['category_map'],
+				'payment_map'  => $decoded['payment_map'],
+				'shipping_map' => $decoded['shipping_map'],
+				'status_map'   => $decoded['status_map'],
+			]
+		);
 	}
 
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {

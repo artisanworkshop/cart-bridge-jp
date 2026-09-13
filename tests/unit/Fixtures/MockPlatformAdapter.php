@@ -49,6 +49,9 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 * @param ?CanonicalProduct             $product_by_remote_id_override 指定すると
 	 *   fetch_product_by_remote_id() が要求IDを無視してこの商品をそのまま返す
 	 *   （要求IDと異なる商品を返す契約違反アダプタのシナリオのテスト用）。
+	 * @param ?array<string,mixed>          $mapping_candidates_override 指定すると
+	 *   mapping_candidates() がこの値をそのまま返す（`RestController`の候補集約ロジックの
+	 *   テスト用）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -58,7 +61,8 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly ?\Throwable $fetch_failure = null,
 		private readonly ?array $connection_fields_override = null,
 		private readonly ?Capabilities $capabilities_override = null,
-		private readonly ?CanonicalProduct $product_by_remote_id_override = null
+		private readonly ?CanonicalProduct $product_by_remote_id_override = null,
+		private readonly ?array $mapping_candidates_override = null
 	) {}
 
 	public function id(): string {
@@ -85,6 +89,10 @@ final class MockPlatformAdapter implements PlatformAdapter {
 
 	public function connection_fields(): array {
 		return $this->connection_fields_override ?? [];
+	}
+
+	public function mapping_candidates(): array {
+		return $this->mapping_candidates_override ?? [];
 	}
 
 	public function fetch_products( Cursor $cursor ): Page {

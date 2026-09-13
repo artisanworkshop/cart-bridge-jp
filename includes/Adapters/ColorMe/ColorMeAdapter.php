@@ -246,6 +246,77 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * `/settings/mappings/colorme` UI向けのASP側候補一覧（D19）。カテゴリ・決済・配送は
+	 * 既存の取得経路を再利用し、注文ステータスは`OrderTransformer::status()`が返しうる
+	 * 4つのcanonical値の固定リスト（API呼び出し不要）。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	public function mapping_candidates(): array {
+		return [
+			'category' => self::category_candidates( $this->fetch_categories() ),
+			'payment'  => self::id_name_candidates( $this->id_name_map( 'payments.json', 'payments' ) ),
+			'shipping' => self::id_name_candidates( $this->id_name_map( 'deliveries.json', 'deliveries' ) ),
+			'status'   => self::status_candidates(),
+		];
+	}
+
+	/**
+	 * @param array<int,CanonicalCategory> $categories
+	 * @return array<int,array{id:string,name:string}>
+	 */
+	private static function category_candidates( array $categories ): array {
+		return array_map(
+			static fn ( CanonicalCategory $category ): array => [
+				'id'   => $category->id,
+				'name' => $category->name,
+			],
+			$categories
+		);
+	}
+
+	/**
+	 * @param array<int,string> $map id => name（`id_name_map()`の戻り値）
+	 * @return array<int,array{id:string,name:string}>
+	 */
+	private static function id_name_candidates( array $map ): array {
+		$candidates = [];
+
+		foreach ( $map as $id => $name ) {
+			$candidates[] = [
+				'id'   => (string) $id,
+				'name' => $name,
+			];
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * @return array<int,array{id:string,name:string}>
+	 */
+	private static function status_candidates(): array {
+		return [
+			[
+				'id'   => 'pending',
+				'name' => __( 'Unpaid', 'cart-bridge-jp' ),
+			],
+			[
+				'id'   => 'processing',
+				'name' => __( 'Paid (not shipped)', 'cart-bridge-jp' ),
+			],
+			[
+				'id'   => 'completed',
+				'name' => __( 'Shipped', 'cart-bridge-jp' ),
+			],
+			[
+				'id'   => 'cancelled',
+				'name' => __( 'Cancelled', 'cart-bridge-jp' ),
+			],
+		];
+	}
+
+	/**
 	 * @return array<int,CanonicalCategory>
 	 */
 	public function fetch_categories(): array {

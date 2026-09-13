@@ -564,6 +564,36 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $page->next_cursor->get( 'offset' ) );
 	}
 
+	public function test_mapping_candidates_returns_category_payment_shipping_and_status(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'categories.json' => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'categories' ),
+				],
+				'payments.json'   => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'payments' ),
+				],
+				'deliveries.json' => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'deliveries' ),
+				],
+			]
+		);
+
+		$candidates = $adapter->mapping_candidates();
+
+		$this->assertSame( [ '2993030', '2993032' ], array_column( $candidates['category'], 'id' ) );
+		$this->assertSame( [ '1094475', '1094978' ], array_column( $candidates['payment'], 'id' ) );
+		$this->assertSame( [ '640580' ], array_column( $candidates['shipping'], 'id' ) );
+		// APIを叩かない固定4値（`OrderTransformer::status()`が返しうるcanonicalステータス）。
+		$this->assertSame( [ 'pending', 'processing', 'completed', 'cancelled' ], array_column( $candidates['status'], 'id' ) );
+	}
+
 	public function test_fetch_categories_flattens_and_filters_by_display_state(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
