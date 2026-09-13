@@ -178,14 +178,14 @@ export default function ExportTab() {
 	const [ saving, setSaving ] = useState( false );
 	const [ saveError, setSaveError ] = useState< string | null >( null );
 	const [ saved, setSaved ] = useState( false );
-	const platformRef = useRef( platform );
-	platformRef.current = platform;
 	// プラットフォーム名だけでは同じプラットフォームへ短時間で戻った場合
-	// （A→B→A）を区別できない。Aの1回目のリクエストがサーバー側の遅い候補取得
-	// （ColorMeへの追加APIコール）で2回目より遅れて解決すると、`platformRef`の
-	// 一致チェックだけでは「新しい応答」と誤認して新しい方を上書きしてしまう。
-	// 世代カウンタで「このeffect呼び出しが最新か」を判定する。
-	const mappingsRequestIdRef = useRef( 0 );
+	// （A→B→A）を区別できない。Aの1回目のリクエスト（マッピング取得effectのGET、
+	// または保存中のPUT）がサーバー側の遅い候補取得（ColorMeへの追加APIコール）で
+	// 2回目のGETより遅れて解決すると、プラットフォーム名の一致チェックだけでは
+	// 「新しい応答」と誤認して新しい方や保存後の状態を上書きしてしまう。
+	// マッピング取得effectと`save()`の両方が同じ世代カウンタを参照し、
+	// 「このリクエストが発行された時点のプラットフォーム選択がまだ現在のものか」を判定する。
+	const platformGenerationRef = useRef( 0 );
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -219,7 +219,7 @@ export default function ExportTab() {
 			return;
 		}
 
-		const requestId = ++mappingsRequestIdRef.current;
+		const requestId = ++platformGenerationRef.current;
 
 		setMappings( null );
 		setEdited( null );
@@ -233,7 +233,7 @@ export default function ExportTab() {
 			) }`,
 		} )
 			.then( ( data ) => {
-				if ( mappingsRequestIdRef.current !== requestId ) {
+				if ( platformGenerationRef.current !== requestId ) {
 					return;
 				}
 
@@ -241,7 +241,7 @@ export default function ExportTab() {
 				setEdited( toEditable( data ) );
 			} )
 			.catch( ( err: unknown ) => {
-				if ( mappingsRequestIdRef.current !== requestId ) {
+				if ( platformGenerationRef.current !== requestId ) {
 					return;
 				}
 
@@ -273,11 +273,12 @@ export default function ExportTab() {
 			return;
 		}
 
-		// このリクエストを発行した時点のプラットフォームを閉じ込める。応答が届くまでの
-		// 間にユーザーが別プラットフォームへ切り替えていた場合、そちらの`mappings`/`edited`
-		// （platform-change時に読み込み直し済み）をこの古い応答で上書きしない
-		// （ImportTab.tsxの`requestedPlatform`と同じパターン）。
-		const requestedPlatform = platform;
+		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める。応答が届くまでの間に
+		// ユーザーが別プラットフォームへ切り替えていた場合（さらにA→B→Aのように戻った場合も
+		// 世代カウンタにより区別できる）、そちらの`mappings`/`edited`（platform-change時に
+		// 読み込み直し済み）をこの古い応答で上書きしない（マッピング取得effectと同じ
+		// `platformGenerationRef`を使うことで、GETとPUTの両方の応答を一貫して判定する）。
+		const requestId = platformGenerationRef.current;
 
 		setSaving( true );
 		setSaveError( null );
@@ -294,7 +295,7 @@ export default function ExportTab() {
 				data: edited,
 			} );
 
-			if ( platformRef.current !== requestedPlatform ) {
+			if ( platformGenerationRef.current !== requestId ) {
 				return;
 			}
 
@@ -304,7 +305,7 @@ export default function ExportTab() {
 			setEdited( toEditable( data ) );
 			setSaved( true );
 		} catch ( err ) {
-			if ( platformRef.current !== requestedPlatform ) {
+			if ( platformGenerationRef.current !== requestId ) {
 				return;
 			}
 
