@@ -136,3 +136,28 @@
 	text-align: right;
 	white-space: nowrap;
 }
+
+.cbjp-export__mapping-card + .cbjp-export__mapping-card {
+	margin-top: 1.5em;
+}
+
+.cbjp-export__mapping-scroll {
+	overflow-x: auto;
+}
+
+.cbjp-export__mapping-table {
+	width: 100%;
+}
+
+.cbjp-export__mapping-table td {
+	padding: 0.5em 0.5em 0.5em 0;
+	vertical-align: middle;
+}
+
+.cbjp-export__mapping-table td:first-child {
+	white-space: nowrap;
+}
+
+.cbjp-export__actions {
+	margin-top: 1.5em;
+}

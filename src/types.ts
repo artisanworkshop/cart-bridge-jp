@@ -194,3 +194,25 @@ export interface VerificationReport {
 	currency_mismatch: boolean;
 	entities: VerificationEntity[];
 }
+
+export type MappingKey = 'category' | 'payment' | 'shipping' | 'status';
+
+export interface MappingCandidate {
+	id: string;
+	name: string;
+}
+
+/**
+ * `GET/PUT /settings/mappings/{platform}`の応答（`Admin\RestController`）。`category_map`/
+ * `payment_map`/`shipping_map`/`status_map`は保存済みマッピング本体（キー・値とも不透明な
+ * 文字列ID）、`asp_candidates`/`woo_candidates`はUIが選択肢を描画するための候補一覧
+ * （E2-1・D19。`category`のみ向きがWoo→ASPで他3キーはASP→Wooだが、応答の型としては同じ形）。
+ */
+export interface SettingsMappings {
+	category_map: Record< string, string >;
+	payment_map: Record< string, string >;
+	shipping_map: Record< string, string >;
+	status_map: Record< string, string >;
+	asp_candidates: Record< MappingKey, MappingCandidate[] >;
+	woo_candidates: Record< MappingKey, MappingCandidate[] >;
+}
