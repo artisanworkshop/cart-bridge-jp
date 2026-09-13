@@ -113,12 +113,14 @@ npm run build                # 本番ビルド
 - `cbjp_mappings` を減らす・リセットする経路（クリーンアップ等）は、対応する実体を削除できない状況（権限不足等）では実行自体を拒否すること。unlink だけして mappings とサンプルセットを消すと `LimitPolicy` の累積カウントが消え、無料版上限（アーキテクチャ原則 7）を回避してデータを増やし続けられる（G1-11）
 - `MediaImporter` は同一 `_cbjp_source_url` の添付を商品・タームをまたいで再利用する。取り込み画像を削除する処理は `post_parent` や単一の参照だけで孤児と判定せず、参照する全ての実体が消える場合のみ削除すること（R2-2/G2-2/G3-2）
 - 金額突合の通貨は現在の店舗設定（`get_woocommerce_currency()`）ではなく、受注に保存された `WC_Order::get_currency()` から判定すること（店舗通貨は後から変えられる。ASP 側通貨は `OrderWriter::PLATFORM_CURRENCY`。G3-3）
+- カラーミーの決済/配送方法のID→名称は `GET /payments.json`/`GET /deliveries.json` で取得できる（`ColorMeAdapter` が `OrderTransformer` 用の名称マップ構築に内部利用済み）。OAuth接続さえ済んでいればColorMe管理画面へのブラウザログイン（副管理者アカウントでは受注詳細等の一部ページが権限不足で見られないことがある）は不要。`GET/PUT /settings/mappings/{platform}` のUI実装時（F1-6 PR-Bスコープ、未着手）は、この2エンドポイントをマッピング候補一覧として一緒に返す設計にすること。UIが無い間はREST直PUTでしか設定できず、F1-8の実店舗（岡虎様・三つ猫様）テストで実務上のボトルネックになった
 
 ## フロントエンド（React/TypeScript）規約
 
 - ポーリングhook（`useRunPolling`等）の`refetch()`が一時的な通信エラーを内部でcatchして自動再試行する設計の場合、そのPromiseは通信の成否に関わらず正常解決する。呼び出し元が「`await refetch()`が解決した＝新しいstateが反映された」と決め打ちすると、一時的な失敗時に古いstateのまま後続処理（例: ボタンの再有効化）が進んでしまう。真に「新しいデータが届いた」ことを検知したい場合は、Promiseの解決ではなくstate自体（成功時のみ新しい参照になるオブジェクト等）の変化をeffectで監視すること（`src/hooks/useRunPolling.ts`, `src/tabs/ImportTab.tsx`のretryJob参照。issue #30）
 - 複数ジョブから成るrunの「終端判定」（`isTerminal`: 全ジョブがcompleted/failed/cancelledのいずれか）と「成功判定」（全ジョブがcompleted）を混同しないこと。キャンセル・一部失敗したrunも`isTerminal`はtrueになるため、「完了時のみ出す」UI（全体レポートDL・アップセル集計等）を`isTerminal`だけでゲートすると、部分的・失敗した結果を完全な結果として提示してしまう。個別の判定（全ジョブcompleted）を別途用意すること（`src/components/RunProgress.tsx`のallCompleted参照。issue #30）
 - WordPressコアが登録する`wp-components`等の共有アセットハンドルは、WooCommerce等の他プラグインが独自バージョンを登録しているとそちらが優先されることがあり、同じ`@wordpress/components`の`Notice`等でも環境によってレイアウト（例: `flex`+`padding: 8px 12px` vs `grid`+`padding: 12px`）が変わりうる。見た目の余白等を安定させたい箇所はアップストリームのデフォルトに依存せず自前CSSで明示的に上書きすること（`src/style.css`の`.components-notice.is-info`参照）
+- 破壊的・本番書込み系の確認ダイアログ（`ImportTab.tsx`の本移行実行確認、`ToolsTab.tsx`のクリーンアップ確認）にネイティブ`window.confirm()`を使っている。ブラウザ拡張系の自動操作（Claude in Chrome等）やE2Eツールからクリックすると、ネイティブダイアログがレンダラーをブロックしてタブがフリーズし、ブラウザ再起動が必要になることがある（F1-8の実店舗テストで発生）。将来wp-e2e-playwright等でE2Eを自動化する場合も同じ問題になるため、`@wordpress/components`のモーダル等ネイティブダイアログに依存しない確認UIへの置き換えを検討すること
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
