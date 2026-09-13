@@ -583,13 +583,19 @@ final class RestController {
 				continue;
 			}
 
-			$id   = (string) $item['id'];
-			$name = (string) $item['name'];
+			// `sanitize_settings_map()`/`validate_settings_map()`と同じ正規化を先取りして適用する。
+			// 制御文字・前後の空白しか持たない値（例: `"\n"`）は素の`(string)`キャストでは非空に
+			// 見えるが、保存時にはこの正規化を経て空文字列になり拒否される（またはキーだけ変わって
+			// 選んだはずの項目が保存後に消える）。候補一覧の時点で保存後と同じ形に揃えておくことで、
+			// 「選べるのに保存できない/違う項目として保存される」食い違いを防ぐ（G2指摘）。
+			$id   = self::normalize_mapping_token( $item['id'] );
+			$name = self::normalize_mapping_token( $item['name'] );
 
-			// `id`が空文字列化する値（`''`/`false`）は`SelectControl`の「未マッピング」placeholder
-			// （空文字列）と衝突し、選択してもUNMAPPEDと区別できずPUT側の`validate_settings_map()`が
-			// 拒否する。`name`が空だと選択肢に空欄の行が並ぶ。ドキュメント上の契約（非空文字列化できる
-			// スカラー）どおり、どちらか一方でも空なら要素ごと除外する。
+			// `id`が空文字列化する値（`''`/`false`/空白のみ等）は`SelectControl`の「未マッピング」
+			// placeholder（空文字列）と衝突し、選択してもUNMAPPEDと区別できずPUT側の
+			// `validate_settings_map()`が拒否する。`name`が空だと選択肢に空欄の行が並ぶ。
+			// ドキュメント上の契約（非空文字列化できるスカラー）どおり、どちらか一方でも空なら
+			// 要素ごと除外する。
 			if ( '' === $id || '' === $name ) {
 				continue;
 			}
@@ -696,8 +702,8 @@ final class RestController {
 				continue;
 			}
 
-			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
-			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+			$key_string  = self::normalize_mapping_token( $key );
+			$item_string = self::normalize_mapping_token( $item );
 
 			if ( '' === $key_string || '' === $item_string ) {
 				continue;
@@ -707,6 +713,18 @@ final class RestController {
 		}
 
 		return $map;
+	}
+
+	/**
+	 * `category_map`/`payment_map`/`shipping_map`/`status_map`のキー・値、および
+	 * `mapping_candidates()`が返す候補のid/nameに共通して適用する正規化（制御文字除去+前後空白除去）。
+	 * `sanitize_settings_map()`（読取）・`validate_settings_map()`（書込み検証）・
+	 * `normalized_candidate_list()`（候補一覧）の3箇所で同じ正規化を使うことで、候補一覧の時点で
+	 * 「保存後と同じ形」を保証し、制御文字・空白のみの値が保存時にだけ空文字列化してエントリが
+	 * 消える／別のキーとして保存される食い違いを防ぐ（G2指摘）。
+	 */
+	private static function normalize_mapping_token( mixed $value ): string {
+		return trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $value ) );
 	}
 
 	/**
@@ -726,8 +744,8 @@ final class RestController {
 				return null;
 			}
 
-			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
-			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+			$key_string  = self::normalize_mapping_token( $key );
+			$item_string = self::normalize_mapping_token( $item );
 
 			if ( '' === $key_string || '' === $item_string ) {
 				return null;

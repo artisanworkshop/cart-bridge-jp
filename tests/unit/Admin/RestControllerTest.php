@@ -647,6 +647,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 								'id'   => '3',
 								'name' => '', // name欠損（空文字列）
 							],
+							[
+								'id'   => "\x01\x02", // 制御文字のみ→正規化後に空文字列
+								'name' => 'Control chars only id',
+							],
+							[
+								'id'   => ' 4 ', // 前後の空白のみ→正規化後は非空（trimされて残る）
+								'name' => ' Trimmed name ',
+							],
 						],
 					]
 				);
@@ -667,6 +675,12 @@ final class RestControllerTest extends WP_UnitTestCase {
 				[
 					'id'   => '1',
 					'name' => 'Valid',
+				],
+				// `sanitize_settings_map()`/`validate_settings_map()`と同じ正規化（制御文字除去+trim）を
+				// 候補一覧の時点で適用しているため、前後の空白は保存後の形に揃えられて残る（G2指摘）。
+				[
+					'id'   => '4',
+					'name' => 'Trimmed name',
 				],
 			],
 			$data['asp_candidates']['payment']
