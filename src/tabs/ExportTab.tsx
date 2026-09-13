@@ -44,6 +44,7 @@ interface MappingSectionProps {
 	unmappedLabel: string;
 	map: Record< string, string >;
 	onChange: ( sourceId: string, targetId: string ) => void;
+	disabled: boolean;
 }
 
 /**
@@ -58,6 +59,7 @@ interface MappingSectionProps {
  * @param root0.unmappedLabel
  * @param root0.map
  * @param root0.onChange
+ * @param root0.disabled
  */
 function MappingSection( {
 	title,
@@ -67,6 +69,7 @@ function MappingSection( {
 	unmappedLabel,
 	map,
 	onChange,
+	disabled,
 }: MappingSectionProps ) {
 	return (
 		<Card className="cbjp-export__mapping-card">
@@ -109,6 +112,7 @@ function MappingSection( {
 											<td>
 												<SelectControl
 													value={ currentValue }
+													disabled={ disabled }
 													options={ [
 														{
 															label: unmappedLabel,
@@ -357,10 +361,11 @@ export default function ExportTab() {
 			</Card>
 
 			{ mappingsError && (
-				<Notice
-					status="error"
-					onRemove={ () => setMappingsError( null ) }
-				>
+				// `mappings`/`edited`がnullのまま（取得失敗）のときだけ表示されるため、
+				// 破棄可能にすると空のSpinnerだけが残る「詰み」状態になる（`platform`が
+				// 変わらない限り再取得のeffectが発火しないため）。`connectionsError`と同じ理由で
+				// 破棄不可にする（G1指摘）。
+				<Notice status="error" isDismissible={ false }>
 					{ mappingsError }
 				</Notice>
 			) }
@@ -393,6 +398,7 @@ export default function ExportTab() {
 							onChange={ ( sourceId, targetId ) =>
 								updateMap( 'category_map', sourceId, targetId )
 							}
+							disabled={ saving }
 						/>
 					) }
 
@@ -412,6 +418,7 @@ export default function ExportTab() {
 						onChange={ ( sourceId, targetId ) =>
 							updateMap( 'payment_map', sourceId, targetId )
 						}
+						disabled={ saving }
 					/>
 
 					<MappingSection
@@ -430,6 +437,7 @@ export default function ExportTab() {
 						onChange={ ( sourceId, targetId ) =>
 							updateMap( 'shipping_map', sourceId, targetId )
 						}
+						disabled={ saving }
 					/>
 
 					<MappingSection
@@ -445,6 +453,7 @@ export default function ExportTab() {
 						onChange={ ( sourceId, targetId ) =>
 							updateMap( 'status_map', sourceId, targetId )
 						}
+						disabled={ saving }
 					/>
 
 					{ saveError && (
