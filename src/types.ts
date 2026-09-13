@@ -203,16 +203,24 @@ export interface MappingCandidate {
 }
 
 /**
- * `GET/PUT /settings/mappings/{platform}`の応答（`Admin\RestController`）。`category_map`/
- * `payment_map`/`shipping_map`/`status_map`は保存済みマッピング本体（キー・値とも不透明な
- * 文字列ID）、`asp_candidates`/`woo_candidates`はUIが選択肢を描画するための候補一覧
- * （E2-1・D19。`category`のみ向きがWoo→ASPで他3キーはASP→Wooだが、応答の型としては同じ形）。
+ * `GET/PUT /settings/mappings/{platform}`の応答本体（`Admin\RestController`）。`category_map`/
+ * `payment_map`/`shipping_map`/`status_map`は保存済みマッピング（キー・値とも不透明な文字列ID）。
+ * `category`のみ向きがWoo→ASPで他3キーはASP→Wooだが、型としては同じ形。
  */
-export interface SettingsMappings {
+export interface SettingsMappingValues {
 	category_map: Record< string, string >;
 	payment_map: Record< string, string >;
 	shipping_map: Record< string, string >;
 	status_map: Record< string, string >;
+}
+
+/**
+ * `GET /settings/mappings/{platform}`のみが追加で返す、UIが選択肢を描画するための候補一覧
+ * （E2-1・D19）。`PUT`は候補一覧を返さない（保存操作そのものでは候補が変化しないうえ、
+ * ColorMe側は候補取得のたびに`categories.json`等への追加APIコールが発生し、実行中のジョブと
+ * レート制限を奪い合うため。`RestController::save_settings_mappings()`参照）。
+ */
+export interface SettingsMappings extends SettingsMappingValues {
 	asp_candidates: Record< MappingKey, MappingCandidate[] >;
 	woo_candidates: Record< MappingKey, MappingCandidate[] >;
 }
