@@ -20,8 +20,8 @@
 MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエクスポートを v1.0 に前倒し。BASE と MakeShop の
 順序を入れ替え（BASE→MakeShop）。タスクIDは新フェーズ番号で採番し直した（旧 `M2-*`→`M6-*`、
 旧 `B3-*`→`B4-*`、旧 `E4-1/2/3`→`E2-1/2/3`、旧 `E4-5`→`E5-1`、旧 `E4-4/6`→`E7-1/2`、旧 `R5-*`→`R3-*`）。
-いずれも未着手だったため実装・PRへの影響なし。コード内コメントに残る旧ID（`ColorMeAdapter` の `E4-3`、
-`RestController` の `E4-2`）は該当タスク着手時に直す。
+いずれも未着手だったため実装・PRへの影響なし。コード内コメントに残っていた旧ID（`ColorMeAdapter` の `E4-3`、
+`RestController` の `E4-2`）はE2-1着手時に修正済み。
 **v1.0 完了（Phase 3）前に Phase 4 以降へ着手しない。**
 
 ## 進め方（各セッション共通）
@@ -265,7 +265,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 > 前提: F1-8 完了（インポート側の実データE2Eで Canonical⇔Woo の変換が実データに耐えることを確認済み）。
 
 - [x] **E2-1: マッピングUI**（カテゴリ: カラーミーは作成不可（`canCreateCategory=false`）のため既存カテゴリ選択のみ。自動作成の分岐点は capability 判定として用意し、実装は v2.0 E5-1 / 決済・配送・注文ステータス対応表。F1-5後続の `GET/PUT /settings/mappings/{platform}` と設定ストア `cbjp_settings_{platform}` を共用）。
-  2026-09-13 実装。`PlatformAdapter`（03 §2）に `mapping_candidates()` を追加（D19。UIが選択肢を動的に描画するための自己記述スキーマで、既存の `connection_fields()` と同じ設計思想）し、`ColorMeAdapter` が `fetch_categories()`/`payments.json`/`deliveries.json`（既存の`id_name_map()`再利用）+ 固定4値の canonical ステータスで実装。Woo側候補は新設 `Woo\Support\MappingCandidates`（プラットフォーム非依存、`get_terms()`/`WC()->payment_gateways()`/`WC_Shipping_Zones`/`wc_get_order_statuses()`）が担う。設定ストアに `category_map`（Woo側カテゴリID→ASP側カテゴリID。カラーミーが作成不可のため他3キー=ASP→Wooとは逆向き）を追加し、`GET/PUT /settings/mappings/{platform}` のレスポンスへ `asp_candidates`/`woo_candidates` を同梱（両者とも取得失敗時は4キー空配列に正規化）。フロントは `ExportTab.tsx` に4テーブル（カテゴリは `can_create_category=false` の時のみ表示）を実装。
+  2026-09-13 実装。`PlatformAdapter`（03 §2）に `mapping_candidates()` を追加（D19。UIが選択肢を動的に描画するための自己記述スキーマで、既存の `connection_fields()` と同じ設計思想）し、`ColorMeAdapter` が `fetch_categories()`/`payments.json`/`deliveries.json`（既存の`id_name_map()`再利用）+ 固定4値の canonical ステータスで実装。Woo側候補は新設 `Woo\Support\MappingCandidates`（プラットフォーム非依存、`get_terms()`/`WC()->payment_gateways()`/`WC_Shipping_Zones`/`wc_get_order_statuses()`）が担う。設定ストアに `category_map`（Woo側カテゴリID→ASP側カテゴリID。カラーミーが作成不可のため他3キー=ASP→Wooとは逆向き）を追加し、`GET /settings/mappings/{platform}` のレスポンスへ `asp_candidates`/`woo_candidates` を同梱（両者とも取得失敗時は4キー空配列に正規化。不正な要素も同時に除外）。PUTは候補を返さない（保存操作そのものでは候補が変化しない一方、ColorMeでは候補取得のたびに`categories.json`等の追加APIコールが発生し実行中ジョブとレート制限を奪い合うため）。フロントは `ExportTab.tsx` に4テーブル（カテゴリは `can_create_category=false` の時のみ表示）を実装。
+  **R1レビューで判明し修正した重大な指摘**: `wc_get_order_statuses()` が返す `checkout-draft`（WooCommerce Blocksのチェックアウト下書き）をステータス候補に含めていたが、これへマッピングすると取り込んだ受注が24時間後に日次cronで完全削除される事故になるため除外。詳細は `docs/reviews/feat/e2-1-mapping-ui/R1.md`
   **実機確認**: 実店舗のColorMe OAuth接続は本セッションでは確立できなかった（developer.shop-pro.jpへのブラウザセッションが無く、ポート変更（8895）に伴うリダイレクトURI再登録とログインが必要。`docs/reviews/feat/e2-1-mapping-ui/final-report.md`参照）ため、wp-env上に一時的なモックアダプタ（mu-plugin、コミットせず削除済み）を用意し、REST応答・候補描画・保存・永続化の一連の流れをブラウザで確認した。実際のColorMe候補データでの確認はE2-3（push*実装、要検証#5でテストショップ接続が必要）まで持ち越し。
 - [ ] **E2-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run。**無料版はインポートと同基準のサンプル上限（Woo側の最新受注10件起点）を適用=D15。実行前の本番書込み警告=D17**。`RestController` の `type=export` 501 を解除）
 - [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替）
