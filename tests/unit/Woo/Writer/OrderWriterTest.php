@@ -779,6 +779,26 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $result->warnings );
 	}
 
+	/**
+	 * `MappingCandidates::order_statuses()`（E2-1のマッピングUI）は`checkout-draft`を候補から
+	 * 除外しているが、UIを経由しないREST直PUTや、除外前に保存済みの`status_map`から紛れ込む
+	 * 経路は候補一覧の除外だけでは防げない。この状態へ受注を書き込むと
+	 * `woocommerce_cleanup_draft_orders`（日次cron）が24時間後に受注を完全削除するため、
+	 * 書込み側（`apply_status()`）でも同じ値をフェイルクローズすることを確認する（G1指摘）。
+	 */
+	public function test_status_mapped_to_checkout_draft_falls_back_to_on_hold_with_warning(): void {
+		update_option( 'cbjp_settings_colorme', [ 'status_map' => [ 'pending' => 'checkout-draft' ] ] );
+
+		$order    = $this->make_order( '3007b', 'pending' );
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+
+		$this->assertSame( 'on-hold', $wc_order->get_status() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'checkout-draft' ), $result->warnings );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
 	public function test_tax_total_incomplete_source_warns(): void {
 		$order = $this->make_order(
 			'3008',

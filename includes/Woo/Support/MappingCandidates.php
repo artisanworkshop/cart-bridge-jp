@@ -126,8 +126,20 @@ final class MappingCandidates {
 	 * 結果に含まれるが、`woocommerce_cleanup_draft_orders`（日次cron）が24時間経過したこのステータスの
 	 * 注文を`WC_Order::delete(true)`で完全削除する（`DraftOrders::delete_expired_draft_orders()`）ため、
 	 * マッピング候補に出すとASP受注をこのステータスへ意図せず対応付けた場合に受注が消滅しうる。
+	 * `Woo\Writer\OrderWriter::apply_status()`が`is_disallowed_order_status()`経由でも参照しており、
+	 * `status_map`にREST直PUT等で直接この値を書き込まれた場合の書込み側フェイルクローズも兼ねる
+	 * （マッピング候補一覧からの除外だけでは、UIを経由しない直接PUTを防げないため。G1指摘）。
 	 */
 	private const EXCLUDED_ORDER_STATUSES = [ 'checkout-draft' ];
+
+	/**
+	 * `status_map`の値としてこのステータスを書き込んでよいかを判定する（`EXCLUDED_ORDER_STATUSES`参照）。
+	 * `OrderWriter::apply_status()`が候補一覧の外側（直接REST PUT・過去に保存済みの設定値）からも
+	 * このステータスへの書込みを防ぐために使う。
+	 */
+	public static function is_disallowed_order_status( string $status ): bool {
+		return in_array( $status, self::EXCLUDED_ORDER_STATUSES, true );
+	}
 
 	/**
 	 * @return array<int,array{id:string,name:string}>
@@ -139,7 +151,7 @@ final class MappingCandidates {
 			// OrderWriterが書き込む値の規約（`wc-`接頭辞なし）に合わせて除去する。
 			$status = str_starts_with( $slug, 'wc-' ) ? substr( $slug, 3 ) : $slug;
 
-			if ( in_array( $status, self::EXCLUDED_ORDER_STATUSES, true ) ) {
+			if ( self::is_disallowed_order_status( $status ) ) {
 				continue;
 			}
 

@@ -13,6 +13,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\AddressMapper;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
+use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
@@ -324,7 +325,15 @@ final class OrderWriter implements EntityWriter {
 		$status = str_starts_with( $mapped, 'wc-' ) ? substr( $mapped, 3 ) : $mapped;
 		$known  = wc_get_order_statuses();
 
-		if ( ! array_key_exists( "wc-{$status}", $known ) ) {
+		// `MappingCandidates::is_disallowed_order_status()`が除外する値（`checkout-draft`）は
+		// マッピング候補一覧には出ないが、REST直PUTや過去に保存済みの`status_map`から
+		// 紛れ込みうる。この状態へ受注を書き込むと`woocommerce_cleanup_draft_orders`（日次cron）が
+		// 24時間後に受注を完全削除するため、候補一覧の除外だけでなくここでもフェイルクローズする
+		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
+		if ( MappingCandidates::is_disallowed_order_status( $status ) ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, $status );
+			$status     = 'on-hold';
+		} elseif ( ! array_key_exists( "wc-{$status}", $known ) ) {
 			// 未知のステータス文字列をそのまま書き込むと、`wc_get_order_statuses()`を前提にした
 			// Woo標準の管理画面フィルタ・受注処理ワークフローから見えなくなる（境界データは
 			// フェイルクローズで検証する。CLAUDE.md参照）。Wooが「要確認」の意味で標準提供する

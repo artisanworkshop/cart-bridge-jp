@@ -583,9 +583,20 @@ final class RestController {
 				continue;
 			}
 
+			$id   = (string) $item['id'];
+			$name = (string) $item['name'];
+
+			// `id`が空文字列化する値（`''`/`false`）は`SelectControl`の「未マッピング」placeholder
+			// （空文字列）と衝突し、選択してもUNMAPPEDと区別できずPUT側の`validate_settings_map()`が
+			// 拒否する。`name`が空だと選択肢に空欄の行が並ぶ。ドキュメント上の契約（非空文字列化できる
+			// スカラー）どおり、どちらか一方でも空なら要素ごと除外する。
+			if ( '' === $id || '' === $name ) {
+				continue;
+			}
+
 			$normalized[] = [
-				'id'   => (string) $item['id'],
-				'name' => (string) $item['name'],
+				'id'   => $id,
+				'name' => $name,
 			];
 		}
 

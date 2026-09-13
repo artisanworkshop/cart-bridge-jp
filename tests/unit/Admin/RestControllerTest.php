@@ -612,9 +612,10 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	/**
 	 * `PlatformAdapter::mapping_candidates()`はPro拡張等の外部アダプタが実装しうる拡張点
-	 * （アーキテクチャ原則8）。契約違反の戻り値（非配列要素、`id`/`name`欠損、非スカラー値）が
-	 * 1件混ざっても、その要素だけを黙って除外し、Exportタブ全体を落とさないことを確認する
-	 * （`connection_fields()`の`instanceof ConnectionField`フィルタと同種の防御）。
+	 * （アーキテクチャ原則8）。契約違反の戻り値（非配列要素、`id`/`name`欠損、非スカラー値、
+	 * 空文字列化する`id`/`name`。空`id`は`SelectControl`の「未マッピング」placeholderと衝突する。
+	 * G1指摘）が1件混ざっても、その要素だけを黙って除外し、Exportタブ全体を落とさないことを
+	 * 確認する（`connection_fields()`の`instanceof ConnectionField`フィルタと同種の防御）。
 	 */
 	public function test_get_settings_mappings_filters_out_malformed_adapter_candidates(): void {
 		add_filter(
@@ -633,6 +634,18 @@ final class RestControllerTest extends WP_UnitTestCase {
 							[
 								'id'   => [ 'nested' ],
 								'name' => 'Non-scalar id',
+							],
+							[
+								'id'   => '',
+								'name' => 'Empty id',
+							],
+							[
+								'id'   => false, // (string)キャストで空文字列になる
+								'name' => 'False id',
+							],
+							[
+								'id'   => '3',
+								'name' => '', // name欠損（空文字列）
 							],
 						],
 					]
