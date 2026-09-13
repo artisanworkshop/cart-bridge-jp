@@ -180,6 +180,12 @@ export default function ExportTab() {
 	const [ saved, setSaved ] = useState( false );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
+	// プラットフォーム名だけでは同じプラットフォームへ短時間で戻った場合
+	// （A→B→A）を区別できない。Aの1回目のリクエストがサーバー側の遅い候補取得
+	// （ColorMeへの追加APIコール）で2回目より遅れて解決すると、`platformRef`の
+	// 一致チェックだけでは「新しい応答」と誤認して新しい方を上書きしてしまう。
+	// 世代カウンタで「このeffect呼び出しが最新か」を判定する。
+	const mappingsRequestIdRef = useRef( 0 );
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -213,7 +219,7 @@ export default function ExportTab() {
 			return;
 		}
 
-		const requestedPlatform = platform;
+		const requestId = ++mappingsRequestIdRef.current;
 
 		setMappings( null );
 		setEdited( null );
@@ -227,7 +233,7 @@ export default function ExportTab() {
 			) }`,
 		} )
 			.then( ( data ) => {
-				if ( platformRef.current !== requestedPlatform ) {
+				if ( mappingsRequestIdRef.current !== requestId ) {
 					return;
 				}
 
@@ -235,7 +241,7 @@ export default function ExportTab() {
 				setEdited( toEditable( data ) );
 			} )
 			.catch( ( err: unknown ) => {
-				if ( platformRef.current !== requestedPlatform ) {
+				if ( mappingsRequestIdRef.current !== requestId ) {
 					return;
 				}
 
