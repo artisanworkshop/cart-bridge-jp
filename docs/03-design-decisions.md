@@ -419,6 +419,54 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 上限値は `cbjp/limits/{entity}` フィルターで提供し、Pro プラグインが解除する
 （実際のフック名は `cbjp/limits/product` のようにエンティティごと。本ドキュメント群で `cbjp/limits/*` とあるのはその総称）。
 
+**import/export共有**: `cbjp_mappings` は方向を持たない設計（`UNIQUE(platform, entity_type,
+remote_id)`）のため、上記累積カウントは import 由来・export 由来の行を区別せず合算する
+（E2-2で確定。無料版=挙動確認という位置づけ（D14）から、往復を通じた合計上限として扱う）。
+
+#### エクスポート方向の実装（E2-2 PR-A）
+
+- **アーキテクチャ**: `Sync\Importer`/`Sync\WooWriter` の対称形として `Sync\Exporter`/
+  `Sync\PlatformWriter`/`Sync\WooReader` を新設。Woo→Canonical読出は `Woo\Reader\EntityReader`
+  実装（PR-A: `Woo\Reader\ProductReader` のみ。`Woo\WooReaderRepository` が entity ごとに
+  ディスパッチ）、ASPへのpushは `Woo\Export\AdapterPlatformWriter`
+  （`PlatformAdapter::push_*()` へディスパッチ）/ `Woo\Export\DryRunPlatformWriter`
+  （dry-run。アダプタを一切呼ばずmappingsの有無だけでcreated/updatedを判定）が担う。
+  `JobManager::process_job()` は `type` が `export`/`dry_run_export` のとき
+  この経路へ分岐する（`import`/`dry_run`は既存の`Importer`経路のまま）。
+- **「SKU/email突合」の実装範囲**: `cbjp_mappings`（Wooローカルエンティティからの逆引き。
+  `MappingRepository::find_remote_id()`/`find_many_by_local_ids()`）の有無のみでcreate/update
+  を判定する。ASP側APIへの投機的なSKU/email検索は行わない（D16が`MappingRebuilder`で
+  「SKU/email突合は誤リンクの危険があるため不採用」と確定済みの方針と整合）。
+- **無料版サンプル選定（エクスポート方向。D15 §10.2 #8）**: `Sync\ExportSampleSelector`
+  （`SampleSelector`のWoo向け対称形）が `wc_get_orders()`（日付降順・`wc-checkout-draft`除外）
+  で最新10件を起点に、明細の商品（`WC_Order_Item_Product::get_product_id()`で常に親商品IDを
+  取得するため、バリエーションは自動的に親商品で1件になる）と購入者（ゲスト=`customer_id 0`は
+  除外）を抽出する。フォールバック（受注10件未満）は商品・顧客一覧の先頭ページ（Woo側は日付
+  ソートが常に可能なため無条件に新しい順）で補う。永続化キーは `cbjp_export_sample_{platform}`
+  （import用 `cbjp_sample_{platform}` とは別オプション）。
+- **`cbjp_dry_run_items` はスキーマ変更なし**: export方向のdry-run行は `existing_local_id` 列に
+  Wooローカルエンティティの実ID（常に既知）を格納し、`remote_id` 列（`NOT NULL`・
+  `UNIQUE(job_id, entity, remote_id)`）は更新時は既存remote_id、新規作成候補時は
+  一意性確保のためのプレースホルダ `local:{local_id}` を格納する（`Sync\Exporter::dry_run_row()`）。
+- **カテゴリ**: Wooのカテゴリ/タグ自体は独立したexportエンティティにしない
+  （`PlatformAdapter`に`push_tag()`は存在せず、`push_category()`はcategory作成可能な
+  プラットフォーム向け。ColorMeは`can_create_category=false`）。`Woo\Reader\ProductReader`が
+  D19の`category_map`（Woo側カテゴリID→ASP側カテゴリID）を商品ごとに解決し、未マッピングの
+  カテゴリは警告（`WarningCode::CATEGORY_MAP_UNRESOLVED`）付きで除外する。Wooのタグはv1.0では
+  転送しない（`tag_map`が存在せず、ColorMeは groups をカテゴリとしてのみ扱うため）。
+- **エンティティの絞り込み**: `JobManager::EXPORT_ENTITIES_WITH_READER`（PR-A時点は`product`
+  のみ）で、Readerが未実装のentityは要求されても対象にしない。customer/order/stock/coupon用の
+  Readerを追加するPR-Bで、`can_create_category`/`has_coupons && can_create_coupon`/
+  `can_update_customer`/`can_create_order`によるcapabilityベースの絞り込みも合わせて追加する
+  （PR-A時点でこれを含めるとPHPStanが到達不能コードとして検出するため見送った）。
+- **本番書込み警告（D17）のサーバー側担保**: `POST /runs`（`type=export`）は
+  `acknowledge_production_write`（`true`/`'1'`/`'true'`のみ受理。フェイルクローズ）が
+  真であることを要求し、無ければ400。dry-run（`dry_run_export`）には適用しない。
+- **受注（D19の申し送り）**: `payment_map`/`shipping_map`の逆引きの曖昧性解決はPR-Aの
+  スコープ外（`order`用Readerが無いため）。PR-B/E2-3で`Woo\Reader\OrderReader`を実装する際、
+  Woo側の生コード（決済ゲートウェイID・配送方法ID）のままCanonicalOrderへ載せ、ASP側コードへの
+  解決はアダプタの`push_order()`実装（E2-3）に委ねる方針とする。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ

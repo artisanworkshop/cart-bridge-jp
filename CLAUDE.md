@@ -116,6 +116,10 @@ npm run build                # 本番ビルド
 - `MediaImporter` は同一 `_cbjp_source_url` の添付を商品・タームをまたいで再利用する。取り込み画像を削除する処理は `post_parent` や単一の参照だけで孤児と判定せず、参照する全ての実体が消える場合のみ削除すること（R2-2/G2-2/G3-2）
 - 金額突合の通貨は現在の店舗設定（`get_woocommerce_currency()`）ではなく、受注に保存された `WC_Order::get_currency()` から判定すること（店舗通貨は後から変えられる。ASP 側通貨は `OrderWriter::PLATFORM_CURRENCY`。G3-3）
 - カラーミーの決済/配送方法のID→名称は `GET /payments.json`/`GET /deliveries.json` で取得できる（`ColorMeAdapter` が `OrderTransformer` 用の名称マップ構築に内部利用済み。同じ取得ロジックを `ColorMeAdapter::mapping_candidates()` がE2-1のマッピングUI向け候補一覧としても再利用している）。OAuth接続さえ済んでいればColorMe管理画面へのブラウザログイン（副管理者アカウントでは受注詳細等の一部ページが権限不足で見られないことがある）は不要
+- `WC_Order_Item_Product::get_product_id()` は（バリエーション明細でも）常に**親商品ID**を返す。バリエーション自体のIDは別メソッド `get_variation_id()`（バリエーションでなければ0）。受注明細からサンプル選定・商品解決を行う処理（`Sync\ExportSampleSelector` 等）で `get_product_id()` を使えば、バリエーションは自動的に親商品1件へ畳み込まれる（D15「バリエーションは親商品で1件」を満たすために追加のロジックが不要）
+- `WC_Product_Variation::get_manage_stock( 'view' )`（既定コンテキスト）は、バリエーション自身が在庫管理していなくても親が管理していれば文字列 `'parent'`（truthy）を返し、`get_stock_quantity( 'view' )` もこの場合**自動的に親の在庫数を返す**。エクスポート等でバリエーションの実効在庫を読む場合、`get_manage_stock() !== false` を「管理対象」の判定に使えば、`'parent'` 継承分を手動で親から読みに行く必要はない
+- `wc_get_products( [ 'paginate' => true, ... ] )` は配列ではなく `(object) ['products' => WC_Product[], 'total' => int, 'found_posts' 相当, 'max_num_pages' => int]` を返す（`WC_Product_Data_Store_CPT::query()`）。`products` は復元失敗した投稿を `array_filter()` で除外するため、キーが飛び番になりうる（`array_values()` が必要）
+- エクスポート方向の `cbjp_dry_run_items`/`cbjp_mappings` は列の意味を読み替えて使う（スキーマ変更なし）。`cbjp_mappings` は `local_id`/`remote_id` とも方向を持たない設計だが、export方向は起点が常にWooローカルID（`MappingRepository::find_remote_id()`/`find_many_by_local_ids()` で逆引きする）。`cbjp_dry_run_items.remote_id`（`NOT NULL`・`UNIQUE(job_id, entity, remote_id)`）は新規作成候補（既存remote_idが無い）の行では一意性確保のためプレースホルダ `local:{local_id}` を入れ、`existing_local_id` 列にWooローカルIDを格納する（`Sync\Exporter::dry_run_row()` 参照）
 
 ## フロントエンド（React/TypeScript）規約
 
