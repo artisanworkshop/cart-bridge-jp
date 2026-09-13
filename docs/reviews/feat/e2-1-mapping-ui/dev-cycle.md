@@ -2,9 +2,9 @@
 - タスク: E2-1 マッピングUI（Phase 2 の最初の1タスク。カテゴリ/決済/配送/注文ステータスの対応表UI）
 - 開始: 2026-09-13
 - PR: #39 https://github.com/artisanworkshop/cart-bridge-jp/pull/39
-- 現在のステップ: 5（CI待ち）
-- Copilot: 未依頼
-- Codex: 未依頼
+- 現在のステップ: 7（ゲートG1指摘対応済み、次回依頼で収束確認待ち）
+- Copilot: 依頼1回 / 未収束（次回で収束確認）
+- Codex: 依頼1回（自動レビュー不発火のため`@codex review`で明示依頼） / 未収束（次回で収束確認）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -14,3 +14,5 @@
 | 2026-09-13 | 3 | review-loop R1完了。自己レビュー＋独立サブエージェント（general-purpose/opus）でHigh 3件・Medium 4件を検出し全件修正（checkout-draftステータスへのマッピングで受注が24時間後にcron削除される重大な指摘を含む）。Low 10件・対象外3件はdocs/review-backlog.mdへ。品質チェック再度green（PHPUnit 726件） |
 | 2026-09-13 | 3 | review-loop R2（検証ラウンド）**APPROVE**。R1指摘7件（High3/Medium4）全解消、新規Critical/Highゼロ（新規Low 4件のみ検出、backlogへ）を独立サブエージェントが確認。ループ終了、R3不要 |
 | 2026-09-13 | 4-5 | push + PR #39 作成。CI待ち |
+| 2026-09-13 | 6 | CI green。Copilotへ依頼（レビュアー指名）＋Codex自動レビュー待ち。Codexの自動レビューが不発火だったため`@codex review`で明示依頼（1回目として計上） |
+| 2026-09-13 | 7 | ゲートG1: Copilot 2スレッド+本文6件、Codex 4スレッド取得。重複排除の上6件を修正（checkout-draftの書込み側フェイルクローズ、空id/name候補の拒否、保存中の編集消失、docsのリンク切れ・件数誤記、エラー通知の詰み状態）、4件は既存backlog記録（R1-L2/L5/L6/L8）と重複のため保留。品質チェック再度green（PHPUnit 727件） |
