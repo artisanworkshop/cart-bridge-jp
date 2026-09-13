@@ -47,6 +47,13 @@ final class WarningCode {
 	public const TERM_UPDATE_FAILED         = 'term_update_failed';
 	public const TERM_CREATE_FAILED         = 'term_create_failed';
 
+	/**
+	 * エクスポート時、Wooカテゴリに対応する `category_map`（Woo側カテゴリID→ASP側カテゴリID）
+	 * のエントリが無い（`Woo\Reader\ProductReader`）。ユーザーが後からマッピング設定を追加すれば
+	 * 解決しうるため `indicates_unresolved_reference()` の対象に含める。
+	 */
+	public const CATEGORY_MAP_UNRESOLVED = 'category_map_unresolved';
+
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
 	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
@@ -131,6 +138,7 @@ final class WarningCode {
 			self::TAG_REF_UNRESOLVED,
 			self::ORDER_CUSTOMER_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_UNRESOLVED,
+			self::CATEGORY_MAP_UNRESOLVED,
 		];
 
 		foreach ( $warnings as $warning ) {

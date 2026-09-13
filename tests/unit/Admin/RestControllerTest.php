@@ -234,7 +234,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertIsString( $response->get_data()['run_id'] );
 	}
 
-	public function test_export_type_is_not_yet_implemented(): void {
+	public function test_export_without_acknowledging_the_production_write_warning_is_rejected(): void {
 		add_filter(
 			'cbjp/adapters/register',
 			static function ( array $adapters ) {
@@ -250,12 +250,93 @@ final class RestControllerTest extends WP_UnitTestCase {
 			[
 				'type'     => 'export',
 				'platform' => 'mock',
-				'entities' => [ 'category' ],
+				'entities' => [ 'product' ],
 			]
 		);
 		$response = $this->server->dispatch( $request );
 
-		$this->assertSame( 501, $response->get_status() );
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_export_not_acknowledged', $response->as_error()->get_error_code() );
+	}
+
+	/**
+	 * `'0'`/`'false'`のような紛らわしい文字列を`(bool)`キャストすると意図せずtrueへ倒れる
+	 * 罠（CLAUDE.md）があるため、フェイルクローズで拒否されることを明示的に確認する。
+	 */
+	public function test_export_acknowledgment_rejects_falsy_looking_strings(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'                         => 'export',
+				'platform'                     => 'mock',
+				'entities'                     => [ 'product' ],
+				'acknowledge_production_write' => 'false',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
+	public function test_export_type_starts_a_run_once_acknowledged(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'                         => 'export',
+				'platform'                     => 'mock',
+				'entities'                     => [ 'product' ],
+				'acknowledge_production_write' => 'true',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertIsString( $response->get_data()['run_id'] );
+	}
+
+	public function test_dry_run_export_does_not_require_acknowledgment(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run_export',
+				'platform' => 'mock',
+				'entities' => [ 'product' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertIsString( $response->get_data()['run_id'] );
 	}
 
 	public function test_start_run_rejects_an_unknown_type_as_a_bad_request_not_export(): void {

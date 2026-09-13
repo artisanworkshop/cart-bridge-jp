@@ -98,6 +98,74 @@ final class MappingRepository {
 		return $map;
 	}
 
+	/**
+	 * `find_local_id()`の逆引き（エクスポート用）。Wooローカルエンティティに対応する
+	 * 既存remote_idを解決する。`platform_entity_local`インデックスを使う。
+	 *
+	 * `(platform, entity_type, local_id)`はUNIQUE制約ではない（同じWooエンティティを複数の
+	 * remote_idが指す状態は本来想定しないが、`UNIQUE KEY`は`remote_id`側にしか無い）ため、
+	 * 想定外に複数行が存在する場合に備えid昇順（最初にリンクされたもの）を決定的に採用する。
+	 */
+	public function find_remote_id( string $platform, string $entity_type, int $local_id ): ?string {
+		global $wpdb;
+
+		$value = $wpdb->get_var(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"SELECT remote_id FROM {$this->table()} WHERE platform = %s AND entity_type = %s AND local_id = %d ORDER BY id ASC LIMIT 1",
+				$platform,
+				$entity_type,
+				$local_id
+			)
+		);
+
+		return null === $value ? null : (string) $value;
+	}
+
+	/**
+	 * ページ内アイテムの既存mappingを一括で取得する（`find_many()`の逆引き版。
+	 * エクスポートでアイテム毎のSELECTを避けるために使う）。`find_remote_id()`と同じ理由で
+	 * id昇順に並べ、想定外の重複行があれば最初の1件を採用する。
+	 *
+	 * @param array<int,int> $local_ids
+	 * @return array<int,array{remote_id:string,checksum:?string}> local_id をキーとするマップ。
+	 */
+	public function find_many_by_local_ids( string $platform, string $entity_type, array $local_ids ): array {
+		global $wpdb;
+
+		if ( [] === $local_ids ) {
+			return [];
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $local_ids ), '%d' ) );
+
+		$rows = $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $local_ids の要素数分の%dを動的生成しており、置換数はプレースホルダー数と一致する。
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名と%dプレースホルダー列のみの埋め込み。値はプレースホルダー経由。
+				"SELECT local_id, remote_id, checksum FROM {$this->table()} WHERE platform = %s AND entity_type = %s AND local_id IN ({$placeholders}) ORDER BY id ASC",
+				array_merge( [ $platform, $entity_type ], $local_ids )
+			),
+			ARRAY_A
+		);
+
+		$map = [];
+
+		foreach ( $rows as $row ) {
+			// 想定外の重複（上記docblock参照）でも先に処理したid昇順の最初の行を保持する。
+			if ( isset( $map[ (int) $row['local_id'] ] ) ) {
+				continue;
+			}
+
+			$map[ (int) $row['local_id'] ] = [
+				'remote_id' => (string) $row['remote_id'],
+				'checksum'  => null !== $row['checksum'] ? (string) $row['checksum'] : null,
+			];
+		}
+
+		return $map;
+	}
+
 	public function find_checksum( string $platform, string $entity_type, string $remote_id ): ?string {
 		global $wpdb;
 
