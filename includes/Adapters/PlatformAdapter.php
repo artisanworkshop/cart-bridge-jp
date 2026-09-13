@@ -42,6 +42,16 @@ interface PlatformAdapter {
 	 */
 	public function connection_fields(): array;
 
+	/**
+	 * `/settings/mappings/{platform}` UIが選択肢を動的に描画するための、ASP側マッピング候補一覧
+	 * （D19。`connection_fields()`と同じ「自己記述スキーマをUIが消費する」設計）。
+	 * キーは `category`/`payment`/`shipping`/`status`。該当エンティティ・機能を持たない
+	 * プラットフォームはそのキーを省略するか空配列を返してよい。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	public function mapping_candidates(): array;
+
 	public function fetch_products( Cursor $cursor ): Page;
 
 	/**

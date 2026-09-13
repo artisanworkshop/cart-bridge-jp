@@ -14,6 +14,7 @@ use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
@@ -507,9 +508,199 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$data = $response->get_data();
 		// 空マップも常にJSONオブジェクトとして返す（`test_get_settings_mappings_serializes_empty_maps_as_json_objects`
 		// 参照）ため、レスポンスデータ自体も`array`ではなく`stdClass`。
+		$this->assertEquals( (object) [], $data['category_map'] );
 		$this->assertEquals( (object) [], $data['payment_map'] );
 		$this->assertEquals( (object) [], $data['shipping_map'] );
 		$this->assertEquals( (object) [], $data['status_map'] );
+	}
+
+	/**
+	 * ColorMeアダプタは未接続（トークン未保存）のためmapping_candidates()内部の
+	 * `client()`呼び出しが`ApiException`を投げるが、マップ本体の読み取り自体は
+	 * 引きずられて失敗せず、candidatesは4キー空配列に正規化されることを確認する。
+	 */
+	public function test_get_settings_mappings_normalizes_asp_candidates_when_adapter_is_unconnected(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'category' => [],
+				'payment'  => [],
+				'shipping' => [],
+				'status'   => [],
+			],
+			$response->get_data()['asp_candidates']
+		);
+	}
+
+	/**
+	 * ASP側候補の取得失敗を空配列へ倒すだけでなく、原因追跡のため`Logger`へ記録することを確認する
+	 * （例外クラス名のみ。個人情報禁止ルール）。記録が無いと「未接続かユーザー設定ミスかレート制限か」を
+	 * 店舗オーナー・サポートいずれも切り分けられない。
+	 */
+	public function test_get_settings_mappings_logs_a_warning_when_adapter_candidates_fail(): void {
+		$this->register_colorme_adapter();
+
+		$this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
+
+		$logs = ( new LogRepository() )->list( null, 'warning' );
+		$this->assertNotEmpty(
+			array_filter(
+				$logs,
+				static fn ( array $log ): bool => str_contains( $log['message'], 'Failed to fetch ASP-side mapping candidates.' )
+			)
+		);
+	}
+
+	public function test_get_settings_mappings_passes_through_adapter_mapping_candidates(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					mapping_candidates_override: [
+						'category' => [
+							[
+								'id'   => '1',
+								'name' => 'Books',
+							],
+						],
+						'payment'  => [
+							[
+								'id'   => '3',
+								'name' => 'Bank transfer',
+							],
+						],
+					]
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' );
+		$response = $this->server->dispatch( $request );
+
+		$data = $response->get_data();
+		$this->assertSame(
+			[
+				[
+					'id'   => '1',
+					'name' => 'Books',
+				],
+			],
+			$data['asp_candidates']['category']
+		);
+		$this->assertSame(
+			[
+				[
+					'id'   => '3',
+					'name' => 'Bank transfer',
+				],
+			],
+			$data['asp_candidates']['payment']
+		);
+		// mapping_candidates_override はshipping/statusキーを省略しているが、
+		// 常に4キー揃えて返す正規化（RestController::asp_mapping_candidates()）を確認する。
+		$this->assertSame( [], $data['asp_candidates']['shipping'] );
+		$this->assertSame( [], $data['asp_candidates']['status'] );
+	}
+
+	/**
+	 * `PlatformAdapter::mapping_candidates()`はPro拡張等の外部アダプタが実装しうる拡張点
+	 * （アーキテクチャ原則8）。契約違反の戻り値（非配列要素、`id`/`name`欠損、非スカラー値、
+	 * 空文字列化する`id`/`name`。空`id`は`SelectControl`の「未マッピング」placeholderと衝突する。
+	 * G1指摘）が1件混ざっても、その要素だけを黙って除外し、Exportタブ全体を落とさないことを
+	 * 確認する（`connection_fields()`の`instanceof ConnectionField`フィルタと同種の防御）。
+	 */
+	public function test_get_settings_mappings_filters_out_malformed_adapter_candidates(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					mapping_candidates_override: [
+						'category' => 'not-an-array',
+						'payment'  => [
+							[
+								'id'   => '1',
+								'name' => 'Valid',
+							],
+							'not-an-array-item',
+							[ 'id' => '2' ], // name欠損
+							[
+								'id'   => [ 'nested' ],
+								'name' => 'Non-scalar id',
+							],
+							[
+								'id'   => '',
+								'name' => 'Empty id',
+							],
+							[
+								'id'   => false, // (string)キャストで空文字列になる
+								'name' => 'False id',
+							],
+							[
+								'id'   => '3',
+								'name' => '', // name欠損（空文字列）
+							],
+							[
+								'id'   => "\x01\x02", // 制御文字のみ→正規化後に空文字列
+								'name' => 'Control chars only id',
+							],
+							[
+								'id'   => ' 4 ', // 前後の空白のみ→正規化後は非空（trimされて残る）
+								'name' => ' Trimmed name ',
+							],
+						],
+					]
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( [], $data['asp_candidates']['category'] );
+		$this->assertSame(
+			[
+				[
+					'id'   => '1',
+					'name' => 'Valid',
+				],
+				// `sanitize_settings_map()`/`validate_settings_map()`と同じ正規化（制御文字除去+trim）を
+				// 候補一覧の時点で適用しているため、前後の空白は保存後の形に揃えられて残る（G2指摘）。
+				[
+					'id'   => '4',
+					'name' => 'Trimmed name',
+				],
+			],
+			$data['asp_candidates']['payment']
+		);
+	}
+
+	public function test_get_settings_mappings_includes_woo_candidates(): void {
+		$this->register_colorme_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
+		$response = $this->server->dispatch( $request );
+
+		$woo_candidates = $response->get_data()['woo_candidates'];
+		$this->assertArrayHasKey( 'category', $woo_candidates );
+		$this->assertArrayHasKey( 'payment', $woo_candidates );
+		$this->assertArrayHasKey( 'shipping', $woo_candidates );
+		$this->assertArrayHasKey( 'status', $woo_candidates );
+		// テスト環境のWooCommerceはデフォルトゲートウェイ（bacs等）を登録済み。
+		$payment_ids = array_column( $woo_candidates['payment'], 'id' );
+		$this->assertContains( 'bacs', $payment_ids );
 	}
 
 	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
@@ -525,6 +716,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
+				'category_map' => [ '12' => '7' ],
 				'payment_map'  => [ '3' => 'bacs' ],
 				'shipping_map' => [ '5' => 'flat_rate:1' ],
 				'status_map'   => [ 'pending' => 'on-hold' ],
@@ -534,15 +726,37 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
+		// カテゴリはColorMe側が作成不可のためWoo側カテゴリID→ASP側カテゴリIDという逆向き
+		// （他3キーはASP側→Woo側）だが、保存・検証ロジックは向きに依存しない。
+		$this->assertSame( '7', $data['category_map']->{'12'} );
 		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
 		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
 		// （`sanitize_key()`はコロンを除去するため使っていない）。
 		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
 
 		$get_data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) )->get_data();
+		$this->assertEquals( (object) [ '12' => '7' ], $get_data['category_map'] );
 		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
 		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
 		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
+	}
+
+	/**
+	 * PUTは候補一覧（`asp_candidates`/`woo_candidates`）を返さない。保存操作そのものでは候補は
+	 * 変化せず、含めるとColorMeでは保存のたびに`categories.json`/`payments.json`/`deliveries.json`の
+	 * 3リクエストが追加され、実行中のジョブと`RateLimiter`のバケットを奪い合ってしまうため
+	 * （フロントは直前のGET由来の候補をそのまま使い回す。`src/tabs/ExportTab.tsx`の`save()`参照）。
+	 */
+	public function test_save_settings_mappings_response_omits_candidates(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$data = $response->get_data();
+		$this->assertArrayNotHasKey( 'asp_candidates', $data );
+		$this->assertArrayNotHasKey( 'woo_candidates', $data );
 	}
 
 	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {
@@ -716,13 +930,27 @@ final class RestControllerTest extends WP_UnitTestCase {
 		// PHPの空配列`[]`は`wp_json_encode()`でJSON配列`[]`になり、値がある場合の
 		// JSONオブジェクト`{"3":"bacs"}`と型が食い違う（クライアント側が
 		// `Record<string,string>`として一貫した型を期待できない。Codexレビュー指摘）。
+		// candidates系（`asp_candidates`/`woo_candidates`）は本来配列であるべきキーのため対象外。
 		$this->register_colorme_adapter();
 
 		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
 		$response = $this->server->dispatch( $request );
 
-		$json = wp_json_encode( $response->get_data() );
-		$this->assertSame( '{"payment_map":{},"shipping_map":{},"status_map":{}}', $json );
+		$decoded = json_decode( (string) wp_json_encode( $response->get_data() ), true );
+		$this->assertSame(
+			[
+				'category_map' => [],
+				'payment_map'  => [],
+				'shipping_map' => [],
+				'status_map'   => [],
+			],
+			[
+				'category_map' => $decoded['category_map'],
+				'payment_map'  => $decoded['payment_map'],
+				'shipping_map' => $decoded['shipping_map'],
+				'status_map'   => $decoded['status_map'],
+			]
+		);
 	}
 
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {

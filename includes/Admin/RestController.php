@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
@@ -19,6 +20,7 @@ use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
+use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
@@ -45,8 +47,10 @@ final class RestController {
 
 	/**
 	 * `Woo\Support\MethodMap`が読む`cbjp_settings_{platform}`オプションのトップレベルキー。
+	 * `category_map`のみカラーミー側の作成不可制約により向きが逆（Woo側カテゴリID→ASP側カテゴリID）
+	 * だが、保存・検証ロジックは向きに依存しないため同じキー集合として扱える（03 §6 / E2-1）。
 	 */
-	private const SETTINGS_MAP_KEYS = [ 'payment_map', 'shipping_map', 'status_map' ];
+	private const SETTINGS_MAP_KEYS = [ 'category_map', 'payment_map', 'shipping_map', 'status_map' ];
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -428,8 +432,10 @@ final class RestController {
 	}
 
 	/**
-	 * 決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
-	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は3種とも空マップを返す。
+	 * カテゴリ/決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
+	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は4種とも空マップを返す。
+	 * `asp_candidates`/`woo_candidates`（E2-1・D19）はUIが選択肢を描画するための候補一覧で、
+	 * 保存済みマップ本体とは独立に毎回最新を取得する。
 	 */
 	public function get_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
@@ -438,16 +444,20 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		return rest_ensure_response( $this->settings_mappings_response( $this->read_settings_mappings( $platform ) ) );
+		$response                   = $this->settings_mappings_response( $this->read_settings_mappings( $platform ) );
+		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform );
+		$response['woo_candidates'] = $this->woo_mapping_candidates();
+
+		return rest_ensure_response( $response );
 	}
 
 	/**
-	 * 決済/配送/注文ステータスのマッピング設定を保存する。`payment_map`/`shipping_map`/
-	 * `status_map`はそれぞれ独立に全置換する（キー自体を省略したマップは既存値を保持する。
-	 * 例えばUIが決済方法だけを編集した場合に配送方法の設定を意図せず消さないため）。
-	 * 値はWooのゲートウェイID/配送方法インスタンスID（`flat_rate:5`のようにコロンを含みうる）
-	 * ・注文ステータススラッグという不透明な内部IDのため、`save_connection()`の資格情報と
-	 * 同じ理由で`sanitize_text_field()`ではなく制御文字除去のみに留める
+	 * カテゴリ/決済/配送/注文ステータスのマッピング設定を保存する。`category_map`/`payment_map`/
+	 * `shipping_map`/`status_map`はそれぞれ独立に全置換する（キー自体を省略したマップは既存値を
+	 * 保持する。例えばUIが決済方法だけを編集した場合に配送方法の設定を意図せず消さないため）。
+	 * 値はASP/Wooのカテゴリ・決済ゲートウェイ・配送方法インスタンスID（`flat_rate:5`のように
+	 * コロンを含みうる）・注文ステータススラッグという不透明な内部IDのため、`save_connection()`の
+	 * 資格情報と同じ理由で`sanitize_text_field()`ではなく制御文字除去のみに留める
 	 * （`sanitize_key()`は`:`等を除去し配送方法インスタンスIDを壊すため使わない）。
 	 */
 	public function save_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
@@ -477,8 +487,8 @@ final class RestController {
 			if ( ! is_array( $body[ $map_key ] ) || ( [] !== $body[ $map_key ] && array_is_list( $body[ $map_key ] ) ) ) {
 				return new WP_Error(
 					'cbjp_invalid_request',
-					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
-					sprintf( __( '"%s" must be an object of ASP method/status id to WooCommerce id.', 'cart-bridge-jp' ), $map_key ),
+					/* translators: %s: settings map key (category_map/payment_map/shipping_map/status_map) */
+					sprintf( __( '"%s" must be an object mapping one id to another.', 'cart-bridge-jp' ), $map_key ),
 					[ 'status' => 400 ]
 				);
 			}
@@ -495,7 +505,7 @@ final class RestController {
 				// 書込み側は1件でも不正なエントリがあればリクエスト全体を拒否する。
 				return new WP_Error(
 					'cbjp_invalid_request',
-					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
+					/* translators: %s: settings map key (category_map/payment_map/shipping_map/status_map) */
 					sprintf( __( '"%s" contains an invalid entry.', 'cart-bridge-jp' ), $map_key ),
 					[ 'status' => 400 ]
 				);
@@ -506,7 +516,111 @@ final class RestController {
 
 		update_option( "cbjp_settings_{$platform}", $updated, false );
 
+		// candidates（ASP/Woo双方の選択肢一覧）はここでは返さない。GET同様に含めるとColorMe側は
+		// 保存のたびに`categories.json`/`payments.json`/`deliveries.json`の3リクエストが追加され、
+		// 実行中のインポート/エクスポートジョブと`RateLimiter`のバケットを奪い合う（レート制限枯渇で
+		// ジョブが一時停止しうる）。候補一覧はマッピング設定の保存操作そのものでは変化しないため、
+		// フロントは直前のGETで取得した候補をそのまま使い回せばよい。
 		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
+	}
+
+	/**
+	 * ASP側のマッピング候補一覧（D19）。アダプタ未接続等で取得に失敗した場合、マップ本体の
+	 * 読み書き自体は独立して機能させたいため、エンドポイント全体を失敗させず空配列に倒す
+	 * （候補が空でもUIは「未接続かもしれない」と気付けるが、保存済みマッピングの表示・編集は
+	 * 妨げない）。失敗時は例外クラス名のみ（個人情報禁止ルール）を`Logger`に記録し、原因不明のまま
+	 * 「候補が空」だけがUIに残るのを避ける。`PlatformAdapter::mapping_candidates()`の契約上、
+	 * 非対応キーは省略されうるため常に4キー（category/payment/shipping/status）を揃えて返す。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	private function asp_mapping_candidates( string $platform ): array {
+		$adapter = AdapterRegistry::get( $platform );
+
+		try {
+			$candidates = null !== $adapter ? $adapter->mapping_candidates() : [];
+		} catch ( Throwable $exception ) {
+			( new Logger() )->warning(
+				'Failed to fetch ASP-side mapping candidates.',
+				[
+					'platform'  => $platform,
+					'exception' => $exception::class,
+				]
+			);
+
+			$candidates = [];
+		}
+
+		$normalized = [];
+
+		foreach ( [ 'category', 'payment', 'shipping', 'status' ] as $key ) {
+			$normalized[ $key ] = self::normalized_candidate_list( $candidates[ $key ] ?? null );
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * `PlatformAdapter::mapping_candidates()`はPro拡張等の外部アダプタが実装しうる拡張点のため、
+	 * 戻り値の型はdocblock上の契約でしかない（アーキテクチャ原則8）。`connection_fields()`が
+	 * `instanceof ConnectionField`で防御しているのと同じ理由で、各要素が期待する形
+	 * （`id`/`name`とも非空文字列化できるスカラー）かをここで検証し、不正な要素は黙って除外する
+	 * （1要素でも配列でない・オブジェクトが混在すると、フロントの`Array.prototype.map`や
+	 * Reactの子要素描画がそのまま例外を投げ、Exportタブ全体が落ちる）。
+	 *
+	 * @param mixed $value
+	 * @return array<int,array{id:string,name:string}>
+	 */
+	private static function normalized_candidate_list( mixed $value ): array {
+		if ( ! is_array( $value ) ) {
+			return [];
+		}
+
+		$normalized = [];
+
+		foreach ( $value as $item ) {
+			if ( ! is_array( $item ) || ! isset( $item['id'], $item['name'] ) || ! is_scalar( $item['id'] ) || ! is_scalar( $item['name'] ) ) {
+				continue;
+			}
+
+			// `sanitize_settings_map()`/`validate_settings_map()`と同じ正規化を先取りして適用する。
+			// 制御文字・前後の空白しか持たない値（例: `"\n"`）は素の`(string)`キャストでは非空に
+			// 見えるが、保存時にはこの正規化を経て空文字列になり拒否される（またはキーだけ変わって
+			// 選んだはずの項目が保存後に消える）。候補一覧の時点で保存後と同じ形に揃えておくことで、
+			// 「選べるのに保存できない/違う項目として保存される」食い違いを防ぐ（G2指摘）。
+			$id   = self::normalize_mapping_token( $item['id'] );
+			$name = self::normalize_mapping_token( $item['name'] );
+
+			// `id`が空文字列化する値（`''`/`false`/空白のみ等）は`SelectControl`の「未マッピング」
+			// placeholder（空文字列）と衝突し、選択してもUNMAPPEDと区別できずPUT側の
+			// `validate_settings_map()`が拒否する。`name`が空だと選択肢に空欄の行が並ぶ。
+			// ドキュメント上の契約（非空文字列化できるスカラー）どおり、どちらか一方でも空なら
+			// 要素ごと除外する。
+			if ( '' === $id || '' === $name ) {
+				continue;
+			}
+
+			$normalized[] = [
+				'id'   => $id,
+				'name' => $name,
+			];
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。
+	 *
+	 * @return array<string,array<int,array{id:string,name:string}>>
+	 */
+	private function woo_mapping_candidates(): array {
+		return [
+			'category' => MappingCandidates::categories(),
+			'payment'  => MappingCandidates::payment_gateways(),
+			'shipping' => MappingCandidates::shipping_methods(),
+			'status'   => MappingCandidates::order_statuses(),
+		];
 	}
 
 	/**
@@ -543,15 +657,15 @@ final class RestController {
 	 * `Record<string,string>`として一貫した型を期待できない）。空でも常にJSONオブジェクトで
 	 * 返すよう`stdClass`へキャストする（内部の配列表現はマージ処理のため`array`のまま保つ）。
 	 *
-	 * @param array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
-	 * @return array{payment_map:object,shipping_map:object,status_map:object}
+	 * @param array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
+	 * @return array{category_map:object,payment_map:object,shipping_map:object,status_map:object}
 	 */
 	private function settings_mappings_response( array $mappings ): array {
 		return array_map( static fn ( array $map ): object => (object) $map, $mappings );
 	}
 
 	/**
-	 * @return array{payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
+	 * @return array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
 	 */
 	private function read_settings_mappings( string $platform ): array {
 		$stored = get_option( "cbjp_settings_{$platform}", [] );
@@ -588,8 +702,8 @@ final class RestController {
 				continue;
 			}
 
-			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
-			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+			$key_string  = self::normalize_mapping_token( $key );
+			$item_string = self::normalize_mapping_token( $item );
 
 			if ( '' === $key_string || '' === $item_string ) {
 				continue;
@@ -599,6 +713,18 @@ final class RestController {
 		}
 
 		return $map;
+	}
+
+	/**
+	 * `category_map`/`payment_map`/`shipping_map`/`status_map`のキー・値、および
+	 * `mapping_candidates()`が返す候補のid/nameに共通して適用する正規化（制御文字除去+前後空白除去）。
+	 * `sanitize_settings_map()`（読取）・`validate_settings_map()`（書込み検証）・
+	 * `normalized_candidate_list()`（候補一覧）の3箇所で同じ正規化を使うことで、候補一覧の時点で
+	 * 「保存後と同じ形」を保証し、制御文字・空白のみの値が保存時にだけ空文字列化してエントリが
+	 * 消える／別のキーとして保存される食い違いを防ぐ（G2指摘）。
+	 */
+	private static function normalize_mapping_token( mixed $value ): string {
+		return trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $value ) );
 	}
 
 	/**
@@ -618,8 +744,8 @@ final class RestController {
 				return null;
 			}
 
-			$key_string  = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $key ) );
-			$item_string = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', (string) $item ) );
+			$key_string  = self::normalize_mapping_token( $key );
+			$item_string = self::normalize_mapping_token( $item );
 
 			if ( '' === $key_string || '' === $item_string ) {
 				return null;
@@ -795,7 +921,7 @@ final class RestController {
 		$entities_raw = $request->get_param( 'entities' );
 		$entities     = is_array( $entities_raw ) ? array_values( array_filter( $entities_raw, 'is_scalar' ) ) : [];
 
-		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。type未知の値（typo等）はここで
+		// エクスポート（Woo→ASP）はPhase 2（E2-2/E2-4）まで未実装。type未知の値（typo等）はここで
 		// 「エクスポート未実装」と誤答させず、下の`JobManager::start_run()`の型検証（400）に委ねる。
 		if ( JobManager::TYPE_EXPORT === $type ) {
 			return new WP_Error(
