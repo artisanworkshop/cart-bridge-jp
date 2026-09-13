@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Woo\Support;
 
 use CartBridgeJP\Woo\Support\MappingCandidates;
 use WC_Shipping_Zone;
+use WC_Shipping_Zones;
 use WP_UnitTestCase;
 
 final class MappingCandidatesTest extends WP_UnitTestCase {
@@ -58,5 +59,26 @@ final class MappingCandidatesTest extends WP_UnitTestCase {
 		foreach ( $ids as $id ) {
 			$this->assertStringStartsNotWith( 'wc-', $id );
 		}
+	}
+
+	/**
+	 * `checkout-draft`（WooCommerce Blocksのチェックアウト下書き）は`wc_get_order_statuses()`に
+	 * 含まれるが、`woocommerce_cleanup_draft_orders`日次cronが24時間経過分を完全削除するため、
+	 * マッピング候補には出さない（出すとASP受注をこのステータスへ対応付けた場合に受注が消滅しうる）。
+	 */
+	public function test_order_statuses_excludes_checkout_draft(): void {
+		$candidates = MappingCandidates::order_statuses();
+		$ids        = array_column( $candidates, 'id' );
+
+		$this->assertNotContains( 'checkout-draft', $ids );
+	}
+
+	public function test_shipping_methods_includes_methods_from_the_locations_not_covered_zone(): void {
+		$zone        = WC_Shipping_Zones::get_zone( 0 );
+		$instance_id = $zone->add_shipping_method( 'flat_rate' );
+		$candidates  = MappingCandidates::shipping_methods();
+		$ids         = array_column( $candidates, 'id' );
+
+		$this->assertContains( "flat_rate:{$instance_id}", $ids );
 	}
 }

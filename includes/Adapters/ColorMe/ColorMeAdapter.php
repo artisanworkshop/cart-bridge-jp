@@ -40,8 +40,8 @@ use Throwable;
  * カラーミーショップアダプタ（`01-plan-colorme.md`）。
  *
  * fetch系メソッドは`docs/03-design-decisions.md` §10.2 の無料版サンプル選定〜Pro版の全量走査
- * 双方から呼ばれる。push系はE4-3（エクスポート）で実装する（それまでは
- * `UnsupportedOperationException`）。
+ * 双方から呼ばれる。push系はE2-3（エクスポート）で実装する（それまでは
+ * `UnsupportedOperationException`）。`mapping_candidates()`はE2-1で実装済み。
  */
 final class ColorMeAdapter implements PlatformAdapter {
 

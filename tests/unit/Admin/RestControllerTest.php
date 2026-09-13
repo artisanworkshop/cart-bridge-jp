@@ -14,6 +14,7 @@ use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
@@ -536,6 +537,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * ASP側候補の取得失敗を空配列へ倒すだけでなく、原因追跡のため`Logger`へ記録することを確認する
+	 * （例外クラス名のみ。個人情報禁止ルール）。記録が無いと「未接続かユーザー設定ミスかレート制限か」を
+	 * 店舗オーナー・サポートいずれも切り分けられない。
+	 */
+	public function test_get_settings_mappings_logs_a_warning_when_adapter_candidates_fail(): void {
+		$this->register_colorme_adapter();
+
+		$this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
+
+		$logs = ( new LogRepository() )->list( null, 'warning' );
+		$this->assertNotEmpty(
+			array_filter(
+				$logs,
+				static fn ( array $log ): bool => str_contains( $log['message'], 'Failed to fetch ASP-side mapping candidates.' )
+			)
+		);
+	}
+
 	public function test_get_settings_mappings_passes_through_adapter_mapping_candidates(): void {
 		add_filter(
 			'cbjp/adapters/register',
@@ -590,6 +610,56 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( [], $data['asp_candidates']['status'] );
 	}
 
+	/**
+	 * `PlatformAdapter::mapping_candidates()`はPro拡張等の外部アダプタが実装しうる拡張点
+	 * （アーキテクチャ原則8）。契約違反の戻り値（非配列要素、`id`/`name`欠損、非スカラー値）が
+	 * 1件混ざっても、その要素だけを黙って除外し、Exportタブ全体を落とさないことを確認する
+	 * （`connection_fields()`の`instanceof ConnectionField`フィルタと同種の防御）。
+	 */
+	public function test_get_settings_mappings_filters_out_malformed_adapter_candidates(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					mapping_candidates_override: [
+						'category' => 'not-an-array',
+						'payment'  => [
+							[
+								'id'   => '1',
+								'name' => 'Valid',
+							],
+							'not-an-array-item',
+							[ 'id' => '2' ], // name欠損
+							[
+								'id'   => [ 'nested' ],
+								'name' => 'Non-scalar id',
+							],
+						],
+					]
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$data = $response->get_data();
+		$this->assertSame( [], $data['asp_candidates']['category'] );
+		$this->assertSame(
+			[
+				[
+					'id'   => '1',
+					'name' => 'Valid',
+				],
+			],
+			$data['asp_candidates']['payment']
+		);
+	}
+
 	public function test_get_settings_mappings_includes_woo_candidates(): void {
 		$this->register_colorme_adapter();
 
@@ -642,6 +712,24 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
 		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
 		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
+	}
+
+	/**
+	 * PUTは候補一覧（`asp_candidates`/`woo_candidates`）を返さない。保存操作そのものでは候補は
+	 * 変化せず、含めるとColorMeでは保存のたびに`categories.json`/`payments.json`/`deliveries.json`の
+	 * 3リクエストが追加され、実行中のジョブと`RateLimiter`のバケットを奪い合ってしまうため
+	 * （フロントは直前のGET由来の候補をそのまま使い回す。`src/tabs/ExportTab.tsx`の`save()`参照）。
+	 */
+	public function test_save_settings_mappings_response_omits_candidates(): void {
+		$this->register_colorme_adapter();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
+		$request->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$data = $response->get_data();
+		$this->assertArrayNotHasKey( 'asp_candidates', $data );
+		$this->assertArrayNotHasKey( 'woo_candidates', $data );
 	}
 
 	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {

@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
@@ -504,7 +505,7 @@ final class RestController {
 				// 書込み側は1件でも不正なエントリがあればリクエスト全体を拒否する。
 				return new WP_Error(
 					'cbjp_invalid_request',
-					/* translators: %s: settings map key (payment_map/shipping_map/status_map) */
+					/* translators: %s: settings map key (category_map/payment_map/shipping_map/status_map) */
 					sprintf( __( '"%s" contains an invalid entry.', 'cart-bridge-jp' ), $map_key ),
 					[ 'status' => 400 ]
 				);
@@ -515,19 +516,21 @@ final class RestController {
 
 		update_option( "cbjp_settings_{$platform}", $updated, false );
 
-		$response                   = $this->settings_mappings_response( $updated );
-		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform );
-		$response['woo_candidates'] = $this->woo_mapping_candidates();
-
-		return rest_ensure_response( $response );
+		// candidates（ASP/Woo双方の選択肢一覧）はここでは返さない。GET同様に含めるとColorMe側は
+		// 保存のたびに`categories.json`/`payments.json`/`deliveries.json`の3リクエストが追加され、
+		// 実行中のインポート/エクスポートジョブと`RateLimiter`のバケットを奪い合う（レート制限枯渇で
+		// ジョブが一時停止しうる）。候補一覧はマッピング設定の保存操作そのものでは変化しないため、
+		// フロントは直前のGETで取得した候補をそのまま使い回せばよい。
+		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
 	}
 
 	/**
 	 * ASP側のマッピング候補一覧（D19）。アダプタ未接続等で取得に失敗した場合、マップ本体の
 	 * 読み書き自体は独立して機能させたいため、エンドポイント全体を失敗させず空配列に倒す
 	 * （候補が空でもUIは「未接続かもしれない」と気付けるが、保存済みマッピングの表示・編集は
-	 * 妨げない）。`PlatformAdapter::mapping_candidates()`の契約上、非対応キーは省略されうるため
-	 * 常に4キー（category/payment/shipping/status）を揃えて返す（フロント側の型を安定させる）。
+	 * 妨げない）。失敗時は例外クラス名のみ（個人情報禁止ルール）を`Logger`に記録し、原因不明のまま
+	 * 「候補が空」だけがUIに残るのを避ける。`PlatformAdapter::mapping_candidates()`の契約上、
+	 * 非対応キーは省略されうるため常に4キー（category/payment/shipping/status）を揃えて返す。
 	 *
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
@@ -536,14 +539,54 @@ final class RestController {
 
 		try {
 			$candidates = null !== $adapter ? $adapter->mapping_candidates() : [];
-		} catch ( Throwable ) {
+		} catch ( Throwable $exception ) {
+			( new Logger() )->warning(
+				'Failed to fetch ASP-side mapping candidates.',
+				[
+					'platform'  => $platform,
+					'exception' => $exception::class,
+				]
+			);
+
 			$candidates = [];
 		}
 
 		$normalized = [];
 
 		foreach ( [ 'category', 'payment', 'shipping', 'status' ] as $key ) {
-			$normalized[ $key ] = is_array( $candidates[ $key ] ?? null ) ? $candidates[ $key ] : [];
+			$normalized[ $key ] = self::normalized_candidate_list( $candidates[ $key ] ?? null );
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * `PlatformAdapter::mapping_candidates()`はPro拡張等の外部アダプタが実装しうる拡張点のため、
+	 * 戻り値の型はdocblock上の契約でしかない（アーキテクチャ原則8）。`connection_fields()`が
+	 * `instanceof ConnectionField`で防御しているのと同じ理由で、各要素が期待する形
+	 * （`id`/`name`とも非空文字列化できるスカラー）かをここで検証し、不正な要素は黙って除外する
+	 * （1要素でも配列でない・オブジェクトが混在すると、フロントの`Array.prototype.map`や
+	 * Reactの子要素描画がそのまま例外を投げ、Exportタブ全体が落ちる）。
+	 *
+	 * @param mixed $value
+	 * @return array<int,array{id:string,name:string}>
+	 */
+	private static function normalized_candidate_list( mixed $value ): array {
+		if ( ! is_array( $value ) ) {
+			return [];
+		}
+
+		$normalized = [];
+
+		foreach ( $value as $item ) {
+			if ( ! is_array( $item ) || ! isset( $item['id'], $item['name'] ) || ! is_scalar( $item['id'] ) || ! is_scalar( $item['name'] ) ) {
+				continue;
+			}
+
+			$normalized[] = [
+				'id'   => (string) $item['id'],
+				'name' => (string) $item['name'],
+			];
 		}
 
 		return $normalized;
@@ -849,7 +892,7 @@ final class RestController {
 		$entities_raw = $request->get_param( 'entities' );
 		$entities     = is_array( $entities_raw ) ? array_values( array_filter( $entities_raw, 'is_scalar' ) ) : [];
 
-		// エクスポート（Woo→ASP）はPhase 4（E4-2）まで未実装。type未知の値（typo等）はここで
+		// エクスポート（Woo→ASP）はPhase 2（E2-2/E2-4）まで未実装。type未知の値（typo等）はここで
 		// 「エクスポート未実装」と誤答させず、下の`JobManager::start_run()`の型検証（400）に委ねる。
 		if ( JobManager::TYPE_EXPORT === $type ) {
 			return new WP_Error(

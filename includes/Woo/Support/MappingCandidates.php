@@ -122,6 +122,14 @@ final class MappingCandidates {
 	}
 
 	/**
+	 * WooCommerce Blocksのチェックアウト下書き注文が使う内部ステータス。`wc_get_order_statuses()`の
+	 * 結果に含まれるが、`woocommerce_cleanup_draft_orders`（日次cron）が24時間経過したこのステータスの
+	 * 注文を`WC_Order::delete(true)`で完全削除する（`DraftOrders::delete_expired_draft_orders()`）ため、
+	 * マッピング候補に出すとASP受注をこのステータスへ意図せず対応付けた場合に受注が消滅しうる。
+	 */
+	private const EXCLUDED_ORDER_STATUSES = [ 'checkout-draft' ];
+
+	/**
 	 * @return array<int,array{id:string,name:string}>
 	 */
 	public static function order_statuses(): array {
@@ -130,6 +138,10 @@ final class MappingCandidates {
 		foreach ( wc_get_order_statuses() as $slug => $label ) {
 			// OrderWriterが書き込む値の規約（`wc-`接頭辞なし）に合わせて除去する。
 			$status = str_starts_with( $slug, 'wc-' ) ? substr( $slug, 3 ) : $slug;
+
+			if ( in_array( $status, self::EXCLUDED_ORDER_STATUSES, true ) ) {
+				continue;
+			}
 
 			$candidates[] = [
 				'id'   => $status,
