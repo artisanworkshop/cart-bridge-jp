@@ -3,8 +3,8 @@
 - 開始: 2026-09-15
 - PR: #43 https://github.com/artisanworkshop/cart-bridge-jp/pull/43
 - 現在のステップ: 6（ボット応答待ち）
-- Copilot: 依頼 1 回 / 応答待ち（T=2026-09-14T22:26:47Z）
-- Codex: 依頼 1 回（自動レビュー） / 応答待ち（T=2026-09-14T22:26:47Z）
+- Copilot: 依頼 1 回 / 応答待ち（T=2026-09-14T22:26:47Zで15分TIMEOUT。継続して待機中）
+- Codex: 依頼 2 回目（`@codex review`コメント、T=2026-09-14T23:13:04Z） / 応答待ち
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
