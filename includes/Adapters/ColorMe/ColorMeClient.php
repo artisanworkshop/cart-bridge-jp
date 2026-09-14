@@ -131,9 +131,14 @@ final class ColorMeClient {
 	/**
 	 * multipartヘッダー値（`Content-Disposition`のname/filename）にCR/LF/二重引用符が混入すると
 	 * リクエストが壊れる（ヘッダーインジェクション）。ファイル名はWordPressのメディアライブラリ
-	 * 由来だが、防御的に除去する。
+	 * 由来だが、防御的に除去する。バックスラッシュは二重引用符より**先に**エスケープすること
+	 * （R3レビュー指摘: 先にバックスラッシュを変換しないと、値に`\"`のような並びが含まれる場合に
+	 * 後段の`"`→`\"`置換が二重にエスケープされたように見えてしまい、`filename`パラメータの
+	 * 境界が壊れうる）。
 	 */
 	private static function escape_multipart_value( string $value ): string {
+		$value = str_replace( '\\', '\\\\', $value );
+
 		return str_replace( [ '"', "\r", "\n" ], [ '\\"', '', '' ], $value );
 	}
 

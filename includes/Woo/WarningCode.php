@@ -264,7 +264,8 @@ final class WarningCode {
 
 	/**
 	 * `ColorMeAdapter::push_product()`: 画像push（`POST /products/{id}/images`、
-	 * プレミアムプラン契約時のみ試行）の一部が失敗した（レート制限・5xx・422等）。
+	 * プレミアムプラン契約時のみ試行）の一部が失敗した。`is_retryable_failure()`が429/5xx/
+	 * 通信断のみをこの対象に分類する（422等その他の4xxは終端の`PRODUCT_IMAGE_PUSH_FAILED`）。
 	 * リトライで解決しうるため`indicates_unresolved_reference()`の対象に含める。
 	 */
 	public const PRODUCT_IMAGE_PUSH_INCOMPLETE = 'product_image_push_incomplete';
@@ -382,6 +383,34 @@ final class WarningCode {
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_REFUNDED,
+			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
+			// 可視バリエーション0件）ため`price='0'`にフェイルクローズ済み。`CanonicalProduct`は
+			// 「価格0円（正規の無料商品）」と「価格を復元できない」を区別するフィールドを持たない
+			// ため、無警告でpushすると価格未設定の商品がColorMe側に0円商品として恒久的に作成・
+			// 公開されてしまう（R3レビュー指摘、Codex/Copilot。金銭的リスク。CLAUDE.mdアーキ
+			// テクチャ原則9）。
+			self::PRODUCT_PRICE_INVALID,
+			// `Woo\Reader\ProductReader`: `tax_status`（`shipping`/`none`）が`taxable`以外。
+			// `CanonicalProduct`は`tax_status`を運ぶフィールドを持たないため、無警告でpushすると
+			// 送料のみ課税・非課税の商品がColorMe側で通常課税として扱われてしまう
+			// （R3レビュー指摘, Copilot）。
+			self::TAX_STATUS_NOT_TAXABLE,
+			// `PRICES_INCLUDE_TAX_DISABLED`（`woocommerce_prices_include_tax=no`の店舗）は
+			// **意図的にここへ含めない**。R3レビュー（Codex）は`ProductTransformer::
+			// to_push_amount()`が常に税込前提で換算するため実売価格を誤らせると正しく指摘したが、
+			// `woocommerce_prices_include_tax`は多くの実店舗で既定の「税抜で価格入力」設定
+			// （未設定時`get_option()`はfalseを返す＝実測: フレッシュなWP/WC環境でも発火）であり、
+			// export blockingにすると無料版の挙動確認自体ができなくなる店舗が続出する
+			// （既存の`JobManagerExportTest`が実際にこれで2件失敗した）。正しい修正は
+			// `Woo\Reader\ProductReader`側で税込基準へ正規化してから`CanonicalProduct`へ渡す
+			// ことだが、本PRの差分範囲（`ColorMeAdapter`/`ProductTransformer`書込方向）を超える
+			// ため、ユーザー確認事項として最終報告に残す（`docs/review-backlog.md`参照）。
+			// `Woo\Support\VariationAxisResolver`: バリエーション軸が3つ以上あり、`CanonicalProduct::
+			// $variants`のoption1/2規約（2軸まで）に合わせ3軸目以降を切り捨てている。
+			// `ColorMeAdapter::sync_variants()`は`option1/2`の組のみで突合するため、3軸目の値だけが
+			// 異なる複数のバリエーションが同じ組に潰れ、誤ったSKU/価格/在庫が別バリエーションへ
+			// 入れ替わってpushされうる（R3レビュー指摘, Copilot）。
+			self::VARIATION_AXIS_LIMIT_EXCEEDED,
 		];
 
 		foreach ( $warnings as $warning ) {

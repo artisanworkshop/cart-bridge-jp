@@ -253,8 +253,21 @@ final class Exporter {
 				&& in_array( $operation, [ PushResult::OPERATION_CREATED, PushResult::OPERATION_UPDATED ], true );
 
 			if ( $did_push ) {
-				$all_warnings   = array_merge( $read_item->warnings, $sanitized_result_warnings );
-				$fully_resolved = $read_item->fully_resolved && ! WarningCode::indicates_unresolved_reference( $all_warnings );
+				$all_warnings = array_merge( $read_item->warnings, $sanitized_result_warnings );
+
+				// R3レビュー指摘（Copilot）: バリエーションを持つ商品で、アダプタが返す
+				// `variant_remote_ids`の要素数が`variant_local_ids`と一致しない場合
+				// （信頼境界の契約違反。アーキテクチャ原則8）、下のzip処理はこれを無視する
+				// だけだったが、親商品自体のchecksumはそのままキャッシュされてしまっていた。
+				// それだと以後この商品では二度と`push_product()`が呼ばれず、バリエーション
+				// 同期を恒久的に再試行できなくなる。契約違反があった場合は親も未解決扱いにする。
+				$variant_contract_violated = 'product' === $entity
+					&& [] !== $read_item->variant_local_ids
+					&& count( $read_item->variant_local_ids ) !== count( $result->variant_remote_ids );
+
+				$fully_resolved = $read_item->fully_resolved
+					&& ! WarningCode::indicates_unresolved_reference( $all_warnings )
+					&& ! $variant_contract_violated;
 
 				// `Importer`と同じ理由: 未解決参照（category_map欠落等）が残る場合はchecksumを
 				// キャッシュせず、解決可能になった時点で再試行させる。

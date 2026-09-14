@@ -291,6 +291,46 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$adapter->push_category( CanonicalFactory::category( '1', 'Category' ) );
 	}
 
+	/**
+	 * R3レビュー指摘（Codex）: 税込→税抜の逆算（`ProductTransformer::divide_with_rounding()`）は
+	 * `round_down`/`round_up`で税込→税込の順方向（`round_tax()`）と**逆方向**の丸めを使わないと
+	 * 往復で元の税込額に戻らない（`php -r`で6000通りのnet/rate組を検証し、順方向と同じ丸めでは
+	 * 93%が不一致だった）。税込100円・税率10%・`round_down`設定で、正しい税抜額（91円。
+	 * `floor(91×110/100)=100`で往復一致）が送られることを確認する。
+	 */
+	public function test_push_product_inverts_rounding_direction_for_round_down(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [
+					[
+						'body' => [
+							'shop' => [
+								'tax_type'            => 'excluded',
+								'tax'                 => 10,
+								'reduce_tax_rate'     => 8,
+								'tax_rounding_method' => 'round_down',
+							],
+						],
+					],
+				],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 503 ] ] ] ],
+				'PUT products/503.json' => [ [ 'body' => [ 'product' => [ 'id' => 503 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct( 'Test Product', 'SKU-1', '100', null, null, [], [], [], [], 5, 'publish' );
+		$adapter->push_product( $product, null );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 91, $create_request['body']['product']['sales_price'] );
+	}
+
 	public function test_push_product_creates_simple_product(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -354,6 +394,13 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
 		$this->assertArrayNotHasKey( 'price', $create_request['body']['product'] );
 		$this->assertArrayNotHasKey( 'sales_price', $create_request['body']['product'] );
+
+		// R3レビュー指摘（Copilot/Codex）: 作成直後の追いPUT（category_id_small/group_ids/stocks
+		// 反映用）が`to_update_payload()`の素のshowingでこの安全策を即座に上書きしていた。
+		// 追いPUTでもhiddenが維持されることを確認する。
+		$follow_up_request = $this->find_captured( $captured, 'PUT', 'products/502.json' );
+		$this->assertNotNull( $follow_up_request );
+		$this->assertSame( 'hidden', $follow_up_request['body']['product']['display_state'] );
 	}
 
 	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
@@ -899,6 +946,35 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
 	}
 
+	/**
+	 * R3レビュー指摘（Codex）: `GET /products/{id}`が200応答でも`product`エンベロープが
+	 * 欠損・非配列（スキーマ崩壊）の場合、従来は`$failure`に何も記録せず
+	 * `sync_variants()`が警告を一切積まないまま親のchecksumだけがキャッシュされ、
+	 * バリエーション未同期が恒久的に再試行されなくなっていた。retryableな警告
+	 * （`PRODUCT_VARIANT_PUSH_INCOMPLETE`）が積まれることを確認する。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_detail_response_is_malformed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 904 ] ] ] ],
+				'PUT products/904.json' => [ [ 'body' => [ 'product' => [ 'id' => 904 ] ] ] ],
+				// product情報自体が欠損した200応答（スキーマ崩壊を模す）。
+				'GET products/904.json' => [ [ 'body' => [ 'unexpected' => true ] ] ],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '904', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+	}
+
 	public function test_push_product_pushes_images_when_premium_plan(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save(
@@ -973,7 +1049,12 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings );
 	}
 
-	public function test_push_product_marks_image_push_incomplete_when_download_fails(): void {
+	/**
+	 * 404（Wooサイト自身から添付が削除された等）は再試行しても解決しない終端状態のため
+	 * `PRODUCT_IMAGE_PUSH_FAILED`（retry対象外）になる（R3レビュー指摘, Copilot Suppressed
+	 * comments）。
+	 */
+	public function test_push_product_marks_image_push_failed_when_download_gets_a_terminal_error(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save(
 			[
@@ -1000,6 +1081,45 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			[
 				[
 					'src'      => 'https://cdn.example.test/missing.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_FAILED ], $result->warnings );
+	}
+
+	/**
+	 * 5xx（Wooサイト側の一時的な障害）は再試行対象の`PRODUCT_IMAGE_PUSH_INCOMPLETE`になる。
+	 */
+	public function test_push_product_marks_image_push_incomplete_when_download_gets_a_retryable_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 603 ] ] ] ],
+				'PUT products/603.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 603 ] ] ] ],
+				'GET https://cdn.example.test/flaky.jpg' => [
+					[
+						'body'   => [],
+						'status' => 503,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/flaky.jpg',
 					'position' => 0,
 				],
 			]

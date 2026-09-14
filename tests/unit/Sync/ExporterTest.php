@@ -423,6 +423,10 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
 		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'variant', 201 ) );
 		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		// R3レビュー指摘（Copilot）: 契約違反でバリエーションが1件も書き戻せなかった場合、
+		// 親商品のchecksumもキャッシュしてはならない。キャッシュすると以後この商品では
+		// 二度と`push_product()`が呼ばれず、バリエーション同期を恒久的に再試行できなくなる。
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
 	}
 
 	/**

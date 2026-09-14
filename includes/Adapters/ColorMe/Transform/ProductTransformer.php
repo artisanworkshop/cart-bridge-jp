@@ -221,12 +221,20 @@ final class ProductTransformer {
 	/**
 	 * `round_tax()`（税抜→税込、除数100固定）の逆方向版: 除数を`100+rate`へ一般化した除算に
 	 * `shop.tax_rounding_method`を適用する。未知の方式（欠損含む）はnullを返す。
+	 *
+	 * `round_down`/`round_up`は`round_tax()`と**逆方向**の丸めを使う（R3レビュー指摘・
+	 * `php -r`で6000通りのnet/rate組を全数検証済み: 同じ丸め方向をそのまま適用すると
+	 * 往復で元の税込額に戻らない割合が93%に達した）。例えば店舗設定が税抜→税込変換で
+	 * 「切り捨て」（`round_tax()`が`floor`）の場合、逆算（税込→税抜）は「切り上げ」
+	 * （`ceil`）が真の逆演算になる: 税抜nがfloor(n×denom/100)=税込gを満たす最大のnは
+	 * ceil(g×100/denom)で求まる（`round_up`も同じ理由で逆はfloor）。`round_off`
+	 * （四捨五入）はforward/reverseとも同じ式で往復が一致するため変更不要（検証は0件不一致）。
 	 */
 	private function divide_with_rounding( int $numerator, int $denominator ): ?int {
 		return match ( $this->shop_tax_rounding_method ) {
 			'round_off' => intdiv( $numerator + intdiv( $denominator, 2 ), $denominator ),
-			'round_down' => intdiv( $numerator, $denominator ),
-			'round_up' => intdiv( $numerator + $denominator - 1, $denominator ),
+			'round_down' => intdiv( $numerator + $denominator - 1, $denominator ),
+			'round_up' => intdiv( $numerator, $denominator ),
 			default => null,
 		};
 	}

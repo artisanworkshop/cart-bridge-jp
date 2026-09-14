@@ -553,11 +553,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 			$this->logger->warning( 'ColorMe product push response was missing the product id; falling back to the known remote_id.', [ 'remote_id' => $product_remote_id ] );
 		}
 
-		$create_payload = $transformer->to_create_payload( $product );
+		$create_payload   = $transformer->to_create_payload( $product );
+		$price_unresolved = ! isset( $create_payload['price'] ) && ! isset( $create_payload['sales_price'] );
 
-		if ( ! isset( $create_payload['price'] ) && ! isset( $create_payload['sales_price'] ) ) {
+		if ( $price_unresolved ) {
 			// 税設定未取得・未知の丸め方式等で価格を一切換算できなかった（`ProductTransformer::
-			// to_push_amount()`が常にnullを返した）。`base_payload()`が既にdisplay_stateを
+			// to_push_amount()`が常にnullを返した）。`to_create_payload()`が既にdisplay_stateを
 			// hiddenへ強制しているため商品自体は非公開で作成/更新済みだが、価格解決後の
 			// 再exportで正しい状態（showing・正しい価格）へ戻すためchecksumをキャッシュさせない。
 			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
@@ -566,13 +567,21 @@ final class ColorMeAdapter implements PlatformAdapter {
 		if ( null === $remote_id ) {
 			// 新規作成はPOSTが受け付けない項目（category_id_small/group_ids/stocks）を
 			// 反映するための追いPUTを行う。この追いPUTの失敗は商品自体の作成成功を無効にしない。
-			$details_failure = [
+			$details_failure   = [
 				'retryable' => false,
 				'terminal'  => false,
 			];
+			$follow_up_payload = $transformer->to_update_payload( $product );
+
+			if ( $price_unresolved ) {
+				// R2レビュー指摘で`to_create_payload()`のみに限定したhidden強制を、この直後の
+				// 追いPUTが`to_update_payload()`のshowingでそのまま上書きしてしまっていた
+				// （R3レビュー指摘: 安全策が実質0秒しか効かない）。追いPUTでも同じ判定を反映する。
+				$follow_up_payload['display_state'] = 'hidden';
+			}
 
 			try {
-				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
+				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $follow_up_payload ] );
 			} catch ( RateLimitExhaustedException $exception ) {
 				// レート制限はジョブ全体を一時停止すべきシグナル（`Sync\Exporter`のPR #40 G1-1
 				// 専用catch）のため、ここでは握り潰さずそのまま再スローする。
@@ -773,7 +782,20 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		$product = $body['product'] ?? null;
 
-		return is_array( $product ) ? $product : null;
+		if ( ! is_array( $product ) ) {
+			// 200応答でも`product`エンベロープが欠損・非配列の場合はスキーマ崩壊とみなす
+			// （R3レビュー指摘: 従来はここで`$failure`に何も記録せず、`sync_variants()`が
+			// 警告を一切積まないまま商品本体のchecksumだけがキャッシュされ、バリエーション
+			// 未同期が恒久的に再試行されなくなっていた）。商品本体は既に作成/更新済み
+			// （remote_id確定）のため、ここで例外を投げてpush_product()全体を失敗させると
+			// mappings書込前にremote_idが失われ次回exportで重複作成されうる（`list_from()`と
+			// 異なり、ここは書込パスの途中のためretryable failureとして記録するに留める）。
+			$failure['retryable'] = true;
+
+			return null;
+		}
+
+		return $product;
 	}
 
 	/**
@@ -1038,12 +1060,9 @@ final class ColorMeAdapter implements PlatformAdapter {
 				continue;
 			}
 
-			$binary = self::fetch_image_binary( $src );
+			$binary = self::fetch_image_binary( $src, $failure );
 
 			if ( null === $binary ) {
-				// Wooサイト自身へのローカルHTTP取得の失敗（タイムアウト等）は一時的な事情に
-				// 起因しうるため再試行対象にする。
-				$failure['retryable'] = true;
 				continue;
 			}
 
@@ -1065,10 +1084,33 @@ final class ColorMeAdapter implements PlatformAdapter {
 		self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE, WarningCode::PRODUCT_IMAGE_PUSH_FAILED );
 	}
 
-	private static function fetch_image_binary( string $url ): ?string {
+	/**
+	 * @param array{retryable:bool,terminal:bool} $failure
+	 */
+	private static function fetch_image_binary( string $url, array &$failure ): ?string {
 		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
 
-		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+		if ( is_wp_error( $response ) ) {
+			// Wooサイト自身へのローカルHTTP取得の失敗（タイムアウト・接続断等）は一時的な事情に
+			// 起因しうるため再試行対象にする。
+			$failure['retryable'] = true;
+
+			return null;
+		}
+
+		$status = (int) wp_remote_retrieve_response_code( $response );
+
+		if ( 200 !== $status ) {
+			// R3レビュー指摘（Copilot Suppressed comments）: 404/403等の恒久的な失敗
+			// （添付の削除等）を一律retryableにすると、checksumが永久にキャッシュされず
+			// 毎回同じ無駄な取得を繰り返す。`is_retryable_failure()`と同じ基準（429/5xx/
+			// 通信断のみretryable）で分類する。
+			if ( 429 === $status || $status >= 500 ) {
+				$failure['retryable'] = true;
+			} else {
+				$failure['terminal'] = true;
+			}
+
 			return null;
 		}
 
