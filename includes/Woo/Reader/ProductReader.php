@@ -12,13 +12,13 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\StockDerivation;
+use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
 use WC_Product_Attribute;
 use WC_Product_Variable;
 use WC_Product_Variation;
-use WP_Term;
 
 /**
  * `WC_Product`（+バリエーション）を `CanonicalProduct` へ変換する（`Woo\Writer\ProductWriter` の
@@ -294,25 +294,7 @@ final class ProductReader implements EntityReader {
 	 * @return array<int,WC_Product_Attribute>
 	 */
 	private function variation_axis_attributes( WC_Product_Variable $product, array &$warnings ): array {
-		$axis              = [];
-		$has_axis_overflow = false;
-
-		foreach ( $product->get_attributes() as $attribute ) {
-			if ( $attribute instanceof WC_Product_Attribute && $attribute->get_variation() ) {
-				if ( 2 === count( $axis ) ) {
-					$has_axis_overflow = true;
-					break;
-				}
-
-				$axis[] = $attribute;
-			}
-		}
-
-		if ( $has_axis_overflow ) {
-			$warnings[] = WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED;
-		}
-
-		return $axis;
+		return VariationAxisResolver::axis_attributes( $product, $warnings );
 	}
 
 	/**
@@ -409,33 +391,12 @@ final class ProductReader implements EntityReader {
 			}
 
 			$variant[ $name_key ]  = $this->attribute_label( $attribute );
-			$variant[ $value_key ] = $this->variation_attribute_value( $attribute, $raw_attributes );
+			$variant[ $value_key ] = VariationAxisResolver::attribute_value( $attribute, $raw_attributes );
 		}
 	}
 
 	private function attribute_label( WC_Product_Attribute $attribute ): string {
-		return $attribute->is_taxonomy() ? wc_attribute_label( $attribute->get_name() ) : $attribute->get_name();
-	}
-
-	/**
-	 * @param array<string,string> $raw_attributes `WC_Product_Variation::get_attributes()`
-	 *   （taxonomy属性はterm slug、ローカル属性は生値）。
-	 */
-	private function variation_attribute_value( WC_Product_Attribute $attribute, array $raw_attributes ): ?string {
-		$key       = $attribute->is_taxonomy() ? $attribute->get_name() : sanitize_title( $attribute->get_name() );
-		$raw_value = $raw_attributes[ $key ] ?? '';
-
-		if ( '' === $raw_value ) {
-			return null;
-		}
-
-		if ( $attribute->is_taxonomy() ) {
-			$term = get_term_by( 'slug', $raw_value, $attribute->get_name() );
-
-			return ( $term instanceof WP_Term ) ? $term->name : $raw_value;
-		}
-
-		return $raw_value;
+		return VariationAxisResolver::attribute_label( $attribute );
 	}
 
 	/**

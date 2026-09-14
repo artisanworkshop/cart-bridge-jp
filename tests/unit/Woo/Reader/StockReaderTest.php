@@ -66,6 +66,37 @@ final class StockReaderTest extends WooTestCase {
 		$this->assertNull( $page->items[0]->item->quantity );
 	}
 
+	/**
+	 * `manage_stock=true`かつ数量が正でも、`woocommerce_notify_no_stock_amount`
+	 * （WooCommerce設定「在庫切れ通知のしきい値」）以下なら`stock_status`は`outofstock`になる
+	 * （`WC_Product::validate_props()`が`save()`の度に強制する。`wp eval-file`で実測確認済み）。
+	 * 数量をそのまま申告すると店舗が安全在庫として確保した分までASP側で購入可能として
+	 * 申告してしまうため、0にフェイルクローズすることを確認する（`Woo\Support\StockDerivation`）。
+	 */
+	public function test_stock_below_notify_threshold_reads_as_zero_despite_positive_quantity(): void {
+		update_option( 'woocommerce_notify_no_stock_amount', 10 );
+
+		try {
+			$product = new WC_Product_Simple();
+			$product->set_name( 'Buffer Stock Widget' );
+			$product->set_regular_price( '1000' );
+			$product->set_manage_stock( true );
+			$product->set_backorders( 'no' );
+			$product->set_stock_quantity( 5 );
+			$product_id = $product->save();
+		} finally {
+			update_option( 'woocommerce_notify_no_stock_amount', 0 );
+		}
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-buffer', $product_id );
+
+		$page  = $this->make_reader()->query( Cursor::start(), [ $product_id ] );
+		$stock = $page->items[0]->item;
+
+		$this->assertSame( 0, $stock->quantity );
+		$this->assertFalse( $stock->in_stock );
+	}
+
 	public function test_unresolved_product_mapping_blocks_export_with_warning(): void {
 		$product_id = $this->create_simple_product( 5 );
 

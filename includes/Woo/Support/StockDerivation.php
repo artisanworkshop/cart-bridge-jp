@@ -29,6 +29,20 @@ final class StockDerivation {
 			return $product->is_in_stock() ? null : 0;
 		}
 
+		// 在庫管理オン（`manage_stock=true`）でも、数量が0より大きいのに`stock_status`が
+		// 「在庫切れ」になりうる: `WC_Product::validate_props()`（`save()`の度に呼ばれる）は
+		// `woocommerce_notify_no_stock_amount`（WooCommerce設定「在庫切れ通知のしきい値」。
+		// 既定0）を上回る数量のときのみ`instock`にし、しきい値以下なら（バックオーダー不可の
+		// 場合）数量が正でも`outofstock`にする。この設定はストアが「安全在庫を確保する」目的で
+		// 使う一般的な機能であり、実測確認済み（`wc eval-file`:
+		// `woocommerce_notify_no_stock_amount=10`+数量5で`stock_status='outofstock'`かつ
+		// `stock_quantity=5`のまま）。数量だけを見て在庫ありと判断すると、店舗が安全在庫として
+		// 確保した分までASP側で購入可能として申告してしまう（金銭的リスク）ため、
+		// `is_in_stock()`を優先する。
+		if ( ! $product->is_in_stock() ) {
+			return 0;
+		}
+
 		$quantity = $product->get_stock_quantity();
 
 		// 負の数量は物理的にありえない不正データ（`wc_stock_amount()`は符号を検証しないため
@@ -60,6 +74,14 @@ final class StockDerivation {
 		if ( false === $manage_stock ) {
 			return [
 				'quantity'           => $variation->is_in_stock() ? null : 0,
+				'shared_with_parent' => false,
+			];
+		}
+
+		// stock_statusの明示的な「在庫切れ」を優先する。理由は for_product() の同種コメントを参照。
+		if ( ! $variation->is_in_stock() ) {
+			return [
+				'quantity'           => 0,
 				'shared_with_parent' => false,
 			];
 		}

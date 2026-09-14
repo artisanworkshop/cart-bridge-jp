@@ -35,6 +35,12 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		parent::set_up();
 		Activator::activate();
 
+		// `Woo\Reader\OrderReader`が`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`（JPY）と
+		// 異なる店舗通貨を`CURRENCY_MISMATCH`でexport-blockingにするため、テスト環境の既定通貨
+		// （USD）のままだと`wc_create_order()`で作った注文のpushが無条件にスキップされる
+		// （`OrderReaderTest`と同じ理由）。
+		update_option( 'woocommerce_currency', 'JPY' );
+
 		$this->jobs     = new JobRepository();
 		$this->mappings = new MappingRepository();
 	}

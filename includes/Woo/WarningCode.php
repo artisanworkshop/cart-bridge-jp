@@ -124,6 +124,38 @@ final class WarningCode {
 	public const ORDER_CUSTOMER_NOT_EXPORTED = 'order_customer_not_exported';
 
 	/**
+	 * エクスポート時、受注明細が参照していた商品が削除済みで`remote_product_id`を恒久的に
+	 * 特定できない（`Woo\Reader\OrderReader`）。`ORDER_LINE_PRODUCT_NOT_EXPORTED`（商品は実在
+	 * するがまだエクスポートされていないだけ＝再エクスポートで解決しうる）とは異なり、削除済みは
+	 * 再試行しても解決しない終端状態のため`indicates_unresolved_reference()`には含めない。
+	 *
+	 * 削除の検出は`get_post()`では行えない（実測確認済み）: `WC_Order_Item_Product::
+	 * set_product_id()`は投稿タイプ検証を持ち、参照先が削除済みだと`WC_Data_Exception`を投げる。
+	 * データストアの`read()`が呼ぶ`WC_Data::set_props()`はこれをプロパティ毎にcatchするため、
+	 * `get_product_id()`自体が既定値`0`を返してしまい（`WC_Coupon::set_amount()`と同じ
+	 * パターン）、削除済み商品への参照と「一度も商品リンクを持たない正当なカスタム行」がCRUD層
+	 * では区別できなくなる。`Woo\Reader\OrderReader::remote_product_id()`は生のorder-item-meta
+	 * （`_product_id`。CRUD層の検証を経ないため削除後も元のIDのまま残る）を直接読んで区別する。
+	 *
+	 * 対応ASP（ColorMe）の受注作成APIは明細ごとに商品参照を必須とするため、`remote_product_id=null`
+	 * のまま「商品リンクを持たない正当なカスタム行」と区別せずpushすると、push先で拒否される・
+	 * または実際には存在した商品の参照が黙って失われた注文として作成されてしまう（Codex指摘,
+	 * PR #41 #11: 当初は無警告で`remote_product_id=null`を返していた）。
+	 * `indicates_export_blocking()`の対象にしてpush自体を止める。
+	 */
+	public const ORDER_LINE_PRODUCT_DELETED = 'order_line_product_deleted';
+
+	/**
+	 * エクスポート時、受注が一部/全額返金済み（`WC_Order::get_total_refunded() > 0`）
+	 * （`Woo\Reader\OrderReader`）。返金は`WC_Order_Refund`という別オブジェクトに記録され、
+	 * `get_total()`/明細の`get_subtotal()`等は返金前の金額のまま変わらない。`CanonicalOrder`は
+	 * 返金額を運ぶフィールドを持たないため、無警告でpushすると実際には回収していない金額を
+	 * 全額回収済みとしてASP側に作成してしまう（金銭的リスク）。`indicates_export_blocking()`の
+	 * 対象にしてpush自体を止める（返金状態の表現・E2-3での取扱いは将来課題）。
+	 */
+	public const ORDER_REFUNDED = 'order_refunded';
+
+	/**
 	 * エクスポート時、受注明細の`tax_class`が`''`（標準）/`'reduced-rate'`（軽減税率）以外
 	 * （`zero-rate`・カスタム税区分等）、または`WC_Order_Item_Product::get_tax_status()`が
 	 * `'taxable'`以外（送料のみ課税・非課税）。`CanonicalOrder::$line_items[].tax_reduced`は
@@ -235,6 +267,22 @@ final class WarningCode {
 			// （`WC_Order`に一切触れる前に注文自体をskipする）のと対称に、exportも壊れた合計を
 			// 実際の明細と一緒に「¥0の注文」としてpushしない。
 			self::ORDER_TOTALS_INVALID,
+			// `Woo\Reader\OrderReader`: 注文の通貨（`WC_Order::get_currency()`）が対応ASPの前提
+			// 通貨（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`=JPY）と異なる。importのCURRENCY_
+			// MISMATCH（店舗通貨とASP前提通貨が異なる場合の警告のみ、注文自体は保存する）とは
+			// 非対称にblockingへ倒す: import方向の不一致は内部記録上のズレに留まるのに対し、
+			// export方向でJPY以外の金額をそのままpushすると、ASP側がその数値をJPYとして解釈し
+			// 実際の金額と大きく乖離した注文が作成されてしまう（例: USD 100の注文がJPY 100として
+			// 送信される）金銭的リスクが質的に異なるため。
+			self::CURRENCY_MISMATCH,
+			// `Woo\Reader\OrderReader`: 受注明細が参照していた商品/バリエーションが削除済みで
+			// `remote_product_id`を恒久的に特定できない。対応ASPの受注作成APIは明細ごとの商品参照を
+			// 必須とするため、参照を持たない正当なカスタム行と区別せずpushしない（詳細は定数の
+			// docblock参照）。
+			self::ORDER_LINE_PRODUCT_DELETED,
+			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
+			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
+			self::ORDER_REFUNDED,
 		];
 
 		foreach ( $warnings as $warning ) {

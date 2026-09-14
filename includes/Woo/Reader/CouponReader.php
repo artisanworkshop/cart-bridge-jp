@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Reader;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Woo\WarningCode;
+use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_Coupon;
 use WC_DateTime;
 use WP_Query;
@@ -36,6 +37,14 @@ use WP_Query;
  * 実測確認済み。レビューでの指摘を受けて検証し、`CanonicalCoupon::from_array()`の
  * `has_unsupported_restrictions`同様に指摘を鵜呑みにせず実測したことをCLAUDE.mdの方針に従い
  * 明記する）。
+ *
+ * `$coupon->get_date_expires()`も同種の直接postmeta編集で解釈不能な値に壊れうるが、
+ * `WC_Data::set_date_prop()`は`set_amount()`とは異なる経路（プロパティ内で自前のtry/catchを持ち、
+ * `WC_Data::set_props()`のプロパティ毎catchには依存しない）で、解釈不能な文字列を
+ * `wc_string_to_timestamp()`の失敗フォールバック経由でUNIXエポック（1970-01-01T00:00:00Z＝
+ * 既に期限切れの過去日）へ解決する（`null`にはならない）。つまり壊れた期限は「無期限クーポン」
+ * ではなく「常に期限切れ」として安全側に転ぶため、ここでの追加検証は不要（実測確認済み。
+ * レビューでの指摘を受けて検証した）。
  */
 final class CouponReader implements EntityReader {
 
@@ -109,6 +118,17 @@ final class CouponReader implements EntityReader {
 
 		$warnings = $has_unsupported_restrictions ? [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] : [];
 
+		// `percent`型以外の`amount`（金額そのものの値引き）と、型を問わず設定されうる
+		// `minimum_amount`（最低購入金額）は店舗通貨での金額であり、対応ASPは数値をJPYとして
+		// 解釈する。店舗通貨がJPY以外だと、例えばUSD 100引きクーポンが無変換でJPY 100引きとして
+		// push されうる（Codex指摘, PR #41 #14。`Woo\Reader\OrderReader`のCURRENCY_MISMATCHと同じ
+		// 理由・同じコードを再利用する）。
+		$amount_is_currency_denominated = 'percent' !== $coupon->get_discount_type();
+
+		if ( ( $amount_is_currency_denominated || null !== $canonical->min_amount ) && OrderWriter::PLATFORM_CURRENCY !== get_woocommerce_currency() ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
+		}
+
 		return new ReadItem( $coupon->get_id(), $canonical, $warnings );
 	}
 
@@ -133,8 +153,17 @@ final class CouponReader implements EntityReader {
 	 * 上限金額に加え、「対象商品を1点のみに適用」「セール品を対象外」「他クーポンと併用不可」も
 	 * 運べない軸のため同様に扱う（無警告で`false`にすると、これらの制限が働かない
 	 * 「実質無制限クーポン」としてASP側に保存されうる金銭的リスクがある）。
+	 *
+	 * 既に一部利用済み（`get_usage_count() > 0`）のクーポンも同様に扱う: `CanonicalCoupon`は
+	 * 利用済み回数・利用者（`get_used_by()`）を運ぶフィールドを持たないため、無警告でpushすると
+	 * ASP側に「未使用の元の上限を持つ」クーポンが新規作成されてしまい、Woo側で既に上限に達した
+	 * 顧客が再度利用できてしまう（レビュー指摘。金銭的リスク）。
 	 */
 	private function has_native_restrictions( WC_Coupon $coupon ): bool {
+		if ( 0 !== $coupon->get_usage_count() ) {
+			return true;
+		}
+
 		if ( [] !== $coupon->get_product_ids() || [] !== $coupon->get_excluded_product_ids() ) {
 			return true;
 		}

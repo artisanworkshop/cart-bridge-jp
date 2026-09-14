@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_DateTime;
@@ -18,6 +19,8 @@ use WC_Order;
 use WC_Order_Item_Fee;
 use WC_Order_Item_Product;
 use WC_Order_Item_Shipping;
+use WC_Product_Variable;
+use WC_Product_Variation;
 
 /**
  * `WC_Order` を `CanonicalOrder` へ変換する（`Woo\Writer\OrderWriter` の読出側対称形）。
@@ -27,8 +30,12 @@ use WC_Order_Item_Shipping;
  * （ColorMeアダプタ）へ委ねる（D19の申し送り。`docs/03-design-decisions.md` §10.2）。
  * 配送先・請求先住所も同じ理由でWooネイティブのキーのまま運ぶ（`Woo\Reader\CustomerReader`と
  * 同じ判断）。一方、明細の商品参照（`remote_product_id`）と購入者（`customer_ref`）は
- * `cbjp_mappings`によるプラットフォーム非依存の解決が可能なため、ここで解決する
- * （`Woo\Reader\ProductReader::variants()`が既にvariantのremote_id解決に使っている仕組みと同じ）。
+ * `cbjp_mappings`によるプラットフォーム非依存の解決が可能なため、ここで解決する。
+ * `remote_product_id`はバリエーション明細でも常に**親商品**のremote_idを使う: ColorMeの
+ * `POST /v1/sales`は`details[].product_id`に親商品IDを要求し、バリエーションは
+ * `option1_value_current`/`option2_value_current`で識別する契約のため（`variant`entityの
+ * remote_idではない。`Woo\Support\VariationAxisResolver`で`Woo\Reader\ProductReader`と
+ * 軸属性解決ロジックを共有する）。
  * ページ内の全注文をスキャンしてから`MappingRepository::find_many_by_local_ids()`で一括解決する
  * （アイテム毎のSELECTを避けるため。`ProductReader::variants()`と同じ理由）。
  */
@@ -40,11 +47,6 @@ final class OrderReader implements EntityReader {
 	 * @var array<int,array{remote_id:string,checksum:?string}>
 	 */
 	private array $product_refs = [];
-
-	/**
-	 * @var array<int,array{remote_id:string,checksum:?string}>
-	 */
-	private array $variant_refs = [];
 
 	/**
 	 * @var array<int,array{remote_id:string,checksum:?string}>
@@ -97,9 +99,8 @@ final class OrderReader implements EntityReader {
 	 * @param array<int,WC_Order> $orders
 	 */
 	private function preload_mappings( array $orders ): void {
-		$product_ids   = [];
-		$variation_ids = [];
-		$customer_ids  = [];
+		$product_ids  = [];
+		$customer_ids = [];
 
 		foreach ( $orders as $order ) {
 			$customer_id = $order->get_customer_id();
@@ -113,13 +114,10 @@ final class OrderReader implements EntityReader {
 					continue;
 				}
 
-				$variation_id = $order_item->get_variation_id();
-
-				if ( 0 !== $variation_id ) {
-					$variation_ids[ $variation_id ] = true;
-					continue;
-				}
-
+				// `get_product_id()`はバリエーション明細でも常に親商品IDを返す（CLAUDE.md）。
+				// `remote_product_id()`はColorMe `POST /v1/sales`の契約（`details[].product_id`
+				// ＝親商品、バリエーションはoption1/2_valueで識別）に合わせ常に親IDで解決するため、
+				// バリエーション自体の`variant`mappingは不要（Codex指摘 #6）。
 				$product_id = $order_item->get_product_id();
 
 				if ( 0 !== $product_id ) {
@@ -129,7 +127,6 @@ final class OrderReader implements EntityReader {
 		}
 
 		$this->product_refs  = $this->mappings->find_many_by_local_ids( $this->platform, 'product', array_keys( $product_ids ) );
-		$this->variant_refs  = $this->mappings->find_many_by_local_ids( $this->platform, 'variant', array_keys( $variation_ids ) );
 		$this->customer_refs = $this->mappings->find_many_by_local_ids( $this->platform, 'customer', array_keys( $customer_ids ) );
 	}
 
@@ -153,6 +150,15 @@ final class OrderReader implements EntityReader {
 		// ここで検知できるようにする（`extras['currency']`に実際の通貨コードも積む）。
 		if ( OrderWriter::PLATFORM_CURRENCY !== $order->get_currency() ) {
 			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, $order->get_currency() );
+		}
+
+		// 一部/全額返金済みの受注は、`get_total()`等の明細・合計系getterが返金前の金額のまま
+		// （返金額は別オブジェクトの`WC_Order_Refund`に分離して記録される。`get_refunds()`/
+		// `get_total_refunded()`）。`CanonicalOrder`に返金額を運ぶフィールドが無いため、無警告で
+		// pushすると実際には回収していない金額を全額回収済みとしてASP側に作成してしまう
+		// （Codex指摘, PR #41 #12: 返金の有無を確認していなかった。金銭的リスク）。
+		if ( (float) $order->get_total_refunded() > 0 ) {
+			$warnings[] = WarningCode::ORDER_REFUNDED;
 		}
 
 		[ $line_items, $line_item_warnings ] = $this->line_items( $order );
@@ -179,7 +185,7 @@ final class OrderReader implements EntityReader {
 			$this->payment( $order ),
 			$totals,
 			$order->get_date_created() instanceof WC_DateTime ? $order->get_date_created()->date( DATE_ATOM ) : '',
-			$this->meta_string( $order, '_cbjp_memo' ),
+			$this->note( $order ),
 			$this->extras( $order )
 		);
 
@@ -214,7 +220,7 @@ final class OrderReader implements EntityReader {
 		$address = $order->get_address( 'billing' );
 
 		return [
-			'name'      => trim( (string) ( $address['first_name'] ?? '' ) . ' ' . (string) ( $address['last_name'] ?? '' ) ),
+			'name'      => $this->full_name( $address ),
 			'email'     => '' !== $order->get_billing_email() ? $order->get_billing_email() : null,
 			'phone'     => '' !== $order->get_billing_phone() ? $order->get_billing_phone() : null,
 			'company'   => '' !== ( $address['company'] ?? '' ) ? $address['company'] : null,
@@ -239,19 +245,30 @@ final class OrderReader implements EntityReader {
 				continue;
 			}
 
-			[ $remote_product_id, $line_warning ] = $this->remote_product_id( $order_item );
+			[ $remote_product_id, $line_warning, $option1_value, $option2_value ] = $this->remote_product_id( $order_item );
 
 			if ( null !== $line_warning ) {
 				$warnings[] = $line_warning;
 			}
 
-			$quantity = $order_item->get_quantity();
-
 			// `OrderItemBuilder`（インポート方向）と同じ基準: 数量が欠損・0以下の場合、1個として
 			// 捏造すると実際の購入数と食い違う出荷指示になりうる。明細自体は残しつつ
 			// `ORDER_LINE_QUANTITY_INVALID`で不確かである旨を警告する。
-			if ( $quantity <= 0 ) {
-				$quantity   = 1;
+			//
+			// `WC_Order_Item_Product::get_quantity()`は内部で`wc_stock_amount()`
+			// （`woocommerce_stock_amount`フィルター経由で量り売り等の小数量拡張が介入しうる。
+			// 公式docblockが`int|float`を宣言。手元のstubは`int`のみを宣言しPHPStanは常にint型と
+			// 静的に推論するため、`is_int()`での分岐は「常にfalse」と誤検知される）を通すため、
+			// 実行時の型を`int`と信用しない。`declare(strict_types=1)`下で非整数値をそのまま
+			// `divide_minor_units_rounded(int $minor, int $divisor)`へ渡すと`TypeError`で明細1件
+			// どころかページ全体の処理を落とす（Codex指摘 #10）。float経由の数値比較で小数を検出し、
+			// 整数量非対応のASP向けに丸めたうえで警告する。
+			$raw_quantity      = (float) $order_item->get_quantity();
+			$quantity          = (int) round( $raw_quantity );
+			$quantity_is_exact = 0.0 === abs( $raw_quantity - $quantity );
+
+			if ( ! $quantity_is_exact || $quantity <= 0 ) {
+				$quantity   = max( 1, $quantity );
 				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
 			}
 
@@ -275,14 +292,20 @@ final class OrderReader implements EntityReader {
 			}
 
 			$items[] = [
-				'sku'                 => $this->line_item_sku( $order_item ),
-				'remote_product_id'   => $remote_product_id,
-				'name'                => $order_item->get_name(),
-				'quantity'            => $quantity,
-				'price'               => Money::format_minor_units( $unit_price_incl_minor ),
-				'subtotal'            => Money::format_minor_units( $line_total_minor ),
-				'unit_price_excl_tax' => Money::format_minor_units( $unit_price_excl_minor ),
-				'tax_reduced'         => 'reduced-rate' === $tax_class,
+				'sku'                   => $this->line_item_sku( $order_item ),
+				'remote_product_id'     => $remote_product_id,
+				// ColorMeの`POST /v1/sales`は`details[].product_id`に親商品IDを要求し、
+				// バリエーションは`option1_value_current`/`option2_value_current`（
+				// `Woo\Writer\OrderItemBuilder`がimport方向で読むのと同じフィールド名）で識別する
+				// 契約（swagger確認済み、Codex指摘 #6）。
+				'option1_value_current' => $option1_value,
+				'option2_value_current' => $option2_value,
+				'name'                  => $order_item->get_name(),
+				'quantity'              => $quantity,
+				'price'                 => Money::format_minor_units( $unit_price_incl_minor ),
+				'subtotal'              => Money::format_minor_units( $line_total_minor ),
+				'unit_price_excl_tax'   => Money::format_minor_units( $unit_price_excl_minor ),
+				'tax_reduced'           => 'reduced-rate' === $tax_class,
 			];
 		}
 
@@ -345,50 +368,91 @@ final class OrderReader implements EntityReader {
 	}
 
 	/**
-	 * `WC_Order_Item_Product::get_product_id()`はバリエーション明細でも常に親商品IDを返すため、
-	 * `get_variation_id()`（非0ならバリエーション）を優先してmappingsの`variant`entityで解決する
-	 * （`Woo\Reader\ProductReader::variants()`と同じ規約）。`preload_mappings()`が一括先読みした
-	 * `$this->variant_refs`/`$this->product_refs`から引く（アイテム毎のSELECTを避けるため）。
+	 * `WC_Order_Item_Product::get_product_id()`はバリエーション明細でも常に親商品IDを返す
+	 * （CLAUDE.md）。ColorMeの`POST /v1/sales`は`details[].product_id`に**親商品**のremote_idを
+	 * 要求し、バリエーションの識別は`option1_value_current`/`option2_value_current`で行う契約
+	 * （swagger確認済み。Codex指摘 #6: 当初`variant`entityでバリエーション自身のremote_idを解決
+	 * していたのは誤りだった）。そのため`variant`mappingは使わず、常に`product`entityで
+	 * 親IDを解決する。`preload_mappings()`が一括先読みした`$this->product_refs`から引く
+	 * （アイテム毎のSELECTを避けるため）。
 	 *
-	 * `ORDER_LINE_PRODUCT_NOT_EXPORTED`（再試行可能＝checksumをキャッシュしない）は
-	 * 「商品/バリエーションが実在するがまだエクスポートされていない」場合のみ積む。参照先が
-	 * 削除済みの場合は再エクスポートを待っても解決しない終端状態のため警告を積まない
-	 * （`indicates_unresolved_reference()`のdocblockが定める「解決される見込みが無い終端状態は
-	 * 含めない」方針と同じ）。存在確認は`$order_item->get_product()`（`false`|`WC_Product`）では
-	 * なく`get_post()`で行う: `wc_get_product()`は削除済みvariation IDに対して`false`ではなく
-	 * 中身の無い`WC_Product_Variation`を返しうる（投稿欠損で例外を投げず商品種別キャッシュも
-	 * 残るため。CLAUDE.md参照）。
+	 * `ORDER_LINE_PRODUCT_NOT_EXPORTED`（再試行可能＝checksumをキャッシュしない）は「商品が実在
+	 * するがまだエクスポートされていない」場合に積む。参照先が削除済みの場合は再エクスポートを
+	 * 待っても解決しない終端状態のため`indicates_unresolved_reference()`には含めないが、
+	 * `remote_product_id`を恒久的に特定できない状態を「商品リンクを持たない正当なカスタム行」と
+	 * 無警告で同一視すると、対応ASPの受注作成APIが明細ごとに必須とする商品参照を欠いたまま
+	 * pushされうる（Codex指摘, PR #41 #11）ため、`ORDER_LINE_PRODUCT_DELETED`
+	 * （`indicates_export_blocking()`対象）を積む。
+	 *
+	 * 削除済みの検出は`get_post( $order_item->get_product_id() )`では**行えない**: 実測確認済みで、
+	 * `WC_Order_Item_Product::set_product_id()`は`get_post_type() === 'product'`を検証し、参照先の
+	 * 投稿が既に削除されていると`WC_Data_Exception`を投げる。データストアの`read()`が内部で呼ぶ
+	 * `WC_Data::set_props()`はこの例外をプロパティ毎にcatchするため、`get_product_id()`自体が
+	 * この時点で既定値`0`を返してしまい（`WC_Coupon::set_amount()`と同じ「set_props()がプロパティ毎に
+	 * 例外を握りつぶす」パターン。CLAUDE.md参照）、削除済み商品への参照と「一度も商品リンクを
+	 * 持たない正当なカスタム行」がCRUD層では区別できなくなる。一方、order-item-metaの生の値
+	 * （`_product_id`）はこの検証を経ないため削除後も元のIDのまま残る（実測確認済み）。
+	 * `get_metadata()`でWCのCRUD層を経由せず直接読み、区別する。
+	 *
+	 * @return array{0:?string,1:?string,2:?string,3:?string} [remote_product_id, 警告, option1_value, option2_value]
+	 */
+	private function remote_product_id( WC_Order_Item_Product $order_item ): array {
+		$product_id = $order_item->get_product_id();
+
+		if ( 0 === $product_id ) {
+			$deleted_product_id = (int) get_metadata( 'order_item', $order_item->get_id(), '_product_id', true );
+
+			if ( 0 === $deleted_product_id ) {
+				// 商品リンクを一度も持たない正当なカスタム行（サービス料等）。解決対象が無いため警告も出さない。
+				return [ null, null, null, null ];
+			}
+
+			return [ null, WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $deleted_product_id ), null, null ];
+		}
+
+		$remote_id = $this->product_refs[ $product_id ]['remote_id'] ?? null;
+
+		if ( null === $remote_id ) {
+			return [ null, WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), null, null ];
+		}
+
+		$variation_id = $order_item->get_variation_id();
+
+		if ( 0 === $variation_id ) {
+			return [ $remote_id, null, null, null ];
+		}
+
+		[ $option1_value, $option2_value ] = $this->variation_option_values( $product_id, $variation_id );
+
+		return [ $remote_id, null, $option1_value, $option2_value ];
+	}
+
+	/**
+	 * バリエーション明細のoption1/2値を親商品の軸属性から導出する（`Woo\Reader\ProductReader`が
+	 * `push_product()`用に組み立てるのと同じ値。`Woo\Support\VariationAxisResolver`で共有）。
+	 * 親またはバリエーション自体が取得できない（削除済み等）場合は`null`のまま返す:
+	 * この場合でも`remote_product_id`（親商品）自体は解決済みのため明細は残り、単に
+	 * どのバリエーションかを識別する情報が欠けるだけに留める。
 	 *
 	 * @return array{0:?string,1:?string}
 	 */
-	private function remote_product_id( WC_Order_Item_Product $order_item ): array {
-		$variation_id  = $order_item->get_variation_id();
-		$product_id    = $order_item->get_product_id();
-		$referenced_id = 0 !== $variation_id ? $variation_id : $product_id;
-		$exists        = 0 !== $referenced_id && null !== get_post( $referenced_id );
+	private function variation_option_values( int $product_id, int $variation_id ): array {
+		$parent = wc_get_product( $product_id );
 
-		if ( 0 !== $variation_id ) {
-			$remote_id = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;
-
-			if ( null !== $remote_id ) {
-				return [ $remote_id, null ];
-			}
-
-			return [ null, $exists ? WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $variation_id ) : null ];
+		if ( ! $parent instanceof WC_Product_Variable ) {
+			return [ null, null ];
 		}
 
-		if ( 0 !== $product_id ) {
-			$remote_id = $this->product_refs[ $product_id ]['remote_id'] ?? null;
+		$variation = wc_get_product( $variation_id );
 
-			if ( null !== $remote_id ) {
-				return [ $remote_id, null ];
-			}
-
-			return [ null, $exists ? WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ) : null ];
+		if ( ! $variation instanceof WC_Product_Variation || null === get_post( $variation_id ) ) {
+			return [ null, null ];
 		}
 
-		// 商品リンクを持たないカスタム行（削除済み商品の明細等）。解決対象が無いため警告も出さない。
-		return [ null, null ];
+		$axis_warnings   = [];
+		$axis_attributes = VariationAxisResolver::axis_attributes( $parent, $axis_warnings );
+
+		return VariationAxisResolver::option_values( $variation, $axis_attributes );
 	}
 
 	/**
@@ -458,7 +522,7 @@ final class OrderReader implements EntityReader {
 				'method_id'   => $method_id,
 				'method_name' => $method_name,
 				'fee'         => wc_format_decimal( $fee_total ),
-				'name'        => trim( (string) ( $address['first_name'] ?? '' ) . ' ' . (string) ( $address['last_name'] ?? '' ) ),
+				'name'        => $this->full_name( $address ),
 				'tel'         => '' !== $order->get_shipping_phone() ? $order->get_shipping_phone() : null,
 				'company'     => '' !== ( $address['company'] ?? '' ) ? $address['company'] : null,
 				'address_1'   => '' !== ( $address['address_1'] ?? '' ) ? $address['address_1'] : null,
@@ -577,9 +641,45 @@ final class OrderReader implements EntityReader {
 		];
 	}
 
+	/**
+	 * ColorMe由来の注文は`Woo\Writer\OrderWriter::apply_addresses()`が`customer_snapshot`/
+	 * `shipping`の元の氏名（「姓 名」の単一文字列）を`Woo\Support\AddressMapper::split_name()`で
+	 * 分割し、最初のトークンを`last_name`（姓）、残りを`first_name`（名）としてWooへ保存する
+	 * （`Woo\Reader\CustomerReader`と同じ規約）。`first_name . ' ' . last_name`（Western順）で
+	 * 単純に組み直すと姓名が入れ替わって復元される（例:「山田 太郎」→「太郎 山田」）ため、
+	 * `last_name . ' ' . first_name`で組み直す。注文の請求先/配送先氏名には`CustomerReader`の
+	 * `_cbjp_full_name`に相当する「元の文字列そのもの」を保持するメタが無い
+	 * （`OrderWriter::apply_addresses()`は`extras['customer_snapshot']['name']`を分割するのみで
+	 * 別途保存しない）ため、v1.0で唯一対応するASP（ColorMe。日本のASPは氏名を「姓 名」順で
+	 * 扱うのが標準）に合わせた既定の組み直し順とする。
+	 *
+	 * @param array<string,mixed> $address `WC_Order::get_address()`の戻り値。
+	 */
+	private function full_name( array $address ): string {
+		return trim( (string) ( $address['last_name'] ?? '' ) . ' ' . (string) ( $address['first_name'] ?? '' ) );
+	}
+
 	private function meta_string( WC_Order $order, string $meta_key ): ?string {
 		$value = $order->get_meta( $meta_key, true );
 
 		return is_string( $value ) && '' !== $value ? $value : null;
+	}
+
+	/**
+	 * `_cbjp_memo`（ColorMeインポート時に保存された備考。`Woo\Writer\OrderWriter`参照）を優先し、
+	 * 無ければ`WC_Order::get_customer_note()`（Woo標準のチェックアウト備考欄。ColorMe経由でない
+	 * ネイティブなWoo受注はこちらにしか備考が無い）へフォールバックする。`_cbjp_memo`のみを見ると、
+	 * ColorMeを経由していない受注の顧客記入備考が常に失われる（Codex指摘, PR #41 #13）。
+	 */
+	private function note( WC_Order $order ): ?string {
+		$memo = $this->meta_string( $order, '_cbjp_memo' );
+
+		if ( null !== $memo ) {
+			return $memo;
+		}
+
+		$customer_note = $order->get_customer_note();
+
+		return '' !== $customer_note ? $customer_note : null;
 	}
 }

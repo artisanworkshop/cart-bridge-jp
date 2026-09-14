@@ -122,7 +122,8 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertSame( 'flat_rate:5', $canonical->shipping['method_id'] );
 		$this->assertSame( 'Flat rate', $canonical->shipping['method_name'] );
 		$this->assertSame( 500.0, (float) $canonical->shipping['fee'] );
-		$this->assertSame( 'Taro Yamada', $canonical->shipping['name'] );
+		// 姓名は「姓 名」（日本語順）で組み直される（レビュー指摘: ColorMe由来の分割規約と対称）。
+		$this->assertSame( 'Yamada Taro', $canonical->shipping['name'] );
 		$this->assertSame( '1-2-3 Marunouchi', $canonical->shipping['address_1'] );
 		$this->assertSame( 'Chiyoda', $canonical->shipping['city'] );
 		$this->assertSame( 'JP13', $canonical->shipping['state'] );
@@ -224,6 +225,9 @@ final class OrderReaderTest extends WooTestCase {
 
 		$this->assertContains( WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
 		$this->assertSame( 'USD', $read_item->item->extras['currency'] );
+		// JPY以外の金額をそのままpushすると、ASP側がJPYとして誤って解釈しうる（例: USD 100が
+		// JPY 100として送信される）ため、importと異なりexportではblockingへ倒す（レビュー指摘）。
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
 	/**
@@ -270,6 +274,82 @@ final class OrderReaderTest extends WooTestCase {
 
 		$this->assertSame( 1, $read_item->item->line_items[0]['quantity'] );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-qty' ), $read_item->warnings );
+	}
+
+	/**
+	 * `WC_Order_Item_Product::get_quantity()`は内部で`wc_stock_amount()`（`woocommerce_stock_amount`
+	 * フィルター経由で量り売り等の小数量拡張が介入しうる。docblockが`int|float`を宣言）を通すため
+	 * `int`型を保証しない。`declare(strict_types=1)`下で非整数値をそのまま`divide_minor_units_
+	 * rounded(int $minor, int $divisor)`へ渡すと`TypeError`でページ全体の処理を落とす
+	 * （Codex指摘, PR #41 #10）。整数へ丸めたうえで警告することを確認する。
+	 */
+	public function test_fractional_quantity_line_item_is_rounded_with_warning(): void {
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-frac', $product_id );
+
+		// WC本体（`wc-core-functions.php`）は既定で`add_filter('woocommerce_stock_amount',
+		// 'intval')`を登録し、数量読み書きの両方（`set_quantity()`だけでなく、データストアの
+		// `read()`が呼ぶ`set_props()`経由の再読込時も）で常にintへ丸める。量り売り等の小数量拡張は
+		// この既定フィルターを外して独自のフィルターに差し替えるため、ここでも作成〜
+		// `OrderReader::query()`（DBからの再読込を含む）の間ずっと外して再現する
+		// （実測確認済み: 保存前だけ外して保存直後に戻すと、再読込時の`set_props()`が
+		// 標準フィルターで丸め直してしまい小数量を再現できない）。
+		remove_filter( 'woocommerce_stock_amount', 'intval' );
+
+		try {
+			$order = wc_create_order();
+			$item  = new WC_Order_Item_Product();
+			$item->set_product_id( $product_id );
+			$item->set_name( 'Bulk item' );
+			$item->set_quantity( 1.6 );
+			$item->set_subtotal( '1000' );
+			$item->set_total( '1000' );
+			$item->set_taxes(
+				[
+					'total'    => [ 0 => '0' ],
+					'subtotal' => [ 0 => '0' ],
+				]
+			);
+			$order->add_item( $item );
+			$order->save();
+
+			$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+			$read_item = $page->items[0];
+		} finally {
+			add_filter( 'woocommerce_stock_amount', 'intval' );
+		}
+
+		$this->assertSame( 2, $read_item->item->line_items[0]['quantity'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-frac' ), $read_item->warnings );
+	}
+
+	/**
+	 * 一部/全額返金済みの受注は`get_total()`等が返金前の金額のまま変わらない（返金額は
+	 * `WC_Order_Refund`という別オブジェクトに記録される）。`CanonicalOrder`は返金額を運ぶ
+	 * フィールドを持たないため、無警告でpushすると実際には回収していない金額を全額回収済みとして
+	 * ASP側に作成してしまう（Codex指摘, PR #41 #12: 返金の有無を確認していなかった）。
+	 */
+	public function test_refunded_order_blocks_export(): void {
+		$product_id = $this->create_product();
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $product_id, 1, '1000' );
+		$order->calculate_totals( false );
+		$order->save();
+
+		wc_create_refund(
+			[
+				'order_id' => $order->get_id(),
+				'amount'   => '400',
+				'reason'   => 'Smoke test refund',
+			]
+		);
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertContains( WarningCode::ORDER_REFUNDED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
 	/**
@@ -350,7 +430,8 @@ final class OrderReaderTest extends WooTestCase {
 		$canonical = $page->items[0]->item;
 
 		$snapshot = $canonical->extras['customer_snapshot'];
-		$this->assertSame( 'Taro Yamada', $snapshot['name'] );
+		// 姓名は「姓 名」（日本語順）で組み直される（レビュー指摘）。
+		$this->assertSame( 'Yamada Taro', $snapshot['name'] );
 		$this->assertSame( 'taro@example.com', $snapshot['email'] );
 		$this->assertSame( '0312345678', $snapshot['phone'] );
 		$this->assertSame( '1-2-3 Marunouchi', $snapshot['address_1'] );
@@ -419,12 +500,39 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
+	public function test_note_prefers_cbjp_memo_over_customer_note(): void {
+		$order = wc_create_order();
+		$order->set_customer_note( 'Native checkout note' );
+		$order->update_meta_data( '_cbjp_memo', 'ColorMe備考' );
+		$order->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$this->assertSame( 'ColorMe備考', $page->items[0]->item->note );
+	}
+
 	/**
-	 * 参照先の商品が削除済み（`get_product()`が`false`）の場合、再エクスポートを待っても
-	 * 解決しない終端状態のため`ORDER_LINE_PRODUCT_NOT_EXPORTED`（再試行可能）を積まない
-	 * （レビュー指摘）。
+	 * `_cbjp_memo`（ColorMeインポート時のみ保存される）が無いネイティブなWoo受注では、標準の
+	 * チェックアウト備考欄（`get_customer_note()`）へフォールバックする。これが無いと、ColorMeを
+	 * 経由しない受注の顧客記入備考が常に失われる（Codex指摘, PR #41 #13）。
 	 */
-	public function test_line_item_referencing_deleted_product_does_not_warn(): void {
+	public function test_note_falls_back_to_customer_note_when_no_cbjp_memo(): void {
+		$order = wc_create_order();
+		$order->set_customer_note( 'Native checkout note' );
+		$order->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$this->assertSame( 'Native checkout note', $page->items[0]->item->note );
+	}
+
+	/**
+	 * 参照先の商品が削除済み（`get_post()`が投稿を見つけられない）の場合、再エクスポートを待っても
+	 * `remote_product_id`は恒久的に解決しない終端状態のため`ORDER_LINE_PRODUCT_NOT_EXPORTED`
+	 * （再試行可能）は積まない（`indicates_unresolved_reference()`対象外）が、対応ASPの受注作成APIが
+	 * 明細ごとに商品参照を必須とするため、参照を持たない正当なカスタム行と区別して
+	 * `ORDER_LINE_PRODUCT_DELETED`でpush自体をblockする（Codex指摘, PR #41 #11: 当初は無警告・
+	 * fully_resolved=trueのまま黙って商品参照が失われていた）。
+	 */
+	public function test_line_item_referencing_deleted_product_blocks_export(): void {
 		$product_id = $this->create_product();
 
 		$order = wc_create_order();
@@ -437,8 +545,9 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
-		$this->assertSame( [], $read_item->warnings );
-		$this->assertTrue( $read_item->fully_resolved );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $product_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+		$this->assertFalse( WarningCode::indicates_unresolved_reference( $read_item->warnings ) );
 	}
 
 	public function test_order_with_no_line_items_reads_successfully(): void {
@@ -452,7 +561,12 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertSame( [], $read_item->warnings );
 	}
 
-	public function test_variation_line_item_resolves_via_variant_mapping_not_parent(): void {
+	/**
+	 * ColorMeの`POST /v1/sales`は`details[].product_id`に**親商品**のremote_idを要求し、
+	 * バリエーションは`option1_value_current`で識別する契約（Codex指摘 #6）。`variant`mapping
+	 * （`v-child`）ではなく`product`mapping（`p-parent`）が使われることを確認する。
+	 */
+	public function test_variation_line_item_resolves_parent_product_id_and_option_values(): void {
 		$parent = new WC_Product_Variable();
 		$parent->set_name( 'Shirt' );
 		$attribute = new WC_Product_Attribute();
@@ -479,7 +593,47 @@ final class OrderReaderTest extends WooTestCase {
 		$order->save();
 
 		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
-		$this->assertSame( 'v-child', $page->items[0]->item->line_items[0]['remote_product_id'] );
+		$line = $page->items[0]->item->line_items[0];
+
+		$this->assertSame( 'p-parent', $line['remote_product_id'] );
+		$this->assertSame( 'S', $line['option1_value_current'] );
+		$this->assertNull( $line['option2_value_current'] );
+	}
+
+	/**
+	 * 親商品が未エクスポート（`product`mappingが無い）場合、`variant`mappingが存在していても
+	 * 明細は未解決＝`ORDER_LINE_PRODUCT_NOT_EXPORTED`扱いになる（親IDでの解決に一本化したため）。
+	 */
+	public function test_variation_line_item_with_only_variant_mapping_is_unresolved(): void {
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Shirt' );
+		$attribute = new WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( [ 'S' ] );
+		$attribute->set_position( 0 );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$parent->set_attributes( [ $attribute ] );
+		$parent_id = $parent->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes( [ 'size' => 'S' ] );
+		$variation->set_regular_price( '1000' );
+		$variation_id = $variation->save();
+
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-child', $variation_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $parent_id, 1, '1000', '0', $variation_id );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $parent_id ), $read_item->warnings );
 	}
 
 	public function test_checkout_draft_orders_are_excluded_from_cursor_walk(): void {

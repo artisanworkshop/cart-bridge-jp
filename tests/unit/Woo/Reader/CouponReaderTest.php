@@ -15,6 +15,14 @@ use WC_Coupon;
 
 final class CouponReaderTest extends WooTestCase {
 
+	public function set_up(): void {
+		parent::set_up();
+		// `CouponReader`がCURRENCY_MISMATCHをexport-blockingにするため、テスト環境の既定通貨
+		// （USD）のままだと`minimum_amount`を設定するテストが無条件に警告を持つ
+		// （`OrderReaderTest`と同じ理由）。
+		update_option( 'woocommerce_currency', 'JPY' );
+	}
+
 	private function make_reader(): CouponReader {
 		return new CouponReader();
 	}
@@ -87,6 +95,60 @@ final class CouponReaderTest extends WooTestCase {
 		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
 		$this->assertSame( 'fixed', $page->items[0]->item->type );
 		$this->assertFalse( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	/**
+	 * `fixed_cart`型の`amount`は店舗通貨での金額。店舗通貨がJPY以外だと、対応ASPが数値をJPYと
+	 * 解釈するため無変換でpushすると金額が実質的に変わってしまう（Codex指摘, PR #41 #14）。
+	 */
+	public function test_fixed_coupon_blocks_export_when_store_currency_is_not_jpy(): void {
+		update_option( 'woocommerce_currency', 'USD' );
+
+		try {
+			$coupon    = $this->create_coupon( 'USDFIXED', 'fixed_cart', '10' );
+			$page      = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+			$read_item = $page->items[0];
+		} finally {
+			update_option( 'woocommerce_currency', 'JPY' );
+		}
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * `percent`型自体は通貨非依存だが、`minimum_amount`（最低購入金額）は店舗通貨での金額のため
+	 * 同じ理由でブロックする。
+	 */
+	public function test_percent_coupon_with_minimum_amount_blocks_export_when_store_currency_is_not_jpy(): void {
+		update_option( 'woocommerce_currency', 'USD' );
+
+		try {
+			$coupon = $this->create_coupon( 'USDPERCENTMIN', 'percent', '10' );
+			$coupon->set_minimum_amount( '50' );
+			$coupon->save();
+			$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		} finally {
+			update_option( 'woocommerce_currency', 'JPY' );
+		}
+
+		$this->assertTrue( WarningCode::indicates_export_blocking( $page->items[0]->warnings ) );
+	}
+
+	/**
+	 * `percent`型で`minimum_amount`が無ければ通貨非依存のため、店舗通貨がJPY以外でもブロックしない。
+	 */
+	public function test_percent_coupon_without_minimum_amount_does_not_block_on_currency(): void {
+		update_option( 'woocommerce_currency', 'USD' );
+
+		try {
+			$coupon = $this->create_coupon( 'USDPERCENT', 'percent', '10' );
+			$page   = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		} finally {
+			update_option( 'woocommerce_currency', 'JPY' );
+		}
+
+		$this->assertSame( [], $page->items[0]->warnings );
 	}
 
 	/**
@@ -171,6 +233,22 @@ final class CouponReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * `CanonicalCoupon`は利用済み回数・利用者を運ぶフィールドを持たないため、既に一部利用済み
+	 * （`get_usage_count() > 0`）のクーポンを無警告でpushすると、ASP側に「未使用の元の上限を持つ」
+	 * クーポンが新規作成されてしまう（Codex指摘 #5。既存Woo顧客が既に上限まで使い切った制限が
+	 * ASP側では働かない金銭的リスク）。
+	 */
+	public function test_already_used_coupon_marks_unsupported(): void {
+		$coupon = $this->create_coupon( 'USEDCODE' );
+		$coupon->set_usage_count( 1 );
+		$coupon->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $page->items[0]->warnings );
+	}
+
+	/**
 	 * レビューで「直接のpostmeta編集で負値/percent型で100超に壊れた`coupon_amount`が
 	 * `CouponReader`まで無検証で届きうる」という指摘があったが、実測すると`WC_Coupon::
 	 * set_amount()`が投げる`WC_Data_Exception`は`WC_Data::set_props()`（`read()`が内部で呼ぶ）が
@@ -188,6 +266,25 @@ final class CouponReaderTest extends WooTestCase {
 
 		$this->assertSame( 0.0, (float) $page->items[0]->item->amount );
 		$this->assertFalse( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	/**
+	 * レビューで「直接のpostmeta編集で解釈不能な`date_expires`に壊れた場合、`get_date_expires()`
+	 * が`null`を返し『無期限クーポン』と区別が付かなくなる」という指摘があったが、実測すると
+	 * `WC_Data::set_date_prop()`（`set_amount()`とは異なりプロパティ内で自前のtry/catchを持つ）は
+	 * 解釈不能な文字列を`wc_string_to_timestamp()`の失敗フォールバック経由でUNIXエポック
+	 * （1970-01-01T00:00:00Z＝既に期限切れの過去日）へ解決し、`null`にはならない。つまり
+	 * 壊れた期限は「無期限」ではなく「常に期限切れ」として安全側に転ぶ。この実測結果を固定化する
+	 * ピン留めテスト（`test_corrupted_negative_amount_reads_back_as_zero_not_negative`と同じ、
+	 * CLAUDE.md「指摘自体が誤りである可能性をまず疑うこと」の実例。Codex指摘, PR #41 #15）。
+	 */
+	public function test_corrupted_expiry_metadata_resolves_to_past_epoch_not_unlimited(): void {
+		$coupon = $this->create_coupon( 'CORRUPTEXPIRY', 'fixed_cart', '500' );
+		update_post_meta( $coupon->get_id(), 'date_expires', 'not-a-real-date-at-all' );
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+
+		$this->assertSame( '1970-01-01T00:00:00+00:00', $page->items[0]->item->expires_at );
 	}
 
 	/**
