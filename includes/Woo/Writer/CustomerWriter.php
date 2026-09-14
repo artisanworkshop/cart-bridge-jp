@@ -26,11 +26,13 @@ final class CustomerWriter implements EntityWriter {
 	/**
 	 * これらのロールを1つでも持つ既存WPユーザーはプロフィール上書きの対象外とする
 	 * （店舗の管理者・スタッフアカウントとASP側顧客のメールアドレスが偶然一致した場合に、
-	 * 業務アカウントの氏名・住所を破壊しないため）。
+	 * 業務アカウントの氏名・住所を破壊しないため）。`Woo\Reader\CustomerReader`もexport方向で
+	 * 同じ理由（`role => 'customer'`だけでは、これらのロールを併せ持つスタッフアカウントを
+	 * 除外できない）で参照するためpublicにする。
 	 *
 	 * @var array<int,string>
 	 */
-	private const PROTECTED_ROLES = [ 'administrator', 'shop_manager', 'editor', 'author', 'contributor' ];
+	public const PROTECTED_ROLES = [ 'administrator', 'shop_manager', 'editor', 'author', 'contributor' ];
 
 	/**
 	 * このユーザーを新規作成したプラットフォームIDを保持するユーザーメタ。email突合で採用した既存

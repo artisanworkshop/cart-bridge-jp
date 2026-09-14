@@ -485,12 +485,129 @@ remote_id)`）のため、上記累積カウントは import 由来・export 由
 - **本番書込み警告（D17）のサーバー側担保**: `POST /runs`（`type=export`）は
   `acknowledge_production_write`（`true`/`'1'`/`'true'`のみ受理。フェイルクローズ）が
   真であることを要求し、無ければ400。dry-run（`dry_run_export`）には適用しない。
-- **受注（D19の申し送り）**: `payment_map`/`shipping_map`の逆引きの曖昧性解決はPR-Aの
-  スコープ外（`order`用Readerが無いため）。PR-B/E2-3で`Woo\Reader\OrderReader`を実装する際、
-  Woo側の生コード（決済ゲートウェイID・配送方法ID）のままCanonicalOrderへ載せ、ASP側コードへの
-  解決はアダプタの`push_order()`実装（E2-3）に委ねる方針とする。
+- **受注（D19の申し送り。PR-Bで実装）**: `payment_map`/`shipping_map`の逆引きの曖昧性解決は
+  スコープ外のまま据え置き、`Woo\Reader\OrderReader`はWoo側の生コード（決済ゲートウェイID・
+  配送方法ID）のままCanonicalOrderへ載せ、ASP側コードへの解決はアダプタの`push_order()`実装
+  （E2-3）に委ねる。詳細は下記「エクスポート方向の実装（E2-2 PR-B）」参照。
 
-**E2-3/PR-Bへの申し送り（E2-2 R1レビューで判明した未解決事項）**:
+#### エクスポート方向の実装（E2-2 PR-B）
+
+PR-A（product）に続き、`Woo\Reader\CustomerReader`/`OrderReader`/`StockReader`/`CouponReader`
+（`JobManager::EXPORT_ENTITIES_WITH_READER`に追加）を実装した。
+
+- **住所はWooネイティブのキーのまま運ぶ**: `Woo\Support\AddressMapper::to_woo()`はColorMeの
+  `pref_id`スキームを解釈するインポート方向専用の変換（`PREF_ID_SCHEME_PLATFORMS`で明示的に
+  限定）。`CustomerReader`/`OrderReader`は`WC_Order::get_address()`/`billing_*` usermetaが返す
+  Wooネイティブのキー（`address_1`/`address_2`/`city`/`state`/`postcode`/`country`等）をそのまま
+  `CanonicalCustomer::$address`/`CanonicalOrder::$shipping`へ格納し、ASP固有スキームへの変換は
+  E2-3の`push_customer()`/`push_order()`（ColorMeアダプタ）の責務にする（決済/配送方法IDと
+  同じD19の原則。アーキテクチャ原則1）。
+- **受注明細の`remote_product_id`と`customer_ref`は`cbjp_mappings`で解決する**:
+  payment_map/shipping_mapは「ASPだけが知っているコード変換」に限定された申し送りであり、
+  商品・顧客参照の解決はプラットフォーム非依存のインフラ（`ProductReader::variants()`が
+  既にvariantのremote_id解決に使っている仕組みと同じ）。未解決の場合はその明細/顧客参照だけを
+  `null`にして注文自体は構築を続け（`ORDER_LINE_PRODUCT_NOT_EXPORTED`/`ORDER_CUSTOMER_NOT_EXPORTED`。
+  `WarningCode::indicates_unresolved_reference()`対象＝商品/顧客が後からエクスポートされれば
+  自動的に再試行される）、importの`ORDER_LINE_PRODUCT_UNRESOLVED`（カスタム行として注文自体は
+  保存する設計）と同じ方針を踏襲する。
+- **StockReaderは商品を販売単位へ展開する**: simple商品は1件、variable商品は
+  `get_children()`＋`publish`ステータスの明示チェック（`ProductReader::variants()`と同じ方針。
+  **`get_visible_children()`は使わない**——在庫切れバリエーションも
+  `woocommerce_hide_out_of_stock_items`設定次第で除外してしまい、在庫がゼロになった瞬間に
+  その行がASP側へ在庫切れを伝える手段ごと消えてしまうため）で公開バリエーションのみを
+  1件ずつ`CanonicalStock`に展開する。`product_ref`/`variant_ref`が`cbjp_mappings`で未解決の場合、
+  `CanonicalStock::$product_ref`が非nullable stringのため有効な値を作れず、新規コード
+  `STOCK_PRODUCT_NOT_EXPORTED`を`WarningCode::indicates_export_blocking()`に加えてpush自体を
+  止める（checksumはキャッシュされないため商品エクスポート後に自動再試行される）。非公開
+  バリエーションはこの行自体を生成しない（`CanonicalStock::remote_id()`がvariant_ref欠落時に
+  product_refへフォールバックするため、警告付きで行を出すと親商品の在庫を誤って更新しかねない。
+  'product'エンティティ側の`VARIATION_UNPUBLISHED`警告で情報は失われない）。
+- **CouponReaderは`fixed_product`型と一部のWooネイティブ制限を`has_unsupported_restrictions`へ
+  倒す**: `CanonicalCoupon::$type`は`'fixed'|'percent'`の2値のみで、Wooの`discount_type`の
+  3値目`fixed_product`（商品単位の定額値引き）を表現できない。`fixed_cart`（カート単位）へ
+  無警告で丸めると割引の効き方が変わる金銭的リスクがあるため、他の「Wooにはあるが運べない
+  制限」（商品/カテゴリ/メールアドレス制限・`maximum_amount`）と同じ`has_unsupported_restrictions
+  =true`の扱いにする（`CanonicalCoupon`のdocblockが定める三値契約。値は必ず`true`/`false`を
+  明示し`null`にはしない）。既存の`WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED`（import方向の
+  `CouponWriter`と同じ意味）を読出時点でも積み、`indicates_export_blocking()`に追加して
+  E2-3で`push_coupon()`が実装される前から安全側に倒す。
+- **サンプリング判定のバグ修正**: `Sync\JobManager::process_export_page()`は元々
+  `$this->limits->limit_for($entity)`（エンティティ自身の上限）でサンプリング要否を判定していたが、
+  `LimitPolicy::DEFAULT_LIMITS['stock']`は`null`（数値上限なし＝サンプル商品分のみという
+  メンバーシップ制限）のため、この基準では`stock`が無料版でも常に全量対象になってしまっていた
+  （D15 §10.2の表「在庫: サンプル商品分のみ」に反する）。importの`process_page()`が`stock`を
+  `'product'`の上限基準で判定しているのと対称に、`product`/`customer`/`order`/`stock`の
+  4エンティティ（`EXPORT_SAMPLE_ID_ENTITIES`）は`product`の上限を基準に`ExportSampleSelector`の
+  サンプルID（`order_ids`/`product_ids`/`customer_ids`。`stock`は`product_ids`を受け取り内部で
+  バリエーションへ展開）で絞り込むよう修正した。
+- **couponは受注サンプルに紐づかない独立上限**: D15 §10.2の表で「クーポン: 最新10件」は
+  受注サンプル起点ではなく独立した上限（`LimitPolicy::DEFAULT_LIMITS['coupon']`=10）。importの
+  `coupon`処理と同じく、`only_local_ids`は使わず通常のカーソル走査＋`LimitPolicy`だけで
+  上限を効かせる（`EXPORT_SAMPLE_ID_ENTITIES`に含めない）。
+- **capabilityゲート**: `filter_and_order_export_entities()`に`$adapter`引数を復活させ、
+  `customer`→`can_update_customer`、`order`→`can_create_order`、`coupon`→
+  `has_coupons && can_create_coupon`のゲートを追加した（`product`/`stock`は対応する
+  capabilityフラグが存在しないため常に対象）。`category`は引き続き`EXPORT_ENTITIES_WITH_READER`
+  に含めない（Readerを作らない。`category_map`で解決する既存方針のまま）。
+- **`AdapterPlatformWriter::write()`のディスパッチ拡張**: PR-A時点は`product`のみだった
+  entityディスパッチに`customer`/`order`/`stock`/`coupon`を追加し、対応する
+  `PlatformAdapter::push_*()`へ委譲するようにした（`DryRunPlatformWriter`はentity非依存の
+  実装のため変更不要）。
+
+**PR-B review-loop（自己レビュー＋独立サブエージェント）で判明し対応した項目**:
+
+- **明細金額は`get_subtotal()`/`get_subtotal_tax()`を使う（`get_total()`/`get_total_tax()`ではない）**:
+  Wooの`total`はWoo自身のクーポン計算後（割引後）の金額になるが、`totals.discount`
+  （`get_discount_total()`）は明細とは無関係な注文レベルの控除として別に運ぶ契約
+  （`Woo\Writer\OrderWriter::apply_totals()`。ColorMeのポイント/GMOポイント値引きが明細価格を
+  一切変えないimport方向の契約と対称）。`get_total()`を使うと割引が「明細に織り込み済み」と
+  「`totals.discount`で別途控除」の二重に効いてしまう（Wooネイティブのクーポンを使った注文で
+  顕在化）。`OrderReader::line_item_amounts()`参照。
+- **請求先住所・支払済み状態をexportする**: `Woo\Writer\OrderWriter::apply_addresses()`は
+  `extras['customer_snapshot']`から、`apply_dates()`は`extras['paid']`から復元するため、
+  空の`extras`のままだとエクスポート→再取込の往復で毎回失われる。`OrderReader::extras()`が
+  請求先住所（Wooネイティブのキー。上記の住所方針と同じ）と`null !== $order->get_date_paid()`を
+  積む。
+- **決済手数料・ギフト包装料等のFee明細を合算する**: `$order->get_items()`は既定で`line_item`のみ
+  返し`WC_Order_Item_Fee`を含まないが、`totals.total`（`get_total()`）にはFeeが合算済みで
+  反映される。`OrderReader::payment()`が`$order->get_items('fee')`の合計を`payment.fee`へ積む
+  （Woo側の汎用Fee明細は種別（決済手数料/ギフト包装料等）を安定に見分ける手段が無いため合算のみ。
+  再取込では1本のFee行に統合される簡略化）。
+- **`ORDER_TOTALS_INVALID`を`indicates_export_blocking()`に追加**: 注文合計（discount/
+  shipping_fee/tax/total）が不正な場合、`0`へフェイルクローズするだけでは「¥0の注文」として
+  実際の明細と一緒にpushされてしまう。importの`OrderWriter::validate_totals()`（`WC_Order`に
+  一切触れる前に注文全体をskip）と対称に、push自体を止める。
+- **参照先が削除済みの場合は再試行警告を出さない**: `ORDER_LINE_PRODUCT_NOT_EXPORTED`/
+  `ORDER_CUSTOMER_NOT_EXPORTED`は「商品/顧客が実在するがまだエクスポートされていない」場合のみ
+  積む（再エクスポートで解決する見込みがあるため）。参照先が削除済み（`WC_Order_Item_Product::
+  get_product()`が`false`、または`get_userdata()`が`false`）の場合は再試行しても解決しない
+  終端状態のため警告を積まない（`indicates_unresolved_reference()`のdocblockが定める
+  「解決される見込みが無い終端状態は含めない」方針と同じ）。
+- **N+1クエリの解消**: `OrderReader`/`StockReader`はページ内の全商品/バリエーション/顧客IDを
+  先にスキャンし、`MappingRepository::find_many_by_local_ids()`で一括解決してから各行を組み立てる
+  （`ProductReader::variants()`の一括先読みと同じパターン。アイテム毎の`find_remote_id()`呼び出しを
+  避ける）。
+- **CouponReaderの`has_native_restrictions()`を拡張**: 商品/カテゴリ/メールアドレス制限・
+  `maximum_amount`に加え、`get_limit_usage_to_x_items()`（対象商品1点限定）・
+  `get_exclude_sale_items()`（セール品除外）・`get_individual_use()`（他クーポンと併用不可）も
+  `CanonicalCoupon`が運べない制限のため同じ扱いにする。
+- **CouponReaderのカーソル順を新しい順に変更**: D15 §10.2「クーポン: 最新10件」を実現するため
+  `orderby=date, order=DESC`にする（`'ID'`昇順＝作成日昇順のままだと、店を長く運営しているほど
+  古い（期限切れの可能性が高い）クーポンだけが無料枠を占有してしまう）。
+- **CustomerReaderの氏名復元を修正**: ColorMeの氏名は「姓 名」の単一文字列で、
+  `Woo\Support\AddressMapper::split_name()`が最初のトークンを`last_name`、残りを`first_name`
+  としてWooへ保存する。`first_name . ' ' . last_name`（Western順）で単純に組み直すと姓名が
+  入れ替わって復元される（例:「山田 太郎」→復元すると「太郎 山田」）ため、
+  `CustomerWriter::apply_extras_meta()`が同時に書く`_cbjp_full_name`（元の文字列そのもの）を
+  優先して使う。このメタが無い場合（Woo上でネイティブに作成された顧客等）はWestern順に
+  フォールバックする。
+- **`Admin\DryRunReportCsv`に`reference_pending_export`ノートを追加**: `ORDER_LINE_PRODUCT_NOT_EXPORTED`/
+  `ORDER_CUSTOMER_NOT_EXPORTED`/`STOCK_PRODUCT_NOT_EXPORTED`を`indicates_pending_import()`
+  （「先にインポートしてください」）にそのまま混ぜると向きが逆の誤った案内になるため、
+  `WarningCode::indicates_pending_export()`を新設し専用の`note`値を割り当てた
+  （`CATEGORY_MAP_UNRESOLVED`用の`indicates_mapping_required()`と同じ設計）。
+
+**E2-3への申し送り（E2-2 R1/PR-Bレビューで判明した未解決事項）**:
 
 - **バリエーションのremote_id永続化経路が無い**: `Woo\Reader\ProductReader`は
   `cbjp_mappings`（entity_type `variant`）からバリエーションの既存remote_idを逆引きするが
@@ -522,6 +639,15 @@ remote_id)`）のため、上記累積カウントは import 由来・export 由
   分割されるpushを実装する場合、部分完了（remote_idは確定したがサブリソースは要再試行）を
   表現できる耐久的な契約を`PushResult`/`Exporter`に設計すること（`docs/review-backlog.md`
   `e2-2-exporter-core/G3-H-partial-completion-contract`参照）。
+- **`push_order()`は更新（remote_id指定）を受け付けない（PR-B review-loopで判明）**:
+  `PlatformAdapter::push_order( CanonicalOrder $order ): PushResult`は`push_product()`/
+  `push_customer()`/`push_coupon()`と異なり`?string $remote_id`引数を持たないため、
+  `AdapterPlatformWriter`は`Sync\Exporter`が解決した既存remote_idをpushに渡せない。
+  受注の内容変更（ステータス変更等）でchecksumが変わり再pushが必要になった場合、E2-3の
+  `push_order()`実装は常に「新規作成」として扱わざるを得ず、ASP側に重複した受注が作られる
+  懸念がある。E2-3で受注の更新を許容するASPが出てきた場合、インターフェース変更
+  （`push_order( CanonicalOrder $order, ?string $remote_id ): PushResult`。3ASP全ての実装への
+  影響を要確認）を検討すること。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

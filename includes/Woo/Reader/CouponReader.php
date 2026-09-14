@@ -1,0 +1,224 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Woo\Reader;
+
+use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Canonical\CanonicalCoupon;
+use CartBridgeJP\Woo\WarningCode;
+use CartBridgeJP\Woo\Writer\OrderWriter;
+use WC_Coupon;
+use WC_DateTime;
+use WP_Query;
+
+/**
+ * `WC_Coupon`（投稿タイプ`shop_coupon`）を`CanonicalCoupon`へ変換する（`Woo\Writer\CouponWriter`の
+ * 読出側対称形）。`wc_get_coupons()`ヘルパーは存在しないため`WP_Query`を直接使う。
+ *
+ * `CanonicalCoupon::$type`は`'fixed'|'percent'`の2値のみでWooの`discount_type`
+ * （`percent`/`fixed_cart`/`fixed_product`）の3値目`fixed_product`（商品単位の定額値引き）を
+ * 表現できない。`fixed_cart`（カート単位）へ丸めると割引の効き方が変わる金銭的リスクがあるため、
+ * `fixed_product`は他の「Wooにはあるが運べない制限」（商品/カテゴリ/メールアドレス制限・
+ * maximum_amount）と同じ`has_unsupported_restrictions=true`の扱いにする
+ * （`Canonical\CanonicalCoupon`のdocblockが定める三値契約）。読出時点でも
+ * `WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED`を`ReadItem`の警告に積み、
+ * `indicates_export_blocking()`でpush前に確実にスキップされるようにする。
+ *
+ * `$coupon->get_amount()`の符号・上限（percent型で100超）はここで再検証しない:
+ * `WC_Coupon::set_amount()`は不正値に対し`WC_Data_Exception`を投げるが、`WC_Data::set_props()`
+ * （`read()`が内部で呼ぶ）はプロパティ毎にこの例外をcatchし、失敗したプロパティを未設定のまま
+ * （`amount`はクラス既定値`'0'`）にする。そのため直接のpostmeta編集で負値・100超を書き込んでも、
+ * `new WC_Coupon($id)`で読み直した時点で`get_amount()`は既定値`'0'`を返し、壊れた値が
+ * このReaderまで到達することは無い（`WC_Coupon`を経由しない生クエリでの読出は行っていない。
+ * 実測確認済み。レビューでの指摘を受けて検証し、`CanonicalCoupon::from_array()`の
+ * `has_unsupported_restrictions`同様に指摘を鵜呑みにせず実測したことをCLAUDE.mdの方針に従い
+ * 明記する）。
+ *
+ * `$coupon->get_date_expires()`も同種の直接postmeta編集で解釈不能な値に壊れうるが、
+ * `WC_Data::set_date_prop()`は`set_amount()`とは異なる経路（プロパティ内で自前のtry/catchを持ち、
+ * `WC_Data::set_props()`のプロパティ毎catchには依存しない）で、解釈不能な文字列を
+ * `wc_string_to_timestamp()`の失敗フォールバック経由でUNIXエポック（1970-01-01T00:00:00Z＝
+ * 既に期限切れの過去日）へ解決する（`null`にはならない）。つまり壊れた期限は「無期限クーポン」
+ * ではなく「常に期限切れ」として安全側に転ぶため、ここでの追加検証は不要（実測確認済み。
+ * レビューでの指摘を受けて検証した）。
+ */
+final class CouponReader implements EntityReader {
+
+	private const PAGE_SIZE = 20;
+
+	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
+		$args = [
+			'post_type'      => 'shop_coupon',
+			'post_status'    => 'publish',
+			// D15 §10.2「クーポン: 最新10件」＝新しい順（`docs/03-design-decisions.md`
+			// 「APIが新しい順ソートを指定できる場合のみ新しい順」）。無料版は`LimitPolicy`が
+			// カーソル走査で最初に出会った10件だけを新規pushの対象にするため、'ID'昇順（＝作成日
+			// 昇順）のままだと店を長く運営しているほど古い（期限切れの可能性が高い）クーポンだけが
+			// 無料枠を占有してしまう。`'date' => 'DESC'`単独だと`post_date`が同一秒（`CouponWriter`
+			// による一括作成等）のクーポン間の順序がMySQL実装依存になりページ跨ぎで重複/欠落しうる
+			// ため、`ID`を副ソートキーとして明示し決定的にする（R2レビュー指摘）。
+			'orderby'        => [
+				'date' => 'DESC',
+				'ID'   => 'DESC',
+			],
+			'fields'         => 'ids',
+			'posts_per_page' => self::PAGE_SIZE,
+			'paged'          => (int) $cursor->get( 'page', 1 ),
+			'no_found_rows'  => false,
+		];
+
+		if ( null !== $only_local_ids ) {
+			if ( [] === $only_local_ids ) {
+				return new ReadPage( [], null, 0 );
+			}
+
+			$args['post__in']       = $only_local_ids;
+			$args['posts_per_page'] = count( $only_local_ids );
+			$args['no_found_rows']  = true;
+			unset( $args['paged'] );
+		}
+
+		$query = new WP_Query( $args );
+
+		$items = array_values(
+			array_filter(
+				array_map(
+					fn ( int $coupon_id ): ?ReadItem => $this->to_read_item_if_current( $coupon_id ),
+					$query->posts
+				)
+			)
+		);
+
+		$page          = (int) ( $args['paged'] ?? 1 );
+		$has_next_page = null === $only_local_ids && $page < (int) $query->max_num_pages;
+
+		return new ReadPage( $items, $has_next_page ? new Cursor( [ 'page' => $page + 1 ] ) : null, null !== $only_local_ids ? null : (int) $query->found_posts );
+	}
+
+	/**
+	 * `WP_Query`がIDを取得してから`new WC_Coupon($coupon_id)`で構築するまでの間にクーポンが
+	 * 削除されると、`WC_Coupon::__construct()`は`'shop_coupon' === get_post_type($id)`の検証に
+	 * 失敗しても例外を投げず「新規未保存クーポン」として扱う（`get_id()`が`0`、`code`/`amount`は
+	 * クラス既定値。CLAUDE.md参照）。このstale IDをそのまま`to_read_item()`へ渡すと、
+	 * `local_id=0`の空クーポンがexport/dry-run結果に紛れ込む（Copilot指摘, PR #41 G2）。
+	 * `get_id() !== $coupon_id`で実在確認し、stale行はスキップする（次回以降のページには
+	 * 現れなくなるだけで、再試行可能な性質の状態のため警告は積まない）。
+	 */
+	private function to_read_item_if_current( int $coupon_id ): ?ReadItem {
+		$coupon = new WC_Coupon( $coupon_id );
+
+		if ( $coupon->get_id() !== $coupon_id ) {
+			return null;
+		}
+
+		return $this->to_read_item( $coupon );
+	}
+
+	private function to_read_item( WC_Coupon $coupon ): ReadItem {
+		[ $type, $type_unsupported ] = $this->type( $coupon );
+
+		$min_amount = $coupon->get_minimum_amount();
+
+		// `WC_Coupon::set_minimum_amount()`は`set_amount()`と異なり不正値を検証しない
+		// （`wc_format_decimal()`を通すのみで例外を投げない。実測確認済み）。直接のpostmeta編集で
+		// 負値に壊れても`get_minimum_amount()`はその値をそのまま返すため、`(float)$min_amount > 0`
+		// による既存の判定だけでは「無効な値」と「そもそも未設定（空文字列）」を区別できず、
+		// 壊れた最低購入金額が無警告で「制限なし」のクーポンとして解決されてしまう
+		// （Copilot指摘, PR #41 G3）。負値は「Wooに設定されていたが運べない制限」として
+		// has_unsupported_restrictionsへ倒す。
+		$min_amount_corrupted = is_numeric( $min_amount ) && (float) $min_amount < 0.0;
+
+		$has_unsupported_restrictions = $type_unsupported || $min_amount_corrupted || $this->has_native_restrictions( $coupon );
+
+		$canonical = new CanonicalCoupon(
+			$coupon->get_code(),
+			$type,
+			$coupon->get_amount(),
+			is_numeric( $min_amount ) && (float) $min_amount > 0 ? $min_amount : null,
+			$coupon->get_date_expires() instanceof WC_DateTime ? $coupon->get_date_expires()->date( DATE_ATOM ) : null,
+			0 !== $coupon->get_usage_limit() ? $coupon->get_usage_limit() : null,
+			[ 'name' => '' !== $coupon->get_description() ? $coupon->get_description() : null ],
+			$coupon->get_free_shipping(),
+			0 !== $coupon->get_usage_limit_per_user() ? $coupon->get_usage_limit_per_user() : null,
+			$has_unsupported_restrictions
+		);
+
+		$warnings = $has_unsupported_restrictions ? [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] : [];
+
+		// `percent`型以外の`amount`（金額そのものの値引き）と、型を問わず設定されうる
+		// `minimum_amount`（最低購入金額）は店舗通貨での金額であり、対応ASPは数値をJPYとして
+		// 解釈する。店舗通貨がJPY以外だと、例えばUSD 100引きクーポンが無変換でJPY 100引きとして
+		// push されうる（Codex指摘, PR #41 #14。`Woo\Reader\OrderReader`のCURRENCY_MISMATCHと同じ
+		// 理由・同じコードを再利用する）。
+		$amount_is_currency_denominated = 'percent' !== $coupon->get_discount_type();
+
+		if ( ( $amount_is_currency_denominated || null !== $canonical->min_amount ) && OrderWriter::PLATFORM_CURRENCY !== get_woocommerce_currency() ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
+		}
+
+		return new ReadItem( $coupon->get_id(), $canonical, $warnings );
+	}
+
+	/**
+	 * @return array{0:'fixed'|'percent',1:bool} [Canonical型, 忠実に表現できないため制限扱いにするか]
+	 */
+	private function type( WC_Coupon $coupon ): array {
+		return match ( $coupon->get_discount_type() ) {
+			'percent' => [ 'percent', false ],
+			'fixed_cart' => [ 'fixed', false ],
+			// `fixed_product`（商品単位の定額値引き）と、その他の未知のdiscount_type
+			// （他プラグインが登録した独自クーポンタイプ等）はカート単位の`fixed`と割引の
+			// 効き方が異なるため、無警告で丸めずhas_unsupported_restrictionsへ倒す
+			// （クラスdocblock参照）。
+			default => [ 'fixed', true ],
+		};
+	}
+
+	/**
+	 * WooがネイティブでもつがCanonicalCouponには運ぶフィールドが無い制限
+	 * （`Canonical\CanonicalCoupon`のdocblock参照）。商品/カテゴリ/メールアドレス制限・
+	 * 上限金額に加え、「対象商品を1点のみに適用」「セール品を対象外」「他クーポンと併用不可」も
+	 * 運べない軸のため同様に扱う（無警告で`false`にすると、これらの制限が働かない
+	 * 「実質無制限クーポン」としてASP側に保存されうる金銭的リスクがある）。
+	 *
+	 * 既に一部利用済み（`get_usage_count() > 0`）のクーポンも同様に扱う: `CanonicalCoupon`は
+	 * 利用済み回数・利用者（`get_used_by()`）を運ぶフィールドを持たないため、無警告でpushすると
+	 * ASP側に「未使用の元の上限を持つ」クーポンが新規作成されてしまい、Woo側で既に上限に達した
+	 * 顧客が再度利用できてしまう（レビュー指摘。金銭的リスク）。
+	 */
+	private function has_native_restrictions( WC_Coupon $coupon ): bool {
+		if ( 0 !== $coupon->get_usage_count() ) {
+			return true;
+		}
+
+		if ( [] !== $coupon->get_product_ids() || [] !== $coupon->get_excluded_product_ids() ) {
+			return true;
+		}
+
+		if ( [] !== $coupon->get_product_categories() || [] !== $coupon->get_excluded_product_categories() ) {
+			return true;
+		}
+
+		if ( [] !== $coupon->get_email_restrictions() ) {
+			return true;
+		}
+
+		if ( true === $coupon->get_exclude_sale_items() || true === $coupon->get_individual_use() ) {
+			return true;
+		}
+
+		$limit_usage_to_x_items = $coupon->get_limit_usage_to_x_items();
+
+		if ( is_numeric( $limit_usage_to_x_items ) && (int) $limit_usage_to_x_items > 0 ) {
+			return true;
+		}
+
+		$maximum_amount = $coupon->get_maximum_amount();
+
+		return is_numeric( $maximum_amount ) && (float) $maximum_amount > 0;
+	}
+}

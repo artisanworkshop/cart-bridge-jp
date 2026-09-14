@@ -105,8 +105,111 @@ final class WarningCode {
 	public const ORDER_TOTALS_INVALID          = 'order_totals_invalid';
 	public const ORDER_LINE_AMOUNT_INVALID     = 'order_line_amount_invalid';
 
+	/**
+	 * エクスポート時、受注明細の商品がまだASP側へエクスポートされておらず（`cbjp_mappings`に
+	 * product/variantのremote_idが無い）remote_product_idを特定できない（`Woo\Reader\OrderReader`）。
+	 * 商品を先にエクスポートすれば解決しうるため`indicates_unresolved_reference()`の対象に含める。
+	 * importの`ORDER_LINE_PRODUCT_UNRESOLVED`（ASP側受注明細のWoo商品参照が解決できない）とは
+	 * 向きが逆の別概念のため区別する。
+	 */
+	public const ORDER_LINE_PRODUCT_NOT_EXPORTED = 'order_line_product_not_exported';
+
+	/**
+	 * エクスポート時、受注の購入者（Wooの顧客ID）がまだASP側へエクスポートされておらず
+	 * （`cbjp_mappings`にcustomerのremote_idが無い）customer_refを特定できない
+	 * （`Woo\Reader\OrderReader`）。顧客を先にエクスポートすれば解決しうるため
+	 * `indicates_unresolved_reference()`の対象に含める。ゲスト購入（customer_id=0）はそもそも
+	 * この警告の対象外（customer_refはnullのまま警告なし）。
+	 */
+	public const ORDER_CUSTOMER_NOT_EXPORTED = 'order_customer_not_exported';
+
+	/**
+	 * エクスポート時、受注明細が参照していた商品が削除済みで`remote_product_id`を恒久的に
+	 * 特定できない（`Woo\Reader\OrderReader`）。`ORDER_LINE_PRODUCT_NOT_EXPORTED`（商品は実在
+	 * するがまだエクスポートされていないだけ＝再エクスポートで解決しうる）とは異なり、削除済みは
+	 * 再試行しても解決しない終端状態のため`indicates_unresolved_reference()`には含めない。
+	 *
+	 * 削除の検出は`get_post()`では行えない（実測確認済み）: `WC_Order_Item_Product::
+	 * set_product_id()`は投稿タイプ検証を持ち、参照先が削除済みだと`WC_Data_Exception`を投げる。
+	 * データストアの`read()`が呼ぶ`WC_Data::set_props()`はこれをプロパティ毎にcatchするため、
+	 * `get_product_id()`自体が既定値`0`を返してしまい（`WC_Coupon::set_amount()`と同じ
+	 * パターン）、削除済み商品への参照と「一度も商品リンクを持たない行」（`ORDER_LINE_PRODUCT_
+	 * MISSING`）がCRUD層では区別できなくなる。`Woo\Reader\OrderReader::remote_product_id()`は
+	 * 生のorder-item-meta（`_product_id`。CRUD層の検証を経ないため削除後も元のIDのまま残る）を
+	 * 直接読んで区別する。
+	 *
+	 * 対応ASP（ColorMe）の受注作成APIは明細ごとに商品参照を必須とするため、`remote_product_id=null`
+	 * のまま無警告でpushすると、push先で拒否される・または実際には存在した商品の参照が黙って
+	 * 失われた注文として作成されてしまう（Codex指摘, PR #41 #11: 当初は無警告で
+	 * `remote_product_id=null`を返していた）。`indicates_export_blocking()`の対象にして
+	 * push自体を止める。
+	 */
+	public const ORDER_LINE_PRODUCT_DELETED = 'order_line_product_deleted';
+
+	/**
+	 * エクスポート時、受注明細（`WC_Order_Item_Product`）が一度も商品リンクを持たない
+	 * （`get_product_id()`が`0`、かつ生のorder-item-meta（`_product_id`）も`0`＝
+	 * `ORDER_LINE_PRODUCT_DELETED`の「削除済み」には該当しない）（`Woo\Reader\OrderReader`）。
+	 * 対応ASP（ColorMe）の受注作成APIは明細ごとに商品参照を必須とするため、このような行を
+	 * 「商品リンクを持たない正当なカスタム行」として無警告でpushすると、`ORDER_LINE_PRODUCT_
+	 * DELETED`と同じ理由でpush先に拒否・または不正な明細として扱われうる（Copilot指摘, PR #41
+	 * G2: 当初は「正当なカスタム行」として無警告のまま扱っていた）。`indicates_export_blocking()`
+	 * の対象にしてpush自体を止める。
+	 */
+	public const ORDER_LINE_PRODUCT_MISSING = 'order_line_product_missing';
+
+	/**
+	 * エクスポート時、バリエーション明細の親商品自体は解決できたが、バリエーションの識別に
+	 * 失敗した（`Woo\Reader\OrderReader::remote_product_id()`/`variation_option_values()`）。
+	 * 3パターンある: (1) `get_variation_id()`が既定値`0`にリセットされている＝バリエーション
+	 * 自体が削除済み（`get_product_id()`と同じ「`WC_Order_Item_Product::set_variation_id()`の
+	 * 投稿タイプ検証失敗→`WC_Data_Exception`→`set_props()`がプロパティ毎にcatch」パターン。
+	 * 生のorder-item-meta（`_variation_id`）で判別する。実測確認済み）、(2) `get_variation_id()`は
+	 * 非0だが対応する`WC_Product_Variation`自体が取得できない、(3) 親商品の軸属性が3つ以上
+	 * （`Woo\Support\VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_EXCEEDED`
+	 * を積む。`CanonicalProduct::$variants`のoption1/2規約は2軸までのため3軸目以降を切り捨てる）。
+	 * `Woo\Reader\ProductReader`はこの(3)を無警告（切り捨てるだけ）で扱うが、受注明細では3軸目の
+	 * 値が異なる複数のバリエーションがoption1/2の組だけでは区別できず、誤った商品を受注として
+	 * 記録しうる（Copilot指摘, PR #41 G2: 当初は`variation_option_values()`内で
+	 * `VARIATION_AXIS_LIMIT_EXCEEDED`警告を破棄しており受注側へ伝播していなかった）。
+	 * `indicates_export_blocking()`の対象にしてpush自体を止める。
+	 */
+	public const ORDER_LINE_VARIATION_UNRESOLVED = 'order_line_variation_unresolved';
+
+	/**
+	 * エクスポート時、受注が一部/全額返金済み（`WC_Order::get_total_refunded() > 0`）
+	 * （`Woo\Reader\OrderReader`）。返金は`WC_Order_Refund`という別オブジェクトに記録され、
+	 * `get_total()`/明細の`get_subtotal()`等は返金前の金額のまま変わらない。`CanonicalOrder`は
+	 * 返金額を運ぶフィールドを持たないため、無警告でpushすると実際には回収していない金額を
+	 * 全額回収済みとしてASP側に作成してしまう（金銭的リスク）。`indicates_export_blocking()`の
+	 * 対象にしてpush自体を止める（返金状態の表現・E2-3での取扱いは将来課題）。
+	 */
+	public const ORDER_REFUNDED = 'order_refunded';
+
+	/**
+	 * エクスポート時、受注明細の`tax_class`が`''`（標準）/`'reduced-rate'`（軽減税率）以外
+	 * （`zero-rate`・カスタム税区分等）、または`WC_Order_Item_Product::get_tax_status()`が
+	 * `'taxable'`以外（送料のみ課税・非課税）。`CanonicalOrder::$line_items[].tax_reduced`は
+	 * bool（標準/軽減税率の2値）しか表現できないため、それ以外の税区分・非課税状態を無警告で
+	 * 標準課税として扱うと税額が誤って計算されうる（`Woo\Reader\ProductReader`の
+	 * `TAX_STATUS_NOT_TAXABLE`と同じ理由。CanonicalOrderに区分自体を運ぶフィールドが無いため
+	 * 警告のみで、値自体は`tax_reduced=false`にフェイルクローズする）。
+	 */
+	public const ORDER_LINE_TAX_CLASS_UNSUPPORTED = 'order_line_tax_class_unsupported';
+
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
+
+	/**
+	 * エクスポート時、在庫を書き込む対象商品/バリエーションがまだASP側へエクスポートされておらず
+	 * （`cbjp_mappings`にproduct/variantのremote_idが無い）、対象を特定できない
+	 * （`Woo\Reader\StockReader`）。`CanonicalStock::$product_ref`は非nullable stringのため
+	 * 有効な値を作れず、`indicates_export_blocking()`の対象にしてpush自体を止める
+	 * （checksumはキャッシュされないため商品エクスポート後に自動再試行される）。importの
+	 * `STOCK_PRODUCT_UNRESOLVED`（ASP側商品がまだWooへインポートされていない）とは向きが逆の
+	 * 別概念のため区別する。
+	 */
+	public const STOCK_PRODUCT_NOT_EXPORTED = 'stock_product_not_exported';
 
 	/**
 	 * エクスポート時、バリエーションの在庫が親レベルで一括管理されている
@@ -174,6 +277,49 @@ final class WarningCode {
 	public static function indicates_export_blocking( array $warnings ): bool {
 		$blocking_codes = [
 			self::ALL_VARIATIONS_EXCLUDED,
+			// `Woo\Reader\CouponReader`: ASP側へ運べないWooネイティブのクーポン制限
+			// （商品/カテゴリ/メールアドレス制限・maximum_amount・fixed_product型）が残っている。
+			// `has_unsupported_restrictions=true`のまま`push_coupon()`（E2-3）へ渡すと、制限が
+			// 落ちた無制限クーポンとして保存されうる金銭的リスクがあるため、pushせずフェイル
+			// クローズする（`Canonical\CanonicalCoupon`のdocblockが定める契約、importの
+			// `Woo\Writer\CouponWriter`と同じ判断をexport側でも読出時点から適用する）。
+			self::COUPON_RESTRICTIONS_UNSUPPORTED,
+			// `Woo\Reader\StockReader`: 対象商品/バリエーションがまだASP側へエクスポートされて
+			// おらず、`CanonicalStock::$product_ref`（非nullable string）へ入れる有効な値が無い。
+			// `CanonicalOrder::$line_items[].remote_product_id`/`$customer_ref`（いずれもnullable）
+			// とは異なり必須フィールドのため、空文字列のまま`push_stock()`（E2-3）へ渡さずここで
+			// 止める。checksumは`continue`で未到達のままキャッシュされないため、商品が後から
+			// エクスポートされ次第この行は自動的に再試行される（`indicates_unresolved_reference()`
+			// への追加は不要）。
+			self::STOCK_PRODUCT_NOT_EXPORTED,
+			// `Woo\Reader\OrderReader`: 注文全体の合計（discount/shipping_fee/tax/total）が
+			// 数値として不正（非数値・負値）なため`0`へフェイルクローズ済み。importの
+			// `Woo\Writer\OrderWriter::validate_totals()`が同じ状況で注文全体の書込みを見送る
+			// （`WC_Order`に一切触れる前に注文自体をskipする）のと対称に、exportも壊れた合計を
+			// 実際の明細と一緒に「¥0の注文」としてpushしない。
+			self::ORDER_TOTALS_INVALID,
+			// `Woo\Reader\OrderReader`: 注文の通貨（`WC_Order::get_currency()`）が対応ASPの前提
+			// 通貨（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`=JPY）と異なる。importのCURRENCY_
+			// MISMATCH（店舗通貨とASP前提通貨が異なる場合の警告のみ、注文自体は保存する）とは
+			// 非対称にblockingへ倒す: import方向の不一致は内部記録上のズレに留まるのに対し、
+			// export方向でJPY以外の金額をそのままpushすると、ASP側がその数値をJPYとして解釈し
+			// 実際の金額と大きく乖離した注文が作成されてしまう（例: USD 100の注文がJPY 100として
+			// 送信される）金銭的リスクが質的に異なるため。
+			self::CURRENCY_MISMATCH,
+			// `Woo\Reader\OrderReader`: 受注明細が参照していた商品/バリエーションが削除済みで
+			// `remote_product_id`を恒久的に特定できない。対応ASPの受注作成APIは明細ごとの商品参照を
+			// 必須とするため、参照を持たない行と区別せずpushしない（詳細は定数のdocblock参照）。
+			self::ORDER_LINE_PRODUCT_DELETED,
+			// `Woo\Reader\OrderReader`: 受注明細が一度も商品リンクを持たない（詳細は定数の
+			// docblock参照）。
+			self::ORDER_LINE_PRODUCT_MISSING,
+			// `Woo\Reader\OrderReader`: バリエーション明細の親商品は解決できたが、バリエーション
+			// 自体の識別に失敗した（削除済み、または軸3つ以上でoption1/2だけでは区別不能。詳細は
+			// 定数のdocblock参照）。
+			self::ORDER_LINE_VARIATION_UNRESOLVED,
+			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
+			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
+			self::ORDER_REFUNDED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -202,6 +348,8 @@ final class WarningCode {
 			self::ORDER_CUSTOMER_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_UNRESOLVED,
 			self::CATEGORY_MAP_UNRESOLVED,
+			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
+			self::ORDER_CUSTOMER_NOT_EXPORTED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -226,8 +374,29 @@ final class WarningCode {
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
 		return ! self::indicates_mapping_required( $warning )
+			&& ! self::indicates_pending_export( $warning )
 			&& ( self::indicates_unresolved_reference( [ $warning ] )
 				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「参照先（Wooローカル
+	 * 実体）がまだASP側へエクスポートされていないこと」だけに起因し、参照先を先にエクスポート
+	 * すれば消える見込みか。`indicates_pending_import()`のエクスポート方向対称形
+	 * （`ORDER_LINE_PRODUCT_NOT_EXPORTED`/`ORDER_CUSTOMER_NOT_EXPORTED`/`STOCK_PRODUCT_NOT_EXPORTED`は
+	 * `indicates_pending_import()`に混ざると「参照先を先にインポートしてください」という向きの
+	 * 逆な誤った案内になるため区別する。`STOCK_PRODUCT_NOT_EXPORTED`は`indicates_unresolved_reference()`
+	 * の対象外（`indicates_export_blocking()`のみ）だが、レポート上は他の未解決参照と同じ注記で
+	 * 区別されるべき理由は`indicates_pending_import()`の同種コメントと同じ）。
+	 */
+	public static function indicates_pending_export( string $warning ): bool {
+		$codes = [
+			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
+			self::ORDER_CUSTOMER_NOT_EXPORTED,
+			self::STOCK_PRODUCT_NOT_EXPORTED,
+		];
+
+		return in_array( self::split( $warning )[0], $codes, true );
 	}
 
 	/**

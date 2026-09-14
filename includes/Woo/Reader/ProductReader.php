@@ -11,13 +11,14 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\StockDerivation;
+use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
 use WC_Product_Attribute;
 use WC_Product_Variable;
 use WC_Product_Variation;
-use WP_Term;
 
 /**
  * `WC_Product`（+バリエーション）を `CanonicalProduct` へ変換する（`Woo\Writer\ProductWriter` の
@@ -184,13 +185,7 @@ final class ProductReader implements EntityReader {
 	 * 誤変換を避ける。手動でstock_statusだけ切り替える運用はmanage_stock=falseのままでも一般的）。
 	 */
 	private function stock( WC_Product $product ): ?int {
-		if ( ! $product->get_manage_stock() ) {
-			return $product->is_in_stock() ? null : 0;
-		}
-
-		$quantity = $product->get_stock_quantity();
-
-		return null !== $quantity ? (int) $quantity : 0;
+		return StockDerivation::for_product( $product );
 	}
 
 	/**
@@ -299,25 +294,7 @@ final class ProductReader implements EntityReader {
 	 * @return array<int,WC_Product_Attribute>
 	 */
 	private function variation_axis_attributes( WC_Product_Variable $product, array &$warnings ): array {
-		$axis              = [];
-		$has_axis_overflow = false;
-
-		foreach ( $product->get_attributes() as $attribute ) {
-			if ( $attribute instanceof WC_Product_Attribute && $attribute->get_variation() ) {
-				if ( 2 === count( $axis ) ) {
-					$has_axis_overflow = true;
-					break;
-				}
-
-				$axis[] = $attribute;
-			}
-		}
-
-		if ( $has_axis_overflow ) {
-			$warnings[] = WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED;
-		}
-
-		return $axis;
+		return VariationAxisResolver::axis_attributes( $product, $warnings );
 	}
 
 	/**
@@ -386,26 +363,13 @@ final class ProductReader implements EntityReader {
 	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列。
 	 */
 	private function variation_stock( WC_Product_Variation $variation, array &$warnings ): ?int {
-		$manage_stock = $variation->get_manage_stock();
+		$derived = StockDerivation::for_variation( $variation );
 
-		if ( 'parent' === $manage_stock ) {
-			// 親レベルで一括管理される在庫は複数バリエーションで共有する単一プールであり、
-			// `get_stock_quantity()`はこの場合も親の数量をそのまま返す（CLAUDE.md参照）。
-			// ASP側にバリエーションをまたぐ共有プールの概念が無い以上、親の数量を各
-			// バリエーションへ複製すると実在庫のバリエーション数倍を販売可能数量として
-			// 申告してしまう（金銭的リスク）ため、在庫切れ（0）にフェイルクローズする。
+		if ( $derived['shared_with_parent'] ) {
 			$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
-
-			return 0;
 		}
 
-		if ( false === $manage_stock ) {
-			return $variation->is_in_stock() ? null : 0;
-		}
-
-		$quantity = $variation->get_stock_quantity();
-
-		return null !== $quantity ? (int) $quantity : 0;
+		return $derived['quantity'];
 	}
 
 	/**
@@ -427,33 +391,12 @@ final class ProductReader implements EntityReader {
 			}
 
 			$variant[ $name_key ]  = $this->attribute_label( $attribute );
-			$variant[ $value_key ] = $this->variation_attribute_value( $attribute, $raw_attributes );
+			$variant[ $value_key ] = VariationAxisResolver::attribute_value( $attribute, $raw_attributes );
 		}
 	}
 
 	private function attribute_label( WC_Product_Attribute $attribute ): string {
-		return $attribute->is_taxonomy() ? wc_attribute_label( $attribute->get_name() ) : $attribute->get_name();
-	}
-
-	/**
-	 * @param array<string,string> $raw_attributes `WC_Product_Variation::get_attributes()`
-	 *   （taxonomy属性はterm slug、ローカル属性は生値）。
-	 */
-	private function variation_attribute_value( WC_Product_Attribute $attribute, array $raw_attributes ): ?string {
-		$key       = $attribute->is_taxonomy() ? $attribute->get_name() : sanitize_title( $attribute->get_name() );
-		$raw_value = $raw_attributes[ $key ] ?? '';
-
-		if ( '' === $raw_value ) {
-			return null;
-		}
-
-		if ( $attribute->is_taxonomy() ) {
-			$term = get_term_by( 'slug', $raw_value, $attribute->get_name() );
-
-			return ( $term instanceof WP_Term ) ? $term->name : $raw_value;
-		}
-
-		return $raw_value;
+		return VariationAxisResolver::attribute_label( $attribute );
 	}
 
 	/**
