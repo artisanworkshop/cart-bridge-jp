@@ -2,7 +2,7 @@
 - タスク: E2-2 Exporter パイプライン（PR-A: コア配線 + ProductReader）
 - 開始: 2026-09-14
 - PR: #40 https://github.com/artisanworkshop/cart-bridge-jp/pull/40
-- 現在のステップ: 6(ボット応答待ち・G2)
+- 現在のステップ: 7(ゲートG2・GitHub反映待ち)
 - Copilot: 依頼2回目（2026-09-14T01:42:01Z）
 - Codex: 依頼1回目（`@codex review`、2026-09-14T01:42:01Z。自動レビューTIMEOUT後の再依頼だが依頼回数は1回目）
 
@@ -20,3 +20,4 @@
 | 2026-09-14 | 6 | Copilotへレビュー依頼（1回目）。Codexは自動レビュー待ち。T=2026-09-14T01:13:48Z |
 | 2026-09-14 | 6 | Copilot応答（新規4件、すべてHigh相当と判定し修正。3a83bc6）。Codexの自動レビューは15分でTIMEOUT（前例どおり`@codex review`で再依頼、1回目として計上）。詳細はG1.md |
 | 2026-09-14 | 6 | G1修正をreply+resolve、PRサマリコメント投稿。CI再実行green確認後、Copilot（2回目）・Codex（`@codex review`、1回目）へ依頼。T2=2026-09-14T01:42:01Z |
+| 2026-09-14 | 6 | Copilot応答（新規6件＝インライン2件＋本文Suppressed comments 4件）・Codex応答（新規4件）。うち軸超過警告なし（両bot重複）・非公開variation export・全滅時simple化リスク・価格検証（variants/simple/variable の3箇所）の計6件をHighとして修正（de40abb）。Pro版ページング頑健性・RateLimitExhaustedException部分totals・variation読出N+1の3件はbacklog送り。品質チェック（lint/analyze/test:wpenv 768件/npm lint/build）green。詳細はG2.md |
