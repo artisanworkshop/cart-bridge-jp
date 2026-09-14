@@ -91,10 +91,11 @@ final class ProductReader implements EntityReader {
 	}
 
 	private function to_read_item( WC_Product $product ): ReadItem {
-		$warnings    = [];
-		$is_variable = $product instanceof WC_Product_Variable;
-		$axis_names  = $is_variable ? $this->variation_axis_attributes( $product, $warnings ) : [];
-		$variants    = $is_variable ? $this->variants( $product, $axis_names, $warnings ) : [];
+		$warnings          = [];
+		$is_variable       = $product instanceof WC_Product_Variable;
+		$axis_names        = $is_variable ? $this->variation_axis_attributes( $product, $warnings ) : [];
+		$variant_local_ids = [];
+		$variants          = $is_variable ? $this->variants( $product, $axis_names, $warnings, $variant_local_ids ) : [];
 
 		if ( $is_variable && [] === $variants ) {
 			// Copilot指摘（PR #40）: 全バリエーションが除外された（価格無効・非公開等）ため
@@ -156,7 +157,8 @@ final class ProductReader implements EntityReader {
 			$product->get_id(),
 			$canonical,
 			$warnings,
-			! WarningCode::indicates_unresolved_reference( $warnings )
+			! WarningCode::indicates_unresolved_reference( $warnings ),
+			$variant_local_ids
 		);
 	}
 
@@ -300,9 +302,11 @@ final class ProductReader implements EntityReader {
 	/**
 	 * @param array<int,WC_Product_Attribute> $axis_attributes
 	 * @param array<int,string>               $warnings 呼び出し元と共有する警告配列（参照渡しの代わりに戻り値で反映）。
+	 * @param array<int,int>                  $variant_local_ids 戻り値と同じ順序・同じ要素数になる
+	 *   Wooバリエーション投稿ID一覧（`ReadItem::$variant_local_ids`）。呼び出し元の変数へ書き戻す。
 	 * @return array<int,array<string,mixed>>
 	 */
-	private function variants( WC_Product_Variable $product, array $axis_attributes, array &$warnings ): array {
+	private function variants( WC_Product_Variable $product, array $axis_attributes, array &$warnings, array &$variant_local_ids ): array {
 		$variation_ids = array_map( 'intval', $product->get_children() );
 		// アイテム（variation）毎のSELECTを避けるため一括プリロードする
 		// （`VariationWriter::sync()`の逆方向、同じ理由）。
@@ -353,7 +357,8 @@ final class ProductReader implements EntityReader {
 
 			$this->apply_axis_values( $variant, $variation, $axis_attributes );
 
-			$variants[] = $variant;
+			$variants[]          = $variant;
+			$variant_local_ids[] = $variation_id;
 		}
 
 		return $variants;

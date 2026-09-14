@@ -339,4 +339,85 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $writer->writes );
 		$this->assertSame( 1, $result['totals']['processed'] );
 	}
+
+	/**
+	 * E2-3への申し送り（`docs/03-design-decisions.md` §10.2）: `PushResult`は商品1件につき
+	 * remote_id1つしか運べないため、`ColorMeAdapter::push_product()`が返す
+	 * `variant_remote_ids`（`ReadItem::$variant_local_ids`と同じ順序・要素数）を
+	 * `Exporter`がzipして`cbjp_mappings`（'variant'）へ書き戻すことを確認する。
+	 */
+	public function test_product_push_writes_back_variant_mappings_from_variant_remote_ids(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001', '9002' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertSame( 201, $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		$this->assertSame( 202, $this->mappings->find_local_id( 'mock', 'variant', '9002' ) );
+	}
+
+	/**
+	 * `variant_remote_ids`の空文字列要素（`ColorMeAdapter::sync_variants()`が未確定/失敗を
+	 * 表す番兵値）はmapping行を作らない。
+	 */
+	public function test_empty_variant_remote_id_is_not_upserted(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001', '' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 201, $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'variant', 202 ) );
+	}
+
+	/**
+	 * `$result`は`cbjp/adapters/register`経由の外部アダプタが直接返す信頼境界の外側
+	 * （アーキテクチャ原則8）。`variant_remote_ids`の要素数が`ReadItem::$variant_local_ids`と
+	 * 一致しない契約違反は、誤った対応付けでmappingを書き込まないよう無視する（zipしない）。
+	 */
+	public function test_variant_remote_ids_count_mismatch_is_ignored(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'variant', 201 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+	}
+
+	/**
+	 * `variant_remote_ids`は`product`entity以外では意味を持たない（`ColorMeAdapter`以外の
+	 * push_*()が将来同名のプロパティを空でなく返した場合でも、product以外ではzipしない）。
+	 */
+	public function test_variant_remote_ids_are_ignored_for_non_product_entities(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'coupon', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'coupon', 101 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+	}
 }

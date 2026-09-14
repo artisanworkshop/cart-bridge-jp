@@ -264,4 +264,87 @@ final class ColorMeClientTest extends WP_UnitTestCase {
 
 		$this->assertSame( [ 'shop_name' => 'Test Shop' ], $result );
 	}
+
+	public function test_post_multipart_builds_a_boundary_delimited_body_with_fields_and_binary(): void {
+		$captured = null;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$captured ) {
+				$captured = [
+					'url'  => $url,
+					'args' => $parsed_args,
+				];
+
+				return [
+					'response' => [ 'code' => 201 ],
+					'headers'  => [],
+					'body'     => '{"product_image":{"position":0,"url":"https://example.test/photo.jpg"}}',
+				];
+			},
+			10,
+			3
+		);
+
+		$result = $this->make_client()->post_multipart(
+			'products/501/images.json',
+			'image',
+			'photo.jpg',
+			"\xFF\xD8FAKE-JPEG-BYTES",
+			[ 'position' => 0 ]
+		);
+
+		$this->assertSame(
+			[
+				'position' => 0,
+				'url'      => 'https://example.test/photo.jpg',
+			],
+			$result['product_image']
+		);
+		$this->assertSame( 'https://api.shop-pro.jp/v1/products/501/images.json', $captured['url'] );
+		$this->assertSame( 'POST', $captured['args']['method'] );
+		$this->assertSame( 'Bearer test-access-token', $captured['args']['headers']['Authorization'] );
+
+		$content_type = $captured['args']['headers']['Content-Type'];
+		$this->assertStringStartsWith( 'multipart/form-data; boundary=', $content_type );
+		$boundary = substr( $content_type, strlen( 'multipart/form-data; boundary=' ) );
+
+		$body = $captured['args']['body'];
+		$this->assertStringContainsString( "--{$boundary}\r\n", $body );
+		$this->assertStringContainsString( 'Content-Disposition: form-data; name="position"', $body );
+		$this->assertStringContainsString( "\r\n0\r\n", $body );
+		$this->assertStringContainsString( 'Content-Disposition: form-data; name="image"; filename="photo.jpg"', $body );
+		$this->assertStringContainsString( "\xFF\xD8FAKE-JPEG-BYTES", $body );
+		$this->assertStringEndsWith( "--{$boundary}--\r\n", $body );
+	}
+
+	public function test_post_multipart_escapes_quotes_and_newlines_in_field_and_file_names(): void {
+		$captured = null;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args ) use ( &$captured ) {
+				$captured = $parsed_args;
+
+				return [
+					'response' => [ 'code' => 201 ],
+					'headers'  => [],
+					'body'     => '{}',
+				];
+			},
+			10,
+			3
+		);
+
+		$this->make_client()->post_multipart(
+			'products/501/images.json',
+			'image',
+			"evil\r\nContent-Disposition: injected\".jpg",
+			'bytes'
+		);
+
+		$body = $captured['body'];
+		$this->assertStringNotContainsString( "injected\r\n", $body );
+		$this->assertStringNotContainsString( "\"; filename=\"evil\r", $body );
+	}
 }

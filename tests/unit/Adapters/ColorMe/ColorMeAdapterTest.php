@@ -10,11 +10,14 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use WP_Error;
 use WP_UnitTestCase;
@@ -286,6 +289,424 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->expectException( UnsupportedOperationException::class );
 
 		$adapter->push_category( CanonicalFactory::category( '1', 'Category' ) );
+	}
+
+	public function test_push_product_creates_simple_product(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), null );
+
+		$this->assertSame( '501', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [], $result->variant_remote_ids );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'Test Product', $create_request['body']['product']['name'] );
+		$this->assertSame( 'SKU-1', $create_request['body']['product']['model_number'] );
+		$this->assertSame( 1100, $create_request['body']['product']['sales_price'] );
+		$this->assertSame( 'showing', $create_request['body']['product']['display_state'] );
+		// POSTのペイロードにはcategory_id_small/group_ids/stocksを含めない（swagger実測。
+		// 計画参照）。
+		$this->assertArrayNotHasKey( 'stocks', $create_request['body']['product'] );
+
+		$this->assertNotNull( $this->find_captured( $captured, 'PUT', 'products/501.json' ) );
+	}
+
+	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'PUT products/777.json' => [ [ 'body' => [ 'product' => [ 'id' => 777 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), '777' );
+
+		$this->assertSame( '777', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+
+		// 更新は1回のPUTのみ（作成時のような追いPUTは行わない）。POSTは一切呼ばれない。
+		$put_requests = array_filter( $captured, static fn ( array $request ): bool => 'PUT' === $request['method'] );
+		$this->assertCount( 1, $put_requests );
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products.json' ) );
+	}
+
+	public function test_push_product_creates_variable_product_and_syncs_variant_remote_ids(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				'PUT products/900.json'               => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				// 1回目: まだ軸/バリエーションが存在しない状態。2回目: 軸追加後に自動生成された状態。
+				'GET products/900.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [
+									[
+										'id'            => 9001,
+										'option1_value' => 'Red',
+										'option2_value' => null,
+									],
+									[
+										'id'            => 9002,
+										'option1_value' => 'Blue',
+										'option2_value' => null,
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/900/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/900/variants/9001.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9001 ] ] ] ],
+				'PUT products/900/variants/9002.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9002 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '900', $result->remote_id );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [ '9001', '9002' ], $result->variant_remote_ids );
+
+		$option_request = $this->find_captured( $captured, 'POST', 'products/900/options.json' );
+		$this->assertNotNull( $option_request );
+		$this->assertSame( 'Color', $option_request['body']['option']['name'] );
+		$this->assertSame( [ 'Red', 'Blue' ], $option_request['body']['option']['values'] );
+
+		$variant1_request = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $variant1_request );
+		$this->assertSame( 'VAR-RED', $variant1_request['body']['variant']['model_number'] );
+	}
+
+	public function test_push_product_marks_variant_sync_incomplete_when_option_creation_fails(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 901 ] ] ] ],
+				'PUT products/901.json'          => [ [ 'body' => [ 'product' => [ 'id' => 901 ] ] ] ],
+				'GET products/901.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 901,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/901/options.json' => [
+					[
+						'body'   => [
+							'errors' => [
+								[
+									'code'    => 422043,
+									'message' => 'invalid',
+									'status'  => 422,
+								],
+							],
+						],
+						'status' => 422,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		// 商品本体は作成済み（remote_id確定）のまま、バリエーションだけが未確定で返る。
+		$this->assertSame( '901', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+		$this->assertContains( WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, $result->warnings );
+	}
+
+	public function test_push_product_pushes_images_when_premium_plan(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 600 ] ] ] ],
+				'PUT products/600.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 600 ] ] ] ],
+				'GET https://cdn.example.test/photo.jpg' => [ [ 'raw_body' => 'FAKE-JPEG-BYTES' ] ],
+				'POST products/600/images.json'          => [
+					[
+						'body'   => [
+							'product_image' => [
+								'position' => 0,
+								'url'      => 'https://cdn.example.test/photo.jpg',
+							],
+						],
+						'status' => 201,
+					],
+				],
+			],
+			$captured
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/photo.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [], $result->warnings );
+
+		$image_request = $this->find_captured( $captured, 'POST', 'products/600/images.json' );
+		$this->assertNotNull( $image_request );
+		$this->assertStringContainsString( 'FAKE-JPEG-BYTES', (string) $image_request['raw'] );
+		$this->assertStringContainsString( 'name="position"', (string) $image_request['raw'] );
+	}
+
+	public function test_push_product_marks_images_not_pushed_when_plan_is_not_premium(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 601 ] ] ] ],
+				'PUT products/601.json' => [ [ 'body' => [ 'product' => [ 'id' => 601 ] ] ] ],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/photo.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings );
+	}
+
+	public function test_push_product_marks_image_push_incomplete_when_download_fails(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                            => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                       => [ [ 'body' => [ 'product' => [ 'id' => 602 ] ] ] ],
+				'PUT products/602.json'                    => [ [ 'body' => [ 'product' => [ 'id' => 602 ] ] ] ],
+				'GET https://cdn.example.test/missing.jpg' => [
+					[
+						'body'   => [],
+						'status' => 404,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/missing.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $images
+	 */
+	private function simple_product( array $images = [] ): CanonicalProduct {
+		return new CanonicalProduct(
+			'Test Product',
+			'SKU-1',
+			'1100',
+			null,
+			'Product description',
+			$images,
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[ 'short_description' => 'Short desc' ]
+		);
+	}
+
+	private function variable_product(): CanonicalProduct {
+		return new CanonicalProduct(
+			'Variable Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-BLUE',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Blue',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+	}
+
+	/**
+	 * `push_product()`用のHTTPモック。`$handlers`のキーは`"{METHOD} {URLに含まれる文字列}"`で、
+	 * 値は呼び出し順に消費されるレスポンス列（尽きたら最後の要素を繰り返す）。レスポンスは
+	 * `body`（JSONエンコードして返す）または`raw_body`（文字列をそのまま返す。画像バイナリ取得用）
+	 * のいずれかを持つ連想配列。
+	 *
+	 * @param array<string,array<int,array<string,mixed>>>                          $handlers
+	 * @param array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}> $captured 呼び出し元へ書き戻す実リクエスト履歴。
+	 */
+	private function mock_push_requests( array $handlers, array &$captured = [] ): void {
+		$counts = [];
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( $handlers, &$counts, &$captured ) {
+				$method       = strtoupper( (string) ( $parsed_args['method'] ?? 'GET' ) );
+				$raw_body     = $parsed_args['body'] ?? null;
+				$content_type = (string) ( $parsed_args['headers']['Content-Type'] ?? '' );
+				$decoded      = ( is_string( $raw_body ) && str_starts_with( $content_type, 'application/json' ) )
+					? json_decode( $raw_body, true )
+					: null;
+
+				$captured[] = [
+					'method' => $method,
+					'url'    => $url,
+					'body'   => $decoded,
+					'raw'    => is_string( $raw_body ) ? $raw_body : null,
+				];
+
+				foreach ( $handlers as $needle => $sequence ) {
+					$space = strpos( $needle, ' ' );
+
+					if ( false === $space
+						|| strtoupper( substr( $needle, 0, $space ) ) !== $method
+						|| ! str_contains( $url, substr( $needle, $space + 1 ) ) ) {
+						continue;
+					}
+
+					$index             = $counts[ $needle ] ?? 0;
+					$counts[ $needle ] = $index + 1;
+					$response          = $sequence[ $index ] ?? $sequence[ count( $sequence ) - 1 ];
+
+					if ( array_key_exists( 'raw_body', $response ) ) {
+						return [
+							'response' => [ 'code' => $response['status'] ?? 200 ],
+							'headers'  => [],
+							'body'     => (string) $response['raw_body'],
+						];
+					}
+
+					return $this->json_response( $response['body'] ?? [], $response['status'] ?? 200 );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled ColorMe request: {$method} {$url}" );
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * @param array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}> $captured
+	 * @return ?array{method:string,url:string,body:?array<string,mixed>,raw:?string}
+	 */
+	private function find_captured( array $captured, string $method, string $url_needle ): ?array {
+		foreach ( $captured as $request ) {
+			if ( $method === $request['method'] && str_contains( $request['url'], $url_needle ) ) {
+				return $request;
+			}
+		}
+
+		return null;
 	}
 
 	public function test_fetch_reviews_is_not_supported(): void {

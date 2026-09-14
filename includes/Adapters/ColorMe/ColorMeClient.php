@@ -76,6 +76,68 @@ final class ColorMeClient {
 	}
 
 	/**
+	 * multipart/form-data のPOSTリクエスト（`POST /products/{id}/images`専用）。カラーミーの画像
+	 * アップロードはバイナリを`multipart/form-data`で送る必要があり、`request()`のJSON body契約とは
+	 * 別経路になる。`Support\HttpClient::request()`はメソッド非依存に`headers`/`body`をそのまま
+	 * `wp_remote_request()`へ渡すため、boundary付きのbody文字列を手組みしてheadersの
+	 * `Content-Type`を差し替えるだけで足りる（`HttpClient`側の改修は不要）。
+	 *
+	 * @param array<string,int|string> $fields 画像バイナリと一緒に送るスカラーフィールド（例: position）。
+	 * @return array<string,mixed>
+	 *
+	 * @throws ApiException
+	 */
+	public function post_multipart( string $path, string $field_name, string $filename, string $binary, array $fields = [] ): array {
+		$boundary = wp_generate_password( 32, false );
+		$args     = [
+			'headers' => [
+				'Authorization' => 'Bearer ' . $this->access_token,
+				'Accept'        => 'application/json',
+				'Content-Type'  => "multipart/form-data; boundary={$boundary}",
+			],
+			'body'    => self::build_multipart_body( $boundary, $field_name, $filename, $binary, $fields ),
+		];
+
+		try {
+			$response = $this->http_client->request( 'POST', $this->build_url( $path, [] ), $args );
+		} catch ( ApiException $exception ) {
+			throw $this->translate_exception( $exception );
+		}
+
+		return $this->decode_body( $response['body'] );
+	}
+
+	/**
+	 * @param array<string,int|string> $fields
+	 */
+	private static function build_multipart_body( string $boundary, string $field_name, string $filename, string $binary, array $fields ): string {
+		$body = '';
+
+		foreach ( $fields as $name => $value ) {
+			$body .= "--{$boundary}\r\n";
+			$body .= 'Content-Disposition: form-data; name="' . self::escape_multipart_value( (string) $name ) . "\"\r\n\r\n";
+			$body .= $value . "\r\n";
+		}
+
+		$body .= "--{$boundary}\r\n";
+		$body .= 'Content-Disposition: form-data; name="' . self::escape_multipart_value( $field_name ) . '"; filename="' . self::escape_multipart_value( $filename ) . "\"\r\n";
+		$body .= "Content-Type: application/octet-stream\r\n\r\n";
+		$body .= $binary . "\r\n";
+		$body .= "--{$boundary}--\r\n";
+
+		return $body;
+	}
+
+	/**
+	 * multipartヘッダー値（`Content-Disposition`のname/filename）にCR/LF/二重引用符が混入すると
+	 * リクエストが壊れる（ヘッダーインジェクション）。ファイル名はWordPressのメディアライブラリ
+	 * 由来だが、防御的に除去する。
+	 */
+	private static function escape_multipart_value( string $value ): string {
+		return str_replace( [ '"', "\r", "\n" ], [ '\\"', '', '' ], $value );
+	}
+
+	/**
 	 * @param array<string,mixed> $params GETはクエリパラメータ、POST/PUTはJSONボディとして使う。
 	 * @return array<string,mixed>
 	 *

@@ -38,6 +38,205 @@ final class ProductTransformer {
 	) {}
 
 	/**
+	 * `POST /v1/products`（新規作成）向けのペイロード（`{"product": {...}}`エンベロープは
+	 * 呼び出し元=`ColorMeAdapter`が付与する）。swagger上必須フィールドは無いが、`tax_reduced`/
+	 * `stock_managed`は常に明示送信する（省略時の既定値がドキュメント化されていないため、
+	 * Woo側の実値をそのまま反映するほうが安全: CLAUDE.md「楽観的デフォルトは金銭的リスク」）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function to_create_payload( CanonicalProduct $product ): array {
+		return $this->base_payload( $product );
+	}
+
+	/**
+	 * `PUT /v1/products/{id}`（更新）向けのペイロード。作成時と同じ項目に加え、更新でのみ
+	 * 指定できる`category_id_small`/`group_ids`を含める。`stocks`（商品レベル在庫）は
+	 * variable商品では常に省略する: variable商品の在庫はバリエーション単位で
+	 * `PUT /products/{id}/variants/{id}`により設定する方針のため（計画参照。値ベースマッチの
+	 * `variants[]`パラメータは使わない）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function to_update_payload( CanonicalProduct $product ): array {
+		$payload = $this->base_payload( $product );
+
+		[ , $category_id_small ] = self::parse_category_ref( $product->category_refs[0] ?? null );
+
+		if ( null !== $category_id_small ) {
+			$payload['category_id_small'] = $category_id_small;
+		}
+
+		$group_ids = array_values(
+			array_filter(
+				array_map( static fn ( string $ref ): ?int => Cast::to_int_or_null( $ref ), $product->tag_refs ),
+				static fn ( ?int $id ): bool => null !== $id
+			)
+		);
+
+		if ( [] !== $group_ids ) {
+			$payload['group_ids'] = $group_ids;
+		}
+
+		if ( [] === $product->variants && null !== $product->stock ) {
+			$payload['stocks'] = $product->stock;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * 作成・更新どちらのリクエストでも指定できる13項目のうち、`CanonicalProduct`から
+	 * 導出できるものを組み立てる（swagger `POST /v1/products` 実測、計画のスコープ外の項目
+	 * ——`cost`/`members_price`/`smartphone_expl`等——は`CanonicalProduct`に対応するフィールドが
+	 * 無いため送らない）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function base_payload( CanonicalProduct $product ): array {
+		$payload = [
+			'name'          => $product->name,
+			'display_state' => 'publish' === $product->status ? 'showing' : 'hidden',
+			'stock_managed' => $this->is_stock_managed_for_push( $product ),
+			'tax_reduced'   => 'reduced-rate' === $product->tax_class,
+		];
+
+		if ( null !== $product->sku ) {
+			$payload['model_number'] = $product->sku;
+		}
+
+		[ $price, $sales_price ] = $this->push_prices( $product );
+
+		if ( null !== $price ) {
+			$payload['price'] = $price;
+		}
+
+		if ( null !== $sales_price ) {
+			$payload['sales_price'] = $sales_price;
+		}
+
+		if ( null !== $product->description ) {
+			$payload['expl'] = $product->description;
+		}
+
+		$short_description = Cast::to_string_or_null( $product->extras['short_description'] ?? null );
+
+		if ( null !== $short_description ) {
+			$payload['simple_expl'] = $short_description;
+		}
+
+		[ $category_id_big ] = self::parse_category_ref( $product->category_refs[0] ?? null );
+
+		if ( null !== $category_id_big ) {
+			$payload['category_id_big'] = $category_id_big;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * variable商品は商品レベルの`$product->stock`が常にnull（`Woo\Reader\ProductReader`が
+	 * バリエーション単位でのみ在庫を運ぶ）のため、いずれかのバリエーションが在庫数を持つかで判定する。
+	 */
+	private function is_stock_managed_for_push( CanonicalProduct $product ): bool {
+		if ( null !== $product->stock ) {
+			return true;
+		}
+
+		foreach ( $product->variants as $variant ) {
+			if ( is_array( $variant ) && null !== ( $variant['stock'] ?? null ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Wooの税込価格文字列（`$product->price`=定価/`$product->sale_price`=セール中の実売価格）を
+	 * ColorMeの`price`/`sales_price`へ逆算する。読出方向`prices()`の対称形: セール中
+	 * （`sale_price`非null）は`price`=定価・`sales_price`=実売価格を出し分け、セール外は
+	 * `sales_price`のみへ単一価格を格納する（`price`は省略＝定価無し）。
+	 *
+	 * @return array{0:?int,1:?int} [price, sales_price]
+	 */
+	private function push_prices( CanonicalProduct $product ): array {
+		$on_sale = null !== $product->sale_price;
+
+		$sales_price = $this->to_push_amount( $on_sale ? $product->sale_price : $product->price, $product->tax_class );
+		$price       = $on_sale ? $this->to_push_amount( $product->price, $product->tax_class ) : null;
+
+		return [ $price, $sales_price ];
+	}
+
+	/**
+	 * Woo側の税込文字列金額を、ColorMeの`price`/`sales_price`/`option_price`が使う基準
+	 * （`shop.tax_type`依存）へ変換する。`shop.tax_type=included`ならそのまま、`excluded`なら
+	 * 税込→税抜の除算に`shop.tax_rounding_method`を適用する（読出方向`round_tax()`の除算版・
+	 * 対称の逆変換）。バリエーション価格（`option_price`）も商品レベルの`$tax_class`
+	 * （軽減税率対象かどうか）で税率を判定する（swaggerのvariantスキーマに個別の軽減税率
+	 * フラグが無いため）。未知/欠損の税設定は換算不可としてnullを返し、呼び出し元がその
+	 * 金額フィールドをpayloadから省く（フェイルクローズ。誤った税率で「もっともらしいが誤った」
+	 * 価格を送らない）。
+	 */
+	public function to_push_amount( ?string $tax_inclusive_amount, ?string $tax_class ): ?int {
+		$amount = Cast::to_int_or_null( $tax_inclusive_amount );
+
+		if ( null === $amount ) {
+			return null;
+		}
+
+		if ( 'included' === $this->shop_tax_type ) {
+			return $amount;
+		}
+
+		if ( 'excluded' !== $this->shop_tax_type ) {
+			return null;
+		}
+
+		$rate = 'reduced-rate' === $tax_class ? $this->shop_reduce_tax_rate : $this->shop_tax_rate;
+
+		if ( null === $rate ) {
+			return null;
+		}
+
+		return $this->divide_with_rounding( $amount * 100, 100 + $rate );
+	}
+
+	/**
+	 * `round_tax()`（税抜→税込、除数100固定）の逆方向版: 除数を`100+rate`へ一般化した除算に
+	 * `shop.tax_rounding_method`を適用する。未知の方式（欠損含む）はnullを返す。
+	 */
+	private function divide_with_rounding( int $numerator, int $denominator ): ?int {
+		return match ( $this->shop_tax_rounding_method ) {
+			'round_off' => intdiv( $numerator + intdiv( $denominator, 2 ), $denominator ),
+			'round_down' => intdiv( $numerator, $denominator ),
+			'round_up' => intdiv( $numerator + $denominator - 1, $denominator ),
+			default => null,
+		};
+	}
+
+	/**
+	 * `Cast::category_ref()`（読出方向: id_big/id_smallの合成）の逆変換。`category_refs[0]`の
+	 * 形式は`"{big}-{small}"`（小カテゴリあり）または`"{big}"`（大カテゴリのみ/トップレベル）。
+	 *
+	 * @return array{0:?int,1:?int} [category_id_big, category_id_small]
+	 */
+	private static function parse_category_ref( ?string $ref ): array {
+		if ( null === $ref ) {
+			return [ null, null ];
+		}
+
+		if ( str_contains( $ref, '-' ) ) {
+			[ $big, $small ] = explode( '-', $ref, 2 );
+
+			return [ Cast::to_int_or_null( $big ), Cast::to_int_or_null( $small ) ];
+		}
+
+		return [ Cast::to_int_or_null( $ref ), null ];
+	}
+
+	/**
 	 * @param array<string,mixed> $raw `products[]` の1要素、または `product` 単体。
 	 */
 	public function transform( array $raw ): CanonicalProduct {

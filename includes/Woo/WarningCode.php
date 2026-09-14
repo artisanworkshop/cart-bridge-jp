@@ -245,6 +245,39 @@ final class WarningCode {
 	public const COUPON_MIN_AMOUNT_INVALID = 'coupon_min_amount_invalid';
 
 	/**
+	 * `ColorMeAdapter::push_product()`: 新規作成（`POST /products`）自体は成功したが、
+	 * 作成リクエストが受け付けない項目（`category_id_small`/`group_ids`/`stocks`）を
+	 * 反映するための追いPUT（`PUT /products/{id}`）が失敗した。商品自体は`remote_id`確定済みの
+	 * ため`indicates_unresolved_reference()`の対象にして次回exportで再試行させる。
+	 */
+	public const PRODUCT_DETAILS_PUSH_INCOMPLETE = 'product_details_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: 商品本体（POST/PUT products）は成功したが、
+	 * バリエーションのサブリクエスト（`POST /products/{id}/options`によるオプション作成、
+	 * `PUT /products/{id}/variants/{id}`による価格/型番/在庫設定）の一部が失敗した。
+	 * 商品自体は`remote_id`確定＝created/updatedとして扱うが、`indicates_unresolved_reference()`
+	 * の対象にしてchecksumをキャッシュせず、次回exportで自動的に再試行させる
+	 * （`docs/03-design-decisions.md` §10.2「E2-3への申し送り」の部分完了契約）。
+	 */
+	public const PRODUCT_VARIANT_PUSH_INCOMPLETE = 'product_variant_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: 画像push（`POST /products/{id}/images`、
+	 * プレミアムプラン契約時のみ試行）の一部が失敗した（レート制限・5xx・422等）。
+	 * リトライで解決しうるため`indicates_unresolved_reference()`の対象に含める。
+	 */
+	public const PRODUCT_IMAGE_PUSH_INCOMPLETE = 'product_image_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `capabilities()->can_push_images`が false
+	 * （非プレミアムプラン契約）のため画像を一切pushしなかった。プラン変更しない限り
+	 * 解決しない終端状態のため`indicates_unresolved_reference()`には含めない
+	 * （画像URL一覧の集約UIはE2-4スコープ。本コードは警告としてのみ結果に残す）。
+	 */
+	public const PRODUCT_IMAGES_NOT_PUSHED = 'product_images_not_pushed';
+
+	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {
@@ -350,6 +383,11 @@ final class WarningCode {
 			self::CATEGORY_MAP_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
 			self::ORDER_CUSTOMER_NOT_EXPORTED,
+			// `ColorMeAdapter::push_product()`: 商品本体は作成済みだが追加詳細/バリエーション/画像の
+			// サブリクエストが未完了。次回exportで自動的に再試行される（定数のdocblock参照）。
+			self::PRODUCT_DETAILS_PUSH_INCOMPLETE,
+			self::PRODUCT_VARIANT_PUSH_INCOMPLETE,
+			self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
 		];
 
 		foreach ( $warnings as $warning ) {

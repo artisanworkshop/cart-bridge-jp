@@ -280,6 +280,31 @@ final class Exporter {
 					'remote_id' => $result->remote_id,
 					'checksum'  => $checksum,
 				];
+
+				// バリエーションremote_idの書き戻し（`docs/03-design-decisions.md` §10.2
+				// 「E2-3への申し送り」）。`$read_item->variant_local_ids`と
+				// `$result->variant_remote_ids`は呼び出し時に渡した`CanonicalProduct::$variants`と
+				// 同じ順序・同じ要素数になる契約だが、`$result`は外部アダプタ（`cbjp/adapters/
+				// register`経由）が直接返す信頼境界の外側（アーキテクチャ原則8）のため、
+				// 要素数が一致しない場合は契約違反とみなし無視する（zipしない）。
+				if ( 'product' === $entity && [] !== $result->variant_remote_ids
+					&& count( $read_item->variant_local_ids ) === count( $result->variant_remote_ids ) ) {
+					// 外部アダプタの戻り値はキー順を保証しないため、位置ベースでzipする前に
+					// 両方とも0始まり連番へ揃える。
+					$variant_remote_ids = array_values( $result->variant_remote_ids );
+					$variant_local_ids  = array_values( $read_item->variant_local_ids );
+
+					foreach ( $variant_remote_ids as $index => $variant_remote_id ) {
+						if ( ! is_string( $variant_remote_id ) || '' === $variant_remote_id ) {
+							continue;
+						}
+
+						// `VariationWriter::sync_one()`（インポート方向）と同じ規約: バリエーション
+						// 単位のchecksumは追跡せず常にnullで保存する（親商品のchecksumのみで
+						// 冪等性を判定する）。
+						$this->mappings->upsert( $platform, 'variant', $variant_remote_id, $variant_local_ids[ $index ], null );
+					}
+				}
 			} else {
 				if ( $consumed_quota_slot ) {
 					++$remaining;

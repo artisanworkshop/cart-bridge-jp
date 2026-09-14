@@ -33,6 +33,7 @@ use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
 
@@ -511,8 +512,391 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 	}
 
+	/**
+	 * swagger実測（`docs/reviews/feat/e2-3-push-product/`計画参照）: `POST /products`は
+	 * 13項目（category_id_small/group_ids/stocks/variants/weight/画像を含まない）のみ受け付け、
+	 * `PUT /products/{id}`は加えて`category_id_small`/`group_ids`/`stocks`（simple商品のみ）を
+	 * 受け付ける。バリエーション作成に専用POSTは無く、`POST /options`（軸追加）/
+	 * `POST /options/{id}/values`（値追加）で自動生成されたものを`PUT /variants/{id}`で
+	 * 個別に価格/型番/在庫設定する多段階リクエスト列になる。
+	 *
+	 * 商品本体（POST/PUT products）の失敗のみ例外を投げ`Sync\Exporter`の汎用catchに委ねる。
+	 * それ以降のサブリクエスト（追いPUT/バリエーション/画像）の失敗は商品全体を失敗させず、
+	 * `WarningCode`（`indicates_unresolved_reference()`対象）を積んで部分完了として返す
+	 * （`docs/03-design-decisions.md` §10.2「E2-3への申し送り」の部分完了契約。次回exportで
+	 * checksumがキャッシュされないため自動的に再試行される）。
+	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$transformer = $this->product_transformer();
+		$warnings    = [];
+
+		if ( null === $remote_id ) {
+			$body      = $this->client()->post( 'products.json', [ 'product' => $transformer->to_create_payload( $product ) ] );
+			$operation = PushResult::OPERATION_CREATED;
+		} else {
+			$body      = $this->client()->put( "products/{$remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
+			$operation = PushResult::OPERATION_UPDATED;
+		}
+
+		$product_remote_id = Cast::to_string_or_null( $body['product']['id'] ?? null ) ?? $remote_id;
+
+		if ( null === $product_remote_id ) {
+			// 200/201応答でも商品IDが取得できない場合はスキーマ崩壊とみなし、
+			// `list_from()`等と同じ理由でジョブ全体をリトライ可能な失敗にする
+			// （remote_idが無いまま「成功」を返すとmappingsに書き込めず、次回exportが
+			// 常に新規作成扱いになり重複が発生し続ける）。
+			throw new RuntimeException( 'ColorMe product push response is missing the product id.' );
+		}
+
+		if ( ! isset( $body['product']['id'] ) ) {
+			$this->logger->warning( 'ColorMe product push response was missing the product id; falling back to the known remote_id.', [ 'remote_id' => $product_remote_id ] );
+		}
+
+		$create_payload = $transformer->to_create_payload( $product );
+
+		if ( ! isset( $create_payload['price'] ) && ! isset( $create_payload['sales_price'] ) ) {
+			// 税設定未取得・未知の丸め方式等で価格を一切換算できなかった（`ProductTransformer::
+			// to_push_amount()`が常にnullを返した）。商品自体は作成/更新済みのため商品全体は
+			// 失敗させないが、価格情報の無い商品として送られたことを次回export時の再試行対象にする。
+			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
+		}
+
+		if ( null === $remote_id ) {
+			// 新規作成はPOSTが受け付けない項目（category_id_small/group_ids/stocks）を
+			// 反映するための追いPUTを行う。この追いPUTの失敗は商品自体の作成成功を無効にしない。
+			try {
+				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
+			} catch ( Throwable $exception ) {
+				$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
+			}
+		}
+
+		$variant_remote_ids = [] !== $product->variants
+			? $this->sync_variants( $product_remote_id, $product, $warnings )
+			: [];
+
+		if ( $this->can_push_images() ) {
+			$this->push_images( $product_remote_id, $product, $warnings );
+		} elseif ( [] !== $product->images ) {
+			$warnings[] = WarningCode::PRODUCT_IMAGES_NOT_PUSHED;
+		}
+
+		return new PushResult( $product_remote_id, $operation, $warnings, $variant_remote_ids );
+	}
+
+	/**
+	 * variable商品のバリエーション同期。ColorMeのバリエーションは商品オプション（軸）・
+	 * オプション値の追加で自動生成される方式のため、既存の軸・値を`GET /products/{id}`で読み、
+	 * 不足分だけ`POST /options`/`POST /options/{id}/values`で追加してから再取得し、
+	 * `option1_value`/`option2_value`の組でCanonicalの各バリエーションと突合する。
+	 *
+	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列（参照渡しの代わりに戻り値で反映）。
+	 * @return array<int,string> `$product->variants`と同じ順序・同じ要素数のremote_id一覧
+	 *   （空文字列=未確定/失敗）。
+	 */
+	private function sync_variants( string $product_remote_id, CanonicalProduct $product, array &$warnings ): array {
+		$current = $this->fetch_product_detail( $product_remote_id );
+
+		if ( null === $current ) {
+			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
+
+			return array_fill( 0, count( $product->variants ), '' );
+		}
+
+		$existing_options = is_array( $current['options'] ?? null ) ? $current['options'] : [];
+		$incomplete       = false;
+
+		$axis1_name = self::first_axis_value( $product->variants, 'option1_name' );
+
+		if ( null !== $axis1_name && ! $this->ensure_option_values( $product_remote_id, $axis1_name, self::axis_values( $product->variants, 'option1_value' ), $existing_options ) ) {
+			$incomplete = true;
+		}
+
+		$axis2_name = self::first_axis_value( $product->variants, 'option2_name' );
+
+		if ( null !== $axis2_name && ! $this->ensure_option_values( $product_remote_id, $axis2_name, self::axis_values( $product->variants, 'option2_value' ), $existing_options ) ) {
+			$incomplete = true;
+		}
+
+		$refreshed = $this->fetch_product_detail( $product_remote_id );
+
+		if ( null === $refreshed ) {
+			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
+
+			return array_fill( 0, count( $product->variants ), '' );
+		}
+
+		$remote_variants = is_array( $refreshed['variants'] ?? null ) ? $refreshed['variants'] : [];
+		$remote_by_key   = [];
+
+		foreach ( $remote_variants as $remote_variant ) {
+			if ( ! is_array( $remote_variant ) ) {
+				continue;
+			}
+
+			$remote_id = Cast::to_string_or_null( $remote_variant['id'] ?? null );
+
+			if ( null === $remote_id ) {
+				continue;
+			}
+
+			$remote_by_key[ self::variant_key( $remote_variant['option1_value'] ?? null, $remote_variant['option2_value'] ?? null ) ] = $remote_id;
+		}
+
+		$result = [];
+
+		foreach ( $product->variants as $variant ) {
+			$key               = self::variant_key( $variant['option1_value'] ?? null, $variant['option2_value'] ?? null );
+			$variant_remote_id = $remote_by_key[ $key ] ?? null;
+
+			if ( null === $variant_remote_id ) {
+				$incomplete = true;
+				$result[]   = '';
+				continue;
+			}
+
+			if ( $this->push_variant_details( $product_remote_id, $variant_remote_id, $product, $variant ) ) {
+				$result[] = $variant_remote_id;
+			} else {
+				$incomplete = true;
+				$result[]   = '';
+			}
+		}
+
+		if ( $incomplete ) {
+			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @return ?array<string,mixed>
+	 */
+	private function fetch_product_detail( string $product_remote_id ): ?array {
+		try {
+			$body = $this->client()->get( "products/{$product_remote_id}.json" );
+		} catch ( Throwable $exception ) {
+			return null;
+		}
+
+		$product = $body['product'] ?? null;
+
+		return is_array( $product ) ? $product : null;
+	}
+
+	/**
+	 * `$axis_values`のうち既存オプション（`name`一致）にまだ無い値を追加する。該当オプション
+	 * 自体が無ければ`POST /options`で全値まとめて新規作成する（1商品最大2オプションのため、
+	 * 既に無関係な2オプションが存在する場合は422で失敗しうる＝falseを返す。フェイルクローズ）。
+	 *
+	 * @param array<int,array<string,mixed>> $existing_options
+	 * @param array<int,string>              $axis_values
+	 */
+	private function ensure_option_values( string $product_remote_id, string $axis_name, array $axis_values, array $existing_options ): bool {
+		$existing = null;
+
+		foreach ( $existing_options as $option ) {
+			if ( is_array( $option ) && Cast::to_string_or_null( $option['name'] ?? null ) === $axis_name ) {
+				$existing = $option;
+				break;
+			}
+		}
+
+		if ( null === $existing ) {
+			try {
+				$this->client()->post(
+					"products/{$product_remote_id}/options.json",
+					[
+						'option' => [
+							'name'   => $axis_name,
+							'values' => $axis_values,
+						],
+					]
+				);
+
+				return true;
+			} catch ( Throwable $exception ) {
+				return false;
+			}
+		}
+
+		$option_id = Cast::to_string_or_null( $existing['id'] ?? null );
+
+		if ( null === $option_id ) {
+			return false;
+		}
+
+		$existing_values = is_array( $existing['values'] ?? null ) ? Cast::strings( $existing['values'] ) : [];
+		$ok              = true;
+
+		foreach ( $axis_values as $value ) {
+			if ( in_array( $value, $existing_values, true ) ) {
+				continue;
+			}
+
+			try {
+				$this->client()->post(
+					"products/{$product_remote_id}/options/{$option_id}/values.json",
+					[ 'option_value' => [ 'name' => $value ] ]
+				);
+			} catch ( Throwable $exception ) {
+				$ok = false;
+			}
+		}
+
+		return $ok;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $variants
+	 */
+	private static function first_axis_value( array $variants, string $name_key ): ?string {
+		foreach ( $variants as $variant ) {
+			$name = is_array( $variant ) ? Cast::to_string_or_null( $variant[ $name_key ] ?? null ) : null;
+
+			if ( null !== $name ) {
+				return $name;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $variants
+	 * @return array<int,string> 重複なし・出現順。
+	 */
+	private static function axis_values( array $variants, string $value_key ): array {
+		$values = [];
+
+		foreach ( $variants as $variant ) {
+			$value = is_array( $variant ) ? Cast::to_string_or_null( $variant[ $value_key ] ?? null ) : null;
+
+			if ( null !== $value && ! in_array( $value, $values, true ) ) {
+				$values[] = $value;
+			}
+		}
+
+		return $values;
+	}
+
+	private static function variant_key( mixed $option1_value, mixed $option2_value ): string {
+		return ( Cast::to_string_or_null( $option1_value ) ?? '' ) . "\x00" . ( Cast::to_string_or_null( $option2_value ) ?? '' );
+	}
+
+	/**
+	 * @param array<string,mixed> $variant `CanonicalProduct::$variants`の1要素。
+	 */
+	private function push_variant_details( string $product_remote_id, string $variant_remote_id, CanonicalProduct $product, array $variant ): bool {
+		$payload = [];
+
+		$sku = Cast::to_string_or_null( $variant['sku'] ?? null );
+
+		if ( null !== $sku ) {
+			$payload['model_number'] = $sku;
+		}
+
+		$price = $this->product_transformer()->to_push_amount( Cast::to_string_or_null( $variant['price'] ?? null ), $product->tax_class );
+
+		if ( null !== $price ) {
+			$payload['option_price'] = $price;
+		}
+
+		$stock = $variant['stock'] ?? null;
+
+		if ( is_int( $stock ) ) {
+			$payload['stocks'] = $stock;
+		}
+
+		$weight = $variant['weight'] ?? null;
+
+		if ( is_int( $weight ) ) {
+			$payload['weight'] = $weight;
+		}
+
+		if ( [] === $payload ) {
+			return true;
+		}
+
+		try {
+			$this->client()->put( "products/{$product_remote_id}/variants/{$variant_remote_id}.json", [ 'variant' => $payload ] );
+
+			return true;
+		} catch ( Throwable $exception ) {
+			return false;
+		}
+	}
+
+	/**
+	 * 画像push（`POST /products/{id}/images`、`multipart/form-data`、プレミアムプラン限定。
+	 * 呼び出し元=`push_product()`が`can_push_images()`で事前に判定する）。Wooの画像はこの
+	 * プラグインが動くWordPressサイト自身のメディア（`Woo\Reader\ProductReader::images()`が
+	 * 返す`src`はローカルURL）のため、`wp_remote_get()`でバイナリを取得してからカラーミーへ
+	 * 再アップロードする（`Support\HttpClient`はJSON body専用のためここは生のWP HTTP APIを使う）。
+	 * 1件の失敗は商品全体を失敗させず、警告のみ積んで処理を続ける。
+	 *
+	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列（参照渡しの代わりに戻り値で反映）。
+	 */
+	private function push_images( string $product_remote_id, CanonicalProduct $product, array &$warnings ): void {
+		$incomplete = false;
+
+		foreach ( $product->images as $image ) {
+			if ( ! is_array( $image ) ) {
+				$incomplete = true;
+				continue;
+			}
+
+			$src      = Cast::to_string_or_null( $image['src'] ?? null );
+			$position = $image['position'] ?? null;
+
+			if ( null === $src || ! is_int( $position ) || $position < 0 || $position > 49 ) {
+				$incomplete = true;
+				continue;
+			}
+
+			$binary = self::fetch_image_binary( $src );
+
+			if ( null === $binary ) {
+				$incomplete = true;
+				continue;
+			}
+
+			try {
+				$this->client()->post_multipart(
+					"products/{$product_remote_id}/images.json",
+					'image',
+					self::image_filename( $src, $position ),
+					$binary,
+					[ 'position' => $position ]
+				);
+			} catch ( Throwable $exception ) {
+				$incomplete = true;
+			}
+		}
+
+		if ( $incomplete ) {
+			$warnings[] = WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE;
+		}
+	}
+
+	private static function fetch_image_binary( string $url ): ?string {
+		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
+
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return null;
+		}
+
+		$body = wp_remote_retrieve_body( $response );
+
+		return '' !== $body ? $body : null;
+	}
+
+	private static function image_filename( string $url, int $position ): string {
+		$path     = wp_parse_url( $url, PHP_URL_PATH );
+		$basename = is_string( $path ) ? wp_basename( $path ) : '';
+
+		return '' !== $basename ? $basename : "image-{$position}.jpg";
 	}
 
 	public function push_category( CanonicalCategory $category ): PushResult {
