@@ -85,9 +85,11 @@ final class CouponReader implements EntityReader {
 		$query = new WP_Query( $args );
 
 		$items = array_values(
-			array_map(
-				fn ( int $coupon_id ): ReadItem => $this->to_read_item( new WC_Coupon( $coupon_id ) ),
-				$query->posts
+			array_filter(
+				array_map(
+					fn ( int $coupon_id ): ?ReadItem => $this->to_read_item_if_current( $coupon_id ),
+					$query->posts
+				)
 			)
 		);
 
@@ -95,6 +97,25 @@ final class CouponReader implements EntityReader {
 		$has_next_page = null === $only_local_ids && $page < (int) $query->max_num_pages;
 
 		return new ReadPage( $items, $has_next_page ? new Cursor( [ 'page' => $page + 1 ] ) : null, null !== $only_local_ids ? null : (int) $query->found_posts );
+	}
+
+	/**
+	 * `WP_Query`がIDを取得してから`new WC_Coupon($coupon_id)`で構築するまでの間にクーポンが
+	 * 削除されると、`WC_Coupon::__construct()`は`'shop_coupon' === get_post_type($id)`の検証に
+	 * 失敗しても例外を投げず「新規未保存クーポン」として扱う（`get_id()`が`0`、`code`/`amount`は
+	 * クラス既定値。CLAUDE.md参照）。このstale IDをそのまま`to_read_item()`へ渡すと、
+	 * `local_id=0`の空クーポンがexport/dry-run結果に紛れ込む（Copilot指摘, PR #41 G2）。
+	 * `get_id() !== $coupon_id`で実在確認し、stale行はスキップする（次回以降のページには
+	 * 現れなくなるだけで、再試行可能な性質の状態のため警告は積まない）。
+	 */
+	private function to_read_item_if_current( int $coupon_id ): ?ReadItem {
+		$coupon = new WC_Coupon( $coupon_id );
+
+		if ( $coupon->get_id() !== $coupon_id ) {
+			return null;
+		}
+
+		return $this->to_read_item( $coupon );
 	}
 
 	private function to_read_item( WC_Coupon $coupon ): ReadItem {

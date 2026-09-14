@@ -388,4 +388,25 @@ final class CouponReaderTest extends WooTestCase {
 		sort( $ids );
 		$this->assertSame( $ids, $all_ids );
 	}
+
+	/**
+	 * `WP_Query`がIDを取得してから`new WC_Coupon($coupon_id)`で構築するまでの間にクーポンが
+	 * 削除されると（本テストではその間隙を`ReflectionMethod`で直接再現する。`WP_Query`自体は
+	 * 削除済み投稿を`post_status=>publish`条件で返さないため、`query()`経由では実プロセスの
+	 * 競合状態を単一プロセスのテストで再現できない）、`WC_Coupon::__construct()`は例外を投げず
+	 * 「新規未保存クーポン」として扱う（`get_id()===0`。CLAUDE.md参照）。stale行が
+	 * `local_id=0`の空`ReadItem`として紛れ込まないことを確認する（Copilot指摘, PR #41 G2）。
+	 */
+	public function test_stale_coupon_id_is_skipped_without_warning(): void {
+		$coupon    = $this->create_coupon( 'STALECODE' );
+		$coupon_id = $coupon->get_id();
+		wp_delete_post( $coupon_id, true );
+
+		$method = new \ReflectionMethod( CouponReader::class, 'to_read_item_if_current' );
+		$method->setAccessible( true );
+
+		$result = $method->invoke( $this->make_reader(), $coupon_id );
+
+		$this->assertNull( $result );
+	}
 }

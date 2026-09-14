@@ -390,9 +390,18 @@ final class OrderReader implements EntityReader {
 	 * `WC_Data::set_props()`はこの例外をプロパティ毎にcatchするため、`get_product_id()`自体が
 	 * この時点で既定値`0`を返してしまい（`WC_Coupon::set_amount()`と同じ「set_props()がプロパティ毎に
 	 * 例外を握りつぶす」パターン。CLAUDE.md参照）、削除済み商品への参照と「一度も商品リンクを
-	 * 持たない正当なカスタム行」がCRUD層では区別できなくなる。一方、order-item-metaの生の値
-	 * （`_product_id`）はこの検証を経ないため削除後も元のIDのまま残る（実測確認済み）。
-	 * `get_metadata()`でWCのCRUD層を経由せず直接読み、区別する。
+	 * 持たない行」がCRUD層では区別できなくなる。一方、order-item-metaの生の値（`_product_id`）は
+	 * この検証を経ないため削除後も元のIDのまま残る（実測確認済み）。`get_metadata()`でWCのCRUD層を
+	 * 経由せず直接読み、区別する。
+	 *
+	 * 商品リンクを一度も持たない行（`ORDER_LINE_PRODUCT_MISSING`）も、バリエーションの識別に
+	 * 失敗した行（`ORDER_LINE_VARIATION_UNRESOLVED`。削除済み、または軸が3つ以上で
+	 * option1/2だけでは異なるバリエーションと区別できない場合）も、いずれも
+	 * `indicates_export_blocking()`の対象にする: 対応ASP（ColorMe）の受注作成APIは
+	 * 明細ごとに商品参照を必須とするため、`remote_product_id`が無い行・意図しない
+	 * バリエーションを指しうる行を「無警告の正当なカスタム行」として無警告でpushすると、
+	 * push先で拒否される・または誤った商品/バリエーションの受注として作成されてしまう
+	 * （Copilot指摘, PR #41 G2）。
 	 *
 	 * @return array{0:?string,1:?string,2:?string,3:?string} [remote_product_id, 警告, option1_value, option2_value]
 	 */
@@ -403,8 +412,7 @@ final class OrderReader implements EntityReader {
 			$deleted_product_id = (int) get_metadata( 'order_item', $order_item->get_id(), '_product_id', true );
 
 			if ( 0 === $deleted_product_id ) {
-				// 商品リンクを一度も持たない正当なカスタム行（サービス料等）。解決対象が無いため警告も出さない。
-				return [ null, null, null, null ];
+				return [ null, WarningCode::ORDER_LINE_PRODUCT_MISSING, null, null ];
 			}
 
 			return [ null, WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $deleted_product_id ), null, null ];
@@ -419,10 +427,25 @@ final class OrderReader implements EntityReader {
 		$variation_id = $order_item->get_variation_id();
 
 		if ( 0 === $variation_id ) {
-			return [ $remote_id, null, null, null ];
+			// `get_variation_id()`も`get_product_id()`と同じ「削除済み参照はCRUD層が既定値へ
+			// リセットする」パターン（`WC_Order_Item_Product::set_variation_id()`も投稿タイプ検証を
+			// 持つ。実測確認済み）。生のorder-item-meta（`_variation_id`）を直接読み、
+			// バリエーション自体は削除済みだが本来variation明細だった行を「単純商品の明細」と
+			// 取り違えないようにする。
+			$deleted_variation_id = (int) get_metadata( 'order_item', $order_item->get_id(), '_variation_id', true );
+
+			if ( 0 === $deleted_variation_id ) {
+				return [ $remote_id, null, null, null ];
+			}
+
+			return [ $remote_id, WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $deleted_variation_id ), null, null ];
 		}
 
-		[ $option1_value, $option2_value ] = $this->variation_option_values( $product_id, $variation_id );
+		[ $option1_value, $option2_value, $variation_resolved ] = $this->variation_option_values( $product_id, $variation_id );
+
+		if ( ! $variation_resolved ) {
+			return [ $remote_id, WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), null, null ];
+		}
 
 		return [ $remote_id, null, $option1_value, $option2_value ];
 	}
@@ -430,29 +453,39 @@ final class OrderReader implements EntityReader {
 	/**
 	 * バリエーション明細のoption1/2値を親商品の軸属性から導出する（`Woo\Reader\ProductReader`が
 	 * `push_product()`用に組み立てるのと同じ値。`Woo\Support\VariationAxisResolver`で共有）。
-	 * 親またはバリエーション自体が取得できない（削除済み等）場合は`null`のまま返す:
-	 * この場合でも`remote_product_id`（親商品）自体は解決済みのため明細は残り、単に
-	 * どのバリエーションかを識別する情報が欠けるだけに留める。
+	 * `$resolved=false`は2パターン: (1) 親またはバリエーション自体が取得できない（削除済み等）、
+	 * (2) 親の軸が3つ以上（`VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_
+	 * EXCEEDED`を積む）。`Woo\Reader\ProductReader`はこのケースを無警告（3軸目を切り捨てるだけ）で
+	 * 扱うが、受注明細では3軸目の値が異なる複数のバリエーションがoption1/2の組だけでは区別できず
+	 * 誤った商品を受注として記録しうるため、product exportより厳しくここでは解決不能として扱う
+	 * （Copilot指摘, PR #41 G2: 当初は`$axis_warnings`を破棄しており、この警告が受注側へ
+	 * 伝播していなかった）。
 	 *
-	 * @return array{0:?string,1:?string}
+	 * @return array{0:?string,1:?string,2:bool} [option1_value, option2_value, resolved]
 	 */
 	private function variation_option_values( int $product_id, int $variation_id ): array {
 		$parent = wc_get_product( $product_id );
 
 		if ( ! $parent instanceof WC_Product_Variable ) {
-			return [ null, null ];
+			return [ null, null, false ];
 		}
 
 		$variation = wc_get_product( $variation_id );
 
 		if ( ! $variation instanceof WC_Product_Variation || null === get_post( $variation_id ) ) {
-			return [ null, null ];
+			return [ null, null, false ];
 		}
 
 		$axis_warnings   = [];
 		$axis_attributes = VariationAxisResolver::axis_attributes( $parent, $axis_warnings );
 
-		return VariationAxisResolver::option_values( $variation, $axis_attributes );
+		if ( [] !== $axis_warnings ) {
+			return [ null, null, false ];
+		}
+
+		[ $option1_value, $option2_value ] = VariationAxisResolver::option_values( $variation, $axis_attributes );
+
+		return [ $option1_value, $option2_value, true ];
 	}
 
 	/**

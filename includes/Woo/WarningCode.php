@@ -133,17 +133,48 @@ final class WarningCode {
 	 * set_product_id()`は投稿タイプ検証を持ち、参照先が削除済みだと`WC_Data_Exception`を投げる。
 	 * データストアの`read()`が呼ぶ`WC_Data::set_props()`はこれをプロパティ毎にcatchするため、
 	 * `get_product_id()`自体が既定値`0`を返してしまい（`WC_Coupon::set_amount()`と同じ
-	 * パターン）、削除済み商品への参照と「一度も商品リンクを持たない正当なカスタム行」がCRUD層
-	 * では区別できなくなる。`Woo\Reader\OrderReader::remote_product_id()`は生のorder-item-meta
-	 * （`_product_id`。CRUD層の検証を経ないため削除後も元のIDのまま残る）を直接読んで区別する。
+	 * パターン）、削除済み商品への参照と「一度も商品リンクを持たない行」（`ORDER_LINE_PRODUCT_
+	 * MISSING`）がCRUD層では区別できなくなる。`Woo\Reader\OrderReader::remote_product_id()`は
+	 * 生のorder-item-meta（`_product_id`。CRUD層の検証を経ないため削除後も元のIDのまま残る）を
+	 * 直接読んで区別する。
 	 *
 	 * 対応ASP（ColorMe）の受注作成APIは明細ごとに商品参照を必須とするため、`remote_product_id=null`
-	 * のまま「商品リンクを持たない正当なカスタム行」と区別せずpushすると、push先で拒否される・
-	 * または実際には存在した商品の参照が黙って失われた注文として作成されてしまう（Codex指摘,
-	 * PR #41 #11: 当初は無警告で`remote_product_id=null`を返していた）。
-	 * `indicates_export_blocking()`の対象にしてpush自体を止める。
+	 * のまま無警告でpushすると、push先で拒否される・または実際には存在した商品の参照が黙って
+	 * 失われた注文として作成されてしまう（Codex指摘, PR #41 #11: 当初は無警告で
+	 * `remote_product_id=null`を返していた）。`indicates_export_blocking()`の対象にして
+	 * push自体を止める。
 	 */
 	public const ORDER_LINE_PRODUCT_DELETED = 'order_line_product_deleted';
+
+	/**
+	 * エクスポート時、受注明細（`WC_Order_Item_Product`）が一度も商品リンクを持たない
+	 * （`get_product_id()`が`0`、かつ生のorder-item-meta（`_product_id`）も`0`＝
+	 * `ORDER_LINE_PRODUCT_DELETED`の「削除済み」には該当しない）（`Woo\Reader\OrderReader`）。
+	 * 対応ASP（ColorMe）の受注作成APIは明細ごとに商品参照を必須とするため、このような行を
+	 * 「商品リンクを持たない正当なカスタム行」として無警告でpushすると、`ORDER_LINE_PRODUCT_
+	 * DELETED`と同じ理由でpush先に拒否・または不正な明細として扱われうる（Copilot指摘, PR #41
+	 * G2: 当初は「正当なカスタム行」として無警告のまま扱っていた）。`indicates_export_blocking()`
+	 * の対象にしてpush自体を止める。
+	 */
+	public const ORDER_LINE_PRODUCT_MISSING = 'order_line_product_missing';
+
+	/**
+	 * エクスポート時、バリエーション明細の親商品自体は解決できたが、バリエーションの識別に
+	 * 失敗した（`Woo\Reader\OrderReader::remote_product_id()`/`variation_option_values()`）。
+	 * 3パターンある: (1) `get_variation_id()`が既定値`0`にリセットされている＝バリエーション
+	 * 自体が削除済み（`get_product_id()`と同じ「`WC_Order_Item_Product::set_variation_id()`の
+	 * 投稿タイプ検証失敗→`WC_Data_Exception`→`set_props()`がプロパティ毎にcatch」パターン。
+	 * 生のorder-item-meta（`_variation_id`）で判別する。実測確認済み）、(2) `get_variation_id()`は
+	 * 非0だが対応する`WC_Product_Variation`自体が取得できない、(3) 親商品の軸属性が3つ以上
+	 * （`Woo\Support\VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_EXCEEDED`
+	 * を積む。`CanonicalProduct::$variants`のoption1/2規約は2軸までのため3軸目以降を切り捨てる）。
+	 * `Woo\Reader\ProductReader`はこの(3)を無警告（切り捨てるだけ）で扱うが、受注明細では3軸目の
+	 * 値が異なる複数のバリエーションがoption1/2の組だけでは区別できず、誤った商品を受注として
+	 * 記録しうる（Copilot指摘, PR #41 G2: 当初は`variation_option_values()`内で
+	 * `VARIATION_AXIS_LIMIT_EXCEEDED`警告を破棄しており受注側へ伝播していなかった）。
+	 * `indicates_export_blocking()`の対象にしてpush自体を止める。
+	 */
+	public const ORDER_LINE_VARIATION_UNRESOLVED = 'order_line_variation_unresolved';
 
 	/**
 	 * エクスポート時、受注が一部/全額返金済み（`WC_Order::get_total_refunded() > 0`）
@@ -277,9 +308,15 @@ final class WarningCode {
 			self::CURRENCY_MISMATCH,
 			// `Woo\Reader\OrderReader`: 受注明細が参照していた商品/バリエーションが削除済みで
 			// `remote_product_id`を恒久的に特定できない。対応ASPの受注作成APIは明細ごとの商品参照を
-			// 必須とするため、参照を持たない正当なカスタム行と区別せずpushしない（詳細は定数の
-			// docblock参照）。
+			// 必須とするため、参照を持たない行と区別せずpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_LINE_PRODUCT_DELETED,
+			// `Woo\Reader\OrderReader`: 受注明細が一度も商品リンクを持たない（詳細は定数の
+			// docblock参照）。
+			self::ORDER_LINE_PRODUCT_MISSING,
+			// `Woo\Reader\OrderReader`: バリエーション明細の親商品は解決できたが、バリエーション
+			// 自体の識別に失敗した（削除済み、または軸3つ以上でoption1/2だけでは区別不能。詳細は
+			// 定数のdocblock参照）。
+			self::ORDER_LINE_VARIATION_UNRESOLVED,
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_REFUNDED,

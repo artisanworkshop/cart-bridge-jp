@@ -562,6 +562,123 @@ final class OrderReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * `WC_Order_Item_Product`が一度も商品リンクを持たない（`product_id`が既定値`0`のまま）場合、
+	 * 対応ASPの受注作成APIが明細ごとに必須とする商品参照を欠いたままpushされうるため
+	 * `ORDER_LINE_PRODUCT_MISSING`でexport blockingにする（Copilot指摘, PR #41 G2: 当初は
+	 * 「正当なカスタム行」として無警告で扱っていた）。
+	 */
+	public function test_line_item_without_any_product_link_blocks_export(): void {
+		$order = wc_create_order();
+		$item  = new WC_Order_Item_Product();
+		$item->set_name( 'Custom line without product link' );
+		$item->set_quantity( 1 );
+		$item->set_subtotal( '1000' );
+		$item->set_total( '1000' );
+		$item->set_taxes(
+			[
+				'total'    => [ 0 => '0' ],
+				'subtotal' => [ 0 => '0' ],
+			]
+		);
+		$order->add_item( $item );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
+		$this->assertContains( WarningCode::ORDER_LINE_PRODUCT_MISSING, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 親商品は解決できてもバリエーション自体が削除済みだと、option1/2値でどのバリエーションかを
+	 * 特定できない。親商品だけを指す不明瞭な明細を無警告でpushしない（Copilot指摘, PR #41 G2）。
+	 */
+	public function test_variation_line_item_with_deleted_variation_blocks_export(): void {
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Shirt' );
+		$attribute = new WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( [ 'S' ] );
+		$attribute->set_position( 0 );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$parent->set_attributes( [ $attribute ] );
+		$parent_id = $parent->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes( [ 'size' => 'S' ] );
+		$variation->set_regular_price( '1000' );
+		$variation_id = $variation->save();
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $parent_id, 1, '1000', '0', $variation_id );
+		$order->save();
+
+		wp_delete_post( $variation_id, true );
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 親商品の軸が3つ以上ある場合、`VariationAxisResolver::axis_attributes()`は3軸目以降を
+	 * 切り捨てる（`ProductReader`と共有するロジック）。受注明細でoption1/2だけを頼りに
+	 * バリエーションを識別すると、3軸目の値が異なる複数のバリエーション同士を区別できず
+	 * 誤った商品を受注として記録しうるため、export blockingにする（Copilot指摘, PR #41 G2）。
+	 */
+	public function test_variation_line_item_with_three_axes_blocks_export(): void {
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Shirt' );
+
+		$attributes = [];
+		foreach ( [ 'Size', 'Color', 'Material' ] as $index => $name ) {
+			$attribute = new WC_Product_Attribute();
+			$attribute->set_id( 0 );
+			$attribute->set_name( $name );
+			$attribute->set_options( [ 'A' ] );
+			$attribute->set_position( $index );
+			$attribute->set_visible( true );
+			$attribute->set_variation( true );
+			$attributes[] = $attribute;
+		}
+		$parent->set_attributes( $attributes );
+		$parent_id = $parent->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes(
+			[
+				'size'     => 'A',
+				'color'    => 'A',
+				'material' => 'A',
+			]
+		);
+		$variation->set_regular_price( '1000' );
+		$variation_id = $variation->save();
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent-3axis', $parent_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $parent_id, 1, '1000', '0', $variation_id );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
 	 * ColorMeの`POST /v1/sales`は`details[].product_id`に**親商品**のremote_idを要求し、
 	 * バリエーションは`option1_value_current`で識別する契約（Codex指摘 #6）。`variant`mapping
 	 * （`v-child`）ではなく`product`mapping（`p-parent`）が使われることを確認する。
