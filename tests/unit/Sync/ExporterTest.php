@@ -382,6 +382,29 @@ final class ExporterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * R1レビュー指摘: 親商品側にはPR #40 G3で「remote_idが変わったら旧行をdelete_one()する」
+	 * 修正が入っているが、当初のvariant書き戻しには同じ処理が無かった。Woo側の属性値リネーム等で
+	 * ColorMeが同じバリエーションに対し新しいremote_idを自動生成した場合、旧remote_idの行が
+	 * 孤児として残らないことを確認する。
+	 */
+	public function test_stale_variant_mapping_row_is_replaced_when_writer_returns_a_new_variant_remote_id(): void {
+		$this->mappings->upsert( 'mock', 'variant', 'old-variant-remote-id', 201, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ 'new-variant-remote-id' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 'new-variant-remote-id', $this->mappings->find_remote_id( 'mock', 'variant', 201 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', 'old-variant-remote-id' ), '旧remote_idの行が孤児として残っていないこと' );
+	}
+
+	/**
 	 * `$result`は`cbjp/adapters/register`経由の外部アダプタが直接返す信頼境界の外側
 	 * （アーキテクチャ原則8）。`variant_remote_ids`の要素数が`ReadItem::$variant_local_ids`と
 	 * 一致しない契約違反は、誤った対応付けでmappingを書き込まないよう無視する（zipしない）。

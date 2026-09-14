@@ -32,6 +32,7 @@ use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -556,19 +557,31 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		if ( ! isset( $create_payload['price'] ) && ! isset( $create_payload['sales_price'] ) ) {
 			// 税設定未取得・未知の丸め方式等で価格を一切換算できなかった（`ProductTransformer::
-			// to_push_amount()`が常にnullを返した）。商品自体は作成/更新済みのため商品全体は
-			// 失敗させないが、価格情報の無い商品として送られたことを次回export時の再試行対象にする。
+			// to_push_amount()`が常にnullを返した）。`base_payload()`が既にdisplay_stateを
+			// hiddenへ強制しているため商品自体は非公開で作成/更新済みだが、価格解決後の
+			// 再exportで正しい状態（showing・正しい価格）へ戻すためchecksumをキャッシュさせない。
 			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
 		}
 
 		if ( null === $remote_id ) {
 			// 新規作成はPOSTが受け付けない項目（category_id_small/group_ids/stocks）を
 			// 反映するための追いPUTを行う。この追いPUTの失敗は商品自体の作成成功を無効にしない。
+			$details_failure = [
+				'retryable' => false,
+				'terminal'  => false,
+			];
+
 			try {
 				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
+			} catch ( RateLimitExhaustedException $exception ) {
+				// レート制限はジョブ全体を一時停止すべきシグナル（`Sync\Exporter`のPR #40 G1-1
+				// 専用catch）のため、ここでは握り潰さずそのまま再スローする。
+				throw $exception;
 			} catch ( Throwable $exception ) {
-				$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
+				self::record_failure( $details_failure, $exception );
 			}
+
+			self::append_failure_warning( $warnings, $details_failure, WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE, WarningCode::PRODUCT_DETAILS_PUSH_FAILED );
 		}
 
 		$variant_remote_ids = [] !== $product->variants
@@ -585,98 +598,156 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * サブリクエスト（追いPUT・オプション/値追加・バリエーションPUT・画像push）の失敗が
+	 * 再試行で解決しうるか判定する。429/5xx/通信断（`ApiException`以外のThrowable）は
+	 * retry-worthy、それ以外の4xx（422の入力エラー・403の権限エラー・404等）は再試行しても
+	 * 解決しない終端状態とみなす（R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が
+	 * 毎回同じ無駄なリクエスト列を繰り返す）。`RateLimitExhaustedException`は呼び出し元が
+	 * 専用catchで先に再スローする契約のため、ここには到達しない。
+	 */
+	private static function is_retryable_failure( Throwable $exception ): bool {
+		if ( ! $exception instanceof ApiException ) {
+			return true;
+		}
+
+		$status = $exception->status_code();
+
+		return 0 === $status || 429 === $status || $status >= 500;
+	}
+
+	/**
+	 * @param array{retryable:bool,terminal:bool} $failure
+	 */
+	private static function record_failure( array &$failure, Throwable $exception ): void {
+		if ( self::is_retryable_failure( $exception ) ) {
+			$failure['retryable'] = true;
+		} else {
+			$failure['terminal'] = true;
+		}
+	}
+
+	/**
+	 * @param array<int,string>                    $warnings
+	 * @param array{retryable:bool,terminal:bool}   $failure
+	 */
+	private static function append_failure_warning( array &$warnings, array $failure, string $retryable_code, string $terminal_code ): void {
+		if ( $failure['retryable'] ) {
+			$warnings[] = $retryable_code;
+		} elseif ( $failure['terminal'] ) {
+			$warnings[] = $terminal_code;
+		}
+	}
+
+	/**
 	 * variable商品のバリエーション同期。ColorMeのバリエーションは商品オプション（軸）・
 	 * オプション値の追加で自動生成される方式のため、既存の軸・値を`GET /products/{id}`で読み、
 	 * 不足分だけ`POST /options`/`POST /options/{id}/values`で追加してから再取得し、
-	 * `option1_value`/`option2_value`の組でCanonicalの各バリエーションと突合する。
+	 * 軸名をキーにした`{軸名: 値}`の組でCanonicalの各バリエーションと突合する（スロット位置
+	 * =`option1`/`option2`ではなく名前で突合する。R1レビュー指摘: ColorMe側の既存オプションの
+	 * スロット割当（作成順で決まる）とWoo側の軸抽出順が食い違う更新ケースでは、スロット位置
+	 * 比較だと軸名は正しく解決されてもバリエーションが恒久的に未確定になる）。
 	 *
 	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列（参照渡しの代わりに戻り値で反映）。
 	 * @return array<int,string> `$product->variants`と同じ順序・同じ要素数のremote_id一覧
 	 *   （空文字列=未確定/失敗）。
 	 */
 	private function sync_variants( string $product_remote_id, CanonicalProduct $product, array &$warnings ): array {
-		$current = $this->fetch_product_detail( $product_remote_id );
+		$failure = [
+			'retryable' => false,
+			'terminal'  => false,
+		];
+
+		$current = $this->fetch_product_detail( $product_remote_id, $failure );
 
 		if ( null === $current ) {
-			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
+			self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, WarningCode::PRODUCT_VARIANT_PUSH_FAILED );
 
 			return array_fill( 0, count( $product->variants ), '' );
 		}
 
 		$existing_options = is_array( $current['options'] ?? null ) ? $current['options'] : [];
-		$incomplete       = false;
 
 		$axis1_name = self::first_axis_value( $product->variants, 'option1_name' );
 
-		if ( null !== $axis1_name && ! $this->ensure_option_values( $product_remote_id, $axis1_name, self::axis_values( $product->variants, 'option1_value' ), $existing_options ) ) {
-			$incomplete = true;
+		if ( null !== $axis1_name ) {
+			$this->ensure_option_values( $product_remote_id, $axis1_name, self::axis_values( $product->variants, 'option1_value' ), $existing_options, $failure );
 		}
 
 		$axis2_name = self::first_axis_value( $product->variants, 'option2_name' );
 
-		if ( null !== $axis2_name && ! $this->ensure_option_values( $product_remote_id, $axis2_name, self::axis_values( $product->variants, 'option2_value' ), $existing_options ) ) {
-			$incomplete = true;
+		if ( null !== $axis2_name ) {
+			$this->ensure_option_values( $product_remote_id, $axis2_name, self::axis_values( $product->variants, 'option2_value' ), $existing_options, $failure );
 		}
 
-		$refreshed = $this->fetch_product_detail( $product_remote_id );
+		$refreshed = $this->fetch_product_detail( $product_remote_id, $failure );
 
 		if ( null === $refreshed ) {
-			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
+			self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, WarningCode::PRODUCT_VARIANT_PUSH_FAILED );
 
 			return array_fill( 0, count( $product->variants ), '' );
 		}
 
-		$remote_variants = is_array( $refreshed['variants'] ?? null ) ? $refreshed['variants'] : [];
+		$remote_variants = is_array( $refreshed['variants'] ?? null ) ? array_values( array_filter( $refreshed['variants'], 'is_array' ) ) : [];
 		$remote_by_key   = [];
 
 		foreach ( $remote_variants as $remote_variant ) {
-			if ( ! is_array( $remote_variant ) ) {
-				continue;
-			}
-
 			$remote_id = Cast::to_string_or_null( $remote_variant['id'] ?? null );
 
 			if ( null === $remote_id ) {
 				continue;
 			}
 
-			$remote_by_key[ self::variant_key( $remote_variant['option1_value'] ?? null, $remote_variant['option2_value'] ?? null ) ] = $remote_id;
+			$remote_by_key[ self::variant_key( self::remote_variant_axis_map( $remote_variant ) ) ] = $remote_id;
+		}
+
+		if ( count( $remote_variants ) > count( $product->variants ) ) {
+			// ColorMeはオプション追加で全組み合わせ（直積）を自動生成するため、Woo側に対応する
+			// バリエーションが無い組み合わせがリモートに残りうる（原則4によりこちらから削除できない）。
+			$warnings[] = WarningCode::PRODUCT_VARIANT_SURPLUS_ON_REMOTE;
 		}
 
 		$result = [];
 
 		foreach ( $product->variants as $variant ) {
-			$key               = self::variant_key( $variant['option1_value'] ?? null, $variant['option2_value'] ?? null );
-			$variant_remote_id = $remote_by_key[ $key ] ?? null;
-
-			if ( null === $variant_remote_id ) {
-				$incomplete = true;
-				$result[]   = '';
+			if ( ! is_array( $variant ) ) {
+				$failure['terminal'] = true;
+				$result[]            = '';
 				continue;
 			}
 
-			if ( $this->push_variant_details( $product_remote_id, $variant_remote_id, $product, $variant ) ) {
+			$key               = self::variant_key( self::variant_axis_map( $variant ) );
+			$variant_remote_id = $remote_by_key[ $key ] ?? null;
+
+			if ( null === $variant_remote_id ) {
+				$failure['terminal'] = true;
+				$result[]            = '';
+				continue;
+			}
+
+			if ( $this->push_variant_details( $product_remote_id, $variant_remote_id, $product, $variant, $failure ) ) {
 				$result[] = $variant_remote_id;
 			} else {
-				$incomplete = true;
-				$result[]   = '';
+				$result[] = '';
 			}
 		}
 
-		if ( $incomplete ) {
-			$warnings[] = WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE;
-		}
+		self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, WarningCode::PRODUCT_VARIANT_PUSH_FAILED );
 
 		return $result;
 	}
 
 	/**
+	 * @param array{retryable:bool,terminal:bool} $failure
 	 * @return ?array<string,mixed>
 	 */
-	private function fetch_product_detail( string $product_remote_id ): ?array {
+	private function fetch_product_detail( string $product_remote_id, array &$failure ): ?array {
 		try {
 			$body = $this->client()->get( "products/{$product_remote_id}.json" );
+		} catch ( RateLimitExhaustedException $exception ) {
+			throw $exception;
 		} catch ( Throwable $exception ) {
+			self::record_failure( $failure, $exception );
+
 			return null;
 		}
 
@@ -689,11 +760,15 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * `$axis_values`のうち既存オプション（`name`一致）にまだ無い値を追加する。該当オプション
 	 * 自体が無ければ`POST /options`で全値まとめて新規作成する（1商品最大2オプションのため、
 	 * 既に無関係な2オプションが存在する場合は422で失敗しうる＝falseを返す。フェイルクローズ）。
+	 * `values`は swagger 実測でオブジェクトの配列（`[{"name":"赤"}, ...]`）であり、
+	 * `GET /products/{id}`レスポンス側の文字列配列とはリクエスト/レスポンスでスキーマが異なる
+	 * （R1レビュー指摘: 文字列配列のまま送ると422になりバリエーションが1件も作られない）。
 	 *
-	 * @param array<int,array<string,mixed>> $existing_options
-	 * @param array<int,string>              $axis_values
+	 * @param array<int,array<string,mixed>>      $existing_options
+	 * @param array<int,string>                   $axis_values
+	 * @param array{retryable:bool,terminal:bool}  $failure
 	 */
-	private function ensure_option_values( string $product_remote_id, string $axis_name, array $axis_values, array $existing_options ): bool {
+	private function ensure_option_values( string $product_remote_id, string $axis_name, array $axis_values, array $existing_options, array &$failure ): bool {
 		$existing = null;
 
 		foreach ( $existing_options as $option ) {
@@ -710,13 +785,17 @@ final class ColorMeAdapter implements PlatformAdapter {
 					[
 						'option' => [
 							'name'   => $axis_name,
-							'values' => $axis_values,
+							'values' => array_map( static fn ( string $value ): array => [ 'name' => $value ], $axis_values ),
 						],
 					]
 				);
 
 				return true;
+			} catch ( RateLimitExhaustedException $exception ) {
+				throw $exception;
 			} catch ( Throwable $exception ) {
+				self::record_failure( $failure, $exception );
+
 				return false;
 			}
 		}
@@ -724,6 +803,8 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$option_id = Cast::to_string_or_null( $existing['id'] ?? null );
 
 		if ( null === $option_id ) {
+			$failure['terminal'] = true;
+
 			return false;
 		}
 
@@ -740,7 +821,10 @@ final class ColorMeAdapter implements PlatformAdapter {
 					"products/{$product_remote_id}/options/{$option_id}/values.json",
 					[ 'option_value' => [ 'name' => $value ] ]
 				);
+			} catch ( RateLimitExhaustedException $exception ) {
+				throw $exception;
 			} catch ( Throwable $exception ) {
+				self::record_failure( $failure, $exception );
 				$ok = false;
 			}
 		}
@@ -781,14 +865,74 @@ final class ColorMeAdapter implements PlatformAdapter {
 		return $values;
 	}
 
-	private static function variant_key( mixed $option1_value, mixed $option2_value ): string {
-		return ( Cast::to_string_or_null( $option1_value ) ?? '' ) . "\x00" . ( Cast::to_string_or_null( $option2_value ) ?? '' );
+	/**
+	 * ローカル（Woo）側バリエーションの`{軸名: 値}`マップ。`option1_name`/`option2_name`が
+	 * 表すスロットはこの商品内の抽出順でしかなく、ColorMe側の既存オプションのスロット割当とは
+	 * 独立（`ensure_option_values()`が軸を名前で解決するのと同じ理由）。
+	 *
+	 * @param array<string,mixed> $variant `CanonicalProduct::$variants`の1要素。
+	 * @return array<string,string>
+	 */
+	private static function variant_axis_map( array $variant ): array {
+		$map = [];
+
+		foreach ( [ 'option1', 'option2' ] as $slot ) {
+			$name  = Cast::to_string_or_null( $variant[ "{$slot}_name" ] ?? null );
+			$value = Cast::to_string_or_null( $variant[ "{$slot}_value" ] ?? null );
+
+			if ( null !== $name && null !== $value ) {
+				$map[ $name ] = $value;
+			}
+		}
+
+		return $map;
 	}
 
 	/**
-	 * @param array<string,mixed> $variant `CanonicalProduct::$variants`の1要素。
+	 * リモート（`GET /products/{id}`レスポンス）側バリエーションの`{軸名: 値}`マップ。
+	 * ネストされた`option1`/`option2`オブジェクト（`{id,name,value_id,value}`）の`name`/`value`
+	 * を使う（フラットな`option1_value`/`option2_value`はスロット位置の情報しか持たない）。
+	 *
+	 * @param array<string,mixed> $remote_variant
+	 * @return array<string,string>
 	 */
-	private function push_variant_details( string $product_remote_id, string $variant_remote_id, CanonicalProduct $product, array $variant ): bool {
+	private static function remote_variant_axis_map( array $remote_variant ): array {
+		$map = [];
+
+		foreach ( [ 'option1', 'option2' ] as $slot ) {
+			$option = $remote_variant[ $slot ] ?? null;
+
+			if ( ! is_array( $option ) ) {
+				continue;
+			}
+
+			$name  = Cast::to_string_or_null( $option['name'] ?? null );
+			$value = Cast::to_string_or_null( $option['value'] ?? null );
+
+			if ( null !== $name && null !== $value ) {
+				$map[ $name ] = $value;
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * `{軸名: 値}`マップを順序非依存の安定した文字列キーへ変換する。
+	 *
+	 * @param array<string,string> $axis_map
+	 */
+	private static function variant_key( array $axis_map ): string {
+		ksort( $axis_map );
+
+		return (string) wp_json_encode( $axis_map );
+	}
+
+	/**
+	 * @param array<string,mixed>                 $variant `CanonicalProduct::$variants`の1要素。
+	 * @param array{retryable:bool,terminal:bool}  $failure
+	 */
+	private function push_variant_details( string $product_remote_id, string $variant_remote_id, CanonicalProduct $product, array $variant, array &$failure ): bool {
 		$payload = [];
 
 		$sku = Cast::to_string_or_null( $variant['sku'] ?? null );
@@ -823,7 +967,11 @@ final class ColorMeAdapter implements PlatformAdapter {
 			$this->client()->put( "products/{$product_remote_id}/variants/{$variant_remote_id}.json", [ 'variant' => $payload ] );
 
 			return true;
+		} catch ( RateLimitExhaustedException $exception ) {
+			throw $exception;
 		} catch ( Throwable $exception ) {
+			self::record_failure( $failure, $exception );
+
 			return false;
 		}
 	}
@@ -839,11 +987,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列（参照渡しの代わりに戻り値で反映）。
 	 */
 	private function push_images( string $product_remote_id, CanonicalProduct $product, array &$warnings ): void {
-		$incomplete = false;
+		$failure = [
+			'retryable' => false,
+			'terminal'  => false,
+		];
 
 		foreach ( $product->images as $image ) {
 			if ( ! is_array( $image ) ) {
-				$incomplete = true;
+				$failure['terminal'] = true;
 				continue;
 			}
 
@@ -851,14 +1002,16 @@ final class ColorMeAdapter implements PlatformAdapter {
 			$position = $image['position'] ?? null;
 
 			if ( null === $src || ! is_int( $position ) || $position < 0 || $position > 49 ) {
-				$incomplete = true;
+				$failure['terminal'] = true;
 				continue;
 			}
 
 			$binary = self::fetch_image_binary( $src );
 
 			if ( null === $binary ) {
-				$incomplete = true;
+				// Wooサイト自身へのローカルHTTP取得の失敗（タイムアウト等）は一時的な事情に
+				// 起因しうるため再試行対象にする。
+				$failure['retryable'] = true;
 				continue;
 			}
 
@@ -870,14 +1023,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 					$binary,
 					[ 'position' => $position ]
 				);
+			} catch ( RateLimitExhaustedException $exception ) {
+				throw $exception;
 			} catch ( Throwable $exception ) {
-				$incomplete = true;
+				self::record_failure( $failure, $exception );
 			}
 		}
 
-		if ( $incomplete ) {
-			$warnings[] = WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE;
-		}
+		self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE, WarningCode::PRODUCT_IMAGE_PUSH_FAILED );
 	}
 
 	private static function fetch_image_binary( string $url ): ?string {

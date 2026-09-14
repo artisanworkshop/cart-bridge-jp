@@ -278,6 +278,35 @@ final class WarningCode {
 	public const PRODUCT_IMAGES_NOT_PUSHED = 'product_images_not_pushed';
 
 	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_DETAILS_PUSH_INCOMPLETE`の終端版。
+	 * 追いPUTの失敗が429/5xx/通信断ではなく4xx（422の入力エラー等）だった場合に積む。
+	 * 再試行しても解決しない終端状態のため`indicates_unresolved_reference()`には含めない
+	 * （R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が毎回同じ無駄なリクエスト列を
+	 * 繰り返す）。
+	 */
+	public const PRODUCT_DETAILS_PUSH_FAILED = 'product_details_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_VARIANT_PUSH_INCOMPLETE`の終端版
+	 * （`PRODUCT_DETAILS_PUSH_FAILED`と同じ理由）。
+	 */
+	public const PRODUCT_VARIANT_PUSH_FAILED = 'product_variant_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_IMAGE_PUSH_INCOMPLETE`の終端版
+	 * （`PRODUCT_DETAILS_PUSH_FAILED`と同じ理由）。
+	 */
+	public const PRODUCT_IMAGE_PUSH_FAILED = 'product_image_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: ColorMeはオプション追加で全組み合わせ（直積）を
+	 * 自動生成するため、Woo側に対応するバリエーションが無い組み合わせがリモートに残ることがある
+	 * （原則4「破壊的操作の禁止」によりこちらから削除できない）。再試行しても消えるとは限らない
+	 * ため`indicates_unresolved_reference()`には含めない、純粋な情報提供の警告。
+	 */
+	public const PRODUCT_VARIANT_SURPLUS_ON_REMOTE = 'product_variant_surplus_on_remote';
+
+	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {

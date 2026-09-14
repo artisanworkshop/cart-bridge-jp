@@ -325,6 +325,37 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNotNull( $this->find_captured( $captured, 'PUT', 'products/501.json' ) );
 	}
 
+	/**
+	 * R1レビュー指摘（CLAUDE.mdアーキテクチャ原則9）: 税設定不明で価格を1件も解決できなかった
+	 * 場合、無価格のまま`showing`で公開すると実質無料で購入可能になりうる。`display_state`を
+	 * `hidden`へ強制し、`PRODUCT_DETAILS_PUSH_INCOMPLETE`（retry対象）を積むことを確認する。
+	 */
+	public function test_push_product_forces_hidden_when_price_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				// tax_type未設定＝税設定不明。税込→ColorMe基準の価格換算が常に不能になる。
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 502 ] ] ] ],
+				'PUT products/502.json' => [ [ 'body' => [ 'product' => [ 'id' => 502 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
+		$this->assertArrayNotHasKey( 'price', $create_request['body']['product'] );
+		$this->assertArrayNotHasKey( 'sales_price', $create_request['body']['product'] );
+	}
+
 	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -381,11 +412,23 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 										'id'            => 9001,
 										'option1_value' => 'Red',
 										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => null,
 									],
 									[
 										'id'            => 9002,
 										'option1_value' => 'Blue',
 										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Blue',
+										],
+										'option2'       => null,
 									],
 								],
 							],
@@ -410,17 +453,221 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [], $result->warnings );
 		$this->assertSame( [ '9001', '9002' ], $result->variant_remote_ids );
 
+		// swagger実測: POST /options の values はオブジェクトの配列（GET応答側の文字列配列とは
+		// リクエスト/レスポンスでスキーマが異なる）。
 		$option_request = $this->find_captured( $captured, 'POST', 'products/900/options.json' );
 		$this->assertNotNull( $option_request );
 		$this->assertSame( 'Color', $option_request['body']['option']['name'] );
-		$this->assertSame( [ 'Red', 'Blue' ], $option_request['body']['option']['values'] );
+		$this->assertSame( [ [ 'name' => 'Red' ], [ 'name' => 'Blue' ] ], $option_request['body']['option']['values'] );
 
 		$variant1_request = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
 		$this->assertNotNull( $variant1_request );
 		$this->assertSame( 'VAR-RED', $variant1_request['body']['variant']['model_number'] );
 	}
 
-	public function test_push_product_marks_variant_sync_incomplete_when_option_creation_fails(): void {
+	/**
+	 * R1レビュー指摘: `ensure_option_values()`は軸を名前で解決するため、ColorMe側の既存
+	 * オプションのスロット割当（作成順で決まる）とWoo側の軸抽出順が一致する保証は無い。
+	 * ここではリモート側で軸のスロットが逆（option1=Size, option2=Color）になっている状態を
+	 * 用意し、`option1_value`/`option2_value`のスロット位置ではなく`{軸名: 値}`で正しく
+	 * 突合できることを確認する。
+	 */
+	public function test_push_product_matches_variants_by_axis_name_even_when_remote_slot_order_differs(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Two Axis Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED-S',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => 'Size',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 950 ] ] ] ],
+				'PUT products/950.json'               => [ [ 'body' => [ 'product' => [ 'id' => 950 ] ] ] ],
+				'GET products/950.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 950,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 950,
+								'options'  => [],
+								'variants' => [
+									[
+										// リモート側はoption1=Size, option2=Colorという逆順で自動生成された想定。
+										'id'            => 9101,
+										'option1_value' => 'S',
+										'option2_value' => 'Red',
+										'option1'       => [
+											'id'    => 2,
+											'name'  => 'Size',
+											'value' => 'S',
+										],
+										'option2'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/950/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/950/variants/9101.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9101 ] ] ] ],
+			]
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [ '9101' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * R1レビュー指摘: ColorMeはオプション追加で全組み合わせ（直積）を自動生成するため、
+	 * Woo側に対応するバリエーションが無い組み合わせがリモートに残りうる（原則4により
+	 * こちらから削除できない）。無警告のままだと店舗オーナーが気付けないため、
+	 * `PRODUCT_VARIANT_SURPLUS_ON_REMOTE`（retry対象外の情報提供のみ）を積むことを確認する。
+	 */
+	public function test_push_product_warns_when_remote_has_surplus_variant_combinations(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 960 ] ] ] ],
+				'PUT products/960.json'               => [ [ 'body' => [ 'product' => [ 'id' => 960 ] ] ] ],
+				'GET products/960.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 960,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 960,
+								'options'  => [],
+								// Wooはvariants=[Red]のみだが、ColorMe側は直積でRed/Blueの2件が
+								// 自動生成された想定（Blueは対応するWooバリエーションが無いまま残る）。
+								'variants' => [
+									[
+										'id'            => 9201,
+										'option1_value' => 'Red',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => null,
+									],
+									[
+										'id'            => 9202,
+										'option1_value' => 'Blue',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Blue',
+										],
+										'option2'       => null,
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/960/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/960/variants/9201.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9201 ] ] ] ],
+			]
+		);
+
+		$product = new CanonicalProduct(
+			'Single Variant Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_SURPLUS_ON_REMOTE ], $result->warnings );
+		$this->assertSame( [ '9201' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * 422（入力エラー）は再試行しても解決しない終端状態のため`PRODUCT_VARIANT_PUSH_FAILED`
+	 * （retry対象外）になる。R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が毎回
+	 * 同じ無駄なリクエスト列を繰り返してしまう。
+	 */
+	public function test_push_product_marks_variant_sync_failed_when_option_creation_gets_a_terminal_error(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -463,7 +710,46 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( '901', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
 		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
-		$this->assertContains( WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, $result->warnings );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+	}
+
+	/**
+	 * 5xx（サーバー側の一時的な障害）は再試行対象の`PRODUCT_VARIANT_PUSH_INCOMPLETE`になる
+	 * （`Exporter`がchecksumをキャッシュせず次回exportで自動的に再試行する）。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_option_creation_gets_a_retryable_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 903 ] ] ] ],
+				'PUT products/903.json'          => [ [ 'body' => [ 'product' => [ 'id' => 903 ] ] ] ],
+				'GET products/903.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 903,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/903/options.json' => [
+					[
+						'body'   => [],
+						'status' => 500,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '903', $result->remote_id );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
 	}
 
 	public function test_push_product_pushes_images_when_premium_plan(): void {

@@ -299,10 +299,22 @@ final class Exporter {
 							continue;
 						}
 
+						$variant_local_id = $variant_local_ids[ $index ];
+
+						// 商品本体と同じ理由（上記コメント参照。PR #40 G3）: Woo側の属性値リネーム等で
+						// ColorMeが同じバリエーションに対し新しいremote_idを自動生成した場合、
+						// 旧remote_idの行が孤児として残らないよう先に削除する（R1レビュー指摘:
+						// 親商品側にしかこの処理が無かった）。
+						$existing_variant_remote_id = $this->mappings->find_remote_id( $platform, 'variant', $variant_local_id );
+
+						if ( null !== $existing_variant_remote_id && $existing_variant_remote_id !== $variant_remote_id ) {
+							$this->mappings->delete_one( $platform, 'variant', $existing_variant_remote_id );
+						}
+
 						// `VariationWriter::sync_one()`（インポート方向）と同じ規約: バリエーション
 						// 単位のchecksumは追跡せず常にnullで保存する（親商品のchecksumのみで
 						// 冪等性を判定する）。
-						$this->mappings->upsert( $platform, 'variant', $variant_remote_id, $variant_local_ids[ $index ], null );
+						$this->mappings->upsert( $platform, 'variant', $variant_remote_id, $variant_local_id, null );
 					}
 				}
 			} else {

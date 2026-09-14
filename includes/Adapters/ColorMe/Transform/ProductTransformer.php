@@ -115,6 +115,15 @@ final class ProductTransformer {
 			$payload['sales_price'] = $sales_price;
 		}
 
+		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
+			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）: 税設定不明・
+			// 未知の丸め方式等で価格を1件も解決できなかった場合、無価格のまま公開すると
+			// 実質無料で購入可能になりうる。display_stateを強制的にhiddenへ倒す
+			// （`ColorMeAdapter::push_product()`が同じ判定から`PRODUCT_DETAILS_PUSH_INCOMPLETE`
+			// を積み、checksumをキャッシュせず価格解決後の再exportで正しい状態に戻す）。
+			$payload['display_state'] = 'hidden';
+		}
+
 		if ( null !== $product->description ) {
 			$payload['expl'] = $product->description;
 		}
