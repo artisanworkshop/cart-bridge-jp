@@ -19,11 +19,22 @@ final class CouponReaderTest extends WooTestCase {
 		return new CouponReader();
 	}
 
+	/**
+	 * `WC_Coupon_Data_Store_CPT::update()`は`code`/`description`/`date_created`/`date_modified`/
+	 * `status`のいずれかが変更された場合のみ`post_status`を`$coupon->get_status('edit')`で
+	 * 上書きする。多くの`*_marks_unsupported`系テストは本メソッドの1回目の保存後に
+	 * `set_product_ids()`等（このいずれにも該当しない）を追加して2回目の保存を行うため実害は
+	 * 無いが、`set_status('publish')`を1回目の保存前に明示しておけば、将来
+	 * `set_description()`/`set_code()`等を追加するテストが増えても`post_status`が`null`扱いに
+	 * ならず安全になる（実測: 状態を明示しないインスタンスへ2回目以降の保存でこれらのプロパティを
+	 * 変更すると`post_status`が`draft`へ落ちる。CLAUDE.md参照）。
+	 */
 	private function create_coupon( string $code, string $discount_type = 'fixed_cart', string $amount = '500' ): WC_Coupon {
 		$coupon = new WC_Coupon();
 		$coupon->set_code( $code );
 		$coupon->set_discount_type( $discount_type );
 		$coupon->set_amount( $amount );
+		$coupon->set_status( 'publish' );
 		$coupon->save();
 
 		return $coupon;
@@ -157,6 +168,26 @@ final class CouponReaderTest extends WooTestCase {
 
 		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
 		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	/**
+	 * レビューで「直接のpostmeta編集で負値/percent型で100超に壊れた`coupon_amount`が
+	 * `CouponReader`まで無検証で届きうる」という指摘があったが、実測すると`WC_Coupon::
+	 * set_amount()`が投げる`WC_Data_Exception`は`WC_Data::set_props()`（`read()`が内部で呼ぶ）が
+	 * プロパティ毎にcatchするため、`amount`プロパティはクラス既定値`'0'`のまま未設定になる。
+	 * つまり`new WC_Coupon($id)`で読み直した時点で既に安全な値（`'0'`）に丸められており、
+	 * `CouponReader`側での追加検証は不要（かつ到達不能）である。この実測結果を固定化する
+	 * ピン留めテスト（CLAUDE.md「レビュー指摘に対してテストを書いたら修正なしで通った場合は、
+	 * 指摘自体が誤りである可能性をまず疑うこと」の実例）。
+	 */
+	public function test_corrupted_negative_amount_reads_back_as_zero_not_negative(): void {
+		$coupon = $this->create_coupon( 'NEGATIVEAMOUNT', 'fixed_cart', '500' );
+		update_post_meta( $coupon->get_id(), 'coupon_amount', '-50' );
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+
+		$this->assertSame( 0.0, (float) $page->items[0]->item->amount );
+		$this->assertFalse( $page->items[0]->item->has_unsupported_restrictions );
 	}
 
 	/**

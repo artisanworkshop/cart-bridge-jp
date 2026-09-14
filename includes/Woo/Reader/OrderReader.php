@@ -9,8 +9,10 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\WarningCode;
+use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_DateTime;
 use WC_Order;
 use WC_Order_Item_Fee;
@@ -145,6 +147,14 @@ final class OrderReader implements EntityReader {
 	private function to_read_item( WC_Order $order ): ReadItem {
 		$warnings = [];
 
+		// 対応ASPの金額はすべて日本円（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`）。店舗通貨が
+		// これと異なる場合、`totals`/`line_items`の金額は換算せずそのまま運ぶ（`OrderWriter`の
+		// インポート方向と同じ前提）ため、E2-3の`push_order()`が誤って日本円として送信しないよう
+		// ここで検知できるようにする（`extras['currency']`に実際の通貨コードも積む）。
+		if ( OrderWriter::PLATFORM_CURRENCY !== $order->get_currency() ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, $order->get_currency() );
+		}
+
 		[ $line_items, $line_item_warnings ] = $this->line_items( $order );
 		$warnings                            = array_merge( $warnings, $line_item_warnings );
 
@@ -193,6 +203,7 @@ final class OrderReader implements EntityReader {
 		return [
 			'customer_snapshot' => $this->customer_snapshot( $order ),
 			'paid'              => null !== $order->get_date_paid(),
+			'currency'          => $order->get_currency(),
 		];
 	}
 
@@ -236,29 +247,57 @@ final class OrderReader implements EntityReader {
 
 			$quantity = $order_item->get_quantity();
 
-			[ $subtotal_excl, $subtotal_tax, $amount_warning ] = $this->line_item_amounts( $order_item, $remote_product_id );
+			// `OrderItemBuilder`（インポート方向）と同じ基準: 数量が欠損・0以下の場合、1個として
+			// 捏造すると実際の購入数と食い違う出荷指示になりうる。明細自体は残しつつ
+			// `ORDER_LINE_QUANTITY_INVALID`で不確かである旨を警告する。
+			if ( $quantity <= 0 ) {
+				$quantity   = 1;
+				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
+			}
+
+			[ $subtotal_minor, $subtotal_tax_minor, $amount_warning ] = $this->line_item_amounts( $order_item, $remote_product_id );
 
 			if ( null !== $amount_warning ) {
 				$warnings[] = $amount_warning;
 			}
 
-			$unit_price_excl_tax = $quantity > 0 ? wc_format_decimal( $subtotal_excl / $quantity ) : '0';
-			$line_total_incl     = wc_format_decimal( $subtotal_excl + $subtotal_tax );
-			$unit_price_incl     = $quantity > 0 ? wc_format_decimal( ( $subtotal_excl + $subtotal_tax ) / $quantity ) : '0';
+			$line_total_minor      = $subtotal_minor + $subtotal_tax_minor;
+			$unit_price_excl_minor = self::divide_minor_units_rounded( $subtotal_minor, $quantity );
+			$unit_price_incl_minor = self::divide_minor_units_rounded( $line_total_minor, $quantity );
+
+			$tax_class = $order_item->get_tax_class();
+
+			// `CanonicalOrder::$line_items[].tax_reduced`はbool（標準/軽減税率の2値）のみで、
+			// `zero-rate`等のその他税区分・非課税/送料のみ課税を表現できない
+			// （`Woo\Reader\ProductReader`の`TAX_STATUS_NOT_TAXABLE`と同じ理由）。
+			if ( ! in_array( $tax_class, [ '', 'reduced-rate' ], true ) || 'taxable' !== $order_item->get_tax_status() ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, $remote_product_id ?? '' );
+			}
 
 			$items[] = [
 				'sku'                 => $this->line_item_sku( $order_item ),
 				'remote_product_id'   => $remote_product_id,
 				'name'                => $order_item->get_name(),
 				'quantity'            => $quantity,
-				'price'               => $unit_price_incl,
-				'subtotal'            => $line_total_incl,
-				'unit_price_excl_tax' => $unit_price_excl_tax,
-				'tax_reduced'         => 'reduced-rate' === $order_item->get_tax_class(),
+				'price'               => Money::format_minor_units( $unit_price_incl_minor ),
+				'subtotal'            => Money::format_minor_units( $line_total_minor ),
+				'unit_price_excl_tax' => Money::format_minor_units( $unit_price_excl_minor ),
+				'tax_reduced'         => 'reduced-rate' === $tax_class,
 			];
 		}
 
 		return [ $items, $warnings ];
+	}
+
+	/**
+	 * `2 * $minor + $divisor`を`2 * $divisor`で`intdiv()`することで、float除算を一切使わず
+	 * 四捨五入（round-half-up）する（CLAUDE.md: 金額計算はfloat除算を避け、先に乗算してから
+	 * `intdiv()`に丸め調整値を足す整数演算で行うこと）。`$minor`/`$divisor`はどちらも
+	 * `line_item_amounts()`で非負に検証済み、`$divisor`（数量）は1以上に正規化済みのため
+	 * ここでは追加のガードを行わない。
+	 */
+	private static function divide_minor_units_rounded( int $minor, int $divisor ): int {
+		return intdiv( 2 * $minor + $divisor, 2 * $divisor );
 	}
 
 	/**
@@ -279,17 +318,20 @@ final class OrderReader implements EntityReader {
 	 * ため、`Woo\Writer\OrderItemBuilder::split_line_amount()`と同じ基準（数値・0以上）で
 	 * フェイルクローズする。
 	 *
-	 * @return array{0:float,1:float,2:?string}
+	 * 金額は`Support\Money`で1/100単位の整数（minor units）へ変換して扱う（CLAUDE.md: 金額計算は
+	 * float除算を避け整数演算で行うこと。単価計算（`line_items()`の除算）でのfloat丸め誤差を防ぐ）。
+	 *
+	 * @return array{0:int,1:int,2:?string}
 	 */
 	private function line_item_amounts( WC_Order_Item_Product $order_item, ?string $remote_product_id ): array {
-		$raw_subtotal     = $order_item->get_subtotal();
-		$raw_subtotal_tax = $order_item->get_subtotal_tax();
+		$subtotal_minor     = Money::to_minor_units( $order_item->get_subtotal() );
+		$subtotal_tax_minor = Money::to_minor_units( $order_item->get_subtotal_tax() );
 
-		if ( ! is_numeric( $raw_subtotal ) || (float) $raw_subtotal < 0.0 || ! is_numeric( $raw_subtotal_tax ) || (float) $raw_subtotal_tax < 0.0 ) {
-			return [ 0.0, 0.0, WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ?? '' ) ];
+		if ( null === $subtotal_minor || $subtotal_minor < 0 || null === $subtotal_tax_minor || $subtotal_tax_minor < 0 ) {
+			return [ 0, 0, WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ?? '' ) ];
 		}
 
-		return [ (float) $raw_subtotal, (float) $raw_subtotal_tax, null ];
+		return [ $subtotal_minor, $subtotal_tax_minor, null ];
 	}
 
 	private function line_item_sku( WC_Order_Item_Product $order_item ): ?string {
@@ -310,16 +352,20 @@ final class OrderReader implements EntityReader {
 	 *
 	 * `ORDER_LINE_PRODUCT_NOT_EXPORTED`（再試行可能＝checksumをキャッシュしない）は
 	 * 「商品/バリエーションが実在するがまだエクスポートされていない」場合のみ積む。参照先が
-	 * 削除済み（`get_product()`が`false`）の場合は再エクスポートを待っても解決しない終端状態
-	 * のため警告を積まない（`indicates_unresolved_reference()`のdocblockが定める
-	 * 「解決される見込みが無い終端状態は含めない」方針と同じ）。
+	 * 削除済みの場合は再エクスポートを待っても解決しない終端状態のため警告を積まない
+	 * （`indicates_unresolved_reference()`のdocblockが定める「解決される見込みが無い終端状態は
+	 * 含めない」方針と同じ）。存在確認は`$order_item->get_product()`（`false`|`WC_Product`）では
+	 * なく`get_post()`で行う: `wc_get_product()`は削除済みvariation IDに対して`false`ではなく
+	 * 中身の無い`WC_Product_Variation`を返しうる（投稿欠損で例外を投げず商品種別キャッシュも
+	 * 残るため。CLAUDE.md参照）。
 	 *
 	 * @return array{0:?string,1:?string}
 	 */
 	private function remote_product_id( WC_Order_Item_Product $order_item ): array {
-		$variation_id = $order_item->get_variation_id();
-		$product_id   = $order_item->get_product_id();
-		$exists       = false !== $order_item->get_product();
+		$variation_id  = $order_item->get_variation_id();
+		$product_id    = $order_item->get_product_id();
+		$referenced_id = 0 !== $variation_id ? $variation_id : $product_id;
+		$exists        = 0 !== $referenced_id && null !== get_post( $referenced_id );
 
 		if ( 0 !== $variation_id ) {
 			$remote_id = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;

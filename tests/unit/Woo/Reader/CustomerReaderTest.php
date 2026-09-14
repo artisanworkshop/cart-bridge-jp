@@ -144,6 +144,33 @@ final class CustomerReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * `role => 'customer'`は「customerロールを持つ」の意味で、他ロールを併せ持つことを
+	 * 否定しない。店舗の管理者・スタッフアカウントに`customer`ロールも付与されている場合
+	 * （WP上では複数ロールの併存が可能）、`role`絞り込みだけではPII付きでexportされてしまう
+	 * （`Woo\Writer\CustomerWriter::PROTECTED_ROLES`と同じ一覧で除外する必要がある。
+	 * レビュー指摘）。
+	 */
+	public function test_query_excludes_users_who_also_have_a_protected_role(): void {
+		$plain_customer_id = $this->create_customer( 'plain@example.com' );
+
+		$shop_manager_customer_id = wp_insert_user(
+			[
+				'user_login' => 'manager@example.com',
+				'user_email' => 'manager@example.com',
+				'user_pass'  => wp_generate_password(),
+				'role'       => 'shop_manager',
+			]
+		);
+		( new \WP_User( $shop_manager_customer_id ) )->add_role( 'customer' );
+
+		$page = $this->make_reader()->query( Cursor::start(), null );
+		$ids  = array_map( static fn ( $item ) => $item->local_id, $page->items );
+
+		$this->assertContains( $plain_customer_id, $ids );
+		$this->assertNotContains( $shop_manager_customer_id, $ids );
+	}
+
+	/**
 	 * ColorMeの氏名は「姓 名」の単一文字列で、`Woo\Support\AddressMapper::split_name()`が
 	 * 最初のトークンを`last_name`、残りを`first_name`としてWooへ保存する
 	 * （`Woo\Writer\CustomerWriter`）。`first_name . ' ' . last_name`で単純に組み直すと

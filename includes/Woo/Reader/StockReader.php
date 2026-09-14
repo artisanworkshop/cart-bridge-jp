@@ -149,6 +149,14 @@ final class StockReader implements EntityReader {
 		// 手段が無くなってしまう（`ProductReader::variants()`が`CanonicalProduct::$variants`の
 		// 構築で行っている`publish`ステータスのみの明示チェックと同じ方針に揃える）。
 		foreach ( $product->get_children() as $variation_id ) {
+			// `instanceof`だけでは削除済みバリエーションを弾けない: `wc_get_product()`は削除済み
+			// variation IDに対して`false`ではなく中身の無い`WC_Product_Variation`を返しうる
+			// （投稿欠損で例外を投げず商品種別キャッシュも残るため。CLAUDE.md参照）。`get_post()`で
+			// 実在確認してから読み込む。
+			if ( null === get_post( $variation_id ) ) {
+				continue;
+			}
+
 			$variation = wc_get_product( $variation_id );
 
 			if ( ! $variation instanceof WC_Product_Variation ) {

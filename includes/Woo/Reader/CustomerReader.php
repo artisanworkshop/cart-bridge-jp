@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCustomer;
+use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WP_User;
 use WP_User_Query;
 
@@ -25,11 +26,16 @@ final class CustomerReader implements EntityReader {
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
-			'role'    => 'customer',
-			'orderby' => 'ID',
-			'order'   => 'ASC',
-			'number'  => self::PAGE_SIZE,
-			'paged'   => (int) $cursor->get( 'page', 1 ),
+			'role'         => 'customer',
+			// `role => 'customer'`は「customerロールを持つ」の意味で、他ロールを併せ持つことを
+			// 否定しない。店舗の管理者・スタッフアカウントに（WooCommerceが自動付与する等で）
+			// `customer`ロールも付いている場合、それらのPII（氏名・住所）が無警告でASP側へ
+			// exportされうる。importの`CustomerWriter::PROTECTED_ROLES`と同じ一覧を除外する。
+			'role__not_in' => CustomerWriter::PROTECTED_ROLES,
+			'orderby'      => 'ID',
+			'order'        => 'ASC',
+			'number'       => self::PAGE_SIZE,
+			'paged'        => (int) $cursor->get( 'page', 1 ),
 		];
 
 		if ( null !== $only_local_ids ) {

@@ -24,6 +24,17 @@ final class OrderReaderTest extends WooTestCase {
 
 	private const PLATFORM = 'colorme';
 
+	/**
+	 * テスト環境の既定ストア通貨はUSD。本テストの意図と無関係な`CURRENCY_MISMATCH`警告が
+	 * 全テストに付いてしまうため、対応ASP（ColorMe）の前提通貨JPYに揃える
+	 * （`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`）。警告自体の検証は
+	 * `test_non_jpy_order_currency_warns`が専用に行う。
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		update_option( 'woocommerce_currency', 'JPY' );
+	}
+
 	private function make_reader(): OrderReader {
 		return new OrderReader( self::PLATFORM, $this->mappings );
 	}
@@ -191,10 +202,74 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 		$line      = $read_item->item->line_items[0];
 
-		$this->assertSame( '0', $line['price'] );
-		$this->assertSame( '0', $line['subtotal'] );
-		$this->assertSame( '0', $line['unit_price_excl_tax'] );
+		// 金額のフォーマットは常に小数2桁になる。
+		$this->assertSame( '0.00', $line['price'] );
+		$this->assertSame( '0.00', $line['subtotal'] );
+		$this->assertSame( '0.00', $line['unit_price_excl_tax'] );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, 'p-neg' ), $read_item->warnings );
+	}
+
+	/**
+	 * 対応ASP（ColorMe）の金額は全てJPY前提（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`）。
+	 * 店舗通貨が異なる注文をそのままexportすると、E2-3の`push_order()`が誤って外貨額をJPYとして
+	 * 送信しうるため警告する（レビュー指摘）。
+	 */
+	public function test_non_jpy_order_currency_warns(): void {
+		$order = wc_create_order();
+		$order->set_currency( 'USD' );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
+		$this->assertSame( 'USD', $read_item->item->extras['currency'] );
+	}
+
+	/**
+	 * `CanonicalOrder::$line_items[].tax_reduced`はbool（標準/軽減税率の2値）のみで、
+	 * `zero-rate`等その他の税区分・非課税/送料のみ課税を表現できない（レビュー指摘）。
+	 */
+	public function test_line_item_with_unsupported_tax_class_warns(): void {
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-tax', $product_id );
+
+		$order = wc_create_order();
+		$item  = new WC_Order_Item_Product();
+		$item->set_product_id( $product_id );
+		$item->set_name( 'Zero rate item' );
+		$item->set_quantity( 1 );
+		$item->set_subtotal( '1000' );
+		$item->set_total( '1000' );
+		$item->set_tax_class( 'zero-rate' );
+		$order->add_item( $item );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertFalse( $read_item->item->line_items[0]['tax_reduced'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-tax' ), $read_item->warnings );
+	}
+
+	/**
+	 * 数量が0以下（破損メタ等）の明細をそのままexportすると、実際の購入数と食い違う
+	 * 出荷指示になりうる。`Woo\Writer\OrderItemBuilder`（インポート方向）と同じ基準で
+	 * 1個へフェイルクローズし警告する（レビュー指摘）。
+	 */
+	public function test_zero_quantity_line_item_is_normalized_to_one_with_warning(): void {
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-qty', $product_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $product_id, 0, '1000' );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertSame( 1, $read_item->item->line_items[0]['quantity'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-qty' ), $read_item->warnings );
 	}
 
 	/**

@@ -123,6 +123,17 @@ final class WarningCode {
 	 */
 	public const ORDER_CUSTOMER_NOT_EXPORTED = 'order_customer_not_exported';
 
+	/**
+	 * エクスポート時、受注明細の`tax_class`が`''`（標準）/`'reduced-rate'`（軽減税率）以外
+	 * （`zero-rate`・カスタム税区分等）、または`WC_Order_Item_Product::get_tax_status()`が
+	 * `'taxable'`以外（送料のみ課税・非課税）。`CanonicalOrder::$line_items[].tax_reduced`は
+	 * bool（標準/軽減税率の2値）しか表現できないため、それ以外の税区分・非課税状態を無警告で
+	 * 標準課税として扱うと税額が誤って計算されうる（`Woo\Reader\ProductReader`の
+	 * `TAX_STATUS_NOT_TAXABLE`と同じ理由。CanonicalOrderに区分自体を運ぶフィールドが無いため
+	 * 警告のみで、値自体は`tax_reduced=false`にフェイルクローズする）。
+	 */
+	public const ORDER_LINE_TAX_CLASS_UNSUPPORTED = 'order_line_tax_class_unsupported';
+
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
 

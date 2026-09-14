@@ -26,6 +26,16 @@ use WP_Query;
  * （`Canonical\CanonicalCoupon`のdocblockが定める三値契約）。読出時点でも
  * `WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED`を`ReadItem`の警告に積み、
  * `indicates_export_blocking()`でpush前に確実にスキップされるようにする。
+ *
+ * `$coupon->get_amount()`の符号・上限（percent型で100超）はここで再検証しない:
+ * `WC_Coupon::set_amount()`は不正値に対し`WC_Data_Exception`を投げるが、`WC_Data::set_props()`
+ * （`read()`が内部で呼ぶ）はプロパティ毎にこの例外をcatchし、失敗したプロパティを未設定のまま
+ * （`amount`はクラス既定値`'0'`）にする。そのため直接のpostmeta編集で負値・100超を書き込んでも、
+ * `new WC_Coupon($id)`で読み直した時点で`get_amount()`は既定値`'0'`を返し、壊れた値が
+ * このReaderまで到達することは無い（`WC_Coupon`を経由しない生クエリでの読出は行っていない。
+ * 実測確認済み。レビューでの指摘を受けて検証し、`CanonicalCoupon::from_array()`の
+ * `has_unsupported_restrictions`同様に指摘を鵜呑みにせず実測したことをCLAUDE.mdの方針に従い
+ * 明記する）。
  */
 final class CouponReader implements EntityReader {
 

@@ -31,7 +31,10 @@ final class StockDerivation {
 
 		$quantity = $product->get_stock_quantity();
 
-		return null !== $quantity ? (int) $quantity : 0;
+		// 負の数量は物理的にありえない不正データ（`wc_stock_amount()`は符号を検証しないため
+		// 直接のメタ編集等でマイナス在庫が残りうる。`Woo\Support\StockApplier::apply()`が
+		// 書込方向で同じ理由で`max(0, ...)`しているのと対称）。フェイルクローズで0に丸める。
+		return null !== $quantity ? max( 0, (int) $quantity ) : 0;
 	}
 
 	/**
@@ -63,8 +66,9 @@ final class StockDerivation {
 
 		$quantity = $variation->get_stock_quantity();
 
+		// 負の数量を0へ丸める。理由は for_product() の同種コメントを参照。
 		return [
-			'quantity'           => null !== $quantity ? (int) $quantity : 0,
+			'quantity'           => null !== $quantity ? max( 0, (int) $quantity ) : 0,
 			'shared_with_parent' => false,
 		];
 	}
