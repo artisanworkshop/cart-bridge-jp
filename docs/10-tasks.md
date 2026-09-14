@@ -280,7 +280,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   詳細は `docs/03-design-decisions.md` §10.2「エクスポート方向の実装」参照。
   **PR-B未実装**: `CustomerReader`/`OrderReader`/`StockReader`/`CouponReader`
   （`JobManager::EXPORT_ENTITIES_WITH_READER`に追加）
-- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替）
+- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替。**E2-2 R1で判明した必須対応**: バリエーションのremote_idを`cbjp_mappings`（`variant`entity）へ書き戻す経路が無い（`PushResult`は商品1件につきremote_id 1つしか運べない）ため、現状のまま`push_product()`を実装するとバリエーションを持つ商品の再エクスポートのたびにASP側で重複作成される。`PushResult`の拡張または別チャネルの設計が必要。詳細は`docs/03-design-decisions.md` §10.2「E2-3/PR-Bへの申し送り」）
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
 
 **Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。
