@@ -2,13 +2,13 @@
 - タスク: E2-2: Exporter パイプライン PR-B（CustomerReader/OrderReader/StockReader/CouponReader）
 - 開始: 2026-09-14
 - PR: #41 https://github.com/artisanworkshop/cart-bridge-jp/pull/41
-- 現在のステップ: 6（Copilot G2完了・CI green。Codexは利用上限で2回目未レビュー。
-  3回目依頼の要否をユーザーに確認中）
-- Copilot: 依頼2回 / G1完了（inline 7件+本文4件、全件対応）/ G2完了（新規5件。修正4件・
-  誤検知1件（実測反証）。詳細はG2.md）
+- 現在のステップ: 6（Copilotへ3回目（最終）依頼済み・応答待ち。Codexは利用上限のため
+  3回目は依頼せず2回で打ち切り、G1の状態を最終とする）
+- Copilot: 依頼3回 / G1完了（inline 7件+本文4件、全件対応）/ G2完了（新規5件。修正4件・
+  誤検知1件（実測反証）。詳細はG2.md）/ G3応答待ち（新規0件なら収束）
 - Codex: 依頼2回 / G1完了（新規15件。修正10件・誤検知2件（実測反証・Resolve済み）・
   backlog送り3件（未解決のまま）。詳細はG1.md）/ G2は利用上限（Codex usage limits for code
-  reviews）により未レビュー（外部サービス制約、対応不可）
+  reviews）により未レビュー（外部サービス制約、対応不可）。3回目は依頼せず打ち切り
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
