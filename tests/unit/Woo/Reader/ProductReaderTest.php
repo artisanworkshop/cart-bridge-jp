@@ -277,7 +277,7 @@ final class ProductReaderTest extends WooTestCase {
 
 		$this->assertCount( 2, $canonical->variants );
 		// variable親の_regular_price/_sale_priceは保存の度に削除される（H2）ため、無条件に
-		// 読むと0円になる。バリエーションの最安価格（1000。`get_variation_price()`は
+		// 読むと0円になる。バリエーションの最安「定価」（1000。`get_variation_regular_price()`は
 		// ストアの価格小数桁数設定でフォーマットするため文字列の完全一致ではなく数値で比較する）
 		// を代表値として使う。
 		$this->assertIsNumeric( $canonical->price );
@@ -326,6 +326,10 @@ final class ProductReaderTest extends WooTestCase {
 		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
 		$read_item = $read_page->items[0];
 
+		// バリエーション自体は存在する（`variants()`は全子=publish+privateから作るため1件返る）が
+		// 「可視」（`get_visible_children()`=publishのみ）は0件、という本テストが意図する状態を
+		// 明示する。子ごと0件になる別の理由で偶然パスしていないことのピン留め。
+		$this->assertCount( 1, $read_item->item->variants );
 		$this->assertSame( '0', $read_item->item->price );
 		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
 	}

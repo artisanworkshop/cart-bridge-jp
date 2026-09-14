@@ -174,10 +174,11 @@ final class ProductReader implements EntityReader {
 		// `get_variation_price()`（実効価格＝セール中はセール価格）ではなく
 		// `get_variation_regular_price()`を使う: 期間限定セールがASP側に定価として恒久的に
 		// 焼き付くのを避けるため（`sale_price`はH3と同じ理由でここでは扱わない＝常にnull）。
-		// 公開かつ（設定次第で）在庫ありのバリエーションが1件も無い場合、Wooの
-		// `current( [] )`規約により**bool `false`**が返る（`WC_Product_Variable_Data_Store_CPT::
-		// read_price_data()`の`get_visible_children()`が空集合になるケース。全バリエーション
-		// 非公開、または「在庫切れ商品を除外」設定＋全バリエーション在庫切れ等で起こりうる）。
+		// 公開かつ（設定次第で）在庫ありのバリエーションが1件も無い場合、PHPの
+		// `current( [] )`規約（Wooの規約ではない）により**bool `false`**が返る
+		// （`WC_Product_Variable_Data_Store_CPT::read_price_data()`の`get_visible_children()`が
+		// 空集合になるケース。全バリエーション非公開、または「在庫切れ商品を除外」設定＋
+		// 全バリエーション在庫切れ等で起こりうる）。
 		// `CanonicalProduct::$price`は`declare(strict_types=1)`下の非nullable `string` のため、
 		// この`false`をそのまま渡すと`TypeError`でページ全体（Exporterの1件catchの外側で
 		// 発生するため他の商品を含むページ全体）が失敗し、再試行しても同じ商品で永久に
