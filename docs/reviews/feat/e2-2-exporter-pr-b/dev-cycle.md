@@ -2,10 +2,10 @@
 - タスク: E2-2: Exporter パイプライン PR-B（CustomerReader/OrderReader/StockReader/CouponReader）
 - 開始: 2026-09-14
 - PR: #41 https://github.com/artisanworkshop/cart-bridge-jp/pull/41
-- 現在のステップ: 6（Copilotへ3回目（最終）依頼済み・応答待ち。Codexは利用上限のため
-  3回目は依頼せず2回で打ち切り、G1の状態を最終とする）
-- Copilot: 依頼3回 / G1完了（inline 7件+本文4件、全件対応）/ G2完了（新規5件。修正4件・
-  誤検知1件（実測反証）。詳細はG2.md）/ G3応答待ち（新規0件なら収束）
+- 現在のステップ: 8（両bot依頼上限/打ち切り。最終報告作成へ）
+- Copilot: 依頼3回（上限） / G1完了（inline 7件+本文4件、全件対応）/ G2完了（新規5件。
+  修正4件・誤検知1件（実測反証）。詳細はG2.md）/ G3完了（新規4件。修正2件・誤検知2件
+  （実測反証、Resolve済み）。詳細はG3.md）
 - Codex: 依頼2回 / G1完了（新規15件。修正10件・誤検知2件（実測反証・Resolve済み）・
   backlog送り3件（未解決のまま）。詳細はG1.md）/ G2は利用上限（Codex usage limits for code
   reviews）により未レビュー（外部サービス制約、対応不可）。3回目は依頼せず打ち切り
@@ -28,3 +28,5 @@
 | 2026-09-14 | 6 | G1は新規指摘0件の検証を経ていないため未収束扱いとし、両bot（Copilot/Codex）へ2回目の依頼（T=2026-09-14T08:20:43Z） |
 | 2026-09-14 | 7 | G2（Copilot）完了。新規5件（inline 2件+本文Suppressed 3件）。修正4件（バリエーション削除済み参照blocking・軸警告伝播・クーポンstale IDレース・商品リンクなし行blocking）、誤検知1件（送料method_id比較、実測反証）。修正の過程で`get_variation_id()`も`get_product_id()`と同じCRUD層0リセットパターンを持つことを実測発見し対応。品質チェックgreen（PHPUnit 853件）。commit edae324。Codexは2回目依頼が利用上限（Codex usage limits for code reviews）によりレビューされず（issues/41/comments、2026-09-14T08:20:55Z） |
 | 2026-09-14 | 5 | G2修正後のCI確認。PHP quality (8.2) がPHPStanのメモリ上限クラッシュで1回red（同種の一過性障害、`gh run rerun --failed`で再実行）。再実行後4ジョブ全green |
+| 2026-09-14 | 6 | G2は依頼2回目で終了したがCopilotの収束（新規0件）検証を経ていないため、Copilotへ3回目（最終）の依頼（T=2026-09-14T09:24:06Z）。Codexは利用上限のため3回目は依頼せず打ち切り |
+| 2026-09-14 | 7 | G3（Copilot・最終ラウンド）完了。新規4件（inline 2件+本文Suppressed 2件）。inline 2件（`post__in`未使用・`get_tax_status()`不在）は実測でいずれも誤りと判明（Resolve済み）。本文2件（クーポン負の最低購入金額が無警告/手数料・送料の負値clampがtotalsとの不整合警告なし）を修正。品質チェックgreen（PHPUnit 855件）。commit 1c2c0ad。CI 4ジョブ全green（1回で通過）。Copilot依頼3回（上限）に到達、これ以上依頼しない |
