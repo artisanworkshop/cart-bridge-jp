@@ -119,10 +119,20 @@ final class CouponReader implements EntityReader {
 	}
 
 	private function to_read_item( WC_Coupon $coupon ): ReadItem {
-		[ $type, $type_unsupported ]  = $this->type( $coupon );
-		$has_unsupported_restrictions = $type_unsupported || $this->has_native_restrictions( $coupon );
+		[ $type, $type_unsupported ] = $this->type( $coupon );
 
 		$min_amount = $coupon->get_minimum_amount();
+
+		// `WC_Coupon::set_minimum_amount()`は`set_amount()`と異なり不正値を検証しない
+		// （`wc_format_decimal()`を通すのみで例外を投げない。実測確認済み）。直接のpostmeta編集で
+		// 負値に壊れても`get_minimum_amount()`はその値をそのまま返すため、`(float)$min_amount > 0`
+		// による既存の判定だけでは「無効な値」と「そもそも未設定（空文字列）」を区別できず、
+		// 壊れた最低購入金額が無警告で「制限なし」のクーポンとして解決されてしまう
+		// （Copilot指摘, PR #41 G3）。負値は「Wooに設定されていたが運べない制限」として
+		// has_unsupported_restrictionsへ倒す。
+		$min_amount_corrupted = is_numeric( $min_amount ) && (float) $min_amount < 0.0;
+
+		$has_unsupported_restrictions = $type_unsupported || $min_amount_corrupted || $this->has_native_restrictions( $coupon );
 
 		$canonical = new CanonicalCoupon(
 			$coupon->get_code(),

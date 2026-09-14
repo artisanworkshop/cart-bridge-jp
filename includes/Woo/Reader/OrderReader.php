@@ -176,13 +176,25 @@ final class OrderReader implements EntityReader {
 			$warnings[] = $totals_warning;
 		}
 
+		[ $shipping, $shipping_warning ] = $this->shipping( $order );
+
+		if ( null !== $shipping_warning ) {
+			$warnings[] = $shipping_warning;
+		}
+
+		[ $payment, $payment_warning ] = $this->payment( $order );
+
+		if ( null !== $payment_warning ) {
+			$warnings[] = $payment_warning;
+		}
+
 		$canonical = new CanonicalOrder(
 			$order->get_order_number(),
 			$order->get_status(),
 			$customer_ref,
 			$line_items,
-			$this->shipping( $order ),
-			$this->payment( $order ),
+			$shipping,
+			$payment,
 			$totals,
 			$order->get_date_created() instanceof WC_DateTime ? $order->get_date_created()->date( DATE_ATOM ) : '',
 			$this->note( $order ),
@@ -522,6 +534,9 @@ final class OrderReader implements EntityReader {
 	 *
 	 * @return array<string,mixed>
 	 */
+	/**
+	 * @return array{0:array<string,mixed>,1:?string}
+	 */
 	private function shipping( WC_Order $order ): array {
 		$shipping_items = array_values(
 			array_filter(
@@ -530,11 +545,16 @@ final class OrderReader implements EntityReader {
 			)
 		);
 
-		$fee_total = 0.0;
+		$fee_total   = 0.0;
+		$has_invalid = false;
 
 		foreach ( $shipping_items as $shipping_item ) {
-			$fee_total += $this->validated_amount( $shipping_item->get_total() );
+			[ $amount, $invalid ] = $this->validated_amount( $shipping_item->get_total() );
+			$fee_total           += $amount;
+			$has_invalid          = $has_invalid || $invalid;
 		}
+
+		$warning = $has_invalid ? WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ) : null;
 
 		/** @var ?WC_Order_Item_Shipping $primary */
 		$primary     = $shipping_items[0] ?? null;
@@ -550,23 +570,26 @@ final class OrderReader implements EntityReader {
 
 		$address = $order->get_address( 'shipping' );
 
-		return array_merge(
-			[
-				'method_id'   => $method_id,
-				'method_name' => $method_name,
-				'fee'         => wc_format_decimal( $fee_total ),
-				'name'        => $this->full_name( $address ),
-				'tel'         => '' !== $order->get_shipping_phone() ? $order->get_shipping_phone() : null,
-				'company'     => '' !== ( $address['company'] ?? '' ) ? $address['company'] : null,
-				'address_1'   => '' !== ( $address['address_1'] ?? '' ) ? $address['address_1'] : null,
-				'address_2'   => '' !== ( $address['address_2'] ?? '' ) ? $address['address_2'] : null,
-				'city'        => '' !== ( $address['city'] ?? '' ) ? $address['city'] : null,
-				'state'       => '' !== ( $address['state'] ?? '' ) ? $address['state'] : null,
-				'postcode'    => '' !== ( $address['postcode'] ?? '' ) ? $address['postcode'] : null,
-				'country'     => '' !== ( $address['country'] ?? '' ) ? $address['country'] : null,
-			],
-			$this->shipping_meta( $order )
-		);
+		return [
+			array_merge(
+				[
+					'method_id'   => $method_id,
+					'method_name' => $method_name,
+					'fee'         => wc_format_decimal( $fee_total ),
+					'name'        => $this->full_name( $address ),
+					'tel'         => '' !== $order->get_shipping_phone() ? $order->get_shipping_phone() : null,
+					'company'     => '' !== ( $address['company'] ?? '' ) ? $address['company'] : null,
+					'address_1'   => '' !== ( $address['address_1'] ?? '' ) ? $address['address_1'] : null,
+					'address_2'   => '' !== ( $address['address_2'] ?? '' ) ? $address['address_2'] : null,
+					'city'        => '' !== ( $address['city'] ?? '' ) ? $address['city'] : null,
+					'state'       => '' !== ( $address['state'] ?? '' ) ? $address['state'] : null,
+					'postcode'    => '' !== ( $address['postcode'] ?? '' ) ? $address['postcode'] : null,
+					'country'     => '' !== ( $address['country'] ?? '' ) ? $address['country'] : null,
+				],
+				$this->shipping_meta( $order )
+			),
+			$warning,
+		];
 	}
 
 	/**
@@ -592,41 +615,59 @@ final class OrderReader implements EntityReader {
 	 * 種別を安定に見分ける手段が無いため、合算して`payment.fee`側にのみ載せる（合計金額の
 	 * 整合を優先する簡略化。再取込では1本のFee行に統合される）。
 	 *
-	 * @return array<string,mixed>
+	 * @return array{0:array<string,mixed>,1:?string}
 	 */
 	private function payment( WC_Order $order ): array {
+		[ $fee_total, $fee_warning ] = $this->fee_total( $order );
+
 		return [
-			'method_id'   => '' !== $order->get_payment_method() ? $order->get_payment_method() : null,
-			'method_name' => '' !== $order->get_payment_method_title() ? $order->get_payment_method_title() : null,
-			'fee'         => wc_format_decimal( $this->fee_total( $order ) ),
+			[
+				'method_id'   => '' !== $order->get_payment_method() ? $order->get_payment_method() : null,
+				'method_name' => '' !== $order->get_payment_method_title() ? $order->get_payment_method_title() : null,
+				'fee'         => wc_format_decimal( $fee_total ),
+			],
+			$fee_warning,
 		];
 	}
 
-	private function fee_total( WC_Order $order ): float {
-		$total = 0.0;
+	/**
+	 * @return array{0:float,1:?string}
+	 */
+	private function fee_total( WC_Order $order ): array {
+		$total       = 0.0;
+		$has_invalid = false;
 
 		foreach ( $order->get_items( 'fee' ) as $fee_item ) {
 			if ( $fee_item instanceof WC_Order_Item_Fee ) {
-				$total += $this->validated_amount( $fee_item->get_total() );
+				[ $amount, $invalid ] = $this->validated_amount( $fee_item->get_total() );
+				$total               += $amount;
+				$has_invalid          = $has_invalid || $invalid;
 			}
 		}
 
-		return $total;
+		return [ $total, $has_invalid ? WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ) : null ];
 	}
 
 	/**
 	 * 送料明細・Fee明細の`get_total()`は`line_item_amounts()`/`totals()`と同じ理由
 	 * （`set_total()`自身が符号を検証しない）で他プラグイン・直接のメタ編集により負値/非数値に
-	 * なりうる。負の手数料・送料は実質的な値引きとして作用してしまうため、該当行だけを0円として
-	 * 扱い（フェイルクローズ）、注文全体は止めない（R2レビュー指摘: `fee_total()`が
-	 * `line_item_amounts()`/`totals()`と非対称に無検証だった）。
+	 * なりうる。負の手数料・送料は実質的な値引きとして作用してしまうため、該当行自体は0円へ
+	 * フェイルクローズしつつ、明細合算値と`totals()`（`$order->get_shipping_total()`等、Woo側の
+	 * 保存済み集計値を別経路で参照する）の整合が崩れることを`ORDER_TOTALS_INVALID`で警告し
+	 * `indicates_export_blocking()`の対象にする。無警告のまま0円へ丸めるだけだと、
+	 * `payment.fee`/`shipping.fee`（この明細合算値）と`totals.total`（Wooの保存済み集計値。
+	 * 直接のメタ編集で明細側だけが壊れても再計算されない）が食い違う内部矛盾した
+	 * `CanonicalOrder`を無警告でpushしてしまう（Copilot指摘, PR #41 G3: 当初は該当行のみ
+	 * 0円にして注文全体は止めていなかった）。
+	 *
+	 * @return array{0:float,1:bool} [amount, was_invalid]
 	 */
-	private function validated_amount( mixed $raw ): float {
+	private function validated_amount( mixed $raw ): array {
 		if ( ! is_numeric( $raw ) || (float) $raw < 0.0 ) {
-			return 0.0;
+			return [ 0.0, true ];
 		}
 
-		return (float) $raw;
+		return [ (float) $raw, false ];
 	}
 
 	/**

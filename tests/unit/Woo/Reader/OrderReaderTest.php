@@ -470,8 +470,12 @@ final class OrderReaderTest extends WooTestCase {
 	/**
 	 * `WC_Order_Item_Fee::set_total()`自身は符号を検証しないため、負の手数料が実質的な
 	 * 値引きとして作用しうる（`line_item_amounts()`/`totals()`と同じ理由でフェイルクローズ）。
+	 * 該当行は0円に丸めるが、`totals.total`（Wooの保存済み集計値。直接のメタ編集で明細側だけが
+	 * 壊れても再計算されない）とはこの時点で整合しなくなるため、`ORDER_TOTALS_INVALID`で
+	 * export blockingにする（Copilot指摘, PR #41 G3: 当初は該当行のみ丸めて注文全体は
+	 * 止めていなかった）。
 	 */
-	public function test_negative_fee_line_item_does_not_reduce_the_payment_fee_total(): void {
+	public function test_negative_fee_line_item_blocks_export(): void {
 		$order = wc_create_order();
 		$fee   = new WC_Order_Item_Fee();
 		$fee->set_name( 'Bad fee' );
@@ -480,8 +484,32 @@ final class OrderReaderTest extends WooTestCase {
 		$order->add_item( $fee );
 		$order->save();
 
-		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
-		$this->assertSame( 0.0, (float) $page->items[0]->item->payment['fee'] );
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertSame( 0.0, (float) $read_item->item->payment['fee'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 送料明細側も同じ理由でexport blockingにする（Fee側との対称性、Copilot指摘, PR #41 G3）。
+	 */
+	public function test_negative_shipping_line_item_blocks_export(): void {
+		$order    = wc_create_order();
+		$shipping = new WC_Order_Item_Shipping();
+		$shipping->set_method_title( 'Flat rate' );
+		$shipping->set_method_id( 'flat_rate' );
+		$shipping->set_total( '-500' );
+		$order->add_item( $shipping );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertSame( 0.0, (float) $read_item->item->shipping['fee'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
 	/**

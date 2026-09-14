@@ -205,6 +205,25 @@ final class CouponReaderTest extends WooTestCase {
 		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
 	}
 
+	/**
+	 * `WC_Coupon::set_minimum_amount()`は`set_amount()`と異なり不正値を検証しない
+	 * （`wc_format_decimal()`を通すのみ）。直接のpostmeta編集で負値に壊れても
+	 * `get_minimum_amount()`はその値をそのまま返すため、既存の`(float)$min_amount > 0`判定
+	 * だけでは「未設定」と区別できず、無警告で「制限なし」のクーポンとして解決されてしまう
+	 * （Copilot指摘, PR #41 G3）。
+	 */
+	public function test_corrupted_negative_minimum_amount_marks_unsupported(): void {
+		$coupon = $this->create_coupon( 'NEGATIVEMIN' );
+		update_post_meta( $coupon->get_id(), 'minimum_amount', '-500' );
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertNull( $read_item->item->min_amount );
+		$this->assertTrue( $read_item->item->has_unsupported_restrictions );
+		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $read_item->warnings );
+	}
+
 	public function test_limit_usage_to_x_items_marks_unsupported(): void {
 		$coupon = $this->create_coupon( 'LIMITXITEMS' );
 		$coupon->set_limit_usage_to_x_items( 1 );
