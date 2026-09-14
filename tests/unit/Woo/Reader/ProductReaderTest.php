@@ -294,6 +294,42 @@ final class ProductReaderTest extends WooTestCase {
 		}
 	}
 
+	/**
+	 * `WC_Product_Variable::get_variation_regular_price()`は、公開かつ（設定次第で）在庫ありの
+	 * バリエーションが1件も無い場合（`get_visible_children()`が空集合）、PHPの`current([])`規約に
+	 * より**bool `false`**を返す（`declare(strict_types=1)`下の`CanonicalProduct::$price`
+	 * （非nullable string）にそのまま渡すと`TypeError`になり、Exporterの1件tryの外側で
+	 * 発生するためページ全体・ジョブ全体が恒久的に失敗する）。全バリエーションを非公開に
+	 * することでこの状態を再現し、TypeErrorにならず警告付きで0にフェイルクローズすることを確認する。
+	 */
+	public function test_variable_product_with_no_visible_variations_does_not_crash(): void {
+		$parent = new \WC_Product_Variable();
+		$parent->set_name( 'No Visible Variations' );
+		$attribute = new \WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( [ 'S' ] );
+		$attribute->set_position( 0 );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$parent->set_attributes( [ $attribute ] );
+		$parent_id = $parent->save();
+
+		$variation = new \WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes( [ 'size' => 'S' ] );
+		$variation->set_regular_price( '500' );
+		// 非公開にすることで`get_visible_children()`の対象から外す。
+		$variation->set_status( 'private' );
+		$variation->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertSame( '0', $read_item->item->price );
+		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+	}
+
 	public function test_new_variation_without_mapping_reports_empty_remote_id(): void {
 		$parent = new \WC_Product_Variable();
 		$parent->set_name( 'Unlinked Variable' );

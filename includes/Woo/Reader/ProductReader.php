@@ -92,7 +92,9 @@ final class ProductReader implements EntityReader {
 		$options                                 = $this->options( $product, $axis_names );
 		[ $category_refs, $category_warnings ]   = $this->category_refs( $product );
 		$warnings                                = array_merge( $warnings, $category_warnings );
-		[ $price, $sale_price, $price_warnings ] = $this->price_fields( $product, $is_variable );
+		[ $price, $sale_price, $price_warnings ] = $is_variable
+			? $this->price_fields_for_variable( $product )
+			: $this->price_fields_for_simple( $product );
 		$warnings                                = array_merge( $warnings, $price_warnings );
 
 		$weight    = WeightUnit::convert_to_grams( (string) $product->get_weight() );
@@ -160,22 +162,41 @@ final class ProductReader implements EntityReader {
 	}
 
 	/**
-	 * 商品の価格フィールド（`CanonicalProduct::$price`/`$sale_price`）を組み立てる。
+	 * variable親の価格フィールド。個々のバリエーション自身の価格は`variants()`が別途持つ。
 	 *
 	 * @return array{0:string,1:?string,2:array<int,string>}
 	 */
-	private function price_fields( WC_Product $product, bool $is_variable ): array {
-		if ( $is_variable && $product instanceof WC_Product_Variable ) {
-			// variable親の`_regular_price`/`_sale_price`は`WC_Product_Variable_Data_Store_CPT::sync_price()`
-			// が保存の度に削除する（親は`_price`にバリエーションの価格帯のみ複数値で保持する）ため、
-			// 常に空文字列になる（実測確認済み）。無条件に読むと全variable商品が0円で
-			// エクスポートされてしまう（金銭的リスク）ため、バリエーションの最安価格を
-			// 代表値として使う。個々のバリエーション自身の価格は`variants()`が別途持つ。
-			$min_price = $product->get_variation_price( 'min', false );
+	private function price_fields_for_variable( WC_Product_Variable $product ): array {
+		// 親の`_regular_price`/`_sale_price`は`WC_Product_Variable_Data_Store_CPT::sync_price()`が
+		// 保存の度に削除する（親は`_price`にバリエーションの価格帯のみ複数値で保持する）ため、
+		// 常に空文字列になる（実測確認済み）。無条件に読むと全variable商品が0円でエクスポートされて
+		// しまう（金銭的リスク）ため、バリエーションの最安「定価」を代表値として使う。
+		// `get_variation_price()`（実効価格＝セール中はセール価格）ではなく
+		// `get_variation_regular_price()`を使う: 期間限定セールがASP側に定価として恒久的に
+		// 焼き付くのを避けるため（`sale_price`はH3と同じ理由でここでは扱わない＝常にnull）。
+		// 公開かつ（設定次第で）在庫ありのバリエーションが1件も無い場合、Wooの
+		// `current( [] )`規約により**bool `false`**が返る（`WC_Product_Variable_Data_Store_CPT::
+		// read_price_data()`の`get_visible_children()`が空集合になるケース。全バリエーション
+		// 非公開、または「在庫切れ商品を除外」設定＋全バリエーション在庫切れ等で起こりうる）。
+		// `CanonicalProduct::$price`は`declare(strict_types=1)`下の非nullable `string` のため、
+		// この`false`をそのまま渡すと`TypeError`でページ全体（Exporterの1件catchの外側で
+		// 発生するため他の商品を含むページ全体）が失敗し、再試行しても同じ商品で永久に
+		// 失敗し続ける。単純商品の価格欠損と同じくフェイルクローズし警告を積む。
+		$min_price = $product->get_variation_regular_price( 'min', false );
 
-			return [ '' !== $min_price ? $min_price : '0', null, [] ];
+		if ( ! is_string( $min_price ) || '' === $min_price ) {
+			return [ '0', null, [ WarningCode::PRODUCT_PRICE_INVALID ] ];
 		}
 
+		return [ $min_price, null, [] ];
+	}
+
+	/**
+	 * 単純商品の価格フィールド。
+	 *
+	 * @return array{0:string,1:?string,2:array<int,string>}
+	 */
+	private function price_fields_for_simple( WC_Product $product ): array {
 		$regular_price = $product->get_regular_price();
 		$warnings      = [];
 

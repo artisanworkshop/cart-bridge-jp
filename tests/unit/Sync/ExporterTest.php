@@ -170,6 +170,31 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
 	}
 
+	/**
+	 * M2: `PlatformWriter`は`cbjp/adapters/register`が登録した外部アダプタの`push_*()`へ
+	 * 直接ディスパッチするため、`PushResult::$operation`の型宣言はdocblock上の契約でしかない
+	 * （アーキテクチャ原則8）。未知の文字列を返す契約違反アダプタがいても、`$totals`の集計
+	 * （結果レポート・アップセル件数の元）が壊れないことを確認する。
+	 */
+	public function test_unknown_operation_from_writer_fails_closed_to_skipped(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				// `$totals`の初期キー（processed/created/updated/skipped/warned/remote_amount）の
+				// いずれとも一致しない、完全に未知の値。修正前はこの値のままundefined array key
+				// （PHP 8の警告）で`++$totals['bogus-operation']`が実行されていた。
+				return new PushResult( '1', 'bogus-operation' );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertArrayNotHasKey( 'bogus-operation', $result['totals'] );
+	}
+
 	public function test_unresolved_reference_from_reader_prevents_checksum_caching(): void {
 		$product  = $this->product();
 		$reader   = new FixedWooReader(
