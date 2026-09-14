@@ -76,6 +76,14 @@ final class WarningCode {
 	 */
 	public const ALL_VARIATIONS_EXCLUDED = 'all_variations_excluded';
 
+	/**
+	 * エクスポート時、Wooの`tax_status`が`taxable`以外（`shipping`/`none`）。`CanonicalProduct`は
+	 * `tax_status`を運ぶフィールドを持たず（`tax_class`のみ）、無警告のまま変換先へ渡すと
+	 * 「送料のみ課税」「非課税」の商品が通常課税として扱われうることを警告する
+	 * （`Woo\Reader\ProductReader`）。
+	 */
+	public const TAX_STATUS_NOT_TAXABLE = 'tax_status_not_taxable';
+
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
 	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
@@ -152,6 +160,29 @@ final class WarningCode {
 		$parts = explode( ':', $warning, 2 );
 
 		return [ $parts[0], $parts[1] ?? null ];
+	}
+
+	/**
+	 * `Sync\Exporter::process_items()`用: この警告が示す状態のまま`PlatformWriter::write()`へ
+	 * 渡すと、`CanonicalModel`が実体を正しく表現できずpush先で構造を破壊しうる（例:
+	 * `ALL_VARIATIONS_EXCLUDED`＝`variants=[]`のvariable商品がsimple商品としてpushされ、
+	 * remote側の既存バリエーションが失われる。Copilot指摘, PR #40 G3）。該当時はpushせず
+	 * フェイルクローズでskipped扱いにする。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_export_blocking( array $warnings ): bool {
+		$blocking_codes = [
+			self::ALL_VARIATIONS_EXCLUDED,
+		];
+
+		foreach ( $warnings as $warning ) {
+			if ( in_array( self::split( $warning )[0], $blocking_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

@@ -37,6 +37,13 @@ final class ProductReaderTest extends WooTestCase {
 	}
 
 	public function test_reads_simple_product_core_fields(): void {
+		// このテスト環境の既定は`woocommerce_calc_taxes=no`（`wc_prices_include_tax()`が
+		// 常にfalse）であり、そのままだと本テストの意図と無関係な`PRICES_INCLUDE_TAX_DISABLED`
+		// 警告が付いてしまう（CLAUDE.md「検証環境では税計算ONと税率登録まで行うこと」参照）。
+		// 税計算ONを明示し、警告カバレッジ自体は`test_prices_excluding_tax_warns()`に譲る。
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+
 		// WooCommerceは明示的なカテゴリを持たない商品作成時に`default_product_cat`
 		// （通常「未分類」）を自動付与する（`WC_Product_Data_Store_CPT::update_terms()`の
 		// `empty($categories)`ガード。実測確認済み）。何もマッピングしないままだと
@@ -198,6 +205,45 @@ final class ProductReaderTest extends WooTestCase {
 
 		$this->assertSame( '0', $read_item->item->price );
 		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+	}
+
+	/**
+	 * `woocommerce_prices_include_tax=no`の店舗では`get_regular_price()`が税抜金額を返すが、
+	 * ASP側のcanonical price契約は税込前提（`ProductWriter`のインポート方向と同じ契約）。
+	 * 実際の税換算は行わず（インポート方向と対称に警告のみ）、`ProductWriter`と同じ
+	 * `PRICES_INCLUDE_TAX_DISABLED`警告で店舗オーナーに気付かせる（Codex指摘, PR #40 G3）。
+	 */
+	public function test_prices_excluding_tax_warns(): void {
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'no' );
+
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Tax Exclusive' );
+		$wc_product->set_regular_price( '1000' );
+		$local_id = $wc_product->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $local_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertContains( WarningCode::PRICES_INCLUDE_TAX_DISABLED, $read_item->warnings );
+	}
+
+	/**
+	 * `get_tax_class()`は`tax_status`（`taxable`/`shipping`/`none`）を運ばない。
+	 * `CanonicalProduct`にも`tax_status`を持つフィールドが無いため、非課税商品を無警告で
+	 * exportすると変換先で通常課税として扱われうる（Codex指摘, PR #40 G3）。
+	 */
+	public function test_non_taxable_product_warns(): void {
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Non Taxable' );
+		$wc_product->set_regular_price( '1000' );
+		$wc_product->set_tax_status( 'none' );
+		$local_id = $wc_product->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $local_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertContains( WarningCode::TAX_STATUS_NOT_TAXABLE, $read_item->warnings );
 	}
 
 	public function test_category_resolved_via_category_map(): void {

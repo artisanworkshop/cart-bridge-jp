@@ -102,8 +102,21 @@ final class ExportSampleSelector {
 		$product_id_list  = array_slice( $this->filter_exportable_product_ids( array_keys( $product_ids ) ), 0, self::PRODUCT_HARD_CAP );
 		$customer_id_list = array_slice( array_keys( $customer_ids ), 0, self::CUSTOMER_CAP );
 
-		if ( $used_fallback ) {
-			$product_id_list  = $this->top_up_products( $product_id_list, self::SAMPLE_ORDER_LIMIT );
+		// Copilot指摘（PR #40, G3）: `$used_fallback`（受注件数のみで判定）だけをトップアップの
+		// トリガーにすると、受注は10件あっても明細が全て削除済み・除外対象タイプ等で
+		// product_id_listが完全に空になるケースを補完できない。この空サンプルが永続化されると
+		// `select_or_load()`が既存optionを返し続け二度と再選定されない（`JobManager`がこの
+		// 空配列を`only_local_ids`として渡すため実行が常に空ページで完了する）。
+		// ただし「受注はあるが対象商品/顧客が1〜数件しかない」（正当に小規模な実データ）まで
+		// 10件へ無条件に埋めてしまうと、D15の「実際の直近受注を反映する」意図から外れる
+		// （`test_free_tier_export_sample_is_restricted_to_products_in_the_latest_orders`が
+		// この意図を固定化している）。トップアップは元々の`$used_fallback`（受注不足）に加え、
+		// 「完全に空」の場合のみ発火させ、1件以上ある小規模サンプルはそのまま尊重する。
+		if ( $used_fallback || [] === $product_id_list ) {
+			$product_id_list = $this->top_up_products( $product_id_list, self::SAMPLE_ORDER_LIMIT );
+		}
+
+		if ( $used_fallback || [] === $customer_id_list ) {
 			$customer_id_list = $this->top_up_customers( $customer_id_list, self::SAMPLE_ORDER_LIMIT );
 		}
 

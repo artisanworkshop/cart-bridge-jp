@@ -133,6 +133,23 @@ final class Exporter {
 			// スキップ判定を変えない）。`export_checksum()`の名前空間混ぜ込みにより、importが
 			// 最後に書いた生ハッシュとは構造的に一致しないため、import/export混在時は安全側
 			// （再送）に倒れる（クラスdocblock参照）。
+			// Copilot指摘（PR #40, G3）: `ALL_VARIATIONS_EXCLUDED`等はReadItemの警告に積むだけでは
+			// 実際のpush自体を止めない。`CanonicalModel`が実体を正しく表現できない状態のまま
+			// `$writer->write()`へ渡すと、変換先（E2-3以降）で構造が破壊されうる
+			// （variants=[]のvariable商品がsimple商品としてpushされ、remote側の既存
+			// バリエーションが失われる等）。フェイルクローズし、pushせずskipped扱いで
+			// 警告を残す（dry-runレポートにも通常どおり反映される）。
+			if ( WarningCode::indicates_export_blocking( $read_item->warnings ) ) {
+				++$totals['skipped'];
+				++$totals['warned'];
+
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
+				}
+
+				continue;
+			}
+
 			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item ) === $row['checksum'] ) {
 				++$totals['skipped'];
 
@@ -242,6 +259,18 @@ final class Exporter {
 				// `Importer`と同じ理由: 未解決参照（category_map欠落等）が残る場合はchecksumを
 				// キャッシュせず、解決可能になった時点で再試行させる。
 				$checksum = $fully_resolved ? self::export_checksum( $item ) : null;
+
+				// Codex指摘（PR #40, G3）: アダプタが既存remote_idと異なる新しいremote_idを
+				// 返す場合がある（例: リモート側で削除された実体をupdate時に再作成した）。
+				// `upsert()`のユニークキー（platform, entity_type, remote_id）は新remote_idで
+				// 別行をINSERTするだけで、旧remote_idの行は孤児として残る。
+				// `find_many_by_local_ids()`/`find_remote_id()`はid昇順の最初の行（＝古い方）を
+				// 採用するため、以後のエクスポートは永久に削除済みのremote_idへ再送し続け、
+				// 重複行が無料版の累計カウント（`LimitPolicy`）も押し上げてしまう。
+				// 新しいremote_idをupsertする前に旧行を削除する。
+				if ( null !== $existing_remote_id && $existing_remote_id !== $result->remote_id ) {
+					$this->mappings->delete_one( $platform, $entity, $existing_remote_id );
+				}
 
 				$this->mappings->upsert( $platform, $entity, $result->remote_id, $local_id, $checksum );
 

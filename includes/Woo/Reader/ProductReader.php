@@ -39,6 +39,12 @@ final class ProductReader implements EntityReader {
 	public const EXPORTABLE_STATUSES = [ 'publish', 'private', 'draft' ];
 	public const EXPORTABLE_TYPES    = [ 'simple', 'variable' ];
 
+	/**
+	 * `Woo\Writer\ProductWriter`と同じ理由: 商品ごとに積むと結果が埋もれるため
+	 * インスタンス（=1ページ走査）につき1回だけ警告する。
+	 */
+	private bool $prices_include_tax_warned = false;
+
 	public function __construct(
 		private readonly string $platform,
 		private readonly MethodMap $method_map,
@@ -108,6 +114,23 @@ final class ProductReader implements EntityReader {
 
 		$weight    = WeightUnit::convert_to_grams( (string) $product->get_weight() );
 		$tax_class = $product->get_tax_class();
+
+		// Codex指摘（PR #40, G3）: `woocommerce_prices_include_tax=no`の店舗では
+		// `get_regular_price()`が税抜金額を返すが、ASP側のcanonical price契約は税込前提
+		// （`Woo\Writer\ProductWriter`のインポート方向と同じ契約）。実際の税換算は行わず
+		// （`ProductWriter`側も同様に換算はせず警告のみ。インポート方向で既に確立した方針との
+		// 対称性を優先）、`ProductWriter`と同じ基準で1回だけ警告する。
+		if ( ! wc_prices_include_tax() && ! $this->prices_include_tax_warned ) {
+			$warnings[]                      = WarningCode::PRICES_INCLUDE_TAX_DISABLED;
+			$this->prices_include_tax_warned = true;
+		}
+
+		// Codex指摘（PR #40, G3）: `get_tax_class()`は`tax_status`（`taxable`/`shipping`/`none`）を
+		// 運ばない。`CanonicalProduct`にも`tax_status`を持つフィールドが無いため、送料のみ課税・
+		// 非課税の商品を無警告でexportすると変換先で通常課税として扱われうる。
+		if ( 'taxable' !== $product->get_tax_status() ) {
+			$warnings[] = WarningCode::TAX_STATUS_NOT_TAXABLE;
+		}
 
 		$canonical = new CanonicalProduct(
 			$product->get_name(),

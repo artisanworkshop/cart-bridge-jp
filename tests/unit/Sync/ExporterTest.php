@@ -278,6 +278,52 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '1' ) );
 	}
 
+	/**
+	 * Copilot指摘（PR #40、G3）: `ALL_VARIATIONS_EXCLUDED`のようなexport-blocking警告は
+	 * `ReadItem`に積むだけでは実際のpush自体を止めない。`$writer->write()`が一切呼ばれず、
+	 * skipped/warnedとして扱われ、mappingsも永続化されないことを確認する。
+	 */
+	public function test_export_blocking_warning_prevents_push(): void {
+		$reader   = new FixedWooReader(
+			[ new ReadItem( 101, $this->product(), [ WarningCode::ALL_VARIATIONS_EXCLUDED ] ) ]
+		);
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * Codex指摘（PR #40、G3）: アダプタがupdate時に既存remote_idと異なる新しいremote_id
+	 * （例: リモート側で削除された実体を再作成した場合）を返すと、`upsert()`のユニークキー
+	 * （platform, entity_type, remote_id）は別行をINSERTするだけで旧remote_idの行が孤児として
+	 * 残ってしまっていた。新しいremote_idをupsertする前に旧行を削除し、local_id当たり1行だけが
+	 * 残ることを確認する。
+	 */
+	public function test_stale_mapping_row_is_replaced_when_writer_returns_a_new_remote_id(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-old', 101, 'stale-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( 'remote-new', PushResult::OPERATION_UPDATED );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['updated'] );
+		$this->assertSame( 'remote-new', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'remote-old' ), '旧remote_idの行が孤児として残っていないこと' );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ), 'local_id当たり1行だけが残ること' );
+	}
+
 	public function test_only_local_ids_restricts_the_reader_to_the_sample(): void {
 		$reader   = new FixedWooReader(
 			[
