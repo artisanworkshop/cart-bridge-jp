@@ -2,9 +2,10 @@
 - タスク: E2-2: Exporter パイプライン PR-B（CustomerReader/OrderReader/StockReader/CouponReader）
 - 開始: 2026-09-14
 - PR: #41 https://github.com/artisanworkshop/cart-bridge-jp/pull/41
-- 現在のステップ: 6（Codex応答待ち。Copilot G1完了）
+- 現在のステップ: 5（CI待ち。Copilot/Codexとも依頼1回・G1完了。CI green後、両bot収束のためStep 8へ）
 - Copilot: 依頼1回 / G1完了（inline 7件+本文4件、全件対応）
-- Codex: 依頼1回（自動レビュー未発火のため@codex reviewで再依頼、応答待ち）
+- Codex: 依頼1回 / G1完了（新規15件。修正10件・誤検知2件（実測反証・Resolve済み）・
+  backlog送り3件（未解決のまま）。詳細はG1.md）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -19,3 +20,4 @@
 | 2026-09-14 | 5 | CI green（4ジョブ全pass） |
 | 2026-09-14 | 6 | Copilotへレビュー依頼（T=2026-09-14T06:02:54Z）。Codex自動レビュー未発火のため`@codex review`で再依頼（1回目としてカウント） |
 | 2026-09-14 | 7 | G1（Copilot）完了。inline 7件+本文Suppressed 4件、計11件（High5・Medium6）。うち2件（クーポン金額検証・テストdraft化リスク）は実測の結果「指摘は誤り/過大」と判定、理由を返信のうえ修正せず。残り9件を修正。品質チェックgreen（PHPUnit 838件）。commit b2fb4d9。Codex応答待ち |
+| 2026-09-14 | 7 | G1（Codex）完了。commit_id確認の結果レビュー2件（1件目は70bb3738＝Copilot修正前のstale、2件目はb2fb4d9＝最新）で計15件。修正10件（通貨不一致blocking・氏名日本語順・在庫stock_status尊重・利用済みクーポンblocking・バリエーション親商品ID解決+option値・非整数量TypeError対策・削除済み商品参照blocking・返金済み注文blocking・customer_noteフォールバック・非JPYクーポンblocking）、誤検知2件（stale/実測反証、Resolve済み）、backlog送り3件（sale_deliveries・顧客extras・クーポンカーソル安定性、review-backlog.mdへ記録・未解決のまま）。#11では`get_product_id()`が削除済み参照でCRUD層により黙って0へリセットされる（`WC_Coupon::set_amount()`と同じset_props()パターン）ことを実測発見し、生のorder-item-metaを直接読む実装に修正。品質チェックgreen（PHPUnit 849件）。commit 741269b（コード+テスト）, 84068c0（docs）。両bot収束、Step 8（最終報告）へ |
