@@ -2,7 +2,7 @@
 - タスク: E2-2 Exporter パイプライン（PR-A: コア配線 + ProductReader）
 - 開始: 2026-09-14
 - PR: #40 https://github.com/artisanworkshop/cart-bridge-jp/pull/40
-- 現在のステップ: 7(ゲートG3・CI待ち。上限到達のためG4依頼なし→Step8へ)
+- 現在のステップ: 8(完了)
 - Copilot: 依頼3回目（2026-09-14T02:16:17Z・上限到達）
 - Codex: 依頼2回目（`@codex review`、2026-09-14T02:16:17Z）
 
@@ -23,3 +23,5 @@
 | 2026-09-14 | 6 | Copilot応答（新規6件＝インライン2件＋本文Suppressed comments 4件）・Codex応答（新規4件）。うち軸超過警告なし（両bot重複）・非公開variation export・全滅時simple化リスク・価格検証（variants/simple/variable の3箇所）の計6件をHighとして修正（de40abb）。Pro版ページング頑健性・RateLimitExhaustedException部分totals・variation読出N+1の3件はbacklog送り。品質チェック（lint/analyze/test:wpenv 768件/npm lint/build）green。詳細はG2.md |
 | 2026-09-14 | 6 | G2修正をreply+resolve（修正4スレッド）、保留2スレッドは返信のみ、PRサマリコメント投稿。CI再実行green確認後、Copilot（3回目）・Codex（`@codex review`、2回目）へ依頼。T3=2026-09-14T02:16:17Z |
 | 2026-09-14 | 6 | Copilot応答（新規1件＝インライン + 本文Suppressed comments 2件）・Codex応答（新規4件）。全滅時simple化のpushブロック未実装・税抜/税込基準不一致（部分対応）・tax_status欠落・remote_id変化時の孤児mapping行・サンプル完全空化時のトップアップ漏れ・exportサンプルクリーンアップのテスト欠落の計6件を修正（12c608a、うちG3-2は警告追加のみの部分対応）。複数リクエストpushの部分完了契約はE2-3の設計課題としてdocs/03・docs/10-tasksへ記録し保留。品質チェック（lint/analyze/test:wpenv 774件/npm lint/build）green。詳細はG3.md |
+| 2026-09-14 | 7 | G3修正をreply+resolve（修正3スレッド）、保留2スレッドは返信のみ、PRサマリコメント投稿。CI green確認 |
+| 2026-09-14 | 8 | Copilotが依頼上限（3回）に到達したためG4依頼は行わず終了。最終報告（final-report.md）作成。dev-cycle完了 |
