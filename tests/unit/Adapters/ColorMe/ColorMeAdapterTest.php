@@ -381,6 +381,38 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNull( $this->find_captured( $captured, 'POST', 'products.json' ) );
 	}
 
+	/**
+	 * R2レビュー指摘: 価格を1件も解決できない場合の`display_state=hidden`強制
+	 * （`ProductTransformer::to_create_payload()`）は**新規作成のみ**に適用する。更新時にも
+	 * 同じ判定を適用すると、既に公開・販売中の商品が価格未解決のたびに（税設定取得の一時的な
+	 * 失敗等でも）毎回非公開化されてしまい、安全上の利得が無いまま機会損失だけが生じる。
+	 */
+	public function test_push_product_does_not_force_hidden_on_update_when_price_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'PUT products/778.json' => [ [ 'body' => [ 'product' => [ 'id' => 778 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), '778' );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$update_request = $this->find_captured( $captured, 'PUT', 'products/778.json' );
+		$this->assertNotNull( $update_request );
+		// Wooの商品ステータスが`publish`のため、価格未解決でも`showing`のまま送る
+		// （既存のColorMe側公開状態を毎回非公開へ落とさない）。
+		$this->assertSame( 'showing', $update_request['body']['product']['display_state'] );
+		$this->assertArrayNotHasKey( 'price', $update_request['body']['product'] );
+		$this->assertArrayNotHasKey( 'sales_price', $update_request['body']['product'] );
+	}
+
 	public function test_push_product_creates_variable_product_and_syncs_variant_remote_ids(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -660,6 +692,121 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_SURPLUS_ON_REMOTE ], $result->warnings );
 		$this->assertSame( [ '9201' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * R2レビュー指摘: 2軸が同じラベルを持つ場合（`Woo\Support\VariationAxisResolver::
+	 * attribute_label()`はラベル重複を排除しない。例: グローバル属性とローカル属性が両方
+	 * 「Color」）、`{軸名: 値}`マップの素朴な組み立てだと後勝ちで片方の軸が消え、異なる値を持つ
+	 * 複数バリエーションが同じキーに衝突しうる。誤対応付け（SKU/価格/在庫が別バリエーションへ
+	 * 入れ替わってpushされる）を避けるため、衝突を検出したら突合自体を諦めて未確定のまま
+	 * フェイルクローズすることを確認する（POST /options.jsonの`values`にも両方の値が含まれる
+	 * ため軸自体は作成されるが、事故が起きやすいPUT /variants/{id}.jsonは一切呼ばれない）。
+	 */
+	public function test_push_product_fails_closed_when_two_axes_share_the_same_name(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Colliding Axis Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-A',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => 'Color',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-B',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Blue',
+					'option2_name'  => 'Color',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'PUT products/970.json'          => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'GET products/970.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 970,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 970,
+								'options'  => [],
+								// このリモートバリエーション自身も両スロットが同名「Color」で
+								// 自動生成された想定（衝突検出前の実装では{Color:'S'}に潰れ、
+								// ローカルの2バリエーション両方がこの1件へ誤って一致していた）。
+								'variants' => [
+									[
+										'id'            => 9301,
+										'option1_value' => 'Red',
+										'option2_value' => 'S',
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'S',
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/970/options.json' => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		// 軸名の衝突はWoo側の属性ラベル設定を直さない限り再試行しても解決しない終端状態のため
+		// `PRODUCT_VARIANT_PUSH_FAILED`（retry対象外）になる。
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+		// 誤対応付けの実行に繋がるバリエーションPUTは一切発生しない。
+		$this->assertSame( [], array_filter( $captured, static fn ( array $r ): bool => 'PUT' === $r['method'] && str_contains( $r['url'], '/variants/' ) ) );
 	}
 
 	/**

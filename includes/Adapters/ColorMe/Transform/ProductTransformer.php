@@ -46,7 +46,22 @@ final class ProductTransformer {
 	 * @return array<string,mixed>
 	 */
 	public function to_create_payload( CanonicalProduct $product ): array {
-		return $this->base_payload( $product );
+		$payload = $this->base_payload( $product );
+
+		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
+			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）: 税設定不明・
+			// 未知の丸め方式等で価格を1件も解決できなかった場合、無価格のまま公開すると
+			// 実質無料で購入可能になりうる。display_stateを強制的にhiddenへ倒す
+			// （`ColorMeAdapter::push_product()`が同じ判定から`PRODUCT_DETAILS_PUSH_INCOMPLETE`
+			// を積み、checksumをキャッシュせず価格解決後の再exportで正しい状態に戻す）。
+			// **新規作成のみ**に適用する（R2レビュー指摘）: 更新時にも同じ判定を`base_payload()`
+			// へ入れると、既に公開・販売中の商品が価格未解決のたびに非公開化されてしまい、
+			// 安全上の利得が無いまま機会損失だけが生じる。更新時は価格フィールドを単に省略し
+			// （ColorMe側の既存価格はそのまま残る）、`display_state`もWoo側の状態をそのまま送る。
+			$payload['display_state'] = 'hidden';
+		}
+
+		return $payload;
 	}
 
 	/**
@@ -113,15 +128,6 @@ final class ProductTransformer {
 
 		if ( null !== $sales_price ) {
 			$payload['sales_price'] = $sales_price;
-		}
-
-		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
-			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）: 税設定不明・
-			// 未知の丸め方式等で価格を1件も解決できなかった場合、無価格のまま公開すると
-			// 実質無料で購入可能になりうる。display_stateを強制的にhiddenへ倒す
-			// （`ColorMeAdapter::push_product()`が同じ判定から`PRODUCT_DETAILS_PUSH_INCOMPLETE`
-			// を積み、checksumをキャッシュせず価格解決後の再exportで正しい状態に戻す）。
-			$payload['display_state'] = 'hidden';
 		}
 
 		if ( null !== $product->description ) {

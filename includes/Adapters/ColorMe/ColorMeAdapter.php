@@ -697,7 +697,16 @@ final class ColorMeAdapter implements PlatformAdapter {
 				continue;
 			}
 
-			$remote_by_key[ self::variant_key( self::remote_variant_axis_map( $remote_variant ) ) ] = $remote_id;
+			$axis_map = self::remote_variant_axis_map( $remote_variant );
+
+			if ( null === $axis_map ) {
+				// 軸名が衝突しキーを一意に決定できない（R2レビュー指摘）。誤対応付けを避けるため
+				// この1件を突合対象から除外する（どのローカルバリエーションからも見つからず、
+				// surplusとして扱われる＝実害はremote側に販売可能なまま残ることの警告のみ）。
+				continue;
+			}
+
+			$remote_by_key[ self::variant_key( $axis_map ) ] = $remote_id;
 		}
 
 		if ( count( $remote_variants ) > count( $product->variants ) ) {
@@ -715,7 +724,18 @@ final class ColorMeAdapter implements PlatformAdapter {
 				continue;
 			}
 
-			$key               = self::variant_key( self::variant_axis_map( $variant ) );
+			$axis_map = self::variant_axis_map( $variant );
+
+			if ( null === $axis_map ) {
+				// 軸名が衝突しキーを一意に決定できない（R2レビュー指摘）。同名の異なる軸を
+				// 持つ別のバリエーションと誤って同じキーに解決され、SKU/価格/在庫が入れ替わって
+				// pushされる事故を避けるため、突合自体を諦めて未確定のままにする。
+				$failure['terminal'] = true;
+				$result[]            = '';
+				continue;
+			}
+
+			$key               = self::variant_key( $axis_map );
 			$variant_remote_id = $remote_by_key[ $key ] ?? null;
 
 			if ( null === $variant_remote_id ) {
@@ -871,21 +891,18 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * 独立（`ensure_option_values()`が軸を名前で解決するのと同じ理由）。
 	 *
 	 * @param array<string,mixed> $variant `CanonicalProduct::$variants`の1要素。
-	 * @return array<string,string>
+	 * @return ?array<string,string> 2軸が同じ名前を持つ（`Woo\Support\VariationAxisResolver::
+	 *   attribute_label()`はラベル重複を排除しない）場合はnull（信頼できるキーを組み立てられない。
+	 *   R2レビュー指摘: 素朴に連想配列へ書くと後勝ちで潰れ、異なる値を持つ複数バリエーションが
+	 *   同じキーに衝突し誤対応付けを起こす）。
 	 */
-	private static function variant_axis_map( array $variant ): array {
-		$map = [];
-
-		foreach ( [ 'option1', 'option2' ] as $slot ) {
-			$name  = Cast::to_string_or_null( $variant[ "{$slot}_name" ] ?? null );
-			$value = Cast::to_string_or_null( $variant[ "{$slot}_value" ] ?? null );
-
-			if ( null !== $name && null !== $value ) {
-				$map[ $name ] = $value;
-			}
-		}
-
-		return $map;
+	private static function variant_axis_map( array $variant ): ?array {
+		return self::axis_map_from_pairs(
+			[
+				[ Cast::to_string_or_null( $variant['option1_name'] ?? null ), Cast::to_string_or_null( $variant['option1_value'] ?? null ) ],
+				[ Cast::to_string_or_null( $variant['option2_name'] ?? null ), Cast::to_string_or_null( $variant['option2_value'] ?? null ) ],
+			]
+		);
 	}
 
 	/**
@@ -894,24 +911,39 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * を使う（フラットな`option1_value`/`option2_value`はスロット位置の情報しか持たない）。
 	 *
 	 * @param array<string,mixed> $remote_variant
-	 * @return array<string,string>
+	 * @return ?array<string,string> `variant_axis_map()`と同じ理由でnullになりうる。
 	 */
-	private static function remote_variant_axis_map( array $remote_variant ): array {
-		$map = [];
+	private static function remote_variant_axis_map( array $remote_variant ): ?array {
+		$pairs = [];
 
 		foreach ( [ 'option1', 'option2' ] as $slot ) {
 			$option = $remote_variant[ $slot ] ?? null;
 
-			if ( ! is_array( $option ) ) {
+			$pairs[] = is_array( $option )
+				? [ Cast::to_string_or_null( $option['name'] ?? null ), Cast::to_string_or_null( $option['value'] ?? null ) ]
+				: [ null, null ];
+		}
+
+		return self::axis_map_from_pairs( $pairs );
+	}
+
+	/**
+	 * @param array<int,array{0:?string,1:?string}> $pairs [name, value] の組。
+	 * @return ?array<string,string>
+	 */
+	private static function axis_map_from_pairs( array $pairs ): ?array {
+		$map = [];
+
+		foreach ( $pairs as [ $name, $value ] ) {
+			if ( null === $name || null === $value ) {
 				continue;
 			}
 
-			$name  = Cast::to_string_or_null( $option['name'] ?? null );
-			$value = Cast::to_string_or_null( $option['value'] ?? null );
-
-			if ( null !== $name && null !== $value ) {
-				$map[ $name ] = $value;
+			if ( array_key_exists( $name, $map ) ) {
+				return null;
 			}
+
+			$map[ $name ] = $value;
 		}
 
 		return $map;
