@@ -78,6 +78,16 @@ final class WarningCode {
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
 
+	/**
+	 * エクスポート時、バリエーションの在庫が親レベルで一括管理されている
+	 * （`WC_Product_Variation::get_manage_stock()`が`'parent'`を返す）。ASP側にはバリエーションを
+	 * またぐ共有在庫プールという概念が無いため、親の数量をそのまま各バリエーションへ複製すると
+	 * 実在庫のバリエーション数倍を販売可能数量として申告してしまう。`Woo\Reader\ProductReader`は
+	 * このケースを`STOCK_PARENT_OF_VARIABLE`（インポート時に変数親へ在庫を書き込もうとして
+	 * 拒否する別の状況を指す）とは区別し、在庫切れ（0）にフェイルクローズしたうえでこの警告を積む。
+	 */
+	public const VARIATION_STOCK_SHARED_WITH_PARENT = 'variation_stock_shared_with_parent';
+
 	public const COUPON_REUSED_EXISTING = 'coupon_reused_existing';
 
 	/**
@@ -162,7 +172,21 @@ final class WarningCode {
 	 * 見分けが付かなかった）。
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
-		return self::indicates_unresolved_reference( [ $warning ] )
-			|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0];
+		return ! self::indicates_mapping_required( $warning )
+			&& ( self::indicates_unresolved_reference( [ $warning ] )
+				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「ASP側に対応する実体を
+	 * 先にインポートすれば消える」のではなく「マッピング設定（`/settings/mappings/{platform}`）を
+	 * 追加すれば消える」ものか。`CATEGORY_MAP_UNRESOLVED`（エクスポート方向、`category_map`未設定）は
+	 * `indicates_unresolved_reference()`（checksumキャッシュ判定）の対象ではあるが、
+	 * 「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
+	 * （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
+	 * なため専用の判定を分ける。
+	 */
+	public static function indicates_mapping_required( string $warning ): bool {
+		return self::CATEGORY_MAP_UNRESOLVED === self::split( $warning )[0];
 	}
 }

@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Sync;
 
+use CartBridgeJP\Woo\Reader\ProductReader;
 use WC_Order;
 use WC_Order_Item_Product;
 
@@ -90,8 +91,15 @@ final class ExportSampleSelector {
 			}
 		}
 
-		$used_fallback    = count( $order_ids ) < self::SAMPLE_ORDER_LIMIT;
-		$product_id_list  = array_slice( array_keys( $product_ids ), 0, self::PRODUCT_HARD_CAP );
+		$used_fallback = count( $order_ids ) < self::SAMPLE_ORDER_LIMIT;
+
+		// 受注明細由来の商品IDは、ゴミ箱・下書き以外の許容ステータス・タイプ（`ProductReader`が
+		// 実際にエクスポート対象とするもの）に絞り込む。絞り込まずにサンプル枠を消費すると、
+		// `ProductReader::query()`のページには現れない商品がサンプルの50件枠だけを占有し、
+		// 「サンプル選定は完了しているのに実際にエクスポートされる商品が枠より少ない」という
+		// 説明できない挙動になる（D16「クリーンアップせずに再選定は不可」のため一度枠を
+		// 消費すると取り返しがつかない）。
+		$product_id_list  = array_slice( $this->filter_exportable_product_ids( array_keys( $product_ids ) ), 0, self::PRODUCT_HARD_CAP );
 		$customer_id_list = array_slice( array_keys( $customer_ids ), 0, self::CUSTOMER_CAP );
 
 		if ( $used_fallback ) {
@@ -123,8 +131,8 @@ final class ExportSampleSelector {
 
 		$ids = wc_get_products(
 			[
-				'status'  => [ 'publish', 'private', 'draft' ],
-				'type'    => [ 'simple', 'variable' ],
+				'status'  => ProductReader::EXPORTABLE_STATUSES,
+				'type'    => ProductReader::EXPORTABLE_TYPES,
 				'orderby' => 'date',
 				'order'   => 'DESC',
 				'return'  => 'ids',
@@ -134,6 +142,31 @@ final class ExportSampleSelector {
 		);
 
 		return array_slice( array_values( array_unique( array_merge( $existing, array_map( 'intval', $ids ) ) ) ), 0, $target );
+	}
+
+	/**
+	 * 受注明細から抽出した商品ID一覧を`ProductReader::EXPORTABLE_STATUSES`/`EXPORTABLE_TYPES`に
+	 * 絞り込む（このクラスのdocblock・`select_and_persist()`のコメント参照）。
+	 *
+	 * @param array<int,int> $product_ids
+	 * @return array<int,int>
+	 */
+	private function filter_exportable_product_ids( array $product_ids ): array {
+		if ( [] === $product_ids ) {
+			return [];
+		}
+
+		$ids = wc_get_products(
+			[
+				'include' => $product_ids,
+				'status'  => ProductReader::EXPORTABLE_STATUSES,
+				'type'    => ProductReader::EXPORTABLE_TYPES,
+				'limit'   => count( $product_ids ),
+				'return'  => 'ids',
+			]
+		);
+
+		return array_map( 'intval', $ids );
 	}
 
 	/**

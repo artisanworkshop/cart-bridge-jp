@@ -63,12 +63,14 @@ final class ExporterTest extends WP_UnitTestCase {
 
 		$this->assertSame( 1, $result['totals']['updated'] );
 		$this->assertSame( 'remote-1', $writer->writes[0]['remote_id'] );
-		$this->assertSame( $product->checksum(), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
+		// `Exporter`が書くchecksumは`export_checksum()`（H1参照。名前空間混ぜ込みで
+		// importの生ハッシュとの衝突を避ける。クラスdocblock参照）が返す値になる。
+		$this->assertSame( Exporter::export_checksum( $product ), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
 	}
 
 	public function test_checksum_match_skips_the_writer(): void {
 		$product = $this->product();
-		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, $product->checksum() );
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
 
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $product ) ] );
 		$writer   = new InMemoryPlatformWriter();
@@ -78,6 +80,31 @@ final class ExporterTest extends WP_UnitTestCase {
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['skipped'] );
+	}
+
+	/**
+	 * H1: `cbjp_mappings`はimport/exportで同じ行を共有する（entity_typeを分けない設計判断）。
+	 * `Importer`が書く生ハッシュ（接頭辞なし）を`Exporter`がそのまま「変更なし」の根拠にすると、
+	 * インポート直後に一度もWoo側を書き換えていないのに（≒本当に一致しうる状態でも）
+	 * 誤って一致とみなしてしまう可能性がある。`export_checksum()`の名前空間混ぜ込みにより、
+	 * import由来の生ハッシュはexportの比較対象と構造的に一致しないため、必ず「変更あり」判定に
+	 * なりpushが呼ばれることを確認する（安全側＝再送に倒れる）。
+	 */
+	public function test_import_origin_checksum_never_matches_export_comparison(): void {
+		$product = $this->product();
+		// importが書く形式（接頭辞なしの生ハッシュ）をそのまま模する。
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, $product->checksum() );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $product ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 1, $result['totals']['updated'] );
+		// 以後はexport形式のchecksumで上書きされ、次回以降の再エクスポートは正しくスキップされる。
+		$this->assertSame( Exporter::export_checksum( $product ), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
 	}
 
 	public function test_free_tier_quota_blocks_new_items_but_allows_updates(): void {

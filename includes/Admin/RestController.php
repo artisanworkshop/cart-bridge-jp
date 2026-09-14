@@ -921,19 +921,21 @@ final class RestController {
 		$entities_raw = $request->get_param( 'entities' );
 		$entities     = is_array( $entities_raw ) ? array_values( array_filter( $entities_raw, 'is_scalar' ) ) : [];
 
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
 		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: 無料版のサンプル10件でも
 		// ASP本番環境へ実際に書き込むため、UI（E2-4の確認ダイアログ）が確認を得たことを示す
 		// フラグを必須にする。dry-run（`dry_run_export`）は何も書き込まないため対象外。
+		// プラットフォーム存在チェックの後に置く: 不正なplatform + type=exportのリクエストが
+		// 「未確認」ではなく「不明なプラットフォーム」として先に誤答されないようにする。
 		if ( JobManager::TYPE_EXPORT === $type && ! $this->acknowledged_production_write( $request ) ) {
 			return new WP_Error(
 				'cbjp_export_not_acknowledged',
 				__( 'Exporting writes to the connected shop right away. Confirm the warning before running an export.', 'cart-bridge-jp' ),
 				[ 'status' => 400 ]
 			);
-		}
-
-		if ( ! AdapterRegistry::has( $platform ) ) {
-			return $this->unknown_platform_error( $platform );
 		}
 
 		try {

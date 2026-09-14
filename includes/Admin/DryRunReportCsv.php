@@ -134,7 +134,11 @@ final class DryRunReportCsv {
 			}
 
 			[ $code, $detail ] = WarningCode::split( $warning );
-			$note              = WarningCode::indicates_pending_import( $warning ) ? 'reference_pending_import' : '';
+			$note              = match ( true ) {
+				WarningCode::indicates_mapping_required( $warning ) => 'mapping_required',
+				WarningCode::indicates_pending_import( $warning ) => 'reference_pending_import',
+				default => '',
+			};
 
 			$rows[] = array_map(
 				[ self::class, 'harden' ],

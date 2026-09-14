@@ -30,6 +30,15 @@ final class ProductReader implements EntityReader {
 
 	private const PAGE_SIZE = 20;
 
+	/**
+	 * このReaderが対象にする商品ステータス/タイプ。`Sync\ExportSampleSelector`が
+	 * 受注明細から抽出した商品IDをサンプル枠として消費する前に、この条件で絞り込む
+	 * 必要がある（合わない商品はこの`query()`のページに現れず、サンプル枠だけを
+	 * 消費して結果に反映されない「消えた枠」になるため）。
+	 */
+	public const EXPORTABLE_STATUSES = [ 'publish', 'private', 'draft' ];
+	public const EXPORTABLE_TYPES    = [ 'simple', 'variable' ];
+
 	public function __construct(
 		private readonly string $platform,
 		private readonly MethodMap $method_map,
@@ -38,8 +47,8 @@ final class ProductReader implements EntityReader {
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
-			'status'   => [ 'publish', 'private', 'draft' ],
-			'type'     => [ 'simple', 'variable' ],
+			'status'   => self::EXPORTABLE_STATUSES,
+			'type'     => self::EXPORTABLE_TYPES,
 			'orderby'  => 'ID',
 			'order'    => 'ASC',
 			'return'   => 'objects',
@@ -75,26 +84,25 @@ final class ProductReader implements EntityReader {
 	}
 
 	private function to_read_item( WC_Product $product ): ReadItem {
-		$warnings                              = [];
-		$is_variable                           = $product instanceof WC_Product_Variable;
-		$axis_names                            = $is_variable ? $this->variation_axis_attributes( $product ) : [];
-		$variants                              = $is_variable ? $this->variants( $product, $axis_names, $warnings ) : [];
-		$images                                = $this->images( $product );
-		[ $options, $option_warnings ]         = $this->options( $product, $axis_names );
-		$warnings                              = array_merge( $warnings, $option_warnings );
-		[ $category_refs, $category_warnings ] = $this->category_refs( $product );
-		$warnings                              = array_merge( $warnings, $category_warnings );
+		$warnings                                = [];
+		$is_variable                             = $product instanceof WC_Product_Variable;
+		$axis_names                              = $is_variable ? $this->variation_axis_attributes( $product ) : [];
+		$variants                                = $is_variable ? $this->variants( $product, $axis_names, $warnings ) : [];
+		$images                                  = $this->images( $product );
+		$options                                 = $this->options( $product, $axis_names );
+		[ $category_refs, $category_warnings ]   = $this->category_refs( $product );
+		$warnings                                = array_merge( $warnings, $category_warnings );
+		[ $price, $sale_price, $price_warnings ] = $this->price_fields( $product, $is_variable );
+		$warnings                                = array_merge( $warnings, $price_warnings );
 
-		$regular_price = $product->get_regular_price();
-		$sale_price    = $product->get_sale_price();
-		$weight        = WeightUnit::convert_to_grams( (string) $product->get_weight() );
-		$tax_class     = $product->get_tax_class();
+		$weight    = WeightUnit::convert_to_grams( (string) $product->get_weight() );
+		$tax_class = $product->get_tax_class();
 
 		$canonical = new CanonicalProduct(
 			$product->get_name(),
 			'' !== $product->get_sku() ? $product->get_sku() : null,
-			'' !== $regular_price ? $regular_price : '0',
-			'' !== $sale_price ? $sale_price : null,
+			$price,
+			$sale_price,
 			'' !== $product->get_description() ? $product->get_description() : null,
 			$images,
 			$variants,
@@ -102,7 +110,7 @@ final class ProductReader implements EntityReader {
 			$category_refs,
 			$is_variable ? null : $this->stock( $product ),
 			'publish' === $product->get_status() ? 'publish' : 'private',
-			[],
+			$this->extras( $product ),
 			! $product->is_virtual(),
 			[],
 			$weight,
@@ -118,17 +126,82 @@ final class ProductReader implements EntityReader {
 	}
 
 	/**
+	 * `ProductWriter::prepare()`がインポート時に適用する`extras`のうち、`WC_Product`から
+	 * 直接読み戻せるもの（往復のデータ欠損を防ぐ。CanonicalProduct docblock参照）。
+	 * ColorMe固有の数値extras（few_num/cost/market_price/members_price_including_tax）は
+	 * Woo側に対応する値の置き場が無いためPR-Aでは対象外（`docs/review-backlog.md`参照）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function extras( WC_Product $product ): array {
+		$short_description = $product->get_short_description();
+
+		return [
+			'short_description' => '' !== $short_description ? $short_description : null,
+			'sort'              => $product->get_menu_order(),
+			'unlisted'          => 'hidden' === $product->get_catalog_visibility(),
+		];
+	}
+
+	/**
 	 * 在庫管理対象なのに数量が不明な場合は0（CLAUDE.md: `null`は「在庫管理外」を意味するため、
-	 * 誤って「在庫あり」と解釈されないようフェイルクローズする）。
+	 * 誤って「在庫あり」と解釈されないようフェイルクローズする）。数量管理していない商品も
+	 * `_stock_status`で明示的に「在庫切れ」にされている場合は0にする（`null`＝在庫ありへの
+	 * 誤変換を避ける。手動でstock_statusだけ切り替える運用はmanage_stock=falseのままでも一般的）。
 	 */
 	private function stock( WC_Product $product ): ?int {
 		if ( ! $product->get_manage_stock() ) {
-			return null;
+			return $product->is_in_stock() ? null : 0;
 		}
 
 		$quantity = $product->get_stock_quantity();
 
 		return null !== $quantity ? (int) $quantity : 0;
+	}
+
+	/**
+	 * 商品の価格フィールド（`CanonicalProduct::$price`/`$sale_price`）を組み立てる。
+	 *
+	 * @return array{0:string,1:?string,2:array<int,string>}
+	 */
+	private function price_fields( WC_Product $product, bool $is_variable ): array {
+		if ( $is_variable && $product instanceof WC_Product_Variable ) {
+			// variable親の`_regular_price`/`_sale_price`は`WC_Product_Variable_Data_Store_CPT::sync_price()`
+			// が保存の度に削除する（親は`_price`にバリエーションの価格帯のみ複数値で保持する）ため、
+			// 常に空文字列になる（実測確認済み）。無条件に読むと全variable商品が0円で
+			// エクスポートされてしまう（金銭的リスク）ため、バリエーションの最安価格を
+			// 代表値として使う。個々のバリエーション自身の価格は`variants()`が別途持つ。
+			$min_price = $product->get_variation_price( 'min', false );
+
+			return [ '' !== $min_price ? $min_price : '0', null, [] ];
+		}
+
+		$regular_price = $product->get_regular_price();
+		$warnings      = [];
+
+		if ( '' === $regular_price ) {
+			// 価格未設定の単純商品を0円として書き出すと「無料商品」に化ける
+			// （CLAUDE.md: 楽観的デフォルトは金銭的リスクに直結する）。
+			$warnings[] = WarningCode::PRODUCT_PRICE_INVALID;
+
+			return [ '0', null, $warnings ];
+		}
+
+		$sale_price = null;
+
+		// `get_sale_price()`は生の`_sale_price`をそのまま返し、セール開始/終了日程を考慮しない
+		// （`is_on_sale()`のみが日程を見る）。`edit`コンテキストで表示用フィルターを経由せず
+		// 判定する。`ProductWriter::resolve_sale_price()`（インポート方向）と同じ基準
+		// （数値・0より大きい・通常価格未満）で検証し、満たさない場合はセールなし扱いにする。
+		if ( $product->is_on_sale( 'edit' ) ) {
+			$raw_sale_price = $product->get_sale_price();
+
+			if ( is_numeric( $raw_sale_price ) && (float) $raw_sale_price > 0 && (float) $raw_sale_price < (float) $regular_price ) {
+				$sale_price = $raw_sale_price;
+			}
+		}
+
+		return [ $regular_price, $sale_price, $warnings ];
 	}
 
 	/**
@@ -213,7 +286,7 @@ final class ProductReader implements EntityReader {
 				'remote_id' => $remote_id ?? '',
 				'sku'       => '' !== $variation->get_sku() ? $variation->get_sku() : null,
 				'price'     => $price,
-				'stock'     => $this->variation_stock( $variation ),
+				'stock'     => $this->variation_stock( $variation, $warnings ),
 				'weight'    => WeightUnit::convert_to_grams( (string) $variation->get_weight() ),
 			];
 
@@ -225,9 +298,25 @@ final class ProductReader implements EntityReader {
 		return $variants;
 	}
 
-	private function variation_stock( WC_Product_Variation $variation ): ?int {
-		if ( false === $variation->get_manage_stock() ) {
-			return null;
+	/**
+	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列。
+	 */
+	private function variation_stock( WC_Product_Variation $variation, array &$warnings ): ?int {
+		$manage_stock = $variation->get_manage_stock();
+
+		if ( 'parent' === $manage_stock ) {
+			// 親レベルで一括管理される在庫は複数バリエーションで共有する単一プールであり、
+			// `get_stock_quantity()`はこの場合も親の数量をそのまま返す（CLAUDE.md参照）。
+			// ASP側にバリエーションをまたぐ共有プールの概念が無い以上、親の数量を各
+			// バリエーションへ複製すると実在庫のバリエーション数倍を販売可能数量として
+			// 申告してしまう（金銭的リスク）ため、在庫切れ（0）にフェイルクローズする。
+			$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
+
+			return 0;
+		}
+
+		if ( false === $manage_stock ) {
+			return $variation->is_in_stock() ? null : 0;
 		}
 
 		$quantity = $variation->get_stock_quantity();
@@ -289,12 +378,11 @@ final class ProductReader implements EntityReader {
 	 * （エクスポート→再インポートの往復で無駄な衝突警告を発生させないため）。
 	 *
 	 * @param array<int,WC_Product_Attribute> $axis_attributes
-	 * @return array{0:array<int,array<string,mixed>>,1:array<int,string>}
+	 * @return array<int,array<string,mixed>>
 	 */
 	private function options( WC_Product $product, array $axis_attributes ): array {
 		$axis_names = array_map( fn ( WC_Product_Attribute $a ): string => $this->attribute_label( $a ), $axis_attributes );
 		$options    = [];
-		$warnings   = [];
 
 		foreach ( $product->get_attributes() as $attribute ) {
 			if ( ! $attribute instanceof WC_Product_Attribute || $attribute->get_variation() ) {
@@ -320,7 +408,7 @@ final class ProductReader implements EntityReader {
 			];
 		}
 
-		return [ $options, $warnings ];
+		return $options;
 	}
 
 	/**
@@ -346,6 +434,8 @@ final class ProductReader implements EntityReader {
 			$refs[] = $asp_category_id;
 		}
 
-		return [ $refs, $warnings ];
+		// 異なるWooカテゴリが同じASPカテゴリへマッピングされている場合、重複したrefを
+		// そのまま渡すとASP側が拒否・二重登録しうる。
+		return [ array_values( array_unique( $refs ) ), $warnings ];
 	}
 }
