@@ -47,11 +47,20 @@ final class JobManager {
 	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
 
 	/**
-	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-A: productのみ）。
-	 * PR-Bで customer/order/stock/coupon を追加するまで、capability上は対象でも
-	 * ここに無いエンティティのexportジョブは作らない。
+	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-B: product/customer/order/stock/coupon）。
+	 * `category`/`tag`/`review`はここに含めない: category/tagはexportエンティティとして独立させず
+	 * `category_map`で解決する（`push_category()`はcategory作成可能なプラットフォーム向けで
+	 * ColorMeは常に`can_create_category=false`。`docs/03-design-decisions.md` §10.2「カテゴリ」）。
+	 * reviewは`PlatformAdapter`に`push_review()`が存在しないため常に対象外。
 	 */
-	private const EXPORT_ENTITIES_WITH_READER = [ 'product' ];
+	private const EXPORT_ENTITIES_WITH_READER = [ 'product', 'customer', 'order', 'stock', 'coupon' ];
+
+	/**
+	 * Woo側の最新受注10件起点のサンプル（`Sync\ExportSampleSelector`）でIDを絞り込むエクスポート
+	 * エンティティ（D15 §10.2 #8）。`coupon`は対象外: D15の表で「クーポン: 最新10件」は受注サンプルに
+	 * 紐付かない独立した上限（`LimitPolicy`のみで実現。importのcoupon処理と同じ形）。
+	 */
+	private const EXPORT_SAMPLE_ID_ENTITIES = [ 'product', 'customer', 'order', 'stock' ];
 
 	public function __construct(
 		private readonly JobRepository $jobs,
@@ -103,7 +112,7 @@ final class JobManager {
 
 		$is_export_type   = in_array( $type, [ self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ], true );
 		$ordered_entities = $is_export_type
-			? $this->filter_and_order_export_entities( $entities )
+			? $this->filter_and_order_export_entities( $entities, $adapter )
 			: $this->filter_and_order_entities( $entities, $adapter );
 
 		if ( [] === $ordered_entities ) {
@@ -352,25 +361,32 @@ final class JobManager {
 
 	/**
 	 * エクスポート対象エンティティの絞り込み・順序決定（`filter_and_order_entities()`の
-	 * ASP向け対称形）。`EXPORT_ENTITIES_WITH_READER`（PR-A時点はproductのみ）で未実装entityを
-	 * 除外する。`PlatformAdapter`に`push_tag()`/`push_review()`は存在しないためtag/reviewは
-	 * 到達しうる状態になった時点でも常に除外対象。
-	 *
-	 * **PR-B申し送り**: customer/order/stock/coupon 用のReaderを追加する際、`$adapter`引数を
-	 * 復活させ、capabilityベースの絞り込み（category: `can_create_category`、coupon:
-	 * `has_coupons && can_create_coupon`、customer: `can_update_customer`、order:
-	 * `can_create_order`。categoryはColorMeが作成不可のため常に除外され`category_map`が
-	 * 紐付けを担う。D19）を追加すること。PR-A時点は`EXPORT_ENTITIES_WITH_READER`が`product`
-	 * （capability非依存）のみのため、この分岐は現時点で到達不能でありPHPStanが
-	 * 到達不能コードとして検出する（`match.alwaysFalse`）ため、`$adapter`引数ごと含めていない。
+	 * ASP向け対称形）。`EXPORT_ENTITIES_WITH_READER`でReader未実装のentity（`category`/`tag`/
+	 * `review`）を先に除外し、残りをcapabilityで絞り込む。`category`は`EXPORT_ENTITIES_WITH_READER`
+	 * に含めないため、ここでは到達しない（`push_category()`はcategory作成可能なプラットフォーム
+	 * 向けで、ColorMeは`can_create_category=false`のため常にexportエンティティ化しない。
+	 * `category_map`が紐付けを担う。`docs/03-design-decisions.md` §10.2「カテゴリ」）。
 	 *
 	 * @param array<int,string> $requested
 	 * @return array<int,string>
 	 */
-	private function filter_and_order_export_entities( array $requested ): array {
+	private function filter_and_order_export_entities( array $requested, PlatformAdapter $adapter ): array {
+		$capabilities = $adapter->capabilities();
+
 		$supported = array_filter(
 			self::ENTITY_ORDER,
-			static fn ( string $entity ): bool => in_array( $entity, $requested, true ) && in_array( $entity, self::EXPORT_ENTITIES_WITH_READER, true )
+			static function ( string $entity ) use ( $requested, $capabilities ): bool {
+				if ( ! in_array( $entity, $requested, true ) || ! in_array( $entity, self::EXPORT_ENTITIES_WITH_READER, true ) ) {
+					return false;
+				}
+
+				return match ( $entity ) {
+					'customer' => $capabilities->can_update_customer,
+					'order' => $capabilities->can_create_order,
+					'coupon' => $capabilities->has_coupons && $capabilities->can_create_coupon,
+					default => true,
+				};
+			}
 		);
 
 		return array_values( $supported );
@@ -397,8 +413,13 @@ final class JobManager {
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
 	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run ): array {
-		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( $entity );
-		$only_local_ids  = $sampling_active
+		// `product`の上限を基準にする（`coupon`は`LimitPolicy::DEFAULT_LIMITS['stock']`のように
+		// 数値上限を持たないエンティティを含むため、エンティティ自身の上限で判定すると
+		// `stock`（数値上限=null）がサンプリング有効時でも常に全量対象になってしまう。
+		// importの`JobManager::process_page()`が`stock`をこの理由で`'product'`基準にしているのと
+		// 対称。`EXPORT_SAMPLE_ID_ENTITIES`参照）。
+		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( 'product' );
+		$only_local_ids  = ( $sampling_active && in_array( $entity, self::EXPORT_SAMPLE_ID_ENTITIES, true ) )
 			? $this->export_local_ids_for( $entity, $this->export_sample_selector()->select_or_load( $job['platform'] ) )
 			: null;
 
@@ -421,7 +442,11 @@ final class JobManager {
 	private function export_local_ids_for( string $entity, ExportSampleSet $sample ): array {
 		return match ( $entity ) {
 			'product' => $sample->product_ids,
-			// PR-Bで customer/order/stock を追加する。
+			'customer' => $sample->customer_ids,
+			'order' => $sample->order_ids,
+			// `StockReader`が商品サンプルを受け取り、内部でvariable商品のバリエーションへ展開する
+			// （`Sync\Importer::stocks_for_sample_product()`のexport向け対称形）。
+			'stock' => $sample->product_ids,
 			default => [],
 		};
 	}

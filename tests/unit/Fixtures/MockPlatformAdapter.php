@@ -50,6 +50,35 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	private int $next_pushed_remote_id = 1;
 
 	/**
+	 * `push_customer()`/`push_order()`/`push_stock()`/`push_coupon()`に渡された引数の記録
+	 * （`JobManagerExportTest`でPR-Bのexport正常系を検証する用。`$pushed_products`と同じ役割）。
+	 *
+	 * @var array<int,array{0:CanonicalCustomer,1:?string}>
+	 */
+	public array $pushed_customers = [];
+
+	/**
+	 * @var array<int,CanonicalOrder>
+	 */
+	public array $pushed_orders = [];
+
+	/**
+	 * @var array<int,CanonicalStock>
+	 */
+	public array $pushed_stocks = [];
+
+	/**
+	 * @var array<int,array{0:CanonicalCoupon,1:?string}>
+	 */
+	public array $pushed_coupons = [];
+
+	/**
+	 * `$next_pushed_remote_id`と同じ役割のcustomer/coupon向け採番カウンタ
+	 * （product用と衝突しないよう別カウンタにする）。
+	 */
+	private int $next_pushed_other_remote_id = 1;
+
+	/**
 	 * @param array<int,CanonicalProduct>  $products
 	 * @param array<int,CanonicalCustomer> $customers
 	 * @param array<int,CanonicalOrder>    $orders
@@ -68,6 +97,10 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 * @param bool                           $push_products_supported 指定するとpush_product()が
 	 *   `UnsupportedOperationException`を投げず成功を返す（`Sync\Exporter`のテスト用。
 	 *   ColorMe実装（E2-3）が無いPR-A時点でexportの正常系を検証するために必要）。
+	 * @param bool                           $push_others_supported 指定するとpush_customer()/
+	 *   push_order()/push_stock()/push_coupon()が`UnsupportedOperationException`を投げず成功を
+	 *   返す（`push_products_supported`のPR-B版。customer/order/stock/couponをまとめて1フラグで
+	 *   制御する。4エンティティを個別に無効化するテストは`capabilities_override`で行う）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -79,7 +112,8 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly ?Capabilities $capabilities_override = null,
 		private readonly ?CanonicalProduct $product_by_remote_id_override = null,
 		private readonly ?array $mapping_candidates_override = null,
-		private readonly bool $push_products_supported = false
+		private readonly bool $push_products_supported = false,
+		private readonly bool $push_others_supported = false
 	) {}
 
 	public function id(): string {
@@ -211,19 +245,51 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult {
-		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		if ( ! $this->push_others_supported ) {
+			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		}
+
+		$this->pushed_customers[] = [ $customer, $remote_id ];
+
+		if ( null !== $remote_id ) {
+			return new PushResult( $remote_id, PushResult::OPERATION_UPDATED );
+		}
+
+		return new PushResult( (string) $this->next_pushed_other_remote_id++, PushResult::OPERATION_CREATED );
 	}
 
 	public function push_order( CanonicalOrder $order ): PushResult {
-		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		if ( ! $this->push_others_supported ) {
+			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		}
+
+		$this->pushed_orders[] = $order;
+
+		return new PushResult( (string) $this->next_pushed_other_remote_id++, PushResult::OPERATION_CREATED );
 	}
 
 	public function push_stock( CanonicalStock $stock ): PushResult {
-		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		if ( ! $this->push_others_supported ) {
+			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		}
+
+		$this->pushed_stocks[] = $stock;
+
+		return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
 	}
 
 	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {
-		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		if ( ! $this->push_others_supported ) {
+			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		}
+
+		$this->pushed_coupons[] = [ $coupon, $remote_id ];
+
+		if ( null !== $remote_id ) {
+			return new PushResult( $remote_id, PushResult::OPERATION_UPDATED );
+		}
+
+		return new PushResult( (string) $this->next_pushed_other_remote_id++, PushResult::OPERATION_CREATED );
 	}
 
 	/**

@@ -105,8 +105,37 @@ final class WarningCode {
 	public const ORDER_TOTALS_INVALID          = 'order_totals_invalid';
 	public const ORDER_LINE_AMOUNT_INVALID     = 'order_line_amount_invalid';
 
+	/**
+	 * エクスポート時、受注明細の商品がまだASP側へエクスポートされておらず（`cbjp_mappings`に
+	 * product/variantのremote_idが無い）remote_product_idを特定できない（`Woo\Reader\OrderReader`）。
+	 * 商品を先にエクスポートすれば解決しうるため`indicates_unresolved_reference()`の対象に含める。
+	 * importの`ORDER_LINE_PRODUCT_UNRESOLVED`（ASP側受注明細のWoo商品参照が解決できない）とは
+	 * 向きが逆の別概念のため区別する。
+	 */
+	public const ORDER_LINE_PRODUCT_NOT_EXPORTED = 'order_line_product_not_exported';
+
+	/**
+	 * エクスポート時、受注の購入者（Wooの顧客ID）がまだASP側へエクスポートされておらず
+	 * （`cbjp_mappings`にcustomerのremote_idが無い）customer_refを特定できない
+	 * （`Woo\Reader\OrderReader`）。顧客を先にエクスポートすれば解決しうるため
+	 * `indicates_unresolved_reference()`の対象に含める。ゲスト購入（customer_id=0）はそもそも
+	 * この警告の対象外（customer_refはnullのまま警告なし）。
+	 */
+	public const ORDER_CUSTOMER_NOT_EXPORTED = 'order_customer_not_exported';
+
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
+
+	/**
+	 * エクスポート時、在庫を書き込む対象商品/バリエーションがまだASP側へエクスポートされておらず
+	 * （`cbjp_mappings`にproduct/variantのremote_idが無い）、対象を特定できない
+	 * （`Woo\Reader\StockReader`）。`CanonicalStock::$product_ref`は非nullable stringのため
+	 * 有効な値を作れず、`indicates_export_blocking()`の対象にしてpush自体を止める
+	 * （checksumはキャッシュされないため商品エクスポート後に自動再試行される）。importの
+	 * `STOCK_PRODUCT_UNRESOLVED`（ASP側商品がまだWooへインポートされていない）とは向きが逆の
+	 * 別概念のため区別する。
+	 */
+	public const STOCK_PRODUCT_NOT_EXPORTED = 'stock_product_not_exported';
 
 	/**
 	 * エクスポート時、バリエーションの在庫が親レベルで一括管理されている
@@ -174,6 +203,21 @@ final class WarningCode {
 	public static function indicates_export_blocking( array $warnings ): bool {
 		$blocking_codes = [
 			self::ALL_VARIATIONS_EXCLUDED,
+			// `Woo\Reader\CouponReader`: ASP側へ運べないWooネイティブのクーポン制限
+			// （商品/カテゴリ/メールアドレス制限・maximum_amount・fixed_product型）が残っている。
+			// `has_unsupported_restrictions=true`のまま`push_coupon()`（E2-3）へ渡すと、制限が
+			// 落ちた無制限クーポンとして保存されうる金銭的リスクがあるため、pushせずフェイル
+			// クローズする（`Canonical\CanonicalCoupon`のdocblockが定める契約、importの
+			// `Woo\Writer\CouponWriter`と同じ判断をexport側でも読出時点から適用する）。
+			self::COUPON_RESTRICTIONS_UNSUPPORTED,
+			// `Woo\Reader\StockReader`: 対象商品/バリエーションがまだASP側へエクスポートされて
+			// おらず、`CanonicalStock::$product_ref`（非nullable string）へ入れる有効な値が無い。
+			// `CanonicalOrder::$line_items[].remote_product_id`/`$customer_ref`（いずれもnullable）
+			// とは異なり必須フィールドのため、空文字列のまま`push_stock()`（E2-3）へ渡さずここで
+			// 止める。checksumは`continue`で未到達のままキャッシュされないため、商品が後から
+			// エクスポートされ次第この行は自動的に再試行される（`indicates_unresolved_reference()`
+			// への追加は不要）。
+			self::STOCK_PRODUCT_NOT_EXPORTED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -202,6 +246,8 @@ final class WarningCode {
 			self::ORDER_CUSTOMER_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_UNRESOLVED,
 			self::CATEGORY_MAP_UNRESOLVED,
+			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
+			self::ORDER_CUSTOMER_NOT_EXPORTED,
 		];
 
 		foreach ( $warnings as $warning ) {

@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\StockDerivation;
 use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
@@ -184,13 +185,7 @@ final class ProductReader implements EntityReader {
 	 * 誤変換を避ける。手動でstock_statusだけ切り替える運用はmanage_stock=falseのままでも一般的）。
 	 */
 	private function stock( WC_Product $product ): ?int {
-		if ( ! $product->get_manage_stock() ) {
-			return $product->is_in_stock() ? null : 0;
-		}
-
-		$quantity = $product->get_stock_quantity();
-
-		return null !== $quantity ? (int) $quantity : 0;
+		return StockDerivation::for_product( $product );
 	}
 
 	/**
@@ -386,26 +381,13 @@ final class ProductReader implements EntityReader {
 	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列。
 	 */
 	private function variation_stock( WC_Product_Variation $variation, array &$warnings ): ?int {
-		$manage_stock = $variation->get_manage_stock();
+		$derived = StockDerivation::for_variation( $variation );
 
-		if ( 'parent' === $manage_stock ) {
-			// 親レベルで一括管理される在庫は複数バリエーションで共有する単一プールであり、
-			// `get_stock_quantity()`はこの場合も親の数量をそのまま返す（CLAUDE.md参照）。
-			// ASP側にバリエーションをまたぐ共有プールの概念が無い以上、親の数量を各
-			// バリエーションへ複製すると実在庫のバリエーション数倍を販売可能数量として
-			// 申告してしまう（金銭的リスク）ため、在庫切れ（0）にフェイルクローズする。
+		if ( $derived['shared_with_parent'] ) {
 			$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
-
-			return 0;
 		}
 
-		if ( false === $manage_stock ) {
-			return $variation->is_in_stock() ? null : 0;
-		}
-
-		$quantity = $variation->get_stock_quantity();
-
-		return null !== $quantity ? (int) $quantity : 0;
+		return $derived['quantity'];
 	}
 
 	/**
