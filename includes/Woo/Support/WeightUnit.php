@@ -32,4 +32,17 @@ final class WeightUnit {
 	public static function convert_from_grams( int $grams ): string {
 		return (string) wc_get_weight( $grams, self::resolve(), 'g' );
 	}
+
+	/**
+	 * `convert_from_grams()`の逆変換（エクスポート用）。`WC_Product::get_weight()`が返す
+	 * ストア設定単位の値をグラム単位の整数へ変換する。空文字列・非数値は重量未設定として
+	 * `null`を返す。
+	 */
+	public static function convert_to_grams( string $weight ): ?int {
+		if ( '' === $weight || ! is_numeric( $weight ) ) {
+			return null;
+		}
+
+		return (int) round( (float) wc_get_weight( (float) $weight, 'g', self::resolve() ) );
+	}
 }

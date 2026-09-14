@@ -11,6 +11,7 @@ use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Sync\ExportSampleSelector;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
@@ -40,6 +41,7 @@ final class SampleCleanupTest extends WooTestCase {
 	public function tear_down(): void {
 		wp_set_current_user( 0 );
 		delete_option( SampleSelector::option_name_for( 'mock' ) );
+		ExportSampleSelector::clear( 'mock' );
 		parent::tear_down();
 	}
 
@@ -446,6 +448,32 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertFalse( $result['has_more'] );
 		$this->assertFalse( get_option( SampleSelector::option_name_for( 'mock' ) ) );
 		$this->assertFalse( $cleanup->preview( 'mock' )['sample_selected'] );
+	}
+
+	/**
+	 * Copilot指摘（PR #40、G3、本文Suppressed comments）: export方向のサンプルクリーンアップ経路
+	 * （`cbjp_export_sample_{platform}`）は`SampleSelector`（import用）のオプションしか
+	 * seed/assertしないこのテストクラスのどのテストでもカバーされておらず、回帰があっても
+	 * 検出できなかった。`run()`の最終化（finalize）で`ExportSampleSelector::clear()`が
+	 * 呼ばれ、export用サンプルも消えることを確認する。
+	 */
+	public function test_run_finalization_also_clears_the_export_sample_selection(): void {
+		update_option(
+			ExportSampleSelector::option_name_for( 'mock' ),
+			[
+				'order_ids'     => [ 1 ],
+				'product_ids'   => [],
+				'customer_ids'  => [],
+				'used_fallback' => false,
+			],
+			false
+		);
+
+		$cleanup = new SampleCleanup( $this->mappings );
+		$result  = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertFalse( get_option( ExportSampleSelector::option_name_for( 'mock' ) ) );
 	}
 
 	public function test_images_of_products_that_are_still_linked_elsewhere_or_unmapped_are_preserved(): void {

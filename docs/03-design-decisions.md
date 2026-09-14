@@ -419,6 +419,110 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 上限値は `cbjp/limits/{entity}` フィルターで提供し、Pro プラグインが解除する
 （実際のフック名は `cbjp/limits/product` のようにエンティティごと。本ドキュメント群で `cbjp/limits/*` とあるのはその総称）。
 
+**import/export共有**: `cbjp_mappings` は方向を持たない設計（`UNIQUE(platform, entity_type,
+remote_id)`）のため、上記累積カウントは import 由来・export 由来の行を区別せず合算する
+（E2-2で確定。無料版=挙動確認という位置づけ（D14）から、往復を通じた合計上限として扱う）。
+
+**checksum列も同じ行をimport/exportで共有するが値の意味は別物**（E2-2 R1で判明。詳細は
+`Sync\Exporter`クラスdocblock）: `Importer`が書くchecksumはASP側`CanonicalModel`のハッシュ、
+`Exporter`が書くのはWoo側`CanonicalModel`のハッシュで、同じ実体でも一致しない。素朴に同じ値として
+比較すると、一度でも両方向が触った実体（例: importで作られた商品がWooで購入されexportのサンプルにも
+選ばれた場合）で、以後のimportが「ASP側は変わっていないのにchecksum不一致」と誤判定し
+`ProductWriter::write()`がWoo側の手動編集を無条件に上書きし続けてしまう。`cbjp_mappings.checksum`は
+`CHAR(64)`固定長（生のsha256 hex digest専用）のためImporterの生ハッシュへ文字列プレフィックスを
+付ける方式は使えず、`Exporter::export_checksum()`が`canonical_json()`をハッシュする**前**に
+固定の名前空間文字列を混ぜ込むことで、出力を64文字のsha256 hex digestに保ったまま名前空間を分離する
+（`Importer`側は無変更。SHA-256の衝突耐性に依拠し、双方とも「自分が最後に書いた値と一致するか」
+だけを見るため相手方向の生ハッシュとは構造的に一致せず安全側＝再同期に倒れる）。
+
+**この修正が解決する範囲（E2-2 R2で明確化）**: 解決するのは「本来は変更があるのに誤って
+`一致`と判定してしまう」偽陽性のみである。両方向が同じ行を触った直後は、生ハッシュと名前空間付き
+ハッシュが構造的に一致しないため**必ず**「変更あり」と判定され、次にそのentityを触った方向が
+再同期（Woo→ASPは再push、ASP→Wooは`ProductWriter::write()`等の再書込）を行う。これは本修正が
+新たに生んだ挙動ではなく、修正前から（ASP側JSONとWoo側JSONは`extras`・画像URL等が構造的に
+異なるため通常は）実質的に同じ結果だった（=修正前後で「再同期コストがある」という性質自体は
+不変で、本修正は「本来なら再同期すべきなのに誤ってスキップする」危険な方を無くしたもの）。
+「両方向を跨いで触られた行は次の同期で必ず1回だけ余分な書込が起きる」こと自体を無くすには
+`cbjp_mappings`に方向別のchecksum列を追加する（スキーマ変更）等の設計が必要で、無料版のサンプル
+規模（最大50件）では実害が小さいと判断し本PRのスコープ外とした。
+
+#### エクスポート方向の実装（E2-2 PR-A）
+
+- **アーキテクチャ**: `Sync\Importer`/`Sync\WooWriter` の対称形として `Sync\Exporter`/
+  `Sync\PlatformWriter`/`Sync\WooReader` を新設。Woo→Canonical読出は `Woo\Reader\EntityReader`
+  実装（PR-A: `Woo\Reader\ProductReader` のみ。`Woo\WooReaderRepository` が entity ごとに
+  ディスパッチ）、ASPへのpushは `Woo\Export\AdapterPlatformWriter`
+  （`PlatformAdapter::push_*()` へディスパッチ）/ `Woo\Export\DryRunPlatformWriter`
+  （dry-run。アダプタを一切呼ばずmappingsの有無だけでcreated/updatedを判定）が担う。
+  `JobManager::process_job()` は `type` が `export`/`dry_run_export` のとき
+  この経路へ分岐する（`import`/`dry_run`は既存の`Importer`経路のまま）。
+- **「SKU/email突合」の実装範囲**: `cbjp_mappings`（Wooローカルエンティティからの逆引き。
+  `MappingRepository::find_remote_id()`/`find_many_by_local_ids()`）の有無のみでcreate/update
+  を判定する。ASP側APIへの投機的なSKU/email検索は行わない（D16が`MappingRebuilder`で
+  「SKU/email突合は誤リンクの危険があるため不採用」と確定済みの方針と整合）。
+- **無料版サンプル選定（エクスポート方向。D15 §10.2 #8）**: `Sync\ExportSampleSelector`
+  （`SampleSelector`のWoo向け対称形）が `wc_get_orders()`（日付降順・`wc-checkout-draft`除外）
+  で最新10件を起点に、明細の商品（`WC_Order_Item_Product::get_product_id()`で常に親商品IDを
+  取得するため、バリエーションは自動的に親商品で1件になる）と購入者（ゲスト=`customer_id 0`は
+  除外）を抽出する。フォールバック（受注10件未満）は商品・顧客一覧の先頭ページ（Woo側は日付
+  ソートが常に可能なため無条件に新しい順）で補う。永続化キーは `cbjp_export_sample_{platform}`
+  （import用 `cbjp_sample_{platform}` とは別オプション）。
+- **`cbjp_dry_run_items` はスキーマ変更なし**: export方向のdry-run行は `existing_local_id` 列に
+  Wooローカルエンティティの実ID（常に既知）を格納し、`remote_id` 列（`NOT NULL`・
+  `UNIQUE(job_id, entity, remote_id)`）は更新時は既存remote_id、新規作成候補時は
+  一意性確保のためのプレースホルダ `local:{local_id}` を格納する（`Sync\Exporter::dry_run_row()`）。
+- **カテゴリ**: Wooのカテゴリ/タグ自体は独立したexportエンティティにしない
+  （`PlatformAdapter`に`push_tag()`は存在せず、`push_category()`はcategory作成可能な
+  プラットフォーム向け。ColorMeは`can_create_category=false`）。`Woo\Reader\ProductReader`が
+  D19の`category_map`（Woo側カテゴリID→ASP側カテゴリID）を商品ごとに解決し、未マッピングの
+  カテゴリは警告（`WarningCode::CATEGORY_MAP_UNRESOLVED`）付きで除外する。Wooのタグはv1.0では
+  転送しない（`tag_map`が存在せず、ColorMeは groups をカテゴリとしてのみ扱うため）。
+- **エンティティの絞り込み**: `JobManager::EXPORT_ENTITIES_WITH_READER`（PR-A時点は`product`
+  のみ）で、Readerが未実装のentityは要求されても対象にしない。customer/order/stock/coupon用の
+  Readerを追加するPR-Bで、`can_create_category`/`has_coupons && can_create_coupon`/
+  `can_update_customer`/`can_create_order`によるcapabilityベースの絞り込みも合わせて追加する
+  （PR-A時点でこれを含めるとPHPStanが到達不能コードとして検出するため見送った）。
+- **本番書込み警告（D17）のサーバー側担保**: `POST /runs`（`type=export`）は
+  `acknowledge_production_write`（`true`/`'1'`/`'true'`のみ受理。フェイルクローズ）が
+  真であることを要求し、無ければ400。dry-run（`dry_run_export`）には適用しない。
+- **受注（D19の申し送り）**: `payment_map`/`shipping_map`の逆引きの曖昧性解決はPR-Aの
+  スコープ外（`order`用Readerが無いため）。PR-B/E2-3で`Woo\Reader\OrderReader`を実装する際、
+  Woo側の生コード（決済ゲートウェイID・配送方法ID）のままCanonicalOrderへ載せ、ASP側コードへの
+  解決はアダプタの`push_order()`実装（E2-3）に委ねる方針とする。
+
+**E2-3/PR-Bへの申し送り（E2-2 R1レビューで判明した未解決事項）**:
+
+- **バリエーションのremote_id永続化経路が無い**: `Woo\Reader\ProductReader`は
+  `cbjp_mappings`（entity_type `variant`）からバリエーションの既存remote_idを逆引きするが
+  （`VariationWriter::sync_one()`が書く行の読出側対称形）、`push_product()`の戻り値
+  `Adapters\PushResult`は商品1件につきremote_id 1つしか運べない。E2-3で実際にColorMeへ
+  バリエーションを作成できるようになった時点で、個々のバリエーションremote_idを
+  `cbjp_mappings`（`variant`）へ書き戻す経路（`PushResult`の拡張、または商品とは別の
+  戻り値チャネル）を設計すること。**現状のまま実装すると、バリエーションを持つ商品の
+  再エクスポートのたびに新しいバリエーションがASP側に重複作成される**（`variant`のremote_idが
+  常に未確定＝空文字列のまま新規作成候補として送られ続けるため）。
+- **サンプルクリーンアップは自プラットフォーム未所有のWoo商品を削除できない**:
+  `Woo\Tools\SampleCleanup`は`_cbjp_platform`メタで所有権を確認できる実体のみ削除する。
+  Woo側で直接作成された商品（インポート由来ではない）をエクスポートしてもこのメタは付与
+  されない（`AdapterPlatformWriter`はWoo側を一切書き込まないため）ため、クリーンアップは
+  該当商品のmapping行を`unlink`するだけで実体もASP側remote entityも削除しない。この状態で
+  再度サンプル選定→エクスポートを行うと、同じWoo商品が「未リンク」として扱われ**ASP側に
+  重複した商品が作成される**。エクスポート方向のサンプルクリーンアップを提供する場合、
+  「作成元がexportで、対応する削除APIをASPが提供しない」実体はunlinkも含めて拒否する
+  （原則4「破壊的操作の禁止」を踏まえ、削除ではなく状況を明示した警告に倒す）等の設計が必要。
+- **複数リクエストから成るpushの部分完了契約が無い（E2-2 G3レビューで判明）**: `push_product()`
+  が商品本体の作成に続けて画像・バリエーション等の別リクエストを行う実装になった場合
+  （E2-3のスコープ）、後続リクエストが失敗・レート制限に達すると、現状の`Adapters\PushResult`
+  は「商品自体は作成できたがremote_idを持つ」という部分完了状態を表現できない。アダプタが
+  例外を投げれば`Exporter`は1件失敗として扱うが、既に作成された商品のremote_idはどこにも
+  記録されないため再実行時に別の重複商品が作られる。かといってremote_idを持つ`PushResult`を
+  警告付きで返しても、その警告が`WarningCode::indicates_unresolved_reference()`の集合に
+  含まれない限り`Exporter`はchecksumをキャッシュしてしまい、以後の再試行でアダプタ自体が
+  スキップされ画像・バリエーション等の欠落が永久に修復されない。E2-3で複数リクエストに
+  分割されるpushを実装する場合、部分完了（remote_idは確定したがサブリソースは要再試行）を
+  表現できる耐久的な契約を`PushResult`/`Exporter`に設計すること（`docs/review-backlog.md`
+  `e2-2-exporter-core/G3-H-partial-completion-contract`参照）。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ

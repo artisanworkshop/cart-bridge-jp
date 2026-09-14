@@ -37,6 +37,19 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
+	 * `push_product()`に渡された`(CanonicalProduct, ?remote_id)`の記録
+	 * （`Sync\Exporter`のテストで実際にpushされた内容を検証する用）。
+	 *
+	 * @var array<int,array{0:CanonicalProduct,1:?string}>
+	 */
+	public array $pushed_products = [];
+
+	/**
+	 * 次にpush_product()が発行するremote_idの採番カウンタ（新規作成時のみ使用）。
+	 */
+	private int $next_pushed_remote_id = 1;
+
+	/**
 	 * @param array<int,CanonicalProduct>  $products
 	 * @param array<int,CanonicalCustomer> $customers
 	 * @param array<int,CanonicalOrder>    $orders
@@ -52,6 +65,9 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 * @param ?array<string,mixed>          $mapping_candidates_override 指定すると
 	 *   mapping_candidates() がこの値をそのまま返す（`RestController`の候補集約ロジックの
 	 *   テスト用）。
+	 * @param bool                           $push_products_supported 指定するとpush_product()が
+	 *   `UnsupportedOperationException`を投げず成功を返す（`Sync\Exporter`のテスト用。
+	 *   ColorMe実装（E2-3）が無いPR-A時点でexportの正常系を検証するために必要）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -62,7 +78,8 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly ?array $connection_fields_override = null,
 		private readonly ?Capabilities $capabilities_override = null,
 		private readonly ?CanonicalProduct $product_by_remote_id_override = null,
-		private readonly ?array $mapping_candidates_override = null
+		private readonly ?array $mapping_candidates_override = null,
+		private readonly bool $push_products_supported = false
 	) {}
 
 	public function id(): string {
@@ -176,7 +193,17 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	}
 
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
-		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		if ( ! $this->push_products_supported ) {
+			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
+		}
+
+		$this->pushed_products[] = [ $product, $remote_id ];
+
+		if ( null !== $remote_id ) {
+			return new PushResult( $remote_id, PushResult::OPERATION_UPDATED );
+		}
+
+		return new PushResult( (string) $this->next_pushed_remote_id++, PushResult::OPERATION_CREATED );
 	}
 
 	public function push_category( CanonicalCategory $category ): PushResult {

@@ -12,6 +12,8 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
+use CartBridgeJP\Woo\Export\AdapterPlatformWriterFactory;
+use CartBridgeJP\Woo\WooReaderRepositoryFactory;
 use CartBridgeJP\Woo\WooRepositoryFactory;
 use RuntimeException;
 use Throwable;
@@ -24,9 +26,10 @@ final class JobManager {
 
 	public const ACTION_HOOK = 'cbjp_process_job';
 
-	public const TYPE_DRY_RUN = 'dry_run';
-	public const TYPE_IMPORT  = 'import';
-	public const TYPE_EXPORT  = 'export';
+	public const TYPE_DRY_RUN        = 'dry_run';
+	public const TYPE_IMPORT         = 'import';
+	public const TYPE_EXPORT         = 'export';
+	public const TYPE_DRY_RUN_EXPORT = 'dry_run_export';
 
 	/**
 	 * レート制限枯渇で paused にしたジョブを再開するまでの待機秒数。
@@ -34,7 +37,7 @@ final class JobManager {
 	private const PAUSED_RESUME_DELAY_SECONDS = 60;
 
 	/**
-	 * エンティティ実行順（`docs/03-design-decisions.md` §3）。
+	 * エンティティ実行順（`docs/03-design-decisions.md` §3）。インポート・エクスポート共通。
 	 */
 	private const ENTITY_ORDER = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
 
@@ -42,6 +45,13 @@ final class JobManager {
 	 * サンプルID指定取得で取り込むエンティティ（D15 §10.2 #4）。
 	 */
 	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
+
+	/**
+	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-A: productのみ）。
+	 * PR-Bで customer/order/stock/coupon を追加するまで、capability上は対象でも
+	 * ここに無いエンティティのexportジョブは作らない。
+	 */
+	private const EXPORT_ENTITIES_WITH_READER = [ 'product' ];
 
 	public function __construct(
 		private readonly JobRepository $jobs,
@@ -75,7 +85,9 @@ final class JobManager {
 	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
-		if ( ! in_array( $type, [ self::TYPE_DRY_RUN, self::TYPE_IMPORT, self::TYPE_EXPORT ], true ) ) {
+		$known_types = [ self::TYPE_DRY_RUN, self::TYPE_IMPORT, self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ];
+
+		if ( ! in_array( $type, $known_types, true ) ) {
 			throw new RuntimeException( "Unknown run type: {$type}" );
 		}
 
@@ -89,7 +101,10 @@ final class JobManager {
 			throw new RuntimeException( "Unknown platform: {$platform}" );
 		}
 
-		$ordered_entities = $this->filter_and_order_entities( $entities, $adapter );
+		$is_export_type   = in_array( $type, [ self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ], true );
+		$ordered_entities = $is_export_type
+			? $this->filter_and_order_export_entities( $entities )
+			: $this->filter_and_order_entities( $entities, $adapter );
 
 		if ( [] === $ordered_entities ) {
 			throw new RuntimeException( 'No supported entities to run.' );
@@ -166,8 +181,9 @@ final class JobManager {
 			return;
 		}
 
-		$is_dry_run = self::TYPE_DRY_RUN === $job['type'];
-		$entity     = $job['entity'];
+		$is_export_type = in_array( $job['type'], [ self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ], true );
+		$is_dry_run     = in_array( $job['type'], [ self::TYPE_DRY_RUN, self::TYPE_DRY_RUN_EXPORT ], true );
+		$entity         = $job['entity'];
 
 		try {
 			// `for_platform()`はwriter組み立て（Writerクラス群のnew）であり現状は例外を投げないが、
@@ -175,8 +191,14 @@ final class JobManager {
 			// 下のcatchで確実に拾い`mark_failed()`させるため、tryの外に出さない
 			// （tryの外に置くと、例外発生時にジョブがmark_failed()もされずSTATUS_RUNNINGのまま
 			// 停止してしまう）。
-			$writer                        = $is_dry_run ? $this->writer_factory->for_dry_run( $job['platform'] ) : $this->writer_factory->for_platform( $job['platform'] );
-			[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
+			if ( $is_export_type ) {
+				$platform_writer               = $is_dry_run ? $this->platform_writer_factory()->for_dry_run( $adapter ) : $this->platform_writer_factory()->for_platform( $adapter );
+				$reader                        = $this->reader_factory()->for_platform( $job['platform'] );
+				[ $page_totals, $next_cursor ] = $this->process_export_page( $adapter, $platform_writer, $reader, $entity, $job, $is_dry_run );
+			} else {
+				$writer                        = $is_dry_run ? $this->writer_factory->for_dry_run( $job['platform'] ) : $this->writer_factory->for_platform( $job['platform'] );
+				[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
+			}
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
 			$this->jobs->update_status( $job_id, JobRepository::STATUS_PAUSED );
@@ -326,6 +348,82 @@ final class JobManager {
 
 	private function sample_selector_for( PlatformAdapter $adapter ): SampleSelector {
 		return new SampleSelector( $adapter );
+	}
+
+	/**
+	 * エクスポート対象エンティティの絞り込み・順序決定（`filter_and_order_entities()`の
+	 * ASP向け対称形）。`EXPORT_ENTITIES_WITH_READER`（PR-A時点はproductのみ）で未実装entityを
+	 * 除外する。`PlatformAdapter`に`push_tag()`/`push_review()`は存在しないためtag/reviewは
+	 * 到達しうる状態になった時点でも常に除外対象。
+	 *
+	 * **PR-B申し送り**: customer/order/stock/coupon 用のReaderを追加する際、`$adapter`引数を
+	 * 復活させ、capabilityベースの絞り込み（category: `can_create_category`、coupon:
+	 * `has_coupons && can_create_coupon`、customer: `can_update_customer`、order:
+	 * `can_create_order`。categoryはColorMeが作成不可のため常に除外され`category_map`が
+	 * 紐付けを担う。D19）を追加すること。PR-A時点は`EXPORT_ENTITIES_WITH_READER`が`product`
+	 * （capability非依存）のみのため、この分岐は現時点で到達不能でありPHPStanが
+	 * 到達不能コードとして検出する（`match.alwaysFalse`）ため、`$adapter`引数ごと含めていない。
+	 *
+	 * @param array<int,string> $requested
+	 * @return array<int,string>
+	 */
+	private function filter_and_order_export_entities( array $requested ): array {
+		$supported = array_filter(
+			self::ENTITY_ORDER,
+			static fn ( string $entity ): bool => in_array( $entity, $requested, true ) && in_array( $entity, self::EXPORT_ENTITIES_WITH_READER, true )
+		);
+
+		return array_values( $supported );
+	}
+
+	private function export_sample_selector(): ExportSampleSelector {
+		return new ExportSampleSelector();
+	}
+
+	private function exporter(): Exporter {
+		return new Exporter( new MappingRepository() );
+	}
+
+	private function platform_writer_factory(): PlatformWriterFactory {
+		return new AdapterPlatformWriterFactory();
+	}
+
+	private function reader_factory(): WooReaderFactory {
+		return new WooReaderRepositoryFactory();
+	}
+
+	/**
+	 * @param array<string,mixed> $job
+	 * @return array{0:array<string,int>,1:?Cursor}
+	 */
+	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run ): array {
+		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( $entity );
+		$only_local_ids  = $sampling_active
+			? $this->export_local_ids_for( $entity, $this->export_sample_selector()->select_or_load( $job['platform'] ) )
+			: null;
+
+		$cursor       = Cursor::from_json( $job['cursor_json'] );
+		$limit_policy = $is_dry_run ? null : $this->limits;
+
+		$result = $this->exporter()->run_page( $adapter, $writer, $reader, $entity, $cursor, $is_dry_run, $limit_policy, $only_local_ids, (int) $job['id'], (string) $job['run_id'] );
+		$totals = $result['totals'];
+
+		if ( null !== $result['total'] ) {
+			$totals['total'] = $result['total'];
+		}
+
+		return [ $totals, $result['next_cursor'] ];
+	}
+
+	/**
+	 * @return array<int,int>
+	 */
+	private function export_local_ids_for( string $entity, ExportSampleSet $sample ): array {
+		return match ( $entity ) {
+			'product' => $sample->product_ids,
+			// PR-Bで customer/order/stock を追加する。
+			default => [],
+		};
 	}
 
 	/**

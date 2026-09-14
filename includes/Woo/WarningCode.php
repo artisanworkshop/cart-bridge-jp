@@ -47,6 +47,43 @@ final class WarningCode {
 	public const TERM_UPDATE_FAILED         = 'term_update_failed';
 	public const TERM_CREATE_FAILED         = 'term_create_failed';
 
+	/**
+	 * エクスポート時、Wooカテゴリに対応する `category_map`（Woo側カテゴリID→ASP側カテゴリID）
+	 * のエントリが無い（`Woo\Reader\ProductReader`）。ユーザーが後からマッピング設定を追加すれば
+	 * 解決しうるため `indicates_unresolved_reference()` の対象に含める。
+	 */
+	public const CATEGORY_MAP_UNRESOLVED = 'category_map_unresolved';
+
+	/**
+	 * エクスポート時、非公開（`private`等、`publish`以外）のバリエーションを検出した
+	 * （`Woo\Reader\ProductReader`）。除外し警告する（含めるとマーチャントが意図的に
+	 * 非公開にした在庫がASP側で販売可能な状態として復活しうる）。
+	 */
+	public const VARIATION_UNPUBLISHED = 'variation_unpublished';
+
+	/**
+	 * エクスポート時、WooCommerceの3軸以上のバリエーション属性のうち3軸目以降を検出した
+	 * （`CanonicalProduct::$variants`のoption1/2規約は2軸まで）。先頭2軸のみを使い、
+	 * 異なる3軸目の値を持つバリエーション同士が同じoption1/2の組に潰れうることを警告する。
+	 */
+	public const VARIATION_AXIS_LIMIT_EXCEEDED = 'variation_axis_limit_exceeded';
+
+	/**
+	 * エクスポート時、variable商品の全バリエーションが除外された（価格無効・非公開等）ため
+	 * `CanonicalProduct::$variants`が空になった。`Woo\Writer\ProductWriter::prepare()`は
+	 * 空の`$variants`を「simple商品」の判定に使うため、無警告のままだと変換先で
+	 * variable商品がsimpleとして扱われうることを警告する。
+	 */
+	public const ALL_VARIATIONS_EXCLUDED = 'all_variations_excluded';
+
+	/**
+	 * エクスポート時、Wooの`tax_status`が`taxable`以外（`shipping`/`none`）。`CanonicalProduct`は
+	 * `tax_status`を運ぶフィールドを持たず（`tax_class`のみ）、無警告のまま変換先へ渡すと
+	 * 「送料のみ課税」「非課税」の商品が通常課税として扱われうることを警告する
+	 * （`Woo\Reader\ProductReader`）。
+	 */
+	public const TAX_STATUS_NOT_TAXABLE = 'tax_status_not_taxable';
+
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
 	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';
@@ -70,6 +107,16 @@ final class WarningCode {
 
 	public const STOCK_PRODUCT_UNRESOLVED = 'stock_product_unresolved';
 	public const STOCK_PARENT_OF_VARIABLE = 'stock_parent_of_variable';
+
+	/**
+	 * エクスポート時、バリエーションの在庫が親レベルで一括管理されている
+	 * （`WC_Product_Variation::get_manage_stock()`が`'parent'`を返す）。ASP側にはバリエーションを
+	 * またぐ共有在庫プールという概念が無いため、親の数量をそのまま各バリエーションへ複製すると
+	 * 実在庫のバリエーション数倍を販売可能数量として申告してしまう。`Woo\Reader\ProductReader`は
+	 * このケースを`STOCK_PARENT_OF_VARIABLE`（インポート時に変数親へ在庫を書き込もうとして
+	 * 拒否する別の状況を指す）とは区別し、在庫切れ（0）にフェイルクローズしたうえでこの警告を積む。
+	 */
+	public const VARIATION_STOCK_SHARED_WITH_PARENT = 'variation_stock_shared_with_parent';
 
 	public const COUPON_REUSED_EXISTING = 'coupon_reused_existing';
 
@@ -116,6 +163,29 @@ final class WarningCode {
 	}
 
 	/**
+	 * `Sync\Exporter::process_items()`用: この警告が示す状態のまま`PlatformWriter::write()`へ
+	 * 渡すと、`CanonicalModel`が実体を正しく表現できずpush先で構造を破壊しうる（例:
+	 * `ALL_VARIATIONS_EXCLUDED`＝`variants=[]`のvariable商品がsimple商品としてpushされ、
+	 * remote側の既存バリエーションが失われる。Copilot指摘, PR #40 G3）。該当時はpushせず
+	 * フェイルクローズでskipped扱いにする。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_export_blocking( array $warnings ): bool {
+		$blocking_codes = [
+			self::ALL_VARIATIONS_EXCLUDED,
+		];
+
+		foreach ( $warnings as $warning ) {
+			if ( in_array( self::split( $warning )[0], $blocking_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * `Sync\Importer::process_items()`がchecksumをキャッシュしてよいか（`WriteResult::$fully_resolved`）
 	 * の判定に使う。ここに列挙するのは「参照先が後から解決可能になりうる」警告のみ:
 	 * category/tag/親カテゴリ・顧客参照・注文明細の商品参照が未解決のまま実体自体は保存された
@@ -131,6 +201,7 @@ final class WarningCode {
 			self::TAG_REF_UNRESOLVED,
 			self::ORDER_CUSTOMER_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_UNRESOLVED,
+			self::CATEGORY_MAP_UNRESOLVED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -154,7 +225,21 @@ final class WarningCode {
 	 * 見分けが付かなかった）。
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
-		return self::indicates_unresolved_reference( [ $warning ] )
-			|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0];
+		return ! self::indicates_mapping_required( $warning )
+			&& ( self::indicates_unresolved_reference( [ $warning ] )
+				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「ASP側に対応する実体を
+	 * 先にインポートすれば消える」のではなく「マッピング設定（`/settings/mappings/{platform}`）を
+	 * 追加すれば消える」ものか。`CATEGORY_MAP_UNRESOLVED`（エクスポート方向、`category_map`未設定）は
+	 * `indicates_unresolved_reference()`（checksumキャッシュ判定）の対象ではあるが、
+	 * 「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
+	 * （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
+	 * なため専用の判定を分ける。
+	 */
+	public static function indicates_mapping_required( string $warning ): bool {
+		return self::CATEGORY_MAP_UNRESOLVED === self::split( $warning )[0];
 	}
 }

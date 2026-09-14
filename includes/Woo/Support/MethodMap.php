@@ -38,6 +38,16 @@ final class MethodMap {
 	}
 
 	/**
+	 * Woo側カテゴリID（term_id文字列）に対応するASP側カテゴリID（ユーザー設定マッピング）。
+	 * `category_map`は他3マップ（ASP→Woo）と向きが逆（Woo→ASP）で、カラーミーがカテゴリ作成
+	 * 不可（`can_create_category=false`）なためエクスポート時に既存ASPカテゴリへ紐付ける
+	 * 唯一の手段になる（`docs/01-plan-colorme.md` §5）。
+	 */
+	public function mapped_asp_category_id( string $woo_term_id ): ?string {
+		return $this->lookup( 'category_map', $woo_term_id );
+	}
+
+	/**
 	 * WooゲートウェイIDから表示タイトルを解決する。未登録のゲートウェイIDの場合、
 	 * `WC_Payment_Gateways::get_payment_gateway_name_by_id()` はID自体をフォールバックとして
 	 * 返す仕様のため、常に非空文字列を返す。

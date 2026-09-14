@@ -921,18 +921,21 @@ final class RestController {
 		$entities_raw = $request->get_param( 'entities' );
 		$entities     = is_array( $entities_raw ) ? array_values( array_filter( $entities_raw, 'is_scalar' ) ) : [];
 
-		// エクスポート（Woo→ASP）はPhase 2（E2-2/E2-4）まで未実装。type未知の値（typo等）はここで
-		// 「エクスポート未実装」と誤答させず、下の`JobManager::start_run()`の型検証（400）に委ねる。
-		if ( JobManager::TYPE_EXPORT === $type ) {
-			return new WP_Error(
-				'cbjp_not_implemented',
-				__( 'Export is not implemented yet.', 'cart-bridge-jp' ),
-				[ 'status' => 501 ]
-			);
-		}
-
 		if ( ! AdapterRegistry::has( $platform ) ) {
 			return $this->unknown_platform_error( $platform );
+		}
+
+		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: 無料版のサンプル10件でも
+		// ASP本番環境へ実際に書き込むため、UI（E2-4の確認ダイアログ）が確認を得たことを示す
+		// フラグを必須にする。dry-run（`dry_run_export`）は何も書き込まないため対象外。
+		// プラットフォーム存在チェックの後に置く: 不正なplatform + type=exportのリクエストが
+		// 「未確認」ではなく「不明なプラットフォーム」として先に誤答されないようにする。
+		if ( JobManager::TYPE_EXPORT === $type && ! $this->acknowledged_production_write( $request ) ) {
+			return new WP_Error(
+				'cbjp_export_not_acknowledged',
+				__( 'Exporting writes to the connected shop right away. Confirm the warning before running an export.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
 		}
 
 		try {
@@ -1113,6 +1116,22 @@ final class RestController {
 		$value = $request->get_param( $key );
 
 		return is_scalar( $value ) ? $value : null;
+	}
+
+	/**
+	 * `acknowledge_production_write`パラメータの検証（D17の本番書込み警告のサーバー側担保）。
+	 * JSONボディ経由ではPHP boolに、クエリ/フォーム経由では文字列になりうるため両方を扱うが、
+	 * `(bool)`キャストは使わない（`(bool)'0'`がfalse、`(bool)'false'`がtrueになる罠。CLAUDE.md）。
+	 * 既知の肯定値以外（未指定・`'0'`・`'false'`・非スカラー等）はすべてフェイルクローズでfalseにする。
+	 */
+	private function acknowledged_production_write( WP_REST_Request $request ): bool {
+		$value = $this->scalar_query_param( $request, 'acknowledge_production_write' );
+
+		if ( is_bool( $value ) ) {
+			return $value;
+		}
+
+		return in_array( $value, [ '1', 'true' ], true );
 	}
 
 	/**

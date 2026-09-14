@@ -269,7 +269,18 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **R1レビューで判明し修正した重大な指摘**: `wc_get_order_statuses()` が返す `checkout-draft`（WooCommerce Blocksのチェックアウト下書き）をステータス候補に含めていたが、これへマッピングすると取り込んだ受注が24時間後に日次cronで完全削除される事故になるため除外。詳細は `docs/reviews/feat/e2-1-mapping-ui/R1.md`
   **実機確認**: 実店舗のColorMe OAuth接続は本セッションでは確立できなかった（developer.shop-pro.jpへのブラウザセッションが無く、ポート変更（8895）に伴うリダイレクトURI再登録とログインが必要。詳細は `docs/reviews/feat/e2-1-mapping-ui/dev-cycle.md` 参照）ため、wp-env上に一時的なモックアダプタ（mu-plugin、コミットせず削除済み）を用意し、REST応答・候補描画・保存・永続化の一連の流れをブラウザで確認した。実際のColorMe候補データでの確認はE2-3（push*実装、要検証#5でテストショップ接続が必要）まで持ち越し。
 - [ ] **E2-2: Exporter パイプライン**（Woo→Canonical読出、SKU/email突合upsert、dry-run。**無料版はインポートと同基準のサンプル上限（Woo側の最新受注10件起点）を適用=D15。実行前の本番書込み警告=D17**。`RestController` の `type=export` 501 を解除）
-- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替）
+  **PR-A実装済み（コア配線 + ProductReader）**: `Sync\Exporter`/`Sync\PlatformWriter`/`Sync\WooReader`
+  （`Importer`/`WooWriter`のASP向け対称形）を新設し、`JobManager`に`type=export`/`dry_run_export`
+  分岐を追加。`Woo\Reader\ProductReader`（Woo→CanonicalProduct、`category_map`でカテゴリ解決）、
+  `Woo\Export\AdapterPlatformWriter`/`DryRunPlatformWriter`（`push_product()`へディスパッチ/
+  dry-run）、`Sync\ExportSampleSelector`（Woo側受注起点のサンプル選定。§10.2）を実装。
+  「SKU/email突合」は`cbjp_mappings`のみで判定（ASP側への投機的検索はD16方針により不採用）。
+  ColorMeの`push_product()`はE2-3まで`UnsupportedOperationException`のため、実行(非dry-run)の
+  exportは全件skipped/warnedで完了するのが現状の期待動作（配線の正しさはフェイクアダプタで検証済み）。
+  詳細は `docs/03-design-decisions.md` §10.2「エクスポート方向の実装」参照。
+  **PR-B未実装**: `CustomerReader`/`OrderReader`/`StockReader`/`CouponReader`
+  （`JobManager::EXPORT_ENTITIES_WITH_READER`に追加）
+- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替。**E2-2 R1で判明した必須対応**: バリエーションのremote_idを`cbjp_mappings`（`variant`entity）へ書き戻す経路が無い（`PushResult`は商品1件につきremote_id 1つしか運べない）ため、現状のまま`push_product()`を実装するとバリエーションを持つ商品の再エクスポートのたびにASP側で重複作成される。`PushResult`の拡張または別チャネルの設計が必要。**E2-2 G3で判明した必須対応**: `push_product()`が商品本体作成後に画像・バリエーション等の別リクエストを行う実装にする場合、後続リクエストの失敗を部分完了（remote_idは確定・サブリソースは要再試行）として表現できる耐久的な契約が`PushResult`/`Exporter`に無い。詳細は`docs/03-design-decisions.md` §10.2「E2-3/PR-Bへの申し送り」）
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
 
 **Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。

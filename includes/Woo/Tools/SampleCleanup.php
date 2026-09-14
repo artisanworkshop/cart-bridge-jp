@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Tools;
 
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Sync\ExportSampleSelector;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
@@ -232,8 +233,13 @@ final class SampleCleanup {
 		}
 
 		// 最終処理: 上の順序で拾い切れなかった行（親を失った variant 等）を掃除し、サンプルセットを消す。
+		// import用（SampleSelector）・export用（ExportSampleSelector）の両方をクリアしないと、
+		// mappingsとimportサンプルだけがリセットされexportサンプル（`cbjp_export_sample_{platform}`）が
+		// 古いWooローカルIDセットのまま残ってしまう（D15 §10.2 #7「クリーンアップ→再選定」の
+		// エクスポート側漏れ）。
 		$this->mappings->delete_for_platform( $platform );
 		SampleSelector::clear( $platform );
+		ExportSampleSelector::clear( $platform );
 
 		return $this->result( $platform, $deleted, $unlinked, false );
 	}
