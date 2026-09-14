@@ -423,6 +423,18 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 remote_id)`）のため、上記累積カウントは import 由来・export 由来の行を区別せず合算する
 （E2-2で確定。無料版=挙動確認という位置づけ（D14）から、往復を通じた合計上限として扱う）。
 
+**checksum列も同じ行をimport/exportで共有するが値の意味は別物**（E2-2 R1で判明。詳細は
+`Sync\Exporter`クラスdocblock）: `Importer`が書くchecksumはASP側`CanonicalModel`のハッシュ、
+`Exporter`が書くのはWoo側`CanonicalModel`のハッシュで、同じ実体でも一致しない。素朴に同じ値として
+比較すると、一度でも両方向が触った実体（例: importで作られた商品がWooで購入されexportのサンプルにも
+選ばれた場合）で、以後のimportが「ASP側は変わっていないのにchecksum不一致」と誤判定し
+`ProductWriter::write()`がWoo側の手動編集を無条件に上書きし続けてしまう。`cbjp_mappings.checksum`は
+`CHAR(64)`固定長（生のsha256 hex digest専用）のためImporterの生ハッシュへ文字列プレフィックスを
+付ける方式は使えず、`Exporter::export_checksum()`が`canonical_json()`をハッシュする**前**に
+固定の名前空間文字列を混ぜ込むことで、出力を64文字のsha256 hex digestに保ったまま名前空間を分離する
+（`Importer`側は無変更。SHA-256の衝突耐性に依拠し、双方とも「自分が最後に書いた値と一致するか」
+だけを見るため相手方向の生ハッシュとは構造的に一致せず安全側＝再同期に倒れる）。
+
 #### エクスポート方向の実装（E2-2 PR-A）
 
 - **アーキテクチャ**: `Sync\Importer`/`Sync\WooWriter` の対称形として `Sync\Exporter`/
@@ -466,6 +478,27 @@ remote_id)`）のため、上記累積カウントは import 由来・export 由
   スコープ外（`order`用Readerが無いため）。PR-B/E2-3で`Woo\Reader\OrderReader`を実装する際、
   Woo側の生コード（決済ゲートウェイID・配送方法ID）のままCanonicalOrderへ載せ、ASP側コードへの
   解決はアダプタの`push_order()`実装（E2-3）に委ねる方針とする。
+
+**E2-3/PR-Bへの申し送り（E2-2 R1レビューで判明した未解決事項）**:
+
+- **バリエーションのremote_id永続化経路が無い**: `Woo\Reader\ProductReader`は
+  `cbjp_mappings`（entity_type `variant`）からバリエーションの既存remote_idを逆引きするが
+  （`VariationWriter::sync_one()`が書く行の読出側対称形）、`push_product()`の戻り値
+  `Adapters\PushResult`は商品1件につきremote_id 1つしか運べない。E2-3で実際にColorMeへ
+  バリエーションを作成できるようになった時点で、個々のバリエーションremote_idを
+  `cbjp_mappings`（`variant`）へ書き戻す経路（`PushResult`の拡張、または商品とは別の
+  戻り値チャネル）を設計すること。**現状のまま実装すると、バリエーションを持つ商品の
+  再エクスポートのたびに新しいバリエーションがASP側に重複作成される**（`variant`のremote_idが
+  常に未確定＝空文字列のまま新規作成候補として送られ続けるため）。
+- **サンプルクリーンアップは自プラットフォーム未所有のWoo商品を削除できない**:
+  `Woo\Tools\SampleCleanup`は`_cbjp_platform`メタで所有権を確認できる実体のみ削除する。
+  Woo側で直接作成された商品（インポート由来ではない）をエクスポートしてもこのメタは付与
+  されない（`AdapterPlatformWriter`はWoo側を一切書き込まないため）ため、クリーンアップは
+  該当商品のmapping行を`unlink`するだけで実体もASP側remote entityも削除しない。この状態で
+  再度サンプル選定→エクスポートを行うと、同じWoo商品が「未リンク」として扱われ**ASP側に
+  重複した商品が作成される**。エクスポート方向のサンプルクリーンアップを提供する場合、
+  「作成元がexportで、対応する削除APIをASPが提供しない」実体はunlinkも含めて拒否する
+  （原則4「破壊的操作の禁止」を踏まえ、削除ではなく状況を明示した警告に倒す）等の設計が必要。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
