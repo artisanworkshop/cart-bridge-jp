@@ -2,10 +2,13 @@
 - タスク: E2-2: Exporter パイプライン PR-B（CustomerReader/OrderReader/StockReader/CouponReader）
 - 開始: 2026-09-14
 - PR: #41 https://github.com/artisanworkshop/cart-bridge-jp/pull/41
-- 現在のステップ: 6（両botへ2回目の依頼済み。応答待ち）
-- Copilot: 依頼2回 / G1完了（inline 7件+本文4件、全件対応）。G2応答待ち
+- 現在のステップ: 6（Copilot G2完了・CI green。Codexは利用上限で2回目未レビュー。
+  3回目依頼の要否をユーザーに確認中）
+- Copilot: 依頼2回 / G1完了（inline 7件+本文4件、全件対応）/ G2完了（新規5件。修正4件・
+  誤検知1件（実測反証）。詳細はG2.md）
 - Codex: 依頼2回 / G1完了（新規15件。修正10件・誤検知2件（実測反証・Resolve済み）・
-  backlog送り3件（未解決のまま）。詳細はG1.md）。G2応答待ち
+  backlog送り3件（未解決のまま）。詳細はG1.md）/ G2は利用上限（Codex usage limits for code
+  reviews）により未レビュー（外部サービス制約、対応不可）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -23,3 +26,5 @@
 | 2026-09-14 | 7 | G1（Codex）完了。commit_id確認の結果レビュー2件（1件目は70bb3738＝Copilot修正前のstale、2件目はb2fb4d9＝最新）で計15件。修正10件（通貨不一致blocking・氏名日本語順・在庫stock_status尊重・利用済みクーポンblocking・バリエーション親商品ID解決+option値・非整数量TypeError対策・削除済み商品参照blocking・返金済み注文blocking・customer_noteフォールバック・非JPYクーポンblocking）、誤検知2件（stale/実測反証、Resolve済み）、backlog送り3件（sale_deliveries・顧客extras・クーポンカーソル安定性、review-backlog.mdへ記録・未解決のまま）。#11では`get_product_id()`が削除済み参照でCRUD層により黙って0へリセットされる（`WC_Coupon::set_amount()`と同じset_props()パターン）ことを実測発見し、生のorder-item-metaを直接読む実装に修正。品質チェックgreen（PHPUnit 849件）。commit 741269b（コード+テスト）, 84068c0（docs）, b55b3a3（G1.md/dev-cycle.md） |
 | 2026-09-14 | 5 | G1修正後のCI確認。PHP quality (8.3) がPHPStanのメモリ上限クラッシュで1回red（コード起因ではないためローカル再現確認のうえ`gh run rerun --failed`で再実行）。再実行後4ジョブ全green |
 | 2026-09-14 | 6 | G1は新規指摘0件の検証を経ていないため未収束扱いとし、両bot（Copilot/Codex）へ2回目の依頼（T=2026-09-14T08:20:43Z） |
+| 2026-09-14 | 7 | G2（Copilot）完了。新規5件（inline 2件+本文Suppressed 3件）。修正4件（バリエーション削除済み参照blocking・軸警告伝播・クーポンstale IDレース・商品リンクなし行blocking）、誤検知1件（送料method_id比較、実測反証）。修正の過程で`get_variation_id()`も`get_product_id()`と同じCRUD層0リセットパターンを持つことを実測発見し対応。品質チェックgreen（PHPUnit 853件）。commit edae324。Codexは2回目依頼が利用上限（Codex usage limits for code reviews）によりレビューされず（issues/41/comments、2026-09-14T08:20:55Z） |
+| 2026-09-14 | 5 | G2修正後のCI確認。PHP quality (8.2) がPHPStanのメモリ上限クラッシュで1回red（同種の一過性障害、`gh run rerun --failed`で再実行）。再実行後4ジョブ全green |
