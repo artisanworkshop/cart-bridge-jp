@@ -189,6 +189,45 @@ final class CouponReaderTest extends WooTestCase {
 		$this->assertSame( $older->get_id(), $ids[1] );
 	}
 
+	/**
+	 * `'date' => 'DESC'`単独だと`post_date`が同一のクーポン間の順序がMySQL実装依存になり、
+	 * ページ跨ぎで重複/欠落しうる。`ID`を副ソートキーにして決定的にする（R2レビュー指摘）。
+	 */
+	public function test_query_orders_deterministically_when_dates_are_identical(): void {
+		$ids = [];
+
+		for ( $i = 0; $i < 22; $i++ ) {
+			$coupon = $this->create_coupon( "SAMEDATE{$i}" );
+			wp_update_post(
+				[
+					'ID'            => $coupon->get_id(),
+					'post_date'     => '2024-01-01 00:00:00',
+					'post_date_gmt' => '2024-01-01 00:00:00',
+				]
+			);
+			$ids[] = $coupon->get_id();
+		}
+
+		$reader     = $this->make_reader();
+		$first_page = $reader->query( Cursor::start(), null );
+
+		$this->assertCount( 20, $first_page->items );
+		$this->assertNotNull( $first_page->next_cursor );
+
+		$second_page = $reader->query( $first_page->next_cursor, null );
+
+		$this->assertCount( 2, $second_page->items );
+
+		$all_ids = array_merge(
+			array_map( static fn ( $item ) => $item->local_id, $first_page->items ),
+			array_map( static fn ( $item ) => $item->local_id, $second_page->items )
+		);
+		sort( $all_ids );
+		sort( $ids );
+		// 重複・欠落なく全件が過不足なく1回ずつ現れることを確認する（同一日時での決定的な順序）。
+		$this->assertSame( $ids, $all_ids );
+	}
+
 	public function test_only_local_ids_empty_returns_empty_page(): void {
 		$page = $this->make_reader()->query( Cursor::start(), [] );
 		$this->assertSame( [], $page->items );

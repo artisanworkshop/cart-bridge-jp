@@ -39,9 +39,13 @@ final class CouponReader implements EntityReader {
 			// 「APIが新しい順ソートを指定できる場合のみ新しい順」）。無料版は`LimitPolicy`が
 			// カーソル走査で最初に出会った10件だけを新規pushの対象にするため、'ID'昇順（＝作成日
 			// 昇順）のままだと店を長く運営しているほど古い（期限切れの可能性が高い）クーポンだけが
-			// 無料枠を占有してしまう。
-			'orderby'        => 'date',
-			'order'          => 'DESC',
+			// 無料枠を占有してしまう。`'date' => 'DESC'`単独だと`post_date`が同一秒（`CouponWriter`
+			// による一括作成等）のクーポン間の順序がMySQL実装依存になりページ跨ぎで重複/欠落しうる
+			// ため、`ID`を副ソートキーとして明示し決定的にする（R2レビュー指摘）。
+			'orderby'        => [
+				'date' => 'DESC',
+				'ID'   => 'DESC',
+			],
 			'fields'         => 'ids',
 			'posts_per_page' => self::PAGE_SIZE,
 			'paged'          => (int) $cursor->get( 'page', 1 ),

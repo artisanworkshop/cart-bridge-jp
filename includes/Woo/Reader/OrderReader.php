@@ -177,10 +177,15 @@ final class OrderReader implements EntityReader {
 	}
 
 	/**
-	 * `Woo\Writer\OrderWriter::apply_addresses()`は請求先住所を`extras['customer_snapshot']`から、
-	 * `apply_dates()`は支払済みかを`extras['paid']`から復元する。空の`extras`のままだと
-	 * エクスポート→再取込の往復で請求先住所・支払日が毎回失われるため、Wooの現在の請求先住所
-	 * （クラスdocblock参照。Wooネイティブのキーのまま運ぶ）と支払済み状態をここへ積む。
+	 * `extras['customer_snapshot']`/`extras['paid']`はキー自体を`Woo\Writer\OrderWriter::
+	 * apply_addresses()`/`apply_dates()`と共有する契約だが、値の中身（住所のキー体系）は
+	 * インポート方向（ColorMeの`pref_id`スキーム。`Woo\Support\AddressMapper::to_woo()`が解釈）
+	 * とは異なりWooネイティブのキーのまま運ぶ（クラスdocblock参照）ため、この`OrderReader`が
+	 * 出力した`CanonicalOrder`を直接`OrderWriter`へ渡しても請求先住所はそのままでは復元されない
+	 * （name/email/phone/companyはキー名が一致するため復元される）。本来の消費者はE2-3の
+	 * `push_order()`（Woo→ColorMeへ変換する際、ここで積んだWooネイティブの住所からColorMeの
+	 * リクエスト形式を組み立てる）であり、空の`extras`のままだと`push_order()`に購入者情報が
+	 * 一切渡らなくなるため、Wooの現在の請求先住所と支払済み状態をここへ積む。
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -385,7 +390,7 @@ final class OrderReader implements EntityReader {
 		$fee_total = 0.0;
 
 		foreach ( $shipping_items as $shipping_item ) {
-			$fee_total += (float) $shipping_item->get_total();
+			$fee_total += $this->validated_amount( $shipping_item->get_total() );
 		}
 
 		/** @var ?WC_Order_Item_Shipping $primary */
@@ -459,11 +464,26 @@ final class OrderReader implements EntityReader {
 
 		foreach ( $order->get_items( 'fee' ) as $fee_item ) {
 			if ( $fee_item instanceof WC_Order_Item_Fee ) {
-				$total += (float) $fee_item->get_total();
+				$total += $this->validated_amount( $fee_item->get_total() );
 			}
 		}
 
 		return $total;
+	}
+
+	/**
+	 * 送料明細・Fee明細の`get_total()`は`line_item_amounts()`/`totals()`と同じ理由
+	 * （`set_total()`自身が符号を検証しない）で他プラグイン・直接のメタ編集により負値/非数値に
+	 * なりうる。負の手数料・送料は実質的な値引きとして作用してしまうため、該当行だけを0円として
+	 * 扱い（フェイルクローズ）、注文全体は止めない（R2レビュー指摘: `fee_total()`が
+	 * `line_item_amounts()`/`totals()`と非対称に無検証だった）。
+	 */
+	private function validated_amount( mixed $raw ): float {
+		if ( ! is_numeric( $raw ) || (float) $raw < 0.0 ) {
+			return 0.0;
+		}
+
+		return (float) $raw;
 	}
 
 	/**

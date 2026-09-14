@@ -253,9 +253,9 @@ final class OrderReaderTest extends WooTestCase {
 	}
 
 	/**
-	 * `Woo\Writer\OrderWriter::apply_addresses()`は請求先住所を`extras['customer_snapshot']`、
-	 * `apply_dates()`は支払済みかを`extras['paid']`から復元する。空の`extras`のままだと
-	 * エクスポート→再取込の往復で毎回失われる（レビュー指摘）。
+	 * `extras['customer_snapshot']`/`extras['paid']`はE2-3の`push_order()`が請求先情報・
+	 * 支払済み状態をASP側リクエストへ載せるための情報源。空の`extras`のままだと
+	 * push_order()に購入者情報が一切渡らなくなる（レビュー指摘）。
 	 */
 	public function test_billing_address_and_paid_status_are_exported_as_extras(): void {
 		$order = wc_create_order();
@@ -309,6 +309,23 @@ final class OrderReaderTest extends WooTestCase {
 
 		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
 		$this->assertSame( 150.0, (float) $page->items[0]->item->payment['fee'] );
+	}
+
+	/**
+	 * `WC_Order_Item_Fee::set_total()`自身は符号を検証しないため、負の手数料が実質的な
+	 * 値引きとして作用しうる（`line_item_amounts()`/`totals()`と同じ理由でフェイルクローズ）。
+	 */
+	public function test_negative_fee_line_item_does_not_reduce_the_payment_fee_total(): void {
+		$order = wc_create_order();
+		$fee   = new WC_Order_Item_Fee();
+		$fee->set_name( 'Bad fee' );
+		$fee->set_amount( '-50' );
+		$fee->set_total( '-50' );
+		$order->add_item( $fee );
+		$order->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$this->assertSame( 0.0, (float) $page->items[0]->item->payment['fee'] );
 	}
 
 	/**
