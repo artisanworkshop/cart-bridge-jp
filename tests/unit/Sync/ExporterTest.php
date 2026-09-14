@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Exporter;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
@@ -193,6 +194,73 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 0, $result['totals']['created'] );
 		$this->assertArrayNotHasKey( 'bogus-operation', $result['totals'] );
+		// Copilot指摘（PR #40）: 正規化前のremote_id（非空）だけでmappingsをupsertすると、
+		// totalsは「skipped」と報告しているのに実際には永続化されてしまう矛盾が起きていた。
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * Copilot指摘（PR #40）: `PlatformWriter::write()`が`RateLimitExhaustedException`を
+	 * 投げた場合、`Importer`と違いexportは`push_*()`をアイテム毎に呼ぶため、これを
+	 * 汎用`Throwable`catchで1件の異常として握り潰すと、レート制限に達した以降の全アイテムが
+	 * 「1件ずつ失敗」として処理され、`JobManager`の一時停止・再開（`RateLimitExhaustedException`
+	 * 専用catch）が機能しなくなる。`Exporter::run_page()`の外まで例外が伝播することを確認する。
+	 */
+	public function test_rate_limit_exhausted_exception_propagates_instead_of_being_swallowed(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				throw new RateLimitExhaustedException( 'mock' );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$this->expectException( RateLimitExhaustedException::class );
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+	}
+
+	/**
+	 * Copilot指摘（PR #40）: `PushResult::$warnings`は外部アダプタが返す配列で要素の型は
+	 * docblock上の契約でしかない。非string要素が混じると`WarningCode::split()`（`explode()`）が
+	 * `TypeError`を投げ、ページ全体が失敗しうる。非string要素を読み飛ばし、正常な文字列の警告は
+	 * 引き続き反映されることを確認する。
+	 */
+	public function test_non_string_warning_elements_from_writer_are_filtered_out(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				// phpcs:ignore CartBridgeJP.Sniffs -- 契約違反アダプタを意図的に模した非string要素。
+				return new PushResult( '1', PushResult::OPERATION_CREATED, [ [], WarningCode::CATEGORY_MAP_UNRESOLVED ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+	}
+
+	/**
+	 * Copilot指摘（PR #40、本文コメント）: checksum一致でスキップした場合も
+	 * `$read_item->warnings`（`VARIATION_STOCK_SHARED_WITH_PARENT`等、checksum対象外のため
+	 * データが変わらない限り毎回同じ内容になる警告）をwarnedカウントへ反映し続けることを確認する。
+	 */
+	public function test_checksum_match_skip_still_counts_persistent_reader_warnings(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+
+		$reader   = new FixedWooReader(
+			[ new ReadItem( 101, $product, [ WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT ] ) ]
+		);
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
 	}
 
 	public function test_unresolved_reference_from_reader_prevents_checksum_caching(): void {

@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
 use Throwable;
@@ -135,8 +136,18 @@ final class Exporter {
 			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item ) === $row['checksum'] ) {
 				++$totals['skipped'];
 
+				// Copilot指摘（PR #40）: checksum一致でスキップしても`$read_item->warnings`
+				// （`VARIATION_STOCK_SHARED_WITH_PARENT`等、warningsはchecksum対象外のため
+				// データが変わらない限り毎回同じ内容になる）はwarnedカウント・dry-run行の両方に
+				// 引き続き反映する。反映しないと、一度警告が出たアイテムがchecksum安定後は
+				// 警告そのものが二度と結果に現れなくなり、実際には解消していない問題を
+				// 「解消済み」であるかのように見せてしまう。
+				if ( [] !== $read_item->warnings ) {
+					++$totals['warned'];
+				}
+
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, [] );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
 				}
 
 				continue;
@@ -156,6 +167,16 @@ final class Exporter {
 
 			try {
 				$result = $writer->write( $entity, $item, $existing_remote_id );
+			} catch ( RateLimitExhaustedException $exception ) {
+				// Copilot指摘（PR #40）: レート制限は「このアイテムだけの異常」ではなく
+				// ジョブ全体を一時停止して後で再開すべきシグナル（`JobManager::process_job()`の
+				// 専用catch。03 §3 ステートマシン）。`Importer`は該当するASP APIコール
+				// （`fetch_page()`）がこの1件tryの外側にあるため元々この問題が起きないが、
+				// exportは`push_*()`がアイテムごとに呼ばれるためここで拾ってしまうと、
+				// レート制限に達した以降の全アイテム（このページ・後続ページとも）が
+				// 「1件ずつ失敗」として握り潰され、`JobManager`の一時停止・再開が機能しなくなる。
+				// 下の汎用`Throwable`catchより先に拾い、そのまま再送出する。
+				throw $exception;
 			} catch ( Throwable $exception ) {
 				// `Importer::process_items()`と同じ方針: 1件の異常（capability未対応の
 				// `UnsupportedOperationException`を含む）でページ全体を失敗させない。
@@ -185,13 +206,37 @@ final class Exporter {
 				continue;
 			}
 
-			// remote_idが空文字列は「実際にpushされなかった」ことを表す契約
-			// （`Importer`のlocal_id===0と同じ役割。dry-runは`DryRunPlatformWriter`の仕様として
-			// 常に空文字列/既存remote_idを返し何も永続化しないため、この判定の対象外にする）。
-			$did_push = ! $is_dry_run && '' !== $result->remote_id;
+			// $resultはWoo\Export\AdapterPlatformWriter経由でcbjp/adapters/registerが登録した
+			// 外部アダプタのpush_*()が直接返す（importのWriteResultと異なり、Woo内部コードを
+			// 経由しない信頼境界そのもの。アーキテクチャ原則8）。`$operation`/`$warnings`の
+			// 型宣言はdocblock上の契約でしかなく実行時に強制されないため、まず正規化してから使う
+			// （Copilot指摘, PR #40）: `$warnings`に非string要素が混じっていると、この後の
+			// `WarningCode::indicates_unresolved_reference()`/`split()`が`explode()`に
+			// 非string値を渡し`TypeError`でページ全体を落としかねない。
+			$sanitized_result_warnings = array_values( array_filter( $result->warnings, 'is_string' ) );
+
+			// 未知のoperationはskippedへフェイルクローズする（既知の3値以外がtotalsの
+			// 配列キーに使われると集計が破損するため）。
+			$operation = $result->operation;
+
+			if ( ! in_array( $operation, [ PushResult::OPERATION_CREATED, PushResult::OPERATION_UPDATED, PushResult::OPERATION_SKIPPED ], true ) ) {
+				$operation = PushResult::OPERATION_SKIPPED;
+			}
+
+			// remote_idが空文字列、または`$operation`が実質的にcreated/updatedでない場合は
+			// 「実際にpushされなかった」ことを表す契約（`Importer`のlocal_id===0と同じ役割。
+			// dry-runは`DryRunPlatformWriter`の仕様として常に空文字列/既存remote_idを返し
+			// 何も永続化しないため、この判定の対象外にする）。Copilot指摘（PR #40）:
+			// `$operation`を検証する前のremote_idのみでの判定だと、非空remote_id＋未知
+			// operationを返す契約違反アダプタに対し、`$operation`をskippedへ正規化した後でも
+			// mappingsへは既にupsertしてしまっていた（「skippedと報告したのに実は永続化した」
+			// という矛盾）。正規化後の`$operation`も判定条件に含める。
+			$did_push = ! $is_dry_run
+				&& '' !== $result->remote_id
+				&& in_array( $operation, [ PushResult::OPERATION_CREATED, PushResult::OPERATION_UPDATED ], true );
 
 			if ( $did_push ) {
-				$all_warnings   = array_merge( $read_item->warnings, $result->warnings );
+				$all_warnings   = array_merge( $read_item->warnings, $sanitized_result_warnings );
 				$fully_resolved = $read_item->fully_resolved && ! WarningCode::indicates_unresolved_reference( $all_warnings );
 
 				// `Importer`と同じ理由: 未解決参照（category_map欠落等）が残る場合はchecksumを
@@ -206,28 +251,21 @@ final class Exporter {
 					'remote_id' => $result->remote_id,
 					'checksum'  => $checksum,
 				];
-			} elseif ( $consumed_quota_slot ) {
-				++$remaining;
-			}
+			} else {
+				if ( $consumed_quota_slot ) {
+					++$remaining;
+				}
 
-			// `Importer`と同じ防御的正規化: remote_id=''のままcreated/updatedを返す契約違反の
-			// writerがあっても、totals集計はskipped扱いに倒す。
-			$operation = ( ! $is_dry_run && ! $did_push ) ? PushResult::OPERATION_SKIPPED : $result->operation;
-
-			// $resultはWoo\Export\AdapterPlatformWriter経由でcbjp/adapters/registerが登録した
-			// 外部アダプタのpush_*()が直接返す（importのWriteResultと異なり、Woo内部コードを
-			// 経由しない信頼境界そのもの。アーキテクチャ原則8）。operationの型宣言は
-			// docblock上の契約でしかなく実行時に強制されないため、未知の文字列がそのまま
-			// `$totals`の配列キーに使われると、結果レポート・アップセル件数の元になる集計が
-			// 破損する（`merge_totals()`の`total`キーにも`max()`で影響しうる）。既知の3値以外は
-			// skipped扱いにフェイルクローズする。
-			if ( ! in_array( $operation, [ PushResult::OPERATION_CREATED, PushResult::OPERATION_UPDATED, PushResult::OPERATION_SKIPPED ], true ) ) {
-				$operation = PushResult::OPERATION_SKIPPED;
+				// dry-runを除き、実際にpushされなかった結果はtotals集計上もskipped扱いに倒す
+				// （`$operation`が正規化済みでもcreated/updatedのままの場合があるため）。
+				if ( ! $is_dry_run ) {
+					$operation = PushResult::OPERATION_SKIPPED;
+				}
 			}
 
 			++$totals[ $operation ];
 
-			$warnings = array_merge( $read_item->warnings, $result->warnings );
+			$warnings = array_merge( $read_item->warnings, $sanitized_result_warnings );
 
 			if ( [] !== $warnings ) {
 				++$totals['warned'];
