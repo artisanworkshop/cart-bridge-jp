@@ -333,4 +333,30 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$this->assertCount( 3, $adapter->pushed_coupons );
 		$this->assertSame( 3, $this->mappings->count( 'mock', 'coupon' ) );
 	}
+
+	/**
+	 * D15 §10.2「クーポン: 最新10件」は`LimitPolicy`（`cbjp_mappings`累積カウント）だけで
+	 * 強制される（サンプルID方式を使わないため）。`LimitPolicy::DEFAULT_LIMITS['coupon']`=10を
+	 * 超える新規クーポンが実際に頭打ちになることを確認する回帰テスト。
+	 */
+	public function test_coupon_export_is_capped_at_the_free_tier_limit(): void {
+		$adapter = $this->register_adapter( push_others_supported: true );
+
+		for ( $i = 0; $i < 12; $i++ ) {
+			$coupon = new WC_Coupon();
+			$coupon->set_code( "CODE{$i}" );
+			$coupon->set_discount_type( 'percent' );
+			$coupon->set_amount( '10' );
+			$coupon->save();
+		}
+
+		$manager = JobManager::create();
+		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'coupon' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job = $this->jobs->find_by_run( $run_id )[0];
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
+		$this->assertCount( 10, $adapter->pushed_coupons );
+		$this->assertSame( 10, $this->mappings->count( 'mock', 'coupon' ) );
+	}
 }

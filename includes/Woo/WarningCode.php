@@ -218,6 +218,12 @@ final class WarningCode {
 			// エクスポートされ次第この行は自動的に再試行される（`indicates_unresolved_reference()`
 			// への追加は不要）。
 			self::STOCK_PRODUCT_NOT_EXPORTED,
+			// `Woo\Reader\OrderReader`: 注文全体の合計（discount/shipping_fee/tax/total）が
+			// 数値として不正（非数値・負値）なため`0`へフェイルクローズ済み。importの
+			// `Woo\Writer\OrderWriter::validate_totals()`が同じ状況で注文全体の書込みを見送る
+			// （`WC_Order`に一切触れる前に注文自体をskipする）のと対称に、exportも壊れた合計を
+			// 実際の明細と一緒に「¥0の注文」としてpushしない。
+			self::ORDER_TOTALS_INVALID,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -272,8 +278,29 @@ final class WarningCode {
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
 		return ! self::indicates_mapping_required( $warning )
+			&& ! self::indicates_pending_export( $warning )
 			&& ( self::indicates_unresolved_reference( [ $warning ] )
 				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「参照先（Wooローカル
+	 * 実体）がまだASP側へエクスポートされていないこと」だけに起因し、参照先を先にエクスポート
+	 * すれば消える見込みか。`indicates_pending_import()`のエクスポート方向対称形
+	 * （`ORDER_LINE_PRODUCT_NOT_EXPORTED`/`ORDER_CUSTOMER_NOT_EXPORTED`/`STOCK_PRODUCT_NOT_EXPORTED`は
+	 * `indicates_pending_import()`に混ざると「参照先を先にインポートしてください」という向きの
+	 * 逆な誤った案内になるため区別する。`STOCK_PRODUCT_NOT_EXPORTED`は`indicates_unresolved_reference()`
+	 * の対象外（`indicates_export_blocking()`のみ）だが、レポート上は他の未解決参照と同じ注記で
+	 * 区別されるべき理由は`indicates_pending_import()`の同種コメントと同じ）。
+	 */
+	public static function indicates_pending_export( string $warning ): bool {
+		$codes = [
+			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
+			self::ORDER_CUSTOMER_NOT_EXPORTED,
+			self::STOCK_PRODUCT_NOT_EXPORTED,
+		];
+
+		return in_array( self::split( $warning )[0], $codes, true );
 	}
 
 	/**

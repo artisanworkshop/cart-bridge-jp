@@ -413,11 +413,10 @@ final class JobManager {
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
 	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run ): array {
-		// `product`の上限を基準にする（`coupon`は`LimitPolicy::DEFAULT_LIMITS['stock']`のように
-		// 数値上限を持たないエンティティを含むため、エンティティ自身の上限で判定すると
-		// `stock`（数値上限=null）がサンプリング有効時でも常に全量対象になってしまう。
-		// importの`JobManager::process_page()`が`stock`をこの理由で`'product'`基準にしているのと
-		// 対称。`EXPORT_SAMPLE_ID_ENTITIES`参照）。
+		// `product`の上限を基準にする（`stock`は`LimitPolicy::DEFAULT_LIMITS['stock']`が数値上限
+		// なし（null）のエンティティのため、エンティティ自身の上限で判定すると`stock`は
+		// サンプリング有効時でも常に全量対象になってしまう。importの`JobManager::process_page()`が
+		// `stock`をこの理由で`'product'`基準にしているのと対称。`EXPORT_SAMPLE_ID_ENTITIES`参照）。
 		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( 'product' );
 		$only_local_ids  = ( $sampling_active && in_array( $entity, self::EXPORT_SAMPLE_ID_ENTITIES, true ) )
 			? $this->export_local_ids_for( $entity, $this->export_sample_selector()->select_or_load( $job['platform'] ) )

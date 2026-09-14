@@ -119,6 +119,25 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertSame( 'reference_pending_import', $rows[0][7] );
 	}
 
+	/**
+	 * エクスポート方向の「参照先がまだエクスポートされていない」警告
+	 * （`ORDER_LINE_PRODUCT_NOT_EXPORTED`/`ORDER_CUSTOMER_NOT_EXPORTED`）は、インポート方向の
+	 * `reference_pending_import`（「先にインポートしてください」）ではなく専用の
+	 * `reference_pending_export`（「先にエクスポートしてください」）を付ける必要がある
+	 * （向きが逆の誤った案内を防ぐ。レビュー指摘）。
+	 */
+	public function test_export_pending_reference_warning_is_flagged_as_pending_export(): void {
+		$this->items->insert_many(
+			'run-5c',
+			1,
+			[ $this->row( [ 'warnings' => [ 'order_line_product_not_exported:42' ] ] ) ]
+		);
+
+		$rows = $this->csv->rows( 'run-5c', null, false );
+
+		$this->assertSame( 'reference_pending_export', $rows[0][7] );
+	}
+
 	public function test_unrelated_warning_leaves_the_note_column_empty(): void {
 		$this->items->insert_many( 'run-6', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
 

@@ -35,8 +35,13 @@ final class CouponReader implements EntityReader {
 		$args = [
 			'post_type'      => 'shop_coupon',
 			'post_status'    => 'publish',
-			'orderby'        => 'ID',
-			'order'          => 'ASC',
+			// D15 §10.2「クーポン: 最新10件」＝新しい順（`docs/03-design-decisions.md`
+			// 「APIが新しい順ソートを指定できる場合のみ新しい順」）。無料版は`LimitPolicy`が
+			// カーソル走査で最初に出会った10件だけを新規pushの対象にするため、'ID'昇順（＝作成日
+			// 昇順）のままだと店を長く運営しているほど古い（期限切れの可能性が高い）クーポンだけが
+			// 無料枠を占有してしまう。
+			'orderby'        => 'date',
+			'order'          => 'DESC',
 			'fields'         => 'ids',
 			'posts_per_page' => self::PAGE_SIZE,
 			'paged'          => (int) $cursor->get( 'page', 1 ),
@@ -110,7 +115,10 @@ final class CouponReader implements EntityReader {
 
 	/**
 	 * WooがネイティブでもつがCanonicalCouponには運ぶフィールドが無い制限
-	 * （`Canonical\CanonicalCoupon`のdocblock参照）。
+	 * （`Canonical\CanonicalCoupon`のdocblock参照）。商品/カテゴリ/メールアドレス制限・
+	 * 上限金額に加え、「対象商品を1点のみに適用」「セール品を対象外」「他クーポンと併用不可」も
+	 * 運べない軸のため同様に扱う（無警告で`false`にすると、これらの制限が働かない
+	 * 「実質無制限クーポン」としてASP側に保存されうる金銭的リスクがある）。
 	 */
 	private function has_native_restrictions( WC_Coupon $coupon ): bool {
 		if ( [] !== $coupon->get_product_ids() || [] !== $coupon->get_excluded_product_ids() ) {
@@ -122,6 +130,16 @@ final class CouponReader implements EntityReader {
 		}
 
 		if ( [] !== $coupon->get_email_restrictions() ) {
+			return true;
+		}
+
+		if ( true === $coupon->get_exclude_sale_items() || true === $coupon->get_individual_use() ) {
+			return true;
+		}
+
+		$limit_usage_to_x_items = $coupon->get_limit_usage_to_x_items();
+
+		if ( is_numeric( $limit_usage_to_x_items ) && (int) $limit_usage_to_x_items > 0 ) {
 			return true;
 		}
 

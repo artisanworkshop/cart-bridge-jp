@@ -56,15 +56,9 @@ final class CustomerReader implements EntityReader {
 	}
 
 	private function to_read_item( WP_User $user ): ReadItem {
-		$name = trim( trim( (string) $user->first_name . ' ' . (string) $user->last_name ) );
-
-		if ( '' === $name ) {
-			$name = $user->display_name;
-		}
-
 		$canonical = new CanonicalCustomer(
 			$user->user_email,
-			$name,
+			$this->name( $user ),
 			$this->meta_string( $user->ID, '_cbjp_kana' ),
 			$this->meta_string( $user->ID, 'billing_company' ),
 			$this->meta_string( $user->ID, '_cbjp_department' ),
@@ -80,14 +74,36 @@ final class CustomerReader implements EntityReader {
 	}
 
 	/**
+	 * ColorMeの氏名は「姓 名」の単一文字列で、`Woo\Support\AddressMapper::split_name()`が
+	 * 最初のトークンを`last_name`（姓）、残りを`first_name`（名）としてWooへ保存する
+	 * （`Woo\Writer\CustomerWriter::apply_extras_meta()`参照）。`first_name . ' ' . last_name`
+	 * （Western順）で単純に組み直すと姓名が入れ替わって復元される（例:
+	 * 「山田 太郎」→`first_name`=太郎/`last_name`=山田→組み直すと「太郎 山田」）ため、
+	 * `CustomerWriter`が同時に書く`_cbjp_full_name`（元の文字列そのもの）を優先して使う。
+	 * このメタが無い場合（Woo上でネイティブに作成された顧客等、ColorMe由来ではないデータ）は
+	 * Western順のフォールバックにする。
+	 */
+	private function name( WP_User $user ): string {
+		$full_name = $this->meta_string( $user->ID, '_cbjp_full_name' );
+
+		if ( null !== $full_name ) {
+			return $full_name;
+		}
+
+		$name = trim( (string) $user->first_name . ' ' . (string) $user->last_name );
+
+		return '' !== $name ? $name : $user->display_name;
+	}
+
+	/**
 	 * `CustomerWriter::apply_addresses()`が書くbilling_*メタをWooネイティブのキーのまま返す
-	 * （クラスdocblock参照）。
+	 * （クラスdocblock参照）。`company`は`CanonicalCustomer::$company`（コンストラクタ引数）として
+	 * 別途運ぶため、ここには含めない（同じ値を2箇所に持たせない）。
 	 *
 	 * @return array<string,mixed>
 	 */
 	private function address( int $user_id ): array {
 		return [
-			'company'   => $this->meta_string( $user_id, 'billing_company' ),
 			'address_1' => $this->meta_string( $user_id, 'billing_address_1' ),
 			'address_2' => $this->meta_string( $user_id, 'billing_address_2' ),
 			'city'      => $this->meta_string( $user_id, 'billing_city' ),

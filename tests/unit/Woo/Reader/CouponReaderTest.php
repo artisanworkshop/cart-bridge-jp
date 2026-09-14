@@ -132,6 +132,63 @@ final class CouponReaderTest extends WooTestCase {
 		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
 	}
 
+	public function test_limit_usage_to_x_items_marks_unsupported(): void {
+		$coupon = $this->create_coupon( 'LIMITXITEMS' );
+		$coupon->set_limit_usage_to_x_items( 1 );
+		$coupon->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	public function test_exclude_sale_items_marks_unsupported(): void {
+		$coupon = $this->create_coupon( 'EXCLSALE' );
+		$coupon->set_exclude_sale_items( true );
+		$coupon->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	public function test_individual_use_marks_unsupported(): void {
+		$coupon = $this->create_coupon( 'SOLOUSE' );
+		$coupon->set_individual_use( true );
+		$coupon->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
+		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
+	}
+
+	/**
+	 * D15 §10.2「クーポン: 最新10件」＝新しい順。'ID'昇順（作成日昇順）のままだと無料版の
+	 * `LimitPolicy`上限が古いクーポンだけを消費してしまう（レビュー指摘）。
+	 */
+	public function test_query_orders_newest_first(): void {
+		$older = $this->create_coupon( 'OLDER' );
+		$newer = $this->create_coupon( 'NEWER' );
+
+		wp_update_post(
+			[
+				'ID'            => $older->get_id(),
+				'post_date'     => '2020-01-01 00:00:00',
+				'post_date_gmt' => '2020-01-01 00:00:00',
+			]
+		);
+		wp_update_post(
+			[
+				'ID'            => $newer->get_id(),
+				'post_date'     => '2024-01-01 00:00:00',
+				'post_date_gmt' => '2024-01-01 00:00:00',
+			]
+		);
+
+		$page = $this->make_reader()->query( Cursor::start(), null );
+		$ids  = array_map( static fn ( $item ) => $item->local_id, $page->items );
+
+		$this->assertSame( $newer->get_id(), $ids[0] );
+		$this->assertSame( $older->get_id(), $ids[1] );
+	}
+
 	public function test_only_local_ids_empty_returns_empty_page(): void {
 		$page = $this->make_reader()->query( Cursor::start(), [] );
 		$this->assertSame( [], $page->items );

@@ -145,6 +145,50 @@ final class StockReaderTest extends WooTestCase {
 		$this->assertSame( 4, $by_variant_ref['v-m']->item->quantity );
 	}
 
+	/**
+	 * 親商品は解決済みでも、個々のバリエーションが（E2-3未実装のため）まだASP側に
+	 * remote_idを持たない状態は現実的なシナリオ（`docs/03-design-decisions.md`
+	 * 「E2-3への申し送り」参照）。一部だけ解決済みの場合、解決済みの行はpushされ、
+	 * 未解決の行だけがブロックされることを確認する。
+	 */
+	public function test_partially_resolved_variations_only_block_the_unresolved_ones(): void {
+		[ $parent_id, $variation_ids ] = $this->make_variable_product_with_variations(
+			[
+				[
+					'size'  => 'S',
+					'sku'   => 'SHIRT-S',
+					'stock' => 3,
+				],
+				[
+					'size'  => 'M',
+					'sku'   => 'SHIRT-M',
+					'stock' => 4,
+				],
+			]
+		);
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+		// サイズSのバリエーションだけremote_idを持たせる。サイズMは未解決のまま残す。
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-s', $variation_ids['S'] );
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$this->assertCount( 2, $page->items );
+
+		$by_local_id = [];
+
+		foreach ( $page->items as $item ) {
+			$by_local_id[ $item->local_id ] = $item;
+		}
+
+		$resolved = $by_local_id[ $variation_ids['S'] ];
+		$this->assertSame( 'v-s', $resolved->item->variant_ref );
+		$this->assertTrue( $resolved->fully_resolved );
+
+		$unresolved = $by_local_id[ $variation_ids['M'] ];
+		$this->assertFalse( $unresolved->fully_resolved );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, (string) $variation_ids['M'] ), $unresolved->warnings );
+	}
+
 	public function test_unpublished_variation_is_omitted_entirely(): void {
 		[ $parent_id, $variation_ids ] = $this->make_variable_product_with_variations(
 			[

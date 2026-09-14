@@ -24,10 +24,22 @@ use WC_Product_Variation;
  * 公開バリエーションのみを1件ずつ展開する。1商品が0〜N件の`CanonicalStock`に展開されるため
  * `ReadPage::$total`は常にnull（CLAUDE.md: Transformerが行を展開・除外しうるエンティティは
  * totalをnullにする規約。`Sync\Importer::stocks_for_sample_product()`と同じ理由）。
+ * ページ内の全商品をスキャンしてから`MappingRepository::find_many_by_local_ids()`で一括解決する
+ * （アイテム毎のSELECTを避けるため。`ProductReader::variants()`と同じ理由）。
  */
 final class StockReader implements EntityReader {
 
 	private const PAGE_SIZE = 20;
+
+	/**
+	 * @var array<int,array{remote_id:string,checksum:?string}>
+	 */
+	private array $product_refs = [];
+
+	/**
+	 * @var array<int,array{remote_id:string,checksum:?string}>
+	 */
+	private array $variant_refs = [];
 
 	public function __construct(
 		private readonly string $platform,
@@ -59,6 +71,8 @@ final class StockReader implements EntityReader {
 		/** @var object{products:array<int,WC_Product>,total:int,max_num_pages:int} $result */
 		$result = wc_get_products( $args );
 
+		$this->preload_mappings( $result->products );
+
 		$items = [];
 
 		foreach ( $result->products as $product ) {
@@ -72,6 +86,30 @@ final class StockReader implements EntityReader {
 	}
 
 	/**
+	 * ページ内の全商品をスキャンし、商品/バリエーションのremote_idを1回のクエリずつで
+	 * 一括解決する（`ProductReader::variants()`の`find_many_by_local_ids()`一括先読みと同じ理由）。
+	 *
+	 * @param array<int,WC_Product> $products
+	 */
+	private function preload_mappings( array $products ): void {
+		$product_ids   = [];
+		$variation_ids = [];
+
+		foreach ( $products as $product ) {
+			$product_ids[] = $product->get_id();
+
+			if ( $product instanceof WC_Product_Variable ) {
+				foreach ( $product->get_children() as $variation_id ) {
+					$variation_ids[] = (int) $variation_id;
+				}
+			}
+		}
+
+		$this->product_refs = $this->mappings->find_many_by_local_ids( $this->platform, 'product', $product_ids );
+		$this->variant_refs = $this->mappings->find_many_by_local_ids( $this->platform, 'variant', $variation_ids );
+	}
+
+	/**
 	 * @return array<int,ReadItem>
 	 */
 	private function items_for_product( WC_Product $product ): array {
@@ -79,7 +117,7 @@ final class StockReader implements EntityReader {
 			return $this->items_for_variable( $product );
 		}
 
-		$product_ref = $this->mappings->find_remote_id( $this->platform, 'product', $product->get_id() );
+		$product_ref = $this->product_refs[ $product->get_id() ]['remote_id'] ?? null;
 
 		if ( null === $product_ref ) {
 			return [ $this->unresolved_item( $product->get_id(), (string) $product->get_id() ) ];
@@ -102,7 +140,7 @@ final class StockReader implements EntityReader {
 	 * @return array<int,ReadItem>
 	 */
 	private function items_for_variable( WC_Product_Variable $product ): array {
-		$product_ref = $this->mappings->find_remote_id( $this->platform, 'product', $product->get_id() );
+		$product_ref = $this->product_refs[ $product->get_id() ]['remote_id'] ?? null;
 		$items       = [];
 
 		// `get_children()`（**`get_visible_children()`ではない**）を使う: 後者は
@@ -132,7 +170,7 @@ final class StockReader implements EntityReader {
 				continue;
 			}
 
-			$variant_ref = $this->mappings->find_remote_id( $this->platform, 'variant', $variation_id );
+			$variant_ref = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;
 
 			if ( null === $variant_ref ) {
 				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id );

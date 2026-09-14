@@ -125,7 +125,7 @@ final class CustomerReaderTest extends WooTestCase {
 	public function test_query_only_returns_customer_role_users(): void {
 		$customer_id = $this->create_customer( 'shopper@example.com' );
 
-		wp_insert_user(
+		$admin_id = wp_insert_user(
 			[
 				'user_login' => 'staff@example.com',
 				'user_email' => 'staff@example.com',
@@ -138,6 +138,40 @@ final class CustomerReaderTest extends WooTestCase {
 		$ids  = array_map( static fn ( $item ) => $item->local_id, $page->items );
 
 		$this->assertContains( $customer_id, $ids );
+		// 管理者アカウントがPII付きでexportされてはならない（`role => 'customer'`絞り込みの
+		// ピン留め。この絞り込みが外れても本テストが検知できるよう明示的に確認する）。
+		$this->assertNotContains( $admin_id, $ids );
+	}
+
+	/**
+	 * ColorMeの氏名は「姓 名」の単一文字列で、`Woo\Support\AddressMapper::split_name()`が
+	 * 最初のトークンを`last_name`、残りを`first_name`としてWooへ保存する
+	 * （`Woo\Writer\CustomerWriter`）。`first_name . ' ' . last_name`で単純に組み直すと
+	 * 姓名が入れ替わって復元されるため、`_cbjp_full_name`メタ（元の文字列そのもの）を優先して
+	 * 使うことを確認する（レビュー指摘）。
+	 */
+	public function test_name_prefers_full_name_meta_over_recomposed_first_last(): void {
+		$user_id = $this->create_customer(
+			'yamada@example.com',
+			[
+				// 「山田 太郎」を分割すると最初のトークン「山田」がlast_name、残りの「太郎」が
+				// first_nameになる（`Woo\Support\AddressMapper::split_name()`の変換結果）。
+				'first_name' => '太郎',
+				'last_name'  => '山田',
+				'user_meta'  => [ '_cbjp_full_name' => '山田 太郎' ],
+			]
+		);
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $user_id ] );
+		// `first_name . ' ' . last_name`（Western順）で組み直すと「太郎 山田」になってしまう。
+		$this->assertSame( '山田 太郎', $page->items[0]->item->name );
+	}
+
+	public function test_name_falls_back_to_first_last_when_full_name_meta_is_absent(): void {
+		$user_id = $this->create_customer( 'no-meta@example.com' );
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $user_id ] );
+		$this->assertSame( 'Taro Yamada', $page->items[0]->item->name );
 	}
 
 	public function test_query_walks_multiple_pages(): void {

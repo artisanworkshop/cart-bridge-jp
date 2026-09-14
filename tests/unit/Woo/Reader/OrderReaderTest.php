@@ -12,6 +12,7 @@ use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Reader\OrderReader;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Order;
+use WC_Order_Item_Fee;
 use WC_Order_Item_Product;
 use WC_Order_Item_Shipping;
 use WC_Product_Attribute;
@@ -170,6 +171,193 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
 		$this->assertFalse( $read_item->fully_resolved );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), $read_item->warnings );
+	}
+
+	/**
+	 * `_line_total`/`_line_tax`は`WC_Order_Item_Product::set_total()`/`set_taxes()`自身が符号を
+	 * 検証しないため、他プラグイン・直接のメタ編集で負値になりうる（`ProductReader`の
+	 * `_regular_price`と同じ壊れ方の構造）。無警告でASP側へ転記すると実質的な値引きとして
+	 * 扱われうるため0円へフェイルクローズする。
+	 */
+	public function test_negative_line_item_total_is_treated_as_invalid(): void {
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-neg', $product_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $product_id, 1, '-500' );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+		$line      = $read_item->item->line_items[0];
+
+		$this->assertSame( '0', $line['price'] );
+		$this->assertSame( '0', $line['subtotal'] );
+		$this->assertSame( '0', $line['unit_price_excl_tax'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, 'p-neg' ), $read_item->warnings );
+	}
+
+	/**
+	 * `discount_total`/`shipping_total`/`total_tax`/`total`も`WC_Order`の型付きgetterだが
+	 * `set_*()`自身は符号を検証しない。壊れた注文合計をそのまま転記すると実際の決済額と
+	 * 食い違う金銭的リスクがあるため、`OrderWriter::validate_totals()`（インポート方向）と
+	 * 同じ基準でフェイルクローズする。
+	 */
+	public function test_negative_order_total_is_treated_as_invalid(): void {
+		$order = wc_create_order();
+		$order->set_total( '-1000' );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertSame( '0', $read_item->item->totals['total'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $read_item->warnings );
+	}
+
+	/**
+	 * 明細金額は`get_subtotal()`/`get_subtotal_tax()`（割引前）を使う必要がある。
+	 * `get_total()`/`get_total_tax()`（Wooのクーポン計算後＝割引後）を使うと、`totals.discount`
+	 * （`get_discount_total()`）で別途控除される割引が明細側にも織り込み済みになり、二重に
+	 * 割引が効いてしまう（実装計画・レビュー指摘）。
+	 */
+	public function test_line_item_amount_uses_subtotal_not_discounted_total(): void {
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-disc', $product_id );
+
+		$order = wc_create_order();
+		$item  = new WC_Order_Item_Product();
+		$item->set_product_id( $product_id );
+		$item->set_name( 'Discounted line' );
+		$item->set_quantity( 1 );
+		// 割引前の金額をsubtotalへ、200円引き後の金額をtotalへ設定する。税は割引後の金額のみに掛かる。
+		$item->set_subtotal( '2000' );
+		$item->set_total( '1800' );
+		$item->set_taxes(
+			[
+				'total'    => [ 0 => '180' ],
+				'subtotal' => [ 0 => '200' ],
+			]
+		);
+		$order->add_item( $item );
+		$order->set_discount_total( '200' );
+		$order->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$line = $page->items[0]->item->line_items[0];
+
+		// 割引前の税込金額を明細に載せる（割引後の金額ではない）。
+		$this->assertSame( 2200.0, (float) $line['subtotal'] );
+		$this->assertSame( 2200.0, (float) $line['price'] );
+		$this->assertSame( 2000.0, (float) $line['unit_price_excl_tax'] );
+	}
+
+	/**
+	 * `Woo\Writer\OrderWriter::apply_addresses()`は請求先住所を`extras['customer_snapshot']`、
+	 * `apply_dates()`は支払済みかを`extras['paid']`から復元する。空の`extras`のままだと
+	 * エクスポート→再取込の往復で毎回失われる（レビュー指摘）。
+	 */
+	public function test_billing_address_and_paid_status_are_exported_as_extras(): void {
+		$order = wc_create_order();
+		$order->set_billing_first_name( 'Taro' );
+		$order->set_billing_last_name( 'Yamada' );
+		$order->set_billing_email( 'taro@example.com' );
+		$order->set_billing_phone( '0312345678' );
+		$order->set_billing_address_1( '1-2-3 Marunouchi' );
+		$order->set_billing_city( 'Chiyoda' );
+		$order->set_billing_state( 'JP13' );
+		$order->set_billing_postcode( '100-0001' );
+		$order->set_billing_country( 'JP' );
+		$order->set_date_paid( time() );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$canonical = $page->items[0]->item;
+
+		$snapshot = $canonical->extras['customer_snapshot'];
+		$this->assertSame( 'Taro Yamada', $snapshot['name'] );
+		$this->assertSame( 'taro@example.com', $snapshot['email'] );
+		$this->assertSame( '0312345678', $snapshot['phone'] );
+		$this->assertSame( '1-2-3 Marunouchi', $snapshot['address_1'] );
+		$this->assertSame( 'Chiyoda', $snapshot['city'] );
+		$this->assertTrue( $canonical->extras['paid'] );
+	}
+
+	public function test_unpaid_order_exports_paid_false(): void {
+		$order = wc_create_order();
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$canonical = $page->items[0]->item;
+
+		$this->assertFalse( $canonical->extras['paid'] );
+	}
+
+	/**
+	 * `WC_Order_Item_Fee`（決済手数料・ギフト包装料等）は`$order->get_items()`（既定=line_item）に
+	 * 含まれないが、`totals.total`（`get_total()`）には合算済みで反映される。無視すると
+	 * 明細合計と注文合計が食い違う（レビュー指摘）。
+	 */
+	public function test_fee_line_items_are_aggregated_into_payment_fee(): void {
+		$order = wc_create_order();
+		$fee   = new WC_Order_Item_Fee();
+		$fee->set_name( 'Payment fee' );
+		$fee->set_amount( '150' );
+		$fee->set_total( '150' );
+		$order->add_item( $fee );
+		$order->save();
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$this->assertSame( 150.0, (float) $page->items[0]->item->payment['fee'] );
+	}
+
+	/**
+	 * `Woo\Writer\OrderWriter::validate_totals()`（インポート方向）は不正な合計を持つ注文全体を
+	 * 保存せずskipする。exportも対称に、壊れた合計を実際の明細と一緒に「¥0の注文」として
+	 * pushしないよう`indicates_export_blocking()`の対象にする（レビュー指摘）。
+	 */
+	public function test_invalid_order_totals_block_export(): void {
+		$order = wc_create_order();
+		$order->set_total( '-1000' );
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 参照先の商品が削除済み（`get_product()`が`false`）の場合、再エクスポートを待っても
+	 * 解決しない終端状態のため`ORDER_LINE_PRODUCT_NOT_EXPORTED`（再試行可能）を積まない
+	 * （レビュー指摘）。
+	 */
+	public function test_line_item_referencing_deleted_product_does_not_warn(): void {
+		$product_id = $this->create_product();
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $product_id, 1, '1000' );
+		$order->save();
+
+		wp_delete_post( $product_id, true );
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
+		$this->assertSame( [], $read_item->warnings );
+		$this->assertTrue( $read_item->fully_resolved );
+	}
+
+	public function test_order_with_no_line_items_reads_successfully(): void {
+		$order = wc_create_order();
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+
+		$this->assertSame( [], $read_item->item->line_items );
+		$this->assertSame( [], $read_item->warnings );
 	}
 
 	public function test_variation_line_item_resolves_via_variant_mapping_not_parent(): void {
