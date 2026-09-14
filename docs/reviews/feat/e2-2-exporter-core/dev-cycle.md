@@ -1,8 +1,8 @@
 # dev-cycle 状態: feat/e2-2-exporter-core
 - タスク: E2-2 Exporter パイプライン（PR-A: コア配線 + ProductReader）
 - 開始: 2026-09-14
-- PR: 未作成
-- 現在のステップ: 4(push・PR作成待ち)
+- PR: #40 https://github.com/artisanworkshop/cart-bridge-jp/pull/40
+- 現在のステップ: 5(CI待ち)
 - Copilot: 未依頼
 - Codex: 未依頼
 
@@ -14,4 +14,5 @@
 | 2026-09-14 | 2 | 実装コミット2件（b006acd backend+tests, 359a1ff docs）。品質チェック（lint/analyze/test:wpenv 751件/npm lint/build）green |
 | 2026-09-14 | 3 | review-loop R1完了。独立サブエージェント併用でH1〜H7・M1〜M8を検出、H1-H6/M1-M4/M6-M7を修正（H7・M5・M8はPR-B/backlog送り）。修正コミット2件（ff6ea45 code+tests, 01864b3 docs）。品質チェック759件green、ProductReaderTestは単体実行でも確認済み。判定: CHANGES REQUESTED→修正完了（詳細はR1.md） |
 | 2026-09-14 | 3 | review-loop R2完了。R1修正差分の検証で新規Critical（variable商品で可視バリエーション0件時にTypeError→ジョブ恒久失敗）・High（セール価格が定価としてASPへ焼き付く）を検出・修正。修正コミット2件（028181a code+tests, 654aef4 docs）。品質チェック761件green |
-| 2026-09-14 | 3 | review-loop R3（最終検証）完了。wp-env実機（WC 11.1.0）でR2修正を実測裏取り、新規Critical/Highゼロを確認。CLAUDE.mdの古い推奨（次タスクでの再発防止）等Medium1件・Low4件をその場で修正（3589fb9）。判定: **APPROVE**（詳細はR1.md/R2.md/R3.md）。review-loop収束、Step 4（push・PR作成）へ |
+| 2026-09-14 | 3 | review-loop R3（最終検証）完了。wp-env実機（WC 11.1.0）でR2修正を実測裏取り、新規Critical/Highゼロを確認。CLAUDE.mdの古い推奨（次タスクでの再発防止）等Medium1件・Low4件をその場で修正（3589fb9）。判定: **APPROVE**（詳細はR1.md/R2.md/R3.md）。review-loop収束 |
+| 2026-09-14 | 4 | push（origin/feat/e2-2-exporter-core） + PR #40 作成 |
