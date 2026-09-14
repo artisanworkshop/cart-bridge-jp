@@ -2,9 +2,9 @@
 - タスク: E2-2 Exporter パイプライン（PR-A: コア配線 + ProductReader）
 - 開始: 2026-09-14
 - PR: #40 https://github.com/artisanworkshop/cart-bridge-jp/pull/40
-- 現在のステップ: 5(CI待ち)
-- Copilot: 未依頼
-- Codex: 未依頼
+- 現在のステップ: 6(ボット応答待ち)
+- Copilot: 依頼1回目（2026-09-14T01:13:48Z）
+- Codex: 未依頼（PR作成時の自動レビューを待つ。依頼時刻T=2026-09-14T01:13:48Z）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -16,3 +16,5 @@
 | 2026-09-14 | 3 | review-loop R2完了。R1修正差分の検証で新規Critical（variable商品で可視バリエーション0件時にTypeError→ジョブ恒久失敗）・High（セール価格が定価としてASPへ焼き付く）を検出・修正。修正コミット2件（028181a code+tests, 654aef4 docs）。品質チェック761件green |
 | 2026-09-14 | 3 | review-loop R3（最終検証）完了。wp-env実機（WC 11.1.0）でR2修正を実測裏取り、新規Critical/Highゼロを確認。CLAUDE.mdの古い推奨（次タスクでの再発防止）等Medium1件・Low4件をその場で修正（3589fb9）。判定: **APPROVE**（詳細はR1.md/R2.md/R3.md）。review-loop収束 |
 | 2026-09-14 | 4 | push（origin/feat/e2-2-exporter-core） + PR #40 作成 |
+| 2026-09-14 | 5 | CI green（JS/TS, PHP quality 8.2/8.3, PHPUnit(wp-env)すべてpass） |
+| 2026-09-14 | 6 | Copilotへレビュー依頼（1回目）。Codexは自動レビュー待ち。T=2026-09-14T01:13:48Z |
