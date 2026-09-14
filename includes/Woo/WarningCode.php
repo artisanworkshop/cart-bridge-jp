@@ -54,6 +54,28 @@ final class WarningCode {
 	 */
 	public const CATEGORY_MAP_UNRESOLVED = 'category_map_unresolved';
 
+	/**
+	 * エクスポート時、非公開（`private`等、`publish`以外）のバリエーションを検出した
+	 * （`Woo\Reader\ProductReader`）。除外し警告する（含めるとマーチャントが意図的に
+	 * 非公開にした在庫がASP側で販売可能な状態として復活しうる）。
+	 */
+	public const VARIATION_UNPUBLISHED = 'variation_unpublished';
+
+	/**
+	 * エクスポート時、WooCommerceの3軸以上のバリエーション属性のうち3軸目以降を検出した
+	 * （`CanonicalProduct::$variants`のoption1/2規約は2軸まで）。先頭2軸のみを使い、
+	 * 異なる3軸目の値を持つバリエーション同士が同じoption1/2の組に潰れうることを警告する。
+	 */
+	public const VARIATION_AXIS_LIMIT_EXCEEDED = 'variation_axis_limit_exceeded';
+
+	/**
+	 * エクスポート時、variable商品の全バリエーションが除外された（価格無効・非公開等）ため
+	 * `CanonicalProduct::$variants`が空になった。`Woo\Writer\ProductWriter::prepare()`は
+	 * 空の`$variants`を「simple商品」の判定に使うため、無警告のままだと変換先で
+	 * variable商品がsimpleとして扱われうることを警告する。
+	 */
+	public const ALL_VARIATIONS_EXCLUDED = 'all_variations_excluded';
+
 	public const CUSTOMER_REUSED_EXISTING   = 'customer_reused_existing';
 	public const CUSTOMER_ACCOUNT_PROTECTED = 'customer_account_protected';
 	public const CUSTOMER_EMAIL_CONFLICT    = 'customer_email_conflict';

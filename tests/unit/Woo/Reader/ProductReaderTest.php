@@ -301,6 +301,10 @@ final class ProductReaderTest extends WooTestCase {
 	 * （非nullable string）にそのまま渡すと`TypeError`になり、Exporterの1件tryの外側で
 	 * 発生するためページ全体・ジョブ全体が恒久的に失敗する）。全バリエーションを非公開に
 	 * することでこの状態を再現し、TypeErrorにならず警告付きで0にフェイルクローズすることを確認する。
+	 *
+	 * 非公開バリエーションは`variants()`自体からも除外される（Codex/Copilot指摘, PR #40:
+	 * `get_children()`は`publish`/`private`両方を含むため、除外しないとASP側で「販売可能」として
+	 * 復活しうる）ため、`variants`は空配列になり`ALL_VARIATIONS_EXCLUDED`も付く。
 	 */
 	public function test_variable_product_with_no_visible_variations_does_not_crash(): void {
 		$parent = new \WC_Product_Variable();
@@ -321,17 +325,169 @@ final class ProductReaderTest extends WooTestCase {
 		$variation->set_regular_price( '500' );
 		// 非公開にすることで`get_visible_children()`の対象から外す。
 		$variation->set_status( 'private' );
+		$variation_id = $variation->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertCount( 0, $read_item->item->variants );
+		$this->assertSame( '0', $read_item->item->price );
+		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_UNPUBLISHED, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::ALL_VARIATIONS_EXCLUDED, $read_item->warnings );
+	}
+
+	/**
+	 * 一部のバリエーションだけが非公開・価格不正な場合、そのバリエーションのみ除外され
+	 * 兄弟バリエーションは正常にエクスポートされること（全滅判定`ALL_VARIATIONS_EXCLUDED`と
+	 * 混同していないことのピン留め）。
+	 */
+	public function test_invalid_variation_is_excluded_but_valid_siblings_remain(): void {
+		$parent = new \WC_Product_Variable();
+		$parent->set_name( 'Mixed Validity Variations' );
+		$attribute = new \WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( [ 'S', 'M', 'L' ] );
+		$attribute->set_position( 0 );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$parent->set_attributes( [ $attribute ] );
+		$parent_id = $parent->save();
+
+		$good = new \WC_Product_Variation();
+		$good->set_parent_id( $parent_id );
+		$good->set_attributes( [ 'size' => 'S' ] );
+		$good->set_regular_price( '500' );
+		$good->save();
+
+		$unpublished = new \WC_Product_Variation();
+		$unpublished->set_parent_id( $parent_id );
+		$unpublished->set_attributes( [ 'size' => 'M' ] );
+		$unpublished->set_regular_price( '600' );
+		$unpublished->set_status( 'private' );
+		$unpublished_id = $unpublished->save();
+
+		$invalid_price = new \WC_Product_Variation();
+		$invalid_price->set_parent_id( $parent_id );
+		$invalid_price->set_attributes( [ 'size' => 'L' ] );
+		$invalid_price->set_regular_price( '-100' );
+		$invalid_price_id = $invalid_price->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertCount( 1, $read_item->item->variants );
+		$this->assertSame( 'S', $read_item->item->variants[0]['option1_value'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_UNPUBLISHED, (string) $unpublished_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_PRICE_INVALID, (string) $invalid_price_id ), $read_item->warnings );
+		$this->assertNotContains( WarningCode::ALL_VARIATIONS_EXCLUDED, $read_item->warnings );
+	}
+
+	/**
+	 * 3軸目以降のバリエーション属性は`CanonicalProduct::$variants`のoption1/2規約により
+	 * 先頭2軸のみに切り詰められる。無警告のままだと異なる3軸目の値を持つバリエーション同士が
+	 * 同じoption1/2の組に潰れうるため、`VARIATION_AXIS_LIMIT_EXCEEDED`で警告する
+	 * （Codex/Copilot指摘, PR #40）。
+	 */
+	public function test_third_variation_axis_is_truncated_with_warning(): void {
+		$make_axis = static function ( string $name, array $options ): \WC_Product_Attribute {
+			$attribute = new \WC_Product_Attribute();
+			$attribute->set_id( 0 );
+			$attribute->set_name( $name );
+			$attribute->set_options( $options );
+			$attribute->set_position( 0 );
+			$attribute->set_visible( true );
+			$attribute->set_variation( true );
+
+			return $attribute;
+		};
+
+		$parent = new \WC_Product_Variable();
+		$parent->set_name( 'Three Axes' );
+		$parent->set_attributes(
+			[
+				$make_axis( 'Size', [ 'S' ] ),
+				$make_axis( 'Color', [ 'Red' ] ),
+				$make_axis( 'Material', [ 'Cotton' ] ),
+			]
+		);
+		$parent_id = $parent->save();
+
+		$variation = new \WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes(
+			[
+				'size'     => 'S',
+				'color'    => 'Red',
+				'material' => 'Cotton',
+			]
+		);
+		$variation->set_regular_price( '500' );
 		$variation->save();
 
 		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
 		$read_item = $read_page->items[0];
 
-		// バリエーション自体は存在する（`variants()`は全子=publish+privateから作るため1件返る）が
-		// 「可視」（`get_visible_children()`=publishのみ）は0件、という本テストが意図する状態を
-		// 明示する。子ごと0件になる別の理由で偶然パスしていないことのピン留め。
+		$this->assertContains( WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED, $read_item->warnings );
 		$this->assertCount( 1, $read_item->item->variants );
+		$this->assertSame( 'Size', $read_item->item->variants[0]['option1_name'] );
+		$this->assertSame( 'Color', $read_item->item->variants[0]['option2_name'] );
+		$this->assertArrayNotHasKey( 'option3_name', $read_item->item->variants[0] );
+	}
+
+	/**
+	 * 破損した`_regular_price`メタ（負の値）を持つ単純商品を0円等で書き出すと「無料商品」に
+	 * 化ける。`WC_Product::set_regular_price()`は負の数値文字列をそのまま通す（`wc_format_decimal()`
+	 * は符号を検証しない。実測確認済み）ため、通常のWC APIだけでも到達しうる状態
+	 * （Copilot指摘, PR #40）。
+	 */
+	public function test_negative_regular_price_is_treated_as_invalid(): void {
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Negative Price' );
+		$wc_product->set_regular_price( '-100' );
+		$local_id = $wc_product->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $local_id ] );
+		$read_item = $read_page->items[0];
+
 		$this->assertSame( '0', $read_item->item->price );
 		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+	}
+
+	/**
+	 * variable商品の全バリエーションが負の価格の場合、`price_fields_for_variable()`が読む
+	 * `get_variation_regular_price('min', false)`自体が負の数値文字列を返す（`false`にはならない）。
+	 * `variants()`側の除外とは独立した検証経路のため、こちらも数値・0以上を満たさなければ
+	 * フェイルクローズすることを確認する。
+	 */
+	public function test_variable_product_with_only_negative_price_variation_falls_back_to_zero(): void {
+		$parent = new \WC_Product_Variable();
+		$parent->set_name( 'Only Negative Price Variation' );
+		$attribute = new \WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( 'Size' );
+		$attribute->set_options( [ 'S' ] );
+		$attribute->set_position( 0 );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+		$parent->set_attributes( [ $attribute ] );
+		$parent_id = $parent->save();
+
+		$variation = new \WC_Product_Variation();
+		$variation->set_parent_id( $parent_id );
+		$variation->set_attributes( [ 'size' => 'S' ] );
+		$variation->set_regular_price( '-100' );
+		$variation_id = $variation->save();
+
+		$read_page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$read_item = $read_page->items[0];
+
+		$this->assertCount( 0, $read_item->item->variants );
+		$this->assertSame( '0', $read_item->item->price );
+		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_PRICE_INVALID, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::ALL_VARIATIONS_EXCLUDED, $read_item->warnings );
 	}
 
 	public function test_new_variation_without_mapping_reports_empty_remote_id(): void {

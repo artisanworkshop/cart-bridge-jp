@@ -84,10 +84,19 @@ final class ProductReader implements EntityReader {
 	}
 
 	private function to_read_item( WC_Product $product ): ReadItem {
-		$warnings                                = [];
-		$is_variable                             = $product instanceof WC_Product_Variable;
-		$axis_names                              = $is_variable ? $this->variation_axis_attributes( $product ) : [];
-		$variants                                = $is_variable ? $this->variants( $product, $axis_names, $warnings ) : [];
+		$warnings    = [];
+		$is_variable = $product instanceof WC_Product_Variable;
+		$axis_names  = $is_variable ? $this->variation_axis_attributes( $product, $warnings ) : [];
+		$variants    = $is_variable ? $this->variants( $product, $axis_names, $warnings ) : [];
+
+		if ( $is_variable && [] === $variants ) {
+			// Copilot指摘（PR #40）: 全バリエーションが除外された（価格無効・非公開等）ため
+			// `variants`が空になった場合、`Woo\Writer\ProductWriter::prepare()`は空の`variants`を
+			// 「simple商品」の判定に使う。無警告のままだとE2-3以降の変換先でvariable商品が
+			// simpleとして扱われうる。
+			$warnings[] = WarningCode::ALL_VARIATIONS_EXCLUDED;
+		}
+
 		$images                                  = $this->images( $product );
 		$options                                 = $this->options( $product, $axis_names );
 		[ $category_refs, $category_warnings ]   = $this->category_refs( $product );
@@ -185,7 +194,11 @@ final class ProductReader implements EntityReader {
 		// 失敗し続ける。単純商品の価格欠損と同じくフェイルクローズし警告を積む。
 		$min_price = $product->get_variation_regular_price( 'min', false );
 
-		if ( ! is_string( $min_price ) || '' === $min_price ) {
+		// Copilot指摘（PR #40）: 空文字列以外なら無条件に受理していたため、破損した
+		// `_regular_price`メタ（非数値・負の値）を持つバリエーションが最安値として
+		// 選ばれた場合にそのまま親の代表価格へ伝播しうる。`variants()`側の検証と同じ基準
+		// （数値・0以上）で受理する。
+		if ( ! is_string( $min_price ) || '' === $min_price || ! is_numeric( $min_price ) || (float) $min_price < 0 ) {
 			return [ '0', null, [ WarningCode::PRODUCT_PRICE_INVALID ] ];
 		}
 
@@ -201,8 +214,11 @@ final class ProductReader implements EntityReader {
 		$regular_price = $product->get_regular_price();
 		$warnings      = [];
 
-		if ( '' === $regular_price ) {
-			// 価格未設定の単純商品を0円として書き出すと「無料商品」に化ける
+		// Copilot指摘（PR #40）: 空文字列以外なら無条件に受理していたため、破損した
+		// `_regular_price`メタ（非数値・負の値）がそのまま`push_product()`へ渡されうる。
+		// `variants()`/`price_fields_for_variable()`と同じ基準（数値・0以上）で検証する。
+		if ( '' === $regular_price || ! is_numeric( $regular_price ) || (float) $regular_price < 0 ) {
+			// 価格未設定・不正な単純商品を0円として書き出すと「無料商品」に化ける
 			// （CLAUDE.md: 楽観的デフォルトは金銭的リスクに直結する）。
 			$warnings[] = WarningCode::PRODUCT_PRICE_INVALID;
 
@@ -251,21 +267,31 @@ final class ProductReader implements EntityReader {
 
 	/**
 	 * variation属性（軸）の名前一覧。`ProductWriter::variation_axis_names()`と同じくキー0=軸1、
-	 * キー1=軸2のスロット規約を保持する（詰め直さない）。
+	 * キー1=軸2のスロット規約を保持する（詰め直さない）。`CanonicalProduct::$variants`の
+	 * option1/2規約は2軸までのため、3軸目以降は警告のうえ切り捨てる（Codex/Copilot指摘,
+	 * PR #40: 無警告の切り捨ては異なる3軸目の値を持つバリエーション同士が同じoption1/2の組に
+	 * 潰れうる）。
 	 *
+	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列。
 	 * @return array<int,WC_Product_Attribute>
 	 */
-	private function variation_axis_attributes( WC_Product_Variable $product ): array {
-		$axis = [];
+	private function variation_axis_attributes( WC_Product_Variable $product, array &$warnings ): array {
+		$axis              = [];
+		$has_axis_overflow = false;
 
 		foreach ( $product->get_attributes() as $attribute ) {
 			if ( $attribute instanceof WC_Product_Attribute && $attribute->get_variation() ) {
-				$axis[] = $attribute;
-
 				if ( 2 === count( $axis ) ) {
+					$has_axis_overflow = true;
 					break;
 				}
+
+				$axis[] = $attribute;
 			}
+		}
+
+		if ( $has_axis_overflow ) {
+			$warnings[] = WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED;
 		}
 
 		return $axis;
@@ -291,15 +317,28 @@ final class ProductReader implements EntityReader {
 				continue;
 			}
 
+			// Codex/Copilot指摘（PR #40）: `get_children()`は`publish`/`private`両方を含む
+			// （`get_visible_children()`と異なる）。非公開バリエーションをそのままpushすると、
+			// `CanonicalProduct::$variants`に公開状態を運ぶフィールドが無いため、マーチャントが
+			// 意図的に非公開にしたバリエーションがASP側で「販売可能」として復活しうる
+			// （金銭的リスク。CLAUDE.mdアーキテクチャ原則9）。
+			if ( 'publish' !== $variation->get_status() ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_UNPUBLISHED, (string) $variation_id );
+				continue;
+			}
+
 			$remote_id = $existing_remote_ids[ $variation_id ]['remote_id'] ?? null;
 
 			$price = $variation->get_regular_price();
 
-			if ( '' === $price ) {
-				// 価格未設定のバリエーションを0円等で書き出すと、`VariationWriter::sync()`側の
-				// 価格検証（`VARIATION_PRICE_INVALID`）に必ず引っかかるだけでなく、CanonicalProduct
-				// のchecksum上は「価格が空文字」という不正な状態を運ぶことになる。読出時点で
-				// スキップし、原因をレポートで追跡できるようにする。
+			// Copilot指摘（PR #40）: `''`以外なら無条件に受理していたため、破損した
+			// `_regular_price`メタ（非数値・負の値）がそのまま`push_product()`へ渡されうる。
+			// `VariationWriter::sync()`（インポート方向）と同じ基準（数値・0以上）で検証する。
+			if ( '' === $price || ! is_numeric( $price ) || (float) $price < 0 ) {
+				// 価格未設定・不正な価格のバリエーションを0円等で書き出すと、
+				// `VariationWriter::sync()`側の価格検証（`VARIATION_PRICE_INVALID`）に
+				// 必ず引っかかるだけでなく、CanonicalProductのchecksum上は不正な状態を
+				// 運ぶことになる。読出時点でスキップし、原因をレポートで追跡できるようにする。
 				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_PRICE_INVALID, (string) $variation_id );
 				continue;
 			}
