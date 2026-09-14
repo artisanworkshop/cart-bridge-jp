@@ -33,7 +33,7 @@
     "scripts": {
         "lint": "phpcs",
         "lint:fix": "phpcbf",
-        "analyze": "phpstan analyse --memory-limit=1G",
+        "analyze": "phpstan analyse --memory-limit=2G",
         "test": "phpunit",
         "test:wpenv": "npx wp-env run tests-cli bash -c \"cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist\""
     },
