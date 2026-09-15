@@ -801,6 +801,27 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   （`paid`）・`PUT /sales/{id}/cancel`へのフォローアップリクエストとして別途設計する
   （`push_product()`の複数リクエスト部分完了契約と同種の設計が必要になる）。`push_stock()`は
   次のPRで対応する。
+- **R1レビューで判明し対応した指摘**（独立サブエージェントによる敵対的レビュー）:
+  - 配送先の`name`/`tel`は住所（`postal`/`pref_id`/`address1`）とは独立に、無い方だけ請求先へ
+    フォールバックするよう修正（Wooの配送先フォームは電話番号欄を持たないテーマ・バージョンが
+    多く、住所自体は入力されているのに`tel`だけ欠ける一般的なケースで受注全体が不必要に
+    スキップされていた）
+  - `Adapters\ColorMe\Transform\Cast::normalize_tel()`（`/v1/customers`の`pattern: "^[\d-]+$"`
+    専用）を受注方向（`sale_deliveries[].tel`/`sale.customer.tel`）には適用しないよう修正
+    （swagger確認: どちらもパターン制約が無く、国際番号等の正当な値を無警告でnullへ丸めていた）
+  - `Woo\WarningCode::indicates_export_blocking()`に`ORDER_LINE_AMOUNT_INVALID`/
+    `ORDER_LINE_QUANTITY_INVALID`を追加（`Woo\Reader\OrderReader`がフェイルクローズ済みの
+    ¥0/捏造数量を、`price`明示指定時にColorMeへ恒久的な金額・数量として送ってしまう
+    `PRODUCT_PRICE_INVALID`と同型の金銭的リスクだったため）
+  - `sale.details`が0行（商品明細を持たない受注）を`line_items_unresolved`と区別する
+    `line_items_empty`フラグ・`WarningCode::ORDER_LINE_ITEMS_EMPTY`を新設（`Woo\Reader\
+    OrderReader`は明細0行に警告を積まないため、従来は無警告のまま結果から消えていた）
+  - `WarningCode::ORDER_DISCOUNT_NOT_PUSHED`を新設（`POST /v1/sales`のリクエストスキーマに
+    割引・クーポン額を運ぶフィールドが無いため、Wooのクーポン値引きが定価のまま送信されることを
+    情報提供として警告する。ブロックはしない）
+  - 対応を見送った指摘は`docs/review-backlog.md`の`e2-3-push-order/R1-*`を参照（顧客が未export
+    のまま受注が先にゲスト扱いでpushされ後から会員紐付けを復元できない設計上の限界=Medium、
+    memo/preferred_date/preferred_periodの往復ロス=Low、非数値マッピング値の`(int)`丸め=Low）
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
