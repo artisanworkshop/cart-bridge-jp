@@ -794,8 +794,11 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   $platform, array $woo_address ): array`へ移設し（`pref_id_from_state()`と同様`$platform`
   引数を持つプラットフォーム非依存の形）、`CustomerTransformer`・新設`OrderTransformer`
   （配送先・ゲスト顧客変換）で共有する。`CustomerTransformer::normalize_tel()`も
-  `Adapters\ColorMe\Transform\Cast::normalize_tel()`へ移設し同様に共有する。「対称の変換を
-  複製すると2箇所が食い違うリスクを負う」というD19 PR-Bで確立済みの方針を踏襲した。
+  `Adapters\ColorMe\Transform\Cast::normalize_tel()`へ移設した。「対称の変換を複製すると
+  2箇所が食い違うリスクを負う」というD19 PR-Bで確立済みの方針を踏襲したが、`normalize_tel()`
+  自体はR1レビューで`/v1/customers`専用（swaggerのパターン制約`^[\d-]+$`はこのエンドポイント
+  にしか無い）と判明したため、`OrderTransformer`はこのメソッドを使わない設計に修正した
+  （下記「R1レビューで判明し対応した指摘」参照）。
 - **対象外（既知の制限として記録。次PR以降）**: 受注ステータス（paid/delivered/cancelled）の
   事後同期は行わない（作成時点のColorMe既定状態のまま）。将来必要になれば`PUT /sales/{id}`
   （`paid`）・`PUT /sales/{id}/cancel`へのフォローアップリクエストとして別途設計する
