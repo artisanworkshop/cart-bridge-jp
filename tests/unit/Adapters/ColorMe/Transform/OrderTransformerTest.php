@@ -851,6 +851,68 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 1100, $result['payload']['details'][0]['price'] );
 	}
 
+	/**
+	 * ColorMeの`price`は整数円の単価（`product_num`と乗算されて明細合計になる）。Wooの明細合計
+	 * ¥1000を数量3で割ると¥333.33...となり、整数円へ丸めた単価×数量（333×3=999）が実際の合計
+	 * ¥1000と一致しなくなる。割り切れない場合は`price`自体を省略し、誤った金額を断定的に送る
+	 * より安全側（カタログ価格適用）へフォールバックすることを確認する（Copilotレビュー指摘）。
+	 */
+	public function test_to_create_payload_omits_price_when_quantity_does_not_divide_the_total_evenly(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order = $this->make_export_order(
+			[
+				'line_items' => [
+					array_merge(
+						$this->default_line_item(),
+						[
+							'quantity'            => 3,
+							'subtotal'            => '1000.00',
+							'price'               => '333.33',
+							'unit_price_excl_tax' => '303.03',
+						]
+					),
+				],
+			]
+		);
+
+		$included = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$this->assertNotNull( $included['payload'] );
+		$this->assertArrayNotHasKey( 'price', $included['payload']['details'][0] );
+
+		$excluded = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'excluded' );
+		$this->assertNotNull( $excluded['payload'] );
+		$this->assertArrayNotHasKey( 'price', $excluded['payload']['details'][0] );
+	}
+
+	/**
+	 * 合計が数量で割り切れる場合は従来どおり`price`を送ることを確認する（割り切れない場合だけ
+	 * 省略する、過度に広い抑制になっていないことの回帰ガード）。
+	 */
+	public function test_to_create_payload_sends_price_when_quantity_divides_the_total_evenly(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order = $this->make_export_order(
+			[
+				'line_items' => [
+					array_merge(
+						$this->default_line_item(),
+						[
+							'quantity'            => 2,
+							'subtotal'            => '2200.00',
+							'price'               => '1100.00',
+							'unit_price_excl_tax' => '1000.00',
+						]
+					),
+				],
+			]
+		);
+
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+
+		$this->assertSame( 1100, $result['payload']['details'][0]['price'] );
+	}
+
 	private function set_method_maps( array $payment_map, array $shipping_map ): void {
 		update_option(
 			'cbjp_settings_colorme',

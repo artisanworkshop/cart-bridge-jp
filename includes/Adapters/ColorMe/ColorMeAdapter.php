@@ -1243,7 +1243,17 @@ final class ColorMeAdapter implements PlatformAdapter {
 			// 方法の変更はできない（swagger実測）。再`POST /sales`すると重複した受注が作成されて
 			// しまうため、既にエクスポート済みの受注はAPIを一切呼ばずスキップする
 			// （`docs/03-design-decisions.md` §10.2「E2-3 push_order」参照）。
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ] );
+			// `OrderTransformer::has_discount()`は`shop.json`等のI/Oを一切伴わない純粋な判定
+			// （`$order->totals`のみ参照）のため、この早期returnでも呼べる（Copilot指摘:
+			// 当初はこの経路で`ORDER_DISCOUNT_NOT_PUSHED`が一切積まれず、割引が運べないという
+			// 情報が既存受注の再エクスポートのたびに欠落していた）。
+			$warnings = [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ];
+
+			if ( OrderTransformer::has_discount( $order ) ) {
+				$warnings[] = WarningCode::ORDER_DISCOUNT_NOT_PUSHED;
+			}
+
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, $warnings );
 		}
 
 		// `order_transformer()`（import方向`transform()`と共有）は`payments.json`/`deliveries.json`の

@@ -1467,6 +1467,29 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 既にエクスポート済みの受注に割引が付いている場合も、`ORDER_UPDATE_NOT_SUPPORTED`だけでなく
+	 * `ORDER_DISCOUNT_NOT_PUSHED`も積むことを確認する（Copilotレビュー指摘: 当初はこの早期return
+	 * 経路で割引情報が一切伝わらなかった）。`OrderTransformer::has_discount()`はAPIを呼ばない
+	 * 純粋な判定のため、APIが一切呼ばれないことも合わせて確認する。
+	 */
+	public function test_push_order_flags_discount_not_pushed_when_already_exported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$result = $adapter->push_order( $this->exported_order( '500' ), '12345' );
+
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame(
+			[ WarningCode::ORDER_UPDATE_NOT_SUPPORTED, WarningCode::ORDER_DISCOUNT_NOT_PUSHED ],
+			$result->warnings
+		);
+		$this->assertSame( [], $captured );
+	}
+
+	/**
 	 * 決済/配送方法が一意に解決でき、配送先住所も揃っている正常系。過去のWoo受注を複製する
 	 * のであって新規注文ではないため`reserve_stocks=false`を指定することも確認する。
 	 */

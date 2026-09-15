@@ -150,7 +150,15 @@ final class OrderTransformer {
 		return $result;
 	}
 
-	private static function has_discount( CanonicalOrder $order ): bool {
+	/**
+	 * 受注にWooクーポン等の割引額（`totals.discount`）が付いているか。`to_create_payload()`が
+	 * 積む`discount_not_pushed`結果フィールドと同じ判定だが、`ColorMeAdapter::push_order()`が
+	 * 既にエクスポート済みの受注（`$remote_id`が非null）をAPIを呼ばず即スキップする経路でも
+	 * `ORDER_DISCOUNT_NOT_PUSHED`を積めるよう、`to_create_payload()`を呼ばずに独立して判定
+	 * できる公開メソッドにしてある（Copilot指摘: 当初は`to_create_payload()`内部だけの判定
+	 * だったため、既存remote_id指定時の早期returnでは割引情報が一切伝わらなかった）。
+	 */
+	public static function has_discount( CanonicalOrder $order ): bool {
 		$minor = Money::to_minor_units( $order->totals['discount'] ?? null );
 
 		return null !== $minor && $minor > 0;
@@ -213,9 +221,21 @@ final class OrderTransformer {
 	 * 保持するには本来必要だが、税区分が不明なまま断定的に送ると誤った税基準の金額になりうるため、
 	 * 不明な場合は省略しColorMeのカタログ価格適用という文書化済みのフォールバックに委ねる。
 	 *
+	 * ColorMeの`sale.details[].price`は整数円の**単価**（`product_num`と乗算されて明細合計になる、
+	 * 単価×数量方式）だが、`Woo\Reader\OrderReader`の`price`/`unit_price_excl_tax`は明細の合計
+	 * 金額を数量で割った値（四捨五入済み）。合計が数量で割り切れない場合（例: ¥1000を3個で
+	 * 割ると¥333.33...）、整数円へ丸めた単価×数量がWoo側の実際の合計と一致しなくなる
+	 * （`price=333, product_num=3`だとColorMe側は¥999として計算し¥1円分が消える。Copilot指摘）。
+	 * 割り切れない場合は`price`自体を省略し、誤った金額を断定的に送るよりカタログ価格適用の
+	 * フォールバックへ委ねる（`unit_price_divides_evenly()`参照）。
+	 *
 	 * @param array<string,mixed> $item `Woo\Reader\OrderReader::line_items()`の1行。
 	 */
 	private function line_price( array $item, ?string $tax_type ): ?int {
+		if ( ! self::unit_price_divides_evenly( $item ) ) {
+			return null;
+		}
+
 		$key = match ( $tax_type ) {
 			'excluded' => 'unit_price_excl_tax',
 			'included' => 'price',
@@ -223,6 +243,27 @@ final class OrderTransformer {
 		};
 
 		return null !== $key ? self::to_whole_yen( Cast::to_string_or_null( $item[ $key ] ?? null ) ) : null;
+	}
+
+	/**
+	 * 明細の税込合計（`subtotal`。整数円換算）が数量で割り切れるかを判定する。割り切れれば
+	 * 単価×数量が合計と一致することを保証できる。`unit_price_excl_tax`（税抜）使用時の判定に
+	 * 厳密には税抜合計自体が必要だが、`Woo\Reader\OrderReader`はそれを公開しておらず（税込合計
+	 * `subtotal`のみ）、同一明細内で税込合計が割り切れれば税抜合計も割り切れる可能性が高いという
+	 * 近似で代用する（税額が明細ごとに独立丸めされる場合に完全には一致しない理論上の残差は
+	 * `docs/review-backlog.md`参照）。
+	 *
+	 * @param array<string,mixed> $item `Woo\Reader\OrderReader::line_items()`の1行。
+	 */
+	private static function unit_price_divides_evenly( array $item ): bool {
+		$quantity    = Cast::to_int_or_null( $item['quantity'] ?? null );
+		$total_minor = Money::to_minor_units( Cast::to_string_or_null( $item['subtotal'] ?? null ) );
+
+		if ( null === $quantity || $quantity <= 0 || null === $total_minor ) {
+			return false;
+		}
+
+		return 0 === $total_minor % ( $quantity * 100 );
 	}
 
 	/**
