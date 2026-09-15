@@ -452,6 +452,54 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 1000, $create_request['body']['product']['sales_price'] );
 	}
 
+	/**
+	 * G3レビュー指摘（Copilot Suppressed comments）: 更新（PUT）は新規作成のような
+	 * hidden安全策が無いため、`tax_class`が未対応のまま`tax_reduced=false`を送ると、
+	 * 既に（恐らく正しく）設定されているColorMe側の税区分を毎回標準税率へ上書きしてしまう。
+	 * 更新時は`tax_reduced`フィールド自体を省略し、ColorMe側の既存値を保持することを確認する。
+	 */
+	public function test_push_product_omits_tax_reduced_on_update_when_tax_class_is_unsupported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'PUT products/506.json' => [ [ 'body' => [ 'product' => [ 'id' => 506 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct(
+			'Zero Rate Product',
+			'SKU-Z',
+			'1000',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[],
+			true,
+			[],
+			null,
+			'zero-rate'
+		);
+		$result  = $adapter->push_product( $product, '506' );
+
+		// 更新でも警告は積む（checksumをキャッシュさせず再試行対象にする）が、既存の
+		// ColorMe側税区分を上書きしない。
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$update_request = $this->find_captured( $captured, 'PUT', 'products/506.json' );
+		$this->assertNotNull( $update_request );
+		$this->assertArrayNotHasKey( 'tax_reduced', $update_request['body']['product'] );
+	}
+
 	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -791,13 +839,15 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * R2レビュー指摘: 2軸が同じラベルを持つ場合（`Woo\Support\VariationAxisResolver::
+	 * R2/G3レビュー指摘: 2軸が同じラベルを持つ場合（`Woo\Support\VariationAxisResolver::
 	 * attribute_label()`はラベル重複を排除しない。例: グローバル属性とローカル属性が両方
 	 * 「Color」）、`{軸名: 値}`マップの素朴な組み立てだと後勝ちで片方の軸が消え、異なる値を持つ
 	 * 複数バリエーションが同じキーに衝突しうる。誤対応付け（SKU/価格/在庫が別バリエーションへ
-	 * 入れ替わってpushされる）を避けるため、衝突を検出したら突合自体を諦めて未確定のまま
-	 * フェイルクローズすることを確認する（POST /options.jsonの`values`にも両方の値が含まれる
-	 * ため軸自体は作成されるが、事故が起きやすいPUT /variants/{id}.jsonは一切呼ばれない）。
+	 * 入れ替わってpushされる）を避けるため衝突検出時は突合を諦める。さらにG3では、最終突合の
+	 * 時点まで検出を遅らせるとColorMe側に`POST /options`で余剰なオプション・直積バリエーション
+	 * を作成してしまう（原則4により削除不可）ため、軸名一致は`ensure_option_values()`を呼ぶ
+	 * **前**に検出し、リモートを一切変更しないことを確認する（`POST /options.json`が
+	 * 1回も呼ばれない）。
 	 */
 	public function test_push_product_fails_closed_when_two_axes_share_the_same_name(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
@@ -843,10 +893,10 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$captured = [];
 		$this->mock_push_requests(
 			[
-				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
-				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
-				'PUT products/970.json'          => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
-				'GET products/970.json'          => [
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'PUT products/970.json' => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'GET products/970.json' => [
 					[
 						'body' => [
 							'product' => [
@@ -855,40 +905,6 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 								'variants' => [],
 							],
 						],
-					],
-					[
-						'body' => [
-							'product' => [
-								'id'       => 970,
-								'options'  => [],
-								// このリモートバリエーション自身も両スロットが同名「Color」で
-								// 自動生成された想定（衝突検出前の実装では{Color:'S'}に潰れ、
-								// ローカルの2バリエーション両方がこの1件へ誤って一致していた）。
-								'variants' => [
-									[
-										'id'            => 9301,
-										'option1_value' => 'Red',
-										'option2_value' => 'S',
-										'option1'       => [
-											'id'    => 1,
-											'name'  => 'Color',
-											'value' => 'Red',
-										],
-										'option2'       => [
-											'id'    => 1,
-											'name'  => 'Color',
-											'value' => 'S',
-										],
-									],
-								],
-							],
-						],
-					],
-				],
-				'POST products/970/options.json' => [
-					[
-						'body'   => [ 'option' => [ 'id' => 1 ] ],
-						'status' => 201,
 					],
 				],
 			],
@@ -901,8 +917,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		// `PRODUCT_VARIANT_PUSH_FAILED`（retry対象外）になる。
 		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
 		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
-		// 誤対応付けの実行に繋がるバリエーションPUTは一切発生しない。
-		$this->assertSame( [], array_filter( $captured, static fn ( array $r ): bool => 'PUT' === $r['method'] && str_contains( $r['url'], '/variants/' ) ) );
+		// `ensure_option_values()`を呼ぶ前に検出するため、`POST /options`でColorMe側へ
+		// 余剰なオプション・直積バリエーションを作成すること自体が起きない。
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products/970/options.json' ) );
 	}
 
 	/**

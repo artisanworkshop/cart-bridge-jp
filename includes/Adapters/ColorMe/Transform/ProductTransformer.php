@@ -95,6 +95,17 @@ final class ProductTransformer {
 	public function to_update_payload( CanonicalProduct $product ): array {
 		$payload = $this->base_payload( $product );
 
+		if ( null !== $product->tax_class && 'reduced-rate' !== $product->tax_class ) {
+			// `tax_class`が標準/軽減税率のどちらでもない場合（店舗独自スラッグ等）、
+			// `base_payload()`は`tax_reduced=false`（標準税率）へフェイルクローズする。新規作成は
+			// `requires_hidden_safeguard()`がhidden化するため実害が無いが、更新でこれをそのまま
+			// 送ると、既に（恐らく正しく）設定されているColorMe側の税区分を誤って標準税率へ
+			// 上書きしてしまう（G3レビュー指摘, Copilot）。この税区分は解決する見込みが無い
+			// （リトライしても`tax_class`は変わらない）ため、更新のたびに誤った値を送り続けない
+			// よう、このフィールド自体を省略しColorMe側の既存値を保持させる。
+			unset( $payload['tax_reduced'] );
+		}
+
 		[ , $category_id_small ] = self::parse_category_ref( $product->category_refs[0] ?? null );
 
 		if ( null !== $category_id_small ) {

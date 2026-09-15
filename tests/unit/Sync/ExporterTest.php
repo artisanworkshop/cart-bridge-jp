@@ -447,4 +447,25 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'coupon', 101 ) );
 		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
 	}
+
+	/**
+	 * G3レビュー指摘（Copilot Suppressed comments）: `variant_local_ids`が空（simple商品）の
+	 * 場合を除外していたため、simple商品にアダプタが非空の`variant_remote_ids`を返す
+	 * （信頼境界の契約違反）ケースを見落としていた。0対0の一致（simple商品の正常系）だけを
+	 * 許可する単純な件数比較に統一し、親のchecksumがキャッシュされないことを確認する。
+	 */
+	public function test_simple_product_with_unexpected_variant_remote_ids_is_treated_as_contract_violation(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
+	}
 }

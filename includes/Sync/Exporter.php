@@ -261,8 +261,11 @@ final class Exporter {
 				// だけだったが、親商品自体のchecksumはそのままキャッシュされてしまっていた。
 				// それだと以後この商品では二度と`push_product()`が呼ばれず、バリエーション
 				// 同期を恒久的に再試行できなくなる。契約違反があった場合は親も未解決扱いにする。
+				// G3レビュー指摘（Copilot）: `variant_local_ids`が空（simple商品）の場合を
+				// 除外していたため、simple商品にアダプタが非空の`variant_remote_ids`を返す
+				// （契約違反）ケースを見落としていた。0件同士の一致（simple商品の正常系）だけを
+				// 許可する単純な件数比較に統一する。
 				$variant_contract_violated = 'product' === $entity
-					&& [] !== $read_item->variant_local_ids
 					&& count( $read_item->variant_local_ids ) !== count( $result->variant_remote_ids );
 
 				$fully_resolved = $read_item->fully_resolved

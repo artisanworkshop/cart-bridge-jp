@@ -678,12 +678,23 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$existing_options = is_array( $current['options'] ?? null ) ? $current['options'] : [];
 
 		$axis1_name = self::first_axis_value( $product->variants, 'option1_name' );
+		$axis2_name = self::first_axis_value( $product->variants, 'option2_name' );
+
+		if ( null !== $axis1_name && null !== $axis2_name && $axis1_name === $axis2_name ) {
+			// 軸名の衝突は`axis_map_from_pairs()`が最終突合の時点で検出しフェイルクローズするが、
+			// それより前にここで`POST /options`を実行してしまうと、結局突合できず捨てる
+			// バリエーション用のオプション・直積バリエーションをColorMe側へ作成してしまう
+			// （原則4によりこちらから削除できない余剰データ。G3レビュー指摘, Copilot）。
+			// ここで先に検出し、リモートを一切変更せずに終端失敗とする。
+			$failure['terminal'] = true;
+			self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, WarningCode::PRODUCT_VARIANT_PUSH_FAILED );
+
+			return array_fill( 0, count( $product->variants ), '' );
+		}
 
 		if ( null !== $axis1_name ) {
 			$this->ensure_option_values( $product_remote_id, $axis1_name, self::axis_values( $product->variants, 'option1_value' ), $existing_options, $failure );
 		}
-
-		$axis2_name = self::first_axis_value( $product->variants, 'option2_name' );
 
 		if ( null !== $axis2_name ) {
 			$this->ensure_option_values( $product_remote_id, $axis2_name, self::axis_values( $product->variants, 'option2_value' ), $existing_options, $failure );
@@ -708,8 +719,17 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return array_fill( 0, count( $product->variants ), '' );
 		}
 
-		$remote_variants = array_values( array_filter( $refreshed['variants'], 'is_array' ) );
-		$remote_by_key   = [];
+		$raw_remote_variants = $refreshed['variants'];
+		$remote_variants     = array_values( array_filter( $raw_remote_variants, 'is_array' ) );
+
+		if ( count( $remote_variants ) !== count( $raw_remote_variants ) ) {
+			// `variants`配列自体は配列だが、一部の要素が非配列（valid行と壊れた行が混在する
+			// スキーマ異常）の場合、`array_filter()`が黙って壊れた行を落とすと件数がローカルと
+			// 偶然一致し無警告のまま解決済み扱いになりうる（G3レビュー指摘, Copilot）。
+			$failure['retryable'] = true;
+		}
+
+		$remote_by_key = [];
 
 		foreach ( $remote_variants as $remote_variant ) {
 			$remote_id = Cast::to_string_or_null( $remote_variant['id'] ?? null );
