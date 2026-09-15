@@ -59,12 +59,21 @@ final class CustomerTransformer {
 	}
 
 	/**
+	 * ColorMeの`name`はPOST/PUTともswaggerで`maxLength: 50`。ネイティブWooの表示名・会社名は
+	 * この制限を保証しないため、超過分をそのまま送ると確実に422になる（G1ゲートで判明,
+	 * Codex, P2）。
+	 */
+	private const NAME_MAX_LENGTH = 50;
+
+	/**
 	 * `POST /v1/customers`（新規作成）向けのペイロード。必須フィールド（`name`/`mail`/`pref_id`/
 	 * `postal`/`address1`/`tel`）のうち`pref_id`/`postal`/`address1`/`tel`はWoo顧客の請求先住所・
 	 * 電話番号から解決できない場合がある（`Woo\Reader\CustomerReader`はWooネイティブの住所を
-	 * そのまま運ぶだけで、ColorMe固有スキームへの変換はここが責務を持つ）。解決できなければ
-	 * `null`を返し、呼び出し元（`ColorMeAdapter::push_customer()`）にフェイルクローズさせる
-	 * （送信すると確実に422になるため。`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`）。
+	 * そのまま運ぶだけで、ColorMe固有スキームへの変換はここが責務を持つ）。`name`はWooの表示名が
+	 * swaggerの`maxLength: 50`を超えうる。いずれも解決できなければ`null`を返し、呼び出し元
+	 * （`ColorMeAdapter::push_customer()`）にフェイルクローズさせる（送信すると確実に422になる
+	 * ため。理由を問わず`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`で一律に警告する。
+	 * 呼び出し元は`to_create_payload()`が`null`を返した理由を区別しない）。
 	 * `add_member: true`を常に付与し、ColorMeの`member`（会員登録済みフラグ）を立てる
 	 * （`transform()`が`member === true`の行のみWoo顧客として取り込む契約と対称。付けないと
 	 * 作成した顧客がColorMe側でログイン不可のゲスト相当になり、往復インポートで再度取り込めない）。
@@ -75,7 +84,10 @@ final class CustomerTransformer {
 		$address = $this->address_payload( $customer->address );
 		$tel     = self::normalize_tel( $customer->phone );
 
-		if ( ! isset( $address['pref_id'], $address['postal'], $address['address1'] ) || null === $tel ) {
+		if ( ! isset( $address['pref_id'], $address['postal'], $address['address1'] )
+			|| null === $tel
+			|| mb_strlen( $customer->name ) > self::NAME_MAX_LENGTH
+		) {
 			return null;
 		}
 
@@ -192,17 +204,25 @@ final class CustomerTransformer {
 	 * @return array{pref_id?:int,postal?:string,address1?:string,address2?:string}
 	 */
 	private function address_payload( array $customer_address ): array {
-		$postal   = Cast::to_string_or_null( $customer_address['postcode'] ?? null );
-		$pref_id  = AddressMapper::pref_id_from_state(
-			'colorme',
-			Cast::to_string_or_null( $customer_address['state'] ?? null ),
-			Cast::to_string_or_null( $customer_address['country'] ?? null )
-		);
-		$address1 = self::join_address1(
+		$postal      = Cast::to_string_or_null( $customer_address['postcode'] ?? null );
+		$state       = Cast::to_string_or_null( $customer_address['state'] ?? null );
+		$country     = Cast::to_string_or_null( $customer_address['country'] ?? null );
+		$pref_id     = AddressMapper::pref_id_from_state( 'colorme', $state, $country );
+		$is_overseas = 48 === $pref_id;
+		$address1    = self::join_address1(
 			Cast::to_string_or_null( $customer_address['city'] ?? null ),
 			Cast::to_string_or_null( $customer_address['address_1'] ?? null ),
-			48 === $pref_id
+			$is_overseas
 		);
+
+		if ( $is_overseas && null !== $address1 ) {
+			// ColorMeの顧客スキームに国・地域専用のフィールドが無いため、`state`/`country`
+			// （例: 'CA'/'US'）を`address1`の末尾に付記する。付記しないと海外顧客の州・国が
+			// address1/address2のどこにも残らず、市区町村・番地だけの不完全な住所として
+			// 無警告でexportされてしまう（G1ゲートで判明, Codex, P1）。
+			$address1 = self::append_region( $address1, $state, $country );
+		}
+
 		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );
 
 		$payload = [];
@@ -240,6 +260,24 @@ final class CustomerTransformer {
 		$joined    = trim( ( $city ?? '' ) . $separator . ( $street ?? '' ) );
 
 		return '' !== $joined ? $joined : null;
+	}
+
+	/**
+	 * ColorMeの顧客スキームには国・地域（都道府県に相当する行政区分）を運ぶ専用フィールドが
+	 * 無いため、海外住所の`state`（例: 'CA'）/`country`（例: 'US'）は`address1`の末尾に
+	 * カンマ区切りで付記する以外に保持する場所が無い（`Adapters\ColorMe\Transform`はWC()への
+	 * 直接依存を持たないアーキテクチャのため、国名の完全表記への変換は行わずWooの生コードの
+	 * まま付記する）。
+	 */
+	private static function append_region( string $address1, ?string $state, ?string $country ): string {
+		$parts = array_values(
+			array_filter(
+				[ $state, $country ],
+				static fn ( ?string $value ): bool => null !== $value && '' !== $value
+			)
+		);
+
+		return [] !== $parts ? $address1 . ', ' . implode( ', ', $parts ) : $address1;
 	}
 
 	/**

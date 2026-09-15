@@ -95,14 +95,24 @@ final class AddressMapper {
 	 * ColorMeの`pref_id`（1-47）へ戻す。`state`がこの形式に一致しない場合、`country`が非空かつ
 	 * `'JP'`以外であれば`48`（海外。swaggerの`pref_id`descriptionが明記する特別値）とみなす。
 	 * それ以外（`state`不一致・`country`もJPまたは空）は変換不能として`null`を返す
-	 * （呼び出し側がフェイルクローズする）。
+	 * （呼び出し側がフェイルクローズする）。`$`ではなく`\z`で終端を固定する（`$`は末尾改行の
+	 * 直前にもマッチするため、`JP13\n`のような破損値を誤って正常な`JP13`として解釈しうる。
+	 * `CustomerTransformer::normalize_tel()`と同じ境界データ問題。G1ゲートで判明, Copilot）。
+	 *
+	 * `country`が非JPを明示している場合、`state`が`JPxx`形式に一致してもそれを信用しない
+	 * （country優先）。`state`/`country`はWoo側で互いに独立して更新されうる境界データのため、
+	 * 国を変更したのに古い`JPxx`の都道府県だけが残る、といった不整合がありうる。この場合に
+	 * `state`だけを見て国内住所と誤判定すると、実際は海外の顧客が誤って東京都（等）の国内住所
+	 * として無警告でexportされてしまう（G1ゲートで判明, Codex, P2）。
 	 */
 	public static function pref_id_from_state( string $platform, ?string $state, ?string $country ): ?int {
 		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
 			return null;
 		}
 
-		if ( null !== $state && 1 === preg_match( '/^JP([0-9]{2})$/', $state, $matches ) ) {
+		$conflicts_with_domestic_state = null !== $country && '' !== $country && 'JP' !== $country;
+
+		if ( ! $conflicts_with_domestic_state && null !== $state && 1 === preg_match( '/^JP([0-9]{2})\z/', $state, $matches ) ) {
 			$pref_id = (int) $matches[1];
 
 			if ( $pref_id >= 1 && $pref_id <= 47 ) {
@@ -110,7 +120,7 @@ final class AddressMapper {
 			}
 		}
 
-		if ( null !== $country && '' !== $country && 'JP' !== $country ) {
+		if ( $conflicts_with_domestic_state ) {
 			return 48;
 		}
 

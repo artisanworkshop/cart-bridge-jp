@@ -255,6 +255,32 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $this->transformer->to_create_payload( $customer ) );
 	}
 
+	/**
+	 * ColorMeの`name`はPOST/PUTともswaggerで`maxLength: 50`。Wooの表示名・会社名はこの制限を
+	 * 保証しないため、超過分をそのまま送ると確実に422になる（G1ゲートで判明, Codex, P2）。
+	 */
+	public function test_to_create_payload_returns_null_when_name_exceeds_the_api_length_limit(): void {
+		$customer = new CanonicalCustomer(
+			'taro@example.com',
+			str_repeat( '山', 51 ),
+			null,
+			null,
+			null,
+			[
+				'address_1' => '千代田区千代田1-1-1',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			],
+			'0300000001',
+			null,
+			null,
+			null
+		);
+
+		$this->assertNull( $this->transformer->to_create_payload( $customer ) );
+	}
+
 	public function test_to_create_payload_resolves_overseas_pref_id_from_country(): void {
 		$customer = self::exported_customer(
 			[
@@ -290,7 +316,48 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 
 		$payload = $this->transformer->to_create_payload( $customer );
 
-		$this->assertSame( 'Los Angeles 123 Main St', $payload['address1'] );
+		$this->assertSame( 'Los Angeles 123 Main St, CA, US', $payload['address1'] );
+	}
+
+	/**
+	 * ColorMeの顧客スキームには国・地域専用のフィールドが無いため、`state`/`country`を
+	 * `address1`へ付記しないと海外顧客の州・国がどこにも残らず、市区町村・番地だけの
+	 * 不完全な住所として無警告でexportされてしまう（G1ゲートで判明, Codex, P1）。
+	 */
+	public function test_to_create_payload_appends_state_and_country_for_overseas_addresses(): void {
+		$customer = self::exported_customer(
+			[
+				'address_1' => '123 Main St',
+				'state'     => 'CA',
+				'postcode'  => '90001',
+				'country'   => 'US',
+			],
+			'1-555-0100'
+		);
+
+		$payload = $this->transformer->to_create_payload( $customer );
+
+		$this->assertSame( '123 Main St, CA, US', $payload['address1'] );
+	}
+
+	/**
+	 * 日本国内・往復顧客（`pref_id`が1-47）ではColorMeの`pref_id`自体が都道府県を表すため、
+	 * `address1`へ`state`/`country`を付記しない（従来の往復文字列を変えないため）。
+	 */
+	public function test_to_create_payload_does_not_append_region_for_domestic_addresses(): void {
+		$customer = self::exported_customer(
+			[
+				'address_1' => '千代田区千代田1-1-1',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			],
+			'0300000001'
+		);
+
+		$payload = $this->transformer->to_create_payload( $customer );
+
+		$this->assertSame( '千代田区千代田1-1-1', $payload['address1'] );
 	}
 
 	/**

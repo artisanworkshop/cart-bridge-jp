@@ -75,4 +75,23 @@ final class AddressMapperTest extends WP_UnitTestCase {
 	public function test_pref_id_from_state_only_applies_to_colorme(): void {
 		$this->assertNull( AddressMapper::pref_id_from_state( 'makeshop', 'JP13', 'US' ) );
 	}
+
+	/**
+	 * PCREの`$`は末尾改行の直前にもマッチするため、`\z`ではなく`$`のままだと`JP13\n`のような
+	 * 破損値を正常な`JP13`として誤解釈しうる（`CustomerTransformer::normalize_tel()`と同じ
+	 * 境界データ問題。G1ゲートで判明, Copilot）。
+	 */
+	public function test_pref_id_from_state_rejects_a_trailing_newline(): void {
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', "JP13\n", 'JP' ) );
+	}
+
+	/**
+	 * `state`/`country`はWoo側で互いに独立して更新されうる境界データ。`country`が非JPを
+	 * 明示しているのに古い`JPxx`形式の`state`が残っている場合、`state`を信用して国内住所と
+	 * 誤判定すると、実際は海外の顧客が無警告で東京都等の国内住所としてexportされてしまう
+	 * （G1ゲートで判明, Codex）。`country`を優先し海外(48)として扱うことを確認する。
+	 */
+	public function test_pref_id_from_state_prefers_country_over_a_stale_domestic_state(): void {
+		$this->assertSame( 48, AddressMapper::pref_id_from_state( 'colorme', 'JP13', 'US' ) );
+	}
 }
