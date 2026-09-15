@@ -59,4 +59,21 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	public function test_prices_include_tax_disabled_is_not_export_blocking(): void {
 		$this->assertFalse( WarningCode::indicates_export_blocking( [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) );
 	}
+
+	/**
+	 * E2-3 PR-Cレビュー指摘: `Woo\Reader\OrderReader::line_item_amounts()`が壊れた明細金額を
+	 * `0`へフェイルクローズ済みでも、`ColorMeAdapter::push_order()`の`sale.details[].price`は
+	 * 明示指定するとColorMeに恒久的な金額として記録されるため、`PRODUCT_PRICE_INVALID`と同じ
+	 * 金銭的リスクでexport blocking対象であることを固定する。
+	 */
+	public function test_order_line_amount_invalid_is_export_blocking(): void {
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::ORDER_LINE_AMOUNT_INVALID ] ) );
+	}
+
+	/**
+	 * 捏造した数量（`max(1, ...)`）をColorMeへ恒久的な受注数量として送らないことを固定する。
+	 */
+	public function test_order_line_quantity_invalid_is_export_blocking(): void {
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::ORDER_LINE_QUANTITY_INVALID ] ) );
+	}
 }

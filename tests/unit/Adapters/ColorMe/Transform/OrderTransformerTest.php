@@ -664,6 +664,26 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Wooの配送先フォームは氏名必須だが電話番号欄を持たないテーマ・バージョンが多く、配送先住所
+	 * 自体（`address_1`等）は入力されていても`tel`だけ欠けるケースが一般的にある。住所全体を
+	 * 請求先へ丸ごとフォールバックさせず、`tel`だけ請求先から補えることを確認する
+	 * （レビュー指摘: 当初は`address_1`が空かどうかだけで住所・氏名・電話番号をまとめて
+	 * 切り替えており、配送先はあるのに電話番号だけ無い受注が不必要にスキップされていた）。
+	 */
+	public function test_to_create_payload_backfills_shipping_tel_from_billing_when_shipping_tel_is_missing(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'tel' => null ] ) ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNotNull( $result['payload'] );
+		// 配送先住所自体（city/address_1）は請求先へ切り替わらず配送先のままであること。
+		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
+		// tel は請求先（customer_snapshot.phone）から補われる。
+		$this->assertSame( '03-1234-5678', $result['payload']['sale_deliveries'][0]['tel'] );
+	}
+
+	/**
 	 * 配送先・請求先いずれからも住所を解決できない場合、`sale_deliveries`必須項目
 	 * （`postal`/`pref_id`/`address1`/`tel`/`name`）を満たせないため受注全体をpushしない。
 	 */
@@ -760,6 +780,47 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 明細が0行（Wooの受注が商品明細を1件も持たない）の場合、`Woo\Reader\OrderReader`は
+	 * 対応する警告を一切積まないため、`line_items_unresolved`とは別に`line_items_empty`を
+	 * trueにして呼び出し元が専用の警告を出せるようにする（レビュー指摘: 当初は無警告のまま
+	 * 結果から消え診断できなかった）。
+	 */
+	public function test_to_create_payload_flags_empty_line_items(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'line_items' => [] ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertTrue( $result['line_items_unresolved'] );
+		$this->assertTrue( $result['line_items_empty'] );
+	}
+
+	/**
+	 * `POST /v1/sales`のリクエストスキーマには割引・クーポン額を運ぶフィールドが無いため、
+	 * Wooのクーポン値引きがある受注は`discount_not_pushed=true`（情報提供のみ、ブロックしない）
+	 * になることを確認する。
+	 */
+	public function test_to_create_payload_flags_discount_not_pushed(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'totals' => array_merge( $this->default_totals(), [ 'discount' => '500' ] ) ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertTrue( $result['discount_not_pushed'] );
+	}
+
+	public function test_to_create_payload_does_not_flag_discount_not_pushed_when_no_discount(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertFalse( $result['discount_not_pushed'] );
+	}
+
+	/**
 	 * ショップの`tax_type`が不明（`shop.json`未取得・未知の値）な場合、誤った税区分で断定的に
 	 * 送信するより安全のため`price`を省略する（ColorMeの現在のカタログ価格が適用される）。
 	 */
@@ -817,12 +878,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				'method_name' => 'Bank transfer',
 				'fee'         => '0',
 			],
-			'totals'       => [
-				'discount'     => '0',
-				'shipping_fee' => '500',
-				'tax'          => '300',
-				'total'        => '3000',
-			],
+			'totals'       => $this->default_totals(),
 			'placed_at'    => '2026-01-01T00:00:00+00:00',
 			'note'         => null,
 			'extras'       => [
@@ -894,6 +950,18 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			'state'       => 'JP13',
 			'postcode'    => '1000001',
 			'country'     => 'JP',
+		];
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function default_totals(): array {
+		return [
+			'discount'     => '0',
+			'shipping_fee' => '500',
+			'tax'          => '300',
+			'total'        => '3000',
 		];
 	}
 

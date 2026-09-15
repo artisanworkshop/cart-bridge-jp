@@ -1246,10 +1246,17 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ] );
 		}
 
-		$result = $this->order_transformer()->to_create_payload( $order, new MethodMap( self::ID ), $this->order_tax_type() );
+		// `order_transformer()`（import方向`transform()`と共有）は`payments.json`/`deliveries.json`の
+		// 名称マップを構築するが、`to_create_payload()`はこれらを使わない。共有インスタンスを経由すると
+		// exportジョブでも無駄な2リクエストが発生するため、ここでは独立した軽量インスタンスを使う。
+		$result = ( new OrderTransformer() )->to_create_payload( $order, new MethodMap( self::ID ), $this->order_tax_type() );
+
+		// `discount_not_pushed`はブロック要因ではなく情報提供の警告のため、push成功・スキップの
+		// いずれでも同じ理由（割引を運ぶAPIフィールドが無い）で積む。
+		$discount_warning = $result['discount_not_pushed'] ? [ WarningCode::ORDER_DISCOUNT_NOT_PUSHED ] : [];
 
 		if ( null === $result['payload'] ) {
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, self::order_skip_warnings( $result ) );
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( self::order_skip_warnings( $result ), $discount_warning ) );
 		}
 
 		// 過去のWoo受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のまま
@@ -1265,19 +1272,25 @@ final class ColorMeAdapter implements PlatformAdapter {
 			throw new RuntimeException( 'ColorMe order push response is missing the sale id.' );
 		}
 
-		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED );
+		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED, $discount_warning );
 	}
 
 	/**
 	 * `OrderTransformer::to_create_payload()`が`payload=null`を返した理由を対応する警告へ翻訳する。
-	 * `line_items_unresolved`は警告を積まない（`Woo\Reader\OrderReader`が既にreadItemの警告へ
-	 * 積んでおり`Sync\Exporter`が結果と無関係にマージするため。同メソッドのdocblock参照）。
+	 * `line_items_unresolved`（明細が1行以上あるが未解決）は警告を積まない: `Woo\Reader\
+	 * OrderReader`が既にreadItemの警告へ積んでおり`Sync\Exporter`が結果と無関係にマージするため
+	 * （同メソッドのdocblock参照）。`line_items_empty`（明細0行）はreadItemの警告が一切無いため
+	 * 専用コードで積む。
 	 *
-	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool} $result
+	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool,line_items_empty:bool,discount_not_pushed:bool} $result
 	 * @return array<int,string>
 	 */
 	private static function order_skip_warnings( array $result ): array {
 		$warnings = [];
+
+		if ( $result['line_items_empty'] ) {
+			$warnings[] = WarningCode::ORDER_LINE_ITEMS_EMPTY;
+		}
 
 		if ( null !== $result['unmapped_payment_method_id'] ) {
 			$warnings[] = WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $result['unmapped_payment_method_id'] );

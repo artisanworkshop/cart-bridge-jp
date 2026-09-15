@@ -1484,10 +1484,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$captured = [];
 		$this->mock_push_requests(
 			[
-				'GET shop.json'       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
-				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
-				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
-				'POST sales.json'     => [ [ 'body' => [ 'sale' => [ 'id' => 88001 ] ] ] ],
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
+				'POST sales.json' => [ [ 'body' => [ 'sale' => [ 'id' => 88001 ] ] ] ],
 			],
 			$captured
 		);
@@ -1505,6 +1503,39 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 640580, $create_request['body']['sale']['sale_deliveries'][0]['delivery_id'] );
 		$this->assertSame( 5001, $create_request['body']['sale']['details'][0]['product_id'] );
 		$this->assertSame( [ 'id' => 9001 ], $create_request['body']['sale']['customer'] );
+
+		// push方向はimport専用の名称マップ取得（payments.json/deliveries.json）を一切叩かないことを
+		// 確認する（共有order_transformer()経由だと無駄な2リクエストが発生していた）。
+		$this->assertNull( $this->find_captured( $captured, 'GET', 'payments.json' ) );
+		$this->assertNull( $this->find_captured( $captured, 'GET', 'deliveries.json' ) );
+	}
+
+	/**
+	 * `POST /v1/sales`のリクエストスキーマに割引・クーポン額を運ぶフィールドが無いため、
+	 * 作成自体は成功させつつ`ORDER_DISCOUNT_NOT_PUSHED`を情報提供として積むことを確認する。
+	 */
+	public function test_push_order_flags_discount_not_pushed_on_successful_create(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [ '751' => 'bacs' ],
+				'shipping_map' => [ '640580' => 'flat_rate:6' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'POST sales.json' => [ [ 'body' => [ 'sale' => [ 'id' => 88002 ] ] ] ],
+			]
+		);
+
+		$result = $adapter->push_order( $this->exported_order( '500' ), null );
+
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ WarningCode::ORDER_DISCOUNT_NOT_PUSHED ], $result->warnings );
 	}
 
 	/**
@@ -1518,9 +1549,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$captured = [];
 		$this->mock_push_requests(
 			[
-				'GET shop.json'       => [ [ 'body' => [ 'shop' => [] ] ] ],
-				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
-				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
+				'GET shop.json' => [ [ 'body' => [ 'shop' => [] ] ] ],
 			],
 			$captured
 		);
@@ -1552,10 +1581,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->mock_push_requests(
 			[
-				'GET shop.json'       => [ [ 'body' => [ 'shop' => [] ] ] ],
-				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
-				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
-				'POST sales.json'     => [ [ 'body' => [ 'sale' => [] ] ] ],
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'POST sales.json' => [ [ 'body' => [ 'sale' => [] ] ] ],
 			]
 		);
 
@@ -1564,7 +1591,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$adapter->push_order( $this->exported_order(), null );
 	}
 
-	private function exported_order(): CanonicalOrder {
+	private function exported_order( string $discount = '0' ): CanonicalOrder {
 		return new CanonicalOrder(
 			'1001',
 			'processing',
@@ -1603,7 +1630,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'fee'         => '0',
 			],
 			[
-				'discount'     => '0',
+				'discount'     => $discount,
 				'shipping_fee' => '500',
 				'tax'          => '300',
 				'total'        => '3000',

@@ -118,12 +118,34 @@ final class WarningCode {
 	/**
 	 * `ColorMeAdapter::push_order()`: 受注作成に必要な配送先住所（`sale_deliveries`。
 	 * `postal`/`pref_id`/`address1`/`tel`/`name`が必須）をWoo受注の配送先・請求先いずれからも
-	 * 解決できなかった。送信すると確実に422になるため、事前にフェイルクローズしてスキップする
-	 * （`CUSTOMER_REQUIRED_FIELD_MISSING`と同じ思想）。配送不要な仮想商品のみの受注も
-	 * `CanonicalOrder`が配送要否を運ぶフィールドを持たないため同じ経路でスキップされる
-	 * （既知の制限）。
+	 * 解決できなかった（例: 会員の請求先自体が未入力）。送信すると確実に422になるため、事前に
+	 * フェイルクローズしてスキップする（`CUSTOMER_REQUIRED_FIELD_MISSING`と同じ思想）。
+	 * 配送不要な仮想商品のみの受注（Woo側に配送方法が一切設定されない）は、`CanonicalOrder`が
+	 * 配送要否を運ぶフィールドを持たないため`sale_deliveries`自体を省略する対応（swagger:
+	 * 「配送不要商品を含む場合を除き必須」）はしておらず、この警告ではなく
+	 * `SHIPPING_METHOD_UNMAPPED`（配送方法自体が無いため`shipping_map`のキーを引けない）で
+	 * スキップされる（既知の制限。`OrderTransformer::to_create_payload()`docblock参照）。
 	 */
 	public const ORDER_SHIPPING_ADDRESS_INCOMPLETE = 'order_shipping_address_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: `sale.details`が0行（Wooの受注が商品明細を1件も持たない）。
+	 * `sale.details`は必須のためColorMeでは表現不能な受注として恒久的にスキップする。
+	 * `Woo\Reader\OrderReader`は明細0行そのものには警告を積まないため（未解決の明細行が無い
+	 * ため`ORDER_LINE_PRODUCT_*`系警告の対象外）、この状態を無警告のまま結果から消さないよう
+	 * 専用コードで警告する（E2-3 PR-Cレビュー指摘）。
+	 */
+	public const ORDER_LINE_ITEMS_EMPTY = 'order_line_items_empty';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注にWooクーポン等の割引額（`totals.discount`）が付いて
+	 * いるが、`POST /v1/sales`のリクエストスキーマ（`customer`/`sale_deliveries`/`details`/
+	 * `payment_id`）には割引・クーポン額を運ぶフィールドが存在しない（swagger確認済み）ため、
+	 * 明細は定価のまま送信される。ブロックはしない（割引を表現する手段自体が無く、保留しても
+	 * 解決しないため）が、ColorMe側の受注金額がWoo側より高くなることを情報提供として警告する
+	 * （E2-3 PR-Cレビュー指摘）。
+	 */
+	public const ORDER_DISCOUNT_NOT_PUSHED = 'order_discount_not_pushed';
 
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
@@ -446,6 +468,17 @@ final class WarningCode {
 			// 異なる複数のバリエーションが同じ組に潰れ、誤ったSKU/価格/在庫が別バリエーションへ
 			// 入れ替わってpushされうる（R3レビュー指摘, Copilot）。
 			self::VARIATION_AXIS_LIMIT_EXCEEDED,
+			// `Woo\Reader\OrderReader::line_item_amounts()`: 明細の小計/税額が数値として不正
+			// （非数値・負値）なため`0`へフェイルクローズ済み。`ColorMeAdapter::push_order()`の
+			// `sale.details[].price`は明示指定するとColorMeに実際の金額として恒久的に記録される
+			// ため、`PRODUCT_PRICE_INVALID`と同じ理由（金銭的リスク。CLAUDE.mdアーキテクチャ
+			// 原則9）で無警告のままpushしない（E2-3 PR-Cレビュー指摘）。
+			self::ORDER_LINE_AMOUNT_INVALID,
+			// `Woo\Reader\OrderReader::line_items()`: 明細の数量が欠損・非整数・0以下のため
+			// `max(1, ...)`で捏造した数量にフェイルクローズ済み（import方向の`OrderTransformer::
+			// transform()`は同じ状況を例外で弾く、より厳しい既存方針と対称）。捏造した数量を
+			// ColorMeへ恒久的な受注数量として送らない（E2-3 PR-Cレビュー指摘）。
+			self::ORDER_LINE_QUANTITY_INVALID,
 		];
 
 		foreach ( $warnings as $warning ) {

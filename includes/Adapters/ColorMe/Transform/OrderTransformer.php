@@ -97,6 +97,8 @@ final class OrderTransformer {
 	 *   unmapped_payment_method_id: ?string,
 	 *   unmapped_shipping_method_id: ?string,
 	 *   shipping_address_incomplete: bool,
+	 *   line_items_empty: bool,
+	 *   discount_not_pushed: bool,
 	 * }
 	 */
 	public function to_create_payload( CanonicalOrder $order, MethodMap $method_map, ?string $tax_type ): array {
@@ -116,6 +118,15 @@ final class OrderTransformer {
 			'unmapped_payment_method_id'  => null === $payment_id ? ( $payment_method_id ?? '' ) : null,
 			'unmapped_shipping_method_id' => null === $delivery_id ? ( $shipping_method_id ?? '' ) : null,
 			'shipping_address_incomplete' => null === $delivery_address,
+			// `details()`は明細0行の場合も`line_items_unresolved`をtrueにするが、この場合
+			// `Woo\Reader\OrderReader`は対応する警告を一切積まない（未解決明細が無いため）。
+			// 無警告のまま結果から消えると診断できなくなるため、専用フラグで区別する（レビュー指摘）。
+			'line_items_empty'            => [] === $order->line_items,
+			// `sale.details[].price`/`sale.payment_id`/`sale_deliveries`のいずれにも割引・
+			// クーポン額を運ぶフィールドが無い（swagger確認済み）ため、Wooのクーポン値引きは
+			// ColorMe側に反映されず定価のまま作成される。ブロックはしない（割引を運ぶ手段が
+			// 存在しないため保留しても解決しない）が、情報提供の警告を積む（レビュー指摘）。
+			'discount_not_pushed'         => self::has_discount( $order ),
 		];
 
 		if ( null === $details || null === $payment_id || null === $delivery_id || null === $delivery_address ) {
@@ -137,6 +148,12 @@ final class OrderTransformer {
 		$result['payload'] = $payload;
 
 		return $result;
+	}
+
+	private static function has_discount( CanonicalOrder $order ): bool {
+		$minor = Money::to_minor_units( $order->totals['discount'] ?? null );
+
+		return null !== $minor && $minor > 0;
 	}
 
 	/**
@@ -223,33 +240,41 @@ final class OrderTransformer {
 	}
 
 	/**
-	 * 配送先住所（`sale_deliveries[]`の1行、`delivery_id`を除く部分）を組み立てる。Wooの配送先
-	 * 住所が空（`shipping.address_1`が空）の場合は請求先住所（`extras['customer_snapshot']`）へ
-	 * フォールバックする（Wooチェックアウトで「配送先を別途指定」しなかった場合、配送先は空のまま
-	 * 保存され請求先が実際の届け先になる一般的な挙動を踏まえた判断）。`postal`/`pref_id`/
-	 * `address1`/`tel`/`name`のいずれかが解決できなければ`null`（`sale_deliveries`の必須項目、
-	 * swagger）。`furigana`はWooにこのデータが無いため空文字列を送る（swagger上パターン制約・
-	 * `minLength`指定が無いため有効な値）。
+	 * 配送先住所（`sale_deliveries[]`の1行、`delivery_id`を除く部分）を組み立てる。`postal`/
+	 * `pref_id`/`address1`はWooの配送先住所が空（`shipping.address_1`が空）の場合、請求先住所
+	 * （`extras['customer_snapshot']`）へまとめてフォールバックする（Wooチェックアウトで
+	 * 「配送先を別途指定」しなかった場合、配送先は空のまま保存され請求先が実際の届け先になる
+	 * 一般的な挙動を踏まえた判断。住所を構成する各フィールドを別々の情報源から混ぜると、
+	 * 実在しない住所を組み立てかねないため一体で扱う）。
 	 *
-	 * **既知の制限**: 配送不要な仮想商品のみの受注も`CanonicalOrder`が配送要否を運ぶフィールドを
-	 * 持たないため同じ経路でスキップされる。
+	 * `name`/`tel`は住所とは独立に、無い方だけ請求先から補う（Wooの配送先フォームは氏名必須だが
+	 * 電話番号欄を持たないテーマ・バージョンが多く、配送先自体は入力されていても`tel`だけ欠ける
+	 * ケースが一般的にあるため。氏名・電話番号は「宛先の連絡手段」であり住所の一部ではないため、
+	 * 住所とは異なり別ソースから補っても内部矛盾は生じない。E2-3 PR-Cレビュー指摘）。
+	 *
+	 * `postal`/`pref_id`/`address1`/`tel`/`name`のいずれかが解決できなければ`null`
+	 * （`sale_deliveries`の必須項目、swagger）。`furigana`はWooにこのデータが無いため空文字列を
+	 * 送る（swagger上パターン制約・`minLength`指定が無いため有効な値）。`tel`はswaggerに
+	 * パターン制約が無い（`/v1/customers`専用の`Cast::normalize_tel()`はここでは使わない）ため、
+	 * 値をそのまま送る（E2-3 PR-Cレビュー指摘）。
+	 *
+	 * **既知の制限**: 配送方法自体が無い（配送不要な仮想商品のみの）受注は、この住所解決とは
+	 * 別に`MethodMap::asp_delivery_id()`が`shipping.method_id=null`を解決できず
+	 * `SHIPPING_METHOD_UNMAPPED`でスキップされる（`CanonicalOrder`が配送要否を運ぶフィールドを
+	 * 持たず`sale_deliveries`自体の省略に対応していないため）。
 	 *
 	 * @return ?array<string,mixed>
 	 */
 	private function delivery_address( CanonicalOrder $order ): ?array {
-		$shipping             = $order->shipping;
-		$has_shipping_address = null !== Cast::to_string_or_null( $shipping['address_1'] ?? null );
+		$shipping = $order->shipping;
+		$snapshot = $this->customer_snapshot_of( $order );
 
-		if ( $has_shipping_address ) {
-			$name    = Cast::to_string_or_null( $shipping['name'] ?? null );
-			$tel     = Cast::normalize_tel( Cast::to_string_or_null( $shipping['tel'] ?? null ) );
-			$address = AddressMapper::to_asp_address_payload( 'colorme', $shipping );
-		} else {
-			$snapshot = $this->customer_snapshot_of( $order );
-			$name     = Cast::to_string_or_null( $snapshot['name'] ?? null );
-			$tel      = Cast::normalize_tel( Cast::to_string_or_null( $snapshot['phone'] ?? null ) );
-			$address  = AddressMapper::to_asp_address_payload( 'colorme', $snapshot );
-		}
+		$name = Cast::first_non_empty( $shipping['name'] ?? null, $snapshot['name'] ?? null );
+		$tel  = Cast::first_non_empty( $shipping['tel'] ?? null, $snapshot['phone'] ?? null );
+
+		$address = null !== Cast::to_string_or_null( $shipping['address_1'] ?? null )
+			? AddressMapper::to_asp_address_payload( 'colorme', $shipping )
+			: AddressMapper::to_asp_address_payload( 'colorme', $snapshot );
 
 		if ( null === $name || null === $tel || ! isset( $address['postal'], $address['pref_id'], $address['address1'] ) ) {
 			return null;
@@ -296,7 +321,9 @@ final class OrderTransformer {
 			$payload['mail'] = $mail;
 		}
 
-		$tel = Cast::normalize_tel( Cast::to_string_or_null( $snapshot['phone'] ?? null ) );
+		// `sale.customer.tel`はswaggerにパターン制約が無いため、`/v1/customers`専用の
+		// 正規化は適用しない（`delivery_address()`と同じ理由）。
+		$tel = Cast::to_string_or_null( $snapshot['phone'] ?? null );
 
 		if ( null !== $tel ) {
 			$payload['tel'] = $tel;
