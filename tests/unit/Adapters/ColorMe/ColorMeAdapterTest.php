@@ -1382,6 +1382,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNotNull( $create_request );
 		$this->assertSame( 'taro@example.com', $create_request['body']['customer']['mail'] );
 		$this->assertSame( 13, $create_request['body']['customer']['pref_id'] );
+		// `city`（WCのJPロケールでは`address_1`と別の必須項目）が連結されていることを確認する
+		// （R1レビューで判明: 無視すると市区町村がまるごと欠落する）。
+		$this->assertSame( '千代田区千代田1-1-1', $create_request['body']['customer']['address1'] );
 		$this->assertTrue( $create_request['body']['customer']['add_member'] );
 	}
 
@@ -1449,7 +1452,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			null,
 			null,
 			[
-				'address_1' => '千代田区千代田1-1-1',
+				'city'      => '千代田区',
+				'address_1' => '千代田1-1-1',
 				'state'     => 'JP13',
 				'postcode'  => '1000001',
 				'country'   => 'JP',

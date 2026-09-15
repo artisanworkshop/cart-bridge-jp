@@ -73,7 +73,7 @@ final class CustomerTransformer {
 	 */
 	public function to_create_payload( CanonicalCustomer $customer ): ?array {
 		$address = $this->address_payload( $customer->address );
-		$tel     = Cast::to_string_or_null( $customer->phone );
+		$tel     = self::normalize_tel( $customer->phone );
 
 		if ( ! isset( $address['pref_id'], $address['postal'], $address['address1'] ) || null === $tel ) {
 			return null;
@@ -93,7 +93,26 @@ final class CustomerTransformer {
 	 * @return array<string,mixed>
 	 */
 	public function to_update_payload( CanonicalCustomer $customer ): array {
-		return $this->base_payload( $customer, $this->address_payload( $customer->address ), Cast::to_string_or_null( $customer->phone ) );
+		return $this->base_payload( $customer, $this->address_payload( $customer->address ), self::normalize_tel( $customer->phone ) );
+	}
+
+	/**
+	 * `tel`/`fax`はswaggerで`pattern: "^[\d-]+$"`（数字とハイフンのみ）。Wooの`billing_phone`は
+	 * 空白・半角/全角括弧を含む表記（例: `090 (1234) 5678`）を許容するため、明らかに装飾目的の
+	 * それらの文字だけを除去したうえでパターンに一致するか検証する。国際番号（`+`付き）等、
+	 * 除去しても一致しない値は「解決不能」としてnullへ倒す（`+`を機械的に取り除くと国番号が
+	 * 消えた別の番号に化けてしまうため、桁を落とす形の変換はしない）。
+	 */
+	private static function normalize_tel( ?string $tel ): ?string {
+		$string = Cast::to_string_or_null( $tel );
+
+		if ( null === $string ) {
+			return null;
+		}
+
+		$normalized = str_replace( [ ' ', '　', '(', ')', '（', '）' ], '', $string );
+
+		return 1 === preg_match( '/^[0-9\-]+$/', $normalized ) ? $normalized : null;
 	}
 
 	/**
@@ -158,17 +177,24 @@ final class CustomerTransformer {
 	}
 
 	/**
-	 * Wooネイティブの住所（`Woo\Reader\CustomerReader::address()`が返す`address_1`/`address_2`/
-	 * `state`/`postcode`/`country`キー）をColorMeの`pref_id`/`postal`/`address1`/`address2`へ
-	 * 変換する。解決できなかったキーは省略する（`to_update_payload()`が省略時はColorMe側の
-	 * 既存値を保持する前提のため）。
+	 * Wooネイティブの住所（`Woo\Reader\CustomerReader::address()`が返す`city`/`address_1`/
+	 * `address_2`/`state`/`postcode`/`country`キー）をColorMeの`pref_id`/`postal`/`address1`/
+	 * `address2`へ変換する。`postal`/`address1`/`pref_id`は3点セットで解決できた場合のみ含める
+	 * （`to_update_payload()`で1つだけ欠けた状態のまま個別に送ると、「新しい郵便番号＋古い
+	 * 都道府県・住所」のような内部矛盾した住所へ更新しかねないため。`address2`は補足情報のため
+	 * 独立に送ってよい）。全く解決できない場合は空配列（`to_update_payload()`は省略時ColorMe側の
+	 * 既存値を保持する前提。`to_create_payload()`は3点セット必須のため、この場合は呼び出し元が
+	 * フェイルクローズする）。
 	 *
 	 * @param array<string,mixed> $customer_address `CanonicalCustomer::$address`（エクスポート方向）。
 	 * @return array{pref_id?:int,postal?:string,address1?:string,address2?:string}
 	 */
 	private function address_payload( array $customer_address ): array {
 		$postal   = Cast::to_string_or_null( $customer_address['postcode'] ?? null );
-		$address1 = Cast::to_string_or_null( $customer_address['address_1'] ?? null );
+		$address1 = self::join_address1(
+			Cast::to_string_or_null( $customer_address['city'] ?? null ),
+			Cast::to_string_or_null( $customer_address['address_1'] ?? null )
+		);
 		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );
 		$pref_id  = AddressMapper::pref_id_from_state(
 			'colorme',
@@ -178,23 +204,32 @@ final class CustomerTransformer {
 
 		$payload = [];
 
-		if ( null !== $postal ) {
-			$payload['postal'] = $postal;
-		}
-
-		if ( null !== $address1 ) {
+		if ( null !== $postal && null !== $address1 && null !== $pref_id ) {
+			$payload['postal']   = $postal;
 			$payload['address1'] = $address1;
+			$payload['pref_id']  = $pref_id;
 		}
 
 		if ( null !== $address2 ) {
 			$payload['address2'] = $address2;
 		}
 
-		if ( null !== $pref_id ) {
-			$payload['pref_id'] = $pref_id;
-		}
-
 		return $payload;
+	}
+
+	/**
+	 * ColorMeの`address1`はswagger上「住所1（**市区町村**・番地）」の1フィールドだが、
+	 * WooCommerceのJPロケール（`WC()->countries->get_address_fields('JP')`で実測確認）は
+	 * `billing_city`（市区町村。必須）と`billing_address_1`（番地。必須）を別フィールドとして
+	 * 扱う。`city`を無視して`address_1`だけを送ると、ネイティブWoo顧客（exportの主対象）の
+	 * 住所から市区町村がまるごと欠落する。ColorMe由来の往復顧客は`Woo\Support\AddressMapper::
+	 * to_woo()`が`city`を常に空文字列にする契約のため、連結しても元の1フィールド文字列のまま
+	 * 変わらない。
+	 */
+	private static function join_address1( ?string $city, ?string $street ): ?string {
+		$joined = trim( ( $city ?? '' ) . ( $street ?? '' ) );
+
+		return '' !== $joined ? $joined : null;
 	}
 
 	/**

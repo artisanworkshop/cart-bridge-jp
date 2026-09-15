@@ -1217,6 +1217,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 			throw new RuntimeException( 'ColorMe customer push response is missing the customer id.' );
 		}
 
+		if ( ! isset( $body['customer']['id'] ) ) {
+			// `push_product()`と同じ理由: 更新（PUT）応答に`id`が無く既知`remote_id`へ
+			// フォールバックした場合、ColorMe側のスキーマ変化を検知できるよう記録しておく。
+			$this->logger->warning( 'ColorMe customer push response was missing the customer id; falling back to the known remote_id.', [ 'remote_id' => $customer_remote_id ] );
+		}
+
 		return new PushResult( $customer_remote_id, $operation );
 	}
 
