@@ -303,8 +303,11 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     に`state_code()`の逆関数`pref_id_from_state()`を追加して行う。詳細は
     `docs/03-design-decisions.md` §10.2「E2-3 PR-B」。
   - **PR-C（`push_order()`のみ、完了、2026-09-15）**: 要検証#5をswagger精査で確定（プレミアム
-    プラン限定・必須は`details`+`payment_id`のみ・`sale_deliveries`は配送不要商品を除き必須・
-    `price`省略時はカラーミーのカタログ価格が適用される）。D19の申し送り（`payment_map`/
+    プラン限定・必須は`details`+`payment_id`のみ・`sale_deliveries`は配送不要商品を除き必須）。
+    明細単価を復元できない場合（ショップの`tax_type`不明、または合計が数量で割り切れない）は
+    `price`を省略せず**受注全体をpushしない**（`ORDER_LINE_PRICE_UNRESOLVED`。`price`省略時に
+    カラーミーのカタログ価格が適用される仕様を当てにする設計は、恒久的な金額の食い違いを
+    招くためgate review中に撤回した）。D19の申し送り（`payment_map`/
     `shipping_map`逆引きの曖昧性）は`Woo\Support\MethodMap::asp_payment_id()`/`asp_delivery_id()`
     （Woo側IDに対応するASP側IDがちょうど1件の場合のみ解決、0件・複数一致は未解決として
     フェイルクローズ）で解決。`push_order()`は`$remote_id`（既存remote_id）を受け取るよう
