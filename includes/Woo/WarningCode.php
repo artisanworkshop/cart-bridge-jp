@@ -140,9 +140,16 @@ final class WarningCode {
 	/**
 	 * `ColorMeAdapter::push_order()`: 受注にWooクーポン等の割引額（`totals.discount`）が付いて
 	 * いるが、`POST /v1/sales`のリクエストスキーマ（`customer`/`sale_deliveries`/`details`/
-	 * `payment_id`）には割引・クーポン額を運ぶフィールドが存在しない（swagger確認済み）ため、
-	 * 明細は定価のまま送信される。ブロックはしない（割引を表現する手段自体が無く、保留しても
-	 * 解決しないため）が、ColorMe側の受注金額がWoo側より高くなることを情報提供として警告する
+	 * `payment_id`）には割引・クーポン額を運ぶフィールドが存在しない（swagger確認済み）。
+	 * 受注が実際にpushされた場合、明細は定価のまま送信される（決済/配送方法未マッピング等の
+	 * 別理由でskipされた場合はこの警告だけが単独で付き、その回では何も送信されない）。
+	 *
+	 * `ORDER_REFUNDED`（「ColorMe側の受注金額が実際の回収額より高くなる」という構造上同型の
+	 * 金銭的懸念）はexport blockingの対象だが、こちらは意図的にblockingへ含めない: 割引・
+	 * クーポンを一切運べない設計上の制約そのものであり、保留しても解決する見込みが無い。
+	 * blocking化するとクーポンを使った受注が無料版のサンプル移行で一切確認できなくなり、
+	 * `PRICES_INCLUDE_TAX_DISABLED`をblockingへ含めなかった理由（多くの実店舗の既定設定で
+	 * 発火し、挙動確認自体ができなくなる）と同種の弊害が生じるため、情報提供の警告に留める
 	 * （E2-3 PR-Cレビュー指摘）。
 	 */
 	public const ORDER_DISCOUNT_NOT_PUSHED = 'order_discount_not_pushed';

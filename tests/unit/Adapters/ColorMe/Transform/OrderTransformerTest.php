@@ -617,6 +617,8 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'id' => 9001 ], $payload['customer'] );
 		$this->assertSame( 751, $payload['payment_id'] );
 		$this->assertSame( 640580, $payload['sale_deliveries'][0]['delivery_id'] );
+		// 配送先住所（`default_shipping()`。請求先とは意図的に異なる値）が使われることを確認する。
+		$this->assertSame( '渋谷区2-2', $payload['sale_deliveries'][0]['address1'] );
 		$this->assertSame( 5001, $payload['details'][0]['product_id'] );
 		$this->assertSame( 2, $payload['details'][0]['product_num'] );
 		// 税抜単価1000.00円が整数円1000へ変換されることを確認する。
@@ -677,9 +679,11 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
 
 		$this->assertNotNull( $result['payload'] );
-		// 配送先住所自体（city/address_1）は請求先へ切り替わらず配送先のままであること。
-		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
-		// tel は請求先（customer_snapshot.phone）から補われる。
+		// 配送先住所・氏名自体（city/address_1/name。`default_shipping()`は請求先と意図的に
+		// 異なる値）は請求先へ切り替わらず配送先のままであること。
+		$this->assertSame( '渋谷区2-2', $result['payload']['sale_deliveries'][0]['address1'] );
+		$this->assertSame( '鈴木 花子', $result['payload']['sale_deliveries'][0]['name'] );
+		// tel だけは請求先（customer_snapshot.phone）から補われる。
 		$this->assertSame( '03-1234-5678', $result['payload']['sale_deliveries'][0]['tel'] );
 	}
 
@@ -936,19 +940,26 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	/**
 	 * @return array<string,mixed>
 	 */
+	/**
+	 * 請求先（`extras['customer_snapshot']`。`make_export_order()`のデフォルト）とは意図的に
+	 * 異なる氏名・住所にしてある。両者が同値だと「配送先を別途指定した受注」を再現できず、
+	 * 住所の出どころ（配送先/請求先いずれから解決したか）を検証するテストが実質何も検証しない
+	 * まま通ってしまう（レビュー指摘: R1修正の回帰ガードとして追加したテストがこの理由で
+	 * 空振りしていた）。
+	 */
 	private function default_shipping(): array {
 		return [
 			'method_id'   => 'flat_rate:6',
 			'method_name' => 'Flat rate',
 			'fee'         => '500',
-			'name'        => '山田 太郎',
-			'tel'         => '03-1234-5678',
+			'name'        => '鈴木 花子',
+			'tel'         => '03-9999-8888',
 			'company'     => null,
-			'address_1'   => '1-1',
+			'address_1'   => '2-2',
 			'address_2'   => null,
-			'city'        => '千代田区',
+			'city'        => '渋谷区',
 			'state'       => 'JP13',
-			'postcode'    => '1000001',
+			'postcode'    => '1500001',
 			'country'     => 'JP',
 		];
 	}

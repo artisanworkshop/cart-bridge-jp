@@ -156,9 +156,11 @@ final class Cast {
 	 * 固定する（`$`は末尾改行の直前にもマッチするため、`billing_phone`に混入した末尾`\n`を
 	 * 見逃し確実に422になる値をそのまま送りかねない）。
 	 *
-	 * `CustomerTransformer`（顧客）・`OrderTransformer`（受注のゲスト顧客/配送先）で共有する
-	 * （`docs/03-design-decisions.md` D19 PR-Bと同じ「対称の変換を複製すると2箇所が食い違う
-	 * リスクを負う」方針）。
+	 * `/v1/customers`専用（`pattern`制約が実在する唯一のエンドポイント）。`/v1/sales`の
+	 * `sale_deliveries[].tel`/`sale.customer.tel`にはswagger上パターン制約が無いため、
+	 * `Adapters\ColorMe\Transform\OrderTransformer`はこのメソッドを使わない（E2-3 PR-Cレビュー
+	 * 指摘: 当初は`CustomerTransformer`と共有していたが、受注方向の正当な値
+	 * （国際番号等パターン非一致）を無警告でnullへ丸め、受注が不必要にスキップされていた）。
 	 */
 	public static function normalize_tel( ?string $tel ): ?string {
 		$string = self::to_string_or_null( $tel );
