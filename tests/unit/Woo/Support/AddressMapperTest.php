@@ -114,8 +114,8 @@ final class AddressMapperTest extends WP_UnitTestCase {
 
 	/**
 	 * PCREの`$`は末尾改行の直前にもマッチするため、`\z`ではなく`$`のままだと`JP13\n`のような
-	 * 破損値を正常な`JP13`として誤解釈しうる（`CustomerTransformer::normalize_tel()`と同じ
-	 * 境界データ問題。G1ゲートで判明, Copilot）。
+	 * 破損値を正常な`JP13`として誤解釈しうる（`Adapters\ColorMe\Transform\Cast::normalize_tel()`と
+	 * 同じ境界データ問題。G1ゲートで判明, Copilot）。
 	 */
 	public function test_pref_id_from_state_rejects_a_trailing_newline(): void {
 		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', "JP13\n", 'JP' ) );
@@ -129,5 +129,87 @@ final class AddressMapperTest extends WP_UnitTestCase {
 	 */
 	public function test_pref_id_from_state_prefers_country_over_a_stale_domestic_state(): void {
 		$this->assertSame( 48, AddressMapper::pref_id_from_state( 'colorme', 'JP13', 'US' ) );
+	}
+
+	/**
+	 * `CustomerTransformer::address_payload()`（E2-3 PR-B）から移設した本体。city+address_1を
+	 * 区切り無しで連結し、postal/pref_id/address1が3点とも揃った場合のみそれらを含めることを確認する。
+	 */
+	public function test_to_asp_address_payload_builds_domestic_address(): void {
+		$payload = AddressMapper::to_asp_address_payload(
+			'colorme',
+			[
+				'city'      => '千代田区',
+				'address_1' => '1-1',
+				'address_2' => 'ビル202',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			]
+		);
+
+		$this->assertSame(
+			[
+				'postal'   => '1000001',
+				'address1' => '千代田区1-1',
+				'pref_id'  => 13,
+				'address2' => 'ビル202',
+			],
+			$payload
+		);
+	}
+
+	/**
+	 * 海外住所（`pref_id=48`）はcity/address_1を半角スペースで連結し、末尾にstate/countryを
+	 * カンマ区切りで付記する（ColorMeの顧客/受注スキームに国・地域の専用フィールドが無いため）。
+	 */
+	public function test_to_asp_address_payload_appends_region_for_overseas_address(): void {
+		$payload = AddressMapper::to_asp_address_payload(
+			'colorme',
+			[
+				'city'      => 'Los Angeles',
+				'address_1' => '123 Main St',
+				'state'     => 'CA',
+				'postcode'  => '90001',
+				'country'   => 'US',
+			]
+		);
+
+		$this->assertSame( 'Los Angeles 123 Main St, CA, US', $payload['address1'] );
+		$this->assertSame( 48, $payload['pref_id'] );
+	}
+
+	/**
+	 * postal/pref_id/address1のうち1つでも解決できなければ、この3点セットはまとめて省略される
+	 * （新規作成の必須項目を一部欠けたまま送ると内部矛盾した住所になりうるため。呼び出し元が
+	 * フェイルクローズするか、更新の省略可能項目として扱うかを判断する）。
+	 */
+	public function test_to_asp_address_payload_omits_the_three_field_set_when_incomplete(): void {
+		$payload = AddressMapper::to_asp_address_payload(
+			'colorme',
+			[
+				'address_2' => 'ビル202',
+			]
+		);
+
+		$this->assertSame( [ 'address2' => 'ビル202' ], $payload );
+	}
+
+	/**
+	 * ColorMe以外のplatformにはこのスキーム自体を適用しない（`pref_id_from_state()`と同じゲート）。
+	 */
+	public function test_to_asp_address_payload_only_applies_to_colorme(): void {
+		$payload = AddressMapper::to_asp_address_payload(
+			'makeshop',
+			[
+				'city'      => '千代田区',
+				'address_1' => '1-1',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			]
+		);
+
+		$this->assertSame( [], $payload );
 	}
 }

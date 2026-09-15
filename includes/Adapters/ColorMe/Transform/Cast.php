@@ -148,6 +148,31 @@ final class Cast {
 	}
 
 	/**
+	 * `tel`/`fax`はswaggerで`pattern: "^[\d-]+$"`（数字とハイフンのみ）。Wooの`billing_phone`は
+	 * 空白・半角/全角括弧を含む表記（例: `090 (1234) 5678`）を許容するため、明らかに装飾目的の
+	 * それらの文字だけを除去したうえでパターンに一致するか検証する。国際番号（`+`付き）等、
+	 * 除去しても一致しない値は「解決不能」としてnullへ倒す（`+`を機械的に取り除くと国番号が
+	 * 消えた別の番号に化けてしまうため、桁を落とす形の変換はしない）。`$`ではなく`\z`で終端を
+	 * 固定する（`$`は末尾改行の直前にもマッチするため、`billing_phone`に混入した末尾`\n`を
+	 * 見逃し確実に422になる値をそのまま送りかねない）。
+	 *
+	 * `CustomerTransformer`（顧客）・`OrderTransformer`（受注のゲスト顧客/配送先）で共有する
+	 * （`docs/03-design-decisions.md` D19 PR-Bと同じ「対称の変換を複製すると2箇所が食い違う
+	 * リスクを負う」方針）。
+	 */
+	public static function normalize_tel( ?string $tel ): ?string {
+		$string = self::to_string_or_null( $tel );
+
+		if ( null === $string ) {
+			return null;
+		}
+
+		$normalized = str_replace( [ ' ', '　', '(', ')', '（', '）' ], '', $string );
+
+		return 1 === preg_match( '/^[0-9\-]+\z/', $normalized ) ? $normalized : null;
+	}
+
+	/**
 	 * カテゴリ参照キー。小カテゴリが無い（0）場合は大カテゴリのキーと同一になる。
 	 */
 	public static function category_ref( mixed $id_big, mixed $id_small ): ?string {
