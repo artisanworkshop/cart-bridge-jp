@@ -3,7 +3,7 @@
 - タスク: E2-3 PR-B — ColorMeAdapter::push_customer() の実装
 - 開始: 2026-09-15
 - PR: #44 https://github.com/artisanworkshop/cart-bridge-jp/pull/44
-- 現在のステップ: 5（CI待ち、最終報告前）
+- 現在のステップ: 8（完了）
 - Copilot: 依頼 3 回（上限到達） / G2-1は訂正の上G3で修正。G1-1, G1-2は保留のまま残存
 - Codex: 依頼 3 回（上限到達） / G1-7, G2-4, G3-2は保留のまま残存
 
@@ -25,3 +25,4 @@
 | 2026-09-15 | 7 | G2: Copilot新規2件、Codex新規2件。High1件を修正（commit 1a1e0de、G1-4+G1-6組み合わせで新規混入）。裏取りの結果2件（都道府県番号入れ替わり、mbstring依存）を根拠不十分と判断し見送り、1件をbacklog送り。品質チェックgreen（PHPUnit 914件） |
 | 2026-09-15 | 6 | Copilot・Codexへ3回目（最終）のレビュー依頼（T=2026-09-15T03:25:46Z）。4回目の依頼は行わない方針 |
 | 2026-09-15 | 7 | G3（最終）: Codex新規2件。**G2-1（都道府県4/5番入れ替わり）の却下は誤りと判明し訂正**。ColorMeのpref_id採番がJIS標準/WooCommerceと約20件で不一致であることを確認し、明示的対応表`PREF_ID_TO_JIS_NUMBER`を新設して`state_code()`（Phase 1既存コード）・`pref_id_from_state()`両方を修正（commit a37a0f4）。**本番データへの影響あり（要remediation、別issue化推奨）**。dry-run検証精度の1件は保留・backlog送り。品質チェックgreen（PHPUnit 916件）。両bot依頼上限（3回）到達、これ以上の再依頼なし |
+| 2026-09-15 | 8 | 最終報告作成、完了 |
