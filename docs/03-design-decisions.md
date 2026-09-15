@@ -342,6 +342,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 14 | 各ASP: 一覧APIの新しい順ソート指定可否（受注は必須、商品・顧客・クーポンはフォールバック用。サンプル選定=D15） | F1-0 / B4-0 / M6-0 | **カラーミー済（実機確認済み 2026-09-03）**: `GET /sales.json`はソートパラメータなしでデフォルト`make_date`降順（新しい順）で返るが、**`after`/`before`省略時の検索対象は直近7日間に限定される**（`after`未指定時は`before`の7日前0時がデフォルト。swagger実測確認）。ショップの直近7日間の受注が10件未満の場合、`fetchLatestOrders(10)`は探索窓（`after`）を過去方向へ4倍ずつ広げて複数回リクエストし、10件集まるか受注履歴の下限（2000-01-01）に達するまで走査する（**F1-5実装済み**: `before`は常に省略し暗黙の現在時刻に固定したまま`after`のみを広げる方式。`fetch_orders`によるカーソル全量走査も`after=2000-01-01`を明示することで直近7日制限を回避する）。**テストショップ実測**: 直近7日の受注0件・全履歴2件の店舗で、`after`省略→28日→112日→448日→1792日→7168日→2000-01-01 の7回の`sales.json`呼び出し（＋`payments.json`/`deliveries.json`各1回）で下限に到達し2件を取得、所要1.7秒。直近7日に10件以上ある店舗では1回で確定する。MakeShop/BASEは未 |
 | 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / B4-0 / M6-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
+| 17 | カラーミー: `POST /v1/customers`の`add_member: true`が会員登録時に通知メール（パスワード設定案内等）を自動送信するか | E2-3 PR-Bで判明。実店舗での実測時（要検証#5と合わせて） | 未。swaggerに記載無し。`push_customer()`は往復インポート整合性のため新規作成時に常時`add_member: true`を送るが、本プロジェクトは移行時の副作用（通知メール等）抑止を重視する方針（`docs/01-plan-colorme.md`「通知メールは送らない」）。`POST /sales/{id}/mails.json`が受注確認メールを独立エンドポイントに切り出している設計から自動送信の可能性は低いと推測するが未確認。実店舗確認まで、E2-3の実機確認（要検証#5）と合わせて要検証のまま残す |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -648,6 +649,85 @@ PR-A（product）に続き、`Woo\Reader\CustomerReader`/`OrderReader`/`StockRea
   懸念がある。E2-3で受注の更新を許容するASPが出てきた場合、インターフェース変更
   （`push_order( CanonicalOrder $order, ?string $remote_id ): PushResult`。3ASP全ての実装への
   影響を要確認）を検討すること。
+
+#### エクスポート方向の実装（E2-3 PR-A: `push_product()`）
+
+`ColorMeAdapter::push_product()`（PR #43）が上記「E2-3への申し送り」の3項目
+（バリエーションremote_id永続化・部分完了契約・要検証#5着手前の実装）に対応した。
+`PushResult::$variant_remote_ids` + `ReadItem::$variant_local_ids`でバリエーション単位の
+remote_idを`cbjp_mappings`（`variant`）へ書き戻し、部分完了は`WarningCode::
+indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`record_failure()`/
+`append_failure_warning()`（再試行可能/終端の分類）で表現する。詳細・レビュー履歴は
+`docs/reviews/feat/e2-3-push-product/`参照。
+
+#### エクスポート方向の実装（E2-3 PR-B: `push_customer()`）
+
+- **【重大・要対応】ColorMeの`pref_id`はJIS X 0401標準（＝WooCommerceの`JPxx`番号）と並びが
+  一致しない（G3ゲートで判明, Codex/Copilot, P1）**: `state_code()`（インポート方向。**Phase 1
+  から本番稼働中の既存コード**）は`pref_id`をそのまま`JP%02d`の数値部分として使っていたが、
+  ColorMeのAPIドキュメント（swagger `info.description`に埋め込まれた「都道府県コード一覧」表。
+  構造化されたJSONスキーマとしては提供されていないため見落としやすい）はJIS標準と異なる並びで、
+  47都道府県中約20件で番号がずれる（例: ColorMeのpref_id=4は秋田県だがJIS/Wooの4番は宮城県、
+  16↔18は福井/富山が入れ替わり、19〜23・25〜30・31〜34・36〜37・43〜44も同様）。都道府県名で
+  突き合わせた明示的な対応表`AddressMapper::PREF_ID_TO_JIS_NUMBER`を新設し、`state_code()`と
+  新設`pref_id_from_state()`の両方をこの表経由に修正した（`wp eval`でのWooCommerce実測と
+  swagger記載を名前で機械的に突き合わせ、全47件をプログラムで検証済み）。
+  **本番データへの影響**: この不具合はPhase 1（F1-4/F1-5）から存在するため、影響を受ける
+  約20都道府県の顧客・受注住所は、本PRマージ以前にインポート済みの実店舗データで**既に誤った
+  都道府県が保存されている可能性が高い**（F1-8の実店舗2件を含む）。是正には該当都道府県の
+  既存Woo顧客・受注の`billing_state`/`shipping_state`を再インポートまたは一括修正する対応が
+  別途必要（本PRのスコープ外。マージ後に別issueとして対応要）。
+- **住所スキーム変換は`Woo\Support\AddressMapper`に対称の逆関数を追加**: インポート方向の
+  `state_code()`/`is_overseas()`（ColorMeの`pref_id`1-47=都道府県／48=海外というエンコーディングを
+  `PREF_ID_SCHEME_PLATFORMS`でColorMeのみに限定して解釈する）に対し、エクスポート方向で必要な
+  `state`→`pref_id`の逆変換を`pref_id_from_state( string $platform, ?string $state, ?string $country
+  ): ?int`として同じファイル・同じゲートで追加した。`state`が`JP01`〜`JP47`（`PREF_ID_TO_JIS_NUMBER`
+  経由）ならその`pref_id`、一致せず`country`が非空かつ`'JP'`以外なら`48`（海外。swaggerの`pref_id`
+  description記載の特別値）、それ以外は変換不能として`null`。「ASP固有スキームへの変換は
+  push_customer()の責務」（E2-2 PR-B、上記「住所はWooネイティブのキーのまま運ぶ」参照）という方針は
+  「`Woo\Reader\CustomerReader`（プラットフォーム非依存）に変換を持ち込まない」ことが本旨であり、
+  既にColorMe専用ゲート済みの`AddressMapper`を`Adapters\ColorMe\Transform\CustomerTransformer`から
+  再利用することはこれに反しないと判断した（対称の変換を複製すると2箇所が食い違うリスクを負う）。
+- **新規作成必須フィールドの欠落はAPIを呼ばずスキップ**: `POST /v1/customers`は`name`/`mail`/
+  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は部分更新で必須項目なし）。Woo顧客の請求先情報
+  から`pref_id`/`postal`/`address1`/`tel`のいずれかを解決できない場合、送信すると確実に422になる
+  ため`CustomerTransformer::to_create_payload()`が`null`を返し、`ColorMeAdapter::push_customer()`が
+  `PushResult('', OPERATION_SKIPPED, [WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING])`で
+  フェイルクローズする（`push_product()`の`requires_hidden_safeguard()`と同じ思想）。`remote_id`が
+  空文字列のため`Sync\Exporter`はmappingsへupsertせず、店舗がWoo側の顧客情報を補完すれば次回
+  exportで自動的に再試行される。この警告は`PushResult`からのみ発生し`DryRunPlatformWriter`は
+  アダプタを呼ばないため、dry-runでは検出できない（`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ
+  既知の限界）。
+- **新規作成時に`add_member: true`を送る**: ColorMeの`member`（会員登録済みフラグ）が`false`の
+  顧客は`CustomerTransformer::transform()`（インポート方向）がWoo顧客として取り込まないゲスト
+  スナップショット扱いのため、対称性を保つには作成した顧客も会員登録する必要がある。付けないと
+  ColorMe側でログイン不可のゲスト相当になり、往復インポートで再度取り込めなくなる。
+- **`extras`の往復ロスは対応しない（既知の制限）**: `Woo\Reader\CustomerReader::to_read_item()`は
+  `CanonicalCustomer::$extras`を常に`[]`で構築するため、`fax`/`sex`/`tel_mobile`/
+  `answer_free_form1-3`はColorMeにインポート時点で取り込まれていてもexportで送信できない。
+  この往復時のデータ欠損の扱いはE2-4「往復E2E」のスコープとする。
+- **`address1`は`city`+`address_1`を連結する（R1レビューで判明）**: ColorMeの`address1`は
+  swagger上「住所1（**市区町村**・番地）」の1フィールドだが、WooCommerceのJPロケール
+  （`WC()->countries->get_address_fields('JP')`で実測確認）は`billing_city`（市区町村・必須）と
+  `billing_address_1`（番地・必須）を別フィールドとして扱う。`city`を無視すると、ネイティブWoo顧客
+  （exportの主対象）の住所から市区町村がまるごと欠落したまま警告も無く作成されてしまう
+  （独立サブエージェントによる敵対的レビューで検出）。ColorMe由来の往復顧客は`AddressMapper::
+  to_woo()`が`city`を常に空文字列にする契約のため、連結しても元の1フィールド文字列のまま変わらない。
+- **`tel`は装飾文字のみ除去してパターン検証する（R1レビューで判明）**: swaggerの`tel`は
+  `pattern: "^[\d-]+$"`（数字とハイフンのみ）だが、Wooの`billing_phone`は空白・括弧を含む表記を
+  許容する。明らかに装飾目的の空白・半角/全角括弧のみを除去してからパターン一致を検証し、
+  それでも一致しない値（国際番号の`+`付き等）は解決不能としてnullへ倒す（`+`を機械的に除去すると
+  国番号が消えた別の番号に化けるため、桁を落とす変換はしない）。新規作成は必須項目のためスキップ、
+  更新は省略する。
+- **`postal`/`address1`/`pref_id`は3点セットで解決できた場合のみ送る（R1レビューで判明）**:
+  `to_update_payload()`が各要素を個別に省略すると、一部だけ解決できた場合（例:
+  郵便番号は分かるが都道府県が不明で`pref_id`が省略される）に「新しい郵便番号＋ColorMe側に
+  残った古い都道府県・住所」という内部矛盾した住所へ更新しかねない。`address2`は補足情報のため
+  この3点セットとは独立に送ってよい。
+- **`add_member: true`の通知メール有無は未検証（要検証#17）**: 会員登録時にColorMeが
+  パスワード設定案内等を自動送信するかはswaggerに記載が無い。本プロジェクトは移行時の副作用
+  （通知メール等）抑止を重視する方針のため、実店舗確認まで要検証のまま残す（コードは
+  round-trip整合性のため`add_member: true`を維持）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

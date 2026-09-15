@@ -36,6 +36,69 @@ final class AddressMapper {
 	 */
 	private const SINGLE_STRING_NAME_PLATFORMS = [ 'colorme' ];
 
+	/**
+	 * ColorMeの`pref_id`（1-47）からWooCommerce/JIS X 0401の都道府県番号（`WC()->countries->
+	 * get_states('JP')`のキー`JPxx`と同じ番号。`state_code()`/`pref_id_from_state()`が
+	 * `JP%02d`の書式に使う）への対応表。ColorMeのAPIドキュメント（swagger `info.description`に
+	 * 埋め込まれた「都道府県コード一覧」表。構造化されたJSONスキーマとしては提供されていない）は
+	 * JIS標準の並びと一致しない箇所が多数あり（例: pref_id=4は秋田県だがJIS/Wooの4番は宮城県）、
+	 * 番号をそのまま同一視すると約半数の都道府県で誤った住所を送受信する（G3ゲートで判明,
+	 * Codex/Copilot, P1）。値はColorMeのAPIドキュメント本文の表を都道府県名で突き合わせて
+	 * 書き起こしたもの（`wp eval 'echo wp_json_encode(WC()->countries->get_states("JP"));'`と
+	 * ColorMeのswagger descriptionを名前で照合して作成。全47件を検証済み）。
+	 *
+	 * @var array<int,int> ColorMe pref_id => Woo/JIS番号
+	 */
+	private const PREF_ID_TO_JIS_NUMBER = [
+		1  => 1,
+		2  => 2,
+		3  => 3,
+		4  => 5,
+		5  => 4,
+		6  => 6,
+		7  => 7,
+		8  => 8,
+		9  => 9,
+		10 => 10,
+		11 => 11,
+		12 => 12,
+		13 => 13,
+		14 => 14,
+		15 => 15,
+		16 => 18,
+		17 => 17,
+		18 => 16,
+		19 => 22,
+		20 => 19,
+		21 => 20,
+		22 => 23,
+		23 => 21,
+		24 => 24,
+		25 => 30,
+		26 => 25,
+		27 => 29,
+		28 => 26,
+		29 => 27,
+		30 => 28,
+		31 => 33,
+		32 => 34,
+		33 => 31,
+		34 => 32,
+		35 => 35,
+		36 => 37,
+		37 => 36,
+		38 => 38,
+		39 => 39,
+		40 => 40,
+		41 => 41,
+		42 => 42,
+		43 => 44,
+		44 => 43,
+		45 => 45,
+		46 => 46,
+		47 => 47,
+	];
+
 	private function __construct() {}
 
 	/**
@@ -83,11 +146,68 @@ final class AddressMapper {
 
 		$pref_id = Value::int( $address['pref_id'] ?? null );
 
-		if ( null === $pref_id || $pref_id < 1 || $pref_id > 47 ) {
+		if ( null === $pref_id ) {
 			return '';
 		}
 
-		return sprintf( 'JP%02d', $pref_id );
+		$jis_number = self::PREF_ID_TO_JIS_NUMBER[ $pref_id ] ?? null;
+
+		return null !== $jis_number ? sprintf( 'JP%02d', $jis_number ) : '';
+	}
+
+	/**
+	 * `state_code()`の逆変換（エクスポート方向）。Wooの`state`（`JP01`〜`JP47`）を
+	 * `PREF_ID_TO_JIS_NUMBER`の逆引きでColorMeの`pref_id`（1-47）へ戻す。`state`がこの形式に
+	 * 一致しない場合、`country`が非空かつ`'JP'`以外であれば`48`（海外。swaggerの`pref_id`
+	 * descriptionが明記する特別値）とみなす。それ以外（`state`不一致・`country`もJPまたは空）は
+	 * 変換不能として`null`を返す（呼び出し側がフェイルクローズする）。`$`ではなく`\z`で終端を
+	 * 固定する（`$`は末尾改行の直前にもマッチするため、`JP13\n`のような破損値を誤って正常な
+	 * `JP13`として解釈しうる。`CustomerTransformer::normalize_tel()`と同じ境界データ問題。
+	 * G1ゲートで判明, Copilot）。
+	 *
+	 * `country`が非JPを明示している場合、`state`が`JPxx`形式に一致してもそれを信用しない
+	 * （country優先）。`state`/`country`はWoo側で互いに独立して更新されうる境界データのため、
+	 * 国を変更したのに古い`JPxx`の都道府県だけが残る、といった不整合がありうる。この場合に
+	 * `state`だけを見て国内住所と誤判定すると、実際は海外の顧客が誤って東京都（等）の国内住所
+	 * として無警告でexportされてしまう（G1ゲートで判明, Codex, P2）。
+	 */
+	public static function pref_id_from_state( string $platform, ?string $state, ?string $country ): ?int {
+		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
+			return null;
+		}
+
+		$conflicts_with_domestic_state = null !== $country && '' !== $country && 'JP' !== $country;
+
+		if ( ! $conflicts_with_domestic_state && null !== $state && 1 === preg_match( '/^JP([0-9]{2})\z/', $state, $matches ) ) {
+			$pref_id = self::pref_id_from_jis_number( (int) $matches[1] );
+
+			if ( null !== $pref_id ) {
+				return $pref_id;
+			}
+		}
+
+		if ( $conflicts_with_domestic_state ) {
+			return 48;
+		}
+
+		return null;
+	}
+
+	/**
+	 * `PREF_ID_TO_JIS_NUMBER`の逆引き。`array_flip()`は定数式として使えないため
+	 * （PHPのconst初期化子は関数呼び出しを許さない）、リクエスト内で1度だけ計算して
+	 * メモ化する。
+	 *
+	 * @var array<int,int>|null Woo/JIS番号 => ColorMe pref_id
+	 */
+	private static ?array $jis_number_to_pref_id = null;
+
+	private static function pref_id_from_jis_number( int $jis_number ): ?int {
+		if ( null === self::$jis_number_to_pref_id ) {
+			self::$jis_number_to_pref_id = array_flip( self::PREF_ID_TO_JIS_NUMBER );
+		}
+
+		return self::$jis_number_to_pref_id[ $jis_number ] ?? null;
 	}
 
 	/**

@@ -1183,8 +1183,47 @@ final class ColorMeAdapter implements PlatformAdapter {
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
 	}
 
+	/**
+	 * `push_product()`と同じ規約: 本体リクエストの失敗はここで捕まえず`Sync\Exporter`の汎用catchへ
+	 * 委ねる（1件の異常でページ全体を止めない）。顧客はColorMeのAPI上POST/PUTとも1リクエストで
+	 * 完結し（`push_product()`のような追いPUT/バリエーション/画像の多段リクエストが無い）ため、
+	 * 部分完了の警告分類は不要。新規作成に必須の`pref_id`/`postal`/`address1`/`tel`が
+	 * Woo顧客の請求先情報から解決できない場合は`CustomerTransformer::to_create_payload()`が
+	 * `null`を返すため、送信自体を行わずフェイルクローズでスキップする
+	 * （`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`。422を送って恒久的な4xxを積み重ねない）。
+	 */
 	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		$transformer = new CustomerTransformer();
+
+		if ( null === $remote_id ) {
+			$payload = $transformer->to_create_payload( $customer );
+
+			if ( null === $payload ) {
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+			}
+
+			$body      = $this->client()->post( 'customers.json', [ 'customer' => $payload ] );
+			$operation = PushResult::OPERATION_CREATED;
+		} else {
+			$body      = $this->client()->put( "customers/{$remote_id}.json", [ 'customer' => $transformer->to_update_payload( $customer ) ] );
+			$operation = PushResult::OPERATION_UPDATED;
+		}
+
+		$customer_remote_id = Cast::to_string_or_null( $body['customer']['id'] ?? null ) ?? $remote_id;
+
+		if ( null === $customer_remote_id ) {
+			// `push_product()`と同じ理由: remote_idが取得できない「成功」応答をそのまま返すと
+			// mappingsに書き込めず、次回exportが常に新規作成扱いになり重複が発生し続ける。
+			throw new RuntimeException( 'ColorMe customer push response is missing the customer id.' );
+		}
+
+		if ( ! isset( $body['customer']['id'] ) ) {
+			// `push_product()`と同じ理由: 更新（PUT）応答に`id`が無く既知`remote_id`へ
+			// フォールバックした場合、ColorMe側のスキーマ変化を検知できるよう記録しておく。
+			$this->logger->warning( 'ColorMe customer push response was missing the customer id; falling back to the known remote_id.', [ 'remote_id' => $customer_remote_id ] );
+		}
+
+		return new PushResult( $customer_remote_id, $operation );
 	}
 
 	public function push_order( CanonicalOrder $order ): PushResult {

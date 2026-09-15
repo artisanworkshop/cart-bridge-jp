@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
@@ -1357,6 +1358,111 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$result  = $adapter->push_product( $product, null );
 
 		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	public function test_push_customer_creates_new_customer_with_a_single_post(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'POST customers.json' => [ [ 'body' => [ 'customer' => [ 'id' => 701 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_customer( $this->exported_customer(), null );
+
+		$this->assertSame( '701', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'customers.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'taro@example.com', $create_request['body']['customer']['mail'] );
+		$this->assertSame( 13, $create_request['body']['customer']['pref_id'] );
+		// `city`（WCのJPロケールでは`address_1`と別の必須項目）が連結されていることを確認する
+		// （R1レビューで判明: 無視すると市区町村がまるごと欠落する）。
+		$this->assertSame( '千代田区千代田1-1-1', $create_request['body']['customer']['address1'] );
+		$this->assertTrue( $create_request['body']['customer']['add_member'] );
+	}
+
+	public function test_push_customer_updates_existing_customer_with_a_single_put(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'PUT customers/701.json' => [ [ 'body' => [ 'customer' => [ 'id' => 701 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_customer( $this->exported_customer(), '701' );
+
+		$this->assertSame( '701', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
+
+		$update_request = $this->find_captured( $captured, 'PUT', 'customers/701.json' );
+		$this->assertNotNull( $update_request );
+		$this->assertArrayNotHasKey( 'add_member', $update_request['body']['customer'] );
+	}
+
+	/**
+	 * 新規作成に必須の`pref_id`/`postal`/`address1`/`tel`をWoo顧客の請求先情報から解決できない場合、
+	 * 送信すると確実に422になるためAPIを一切呼ばずスキップする（フェイルクローズ）。
+	 */
+	public function test_push_customer_skips_creation_when_required_fields_are_missing(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$result = $adapter->push_customer( CanonicalFactory::customer( '999', 'taro@example.com' ), null );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
+		$this->assertSame( [], $captured );
+	}
+
+	public function test_push_customer_throws_when_response_is_missing_the_customer_id(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'POST customers.json' => [ [ 'body' => [ 'customer' => [] ] ] ],
+			]
+		);
+
+		$this->expectException( RuntimeException::class );
+
+		$adapter->push_customer( $this->exported_customer(), null );
+	}
+
+	private function exported_customer(): CanonicalCustomer {
+		return new CanonicalCustomer(
+			'taro@example.com',
+			'山田 太郎',
+			'ヤマダ タロウ',
+			null,
+			null,
+			[
+				'city'      => '千代田区',
+				'address_1' => '千代田1-1-1',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			],
+			'0300000001',
+			null,
+			null,
+			null
+		);
 	}
 
 	/**
