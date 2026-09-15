@@ -245,6 +245,69 @@ final class WarningCode {
 	public const COUPON_MIN_AMOUNT_INVALID = 'coupon_min_amount_invalid';
 
 	/**
+	 * `ColorMeAdapter::push_product()`: 新規作成（`POST /products`）自体は成功したが、
+	 * 作成リクエストが受け付けない項目（`category_id_small`/`group_ids`/`stocks`）を
+	 * 反映するための追いPUT（`PUT /products/{id}`）が失敗した。商品自体は`remote_id`確定済みの
+	 * ため`indicates_unresolved_reference()`の対象にして次回exportで再試行させる。
+	 */
+	public const PRODUCT_DETAILS_PUSH_INCOMPLETE = 'product_details_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: 商品本体（POST/PUT products）は成功したが、
+	 * バリエーションのサブリクエスト（`POST /products/{id}/options`によるオプション作成、
+	 * `PUT /products/{id}/variants/{id}`による価格/型番/在庫設定）の一部が失敗した。
+	 * 商品自体は`remote_id`確定＝created/updatedとして扱うが、`indicates_unresolved_reference()`
+	 * の対象にしてchecksumをキャッシュせず、次回exportで自動的に再試行させる
+	 * （`docs/03-design-decisions.md` §10.2「E2-3への申し送り」の部分完了契約）。
+	 */
+	public const PRODUCT_VARIANT_PUSH_INCOMPLETE = 'product_variant_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: 画像push（`POST /products/{id}/images`、
+	 * プレミアムプラン契約時のみ試行）の一部が失敗した。`is_retryable_failure()`が429/5xx/
+	 * 通信断のみをこの対象に分類する（422等その他の4xxは終端の`PRODUCT_IMAGE_PUSH_FAILED`）。
+	 * リトライで解決しうるため`indicates_unresolved_reference()`の対象に含める。
+	 */
+	public const PRODUCT_IMAGE_PUSH_INCOMPLETE = 'product_image_push_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `capabilities()->can_push_images`が false
+	 * （非プレミアムプラン契約）のため画像を一切pushしなかった。プラン変更しない限り
+	 * 解決しない終端状態のため`indicates_unresolved_reference()`には含めない
+	 * （画像URL一覧の集約UIはE2-4スコープ。本コードは警告としてのみ結果に残す）。
+	 */
+	public const PRODUCT_IMAGES_NOT_PUSHED = 'product_images_not_pushed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_DETAILS_PUSH_INCOMPLETE`の終端版。
+	 * 追いPUTの失敗が429/5xx/通信断ではなく4xx（422の入力エラー等）だった場合に積む。
+	 * 再試行しても解決しない終端状態のため`indicates_unresolved_reference()`には含めない
+	 * （R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が毎回同じ無駄なリクエスト列を
+	 * 繰り返す）。
+	 */
+	public const PRODUCT_DETAILS_PUSH_FAILED = 'product_details_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_VARIANT_PUSH_INCOMPLETE`の終端版
+	 * （`PRODUCT_DETAILS_PUSH_FAILED`と同じ理由）。
+	 */
+	public const PRODUCT_VARIANT_PUSH_FAILED = 'product_variant_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: `PRODUCT_IMAGE_PUSH_INCOMPLETE`の終端版
+	 * （`PRODUCT_DETAILS_PUSH_FAILED`と同じ理由）。
+	 */
+	public const PRODUCT_IMAGE_PUSH_FAILED = 'product_image_push_failed';
+
+	/**
+	 * `ColorMeAdapter::push_product()`: ColorMeはオプション追加で全組み合わせ（直積）を
+	 * 自動生成するため、Woo側に対応するバリエーションが無い組み合わせがリモートに残ることがある
+	 * （原則4「破壊的操作の禁止」によりこちらから削除できない）。再試行しても消えるとは限らない
+	 * ため`indicates_unresolved_reference()`には含めない、純粋な情報提供の警告。
+	 */
+	public const PRODUCT_VARIANT_SURPLUS_ON_REMOTE = 'product_variant_surplus_on_remote';
+
+	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {
@@ -320,6 +383,34 @@ final class WarningCode {
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_REFUNDED,
+			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
+			// 可視バリエーション0件）ため`price='0'`にフェイルクローズ済み。`CanonicalProduct`は
+			// 「価格0円（正規の無料商品）」と「価格を復元できない」を区別するフィールドを持たない
+			// ため、無警告でpushすると価格未設定の商品がColorMe側に0円商品として恒久的に作成・
+			// 公開されてしまう（R3レビュー指摘、Codex/Copilot。金銭的リスク。CLAUDE.mdアーキ
+			// テクチャ原則9）。
+			self::PRODUCT_PRICE_INVALID,
+			// `Woo\Reader\ProductReader`: `tax_status`（`shipping`/`none`）が`taxable`以外。
+			// `CanonicalProduct`は`tax_status`を運ぶフィールドを持たないため、無警告でpushすると
+			// 送料のみ課税・非課税の商品がColorMe側で通常課税として扱われてしまう
+			// （R3レビュー指摘, Copilot）。
+			self::TAX_STATUS_NOT_TAXABLE,
+			// `PRICES_INCLUDE_TAX_DISABLED`（`woocommerce_prices_include_tax=no`の店舗）は
+			// **意図的にここへ含めない**。R3レビュー（Codex）は`ProductTransformer::
+			// to_push_amount()`が常に税込前提で換算するため実売価格を誤らせると正しく指摘したが、
+			// `woocommerce_prices_include_tax`は多くの実店舗で既定の「税抜で価格入力」設定
+			// （未設定時`get_option()`はfalseを返す＝実測: フレッシュなWP/WC環境でも発火）であり、
+			// export blockingにすると無料版の挙動確認自体ができなくなる店舗が続出する
+			// （既存の`JobManagerExportTest`が実際にこれで2件失敗した）。正しい修正は
+			// `Woo\Reader\ProductReader`側で税込基準へ正規化してから`CanonicalProduct`へ渡す
+			// ことだが、本PRの差分範囲（`ColorMeAdapter`/`ProductTransformer`書込方向）を超える
+			// ため、ユーザー確認事項として最終報告に残す（`docs/review-backlog.md`参照）。
+			// `Woo\Support\VariationAxisResolver`: バリエーション軸が3つ以上あり、`CanonicalProduct::
+			// $variants`のoption1/2規約（2軸まで）に合わせ3軸目以降を切り捨てている。
+			// `ColorMeAdapter::sync_variants()`は`option1/2`の組のみで突合するため、3軸目の値だけが
+			// 異なる複数のバリエーションが同じ組に潰れ、誤ったSKU/価格/在庫が別バリエーションへ
+			// 入れ替わってpushされうる（R3レビュー指摘, Copilot）。
+			self::VARIATION_AXIS_LIMIT_EXCEEDED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -350,6 +441,11 @@ final class WarningCode {
 			self::CATEGORY_MAP_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
 			self::ORDER_CUSTOMER_NOT_EXPORTED,
+			// `ColorMeAdapter::push_product()`: 商品本体は作成済みだが追加詳細/バリエーション/画像の
+			// サブリクエストが未完了。次回exportで自動的に再試行される（定数のdocblock参照）。
+			self::PRODUCT_DETAILS_PUSH_INCOMPLETE,
+			self::PRODUCT_VARIANT_PUSH_INCOMPLETE,
+			self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
 		];
 
 		foreach ( $warnings as $warning ) {

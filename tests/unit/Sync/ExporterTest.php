@@ -339,4 +339,133 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $writer->writes );
 		$this->assertSame( 1, $result['totals']['processed'] );
 	}
+
+	/**
+	 * E2-3への申し送り（`docs/03-design-decisions.md` §10.2）: `PushResult`は商品1件につき
+	 * remote_id1つしか運べないため、`ColorMeAdapter::push_product()`が返す
+	 * `variant_remote_ids`（`ReadItem::$variant_local_ids`と同じ順序・要素数）を
+	 * `Exporter`がzipして`cbjp_mappings`（'variant'）へ書き戻すことを確認する。
+	 */
+	public function test_product_push_writes_back_variant_mappings_from_variant_remote_ids(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001', '9002' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertSame( 201, $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		$this->assertSame( 202, $this->mappings->find_local_id( 'mock', 'variant', '9002' ) );
+	}
+
+	/**
+	 * `variant_remote_ids`の空文字列要素（`ColorMeAdapter::sync_variants()`が未確定/失敗を
+	 * 表す番兵値）はmapping行を作らない。
+	 */
+	public function test_empty_variant_remote_id_is_not_upserted(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001', '' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 201, $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'variant', 202 ) );
+	}
+
+	/**
+	 * R1レビュー指摘: 親商品側にはPR #40 G3で「remote_idが変わったら旧行をdelete_one()する」
+	 * 修正が入っているが、当初のvariant書き戻しには同じ処理が無かった。Woo側の属性値リネーム等で
+	 * ColorMeが同じバリエーションに対し新しいremote_idを自動生成した場合、旧remote_idの行が
+	 * 孤児として残らないことを確認する。
+	 */
+	public function test_stale_variant_mapping_row_is_replaced_when_writer_returns_a_new_variant_remote_id(): void {
+		$this->mappings->upsert( 'mock', 'variant', 'old-variant-remote-id', 201, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ 'new-variant-remote-id' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 'new-variant-remote-id', $this->mappings->find_remote_id( 'mock', 'variant', 201 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', 'old-variant-remote-id' ), '旧remote_idの行が孤児として残っていないこと' );
+	}
+
+	/**
+	 * `$result`は`cbjp/adapters/register`経由の外部アダプタが直接返す信頼境界の外側
+	 * （アーキテクチャ原則8）。`variant_remote_ids`の要素数が`ReadItem::$variant_local_ids`と
+	 * 一致しない契約違反は、誤った対応付けでmappingを書き込まないよう無視する（zipしない）。
+	 */
+	public function test_variant_remote_ids_count_mismatch_is_ignored(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201, 202 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'variant', 201 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+		// R3レビュー指摘（Copilot）: 契約違反でバリエーションが1件も書き戻せなかった場合、
+		// 親商品のchecksumもキャッシュしてはならない。キャッシュすると以後この商品では
+		// 二度と`push_product()`が呼ばれず、バリエーション同期を恒久的に再試行できなくなる。
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
+	}
+
+	/**
+	 * `variant_remote_ids`は`product`entity以外では意味を持たない（`ColorMeAdapter`以外の
+	 * push_*()が将来同名のプロパティを空でなく返した場合でも、product以外ではzipしない）。
+	 */
+	public function test_variant_remote_ids_are_ignored_for_non_product_entities(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [ 201 ] ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'coupon', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'coupon', 101 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'variant', '9001' ) );
+	}
+
+	/**
+	 * G3レビュー指摘（Copilot Suppressed comments）: `variant_local_ids`が空（simple商品）の
+	 * 場合を除外していたため、simple商品にアダプタが非空の`variant_remote_ids`を返す
+	 * （信頼境界の契約違反）ケースを見落としていた。0対0の一致（simple商品の正常系）だけを
+	 * 許可する単純な件数比較に統一し、親のchecksumがキャッシュされないことを確認する。
+	 */
+	public function test_simple_product_with_unexpected_variant_remote_ids_is_treated_as_contract_violation(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '501', PushResult::OPERATION_CREATED, [], [ '9001' ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
+	}
 }

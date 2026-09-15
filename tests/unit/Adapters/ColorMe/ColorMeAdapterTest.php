@@ -10,11 +10,14 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use WP_Error;
 use WP_UnitTestCase;
@@ -286,6 +289,1207 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->expectException( UnsupportedOperationException::class );
 
 		$adapter->push_category( CanonicalFactory::category( '1', 'Category' ) );
+	}
+
+	/**
+	 * R3レビュー指摘（Codex）: 税込→税抜の逆算（`ProductTransformer::divide_with_rounding()`）は
+	 * `round_down`/`round_up`で税込→税込の順方向（`round_tax()`）と**逆方向**の丸めを使わないと
+	 * 往復で元の税込額に戻らない（`php -r`で6000通りのnet/rate組を検証し、順方向と同じ丸めでは
+	 * 93%が不一致だった）。税込100円・税率10%・`round_down`設定で、正しい税抜額（91円。
+	 * `floor(91×110/100)=100`で往復一致）が送られることを確認する。
+	 */
+	public function test_push_product_inverts_rounding_direction_for_round_down(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [
+					[
+						'body' => [
+							'shop' => [
+								'tax_type'            => 'excluded',
+								'tax'                 => 10,
+								'reduce_tax_rate'     => 8,
+								'tax_rounding_method' => 'round_down',
+							],
+						],
+					],
+				],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 503 ] ] ] ],
+				'PUT products/503.json' => [ [ 'body' => [ 'product' => [ 'id' => 503 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct( 'Test Product', 'SKU-1', '100', null, null, [], [], [], [], 5, 'publish' );
+		$adapter->push_product( $product, null );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 91, $create_request['body']['product']['sales_price'] );
+	}
+
+	public function test_push_product_creates_simple_product(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), null );
+
+		$this->assertSame( '501', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [], $result->variant_remote_ids );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'Test Product', $create_request['body']['product']['name'] );
+		$this->assertSame( 'SKU-1', $create_request['body']['product']['model_number'] );
+		$this->assertSame( 1100, $create_request['body']['product']['sales_price'] );
+		$this->assertSame( 'showing', $create_request['body']['product']['display_state'] );
+		// POSTのペイロードにはcategory_id_small/group_ids/stocksを含めない（swagger実測。
+		// 計画参照）。
+		$this->assertArrayNotHasKey( 'stocks', $create_request['body']['product'] );
+
+		$this->assertNotNull( $this->find_captured( $captured, 'PUT', 'products/501.json' ) );
+	}
+
+	/**
+	 * R1レビュー指摘（CLAUDE.mdアーキテクチャ原則9）: 税設定不明で価格を1件も解決できなかった
+	 * 場合、無価格のまま`showing`で公開すると実質無料で購入可能になりうる。`display_state`を
+	 * `hidden`へ強制し、`PRODUCT_DETAILS_PUSH_INCOMPLETE`（retry対象）を積むことを確認する。
+	 */
+	public function test_push_product_forces_hidden_when_price_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				// tax_type未設定＝税設定不明。税込→ColorMe基準の価格換算が常に不能になる。
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 502 ] ] ] ],
+				'PUT products/502.json' => [ [ 'body' => [ 'product' => [ 'id' => 502 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
+		$this->assertArrayNotHasKey( 'price', $create_request['body']['product'] );
+		$this->assertArrayNotHasKey( 'sales_price', $create_request['body']['product'] );
+
+		// R3レビュー指摘（Copilot/Codex）: 作成直後の追いPUT（category_id_small/group_ids/stocks
+		// 反映用）が`to_update_payload()`の素のshowingでこの安全策を即座に上書きしていた。
+		// 追いPUTでもhiddenが維持されることを確認する。
+		$follow_up_request = $this->find_captured( $captured, 'PUT', 'products/502.json' );
+		$this->assertNotNull( $follow_up_request );
+		$this->assertSame( 'hidden', $follow_up_request['body']['product']['display_state'] );
+	}
+
+	/**
+	 * G2レビュー指摘（Copilot Suppressed comments）: `tax_class`が`null`/`'reduced-rate'`以外
+	 * （店舗独自の税区分スラッグ、例: `zero-rate`）の場合、`base_payload()`は`tax_reduced=false`
+	 * （標準税率）へフェイルクローズするが、実際には非標準の税区分かもしれない。価格が正しく
+	 * 解決できていても、hidden強制と`PRODUCT_DETAILS_PUSH_INCOMPLETE`が働くことを確認する。
+	 */
+	public function test_push_product_forces_hidden_when_tax_class_is_unsupported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 505 ] ] ] ],
+				'PUT products/505.json' => [ [ 'body' => [ 'product' => [ 'id' => 505 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct(
+			'Zero Rate Product',
+			'SKU-Z',
+			'1000',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[],
+			true,
+			[],
+			null,
+			'zero-rate'
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
+		// 価格自体は解決できているため送られる（税区分だけが未対応）。
+		$this->assertSame( 1000, $create_request['body']['product']['sales_price'] );
+	}
+
+	/**
+	 * G3レビュー指摘（Copilot Suppressed comments）: 更新（PUT）は新規作成のような
+	 * hidden安全策が無いため、`tax_class`が未対応のまま`tax_reduced=false`を送ると、
+	 * 既に（恐らく正しく）設定されているColorMe側の税区分を毎回標準税率へ上書きしてしまう。
+	 * 更新時は`tax_reduced`フィールド自体を省略し、ColorMe側の既存値を保持することを確認する。
+	 */
+	public function test_push_product_omits_tax_reduced_on_update_when_tax_class_is_unsupported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'PUT products/506.json' => [ [ 'body' => [ 'product' => [ 'id' => 506 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct(
+			'Zero Rate Product',
+			'SKU-Z',
+			'1000',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[],
+			true,
+			[],
+			null,
+			'zero-rate'
+		);
+		$result  = $adapter->push_product( $product, '506' );
+
+		// 更新でも警告は積む（checksumをキャッシュさせず再試行対象にする）が、既存の
+		// ColorMe側税区分を上書きしない。
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$update_request = $this->find_captured( $captured, 'PUT', 'products/506.json' );
+		$this->assertNotNull( $update_request );
+		$this->assertArrayNotHasKey( 'tax_reduced', $update_request['body']['product'] );
+	}
+
+	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'PUT products/777.json' => [ [ 'body' => [ 'product' => [ 'id' => 777 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), '777' );
+
+		$this->assertSame( '777', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+
+		// 更新は1回のPUTのみ（作成時のような追いPUTは行わない）。POSTは一切呼ばれない。
+		$put_requests = array_filter( $captured, static fn ( array $request ): bool => 'PUT' === $request['method'] );
+		$this->assertCount( 1, $put_requests );
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products.json' ) );
+	}
+
+	/**
+	 * R2レビュー指摘: 価格を1件も解決できない場合の`display_state=hidden`強制
+	 * （`ProductTransformer::to_create_payload()`）は**新規作成のみ**に適用する。更新時にも
+	 * 同じ判定を適用すると、既に公開・販売中の商品が価格未解決のたびに（税設定取得の一時的な
+	 * 失敗等でも）毎回非公開化されてしまい、安全上の利得が無いまま機会損失だけが生じる。
+	 */
+	public function test_push_product_does_not_force_hidden_on_update_when_price_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'PUT products/778.json' => [ [ 'body' => [ 'product' => [ 'id' => 778 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), '778' );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$update_request = $this->find_captured( $captured, 'PUT', 'products/778.json' );
+		$this->assertNotNull( $update_request );
+		// Wooの商品ステータスが`publish`のため、価格未解決でも`showing`のまま送る
+		// （既存のColorMe側公開状態を毎回非公開へ落とさない）。
+		$this->assertSame( 'showing', $update_request['body']['product']['display_state'] );
+		$this->assertArrayNotHasKey( 'price', $update_request['body']['product'] );
+		$this->assertArrayNotHasKey( 'sales_price', $update_request['body']['product'] );
+	}
+
+	public function test_push_product_creates_variable_product_and_syncs_variant_remote_ids(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				'PUT products/900.json'               => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				// 1回目: まだ軸/バリエーションが存在しない状態。2回目: 軸追加後に自動生成された状態。
+				'GET products/900.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [
+									[
+										'id'            => 9001,
+										'option1_value' => 'Red',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => null,
+									],
+									[
+										'id'            => 9002,
+										'option1_value' => 'Blue',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Blue',
+										],
+										'option2'       => null,
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/900/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/900/variants/9001.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9001 ] ] ] ],
+				'PUT products/900/variants/9002.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9002 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '900', $result->remote_id );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [ '9001', '9002' ], $result->variant_remote_ids );
+
+		// swagger実測: POST /options の values はオブジェクトの配列（GET応答側の文字列配列とは
+		// リクエスト/レスポンスでスキーマが異なる）。
+		$option_request = $this->find_captured( $captured, 'POST', 'products/900/options.json' );
+		$this->assertNotNull( $option_request );
+		$this->assertSame( 'Color', $option_request['body']['option']['name'] );
+		$this->assertSame( [ [ 'name' => 'Red' ], [ 'name' => 'Blue' ] ], $option_request['body']['option']['values'] );
+
+		$variant1_request = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $variant1_request );
+		$this->assertSame( 'VAR-RED', $variant1_request['body']['variant']['model_number'] );
+	}
+
+	/**
+	 * R1レビュー指摘: `ensure_option_values()`は軸を名前で解決するため、ColorMe側の既存
+	 * オプションのスロット割当（作成順で決まる）とWoo側の軸抽出順が一致する保証は無い。
+	 * ここではリモート側で軸のスロットが逆（option1=Size, option2=Color）になっている状態を
+	 * 用意し、`option1_value`/`option2_value`のスロット位置ではなく`{軸名: 値}`で正しく
+	 * 突合できることを確認する。
+	 */
+	public function test_push_product_matches_variants_by_axis_name_even_when_remote_slot_order_differs(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Two Axis Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED-S',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => 'Size',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 950 ] ] ] ],
+				'PUT products/950.json'               => [ [ 'body' => [ 'product' => [ 'id' => 950 ] ] ] ],
+				'GET products/950.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 950,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 950,
+								'options'  => [],
+								'variants' => [
+									[
+										// リモート側はoption1=Size, option2=Colorという逆順で自動生成された想定。
+										'id'            => 9101,
+										'option1_value' => 'S',
+										'option2_value' => 'Red',
+										'option1'       => [
+											'id'    => 2,
+											'name'  => 'Size',
+											'value' => 'S',
+										],
+										'option2'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/950/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/950/variants/9101.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9101 ] ] ] ],
+			]
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( [ '9101' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * R1レビュー指摘: ColorMeはオプション追加で全組み合わせ（直積）を自動生成するため、
+	 * Woo側に対応するバリエーションが無い組み合わせがリモートに残りうる（原則4により
+	 * こちらから削除できない）。無警告のままだと店舗オーナーが気付けないため、
+	 * `PRODUCT_VARIANT_SURPLUS_ON_REMOTE`（retry対象外の情報提供のみ）を積むことを確認する。
+	 */
+	public function test_push_product_warns_when_remote_has_surplus_variant_combinations(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 960 ] ] ] ],
+				'PUT products/960.json'               => [ [ 'body' => [ 'product' => [ 'id' => 960 ] ] ] ],
+				'GET products/960.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 960,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 960,
+								'options'  => [],
+								// Wooはvariants=[Red]のみだが、ColorMe側は直積でRed/Blueの2件が
+								// 自動生成された想定（Blueは対応するWooバリエーションが無いまま残る）。
+								'variants' => [
+									[
+										'id'            => 9201,
+										'option1_value' => 'Red',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => null,
+									],
+									[
+										'id'            => 9202,
+										'option1_value' => 'Blue',
+										'option2_value' => null,
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Blue',
+										],
+										'option2'       => null,
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/960/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/960/variants/9201.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9201 ] ] ] ],
+			]
+		);
+
+		$product = new CanonicalProduct(
+			'Single Variant Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_SURPLUS_ON_REMOTE ], $result->warnings );
+		$this->assertSame( [ '9201' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * R2/G3レビュー指摘: 2軸が同じラベルを持つ場合（`Woo\Support\VariationAxisResolver::
+	 * attribute_label()`はラベル重複を排除しない。例: グローバル属性とローカル属性が両方
+	 * 「Color」）、`{軸名: 値}`マップの素朴な組み立てだと後勝ちで片方の軸が消え、異なる値を持つ
+	 * 複数バリエーションが同じキーに衝突しうる。誤対応付け（SKU/価格/在庫が別バリエーションへ
+	 * 入れ替わってpushされる）を避けるため衝突検出時は突合を諦める。さらにG3では、最終突合の
+	 * 時点まで検出を遅らせるとColorMe側に`POST /options`で余剰なオプション・直積バリエーション
+	 * を作成してしまう（原則4により削除不可）ため、軸名一致は`ensure_option_values()`を呼ぶ
+	 * **前**に検出し、リモートを一切変更しないことを確認する（`POST /options.json`が
+	 * 1回も呼ばれない）。
+	 */
+	public function test_push_product_fails_closed_when_two_axes_share_the_same_name(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Colliding Axis Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-A',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => 'Color',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-B',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Blue',
+					'option2_name'  => 'Color',
+					'option2_value' => 'S',
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'PUT products/970.json' => [ [ 'body' => [ 'product' => [ 'id' => 970 ] ] ] ],
+				'GET products/970.json' => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 970,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		// 軸名の衝突はWoo側の属性ラベル設定を直さない限り再試行しても解決しない終端状態のため
+		// `PRODUCT_VARIANT_PUSH_FAILED`（retry対象外）になる。
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+		// `ensure_option_values()`を呼ぶ前に検出するため、`POST /options`でColorMe側へ
+		// 余剰なオプション・直積バリエーションを作成すること自体が起きない。
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products/970/options.json' ) );
+	}
+
+	/**
+	 * G2レビュー指摘（Copilot）: Wooの「Any <属性>」ワイルドカード（値が空文字列→`option2_value`
+	 * がnullに変換される。CLAUDE.md既知の変換）は、属性自体は割り当てられているため
+	 * `option2_name`は非nullのまま残る「部分指定」になる。従来はこの部分指定を無視して
+	 * `{Color: Red}`のような1軸相当のキーに潰しており、option2の値が異なる複数の
+	 * バリエーションが同じキーに衝突しうる。フェイルクローズ（未確定のまま）することを確認する。
+	 */
+	public function test_push_product_fails_closed_when_axis_has_a_name_without_a_value(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Any Size Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-A',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					// Wooの「Any サイズ」ワイルドカード: 属性(option2_name)は割り当てられているが
+					// 値(option2_value)は空文字列→nullに変換される（部分指定）。
+					'option2_name'  => 'Size',
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 971 ] ] ] ],
+				'PUT products/971.json'          => [ [ 'body' => [ 'product' => [ 'id' => 971 ] ] ] ],
+				'GET products/971.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 971,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/971/options.json' => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+		$this->assertSame( [ '' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * 422（入力エラー）は再試行しても解決しない終端状態のため`PRODUCT_VARIANT_PUSH_FAILED`
+	 * （retry対象外）になる。R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が毎回
+	 * 同じ無駄なリクエスト列を繰り返してしまう。
+	 */
+	public function test_push_product_marks_variant_sync_failed_when_option_creation_gets_a_terminal_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 901 ] ] ] ],
+				'PUT products/901.json'          => [ [ 'body' => [ 'product' => [ 'id' => 901 ] ] ] ],
+				'GET products/901.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 901,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/901/options.json' => [
+					[
+						'body'   => [
+							'errors' => [
+								[
+									'code'    => 422043,
+									'message' => 'invalid',
+									'status'  => 422,
+								],
+							],
+						],
+						'status' => 422,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		// 商品本体は作成済み（remote_id確定）のまま、バリエーションだけが未確定で返る。
+		$this->assertSame( '901', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+	}
+
+	/**
+	 * 5xx（サーバー側の一時的な障害）は再試行対象の`PRODUCT_VARIANT_PUSH_INCOMPLETE`になる
+	 * （`Exporter`がchecksumをキャッシュせず次回exportで自動的に再試行する）。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_option_creation_gets_a_retryable_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 903 ] ] ] ],
+				'PUT products/903.json'          => [ [ 'body' => [ 'product' => [ 'id' => 903 ] ] ] ],
+				'GET products/903.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 903,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/903/options.json' => [
+					[
+						'body'   => [],
+						'status' => 500,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '903', $result->remote_id );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	/**
+	 * R3レビュー指摘（Codex）: `GET /products/{id}`が200応答でも`product`エンベロープが
+	 * 欠損・非配列（スキーマ崩壊）の場合、従来は`$failure`に何も記録せず
+	 * `sync_variants()`が警告を一切積まないまま親のchecksumだけがキャッシュされ、
+	 * バリエーション未同期が恒久的に再試行されなくなっていた。retryableな警告
+	 * （`PRODUCT_VARIANT_PUSH_INCOMPLETE`）が積まれることを確認する。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_detail_response_is_malformed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 904 ] ] ] ],
+				'PUT products/904.json' => [ [ 'body' => [ 'product' => [ 'id' => 904 ] ] ] ],
+				// product情報自体が欠損した200応答（スキーマ崩壊を模す）。
+				'GET products/904.json' => [ [ 'body' => [ 'unexpected' => true ] ] ],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( '904', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * G2レビュー指摘（Copilot Suppressed comments）: `fetch_product_detail()`は`product`
+	 * エンベロープの欠損は検証するが、ネストされた`variants`フィールド自体の欠損・非配列は
+	 * 検証していなかった。正当な「バリエーション0件」（`variants: []`）と区別できず、
+	 * スキーマ崩壊時も無警告で空配列扱いになり、全バリエーションが終端警告
+	 * （`PRODUCT_VARIANT_PUSH_FAILED`）のまま親のchecksumがキャッシュされてしまっていた。
+	 * retryableな警告（`PRODUCT_VARIANT_PUSH_INCOMPLETE`）になることを確認する。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_variants_field_is_missing(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 905 ] ] ] ],
+				'PUT products/905.json'          => [ [ 'body' => [ 'product' => [ 'id' => 905 ] ] ] ],
+				'GET products/905.json'          => [
+					// 1回目: 正常な「バリエーション0件」状態。
+					[
+						'body' => [
+							'product' => [
+								'id'       => 905,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					// 2回目: `variants`キー自体が欠損（スキーマ崩壊を模す）。
+					[
+						'body' => [
+							'product' => [
+								'id'      => 905,
+								'options' => [],
+							],
+						],
+					],
+				],
+				'POST products/905/options.json' => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+	}
+
+	public function test_push_product_pushes_images_when_premium_plan(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 600 ] ] ] ],
+				'PUT products/600.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 600 ] ] ] ],
+				'GET https://cdn.example.test/photo.jpg' => [ [ 'raw_body' => 'FAKE-JPEG-BYTES' ] ],
+				'POST products/600/images.json'          => [
+					[
+						'body'   => [
+							'product_image' => [
+								'position' => 0,
+								'url'      => 'https://cdn.example.test/photo.jpg',
+							],
+						],
+						'status' => 201,
+					],
+				],
+			],
+			$captured
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/photo.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [], $result->warnings );
+
+		$image_request = $this->find_captured( $captured, 'POST', 'products/600/images.json' );
+		$this->assertNotNull( $image_request );
+		$this->assertStringContainsString( 'FAKE-JPEG-BYTES', (string) $image_request['raw'] );
+		$this->assertStringContainsString( 'name="position"', (string) $image_request['raw'] );
+	}
+
+	public function test_push_product_marks_images_not_pushed_when_plan_is_not_premium(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 601 ] ] ] ],
+				'PUT products/601.json' => [ [ 'body' => [ 'product' => [ 'id' => 601 ] ] ] ],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/photo.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings );
+	}
+
+	/**
+	 * 404（Wooサイト自身から添付が削除された等）は再試行しても解決しない終端状態のため
+	 * `PRODUCT_IMAGE_PUSH_FAILED`（retry対象外）になる（R3レビュー指摘, Copilot Suppressed
+	 * comments）。
+	 */
+	public function test_push_product_marks_image_push_failed_when_download_gets_a_terminal_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                            => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                       => [ [ 'body' => [ 'product' => [ 'id' => 602 ] ] ] ],
+				'PUT products/602.json'                    => [ [ 'body' => [ 'product' => [ 'id' => 602 ] ] ] ],
+				'GET https://cdn.example.test/missing.jpg' => [
+					[
+						'body'   => [],
+						'status' => 404,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/missing.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_FAILED ], $result->warnings );
+	}
+
+	/**
+	 * 5xx（Wooサイト側の一時的な障害）は再試行対象の`PRODUCT_IMAGE_PUSH_INCOMPLETE`になる。
+	 */
+	public function test_push_product_marks_image_push_incomplete_when_download_gets_a_retryable_error(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 603 ] ] ] ],
+				'PUT products/603.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 603 ] ] ] ],
+				'GET https://cdn.example.test/flaky.jpg' => [
+					[
+						'body'   => [],
+						'status' => 503,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/flaky.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	/**
+	 * G2レビュー指摘（Codex/Copilot）: 200応答でも本文が空（プロキシ異常等）の場合、従来は
+	 * `\$failure`へ何も記録せずnullを返していたため、警告が一切積まれず親商品のchecksumが
+	 * キャッシュされ画像が永久にpushされなくなっていた。retryableな警告が積まれることを確認する。
+	 */
+	public function test_push_product_marks_image_push_incomplete_when_body_is_empty(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 604 ] ] ] ],
+				'PUT products/604.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 604 ] ] ] ],
+				'GET https://cdn.example.test/empty.jpg' => [
+					[
+						'raw_body' => '',
+						'status'   => 200,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/empty.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $images
+	 */
+	private function simple_product( array $images = [] ): CanonicalProduct {
+		return new CanonicalProduct(
+			'Test Product',
+			'SKU-1',
+			'1100',
+			null,
+			'Product description',
+			$images,
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[ 'short_description' => 'Short desc' ]
+		);
+	}
+
+	private function variable_product(): CanonicalProduct {
+		return new CanonicalProduct(
+			'Variable Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-RED',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-BLUE',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Blue',
+					'option2_name'  => null,
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+	}
+
+	/**
+	 * `push_product()`用のHTTPモック。`$handlers`のキーは`"{METHOD} {URLに含まれる文字列}"`で、
+	 * 値は呼び出し順に消費されるレスポンス列（尽きたら最後の要素を繰り返す）。レスポンスは
+	 * `body`（JSONエンコードして返す）または`raw_body`（文字列をそのまま返す。画像バイナリ取得用）
+	 * のいずれかを持つ連想配列。
+	 *
+	 * @param array<string,array<int,array<string,mixed>>>                          $handlers
+	 * @param array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}> $captured 呼び出し元へ書き戻す実リクエスト履歴。
+	 */
+	private function mock_push_requests( array $handlers, array &$captured = [] ): void {
+		$counts = [];
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( $handlers, &$counts, &$captured ) {
+				$method       = strtoupper( (string) ( $parsed_args['method'] ?? 'GET' ) );
+				$raw_body     = $parsed_args['body'] ?? null;
+				$content_type = (string) ( $parsed_args['headers']['Content-Type'] ?? '' );
+				$decoded      = ( is_string( $raw_body ) && str_starts_with( $content_type, 'application/json' ) )
+					? json_decode( $raw_body, true )
+					: null;
+
+				$captured[] = [
+					'method' => $method,
+					'url'    => $url,
+					'body'   => $decoded,
+					'raw'    => is_string( $raw_body ) ? $raw_body : null,
+				];
+
+				foreach ( $handlers as $needle => $sequence ) {
+					$space = strpos( $needle, ' ' );
+
+					if ( false === $space
+						|| strtoupper( substr( $needle, 0, $space ) ) !== $method
+						|| ! str_contains( $url, substr( $needle, $space + 1 ) ) ) {
+						continue;
+					}
+
+					$index             = $counts[ $needle ] ?? 0;
+					$counts[ $needle ] = $index + 1;
+					$response          = $sequence[ $index ] ?? $sequence[ count( $sequence ) - 1 ];
+
+					if ( array_key_exists( 'raw_body', $response ) ) {
+						return [
+							'response' => [ 'code' => $response['status'] ?? 200 ],
+							'headers'  => [],
+							'body'     => (string) $response['raw_body'],
+						];
+					}
+
+					return $this->json_response( $response['body'] ?? [], $response['status'] ?? 200 );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled ColorMe request: {$method} {$url}" );
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * @param array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}> $captured
+	 * @return ?array{method:string,url:string,body:?array<string,mixed>,raw:?string}
+	 */
+	private function find_captured( array $captured, string $method, string $url_needle ): ?array {
+		foreach ( $captured as $request ) {
+			if ( $method === $request['method'] && str_contains( $request['url'], $url_needle ) ) {
+				return $request;
+			}
+		}
+
+		return null;
 	}
 
 	public function test_fetch_reviews_is_not_supported(): void {

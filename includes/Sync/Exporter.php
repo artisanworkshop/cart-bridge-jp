@@ -253,8 +253,24 @@ final class Exporter {
 				&& in_array( $operation, [ PushResult::OPERATION_CREATED, PushResult::OPERATION_UPDATED ], true );
 
 			if ( $did_push ) {
-				$all_warnings   = array_merge( $read_item->warnings, $sanitized_result_warnings );
-				$fully_resolved = $read_item->fully_resolved && ! WarningCode::indicates_unresolved_reference( $all_warnings );
+				$all_warnings = array_merge( $read_item->warnings, $sanitized_result_warnings );
+
+				// R3レビュー指摘（Copilot）: バリエーションを持つ商品で、アダプタが返す
+				// `variant_remote_ids`の要素数が`variant_local_ids`と一致しない場合
+				// （信頼境界の契約違反。アーキテクチャ原則8）、下のzip処理はこれを無視する
+				// だけだったが、親商品自体のchecksumはそのままキャッシュされてしまっていた。
+				// それだと以後この商品では二度と`push_product()`が呼ばれず、バリエーション
+				// 同期を恒久的に再試行できなくなる。契約違反があった場合は親も未解決扱いにする。
+				// G3レビュー指摘（Copilot）: `variant_local_ids`が空（simple商品）の場合を
+				// 除外していたため、simple商品にアダプタが非空の`variant_remote_ids`を返す
+				// （契約違反）ケースを見落としていた。0件同士の一致（simple商品の正常系）だけを
+				// 許可する単純な件数比較に統一する。
+				$variant_contract_violated = 'product' === $entity
+					&& count( $read_item->variant_local_ids ) !== count( $result->variant_remote_ids );
+
+				$fully_resolved = $read_item->fully_resolved
+					&& ! WarningCode::indicates_unresolved_reference( $all_warnings )
+					&& ! $variant_contract_violated;
 
 				// `Importer`と同じ理由: 未解決参照（category_map欠落等）が残る場合はchecksumを
 				// キャッシュせず、解決可能になった時点で再試行させる。
@@ -280,6 +296,43 @@ final class Exporter {
 					'remote_id' => $result->remote_id,
 					'checksum'  => $checksum,
 				];
+
+				// バリエーションremote_idの書き戻し（`docs/03-design-decisions.md` §10.2
+				// 「E2-3への申し送り」）。`$read_item->variant_local_ids`と
+				// `$result->variant_remote_ids`は呼び出し時に渡した`CanonicalProduct::$variants`と
+				// 同じ順序・同じ要素数になる契約だが、`$result`は外部アダプタ（`cbjp/adapters/
+				// register`経由）が直接返す信頼境界の外側（アーキテクチャ原則8）のため、
+				// 要素数が一致しない場合は契約違反とみなし無視する（zipしない）。
+				if ( 'product' === $entity && [] !== $result->variant_remote_ids
+					&& count( $read_item->variant_local_ids ) === count( $result->variant_remote_ids ) ) {
+					// 外部アダプタの戻り値はキー順を保証しないため、位置ベースでzipする前に
+					// 両方とも0始まり連番へ揃える。
+					$variant_remote_ids = array_values( $result->variant_remote_ids );
+					$variant_local_ids  = array_values( $read_item->variant_local_ids );
+
+					foreach ( $variant_remote_ids as $index => $variant_remote_id ) {
+						if ( ! is_string( $variant_remote_id ) || '' === $variant_remote_id ) {
+							continue;
+						}
+
+						$variant_local_id = $variant_local_ids[ $index ];
+
+						// 商品本体と同じ理由（上記コメント参照。PR #40 G3）: Woo側の属性値リネーム等で
+						// ColorMeが同じバリエーションに対し新しいremote_idを自動生成した場合、
+						// 旧remote_idの行が孤児として残らないよう先に削除する（R1レビュー指摘:
+						// 親商品側にしかこの処理が無かった）。
+						$existing_variant_remote_id = $this->mappings->find_remote_id( $platform, 'variant', $variant_local_id );
+
+						if ( null !== $existing_variant_remote_id && $existing_variant_remote_id !== $variant_remote_id ) {
+							$this->mappings->delete_one( $platform, 'variant', $existing_variant_remote_id );
+						}
+
+						// `VariationWriter::sync_one()`（インポート方向）と同じ規約: バリエーション
+						// 単位のchecksumは追跡せず常にnullで保存する（親商品のchecksumのみで
+						// 冪等性を判定する）。
+						$this->mappings->upsert( $platform, 'variant', $variant_remote_id, $variant_local_id, null );
+					}
+				}
 			} else {
 				if ( $consumed_quota_slot ) {
 					++$remaining;
