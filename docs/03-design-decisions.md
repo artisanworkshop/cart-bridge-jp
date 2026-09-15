@@ -330,7 +330,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 2 | MakeShop: レート制限値 | v3.0 Phase 6 タスク M6-0（FAQ/問い合わせ） | 未 |
 | 3 | MakeShop: 自社利用登録の条件（プラン・費用） | 取得済みのため契約内容をREADME用に記録（v3.0 M6-0） | 未 |
 | 4 | MakeShop: createProduct の画像入力形式 | v3.0 Phase 6 タスク M6-0 | 未 |
-| 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | v1.0 Phase 2 タスク E2-3（テストショップ実測） | 未 |
+| 5 | カラーミー: 受注POSTの必須項目・決済/配送ID | v1.0 Phase 2 タスク E2-3（テストショップ実測） | **済（swagger精査 2026-09-15）**: `POST /v1/sales`はプレミアムプラン契約のショップのみ利用可。必須は`sale.details`（各行`product_id`+`product_num`）と`sale.payment_id`のみ。`sale.customer`は丸ごと省略可（既存顧客IDを渡す場合、他の属性は無視される）。`sale.sale_deliveries`は配送不要商品を含む場合を除き必須（各行必須: `delivery_id`/`name`/`furigana`/`postal`/`pref_id`/`address1`/`tel`）。`sale.details[].price`は省略可（省略するとColorMeの現在のカタログ価格が適用される）。`PUT /sales/{id}`は入金状態・配送情報の一部しか更新できない（明細・決済/配送方法の変更は不可）。実装詳細は§10.2「E2-3 PR-C」。実店舗での`add_member`通知メール確認（要検証#17）とあわせて、実際のColorMeショップに対する動作確認はE2-4またはF1-8相当の実機E2Eで行う |
 | 6 | 大規模ショップのジョブ実行時間 | Phase 1 E2E（F1-8）で計測 | 未 |
 | 7 | カラーミー: リダイレクトURIのhttps要否（ローカル開発時のOAuth可否） | Phase 1 タスク F1-2 | **済（実機確認 2026-09-03）**: デベロッパーコンソールに `http://localhost:8888/wp-json/cbjp/v1/connect/colorme/callback`（wp-env 既定ポート。実際に登録するURLは `GET /connections` が返す `callback_url` を使うこと。実測環境では wp-env が 8898 にバインドされていたが結果は同じ）を登録でき、自動リダイレクト方式で接続完了した。**httpsは必須ではない**（ローカル開発でも自動リダイレクトが使える）。OOB手動貼付フォールバックは引き続き保持する（BASE=要検証#9は別途） |
 | 8 | MakeShop: searchProduct等のページング方式（cursor/offset・最大件数） | v3.0 Phase 6 タスク M6-0 | 未 |
@@ -728,6 +728,79 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   パスワード設定案内等を自動送信するかはswaggerに記載が無い。本プロジェクトは移行時の副作用
   （通知メール等）抑止を重視する方針のため、実店舗確認まで要検証のまま残す（コードは
   round-trip整合性のため`add_member: true`を維持）。
+
+#### エクスポート方向の実装（E2-3 PR-C: `push_order()`）
+
+要検証#5（受注POSTの必須項目・決済/配送ID）を`tests/fixtures/colorme/swagger.json`の
+`POST /v1/sales`精査で確定: プレミアムプラン契約のショップのみ利用可（`capabilities()`の
+`can_create_order`は`is_premium_plan()`で既にゲート済み）、必須は`sale.details`
+（各行`product_id`+`product_num`）と`sale.payment_id`のみ、`sale.customer`は丸ごと省略可で
+既存顧客IDを渡す場合は他の属性が無視される、`sale.sale_deliveries`は配送不要商品を含む場合を
+除き必須（各行の必須項目に`furigana`を含む＝Wooに無いデータ）、`sale.details[].price`を
+省略するとColorMeの現在のカタログ価格が適用される、`PUT /sales/{id}`は入金状態・配送情報の
+一部しか更新できず内容更新は実質不可能。
+
+- **`PlatformAdapter::push_order()`のシグネチャを他のpush系と統一**: `push_order(CanonicalOrder
+  $order): PushResult` → `push_order(CanonicalOrder $order, ?string $remote_id): PushResult`
+  （`push_product`/`push_customer`/`push_coupon`と同じ形。D19が確立した「外部アドオンによる
+  カスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換
+  リスクは低い」という判断を踏襲）。`$remote_id`が非nullの場合はAPIを呼ばず`PushResult('',
+  OPERATION_SKIPPED, [ORDER_UPDATE_NOT_SUPPORTED])`を返す。PUTが内容更新を実質サポートしない
+  ため、再POSTすると重複した受注が作成されてしまう（E2-2 PR-Bレビューで判明した申し送り事項の
+  解消）。checksumはキャッシュされないため、この状態は解消される見込みがない終端警告として
+  毎回の再エクスポートで出続ける（`CUSTOMER_ACCOUNT_PROTECTED`と同じ位置づけ）。
+- **D19の申し送り（`payment_map`/`shipping_map`の逆引きの曖昧性）の解決**: `Woo\Support\
+  MethodMap`に`asp_payment_id()`/`asp_delivery_id()`を追加。Woo側の値に対応するASP側キーを
+  列挙し、**ちょうど1件**のときのみ解決する（0件=未マッピング・2件以上=複数のASP方式が同じ
+  Woo方式に寄せられ曖昧、のいずれも同じ「未解決」として扱い、申し送りが挙げた案のうち
+  「複数一致時はフェイルクローズする」を採用）。未解決の場合は受注全体をpushせず、既存の
+  `WarningCode::PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`（import方向と共通のコード）
+  で警告する。
+- **明細行**: `Woo\Reader\OrderReader`が既に解決済みの`remote_product_id`（親商品のremote_id。
+  バリエーションは`option1_value_current`/`option2_value_current`で識別）をそのまま使う。1行
+  でも未解決なら受注全体をpushしない（`details[].product_id`必須のため部分的な受注を作れない）。
+  この場合の警告は`OrderTransformer::to_create_payload()`からは積まない: `Woo\Reader\
+  OrderReader`が既にreadItemの警告（`ORDER_LINE_PRODUCT_NOT_EXPORTED`等）へ積んでおり、
+  `Sync\Exporter::process_items()`がpush結果と無関係にこれを最終警告へマージするため重複させる
+  必要が無い。
+- **顧客**: `customer_ref`が解決済みなら`customer.id`のみ送る（swagger:
+  「顧客ID以外の顧客情報は無視されます」）。未解決の場合は`extras['customer_snapshot']`
+  （Wooの請求先情報）からベストエフォートでゲスト顧客情報を組み立てる。`customer`自体が
+  `sale`作成に必須ではないため、解決できない項目は省略し受注全体はブロックしない。
+- **配送先（`sale_deliveries`）**: Wooの配送先住所が空（`shipping.address_1`が空）の場合は
+  請求先住所（`customer_snapshot`）へフォールバックする（「配送先を別途指定」しなかった場合、
+  配送先は空のまま保存され請求先が実際の届け先になる一般的なWooチェックアウトの挙動を踏まえた
+  判断）。`postal`/`pref_id`/`address1`/`tel`/`name`のいずれかが解決できない場合は受注全体を
+  pushしない（新警告`ORDER_SHIPPING_ADDRESS_INCOMPLETE`）。`furigana`は値を持たないため
+  空文字列を送る（swagger上パターン制約・`minLength`指定が無いため有効な値）。**既知の制限**:
+  配送不要な仮想商品のみの受注も`CanonicalOrder`が配送要否を運ぶフィールドを持たないため
+  同じ経路でスキップされる。
+- **明細価格**: ショップの`tax_type`（`shop.json`）が既知の値（`excluded`/`included`）の場合
+  のみ、`Woo\Reader\OrderReader`が計算済みの明細単価（`unit_price_excl_tax`/`price`＝税込）を
+  明示指定する。省略するとColorMeの現在のカタログ価格が適用されてしまう（swagger）ため、過去の
+  受注金額を保持するには本来必要だが、税区分が不明なまま断定的に送ると誤った税基準の金額に
+  なりうるため、不明な場合は省略しカタログ価格適用という文書化済みのフォールバックに委ねる。
+  `push_order()`専用に`ColorMeAdapter::order_tax_type()`（`shop.json`を遅延取得・インスタンス
+  単位でキャッシュ）を新設した。import方向の`OrderTransformer::transform()`はこのデータを
+  使わないため、全fetch系メソッドが経由する共有インスタンス`order_transformer()`には持たせず
+  独立させている（`order_transformer()`に混ぜて全呼び出しで無条件に`shop.json`を叩くと、
+  importのみを行うジョブでも不要なAPIコールが発生する）。
+- **在庫二重引き当ての防止**: `POST /sales.json?reserve_stocks=false`を指定する。過去のWoo
+  受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のままだとColorMe側の
+  現在庫を実売と無関係に消費してしまう（在庫同期は別タスクの`push_stock()`の責務）。
+- **共有ロジックの抽出（移動のみ、ロジック変更なし）**: `CustomerTransformer::
+  address_payload()`の本体（postal/pref_id/address1/address2の3点セット判定＋海外住所の地域
+  付記＋`join_address1()`）を`Woo\Support\AddressMapper::to_asp_address_payload( string
+  $platform, array $woo_address ): array`へ移設し（`pref_id_from_state()`と同様`$platform`
+  引数を持つプラットフォーム非依存の形）、`CustomerTransformer`・新設`OrderTransformer`
+  （配送先・ゲスト顧客変換）で共有する。`CustomerTransformer::normalize_tel()`も
+  `Adapters\ColorMe\Transform\Cast::normalize_tel()`へ移設し同様に共有する。「対称の変換を
+  複製すると2箇所が食い違うリスクを負う」というD19 PR-Bで確立済みの方針を踏襲した。
+- **対象外（既知の制限として記録。次PR以降）**: 受注ステータス（paid/delivered/cancelled）の
+  事後同期は行わない（作成時点のColorMe既定状態のまま）。将来必要になれば`PUT /sales/{id}`
+  （`paid`）・`PUT /sales/{id}/cancel`へのフォローアップリクエストとして別途設計する
+  （`push_product()`の複数リクエスト部分完了契約と同種の設計が必要になる）。`push_stock()`は
+  次のPRで対応する。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

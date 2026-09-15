@@ -302,8 +302,17 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     （`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`）。住所スキーム変換は`Woo\Support\AddressMapper`
     に`state_code()`の逆関数`pref_id_from_state()`を追加して行う。詳細は
     `docs/03-design-decisions.md` §10.2「E2-3 PR-B」。
-  - **残り**: `push_order`（`payment_map`/`shipping_map`逆引きの曖昧性が未解決、D19申し送り）・
-    `push_stock`。
+  - **PR-C（`push_order()`のみ、完了、2026-09-15）**: 要検証#5をswagger精査で確定（プレミアム
+    プラン限定・必須は`details`+`payment_id`のみ・`sale_deliveries`は配送不要商品を除き必須・
+    `price`省略時はカラーミーのカタログ価格が適用される）。D19の申し送り（`payment_map`/
+    `shipping_map`逆引きの曖昧性）は`Woo\Support\MethodMap::asp_payment_id()`/`asp_delivery_id()`
+    （Woo側IDに対応するASP側IDがちょうど1件の場合のみ解決、0件・複数一致は未解決として
+    フェイルクローズ）で解決。`push_order()`は`$remote_id`（既存remote_id）を受け取るよう
+    `PlatformAdapter`のシグネチャを統一し、既にエクスポート済みの受注はAPIを呼ばずスキップする
+    （ColorMeの`PUT /sales/{id}`が明細・決済/配送方法の更新を実質サポートしないため、再POSTでの
+    重複作成を防ぐ）。受注ステータス（paid/delivered/cancelled）の事後同期は対象外（既知の制限）。
+    詳細は `docs/03-design-decisions.md` §10.2「E2-3 PR-C」。
+  - **残り**: `push_stock`。
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
 
 **Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。
