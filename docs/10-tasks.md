@@ -289,7 +289,21 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `UnsupportedOperationException`のため、実行(非dry-run)のexportは全件skipped/warnedで完了するのが
   現状の期待動作（配線の正しさはモックアダプタで検証済み）。詳細は `docs/03-design-decisions.md`
   §10.2「エクスポート方向の実装（E2-2 PR-B）」参照。
-- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**。画像は `canPushImages`（`shop.json` の `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら画像URL一覧CSV出力フローへ切替。**E2-2 R1で判明した必須対応**: バリエーションのremote_idを`cbjp_mappings`（`variant`entity）へ書き戻す経路が無い（`PushResult`は商品1件につきremote_id 1つしか運べない）ため、現状のまま`push_product()`を実装するとバリエーションを持つ商品の再エクスポートのたびにASP側で重複作成される。`PushResult`の拡張または別チャネルの設計が必要。**E2-2 G3で判明した必須対応**: `push_product()`が商品本体作成後に画像・バリエーション等の別リクエストを行う実装にする場合、後続リクエストの失敗を部分完了（remote_idは確定・サブリソースは要再試行）として表現できる耐久的な契約が`PushResult`/`Exporter`に無い。詳細は`docs/03-design-decisions.md` §10.2「E2-3/PR-Bへの申し送り」）
+- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**）
+  - **PR-A（`push_product()`のみ、完了、PR #43・2026-09-15）**: 画像は `canPushImages`（`shop.json` の
+    `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら
+    画像URL一覧CSV出力フローへ切替する設計だが、本PRではプレミアムプラン時のみ画像push実装、
+    非プレミアム時は`PRODUCT_IMAGES_NOT_PUSHED`警告に留め、CSV代替フローは未実装（要フォロー）。
+    `PushResult::$variant_remote_ids`（E2-2 R1申し送り）と部分完了の耐久的契約
+    （`is_retryable_failure()`/`record_failure()`/`append_failure_warning()`。E2-2 G3申し送り）を実装。
+    詳細は `docs/03-design-decisions.md` §10.2「E2-3 PR-A」、`docs/reviews/feat/e2-3-push-product/`。
+  - **PR-B（`push_customer()`のみ、完了、2026-09-15）**: 新規作成必須項目（`pref_id`/`postal`/
+    `address1`/`tel`）をWoo顧客の請求先情報から解決できない場合はAPIを呼ばずスキップ
+    （`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`）。住所スキーム変換は`Woo\Support\AddressMapper`
+    に`state_code()`の逆関数`pref_id_from_state()`を追加して行う。詳細は
+    `docs/03-design-decisions.md` §10.2「E2-3 PR-B」。
+  - **残り**: `push_order`（`payment_map`/`shipping_map`逆引きの曖昧性が未解決、D19申し送り）・
+    `push_stock`。
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
 
 **Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。

@@ -649,6 +649,48 @@ PR-A（product）に続き、`Woo\Reader\CustomerReader`/`OrderReader`/`StockRea
   （`push_order( CanonicalOrder $order, ?string $remote_id ): PushResult`。3ASP全ての実装への
   影響を要確認）を検討すること。
 
+#### エクスポート方向の実装（E2-3 PR-A: `push_product()`）
+
+`ColorMeAdapter::push_product()`（PR #43）が上記「E2-3への申し送り」の3項目
+（バリエーションremote_id永続化・部分完了契約・要検証#5着手前の実装）に対応した。
+`PushResult::$variant_remote_ids` + `ReadItem::$variant_local_ids`でバリエーション単位の
+remote_idを`cbjp_mappings`（`variant`）へ書き戻し、部分完了は`WarningCode::
+indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`record_failure()`/
+`append_failure_warning()`（再試行可能/終端の分類）で表現する。詳細・レビュー履歴は
+`docs/reviews/feat/e2-3-push-product/`参照。
+
+#### エクスポート方向の実装（E2-3 PR-B: `push_customer()`）
+
+- **住所スキーム変換は`Woo\Support\AddressMapper`に対称の逆関数を追加**: インポート方向の
+  `state_code()`/`is_overseas()`（ColorMeの`pref_id`1-47=都道府県／48=海外というエンコーディングを
+  `PREF_ID_SCHEME_PLATFORMS`でColorMeのみに限定して解釈する）に対し、エクスポート方向で必要な
+  `state`→`pref_id`の逆変換を`pref_id_from_state( string $platform, ?string $state, ?string $country
+  ): ?int`として同じファイル・同じゲートで追加した。`state`が`JP01`〜`JP47`ならその数値、
+  一致せず`country`が非空かつ`'JP'`以外なら`48`（海外。swaggerの`pref_id`description記載の特別値）、
+  それ以外は変換不能として`null`。「ASP固有スキームへの変換はpush_customer()の責務」
+  （E2-2 PR-B、上記「住所はWooネイティブのキーのまま運ぶ」参照）という方針は
+  「`Woo\Reader\CustomerReader`（プラットフォーム非依存）に変換を持ち込まない」ことが本旨であり、
+  既にColorMe専用ゲート済みの`AddressMapper`を`Adapters\ColorMe\Transform\CustomerTransformer`から
+  再利用することはこれに反しないと判断した（対称の変換を複製すると2箇所が食い違うリスクを負う）。
+- **新規作成必須フィールドの欠落はAPIを呼ばずスキップ**: `POST /v1/customers`は`name`/`mail`/
+  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は部分更新で必須項目なし）。Woo顧客の請求先情報
+  から`pref_id`/`postal`/`address1`/`tel`のいずれかを解決できない場合、送信すると確実に422になる
+  ため`CustomerTransformer::to_create_payload()`が`null`を返し、`ColorMeAdapter::push_customer()`が
+  `PushResult('', OPERATION_SKIPPED, [WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING])`で
+  フェイルクローズする（`push_product()`の`requires_hidden_safeguard()`と同じ思想）。`remote_id`が
+  空文字列のため`Sync\Exporter`はmappingsへupsertせず、店舗がWoo側の顧客情報を補完すれば次回
+  exportで自動的に再試行される。この警告は`PushResult`からのみ発生し`DryRunPlatformWriter`は
+  アダプタを呼ばないため、dry-runでは検出できない（`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ
+  既知の限界）。
+- **新規作成時に`add_member: true`を送る**: ColorMeの`member`（会員登録済みフラグ）が`false`の
+  顧客は`CustomerTransformer::transform()`（インポート方向）がWoo顧客として取り込まないゲスト
+  スナップショット扱いのため、対称性を保つには作成した顧客も会員登録する必要がある。付けないと
+  ColorMe側でログイン不可のゲスト相当になり、往復インポートで再度取り込めなくなる。
+- **`extras`の往復ロスは対応しない（既知の制限）**: `Woo\Reader\CustomerReader::to_read_item()`は
+  `CanonicalCustomer::$extras`を常に`[]`で構築するため、`fax`/`sex`/`tel_mobile`/
+  `answer_free_form1-3`はColorMeにインポート時点で取り込まれていてもexportで送信できない。
+  この往復時のデータ欠損の扱いはE2-4「往復E2E」のスコープとする。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
