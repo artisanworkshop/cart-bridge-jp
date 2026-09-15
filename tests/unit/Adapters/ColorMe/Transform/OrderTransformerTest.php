@@ -8,7 +8,9 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\Support\MethodMap;
 use RuntimeException;
 use WP_UnitTestCase;
 
@@ -586,6 +588,313 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$order = $this->make_transformer()->transform( $raw );
 
 		$this->assertNull( $order->extras['customer_snapshot'] );
+	}
+
+	protected function tearDown(): void {
+		delete_option( 'cbjp_settings_colorme' );
+
+		parent::tearDown();
+	}
+
+	/**
+	 * 顧客・決済・配送すべてが解決できる正常系。`customer_ref`が解決済みのため`customer`は
+	 * `id`のみ（swagger: 「顧客ID以外の顧客情報は無視されます」）、`tax_type=excluded`のため
+	 * 明細の`price`は`unit_price_excl_tax`（税抜）の整数円になることを確認する。
+	 */
+	public function test_to_create_payload_builds_order_when_everything_resolves(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'customer_ref' => '9001' ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'excluded' );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertFalse( $result['line_items_unresolved'] );
+		$this->assertNull( $result['unmapped_payment_method_id'] );
+		$this->assertNull( $result['unmapped_shipping_method_id'] );
+		$this->assertFalse( $result['shipping_address_incomplete'] );
+
+		$payload = $result['payload'];
+		$this->assertSame( [ 'id' => 9001 ], $payload['customer'] );
+		$this->assertSame( 751, $payload['payment_id'] );
+		$this->assertSame( 640580, $payload['sale_deliveries'][0]['delivery_id'] );
+		$this->assertSame( 5001, $payload['details'][0]['product_id'] );
+		$this->assertSame( 2, $payload['details'][0]['product_num'] );
+		// 税抜単価1000.00円が整数円1000へ変換されることを確認する。
+		$this->assertSame( 1000, $payload['details'][0]['price'] );
+	}
+
+	/**
+	 * `customer_ref`が未解決の場合、`extras['customer_snapshot']`（Wooの請求先情報）から
+	 * ベストエフォートでゲスト顧客情報を組み立てる。
+	 */
+	public function test_to_create_payload_uses_guest_customer_fields_when_customer_ref_unresolved(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertSame(
+			[
+				'name'     => '山田 太郎',
+				'mail'     => 'taro@example.com',
+				'tel'      => '03-1234-5678',
+				'postal'   => '1000001',
+				'address1' => '千代田区1-1',
+				'pref_id'  => 13,
+			],
+			$result['payload']['customer']
+		);
+	}
+
+	/**
+	 * Wooの配送先住所が空（`address_1`が空）の場合は請求先住所（`customer_snapshot`）へ
+	 * フォールバックする（「配送先を別途指定」しなかった一般的なWooチェックアウトの挙動）。
+	 */
+	public function test_to_create_payload_falls_back_to_billing_address_when_shipping_address_is_empty(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => null ] ) ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertFalse( $result['shipping_address_incomplete'] );
+		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
+		$this->assertSame( '', $result['payload']['sale_deliveries'][0]['furigana'] );
+	}
+
+	/**
+	 * 配送先・請求先いずれからも住所を解決できない場合、`sale_deliveries`必須項目
+	 * （`postal`/`pref_id`/`address1`/`tel`/`name`）を満たせないため受注全体をpushしない。
+	 */
+	public function test_to_create_payload_returns_null_payload_when_shipping_address_is_unresolvable(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order(
+			[
+				'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => null ] ),
+				'extras'   => [
+					'customer_snapshot' => null,
+					'paid'              => true,
+					'currency'          => 'JPY',
+				],
+			]
+		);
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertTrue( $result['shipping_address_incomplete'] );
+	}
+
+	/**
+	 * `payment_map`にWoo側の決済ゲートウェイIDへ対応するASP側IDが無い場合、受注全体をpushしない
+	 * （D19: 決済IDは`sale.payment_id`必須のため未解決のまま送信できない）。
+	 */
+	public function test_to_create_payload_flags_unmapped_payment_method(): void {
+		$this->set_method_maps( [], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
+	}
+
+	/**
+	 * `payment_map`はASP側ID=>Woo側IDで単射とは限らない（D19）。複数のASP決済方法が同じWoo
+	 * ゲートウェイへ寄せられている場合、どちらが実際に使われたか機械的に判定できないため
+	 * 未マッピングと同じくフェイルクローズする。
+	 */
+	public function test_to_create_payload_flags_ambiguous_payment_method_mapping(): void {
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [
+					'751' => 'bacs',
+					'900' => 'bacs',
+				],
+				'shipping_map' => [ '640580' => 'flat_rate:6' ],
+			]
+		);
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
+	}
+
+	/**
+	 * `shipping_map`が未解決の場合も同様にフェイルクローズする。
+	 */
+	public function test_to_create_payload_flags_unmapped_shipping_method(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertSame( 'flat_rate:6', $result['unmapped_shipping_method_id'] );
+	}
+
+	/**
+	 * 明細の`remote_product_id`が1行でも未解決（商品が未エクスポート・削除済み等）の場合、
+	 * `details[].product_id`必須のため受注全体をpushしない。`Woo\Reader\OrderReader`が既に
+	 * readItemの警告へ積んでいるため、ここでは追加の警告フラグを立てない
+	 * （`line_items_unresolved`のみtrueにする）。
+	 */
+	public function test_to_create_payload_returns_null_payload_when_a_line_item_is_unresolved(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order(
+			[
+				'line_items' => [
+					array_merge( $this->default_line_item(), [ 'remote_product_id' => null ] ),
+				],
+			]
+		);
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNull( $result['payload'] );
+		$this->assertTrue( $result['line_items_unresolved'] );
+	}
+
+	/**
+	 * ショップの`tax_type`が不明（`shop.json`未取得・未知の値）な場合、誤った税区分で断定的に
+	 * 送信するより安全のため`price`を省略する（ColorMeの現在のカタログ価格が適用される）。
+	 */
+	public function test_to_create_payload_omits_price_when_tax_type_is_unknown(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertArrayNotHasKey( 'price', $result['payload']['details'][0] );
+	}
+
+	/**
+	 * `tax_type=included`の場合、明細の税込単価（`price`）をそのまま整数円で送る。
+	 */
+	public function test_to_create_payload_sends_incl_tax_price_when_tax_type_included(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order();
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+
+		// 税込単価1100.00円が整数円1100へ変換されることを確認する。
+		$this->assertSame( 1100, $result['payload']['details'][0]['price'] );
+	}
+
+	private function set_method_maps( array $payment_map, array $shipping_map ): void {
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => array_flip( $payment_map ),
+				'shipping_map' => array_flip( $shipping_map ),
+			]
+		);
+	}
+
+	private function make_export_transformer(): OrderTransformer {
+		return new OrderTransformer();
+	}
+
+	/**
+	 * @param array<string,mixed> $overrides `CanonicalOrder`のコンストラクタ引数名をキーにした
+	 *   トップレベルの上書き（サブ配列は丸ごと置き換え。部分上書きしたい場合は
+	 *   `default_shipping()`等を呼び`array_merge()`で組み立てる）。
+	 */
+	private function make_export_order( array $overrides = [] ): CanonicalOrder {
+		$defaults = [
+			'number'       => '1001',
+			'status'       => 'processing',
+			'customer_ref' => null,
+			'line_items'   => [ $this->default_line_item() ],
+			'shipping'     => $this->default_shipping(),
+			'payment'      => [
+				'method_id'   => 'bacs',
+				'method_name' => 'Bank transfer',
+				'fee'         => '0',
+			],
+			'totals'       => [
+				'discount'     => '0',
+				'shipping_fee' => '500',
+				'tax'          => '300',
+				'total'        => '3000',
+			],
+			'placed_at'    => '2026-01-01T00:00:00+00:00',
+			'note'         => null,
+			'extras'       => [
+				'customer_snapshot' => [
+					'name'      => '山田 太郎',
+					'email'     => 'taro@example.com',
+					'phone'     => '03-1234-5678',
+					'company'   => null,
+					'address_1' => '1-1',
+					'address_2' => null,
+					'city'      => '千代田区',
+					'state'     => 'JP13',
+					'postcode'  => '1000001',
+					'country'   => 'JP',
+				],
+				'paid'              => true,
+				'currency'          => 'JPY',
+			],
+		];
+
+		$merged = array_merge( $defaults, $overrides );
+
+		return new CanonicalOrder(
+			$merged['number'],
+			$merged['status'],
+			$merged['customer_ref'],
+			$merged['line_items'],
+			$merged['shipping'],
+			$merged['payment'],
+			$merged['totals'],
+			$merged['placed_at'],
+			$merged['note'],
+			$merged['extras']
+		);
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function default_line_item(): array {
+		return [
+			'sku'                   => 'SKU-1',
+			'remote_product_id'     => '5001',
+			'option1_value_current' => null,
+			'option2_value_current' => null,
+			'name'                  => 'Sample product',
+			'quantity'              => 2,
+			'price'                 => '1100.00',
+			'subtotal'              => '2200.00',
+			'unit_price_excl_tax'   => '1000.00',
+			'tax_reduced'           => false,
+		];
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function default_shipping(): array {
+		return [
+			'method_id'   => 'flat_rate:6',
+			'method_name' => 'Flat rate',
+			'fee'         => '500',
+			'name'        => '山田 太郎',
+			'tel'         => '03-1234-5678',
+			'company'     => null,
+			'address_1'   => '1-1',
+			'address_2'   => null,
+			'city'        => '千代田区',
+			'state'       => 'JP13',
+			'postcode'    => '1000001',
+			'country'     => 'JP',
+		];
 	}
 
 	private function make_transformer(): OrderTransformer {

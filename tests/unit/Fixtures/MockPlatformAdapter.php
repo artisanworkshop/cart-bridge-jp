@@ -58,7 +58,7 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	public array $pushed_customers = [];
 
 	/**
-	 * @var array<int,CanonicalOrder>
+	 * @var array<int,array{0:CanonicalOrder,1:?string}>
 	 */
 	public array $pushed_orders = [];
 
@@ -258,12 +258,16 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		return new PushResult( (string) $this->next_pushed_other_remote_id++, PushResult::OPERATION_CREATED );
 	}
 
-	public function push_order( CanonicalOrder $order ): PushResult {
+	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult {
 		if ( ! $this->push_others_supported ) {
 			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 		}
 
-		$this->pushed_orders[] = $order;
+		$this->pushed_orders[] = [ $order, $remote_id ];
+
+		if ( null !== $remote_id ) {
+			return new PushResult( $remote_id, PushResult::OPERATION_UPDATED );
+		}
 
 		return new PushResult( (string) $this->next_pushed_other_remote_id++, PushResult::OPERATION_CREATED );
 	}

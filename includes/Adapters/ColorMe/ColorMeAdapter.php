@@ -34,6 +34,7 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -89,6 +90,16 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * 1回だけ叩けば足りる）。
 	 */
 	private ?ProductTransformer $product_transformer = null;
+
+	/**
+	 * `push_order()`の明細価格解決にのみ使う店舗税区分（`shop.json`の`tax_type`）。import方向の
+	 * `OrderTransformer::transform()`はこのデータを使わないため、`$order_transformer`（全fetch系
+	 * メソッドが経由する共有インスタンス）には持たせず、push時にのみ独立して遅延取得・
+	 * インスタンス単位でキャッシュする（`$order_transformer`/`$product_transformer`と同じ理由）。
+	 */
+	private ?string $order_tax_type = null;
+
+	private bool $order_tax_type_loaded = false;
 
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
@@ -1226,8 +1237,61 @@ final class ColorMeAdapter implements PlatformAdapter {
 		return new PushResult( $customer_remote_id, $operation );
 	}
 
-	public function push_order( CanonicalOrder $order ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult {
+		if ( null !== $remote_id ) {
+			// ColorMeの`PUT /sales/{id}`は入金状態・配送情報の一部しか更新できず、明細・決済/配送
+			// 方法の変更はできない（swagger実測）。再`POST /sales`すると重複した受注が作成されて
+			// しまうため、既にエクスポート済みの受注はAPIを一切呼ばずスキップする
+			// （`docs/03-design-decisions.md` §10.2「E2-3 push_order」参照）。
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ] );
+		}
+
+		$result = $this->order_transformer()->to_create_payload( $order, new MethodMap( self::ID ), $this->order_tax_type() );
+
+		if ( null === $result['payload'] ) {
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, self::order_skip_warnings( $result ) );
+		}
+
+		// 過去のWoo受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のまま
+		// だとColorMe側の現在庫を実売と無関係に消費してしまう（在庫同期は別途push_stock()の責務）。
+		$body = $this->client()->post( 'sales.json?reserve_stocks=false', [ 'sale' => $result['payload'] ] );
+
+		$order_remote_id = Cast::to_string_or_null( $body['sale']['id'] ?? null );
+
+		if ( null === $order_remote_id ) {
+			// `push_product()`/`push_customer()`と同じ理由: remote_idが取得できない「成功」応答を
+			// そのまま返すとmappingsに書き込めず、次回exportが常に新規作成扱いになり重複が
+			// 発生し続ける。
+			throw new RuntimeException( 'ColorMe order push response is missing the sale id.' );
+		}
+
+		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED );
+	}
+
+	/**
+	 * `OrderTransformer::to_create_payload()`が`payload=null`を返した理由を対応する警告へ翻訳する。
+	 * `line_items_unresolved`は警告を積まない（`Woo\Reader\OrderReader`が既にreadItemの警告へ
+	 * 積んでおり`Sync\Exporter`が結果と無関係にマージするため。同メソッドのdocblock参照）。
+	 *
+	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool} $result
+	 * @return array<int,string>
+	 */
+	private static function order_skip_warnings( array $result ): array {
+		$warnings = [];
+
+		if ( null !== $result['unmapped_payment_method_id'] ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $result['unmapped_payment_method_id'] );
+		}
+
+		if ( null !== $result['unmapped_shipping_method_id'] ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $result['unmapped_shipping_method_id'] );
+		}
+
+		if ( $result['shipping_address_incomplete'] ) {
+			$warnings[] = WarningCode::ORDER_SHIPPING_ADDRESS_INCOMPLETE;
+		}
+
+		return $warnings;
 	}
 
 	public function push_stock( CanonicalStock $stock ): PushResult {
@@ -1296,6 +1360,25 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 
 		return $this->order_transformer;
+	}
+
+	/**
+	 * `push_order()`の明細価格解決に必要な店舗税設定（`shop.tax_type`）を`GET /v1/shop.json`から
+	 * 取得する（`product_transformer()`と同じ取得パターン）。値が欠損・非期待型の場合は`null`の
+	 * まま`OrderTransformer::to_create_payload()`へ渡し、同メソッド側のフェイルクローズ
+	 * （既知の許可値のみ肯定判定・不明時は明細価格を省略しColorMeのカタログ価格適用に委ねる）に
+	 * 任せる。
+	 */
+	private function order_tax_type(): ?string {
+		if ( ! $this->order_tax_type_loaded ) {
+			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = is_array( $shop ) ? $shop : [];
+
+			$this->order_tax_type        = Cast::to_string_or_null( $shop['tax_type'] ?? null );
+			$this->order_tax_type_loaded = true;
+		}
+
+		return $this->order_tax_type;
 	}
 
 	/**

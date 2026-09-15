@@ -104,6 +104,27 @@ final class WarningCode {
 	 */
 	public const CUSTOMER_REQUIRED_FIELD_MISSING = 'customer_required_field_missing';
 
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注が既にASP側へエクスポート済み（`$remote_id`が非null）
+	 * のため、再pushせずスキップした。ColorMeの`PUT /sales/{id}`は入金状態・配送情報の一部しか
+	 * 更新できず、明細・決済方法・配送方法の変更はできない（swagger実測）ため、内容が変わった
+	 * 受注を`POST /sales`で再送すると重複した受注が作成されてしまう。checksumはキャッシュされない
+	 * （`Sync\Exporter`の`did_push`判定で空remote_idのため常にfalse）ため、この警告は解消される
+	 * 見込みがない終端状態として毎回の再エクスポートで出続ける（`CUSTOMER_ACCOUNT_PROTECTED`と
+	 * 同じ位置づけ）。
+	 */
+	public const ORDER_UPDATE_NOT_SUPPORTED = 'order_update_not_supported';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注作成に必要な配送先住所（`sale_deliveries`。
+	 * `postal`/`pref_id`/`address1`/`tel`/`name`が必須）をWoo受注の配送先・請求先いずれからも
+	 * 解決できなかった。送信すると確実に422になるため、事前にフェイルクローズしてスキップする
+	 * （`CUSTOMER_REQUIRED_FIELD_MISSING`と同じ思想）。配送不要な仮想商品のみの受注も
+	 * `CanonicalOrder`が配送要否を運ぶフィールドを持たないため同じ経路でスキップされる
+	 * （既知の制限）。
+	 */
+	public const ORDER_SHIPPING_ADDRESS_INCOMPLETE = 'order_shipping_address_incomplete';
+
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';

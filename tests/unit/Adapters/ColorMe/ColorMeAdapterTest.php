@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
@@ -27,6 +28,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_all_filters( 'pre_http_request' );
+		delete_option( 'cbjp_settings_colorme' );
 		parent::tear_down();
 	}
 
@@ -1442,6 +1444,189 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->expectException( RuntimeException::class );
 
 		$adapter->push_customer( $this->exported_customer(), null );
+	}
+
+	/**
+	 * ColorMeの`PUT /sales/{id}`は入金状態・配送情報の一部しか更新できず、明細・決済/配送方法の
+	 * 変更はできない。再`POST /sales`すると重複した受注が作成されてしまうため、既に
+	 * エクスポート済み（`$remote_id`が非null）の受注はAPIを一切呼ばずスキップすることを確認する。
+	 */
+	public function test_push_order_skips_when_already_exported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$result = $adapter->push_order( $this->exported_order(), '12345' );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ], $result->warnings );
+		$this->assertSame( [], $captured );
+	}
+
+	/**
+	 * 決済/配送方法が一意に解決でき、配送先住所も揃っている正常系。過去のWoo受注を複製する
+	 * のであって新規注文ではないため`reserve_stocks=false`を指定することも確認する。
+	 */
+	public function test_push_order_creates_new_order_with_resolved_payment_and_shipping(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [ '751' => 'bacs' ],
+				'shipping_map' => [ '640580' => 'flat_rate:6' ],
+			]
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'       => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
+				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
+				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
+				'POST sales.json'     => [ [ 'body' => [ 'sale' => [ 'id' => 88001 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_order( $this->exported_order(), null );
+
+		$this->assertSame( '88001', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'sales.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertStringContainsString( 'reserve_stocks=false', $create_request['url'] );
+		$this->assertSame( 751, $create_request['body']['sale']['payment_id'] );
+		$this->assertSame( 640580, $create_request['body']['sale']['sale_deliveries'][0]['delivery_id'] );
+		$this->assertSame( 5001, $create_request['body']['sale']['details'][0]['product_id'] );
+		$this->assertSame( [ 'id' => 9001 ], $create_request['body']['sale']['customer'] );
+	}
+
+	/**
+	 * `payment_map`/`shipping_map`にWoo側IDへ一意に対応するASP側IDが無い場合、`sale.payment_id`/
+	 * `sale.sale_deliveries[].delivery_id`必須のため受注全体をpushしない（D19）。
+	 */
+	public function test_push_order_skips_when_payment_and_shipping_are_unmapped(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'       => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
+				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_order( $this->exported_order(), null );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame(
+			[
+				WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'bacs' ),
+				WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'flat_rate:6' ),
+			],
+			$result->warnings
+		);
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'sales.json' ) );
+	}
+
+	public function test_push_order_throws_when_response_is_missing_the_sale_id(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [ '751' => 'bacs' ],
+				'shipping_map' => [ '640580' => 'flat_rate:6' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'       => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET payments.json'   => [ [ 'body' => [ 'payments' => [] ] ] ],
+				'GET deliveries.json' => [ [ 'body' => [ 'deliveries' => [] ] ] ],
+				'POST sales.json'     => [ [ 'body' => [ 'sale' => [] ] ] ],
+			]
+		);
+
+		$this->expectException( RuntimeException::class );
+
+		$adapter->push_order( $this->exported_order(), null );
+	}
+
+	private function exported_order(): CanonicalOrder {
+		return new CanonicalOrder(
+			'1001',
+			'processing',
+			'9001',
+			[
+				[
+					'sku'                   => 'SKU-1',
+					'remote_product_id'     => '5001',
+					'option1_value_current' => null,
+					'option2_value_current' => null,
+					'name'                  => 'Sample product',
+					'quantity'              => 2,
+					'price'                 => '1100.00',
+					'subtotal'              => '2200.00',
+					'unit_price_excl_tax'   => '1000.00',
+					'tax_reduced'           => false,
+				],
+			],
+			[
+				'method_id'   => 'flat_rate:6',
+				'method_name' => 'Flat rate',
+				'fee'         => '500',
+				'name'        => '山田 太郎',
+				'tel'         => '03-1234-5678',
+				'company'     => null,
+				'address_1'   => '千代田1-1-1',
+				'address_2'   => null,
+				'city'        => '千代田区',
+				'state'       => 'JP13',
+				'postcode'    => '1000001',
+				'country'     => 'JP',
+			],
+			[
+				'method_id'   => 'bacs',
+				'method_name' => 'Bank transfer',
+				'fee'         => '0',
+			],
+			[
+				'discount'     => '0',
+				'shipping_fee' => '500',
+				'tax'          => '300',
+				'total'        => '3000',
+			],
+			'2026-01-01T00:00:00+00:00',
+			null,
+			[
+				'customer_snapshot' => [
+					'name'      => '山田 太郎',
+					'email'     => 'taro@example.com',
+					'phone'     => '03-1234-5678',
+					'company'   => null,
+					'address_1' => '千代田1-1-1',
+					'address_2' => null,
+					'city'      => '千代田区',
+					'state'     => 'JP13',
+					'postcode'  => '1000001',
+					'country'   => 'JP',
+				],
+				'paid'              => true,
+				'currency'          => 'JPY',
+			]
+		);
 	}
 
 	private function exported_customer(): CanonicalCustomer {

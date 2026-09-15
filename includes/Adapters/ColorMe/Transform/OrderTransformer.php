@@ -8,6 +8,9 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Support\Money;
+use CartBridgeJP\Woo\Support\AddressMapper;
+use CartBridgeJP\Woo\Support\MethodMap;
 use RuntimeException;
 
 /**
@@ -66,6 +69,249 @@ final class OrderTransformer {
 			Cast::to_string_or_null( $raw['memo'] ?? null ),
 			$this->extras( $raw )
 		);
+	}
+
+	/**
+	 * `POST /v1/sales`（新規作成）向けのペイロード。`docs/03-design-decisions.md` §10.2
+	 * 「E2-3 push_order」参照。`$order`は`Woo\Reader\OrderReader`が組み立てたエクスポート方向の
+	 * `CanonicalOrder`（`payment`/`shipping`はWoo側の生コードのまま、明細の`remote_product_id`は
+	 * `cbjp_mappings`で解決済み）を前提とする。
+	 *
+	 * WarningCode（`Woo\WarningCode`）はこのクラスの責務外（`Adapters\ColorMe\Transform`は
+	 * ColorMeAdapterからのみ参照される変換層であり、`CustomerTransformer`と同様に`Woo\WarningCode`
+	 * へ依存しない。呼び出し元の`ColorMeAdapter::push_order()`が戻り値を対応する警告へ翻訳する）。
+	 *
+	 * 明細の`remote_product_id`が1行でも未解決（商品が未エクスポート・削除済み等）の場合は
+	 * `line_items_unresolved=true`で`payload=null`を返す。この場合の警告は本メソッドからは
+	 * 積まない: `Woo\Reader\OrderReader`が既にreadItemの警告（`ORDER_LINE_PRODUCT_NOT_EXPORTED`等）
+	 * へ積んでおり、`Sync\Exporter::process_items()`がpush結果と無関係にこれを最終警告へマージする
+	 * ため重複させる必要が無い。
+	 *
+	 * @param ?string $tax_type `shop.json`の`tax_type`（`excluded`/`included`）。既知の値の場合のみ
+	 *   明細へ`price`を明示指定する（`line_price()`参照。`ColorMeAdapter::push_order()`が
+	 *   必要になった時点でのみ`shop.json`を取得して渡す。import方向の`transform()`は
+	 *   このデータを使わないため、`order_transformer()`の共有インスタンスには持たせない）。
+	 * @return array{
+	 *   payload: ?array<string,mixed>,
+	 *   line_items_unresolved: bool,
+	 *   unmapped_payment_method_id: ?string,
+	 *   unmapped_shipping_method_id: ?string,
+	 *   shipping_address_incomplete: bool,
+	 * }
+	 */
+	public function to_create_payload( CanonicalOrder $order, MethodMap $method_map, ?string $tax_type ): array {
+		$details = $this->details( $order->line_items, $tax_type );
+
+		$payment_method_id = Cast::to_string_or_null( $order->payment['method_id'] ?? null );
+		$payment_id        = null !== $payment_method_id ? $method_map->asp_payment_id( $payment_method_id ) : null;
+
+		$shipping_method_id = Cast::to_string_or_null( $order->shipping['method_id'] ?? null );
+		$delivery_id        = null !== $shipping_method_id ? $method_map->asp_delivery_id( $shipping_method_id ) : null;
+
+		$delivery_address = $this->delivery_address( $order );
+
+		$result = [
+			'payload'                     => null,
+			'line_items_unresolved'       => null === $details,
+			'unmapped_payment_method_id'  => null === $payment_id ? ( $payment_method_id ?? '' ) : null,
+			'unmapped_shipping_method_id' => null === $delivery_id ? ( $shipping_method_id ?? '' ) : null,
+			'shipping_address_incomplete' => null === $delivery_address,
+		];
+
+		if ( null === $details || null === $payment_id || null === $delivery_id || null === $delivery_address ) {
+			return $result;
+		}
+
+		$payload = [
+			'details'         => $details,
+			'payment_id'      => (int) $payment_id,
+			'sale_deliveries' => [ array_merge( [ 'delivery_id' => (int) $delivery_id ], $delivery_address ) ],
+		];
+
+		$customer = $this->customer_payload( $order );
+
+		if ( [] !== $customer ) {
+			$payload['customer'] = $customer;
+		}
+
+		$result['payload'] = $payload;
+
+		return $result;
+	}
+
+	/**
+	 * `details[]`（明細）を組み立てる。1行でも`remote_product_id`が未解決、または明細自体が
+	 * 0行の場合は`null`（`sale.details`必須のため部分的な受注を作れない）。
+	 *
+	 * @param array<int,array<string,mixed>> $line_items `Woo\Reader\OrderReader::line_items()`の形。
+	 * @return ?array<int,array<string,mixed>>
+	 */
+	private function details( array $line_items, ?string $tax_type ): ?array {
+		if ( [] === $line_items ) {
+			return null;
+		}
+
+		$details = [];
+
+		foreach ( $line_items as $item ) {
+			$remote_product_id = Cast::to_int_or_null( $item['remote_product_id'] ?? null );
+
+			if ( null === $remote_product_id ) {
+				return null;
+			}
+
+			$detail = [
+				'product_id'  => $remote_product_id,
+				'product_num' => Cast::to_int_or_null( $item['quantity'] ?? null ) ?? 1,
+			];
+
+			$option1_value = Cast::to_string_or_null( $item['option1_value_current'] ?? null );
+
+			if ( null !== $option1_value ) {
+				$detail['option1_value'] = $option1_value;
+			}
+
+			$option2_value = Cast::to_string_or_null( $item['option2_value_current'] ?? null );
+
+			if ( null !== $option2_value ) {
+				$detail['option2_value'] = $option2_value;
+			}
+
+			$price = $this->line_price( $item, $tax_type );
+
+			if ( null !== $price ) {
+				$detail['price'] = $price;
+			}
+
+			$details[] = $detail;
+		}
+
+		return $details;
+	}
+
+	/**
+	 * ショップの`tax_type`（`shop.json`）が既知の値の場合のみ、`Woo\Reader\OrderReader`が
+	 * 計算済みの明細単価（`unit_price_excl_tax`/`price`＝税込）を明示指定する。`sale.details[].price`
+	 * を省略するとColorMeの現在のカタログ価格が適用されてしまう（swagger）ため、過去の受注金額を
+	 * 保持するには本来必要だが、税区分が不明なまま断定的に送ると誤った税基準の金額になりうるため、
+	 * 不明な場合は省略しColorMeのカタログ価格適用という文書化済みのフォールバックに委ねる。
+	 *
+	 * @param array<string,mixed> $item `Woo\Reader\OrderReader::line_items()`の1行。
+	 */
+	private function line_price( array $item, ?string $tax_type ): ?int {
+		$key = match ( $tax_type ) {
+			'excluded' => 'unit_price_excl_tax',
+			'included' => 'price',
+			default    => null,
+		};
+
+		return null !== $key ? self::to_whole_yen( Cast::to_string_or_null( $item[ $key ] ?? null ) ) : null;
+	}
+
+	/**
+	 * `Support\Money::format_minor_units()`（`"1234.56"`形式）を、ColorMeが要求する整数の円へ
+	 * 変換する（四捨五入。CLAUDE.md: 金額計算はfloat除算を避け整数演算で行う）。
+	 */
+	private static function to_whole_yen( ?string $formatted_amount ): ?int {
+		if ( null === $formatted_amount ) {
+			return null;
+		}
+
+		$minor = Money::to_minor_units( $formatted_amount );
+
+		return null !== $minor ? intdiv( $minor + 50, 100 ) : null;
+	}
+
+	/**
+	 * 配送先住所（`sale_deliveries[]`の1行、`delivery_id`を除く部分）を組み立てる。Wooの配送先
+	 * 住所が空（`shipping.address_1`が空）の場合は請求先住所（`extras['customer_snapshot']`）へ
+	 * フォールバックする（Wooチェックアウトで「配送先を別途指定」しなかった場合、配送先は空のまま
+	 * 保存され請求先が実際の届け先になる一般的な挙動を踏まえた判断）。`postal`/`pref_id`/
+	 * `address1`/`tel`/`name`のいずれかが解決できなければ`null`（`sale_deliveries`の必須項目、
+	 * swagger）。`furigana`はWooにこのデータが無いため空文字列を送る（swagger上パターン制約・
+	 * `minLength`指定が無いため有効な値）。
+	 *
+	 * **既知の制限**: 配送不要な仮想商品のみの受注も`CanonicalOrder`が配送要否を運ぶフィールドを
+	 * 持たないため同じ経路でスキップされる。
+	 *
+	 * @return ?array<string,mixed>
+	 */
+	private function delivery_address( CanonicalOrder $order ): ?array {
+		$shipping             = $order->shipping;
+		$has_shipping_address = null !== Cast::to_string_or_null( $shipping['address_1'] ?? null );
+
+		if ( $has_shipping_address ) {
+			$name    = Cast::to_string_or_null( $shipping['name'] ?? null );
+			$tel     = Cast::normalize_tel( Cast::to_string_or_null( $shipping['tel'] ?? null ) );
+			$address = AddressMapper::to_asp_address_payload( 'colorme', $shipping );
+		} else {
+			$snapshot = $this->customer_snapshot_of( $order );
+			$name     = Cast::to_string_or_null( $snapshot['name'] ?? null );
+			$tel      = Cast::normalize_tel( Cast::to_string_or_null( $snapshot['phone'] ?? null ) );
+			$address  = AddressMapper::to_asp_address_payload( 'colorme', $snapshot );
+		}
+
+		if ( null === $name || null === $tel || ! isset( $address['postal'], $address['pref_id'], $address['address1'] ) ) {
+			return null;
+		}
+
+		return array_merge(
+			[
+				'name'     => $name,
+				'furigana' => '',
+				'tel'      => $tel,
+			],
+			$address
+		);
+	}
+
+	/**
+	 * `customer_ref`が解決済みなら`id`のみ送る（swagger: 「存在する顧客のIDなら、その顧客の受注を
+	 * 作成します。顧客ID以外の顧客情報は無視されます」）。未解決の場合は請求先情報
+	 * （`extras['customer_snapshot']`）からベストエフォートでゲスト顧客情報を組み立てる。
+	 * `customer`自体が`sale`作成に必須ではないため、解決できない項目は省略し受注全体は
+	 * ブロックしない（空配列を返せば`to_create_payload()`側が`customer`キー自体を省略する）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function customer_payload( CanonicalOrder $order ): array {
+		if ( null !== $order->customer_ref ) {
+			$customer_id = Cast::to_int_or_null( $order->customer_ref );
+
+			return null !== $customer_id ? [ 'id' => $customer_id ] : [];
+		}
+
+		$snapshot = $this->customer_snapshot_of( $order );
+		$payload  = [];
+
+		$name = Cast::to_string_or_null( $snapshot['name'] ?? null );
+
+		if ( null !== $name ) {
+			$payload['name'] = $name;
+		}
+
+		$mail = Cast::to_string_or_null( $snapshot['email'] ?? null );
+
+		if ( null !== $mail ) {
+			$payload['mail'] = $mail;
+		}
+
+		$tel = Cast::normalize_tel( Cast::to_string_or_null( $snapshot['phone'] ?? null ) );
+
+		if ( null !== $tel ) {
+			$payload['tel'] = $tel;
+		}
+
+		return array_merge( $payload, AddressMapper::to_asp_address_payload( 'colorme', $snapshot ) );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function customer_snapshot_of( CanonicalOrder $order ): array {
+		$snapshot = $order->extras['customer_snapshot'] ?? null;
+
+		return is_array( $snapshot ) ? $snapshot : [];
 	}
 
 	/**

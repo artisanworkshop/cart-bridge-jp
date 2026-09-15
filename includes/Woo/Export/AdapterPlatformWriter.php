@@ -33,7 +33,7 @@ final class AdapterPlatformWriter implements PlatformWriter {
 		return match ( $entity ) {
 			'product' => $this->push_product( $item, $existing_remote_id ),
 			'customer' => $this->push_customer( $item, $existing_remote_id ),
-			'order' => $this->push_order( $item ),
+			'order' => $this->push_order( $item, $existing_remote_id ),
 			'stock' => $this->push_stock( $item ),
 			'coupon' => $this->push_coupon( $item, $existing_remote_id ),
 			// `category`/`tag`/`review`は`JobManager::EXPORT_ENTITIES_WITH_READER`が
@@ -59,12 +59,12 @@ final class AdapterPlatformWriter implements PlatformWriter {
 		return $this->adapter->push_customer( $item, $existing_remote_id );
 	}
 
-	private function push_order( CanonicalModel $item ): PushResult {
+	private function push_order( CanonicalModel $item, ?string $existing_remote_id ): PushResult {
 		if ( ! $item instanceof CanonicalOrder ) {
 			throw new RuntimeException( 'AdapterPlatformWriter received an unsupported Canonical model for "order".' );
 		}
 
-		return $this->adapter->push_order( $item );
+		return $this->adapter->push_order( $item, $existing_remote_id );
 	}
 
 	private function push_stock( CanonicalModel $item ): PushResult {
