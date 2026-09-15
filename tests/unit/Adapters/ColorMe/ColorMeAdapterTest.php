@@ -1490,6 +1490,27 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 割引と同様、既にエクスポート済みの受注に決済手数料・送料が付いている場合も
+	 * `ORDER_FEE_NOT_PUSHED`を積むことを確認する（Codexレビュー指摘）。
+	 */
+	public function test_push_order_flags_fee_not_pushed_when_already_exported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$result = $adapter->push_order( $this->exported_order( '0', '500' ), '12345' );
+
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame(
+			[ WarningCode::ORDER_UPDATE_NOT_SUPPORTED, WarningCode::ORDER_FEE_NOT_PUSHED ],
+			$result->warnings
+		);
+		$this->assertSame( [], $captured );
+	}
+
+	/**
 	 * 決済/配送方法が一意に解決でき、配送先住所も揃っている正常系。過去のWoo受注を複製する
 	 * のであって新規注文ではないため`reserve_stocks=false`を指定することも確認する。
 	 */
@@ -1517,7 +1538,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '88001', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
-		$this->assertSame( [], $result->warnings );
+		// `POST /v1/sales`に受注日時を指定するフィールドが無いため、新規作成成功時は常に
+		// `ORDER_PLACED_AT_NOT_PRESERVED`が付く。
+		$this->assertSame( [ WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ], $result->warnings );
 
 		$create_request = $this->find_captured( $captured, 'POST', 'sales.json' );
 		$this->assertNotNull( $create_request );
@@ -1558,7 +1581,41 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$result = $adapter->push_order( $this->exported_order( '500' ), null );
 
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
-		$this->assertSame( [ WarningCode::ORDER_DISCOUNT_NOT_PUSHED ], $result->warnings );
+		$this->assertSame(
+			[ WarningCode::ORDER_DISCOUNT_NOT_PUSHED, WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
+			$result->warnings
+		);
+	}
+
+	/**
+	 * `POST /v1/sales`のリクエストスキーマに決済手数料・送料を運ぶフィールドが無いため、作成自体は
+	 * 成功させつつ`ORDER_FEE_NOT_PUSHED`を情報提供として積むことを確認する。
+	 */
+	public function test_push_order_flags_fee_not_pushed_on_successful_create(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [ '751' => 'bacs' ],
+				'shipping_map' => [ '640580' => 'flat_rate:6' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'POST sales.json' => [ [ 'body' => [ 'sale' => [ 'id' => 88003 ] ] ] ],
+			]
+		);
+
+		$result = $adapter->push_order( $this->exported_order( '0', '500' ), null );
+
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame(
+			[ WarningCode::ORDER_FEE_NOT_PUSHED, WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
+			$result->warnings
+		);
 	}
 
 	/**
@@ -1614,7 +1671,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$adapter->push_order( $this->exported_order(), null );
 	}
 
-	private function exported_order( string $discount = '0' ): CanonicalOrder {
+	private function exported_order( string $discount = '0', string $shipping_fee = '0' ): CanonicalOrder {
 		return new CanonicalOrder(
 			'1001',
 			'processing',
@@ -1636,7 +1693,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			[
 				'method_id'   => 'flat_rate:6',
 				'method_name' => 'Flat rate',
-				'fee'         => '500',
+				'fee'         => $shipping_fee,
 				'name'        => '山田 太郎',
 				'tel'         => '03-1234-5678',
 				'company'     => null,

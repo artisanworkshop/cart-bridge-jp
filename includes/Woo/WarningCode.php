@@ -154,6 +154,29 @@ final class WarningCode {
 	 */
 	public const ORDER_DISCOUNT_NOT_PUSHED = 'order_discount_not_pushed';
 
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注に決済手数料（`payment.fee`）または送料
+	 * （`shipping.fee`）が付いているが、`POST /v1/sales`のリクエストスキーマ
+	 * （`sale_deliveries[]`は`delivery_id`/住所/`preferred_date`等のみ、`details[]`は商品行のみ）
+	 * には手数料・送料の実額を運ぶフィールドが存在しない（swagger確認済み）。ColorMeは
+	 * `payment_id`/`delivery_id`ごとに自身で設定された手数料・送料を独自に適用するため、
+	 * Woo側の実際の手数料・送料と一致するとは限らない。`ORDER_DISCOUNT_NOT_PUSHED`と同じ理由
+	 * （運ぶ手段自体が無く保留しても解決しない・blocking化すると送料の付くほぼ全ての受注が
+	 * 移行できなくなる）で情報提供の警告に留める（Codexレビュー指摘）。
+	 */
+	public const ORDER_FEE_NOT_PUSHED = 'order_fee_not_pushed';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 新規作成が成功した場合に常に付与する。`POST /v1/sales`の
+	 * リクエストスキーマに受注日時を指定するフィールドが存在しない（swagger確認済み）ため、
+	 * ColorMe側の受注日時は`CanonicalOrder::$placed_at`（Woo側の実際の注文日時）ではなく
+	 * pushを実行した時刻になる。過去の受注を移行する用途では日付ベースの売上集計・レポートが
+	 * 実際の購入時期と食い違うことをオペレーターへ常に知らせる（`PRODUCT_IMAGES_NOT_PUSHED`
+	 * （非プレミアムプランで常に付く）と同種の、ストア/受注の性質上恒久的に解消しない情報提供
+	 * 警告。Codexレビュー指摘）。
+	 */
+	public const ORDER_PLACED_AT_NOT_PRESERVED = 'order_placed_at_not_preserved';
+
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';

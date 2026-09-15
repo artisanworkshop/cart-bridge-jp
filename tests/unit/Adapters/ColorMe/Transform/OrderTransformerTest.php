@@ -825,6 +825,55 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `POST /v1/sales`のリクエストスキーマには決済手数料（`payment.fee`）・送料（`shipping.fee`）
+	 * を運ぶフィールドも無いため、いずれかが付いている受注は`fee_not_pushed=true`
+	 * （情報提供のみ、ブロックしない）になることを確認する（Codexレビュー指摘）。
+	 */
+	public function test_to_create_payload_flags_fee_not_pushed_for_payment_fee(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order(
+			[
+				'payment' => [
+					'method_id'   => 'bacs',
+					'method_name' => 'Bank transfer',
+					'fee'         => '300',
+				],
+			]
+		);
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertTrue( $result['fee_not_pushed'] );
+	}
+
+	public function test_to_create_payload_flags_fee_not_pushed_for_shipping_fee(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'fee' => '500' ] ) ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertTrue( $result['fee_not_pushed'] );
+	}
+
+	public function test_to_create_payload_does_not_flag_fee_not_pushed_when_no_fee(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order(
+			[
+				'payment'  => [
+					'method_id'   => 'bacs',
+					'method_name' => 'Bank transfer',
+					'fee'         => '0',
+				],
+				'shipping' => array_merge( $this->default_shipping(), [ 'fee' => '0' ] ),
+			]
+		);
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+
+		$this->assertFalse( $result['fee_not_pushed'] );
+	}
+
+	/**
 	 * ショップの`tax_type`が不明（`shop.json`未取得・未知の値）な場合、誤った税区分で断定的に
 	 * 送信するより安全のため`price`を省略する（ColorMeの現在のカタログ価格が適用される）。
 	 */

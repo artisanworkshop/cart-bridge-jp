@@ -99,6 +99,7 @@ final class OrderTransformer {
 	 *   shipping_address_incomplete: bool,
 	 *   line_items_empty: bool,
 	 *   discount_not_pushed: bool,
+	 *   fee_not_pushed: bool,
 	 * }
 	 */
 	public function to_create_payload( CanonicalOrder $order, MethodMap $method_map, ?string $tax_type ): array {
@@ -127,6 +128,12 @@ final class OrderTransformer {
 			// ColorMe側に反映されず定価のまま作成される。ブロックはしない（割引を運ぶ手段が
 			// 存在しないため保留しても解決しない）が、情報提供の警告を積む（レビュー指摘）。
 			'discount_not_pushed'         => self::has_discount( $order ),
+			// `payment.fee`（決済手数料）/`shipping.fee`（送料）を運ぶフィールドも`sale`スキーマ
+			// に存在しない（`details`/`sale_deliveries`/`payment_id`のみ、swagger確認済み）。
+			// ColorMeは`payment_id`/`delivery_id`ごとに自身で設定された手数料・送料を独自に
+			// 適用するため、Woo側の実際の手数料・送料とは一致しない可能性がある（Codex指摘）。
+			// discountと同じ理由でブロックせず情報提供の警告に留める。
+			'fee_not_pushed'              => self::has_non_representable_charges( $order ),
 		];
 
 		if ( null === $details || null === $payment_id || null === $delivery_id || null === $delivery_address ) {
@@ -159,7 +166,20 @@ final class OrderTransformer {
 	 * だったため、既存remote_id指定時の早期returnでは割引情報が一切伝わらなかった）。
 	 */
 	public static function has_discount( CanonicalOrder $order ): bool {
-		$minor = Money::to_minor_units( $order->totals['discount'] ?? null );
+		return self::has_positive_amount( $order->totals['discount'] ?? null );
+	}
+
+	/**
+	 * 受注に決済手数料（`payment.fee`）または送料（`shipping.fee`）が付いているか。`has_discount()`
+	 * と同じ理由でAPIを呼ばない独立した公開メソッドにしてある。
+	 */
+	public static function has_non_representable_charges( CanonicalOrder $order ): bool {
+		return self::has_positive_amount( $order->payment['fee'] ?? null )
+			|| self::has_positive_amount( $order->shipping['fee'] ?? null );
+	}
+
+	private static function has_positive_amount( mixed $value ): bool {
+		$minor = Money::to_minor_units( $value );
 
 		return null !== $minor && $minor > 0;
 	}

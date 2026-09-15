@@ -825,6 +825,29 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   - 対応を見送った指摘は`docs/review-backlog.md`の`e2-3-push-order/R1-*`を参照（顧客が未export
     のまま受注が先にゲスト扱いでpushされ後から会員紐付けを復元できない設計上の限界=Medium、
     memo/preferred_date/preferred_periodの往復ロス=Low、非数値マッピング値の`(int)`丸め=Low）
+- **G1ゲート（Copilot/Codex）で判明し対応した指摘**:
+  - 明細単価の端数丸めで合計がずれる（Copilot, High）: `sale.details[].price`は単価×`product_num`
+    方式のため、Wooの明細合計が数量で割り切れない場合（例: ¥1000÷3個→単価333.33→整数円333、
+    333×3=999）、整数円へ丸めた単価×数量が実際の合計と一致しなくなる。割り切れない場合は
+    `price`自体を省略しカタログ価格適用へフォールバックするよう修正（`unit_price_divides_evenly()`）
+  - 既存受注スキップ時の情報提供警告欠落（Copilot, Medium）: `push_order()`の早期return
+    （既にエクスポート済みの受注のスキップ経路）が`to_create_payload()`を経由しないため、
+    割引・手数料付きの受注でも対応する警告が一切積まれなかった。`OrderTransformer::
+    has_discount()`/`has_non_representable_charges()`をI/O不要の`public static`にし、
+    早期returnからも呼べるよう修正
+  - 決済手数料・送料が運べない（Codex, P1）: `sale`のリクエストスキーマ
+    （`customer`/`sale_deliveries`/`details`/`payment_id`）には`payment.fee`/`shipping.fee`を
+    運ぶフィールドが無い（swagger確認済み）。`ORDER_DISCOUNT_NOT_PUSHED`と同じ理由・同じ設計
+    （blocking化すると送料の付くほぼ全ての受注が移行できなくなる）で`WarningCode::
+    ORDER_FEE_NOT_PUSHED`を新設し情報提供の警告に留める
+  - 受注日時が保持されない（Codex, P1）: `sale`のリクエストスキーマに受注日時フィールドが無い
+    （swagger確認済み）ため、ColorMe側の受注日時は`CanonicalOrder::$placed_at`ではなくpushを
+    実行した時刻になる。新規作成成功時は常に`WarningCode::ORDER_PLACED_AT_NOT_PRESERVED`を
+    付与する（`PRODUCT_IMAGES_NOT_PUSHED`と同種の、ストアの性質上恒久的に解消しない情報提供警告）
+  - 対応を見送った指摘は`docs/review-backlog.md`の`e2-3-push-order/G1-*`を参照
+    （dry-runでの割引/手数料警告の非対応=Low/既知の限界、応答喪失時の重複作成リスク=High/対象外
+    ＜push_product/customerと同根の限界＞、404での再作成不可=Medium/対象外、create-sale非対応
+    決済種別のフィルタリング未実装=Medium/保留）
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

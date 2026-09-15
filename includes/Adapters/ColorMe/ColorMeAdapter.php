@@ -1243,17 +1243,11 @@ final class ColorMeAdapter implements PlatformAdapter {
 			// 方法の変更はできない（swagger実測）。再`POST /sales`すると重複した受注が作成されて
 			// しまうため、既にエクスポート済みの受注はAPIを一切呼ばずスキップする
 			// （`docs/03-design-decisions.md` §10.2「E2-3 push_order」参照）。
-			// `OrderTransformer::has_discount()`は`shop.json`等のI/Oを一切伴わない純粋な判定
-			// （`$order->totals`のみ参照）のため、この早期returnでも呼べる（Copilot指摘:
-			// 当初はこの経路で`ORDER_DISCOUNT_NOT_PUSHED`が一切積まれず、割引が運べないという
-			// 情報が既存受注の再エクスポートのたびに欠落していた）。
-			$warnings = [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ];
-
-			if ( OrderTransformer::has_discount( $order ) ) {
-				$warnings[] = WarningCode::ORDER_DISCOUNT_NOT_PUSHED;
-			}
-
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, $warnings );
+			// `OrderTransformer::has_discount()`/`has_non_representable_charges()`は`shop.json`等の
+			// I/Oを一切伴わない純粋な判定（`$order`のフィールドのみ参照）のため、この早期returnでも
+			// 呼べる（Copilot指摘: 当初はこの経路で情報提供の警告が一切積まれず、割引・手数料が
+			// 運べないという情報が既存受注の再エクスポートのたびに欠落していた）。
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ], self::informational_warnings( $order ) ) );
 		}
 
 		// `order_transformer()`（import方向`transform()`と共有）は`payments.json`/`deliveries.json`の
@@ -1261,12 +1255,12 @@ final class ColorMeAdapter implements PlatformAdapter {
 		// exportジョブでも無駄な2リクエストが発生するため、ここでは独立した軽量インスタンスを使う。
 		$result = ( new OrderTransformer() )->to_create_payload( $order, new MethodMap( self::ID ), $this->order_tax_type() );
 
-		// `discount_not_pushed`はブロック要因ではなく情報提供の警告のため、push成功・スキップの
-		// いずれでも同じ理由（割引を運ぶAPIフィールドが無い）で積む。
-		$discount_warning = $result['discount_not_pushed'] ? [ WarningCode::ORDER_DISCOUNT_NOT_PUSHED ] : [];
+		// discount/feeの情報提供警告はブロック要因ではないため、push成功・スキップのいずれでも
+		// 同じ理由（割引・手数料を運ぶAPIフィールドが無い）で積む。
+		$informational_warnings = self::informational_warnings( $order );
 
 		if ( null === $result['payload'] ) {
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( self::order_skip_warnings( $result ), $discount_warning ) );
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( self::order_skip_warnings( $result ), $informational_warnings ) );
 		}
 
 		// 過去のWoo受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のまま
@@ -1282,7 +1276,31 @@ final class ColorMeAdapter implements PlatformAdapter {
 			throw new RuntimeException( 'ColorMe order push response is missing the sale id.' );
 		}
 
-		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED, $discount_warning );
+		// `ORDER_PLACED_AT_NOT_PRESERVED`は新規作成が成功した場合のみ（=このタイミングで初めて
+		// 実際に日時が失われる事象が発生するため）。skip経路では新たに何も作成されないので付けない。
+		$informational_warnings[] = WarningCode::ORDER_PLACED_AT_NOT_PRESERVED;
+
+		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED, $informational_warnings );
+	}
+
+	/**
+	 * ブロック要因ではなく情報提供のみの警告（割引・手数料が運べない）。`push_order()`の
+	 * 早期return（既存remote_id指定時）・通常のskip・成功のいずれの経路でも同じ判定を使う。
+	 *
+	 * @return array<int,string>
+	 */
+	private static function informational_warnings( CanonicalOrder $order ): array {
+		$warnings = [];
+
+		if ( OrderTransformer::has_discount( $order ) ) {
+			$warnings[] = WarningCode::ORDER_DISCOUNT_NOT_PUSHED;
+		}
+
+		if ( OrderTransformer::has_non_representable_charges( $order ) ) {
+			$warnings[] = WarningCode::ORDER_FEE_NOT_PUSHED;
+		}
+
+		return $warnings;
 	}
 
 	/**
