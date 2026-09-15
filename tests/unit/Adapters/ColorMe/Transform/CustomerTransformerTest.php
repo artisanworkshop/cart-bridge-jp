@@ -272,6 +272,28 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `city`+`address_1`の連結は区切り無しが日本語住所として正しいが、海外住所（`pref_id=48`）に
+	 * 同じ規則を適用すると単語がくっつく（例: `'Los Angeles' . '123 Main St'`）。海外のみ半角
+	 * スペースを挟むことを確認する（R2レビューで判明）。
+	 */
+	public function test_to_create_payload_separates_city_and_street_with_a_space_for_overseas_addresses(): void {
+		$customer = self::exported_customer(
+			[
+				'city'      => 'Los Angeles',
+				'address_1' => '123 Main St',
+				'state'     => 'CA',
+				'postcode'  => '90001',
+				'country'   => 'US',
+			],
+			'1-555-0100'
+		);
+
+		$payload = $this->transformer->to_create_payload( $customer );
+
+		$this->assertSame( 'Los Angeles 123 Main St', $payload['address1'] );
+	}
+
+	/**
 	 * swaggerの`tel`は`pattern: "^[\d-]+$"`だが、Wooの`billing_phone`は装飾目的の空白・括弧を
 	 * 含みうる。明らかに装飾目的の文字だけを除去してから送ることを確認する（R1レビューで判明）。
 	 */
@@ -305,6 +327,25 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 				'country'   => 'JP',
 			],
 			'+1-555-0100'
+		);
+
+		$this->assertNull( $this->transformer->to_create_payload( $customer ) );
+	}
+
+	/**
+	 * PCREの`$`は末尾改行の直前にもマッチするため、`^[0-9\-]+$`のままだと末尾に`\n`が混入した
+	 * 値（外部データの改行混入等）を誤って「パターン適合」として通してしまい、確実に422になる
+	 * 値をそのまま送ってしまう（R2レビューで判明）。`\z`で終端を固定し弾くことを確認する。
+	 */
+	public function test_to_create_payload_returns_null_when_tel_has_a_trailing_newline(): void {
+		$customer = self::exported_customer(
+			[
+				'address_1' => '千代田区千代田1-1-1',
+				'state'     => 'JP13',
+				'postcode'  => '1000001',
+				'country'   => 'JP',
+			],
+			"0300000001\n"
 		);
 
 		$this->assertNull( $this->transformer->to_create_payload( $customer ) );

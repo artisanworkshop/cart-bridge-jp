@@ -101,7 +101,9 @@ final class CustomerTransformer {
 	 * 空白・半角/全角括弧を含む表記（例: `090 (1234) 5678`）を許容するため、明らかに装飾目的の
 	 * それらの文字だけを除去したうえでパターンに一致するか検証する。国際番号（`+`付き）等、
 	 * 除去しても一致しない値は「解決不能」としてnullへ倒す（`+`を機械的に取り除くと国番号が
-	 * 消えた別の番号に化けてしまうため、桁を落とす形の変換はしない）。
+	 * 消えた別の番号に化けてしまうため、桁を落とす形の変換はしない）。`$`ではなく`\z`で終端を
+	 * 固定する（`$`は末尾改行の直前にもマッチするため、`billing_phone`に混入した末尾`\n`を
+	 * 見逃し確実に422になる値をそのまま送りかねない。R2レビューで判明）。
 	 */
 	private static function normalize_tel( ?string $tel ): ?string {
 		$string = Cast::to_string_or_null( $tel );
@@ -112,7 +114,7 @@ final class CustomerTransformer {
 
 		$normalized = str_replace( [ ' ', '　', '(', ')', '（', '）' ], '', $string );
 
-		return 1 === preg_match( '/^[0-9\-]+$/', $normalized ) ? $normalized : null;
+		return 1 === preg_match( '/^[0-9\-]+\z/', $normalized ) ? $normalized : null;
 	}
 
 	/**
@@ -191,16 +193,17 @@ final class CustomerTransformer {
 	 */
 	private function address_payload( array $customer_address ): array {
 		$postal   = Cast::to_string_or_null( $customer_address['postcode'] ?? null );
-		$address1 = self::join_address1(
-			Cast::to_string_or_null( $customer_address['city'] ?? null ),
-			Cast::to_string_or_null( $customer_address['address_1'] ?? null )
-		);
-		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );
 		$pref_id  = AddressMapper::pref_id_from_state(
 			'colorme',
 			Cast::to_string_or_null( $customer_address['state'] ?? null ),
 			Cast::to_string_or_null( $customer_address['country'] ?? null )
 		);
+		$address1 = self::join_address1(
+			Cast::to_string_or_null( $customer_address['city'] ?? null ),
+			Cast::to_string_or_null( $customer_address['address_1'] ?? null ),
+			48 === $pref_id
+		);
+		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );
 
 		$payload = [];
 
@@ -225,9 +228,16 @@ final class CustomerTransformer {
 	 * 住所から市区町村がまるごと欠落する。ColorMe由来の往復顧客は`Woo\Support\AddressMapper::
 	 * to_woo()`が`city`を常に空文字列にする契約のため、連結しても元の1フィールド文字列のまま
 	 * 変わらない。
+	 *
+	 * `$is_overseas`（`pref_id=48`）の場合のみ半角スペースを挟む。区切り無しの連結は日本語住所
+	 * （区切り無しで読める）でのみ正しく、区切り無しのまま海外住所（例: `city='Los Angeles'`+
+	 * `address_1='123 Main St'`）に適用すると単語がくっつき無警告で送信されてしまう
+	 * （R2レビューで判明）。日本国内・往復顧客（`$is_overseas=false`）では従来どおり区切り無しを
+	 * 維持する（既存の往復文字列を変えないため）。
 	 */
-	private static function join_address1( ?string $city, ?string $street ): ?string {
-		$joined = trim( ( $city ?? '' ) . ( $street ?? '' ) );
+	private static function join_address1( ?string $city, ?string $street, bool $is_overseas ): ?string {
+		$separator = $is_overseas && '' !== ( $city ?? '' ) && '' !== ( $street ?? '' ) ? ' ' : '';
+		$joined    = trim( ( $city ?? '' ) . $separator . ( $street ?? '' ) );
 
 		return '' !== $joined ? $joined : null;
 	}
