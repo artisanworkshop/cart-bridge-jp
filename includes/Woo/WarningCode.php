@@ -104,6 +104,91 @@ final class WarningCode {
 	 */
 	public const CUSTOMER_REQUIRED_FIELD_MISSING = 'customer_required_field_missing';
 
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注が既にASP側へエクスポート済み（`$remote_id`が非null）
+	 * のため、再pushせずスキップした。ColorMeの`PUT /sales/{id}`は入金状態・配送情報の一部しか
+	 * 更新できず、明細・決済方法・配送方法の変更はできない（swagger実測）ため、内容が変わった
+	 * 受注を`POST /sales`で再送すると重複した受注が作成されてしまう。checksumはキャッシュされない
+	 * （`Sync\Exporter`の`did_push`判定で空remote_idのため常にfalse）ため、この警告は解消される
+	 * 見込みがない終端状態として毎回の再エクスポートで出続ける（`CUSTOMER_ACCOUNT_PROTECTED`と
+	 * 同じ位置づけ）。
+	 */
+	public const ORDER_UPDATE_NOT_SUPPORTED = 'order_update_not_supported';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注作成に必要な配送先住所（`sale_deliveries`。
+	 * `postal`/`pref_id`/`address1`/`tel`/`name`が必須）をWoo受注の配送先・請求先いずれからも
+	 * 解決できなかった（例: 会員の請求先自体が未入力）。送信すると確実に422になるため、事前に
+	 * フェイルクローズしてスキップする（`CUSTOMER_REQUIRED_FIELD_MISSING`と同じ思想）。
+	 * 配送不要な仮想商品のみの受注（Woo側に配送方法が一切設定されない）は、`CanonicalOrder`が
+	 * 配送要否を運ぶフィールドを持たないため`sale_deliveries`自体を省略する対応（swagger:
+	 * 「配送不要商品を含む場合を除き必須」）はしておらず、この警告ではなく
+	 * `SHIPPING_METHOD_UNMAPPED`（配送方法自体が無いため`shipping_map`のキーを引けない）で
+	 * スキップされる（既知の制限。`OrderTransformer::to_create_payload()`docblock参照）。
+	 */
+	public const ORDER_SHIPPING_ADDRESS_INCOMPLETE = 'order_shipping_address_incomplete';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: `sale.details`が0行（Wooの受注が商品明細を1件も持たない）。
+	 * `sale.details`は必須のためColorMeでは表現不能な受注として恒久的にスキップする。
+	 * `Woo\Reader\OrderReader`は明細0行そのものには警告を積まないため（未解決の明細行が無い
+	 * ため`ORDER_LINE_PRODUCT_*`系警告の対象外）、この状態を無警告のまま結果から消さないよう
+	 * 専用コードで警告する（E2-3 PR-Cレビュー指摘）。
+	 */
+	public const ORDER_LINE_ITEMS_EMPTY = 'order_line_items_empty';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 明細の単価を復元できない（ショップの`tax_type`が不明、
+	 * または明細合計が数量で割り切れない）ため受注全体をスキップする。`price`を省略したまま
+	 * pushするとColorMeが明細行に現在のカタログ価格を無警告で適用してしまい、価格改定後の商品
+	 * では実際の受注額と大きく乖離した金額が恒久的な受注記録として作成されるため
+	 * （`PRODUCT_PRICE_INVALID`と同じ金銭的リスクの構図。`Adapters\ColorMe\Transform\
+	 * OrderTransformer::line_price()`docblock参照。Codexレビュー指摘）。`Woo\Reader\OrderReader`
+	 * はこの状態に対応する警告を持たないため（tax_typeも数量割り切れ判定もpush時点でのみ
+	 * 分かる情報）、`ORDER_LINE_ITEMS_EMPTY`と同じ理由で専用コードにしてある。
+	 */
+	public const ORDER_LINE_PRICE_UNRESOLVED = 'order_line_price_unresolved';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注にWooクーポン等の割引額（`totals.discount`）が付いて
+	 * いるが、`POST /v1/sales`のリクエストスキーマ（`customer`/`sale_deliveries`/`details`/
+	 * `payment_id`）には割引・クーポン額を運ぶフィールドが存在しない（swagger確認済み）。
+	 * 受注が実際にpushされた場合、明細は定価のまま送信される（決済/配送方法未マッピング等の
+	 * 別理由でskipされた場合はこの警告だけが単独で付き、その回では何も送信されない）。
+	 *
+	 * `ORDER_REFUNDED`（「ColorMe側の受注金額が実際の回収額より高くなる」という構造上同型の
+	 * 金銭的懸念）はexport blockingの対象だが、こちらは意図的にblockingへ含めない: 割引・
+	 * クーポンを一切運べない設計上の制約そのものであり、保留しても解決する見込みが無い。
+	 * blocking化するとクーポンを使った受注が無料版のサンプル移行で一切確認できなくなり、
+	 * `PRICES_INCLUDE_TAX_DISABLED`をblockingへ含めなかった理由（多くの実店舗の既定設定で
+	 * 発火し、挙動確認自体ができなくなる）と同種の弊害が生じるため、情報提供の警告に留める
+	 * （E2-3 PR-Cレビュー指摘）。
+	 */
+	public const ORDER_DISCOUNT_NOT_PUSHED = 'order_discount_not_pushed';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 受注に決済手数料（`payment.fee`）または送料
+	 * （`shipping.fee`）が付いているが、`POST /v1/sales`のリクエストスキーマ
+	 * （`sale_deliveries[]`は`delivery_id`/住所/`preferred_date`等のみ、`details[]`は商品行のみ）
+	 * には手数料・送料の実額を運ぶフィールドが存在しない（swagger確認済み）。ColorMeは
+	 * `payment_id`/`delivery_id`ごとに自身で設定された手数料・送料を独自に適用するため、
+	 * Woo側の実際の手数料・送料と一致するとは限らない。`ORDER_DISCOUNT_NOT_PUSHED`と同じ理由
+	 * （運ぶ手段自体が無く保留しても解決しない・blocking化すると送料の付くほぼ全ての受注が
+	 * 移行できなくなる）で情報提供の警告に留める（Codexレビュー指摘）。
+	 */
+	public const ORDER_FEE_NOT_PUSHED = 'order_fee_not_pushed';
+
+	/**
+	 * `ColorMeAdapter::push_order()`: 新規作成が成功した場合に常に付与する。`POST /v1/sales`の
+	 * リクエストスキーマに受注日時を指定するフィールドが存在しない（swagger確認済み）ため、
+	 * ColorMe側の受注日時は`CanonicalOrder::$placed_at`（Woo側の実際の注文日時）ではなく
+	 * pushを実行した時刻になる。過去の受注を移行する用途では日付ベースの売上集計・レポートが
+	 * 実際の購入時期と食い違うことをオペレーターへ常に知らせる（`PRODUCT_IMAGES_NOT_PUSHED`
+	 * （非プレミアムプランで常に付く）と同種の、ストア/受注の性質上恒久的に解消しない情報提供
+	 * 警告。Codexレビュー指摘）。
+	 */
+	public const ORDER_PLACED_AT_NOT_PRESERVED = 'order_placed_at_not_preserved';
+
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';
@@ -397,6 +482,13 @@ final class WarningCode {
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_REFUNDED,
+			// `Woo\Reader\OrderReader`: 明細の`tax_class`が標準/軽減税率以外（非課税・送料のみ
+			// 課税・zero-rate・カスタム税区分）。`CanonicalOrder::$line_items[].tax_reduced`は
+			// bool（標準/軽減税率の2値）しか運べずこの状態自体を伝えられないため、無警告のまま
+			// pushすると`ColorMeAdapter::push_order()`がマップ先商品の現在の税設定（標準/軽減の
+			// いずれか）で課税された受注を恒久的に作成してしまう（例: 実際は非課税だった受注が
+			// 通常課税として記録される。Codexレビュー指摘、金銭的リスク）。
+			self::ORDER_LINE_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
 			// 可視バリエーション0件）ため`price='0'`にフェイルクローズ済み。`CanonicalProduct`は
 			// 「価格0円（正規の無料商品）」と「価格を復元できない」を区別するフィールドを持たない
@@ -425,6 +517,17 @@ final class WarningCode {
 			// 異なる複数のバリエーションが同じ組に潰れ、誤ったSKU/価格/在庫が別バリエーションへ
 			// 入れ替わってpushされうる（R3レビュー指摘, Copilot）。
 			self::VARIATION_AXIS_LIMIT_EXCEEDED,
+			// `Woo\Reader\OrderReader::line_item_amounts()`: 明細の小計/税額が数値として不正
+			// （非数値・負値）なため`0`へフェイルクローズ済み。`ColorMeAdapter::push_order()`の
+			// `sale.details[].price`は明示指定するとColorMeに実際の金額として恒久的に記録される
+			// ため、`PRODUCT_PRICE_INVALID`と同じ理由（金銭的リスク。CLAUDE.mdアーキテクチャ
+			// 原則9）で無警告のままpushしない（E2-3 PR-Cレビュー指摘）。
+			self::ORDER_LINE_AMOUNT_INVALID,
+			// `Woo\Reader\OrderReader::line_items()`: 明細の数量が欠損・非整数・0以下のため
+			// `max(1, ...)`で捏造した数量にフェイルクローズ済み（import方向の`OrderTransformer::
+			// transform()`は同じ状況を例外で弾く、より厳しい既存方針と対称）。捏造した数量を
+			// ColorMeへ恒久的な受注数量として送らない（E2-3 PR-Cレビュー指摘）。
+			self::ORDER_LINE_QUANTITY_INVALID,
 		];
 
 		foreach ( $warnings as $warning ) {

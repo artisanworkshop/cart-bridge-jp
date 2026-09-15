@@ -34,6 +34,7 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -89,6 +90,16 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * 1回だけ叩けば足りる）。
 	 */
 	private ?ProductTransformer $product_transformer = null;
+
+	/**
+	 * `push_order()`の明細価格解決にのみ使う店舗税区分（`shop.json`の`tax_type`）。import方向の
+	 * `OrderTransformer::transform()`はこのデータを使わないため、`$order_transformer`（全fetch系
+	 * メソッドが経由する共有インスタンス）には持たせず、push時にのみ独立して遅延取得・
+	 * インスタンス単位でキャッシュする（`$order_transformer`/`$product_transformer`と同じ理由）。
+	 */
+	private ?string $order_tax_type = null;
+
+	private bool $order_tax_type_loaded = false;
 
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
@@ -1226,8 +1237,106 @@ final class ColorMeAdapter implements PlatformAdapter {
 		return new PushResult( $customer_remote_id, $operation );
 	}
 
-	public function push_order( CanonicalOrder $order ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult {
+		if ( null !== $remote_id ) {
+			// ColorMeの`PUT /sales/{id}`は入金状態・配送情報の一部しか更新できず、明細・決済/配送
+			// 方法の変更はできない（swagger実測）。再`POST /sales`すると重複した受注が作成されて
+			// しまうため、既にエクスポート済みの受注はAPIを一切呼ばずスキップする
+			// （`docs/03-design-decisions.md` §10.2「E2-3 push_order」参照）。
+			// `OrderTransformer::has_discount()`/`has_non_representable_charges()`は`shop.json`等の
+			// I/Oを一切伴わない純粋な判定（`$order`のフィールドのみ参照）のため、この早期returnでも
+			// 呼べる（Copilot指摘: 当初はこの経路で情報提供の警告が一切積まれず、割引・手数料が
+			// 運べないという情報が既存受注の再エクスポートのたびに欠落していた）。
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ], self::informational_warnings( $order ) ) );
+		}
+
+		// `order_transformer()`（import方向`transform()`と共有）は`payments.json`/`deliveries.json`の
+		// 名称マップを構築するが、`to_create_payload()`はこれらを使わない。共有インスタンスを経由すると
+		// exportジョブでも無駄な2リクエストが発生するため、ここでは独立した軽量インスタンスを使う。
+		$result = ( new OrderTransformer() )->to_create_payload( $order, new MethodMap( self::ID ), $this->order_tax_type() );
+
+		// discount/feeの情報提供警告はブロック要因ではないため、push成功・スキップのいずれでも
+		// 同じ理由（割引・手数料を運ぶAPIフィールドが無い）で積む。
+		$informational_warnings = self::informational_warnings( $order );
+
+		if ( null === $result['payload'] ) {
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( self::order_skip_warnings( $result ), $informational_warnings ) );
+		}
+
+		// 過去のWoo受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のまま
+		// だとColorMe側の現在庫を実売と無関係に消費してしまう（在庫同期は別途push_stock()の責務）。
+		$body = $this->client()->post( 'sales.json?reserve_stocks=false', [ 'sale' => $result['payload'] ] );
+
+		$order_remote_id = Cast::to_string_or_null( $body['sale']['id'] ?? null );
+
+		if ( null === $order_remote_id ) {
+			// `push_product()`/`push_customer()`と同じ理由: remote_idが取得できない「成功」応答を
+			// そのまま返すとmappingsに書き込めず、次回exportが常に新規作成扱いになり重複が
+			// 発生し続ける。
+			throw new RuntimeException( 'ColorMe order push response is missing the sale id.' );
+		}
+
+		// `ORDER_PLACED_AT_NOT_PRESERVED`は新規作成が成功した場合のみ（=このタイミングで初めて
+		// 実際に日時が失われる事象が発生するため）。skip経路では新たに何も作成されないので付けない。
+		$informational_warnings[] = WarningCode::ORDER_PLACED_AT_NOT_PRESERVED;
+
+		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED, $informational_warnings );
+	}
+
+	/**
+	 * ブロック要因ではなく情報提供のみの警告（割引・手数料が運べない）。`push_order()`の
+	 * 早期return（既存remote_id指定時）・通常のskip・成功のいずれの経路でも同じ判定を使う。
+	 *
+	 * @return array<int,string>
+	 */
+	private static function informational_warnings( CanonicalOrder $order ): array {
+		$warnings = [];
+
+		if ( OrderTransformer::has_discount( $order ) ) {
+			$warnings[] = WarningCode::ORDER_DISCOUNT_NOT_PUSHED;
+		}
+
+		if ( OrderTransformer::has_non_representable_charges( $order ) ) {
+			$warnings[] = WarningCode::ORDER_FEE_NOT_PUSHED;
+		}
+
+		return $warnings;
+	}
+
+	/**
+	 * `OrderTransformer::to_create_payload()`が`payload=null`を返した理由を対応する警告へ翻訳する。
+	 * `line_items_unresolved`（明細が1行以上あるが未解決）は警告を積まない: `Woo\Reader\
+	 * OrderReader`が既にreadItemの警告へ積んでおり`Sync\Exporter`が結果と無関係にマージするため
+	 * （同メソッドのdocblock参照）。`line_items_empty`（明細0行）はreadItemの警告が一切無いため
+	 * 専用コードで積む。
+	 *
+	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool,line_items_empty:bool,line_price_unresolved:bool,discount_not_pushed:bool,fee_not_pushed:bool} $result
+	 * @return array<int,string>
+	 */
+	private static function order_skip_warnings( array $result ): array {
+		$warnings = [];
+
+		if ( $result['line_items_empty'] ) {
+			$warnings[] = WarningCode::ORDER_LINE_ITEMS_EMPTY;
+		}
+
+		if ( $result['line_price_unresolved'] ) {
+			$warnings[] = WarningCode::ORDER_LINE_PRICE_UNRESOLVED;
+		}
+
+		if ( null !== $result['unmapped_payment_method_id'] ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $result['unmapped_payment_method_id'] );
+		}
+
+		if ( null !== $result['unmapped_shipping_method_id'] ) {
+			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $result['unmapped_shipping_method_id'] );
+		}
+
+		if ( $result['shipping_address_incomplete'] ) {
+			$warnings[] = WarningCode::ORDER_SHIPPING_ADDRESS_INCOMPLETE;
+		}
+
+		return $warnings;
 	}
 
 	public function push_stock( CanonicalStock $stock ): PushResult {
@@ -1296,6 +1405,25 @@ final class ColorMeAdapter implements PlatformAdapter {
 		}
 
 		return $this->order_transformer;
+	}
+
+	/**
+	 * `push_order()`の明細価格解決に必要な店舗税設定（`shop.tax_type`）を`GET /v1/shop.json`から
+	 * 取得する（`product_transformer()`と同じ取得パターン）。値が欠損・非期待型の場合は`null`の
+	 * まま`OrderTransformer::to_create_payload()`へ渡し、同メソッド側のフェイルクローズ
+	 * （既知の許可値のみ肯定判定・不明時は明細価格を省略しColorMeのカタログ価格適用に委ねる）に
+	 * 任せる。
+	 */
+	private function order_tax_type(): ?string {
+		if ( ! $this->order_tax_type_loaded ) {
+			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = is_array( $shop ) ? $shop : [];
+
+			$this->order_tax_type        = Cast::to_string_or_null( $shop['tax_type'] ?? null );
+			$this->order_tax_type_loaded = true;
+		}
+
+		return $this->order_tax_type;
 	}
 
 	/**

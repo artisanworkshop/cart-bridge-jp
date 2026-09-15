@@ -38,6 +38,47 @@ final class MethodMap {
 	}
 
 	/**
+	 * Woo決済ゲートウェイIDに対応するASP側payment_id（エクスポート方向、`payment_map`の逆引き）。
+	 * `payment_map`はASP側ID→Woo側IDで単射とは限らない（複数のASP決済方法が同じWooゲートウェイへ
+	 * 寄せられうる。D19の申し送り。`docs/03-design-decisions.md`）ため、Woo側IDに対応するASP側IDが
+	 * **ちょうど1件**のときのみ解決する。0件（未マッピング）・2件以上（曖昧）はいずれも`null`
+	 * （呼び出し元が受注全体をフェイルクローズしてpushしない）。
+	 */
+	public function asp_payment_id( string $woo_gateway_id ): ?string {
+		return $this->reverse_lookup( 'payment_map', $woo_gateway_id );
+	}
+
+	/**
+	 * Woo配送方法IDに対応するASP側delivery_id（エクスポート方向、`shipping_map`の逆引き）。
+	 * `asp_payment_id()`と同じ理由・同じ曖昧性解決方針。
+	 */
+	public function asp_delivery_id( string $woo_shipping_method_id ): ?string {
+		return $this->reverse_lookup( 'shipping_map', $woo_shipping_method_id );
+	}
+
+	/**
+	 * `$map_key`（`payment_map`/`shipping_map`。ASP側ID=>Woo側ID）から、値が`$woo_value`と
+	 * 一致するASP側キーを列挙し、ちょうど1件のときだけそのキーを返す。
+	 */
+	private function reverse_lookup( string $map_key, string $woo_value ): ?string {
+		$settings = get_option( "cbjp_settings_{$this->platform}", [] );
+
+		if ( ! is_array( $settings ) || ! is_array( $settings[ $map_key ] ?? null ) ) {
+			return null;
+		}
+
+		$matches = [];
+
+		foreach ( $settings[ $map_key ] as $asp_id => $mapped_woo_value ) {
+			if ( Value::string( $mapped_woo_value ) === $woo_value ) {
+				$matches[] = (string) $asp_id;
+			}
+		}
+
+		return 1 === count( $matches ) ? $matches[0] : null;
+	}
+
+	/**
 	 * Woo側カテゴリID（term_id文字列）に対応するASP側カテゴリID（ユーザー設定マッピング）。
 	 * `category_map`は他3マップ（ASP→Woo）と向きが逆（Woo→ASP）で、カラーミーがカテゴリ作成
 	 * 不可（`can_create_category=false`）なためエクスポート時に既存ASPカテゴリへ紐付ける

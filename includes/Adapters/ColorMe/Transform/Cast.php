@@ -30,6 +30,25 @@ final class Cast {
 		return '' === $string ? null : $string;
 	}
 
+	/**
+	 * `to_string_or_null()`と同じだが、末尾/先頭が空白のみの値（例: 手入力ミス・不正なCSV取込・
+	 * プログラム的な作成）も「存在しない」として扱う。`to_string_or_null()`はリテラルな空文字
+	 * `""`しかnullへ正規化しないため、空白のみの値は「非空文字列＝存在する」と誤判定されうる
+	 * （Copilotレビュー指摘: `OrderTransformer::delivery_address()`で配送先`address_1`が空白のみの
+	 * 場合、本来フォールバックすべき請求先住所へ切り替わらず、空白だけの住所を配送先として
+	 * 採用してしまっていた）。戻り値は元の文字列（前後の空白を含む）をそのまま返す——判定にのみ
+	 * トリムを使い、値そのものは変形しない。
+	 */
+	public static function to_meaningful_string_or_null( mixed $value ): ?string {
+		$string = self::to_string_or_null( $value );
+
+		if ( null === $string ) {
+			return null;
+		}
+
+		return '' !== trim( $string ) ? $string : null;
+	}
+
 	public static function to_int_or_null( mixed $value ): ?int {
 		if ( is_int( $value ) ) {
 			return $value;
@@ -145,6 +164,33 @@ final class Cast {
 			'keywords'    => self::to_string_or_null( $value['keywords'] ?? null ),
 			'description' => self::to_string_or_null( $value['description'] ?? null ),
 		];
+	}
+
+	/**
+	 * `tel`/`fax`はswaggerで`pattern: "^[\d-]+$"`（数字とハイフンのみ）。Wooの`billing_phone`は
+	 * 空白・半角/全角括弧を含む表記（例: `090 (1234) 5678`）を許容するため、明らかに装飾目的の
+	 * それらの文字だけを除去したうえでパターンに一致するか検証する。国際番号（`+`付き）等、
+	 * 除去しても一致しない値は「解決不能」としてnullへ倒す（`+`を機械的に取り除くと国番号が
+	 * 消えた別の番号に化けてしまうため、桁を落とす形の変換はしない）。`$`ではなく`\z`で終端を
+	 * 固定する（`$`は末尾改行の直前にもマッチするため、`billing_phone`に混入した末尾`\n`を
+	 * 見逃し確実に422になる値をそのまま送りかねない）。
+	 *
+	 * `/v1/customers`専用（`pattern`制約が実在する唯一のエンドポイント）。`/v1/sales`の
+	 * `sale_deliveries[].tel`/`sale.customer.tel`にはswagger上パターン制約が無いため、
+	 * `Adapters\ColorMe\Transform\OrderTransformer`はこのメソッドを使わない（E2-3 PR-Cレビュー
+	 * 指摘: 当初は`CustomerTransformer`と共有していたが、受注方向の正当な値
+	 * （国際番号等パターン非一致）を無警告でnullへ丸め、受注が不必要にスキップされていた）。
+	 */
+	public static function normalize_tel( ?string $tel ): ?string {
+		$string = self::to_string_or_null( $tel );
+
+		if ( null === $string ) {
+			return null;
+		}
+
+		$normalized = str_replace( [ ' ', '　', '(', ')', '（', '）' ], '', $string );
+
+		return 1 === preg_match( '/^[0-9\-]+\z/', $normalized ) ? $normalized : null;
 	}
 
 	/**

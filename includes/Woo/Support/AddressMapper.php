@@ -194,6 +194,105 @@ final class AddressMapper {
 	}
 
 	/**
+	 * Wooネイティブの住所（`address_1`/`address_2`/`city`/`state`/`postcode`/`country`キー）から
+	 * ColorMeのリクエストペイロードが要求する`postal`/`address1`/`address2`/`pref_id`へ変換する
+	 * （`pref_id_from_state()`を内部で使う、エクスポート方向の住所ペイロード組み立て）。`postal`/
+	 * `address1`/`pref_id`は3点セットで解決できた場合のみ含める（一部だけ解決できた状態のまま
+	 * 送信すると、新しい郵便番号＋古い都道府県のような内部矛盾した住所を書き込みかねないため。
+	 * `address2`は補足情報のためこの3点セットとは独立に含めてよい）。全く解決できない場合は
+	 * 空配列を返す（新規作成では呼び出し元が必須項目としてフェイルクローズし、更新では省略可能な
+	 * 項目としてそのまま使う）。
+	 *
+	 * `Adapters\ColorMe\Transform\CustomerTransformer`（顧客）・`OrderTransformer`（受注の
+	 * ゲスト顧客/配送先）で共有する（D19 PR-Bで確立した「対称の変換を複製すると2箇所が食い違う
+	 * リスクを負う」という方針。ASP固有のリクエスト形状に依存するため`pref_id_from_state()`と
+	 * 同じプラットフォーム限定ゲートを適用する）。
+	 *
+	 * @param array<string,mixed> $woo_address `city`/`address_1`/`address_2`/`state`/`postcode`/`country`キー。
+	 * @return array{postal?:string,address1?:string,pref_id?:int,address2?:string}
+	 */
+	public static function to_asp_address_payload( string $platform, array $woo_address ): array {
+		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
+			return [];
+		}
+
+		$postal      = Value::string( $woo_address['postcode'] ?? null );
+		$state       = Value::string( $woo_address['state'] ?? null );
+		$country     = Value::string( $woo_address['country'] ?? null );
+		$pref_id     = self::pref_id_from_state( $platform, $state, $country );
+		$is_overseas = 48 === $pref_id;
+		$address1    = self::join_address1(
+			Value::string( $woo_address['city'] ?? null ),
+			Value::string( $woo_address['address_1'] ?? null ),
+			$is_overseas
+		);
+
+		if ( $is_overseas && null !== $address1 ) {
+			// stateがColorMeの都道府県コード形式に一致する場合は付記しない。countryが非JPを
+			// 明示しているため海外住所に解決されているが、state自体は国が変更された後も
+			// 古い国内都道府県コードだけが残っている陳腐化した値である可能性があるため
+			// （元のCustomerTransformerの判断を踏襲）。
+			$region_state = null !== $state && 1 === preg_match( '/^JP[0-9]{2}\z/', $state ) ? null : $state;
+			$address1     = self::append_region( $address1, $region_state, $country );
+		}
+
+		$address2 = Value::string( $woo_address['address_2'] ?? null );
+
+		$payload = [];
+
+		if ( null !== $postal && null !== $address1 && null !== $pref_id ) {
+			$payload['postal']   = $postal;
+			$payload['address1'] = $address1;
+			$payload['pref_id']  = $pref_id;
+		}
+
+		if ( null !== $address2 ) {
+			$payload['address2'] = $address2;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * ColorMeの`address1`はswagger上「住所1（**市区町村**・番地）」の1フィールドだが、
+	 * WooCommerceのJPロケール（`WC()->countries->get_address_fields('JP')`で実測確認）は
+	 * `billing_city`（市区町村。必須）と`billing_address_1`（番地。必須）を別フィールドとして
+	 * 扱う。`city`を無視して`address_1`だけを送ると、ネイティブWoo顧客（exportの主対象）の
+	 * 住所から市区町村がまるごと欠落する。ColorMe由来の往復顧客は`to_woo()`が`city`を常に
+	 * 空文字列にする契約のため、連結しても元の1フィールド文字列のまま変わらない。
+	 *
+	 * `$is_overseas`（`pref_id=48`）の場合のみ半角スペースを挟む。区切り無しの連結は日本語住所
+	 * （区切り無しで読める）でのみ正しく、区切り無しのまま海外住所（例: `city='Los Angeles'`+
+	 * `address_1='123 Main St'`）に適用すると単語がくっつき無警告で送信されてしまう。
+	 * 日本国内・往復顧客（`$is_overseas=false`）では従来どおり区切り無しを維持する
+	 * （既存の往復文字列を変えないため）。
+	 */
+	private static function join_address1( ?string $city, ?string $street, bool $is_overseas ): ?string {
+		$separator = $is_overseas && '' !== ( $city ?? '' ) && '' !== ( $street ?? '' ) ? ' ' : '';
+		$joined    = trim( ( $city ?? '' ) . $separator . ( $street ?? '' ) );
+
+		return '' !== $joined ? $joined : null;
+	}
+
+	/**
+	 * ColorMeの顧客/受注スキームには国・地域（都道府県に相当する行政区分）を運ぶ専用フィールドが
+	 * 無いため、海外住所の`state`（例: 'CA'）/`country`（例: 'US'）は`address1`の末尾に
+	 * カンマ区切りで付記する以外に保持する場所が無い（`Adapters\ColorMe\Transform`はWC()への
+	 * 直接依存を持たないアーキテクチャのため、国名の完全表記への変換は行わずWooの生コードの
+	 * まま付記する）。
+	 */
+	private static function append_region( string $address1, ?string $state, ?string $country ): string {
+		$parts = array_values(
+			array_filter(
+				[ $state, $country ],
+				static fn ( ?string $value ): bool => null !== $value && '' !== $value
+			)
+		);
+
+		return [] !== $parts ? $address1 . ', ' . implode( ', ', $parts ) : $address1;
+	}
+
+	/**
 	 * `PREF_ID_TO_JIS_NUMBER`の逆引き。`array_flip()`は定数式として使えないため
 	 * （PHPのconst初期化子は関数呼び出しを許さない）、リクエスト内で1度だけ計算して
 	 * メモ化する。

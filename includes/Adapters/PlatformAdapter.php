@@ -103,7 +103,12 @@ interface PlatformAdapter {
 
 	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult;
 
-	public function push_order( CanonicalOrder $order ): PushResult;
+	/**
+	 * `$remote_id`が非nullの場合、対応ASPが受注の内容更新（明細・決済/配送方法の変更）を
+	 * 実サポートしない限り、実装はAPIを呼ばず`PushResult('', PushResult::OPERATION_SKIPPED, [...])`
+	 * を返すこと（再作成すると重複した受注ができるため）。
+	 */
+	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult;
 
 	public function push_stock( CanonicalStock $stock ): PushResult;
 
