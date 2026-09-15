@@ -220,7 +220,15 @@ final class CustomerTransformer {
 			// （例: 'CA'/'US'）を`address1`の末尾に付記する。付記しないと海外顧客の州・国が
 			// address1/address2のどこにも残らず、市区町村・番地だけの不完全な住所として
 			// 無警告でexportされてしまう（G1ゲートで判明, Codex, P1）。
-			$address1 = self::append_region( $address1, $state, $country );
+			//
+			// `$state`がColorMeの`JPxx`スキームに一致する場合は付記しない。`country`が非JPを
+			// 明示しているため`$pref_id`は48（海外）に解決されている（`AddressMapper::
+			// pref_id_from_state()`のcountry優先ロジック）が、`$state`自体は「countryが変更
+			// されたのに古い`JPxx`だけが残っている」という陳腐化した値である可能性がある。
+			// これをそのまま地域情報として付記すると、意味の無いColorMe内部コード（例: `JP13`）が
+			// 海外住所の中に紛れ込む（G2ゲートで判明, Copilot）。
+			$region_state = null !== $state && 1 === preg_match( '/^JP[0-9]{2}\z/', $state ) ? null : $state;
+			$address1     = self::append_region( $address1, $region_state, $country );
 		}
 
 		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );

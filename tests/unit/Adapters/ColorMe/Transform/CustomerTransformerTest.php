@@ -341,6 +341,27 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `country`が変更され海外(48)と判定された後も、古い`JPxx`形式の`state`（ColorMe内部の
+	 * 都道府県コード）が陳腐化した値として残っている場合がある。これをそのまま地域情報として
+	 * 付記すると、無意味なColorMe内部コードが海外住所に紛れ込む（G2ゲートで判明, Copilot）。
+	 */
+	public function test_to_create_payload_does_not_append_a_stale_colorme_prefecture_code_as_region(): void {
+		$customer = self::exported_customer(
+			[
+				'address_1' => '123 Main St',
+				'state'     => 'JP13',
+				'postcode'  => '90001',
+				'country'   => 'US',
+			],
+			'1-555-0100'
+		);
+
+		$payload = $this->transformer->to_create_payload( $customer );
+
+		$this->assertSame( '123 Main St, US', $payload['address1'] );
+	}
+
+	/**
 	 * 日本国内・往復顧客（`pref_id`が1-47）ではColorMeの`pref_id`自体が都道府県を表すため、
 	 * `address1`へ`state`/`country`を付記しない（従来の往復文字列を変えないため）。
 	 */
