@@ -91,6 +91,33 @@ final class AddressMapper {
 	}
 
 	/**
+	 * `state_code()`の逆変換（エクスポート方向）。Wooの`state`（`JP01`〜`JP47`）を
+	 * ColorMeの`pref_id`（1-47）へ戻す。`state`がこの形式に一致しない場合、`country`が非空かつ
+	 * `'JP'`以外であれば`48`（海外。swaggerの`pref_id`descriptionが明記する特別値）とみなす。
+	 * それ以外（`state`不一致・`country`もJPまたは空）は変換不能として`null`を返す
+	 * （呼び出し側がフェイルクローズする）。
+	 */
+	public static function pref_id_from_state( string $platform, ?string $state, ?string $country ): ?int {
+		if ( ! in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true ) ) {
+			return null;
+		}
+
+		if ( null !== $state && 1 === preg_match( '/^JP([0-9]{2})$/', $state, $matches ) ) {
+			$pref_id = (int) $matches[1];
+
+			if ( $pref_id >= 1 && $pref_id <= 47 ) {
+				return $pref_id;
+			}
+		}
+
+		if ( null !== $country && '' !== $country && 'JP' !== $country ) {
+			return 48;
+		}
+
+		return null;
+	}
+
+	/**
 	 * ColorMeの氏名は「姓 名」の単一文字列。半角/全角スペースで最初の1回だけ分割し、
 	 * 先頭を姓（last_name）、残りを名（first_name）とする。区切りが無ければ全体を姓に入れる。
 	 * `SINGLE_STRING_NAME_PLATFORMS`未対応のプラットフォームでは、この分割規則自体が

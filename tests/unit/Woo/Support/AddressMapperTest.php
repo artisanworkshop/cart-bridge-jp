@@ -37,4 +37,42 @@ final class AddressMapperTest extends WP_UnitTestCase {
 		$this->assertTrue( AddressMapper::is_overseas( 'colorme', $address ) );
 		$this->assertFalse( AddressMapper::is_overseas( 'makeshop', $address ) );
 	}
+
+	/**
+	 * `state_code()`の逆変換。`JP01`〜`JP47`は対応する`pref_id`（1〜47）へ戻る。
+	 */
+	public function test_pref_id_from_state_resolves_domestic_prefecture(): void {
+		$this->assertSame( 13, AddressMapper::pref_id_from_state( 'colorme', 'JP13', 'JP' ) );
+		$this->assertSame( 1, AddressMapper::pref_id_from_state( 'colorme', 'JP01', 'JP' ) );
+		$this->assertSame( 47, AddressMapper::pref_id_from_state( 'colorme', 'JP47', null ) );
+	}
+
+	/**
+	 * `state`がColorMeのpref_idスキームに一致せず、`country`が非空かつ`JP`以外の場合は
+	 * `48`（海外。swaggerの`pref_id`descriptionが明記する特別値）とみなす。
+	 */
+	public function test_pref_id_from_state_resolves_overseas_from_country(): void {
+		$this->assertSame( 48, AddressMapper::pref_id_from_state( 'colorme', '', 'US' ) );
+		$this->assertSame( 48, AddressMapper::pref_id_from_state( 'colorme', null, 'US' ) );
+	}
+
+	/**
+	 * `state`が空・不明で`country`も`JP`または空の場合は変換不能（domestic無し／overseasとも
+	 * 断定できない）としてnullを返す。
+	 */
+	public function test_pref_id_from_state_returns_null_when_unresolvable(): void {
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', null, null ) );
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', '', 'JP' ) );
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', 'CA', 'JP' ) );
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', 'JP00', 'JP' ) );
+		$this->assertNull( AddressMapper::pref_id_from_state( 'colorme', 'JP48', 'JP' ) );
+	}
+
+	/**
+	 * ColorMe以外のplatformにはこのスキーム自体を適用しない（クラスdocblock・
+	 * `PREF_ID_SCHEME_PLATFORMS`と同じゲート）。
+	 */
+	public function test_pref_id_from_state_only_applies_to_colorme(): void {
+		$this->assertNull( AddressMapper::pref_id_from_state( 'makeshop', 'JP13', 'US' ) );
+	}
 }

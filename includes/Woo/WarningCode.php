@@ -90,6 +90,18 @@ final class WarningCode {
 	public const CUSTOMER_CREATE_FAILED     = 'customer_create_failed';
 	public const ADDRESS_OVERSEAS           = 'address_overseas';
 
+	/**
+	 * エクスポート時、`ColorMeAdapter::push_customer()`が新規作成（`POST /v1/customers`）に
+	 * 必須の`pref_id`/`postal`/`address1`/`tel`のいずれかをWoo顧客の請求先住所・電話番号から
+	 * 解決できなかった。送信すると確実に422になるため、事前にフェイルクローズしてスキップする
+	 * （`remote_id`が空文字列のため`Sync\Exporter`はmappingsへupsertせず、店舗がWoo側の顧客情報を
+	 * 補完すれば次回exportで自動的に再試行される）。`PushResult`からのみ発生するため、
+	 * `DryRunPlatformWriter`はアダプタを呼ばないdry-runでは検出されない
+	 * （`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ既知の限界）。更新（`PUT`）には必須項目が
+	 * 無いため対象外。
+	 */
+	public const CUSTOMER_REQUIRED_FIELD_MISSING = 'customer_required_field_missing';
+
 	public const ORDER_LINE_PRODUCT_UNRESOLVED = 'order_line_product_unresolved';
 	public const ORDER_LINE_QUANTITY_INVALID   = 'order_line_quantity_invalid';
 	public const ORDER_CUSTOMER_UNRESOLVED     = 'order_customer_unresolved';

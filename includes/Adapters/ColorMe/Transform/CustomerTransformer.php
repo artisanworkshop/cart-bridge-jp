@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Canonical\CanonicalCustomer;
+use CartBridgeJP\Woo\Support\AddressMapper;
 
 /**
  * `GET /v1/customers.json` `GET /v1/customers/{id}.json` の1要素を `CanonicalCustomer` へ変換する。
@@ -55,6 +56,145 @@ final class CustomerTransformer {
 			Cast::to_string_or_null( $raw['other'] ?? null ),
 			$this->extras( $raw, $remote_id )
 		);
+	}
+
+	/**
+	 * `POST /v1/customers`（新規作成）向けのペイロード。必須フィールド（`name`/`mail`/`pref_id`/
+	 * `postal`/`address1`/`tel`）のうち`pref_id`/`postal`/`address1`/`tel`はWoo顧客の請求先住所・
+	 * 電話番号から解決できない場合がある（`Woo\Reader\CustomerReader`はWooネイティブの住所を
+	 * そのまま運ぶだけで、ColorMe固有スキームへの変換はここが責務を持つ）。解決できなければ
+	 * `null`を返し、呼び出し元（`ColorMeAdapter::push_customer()`）にフェイルクローズさせる
+	 * （送信すると確実に422になるため。`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`）。
+	 * `add_member: true`を常に付与し、ColorMeの`member`（会員登録済みフラグ）を立てる
+	 * （`transform()`が`member === true`の行のみWoo顧客として取り込む契約と対称。付けないと
+	 * 作成した顧客がColorMe側でログイン不可のゲスト相当になり、往復インポートで再度取り込めない）。
+	 *
+	 * @return ?array<string,mixed>
+	 */
+	public function to_create_payload( CanonicalCustomer $customer ): ?array {
+		$address = $this->address_payload( $customer->address );
+		$tel     = Cast::to_string_or_null( $customer->phone );
+
+		if ( ! isset( $address['pref_id'], $address['postal'], $address['address1'] ) || null === $tel ) {
+			return null;
+		}
+
+		return array_merge(
+			$this->base_payload( $customer, $address, $tel ),
+			[ 'add_member' => true ]
+		);
+	}
+
+	/**
+	 * `PUT /v1/customers/{id}`（更新）向けのペイロード。swagger上必須フィールドが無い部分更新の
+	 * ため、`to_create_payload()`と異なり解決できなかった項目は単に省略する
+	 * （ColorMe側の既存値をそのまま残す。`ProductTransformer::to_update_payload()`と同じ方針）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function to_update_payload( CanonicalCustomer $customer ): array {
+		return $this->base_payload( $customer, $this->address_payload( $customer->address ), Cast::to_string_or_null( $customer->phone ) );
+	}
+
+	/**
+	 * 作成・更新で共通の任意項目。`CanonicalCustomer`が運ばない項目（`fax`/`sex`/`tel_mobile`/
+	 * `answer_free_form1-3`）は`Woo\Reader\CustomerReader`が`extras`を常に空配列で構築するため
+	 * 送信できない（往復時のデータ欠損はE2-4の往復E2Eで扱う既知の制限。`docs/03-design-decisions.md`
+	 * §10.2「E2-3 PR-B」参照）。
+	 *
+	 * @param array<string,mixed> $address `address_payload()`の戻り値。
+	 * @return array<string,mixed>
+	 */
+	private function base_payload( CanonicalCustomer $customer, array $address, ?string $tel ): array {
+		$payload = array_merge(
+			[
+				'name' => $customer->name,
+				'mail' => $customer->email,
+			],
+			$address
+		);
+
+		if ( null !== $tel ) {
+			$payload['tel'] = $tel;
+		}
+
+		$furigana = Cast::to_string_or_null( $customer->kana );
+
+		if ( null !== $furigana ) {
+			$payload['furigana'] = $furigana;
+		}
+
+		$hojin = Cast::to_string_or_null( $customer->company );
+
+		if ( null !== $hojin ) {
+			$payload['hojin'] = $hojin;
+		}
+
+		$busho = Cast::to_string_or_null( $customer->department );
+
+		if ( null !== $busho ) {
+			$payload['busho'] = $busho;
+		}
+
+		$birthday = Cast::to_string_or_null( $customer->birthday );
+
+		if ( null !== $birthday ) {
+			$payload['birthday'] = $birthday;
+		}
+
+		$other = Cast::to_string_or_null( $customer->note );
+
+		if ( null !== $other ) {
+			$payload['other'] = $other;
+		}
+
+		// 未知（null）を`false`（メルマガ拒否）と決め打ちしない。既存のColorMe側設定を
+		// 誤って上書きしないよう、値が判明している場合のみ送信する。
+		if ( null !== $customer->mailmag_opt_in ) {
+			$payload['receive_mail_magazine'] = $customer->mailmag_opt_in;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * Wooネイティブの住所（`Woo\Reader\CustomerReader::address()`が返す`address_1`/`address_2`/
+	 * `state`/`postcode`/`country`キー）をColorMeの`pref_id`/`postal`/`address1`/`address2`へ
+	 * 変換する。解決できなかったキーは省略する（`to_update_payload()`が省略時はColorMe側の
+	 * 既存値を保持する前提のため）。
+	 *
+	 * @param array<string,mixed> $customer_address `CanonicalCustomer::$address`（エクスポート方向）。
+	 * @return array{pref_id?:int,postal?:string,address1?:string,address2?:string}
+	 */
+	private function address_payload( array $customer_address ): array {
+		$postal   = Cast::to_string_or_null( $customer_address['postcode'] ?? null );
+		$address1 = Cast::to_string_or_null( $customer_address['address_1'] ?? null );
+		$address2 = Cast::to_string_or_null( $customer_address['address_2'] ?? null );
+		$pref_id  = AddressMapper::pref_id_from_state(
+			'colorme',
+			Cast::to_string_or_null( $customer_address['state'] ?? null ),
+			Cast::to_string_or_null( $customer_address['country'] ?? null )
+		);
+
+		$payload = [];
+
+		if ( null !== $postal ) {
+			$payload['postal'] = $postal;
+		}
+
+		if ( null !== $address1 ) {
+			$payload['address1'] = $address1;
+		}
+
+		if ( null !== $address2 ) {
+			$payload['address2'] = $address2;
+		}
+
+		if ( null !== $pref_id ) {
+			$payload['pref_id'] = $pref_id;
+		}
+
+		return $payload;
 	}
 
 	/**
