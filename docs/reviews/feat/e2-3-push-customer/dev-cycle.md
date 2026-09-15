@@ -3,9 +3,9 @@
 - タスク: E2-3 PR-B — ColorMeAdapter::push_customer() の実装
 - 開始: 2026-09-15
 - PR: #44 https://github.com/artisanworkshop/cart-bridge-jp/pull/44
-- 現在のステップ: 5（CI待ち、G2依頼前）
-- Copilot: 依頼 1 回 / 未収束（G1-1, G1-2保留）
-- Codex: 依頼 1 回（`@codex review`コメント） / 未収束（G1-7保留）
+- 現在のステップ: 6（G2応答待ち、T=2026-09-15T03:06:30Z）
+- Copilot: 依頼 2 回 / 未収束（G1-1, G1-2保留）
+- Codex: 依頼 2 回 / 未収束（G1-7保留）
 
 ## ログ
 
@@ -20,3 +20,5 @@
 | 2026-09-15 | 6 | Copilotへレビュー依頼（T=2026-09-15T02:28:50Z）。Codexは自動レビュー待ち |
 | 2026-09-15 | 6 | Codex自動レビュー15分TIMEOUT→`@codex review`コメントで再依頼（1回目として計上） |
 | 2026-09-15 | 7 | G1: Copilot新規5件（3 inline+2 suppressed）、Codex新規4件（2件はCopilot suppressedと重複）。High2件・Medium2件を修正（commit 8044fbd）、High1件・Medium2件をbacklog送り（push_productの既知の限界と同根）。品質チェックgreen（PHPUnit 913件）。返信・Resolve・サマリコメント投稿済み |
+| 2026-09-15 | 5 | 誤ってCI未起動状態でwatch→旧run（連続push分）のcancelledをfail扱いで検出。最新runを再確認しgreen |
+| 2026-09-15 | 6 | Copilot・Codexへ2回目のレビュー依頼（T=2026-09-15T03:06:30Z） |
