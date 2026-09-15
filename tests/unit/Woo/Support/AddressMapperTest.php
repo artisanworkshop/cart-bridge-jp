@@ -31,6 +31,42 @@ final class AddressMapperTest extends WP_UnitTestCase {
 		$this->assertSame( '', $other_result['state'] );
 	}
 
+	/**
+	 * ColorMeのAPIドキュメント（swagger `info.description`に埋め込まれた「都道府県コード一覧」表）は
+	 * JIS X 0401標準・WooCommerceの並びと一致しない箇所が多数ある（例: ColorMeのpref_id=4は秋田県だが
+	 * WooCommerceの`JP04`は宮城県）。番号をそのまま同一視せず、都道府県名で突き合わせた対応表
+	 * （`PREF_ID_TO_JIS_NUMBER`）経由で変換することを確認する（G3ゲートで判明, Codex/Copilot, P1）。
+	 */
+	public function test_state_code_translates_through_the_colorme_prefecture_table_not_numeric_identity(): void {
+		// ColorMe pref_id=4は秋田県。秋田県のWooCommerce/JIS番号は5（`JP05`）であり、
+		// 数値をそのまま使うと宮城県（`JP04`）に誤変換される。
+		$akita = AddressMapper::to_woo( 'colorme', [ 'pref_id' => 4 ], 'Taro', 'taro@example.com', null, null );
+		$this->assertSame( 'JP05', $akita['state'] );
+
+		// ColorMe pref_id=5は宮城県。宮城県のWooCommerce/JIS番号は4（`JP04`）。
+		$miyagi = AddressMapper::to_woo( 'colorme', [ 'pref_id' => 5 ], 'Taro', 'taro@example.com', null, null );
+		$this->assertSame( 'JP04', $miyagi['state'] );
+
+		// ColorMe pref_id=16は福井県。福井県のWooCommerce/JIS番号は18（`JP18`）。
+		$fukui = AddressMapper::to_woo( 'colorme', [ 'pref_id' => 16 ], 'Taro', 'taro@example.com', null, null );
+		$this->assertSame( 'JP18', $fukui['state'] );
+	}
+
+	/**
+	 * `pref_id_from_state()`は`state_code()`の対称の逆変換であるべきなので、同じ非自明な
+	 * （数値がそのまま一致しない）都道府県で往復が保たれることを確認する。
+	 */
+	public function test_pref_id_from_state_translates_through_the_colorme_prefecture_table_not_numeric_identity(): void {
+		// WooCommerceの`JP04`は宮城県。宮城県のColorMe pref_idは5。
+		$this->assertSame( 5, AddressMapper::pref_id_from_state( 'colorme', 'JP04', 'JP' ) );
+
+		// WooCommerceの`JP05`は秋田県。秋田県のColorMe pref_idは4。
+		$this->assertSame( 4, AddressMapper::pref_id_from_state( 'colorme', 'JP05', 'JP' ) );
+
+		// WooCommerceの`JP18`は福井県。福井県のColorMe pref_idは16。
+		$this->assertSame( 16, AddressMapper::pref_id_from_state( 'colorme', 'JP18', 'JP' ) );
+	}
+
 	public function test_is_overseas_only_applies_to_colorme(): void {
 		$address = [ 'pref_id' => 48 ];
 

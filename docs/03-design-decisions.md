@@ -662,14 +662,29 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
 
 #### エクスポート方向の実装（E2-3 PR-B: `push_customer()`）
 
+- **【重大・要対応】ColorMeの`pref_id`はJIS X 0401標準（＝WooCommerceの`JPxx`番号）と並びが
+  一致しない（G3ゲートで判明, Codex/Copilot, P1）**: `state_code()`（インポート方向。**Phase 1
+  から本番稼働中の既存コード**）は`pref_id`をそのまま`JP%02d`の数値部分として使っていたが、
+  ColorMeのAPIドキュメント（swagger `info.description`に埋め込まれた「都道府県コード一覧」表。
+  構造化されたJSONスキーマとしては提供されていないため見落としやすい）はJIS標準と異なる並びで、
+  47都道府県中約20件で番号がずれる（例: ColorMeのpref_id=4は秋田県だがJIS/Wooの4番は宮城県、
+  16↔18は福井/富山が入れ替わり、19〜23・25〜30・31〜34・36〜37・43〜44も同様）。都道府県名で
+  突き合わせた明示的な対応表`AddressMapper::PREF_ID_TO_JIS_NUMBER`を新設し、`state_code()`と
+  新設`pref_id_from_state()`の両方をこの表経由に修正した（`wp eval`でのWooCommerce実測と
+  swagger記載を名前で機械的に突き合わせ、全47件をプログラムで検証済み）。
+  **本番データへの影響**: この不具合はPhase 1（F1-4/F1-5）から存在するため、影響を受ける
+  約20都道府県の顧客・受注住所は、本PRマージ以前にインポート済みの実店舗データで**既に誤った
+  都道府県が保存されている可能性が高い**（F1-8の実店舗2件を含む）。是正には該当都道府県の
+  既存Woo顧客・受注の`billing_state`/`shipping_state`を再インポートまたは一括修正する対応が
+  別途必要（本PRのスコープ外。マージ後に別issueとして対応要）。
 - **住所スキーム変換は`Woo\Support\AddressMapper`に対称の逆関数を追加**: インポート方向の
   `state_code()`/`is_overseas()`（ColorMeの`pref_id`1-47=都道府県／48=海外というエンコーディングを
   `PREF_ID_SCHEME_PLATFORMS`でColorMeのみに限定して解釈する）に対し、エクスポート方向で必要な
   `state`→`pref_id`の逆変換を`pref_id_from_state( string $platform, ?string $state, ?string $country
-  ): ?int`として同じファイル・同じゲートで追加した。`state`が`JP01`〜`JP47`ならその数値、
-  一致せず`country`が非空かつ`'JP'`以外なら`48`（海外。swaggerの`pref_id`description記載の特別値）、
-  それ以外は変換不能として`null`。「ASP固有スキームへの変換はpush_customer()の責務」
-  （E2-2 PR-B、上記「住所はWooネイティブのキーのまま運ぶ」参照）という方針は
+  ): ?int`として同じファイル・同じゲートで追加した。`state`が`JP01`〜`JP47`（`PREF_ID_TO_JIS_NUMBER`
+  経由）ならその`pref_id`、一致せず`country`が非空かつ`'JP'`以外なら`48`（海外。swaggerの`pref_id`
+  description記載の特別値）、それ以外は変換不能として`null`。「ASP固有スキームへの変換は
+  push_customer()の責務」（E2-2 PR-B、上記「住所はWooネイティブのキーのまま運ぶ」参照）という方針は
   「`Woo\Reader\CustomerReader`（プラットフォーム非依存）に変換を持ち込まない」ことが本旨であり、
   既にColorMe専用ゲート済みの`AddressMapper`を`Adapters\ColorMe\Transform\CustomerTransformer`から
   再利用することはこれに反しないと判断した（対称の変換を複製すると2箇所が食い違うリスクを負う）。
