@@ -87,6 +87,15 @@ final class OrderTransformer {
 	 * へ積んでおり、`Sync\Exporter::process_items()`がpush結果と無関係にこれを最終警告へマージする
 	 * ため重複させる必要が無い。
 	 *
+	 * 明細の単価を復元できない場合（`line_price()`参照。tax_type不明、または合計が数量で割り
+	 * 切れない）も同様に受注全体をブロックする（`line_price_unresolved=true`）。`price`を省略した
+	 * まま送信するとColorMeが明細行に現在のカタログ価格を無警告で適用してしまい、価格改定後の
+	 * 商品では実際の受注額と大きく乖離した金額が外部システムの恒久的な受注記録として作成される
+	 * （`remote_id`確定後はchecksumがキャッシュされ再試行されない）。`PRODUCT_PRICE_INVALID`
+	 * （価格を復元できない商品を0円で恒久公開しない）と同じ金銭的リスクの構図のため、`price`を
+	 * 省略した状態でのpushは許容しない（Codexレビュー指摘。当初は`price`キーを省略するだけで
+	 * 受注自体はpushしていた）。
+	 *
 	 * @param ?string $tax_type `shop.json`の`tax_type`（`excluded`/`included`）。既知の値の場合のみ
 	 *   明細へ`price`を明示指定する（`line_price()`参照。`ColorMeAdapter::push_order()`が
 	 *   必要になった時点でのみ`shop.json`を取得して渡す。import方向の`transform()`は
@@ -98,12 +107,13 @@ final class OrderTransformer {
 	 *   unmapped_shipping_method_id: ?string,
 	 *   shipping_address_incomplete: bool,
 	 *   line_items_empty: bool,
+	 *   line_price_unresolved: bool,
 	 *   discount_not_pushed: bool,
 	 *   fee_not_pushed: bool,
 	 * }
 	 */
 	public function to_create_payload( CanonicalOrder $order, MethodMap $method_map, ?string $tax_type ): array {
-		$details = $this->details( $order->line_items, $tax_type );
+		[ $details, $line_price_unresolved ] = $this->details( $order->line_items, $tax_type );
 
 		$payment_method_id = Cast::to_string_or_null( $order->payment['method_id'] ?? null );
 		$payment_id        = null !== $payment_method_id ? $method_map->asp_payment_id( $payment_method_id ) : null;
@@ -123,6 +133,9 @@ final class OrderTransformer {
 			// `Woo\Reader\OrderReader`は対応する警告を一切積まない（未解決明細が無いため）。
 			// 無警告のまま結果から消えると診断できなくなるため、専用フラグで区別する（レビュー指摘）。
 			'line_items_empty'            => [] === $order->line_items,
+			// 明細の単価を復元できず受注全体をブロックした場合も、`line_items_unresolved`とは
+			// 別に区別する（`Woo\Reader\OrderReader`はこの状態に対応する警告を持たないため）。
+			'line_price_unresolved'       => $line_price_unresolved,
 			// `sale.details[].price`/`sale.payment_id`/`sale_deliveries`のいずれにも割引・
 			// クーポン額を運ぶフィールドが無い（swagger確認済み）ため、Wooのクーポン値引きは
 			// ColorMe側に反映されず定価のまま作成される。ブロックはしない（割引を運ぶ手段が
@@ -185,15 +198,17 @@ final class OrderTransformer {
 	}
 
 	/**
-	 * `details[]`（明細）を組み立てる。1行でも`remote_product_id`が未解決、または明細自体が
-	 * 0行の場合は`null`（`sale.details`必須のため部分的な受注を作れない）。
+	 * `details[]`（明細）を組み立てる。1行でも`remote_product_id`が未解決、明細自体が0行、または
+	 * 1行でも単価を復元できない（`line_price()`参照）場合は`[null, ...]`（`sale.details`必須の
+	 * ため部分的な受注を作れない。単価復元不能はブロックする設計判断の理由は`to_create_payload()`
+	 * のdocblock参照）。
 	 *
 	 * @param array<int,array<string,mixed>> $line_items `Woo\Reader\OrderReader::line_items()`の形。
-	 * @return ?array<int,array<string,mixed>>
+	 * @return array{0:?array<int,array<string,mixed>>,1:bool} [details, price_unresolved]
 	 */
-	private function details( array $line_items, ?string $tax_type ): ?array {
+	private function details( array $line_items, ?string $tax_type ): array {
 		if ( [] === $line_items ) {
-			return null;
+			return [ null, false ];
 		}
 
 		$details = [];
@@ -202,12 +217,19 @@ final class OrderTransformer {
 			$remote_product_id = Cast::to_int_or_null( $item['remote_product_id'] ?? null );
 
 			if ( null === $remote_product_id ) {
-				return null;
+				return [ null, false ];
+			}
+
+			$price = $this->line_price( $item, $tax_type );
+
+			if ( null === $price ) {
+				return [ null, true ];
 			}
 
 			$detail = [
 				'product_id'  => $remote_product_id,
 				'product_num' => Cast::to_int_or_null( $item['quantity'] ?? null ) ?? 1,
+				'price'       => $price,
 			];
 
 			$option1_value = Cast::to_string_or_null( $item['option1_value_current'] ?? null );
@@ -222,32 +244,28 @@ final class OrderTransformer {
 				$detail['option2_value'] = $option2_value;
 			}
 
-			$price = $this->line_price( $item, $tax_type );
-
-			if ( null !== $price ) {
-				$detail['price'] = $price;
-			}
-
 			$details[] = $detail;
 		}
 
-		return $details;
+		return [ $details, false ];
 	}
 
 	/**
 	 * ショップの`tax_type`（`shop.json`）が既知の値の場合のみ、`Woo\Reader\OrderReader`が
-	 * 計算済みの明細単価（`unit_price_excl_tax`/`price`＝税込）を明示指定する。`sale.details[].price`
-	 * を省略するとColorMeの現在のカタログ価格が適用されてしまう（swagger）ため、過去の受注金額を
-	 * 保持するには本来必要だが、税区分が不明なまま断定的に送ると誤った税基準の金額になりうるため、
-	 * 不明な場合は省略しColorMeのカタログ価格適用という文書化済みのフォールバックに委ねる。
+	 * 計算済みの明細単価（`unit_price_excl_tax`/`price`＝税込）を返す。`null`を返すのは
+	 * (1) `tax_type`が不明、(2) 明細合計が数量で割り切れない（下記）、のいずれか。呼び出し元の
+	 * `details()`はいずれの場合も**受注全体をブロックする**（`price`を省略したままpushすると
+	 * ColorMeが明細行に現在のカタログ価格を無警告で適用してしまい、価格改定後の商品では実際の
+	 * 受注額と大きく乖離した金額が外部システムの恒久的な受注記録として作成されるため。
+	 * `PRODUCT_PRICE_INVALID`と同じ金銭的リスクの構図。Codexレビュー指摘: 当初は省略するだけで
+	 * カタログ価格適用のフォールバックへ委ねていた）。
 	 *
 	 * ColorMeの`sale.details[].price`は整数円の**単価**（`product_num`と乗算されて明細合計になる、
 	 * 単価×数量方式）だが、`Woo\Reader\OrderReader`の`price`/`unit_price_excl_tax`は明細の合計
 	 * 金額を数量で割った値（四捨五入済み）。合計が数量で割り切れない場合（例: ¥1000を3個で
 	 * 割ると¥333.33...）、整数円へ丸めた単価×数量がWoo側の実際の合計と一致しなくなる
-	 * （`price=333, product_num=3`だとColorMe側は¥999として計算し¥1円分が消える。Copilot指摘）。
-	 * 割り切れない場合は`price`自体を省略し、誤った金額を断定的に送るよりカタログ価格適用の
-	 * フォールバックへ委ねる（`unit_price_divides_evenly()`参照）。
+	 * （`price=333, product_num=3`だとColorMe側は¥999として計算し¥1円分が消える。Copilot指摘。
+	 * `unit_price_divides_evenly()`参照）。
 	 *
 	 * @param array<string,mixed> $item `Woo\Reader\OrderReader::line_items()`の1行。
 	 */
@@ -319,6 +337,11 @@ final class OrderTransformer {
 	 * パターン制約が無い（`/v1/customers`専用の`Cast::normalize_tel()`はここでは使わない）ため、
 	 * 値をそのまま送る（E2-3 PR-Cレビュー指摘）。
 	 *
+	 * `Cast::to_meaningful_string_or_null()`を使う（`to_string_or_null()`ではない）: 手入力ミス・
+	 * 不正なCSV取込等で`address_1`が空白のみの場合、`to_string_or_null()`は非空文字列として
+	 * 扱ってしまい、配送先住所として空白しか持たない状態のまま請求先へフォールバックせず
+	 * 採用してしまう（Copilotレビュー指摘）。
+	 *
 	 * **既知の制限**: 配送方法自体が無い（配送不要な仮想商品のみの）受注は、この住所解決とは
 	 * 別に`MethodMap::asp_delivery_id()`が`shipping.method_id=null`を解決できず
 	 * `SHIPPING_METHOD_UNMAPPED`でスキップされる（`CanonicalOrder`が配送要否を運ぶフィールドを
@@ -330,10 +353,10 @@ final class OrderTransformer {
 		$shipping = $order->shipping;
 		$snapshot = $this->customer_snapshot_of( $order );
 
-		$name = Cast::first_non_empty( $shipping['name'] ?? null, $snapshot['name'] ?? null );
-		$tel  = Cast::first_non_empty( $shipping['tel'] ?? null, $snapshot['phone'] ?? null );
+		$name = Cast::to_meaningful_string_or_null( $shipping['name'] ?? null ) ?? Cast::to_meaningful_string_or_null( $snapshot['name'] ?? null );
+		$tel  = Cast::to_meaningful_string_or_null( $shipping['tel'] ?? null ) ?? Cast::to_meaningful_string_or_null( $snapshot['phone'] ?? null );
 
-		$address = null !== Cast::to_string_or_null( $shipping['address_1'] ?? null )
+		$address = null !== Cast::to_meaningful_string_or_null( $shipping['address_1'] ?? null )
 			? AddressMapper::to_asp_address_payload( 'colorme', $shipping )
 			: AddressMapper::to_asp_address_payload( 'colorme', $snapshot );
 

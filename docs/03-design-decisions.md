@@ -848,6 +848,16 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
     （dry-runでの割引/手数料警告の非対応=Low/既知の限界、応答喪失時の重複作成リスク=High/対象外
     ＜push_product/customerと同根の限界＞、404での再作成不可=Medium/対象外、create-sale非対応
     決済種別のフィルタリング未実装=Medium/保留）
+- **G2ゲート（Codex再依頼）で判明し対応した指摘**: 単価を復元できない場合（tax_type不明・
+  数量で割り切れない）の設計を撤回・強化した（P1）。「`price`を省略してカタログ価格へ
+  フォールバックする」という上記G1の設計は、それ自体が`remote_id`確定後は再試行されない
+  恒久的な金額の食い違いを生みうると判明したため、**単価を復元できない場合は受注全体を
+  ブロックする**方針に変更した（`PRODUCT_PRICE_INVALID`と同じ金銭的リスクの構図）。
+  `line_price_unresolved`フラグ・`WarningCode::ORDER_LINE_PRICE_UNRESOLVED`を新設。あわせて
+  `ORDER_LINE_TAX_CLASS_UNSUPPORTED`（非課税・送料のみ課税等、`CanonicalOrder`が表現できない
+  税区分）を`indicates_export_blocking()`へ追加した（既存コードの見落とし）。対応を見送った
+  指摘（ワイルドカードバリエーションの選択値喪失=High/要検証、`OrderReader.php`が本PRの
+  差分範囲外のため）は`docs/review-backlog.md`の`e2-3-push-order/G2-*`を参照。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

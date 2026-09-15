@@ -138,6 +138,18 @@ final class WarningCode {
 	public const ORDER_LINE_ITEMS_EMPTY = 'order_line_items_empty';
 
 	/**
+	 * `ColorMeAdapter::push_order()`: 明細の単価を復元できない（ショップの`tax_type`が不明、
+	 * または明細合計が数量で割り切れない）ため受注全体をスキップする。`price`を省略したまま
+	 * pushするとColorMeが明細行に現在のカタログ価格を無警告で適用してしまい、価格改定後の商品
+	 * では実際の受注額と大きく乖離した金額が恒久的な受注記録として作成されるため
+	 * （`PRODUCT_PRICE_INVALID`と同じ金銭的リスクの構図。`Adapters\ColorMe\Transform\
+	 * OrderTransformer::line_price()`docblock参照。Codexレビュー指摘）。`Woo\Reader\OrderReader`
+	 * はこの状態に対応する警告を持たないため（tax_typeも数量割り切れ判定もpush時点でのみ
+	 * 分かる情報）、`ORDER_LINE_ITEMS_EMPTY`と同じ理由で専用コードにしてある。
+	 */
+	public const ORDER_LINE_PRICE_UNRESOLVED = 'order_line_price_unresolved';
+
+	/**
 	 * `ColorMeAdapter::push_order()`: 受注にWooクーポン等の割引額（`totals.discount`）が付いて
 	 * いるが、`POST /v1/sales`のリクエストスキーマ（`customer`/`sale_deliveries`/`details`/
 	 * `payment_id`）には割引・クーポン額を運ぶフィールドが存在しない（swagger確認済み）。
@@ -470,6 +482,13 @@ final class WarningCode {
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
 			self::ORDER_REFUNDED,
+			// `Woo\Reader\OrderReader`: 明細の`tax_class`が標準/軽減税率以外（非課税・送料のみ
+			// 課税・zero-rate・カスタム税区分）。`CanonicalOrder::$line_items[].tax_reduced`は
+			// bool（標準/軽減税率の2値）しか運べずこの状態自体を伝えられないため、無警告のまま
+			// pushすると`ColorMeAdapter::push_order()`がマップ先商品の現在の税設定（標準/軽減の
+			// いずれか）で課税された受注を恒久的に作成してしまう（例: 実際は非課税だった受注が
+			// 通常課税として記録される。Codexレビュー指摘、金銭的リスク）。
+			self::ORDER_LINE_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
 			// 可視バリエーション0件）ため`price='0'`にフェイルクローズ済み。`CanonicalProduct`は
 			// 「価格0円（正規の無料商品）」と「価格を復元できない」を区別するフィールドを持たない

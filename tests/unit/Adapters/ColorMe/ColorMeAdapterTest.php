@@ -1573,7 +1573,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->mock_push_requests(
 			[
-				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
 				'POST sales.json' => [ [ 'body' => [ 'sale' => [ 'id' => 88002 ] ] ] ],
 			]
 		);
@@ -1604,7 +1604,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->mock_push_requests(
 			[
-				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
 				'POST sales.json' => [ [ 'body' => [ 'sale' => [ 'id' => 88003 ] ] ] ],
 			]
 		);
@@ -1629,7 +1629,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$captured = [];
 		$this->mock_push_requests(
 			[
-				'GET shop.json' => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET shop.json' => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
 			],
 			$captured
 		);
@@ -1661,7 +1661,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->mock_push_requests(
 			[
-				'GET shop.json'   => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'GET shop.json'   => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'excluded' ] ] ] ],
 				'POST sales.json' => [ [ 'body' => [ 'sale' => [] ] ] ],
 			]
 		);

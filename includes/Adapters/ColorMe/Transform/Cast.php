@@ -30,6 +30,25 @@ final class Cast {
 		return '' === $string ? null : $string;
 	}
 
+	/**
+	 * `to_string_or_null()`と同じだが、末尾/先頭が空白のみの値（例: 手入力ミス・不正なCSV取込・
+	 * プログラム的な作成）も「存在しない」として扱う。`to_string_or_null()`はリテラルな空文字
+	 * `""`しかnullへ正規化しないため、空白のみの値は「非空文字列＝存在する」と誤判定されうる
+	 * （Copilotレビュー指摘: `OrderTransformer::delivery_address()`で配送先`address_1`が空白のみの
+	 * 場合、本来フォールバックすべき請求先住所へ切り替わらず、空白だけの住所を配送先として
+	 * 採用してしまっていた）。戻り値は元の文字列（前後の空白を含む）をそのまま返す——判定にのみ
+	 * トリムを使い、値そのものは変形しない。
+	 */
+	public static function to_meaningful_string_or_null( mixed $value ): ?string {
+		$string = self::to_string_or_null( $value );
+
+		if ( null === $string ) {
+			return null;
+		}
+
+		return '' !== trim( $string ) ? $string : null;
+	}
+
 	public static function to_int_or_null( mixed $value ): ?int {
 		if ( is_int( $value ) ) {
 			return $value;

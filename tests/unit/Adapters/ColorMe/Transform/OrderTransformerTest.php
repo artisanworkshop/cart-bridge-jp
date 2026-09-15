@@ -633,7 +633,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertSame(
@@ -657,12 +657,28 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => null ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertFalse( $result['shipping_address_incomplete'] );
 		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
 		$this->assertSame( '', $result['payload']['sale_deliveries'][0]['furigana'] );
+	}
+
+	/**
+	 * `address_1`が空白のみ（手入力ミス・不正なCSV取込等）の場合も、リテラルな空文字と同じく
+	 * 請求先住所へフォールバックすることを確認する（Copilotレビュー指摘: 当初は`to_string_or_null()`
+	 * が空白のみの値を「非空文字列＝存在する」と誤判定し、空白だけの住所を配送先として
+	 * 採用してしまっていた）。
+	 */
+	public function test_to_create_payload_falls_back_to_billing_address_when_shipping_address_is_whitespace_only(): void {
+		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
+
+		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => '   ' ] ) ] );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+
+		$this->assertNotNull( $result['payload'] );
+		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
 	}
 
 	/**
@@ -676,7 +692,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'tel' => null ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		// 配送先住所・氏名自体（city/address_1/name。`default_shipping()`は請求先と意図的に
@@ -704,7 +720,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				],
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['shipping_address_incomplete'] );
@@ -718,7 +734,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
@@ -742,7 +758,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		);
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
@@ -755,7 +771,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'flat_rate:6', $result['unmapped_shipping_method_id'] );
@@ -777,7 +793,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				],
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['line_items_unresolved'] );
@@ -809,7 +825,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'totals' => array_merge( $this->default_totals(), [ 'discount' => '500' ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertTrue( $result['discount_not_pushed'] );
@@ -874,17 +890,20 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * ショップの`tax_type`が不明（`shop.json`未取得・未知の値）な場合、誤った税区分で断定的に
-	 * 送信するより安全のため`price`を省略する（ColorMeの現在のカタログ価格が適用される）。
+	 * ショップの`tax_type`が不明（`shop.json`未取得・未知の値）な場合、単価を復元できないため
+	 * 受注全体をpushしない（`price`を省略したまま送ると、ColorMeが明細行に現在のカタログ価格を
+	 * 無警告で適用し、価格改定後の商品では実際の受注額と乖離した金額が恒久的な受注記録として
+	 * 作成されてしまうため。誤った税区分で断定的に送るより安全、という以前の「省略して
+	 * カタログ価格へフォールバック」という設計は撤回した。Codexレビュー指摘）。
 	 */
-	public function test_to_create_payload_omits_price_when_tax_type_is_unknown(): void {
+	public function test_to_create_payload_blocks_when_tax_type_is_unknown(): void {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
 		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
 
-		$this->assertNotNull( $result['payload'] );
-		$this->assertArrayNotHasKey( 'price', $result['payload']['details'][0] );
+		$this->assertNull( $result['payload'] );
+		$this->assertTrue( $result['line_price_unresolved'] );
 	}
 
 	/**
@@ -903,10 +922,11 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	/**
 	 * ColorMeの`price`は整数円の単価（`product_num`と乗算されて明細合計になる）。Wooの明細合計
 	 * ¥1000を数量3で割ると¥333.33...となり、整数円へ丸めた単価×数量（333×3=999）が実際の合計
-	 * ¥1000と一致しなくなる。割り切れない場合は`price`自体を省略し、誤った金額を断定的に送る
-	 * より安全側（カタログ価格適用）へフォールバックすることを確認する（Copilotレビュー指摘）。
+	 * ¥1000と一致しなくなる。割り切れない場合は受注全体をpushしない（`price`を省略したまま
+	 * カタログ価格適用へフォールバックさせると、価格改定後の商品では実際の受注額と乖離した
+	 * 金額が恒久的な受注記録として作成されてしまうため。Copilot/Codexレビュー指摘）。
 	 */
-	public function test_to_create_payload_omits_price_when_quantity_does_not_divide_the_total_evenly(): void {
+	public function test_to_create_payload_blocks_when_quantity_does_not_divide_the_total_evenly(): void {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order = $this->make_export_order(
@@ -926,12 +946,12 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		);
 
 		$included = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
-		$this->assertNotNull( $included['payload'] );
-		$this->assertArrayNotHasKey( 'price', $included['payload']['details'][0] );
+		$this->assertNull( $included['payload'] );
+		$this->assertTrue( $included['line_price_unresolved'] );
 
 		$excluded = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'excluded' );
-		$this->assertNotNull( $excluded['payload'] );
-		$this->assertArrayNotHasKey( 'price', $excluded['payload']['details'][0] );
+		$this->assertNull( $excluded['payload'] );
+		$this->assertTrue( $excluded['line_price_unresolved'] );
 	}
 
 	/**

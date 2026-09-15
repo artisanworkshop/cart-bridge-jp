@@ -1310,7 +1310,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 	 * （同メソッドのdocblock参照）。`line_items_empty`（明細0行）はreadItemの警告が一切無いため
 	 * 専用コードで積む。
 	 *
-	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool,line_items_empty:bool,discount_not_pushed:bool} $result
+	 * @param array{payload:?array<string,mixed>,line_items_unresolved:bool,unmapped_payment_method_id:?string,unmapped_shipping_method_id:?string,shipping_address_incomplete:bool,line_items_empty:bool,line_price_unresolved:bool,discount_not_pushed:bool,fee_not_pushed:bool} $result
 	 * @return array<int,string>
 	 */
 	private static function order_skip_warnings( array $result ): array {
@@ -1318,6 +1318,10 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		if ( $result['line_items_empty'] ) {
 			$warnings[] = WarningCode::ORDER_LINE_ITEMS_EMPTY;
+		}
+
+		if ( $result['line_price_unresolved'] ) {
+			$warnings[] = WarningCode::ORDER_LINE_PRICE_UNRESOLVED;
 		}
 
 		if ( null !== $result['unmapped_payment_method_id'] ) {
