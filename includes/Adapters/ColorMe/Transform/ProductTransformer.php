@@ -48,20 +48,39 @@ final class ProductTransformer {
 	public function to_create_payload( CanonicalProduct $product ): array {
 		$payload = $this->base_payload( $product );
 
-		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
-			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）: 税設定不明・
-			// 未知の丸め方式等で価格を1件も解決できなかった場合、無価格のまま公開すると
-			// 実質無料で購入可能になりうる。display_stateを強制的にhiddenへ倒す
-			// （`ColorMeAdapter::push_product()`が同じ判定から`PRODUCT_DETAILS_PUSH_INCOMPLETE`
-			// を積み、checksumをキャッシュせず価格解決後の再exportで正しい状態に戻す）。
-			// **新規作成のみ**に適用する（R2レビュー指摘）: 更新時にも同じ判定を`base_payload()`
-			// へ入れると、既に公開・販売中の商品が価格未解決のたびに非公開化されてしまい、
-			// 安全上の利得が無いまま機会損失だけが生じる。更新時は価格フィールドを単に省略し
-			// （ColorMe側の既存価格はそのまま残る）、`display_state`もWoo側の状態をそのまま送る。
+		if ( $this->requires_hidden_safeguard( $product, $payload ) ) {
+			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）。display_stateを
+			// 強制的にhiddenへ倒す（`ColorMeAdapter::push_product()`が同じ判定から
+			// `PRODUCT_DETAILS_PUSH_INCOMPLETE`を積み、checksumをキャッシュせず解決後の
+			// 再exportで正しい状態に戻す）。**新規作成のみ**に適用する（R2レビュー指摘）:
+			// 更新時にも同じ判定を`base_payload()`へ入れると、既に公開・販売中の商品が
+			// 毎回非公開化されてしまい、安全上の利得が無いまま機会損失だけが生じる。更新時は
+			// 該当フィールドを単に省略し（ColorMe側の既存値はそのまま残る）、`display_state`も
+			// Woo側の状態をそのまま送る。
 			$payload['display_state'] = 'hidden';
 		}
 
 		return $payload;
+	}
+
+	/**
+	 * 新規作成時にhidden公開へ倒すべきか。`ColorMeAdapter::push_product()`が警告要否の判定にも
+	 * 使うため公開する。
+	 *
+	 * - 価格を1件も解決できない（税設定不明・未知の丸め方式等）。
+	 * - `tax_class`が既知の値（`null`=標準税率／`'reduced-rate'`=軽減税率）以外
+	 *   （店舗独自の税区分スラッグ等）。`base_payload()`はこの場合`tax_reduced=false`
+	 *   （標準税率）へフェイルクローズするが、実際には非標準の税区分かもしれず、誤った
+	 *   税区分のまま公開してしまう（G2レビュー指摘, Copilot Suppressed comments）。
+	 *
+	 * @param array<string,mixed> $payload `base_payload()`の戻り値。
+	 */
+	public function requires_hidden_safeguard( CanonicalProduct $product, array $payload ): bool {
+		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
+			return true;
+		}
+
+		return null !== $product->tax_class && 'reduced-rate' !== $product->tax_class;
 	}
 
 	/**

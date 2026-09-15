@@ -553,14 +553,15 @@ final class ColorMeAdapter implements PlatformAdapter {
 			$this->logger->warning( 'ColorMe product push response was missing the product id; falling back to the known remote_id.', [ 'remote_id' => $product_remote_id ] );
 		}
 
-		$create_payload   = $transformer->to_create_payload( $product );
-		$price_unresolved = ! isset( $create_payload['price'] ) && ! isset( $create_payload['sales_price'] );
+		$create_payload         = $transformer->to_create_payload( $product );
+		$needs_hidden_safeguard = $transformer->requires_hidden_safeguard( $product, $create_payload );
 
-		if ( $price_unresolved ) {
-			// 税設定未取得・未知の丸め方式等で価格を一切換算できなかった（`ProductTransformer::
-			// to_push_amount()`が常にnullを返した）。`to_create_payload()`が既にdisplay_stateを
-			// hiddenへ強制しているため商品自体は非公開で作成/更新済みだが、価格解決後の
-			// 再exportで正しい状態（showing・正しい価格）へ戻すためchecksumをキャッシュさせない。
+		if ( $needs_hidden_safeguard ) {
+			// 価格を一切換算できなかった、または`tax_class`が既知の値以外
+			// （`ProductTransformer::requires_hidden_safeguard()`のdocblock参照）。
+			// `to_create_payload()`が既にdisplay_stateをhiddenへ強制しているため商品自体は
+			// 非公開で作成/更新済みだが、解決後の再exportで正しい状態へ戻すためchecksumを
+			// キャッシュさせない。
 			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
 		}
 
@@ -573,7 +574,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 			];
 			$follow_up_payload = $transformer->to_update_payload( $product );
 
-			if ( $price_unresolved ) {
+			if ( $needs_hidden_safeguard ) {
 				// R2レビュー指摘で`to_create_payload()`のみに限定したhidden強制を、この直後の
 				// 追いPUTが`to_update_payload()`のshowingでそのまま上書きしてしまっていた
 				// （R3レビュー指摘: 安全策が実質0秒しか効かない）。追いPUTでも同じ判定を反映する。
@@ -696,7 +697,18 @@ final class ColorMeAdapter implements PlatformAdapter {
 			return array_fill( 0, count( $product->variants ), '' );
 		}
 
-		$remote_variants = is_array( $refreshed['variants'] ?? null ) ? array_values( array_filter( $refreshed['variants'], 'is_array' ) ) : [];
+		if ( ! is_array( $refreshed['variants'] ?? null ) ) {
+			// `variants`キー自体が欠損・非配列の場合（スキーマ崩壊）を、正当な「バリエーション
+			// 0件」と区別する（G2レビュー指摘, Copilot Suppressed comments）。区別しないと
+			// `fetch_product_detail()`の`product`エンベロープ検証はここを通過するのに、
+			// 全バリエーションが未確定・終端警告のまま親のchecksumがキャッシュされてしまう。
+			$failure['retryable'] = true;
+			self::append_failure_warning( $warnings, $failure, WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE, WarningCode::PRODUCT_VARIANT_PUSH_FAILED );
+
+			return array_fill( 0, count( $product->variants ), '' );
+		}
+
+		$remote_variants = array_values( array_filter( $refreshed['variants'], 'is_array' ) );
 		$remote_by_key   = [];
 
 		foreach ( $remote_variants as $remote_variant ) {
@@ -951,14 +963,25 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	/**
 	 * @param array<int,array{0:?string,1:?string}> $pairs [name, value] の組。
-	 * @return ?array<string,string>
+	 * @return ?array<string,string> 軸名の衝突、部分指定（名前のみ/値のみ）、全スロット未使用の
+	 *   いずれかを検出した場合はnull（信頼できるキーを組み立てられない。呼び出し元がフェイル
+	 *   クローズする）。
 	 */
 	private static function axis_map_from_pairs( array $pairs ): ?array {
 		$map = [];
 
 		foreach ( $pairs as [ $name, $value ] ) {
-			if ( null === $name || null === $value ) {
+			if ( null === $name && null === $value ) {
+				// このスロット自体が未使用（軸そのものが存在しない）。正当な状態のため無視する。
 				continue;
+			}
+
+			if ( null === $name || null === $value ) {
+				// 名前だけ・値だけの部分指定（例: Wooの「Any <属性>」ワイルドカードは値が空文字列
+				// →nullに変換される〈CLAUDE.md既知の変換〉が、属性自体は割り当てられているため
+				// 名前は残る）。無視すると2軸の変種が1軸相当のキーに潰れ、他の変種と衝突しうる
+				// （R2レビュー指摘, Copilot）。安全にキーを組み立てられないためフェイルクローズする。
+				return null;
 			}
 
 			if ( array_key_exists( $name, $map ) ) {
@@ -968,7 +991,7 @@ final class ColorMeAdapter implements PlatformAdapter {
 			$map[ $name ] = $value;
 		}
 
-		return $map;
+		return [] !== $map ? $map : null;
 	}
 
 	/**
@@ -1116,7 +1139,17 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 		$body = wp_remote_retrieve_body( $response );
 
-		return '' !== $body ? $body : null;
+		if ( '' === $body ) {
+			// 200応答でも本文が空の場合（プロキシ異常等）、以前はここで失敗を記録せずnullを
+			// 返していた。`push_images()`が警告を一切積まずcheckされないため、`Exporter`が
+			// 親商品のchecksumをキャッシュし画像が永久にpushされなくなる（G2レビュー指摘, Codex）。
+			// 状況不明のため安全側でretryable扱いにする。
+			$failure['retryable'] = true;
+
+			return null;
+		}
+
+		return $body;
 	}
 
 	private static function image_filename( string $url, int $position ): string {

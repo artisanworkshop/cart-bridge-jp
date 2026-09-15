@@ -403,6 +403,55 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 'hidden', $follow_up_request['body']['product']['display_state'] );
 	}
 
+	/**
+	 * G2レビュー指摘（Copilot Suppressed comments）: `tax_class`が`null`/`'reduced-rate'`以外
+	 * （店舗独自の税区分スラッグ、例: `zero-rate`）の場合、`base_payload()`は`tax_reduced=false`
+	 * （標準税率）へフェイルクローズするが、実際には非標準の税区分かもしれない。価格が正しく
+	 * 解決できていても、hidden強制と`PRODUCT_DETAILS_PUSH_INCOMPLETE`が働くことを確認する。
+	 */
+	public function test_push_product_forces_hidden_when_tax_class_is_unsupported(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 505 ] ] ] ],
+				'PUT products/505.json' => [ [ 'body' => [ 'product' => [ 'id' => 505 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = new CanonicalProduct(
+			'Zero Rate Product',
+			'SKU-Z',
+			'1000',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			5,
+			'publish',
+			[],
+			true,
+			[],
+			null,
+			'zero-rate'
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+
+		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
+		$this->assertNotNull( $create_request );
+		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
+		// 価格自体は解決できているため送られる（税区分だけが未対応）。
+		$this->assertSame( 1000, $create_request['body']['product']['sales_price'] );
+	}
+
 	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -857,6 +906,76 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * G2レビュー指摘（Copilot）: Wooの「Any <属性>」ワイルドカード（値が空文字列→`option2_value`
+	 * がnullに変換される。CLAUDE.md既知の変換）は、属性自体は割り当てられているため
+	 * `option2_name`は非nullのまま残る「部分指定」になる。従来はこの部分指定を無視して
+	 * `{Color: Red}`のような1軸相当のキーに潰しており、option2の値が異なる複数の
+	 * バリエーションが同じキーに衝突しうる。フェイルクローズ（未確定のまま）することを確認する。
+	 */
+	public function test_push_product_fails_closed_when_axis_has_a_name_without_a_value(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = new CanonicalProduct(
+			'Any Size Product',
+			null,
+			'2200',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => '',
+					'sku'           => 'VAR-A',
+					'option1_name'  => 'Color',
+					'option1_value' => 'Red',
+					// Wooの「Any サイズ」ワイルドカード: 属性(option2_name)は割り当てられているが
+					// 値(option2_value)は空文字列→nullに変換される（部分指定）。
+					'option2_name'  => 'Size',
+					'option2_value' => null,
+					'price'         => '2200',
+					'stock'         => 3,
+					'weight'        => null,
+				],
+			],
+			[],
+			[],
+			null,
+			'publish'
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 971 ] ] ] ],
+				'PUT products/971.json'          => [ [ 'body' => [ 'product' => [ 'id' => 971 ] ] ] ],
+				'GET products/971.json'          => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 971,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+				],
+				'POST products/971/options.json' => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_FAILED ], $result->warnings );
+		$this->assertSame( [ '' ], $result->variant_remote_ids );
+	}
+
+	/**
 	 * 422（入力エラー）は再試行しても解決しない終端状態のため`PRODUCT_VARIANT_PUSH_FAILED`
 	 * （retry対象外）になる。R1レビュー指摘: 4xxもretry対象に含めると恒久的な失敗が毎回
 	 * 同じ無駄なリクエスト列を繰り返してしまう。
@@ -971,6 +1090,59 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '904', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
+		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
+	}
+
+	/**
+	 * G2レビュー指摘（Copilot Suppressed comments）: `fetch_product_detail()`は`product`
+	 * エンベロープの欠損は検証するが、ネストされた`variants`フィールド自体の欠損・非配列は
+	 * 検証していなかった。正当な「バリエーション0件」（`variants: []`）と区別できず、
+	 * スキーマ崩壊時も無警告で空配列扱いになり、全バリエーションが終端警告
+	 * （`PRODUCT_VARIANT_PUSH_FAILED`）のまま親のchecksumがキャッシュされてしまっていた。
+	 * retryableな警告（`PRODUCT_VARIANT_PUSH_INCOMPLETE`）になることを確認する。
+	 */
+	public function test_push_product_marks_variant_sync_incomplete_when_variants_field_is_missing(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                  => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'             => [ [ 'body' => [ 'product' => [ 'id' => 905 ] ] ] ],
+				'PUT products/905.json'          => [ [ 'body' => [ 'product' => [ 'id' => 905 ] ] ] ],
+				'GET products/905.json'          => [
+					// 1回目: 正常な「バリエーション0件」状態。
+					[
+						'body' => [
+							'product' => [
+								'id'       => 905,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					// 2回目: `variants`キー自体が欠損（スキーマ崩壊を模す）。
+					[
+						'body' => [
+							'product' => [
+								'id'      => 905,
+								'options' => [],
+							],
+						],
+					],
+				],
+				'POST products/905/options.json' => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+			]
+		);
+
+		$result = $adapter->push_product( $this->variable_product(), null );
+
 		$this->assertSame( [ WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE ], $result->warnings );
 		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
 	}
@@ -1120,6 +1292,47 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			[
 				[
 					'src'      => 'https://cdn.example.test/flaky.jpg',
+					'position' => 0,
+				],
+			]
+		);
+		$result  = $adapter->push_product( $product, null );
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
+	}
+
+	/**
+	 * G2レビュー指摘（Codex/Copilot）: 200応答でも本文が空（プロキシ異常等）の場合、従来は
+	 * `\$failure`へ何も記録せずnullを返していたため、警告が一切積まれず親商品のchecksumが
+	 * キャッシュされ画像が永久にpushされなくなっていた。retryableな警告が積まれることを確認する。
+	 */
+	public function test_push_product_marks_image_push_incomplete_when_body_is_empty(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                          => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'                     => [ [ 'body' => [ 'product' => [ 'id' => 604 ] ] ] ],
+				'PUT products/604.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 604 ] ] ] ],
+				'GET https://cdn.example.test/empty.jpg' => [
+					[
+						'raw_body' => '',
+						'status'   => 200,
+					],
+				],
+			]
+		);
+
+		$product = $this->simple_product(
+			[
+				[
+					'src'      => 'https://cdn.example.test/empty.jpg',
 					'position' => 0,
 				],
 			]
