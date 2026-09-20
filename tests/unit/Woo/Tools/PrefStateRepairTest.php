@@ -727,6 +727,35 @@ final class PrefStateRepairTest extends WooTestCase {
 		$this->assertSame( 'JP05', $this->order( $id2 )->get_billing_state() );
 	}
 
+	public function test_a_record_whose_country_was_changed_away_from_the_platform_country_is_left_alone(): void {
+		// 国だけが日本以外へ変更され、旧バグの state・郵便番号・番地はそのまま残っている顧客。ここへ `JPxx` を書くと
+		// 「外国の国＋日本の都道府県」という矛盾した住所になるため、書き換えず確認不能として報告する。
+		$customer = $this->customer_model( 'C1', 4 );
+		$user_id  = $this->import_customer( $customer );
+		$this->make_customer_legacy( $user_id, 4 );
+		update_user_meta( $user_id, 'billing_country', 'US' );
+		update_user_meta( $user_id, 'shipping_country', 'US' );
+
+		$result = $this->tool( new MockPlatformAdapter( [], [ $customer ] ) )->run( self::PLATFORM, true );
+
+		$this->assertSame( 1, $result['counts']['customer']['unverified'] );
+		$this->assertSame( 0, $result['counts']['customer']['fixed'] );
+		$this->assertSame( 'JP04', $this->user_state( $user_id, 'billing' ) );
+
+		// 受注も同様（請求先だけ国が変わっていれば、その側だけを書き換えない）。
+		$model    = $this->order_model( '5301', 4, 4 );
+		$order_id = $this->import_order( $model );
+		$this->make_order_legacy( $order_id, 4, 4 );
+		$order = $this->order( $order_id );
+		$order->set_billing_country( 'US' );
+		$order->save();
+
+		$this->tool( new MockPlatformAdapter( [], [], [ $model ] ) )->run( self::PLATFORM, true );
+
+		$this->assertSame( 'JP04', $this->order( $order_id )->get_billing_state(), '国が変わった側は書き換えない' );
+		$this->assertSame( 'JP05', $this->order( $order_id )->get_shipping_state(), '国が一致する側は補正される' );
+	}
+
 	public function test_a_partial_customer_write_still_records_the_side_that_was_written(): void {
 		$customer = $this->customer_model( 'C1', 4 );
 		$user_id  = $this->import_customer( $customer );

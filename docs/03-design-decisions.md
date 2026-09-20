@@ -926,7 +926,7 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   手作業/SQL で一括変換してしまうと戻せない。
 - **判定**（側ごと＝請求先・配送先を独立に）: ASP から権威の `pref_id`（p）を単一 ID 取得（顧客 `fetch_customer_by_remote_id()`、受注
   `fetch_order_by_remote_id()`。`PlatformAdapter` に追加）し、現在の state（s）が旧出力（`JP{p}`）と一致し、かつ正しい値（`JP{表[p]}`）と異なり、
-  **かつ郵便番号（数字のみ）・番地が ASP 由来の期待値（`AddressMapper::to_woo()` の出力）と一致する**場合に限り `state` のみを更新する。
+  **かつ国・郵便番号（数字のみ）・番地が ASP 由来の期待値（`AddressMapper::to_woo()` の出力）と一致する**場合に限り `state` のみを更新する。
   `s == 正しい値` は変更しない（冪等）。それ以外（手修正・ASP 側の住所変更・郵便番号/番地の不一致）は変更せず `unverified` として報告する
   （その県自体は旧バグの影響を受けなくても、現在の state が「旧バグが別の県で出力しうる値」のまま残っている場合は ASP 側で県が変わった可能性があるため、`ok` とは断定せず `unverified`）
   （state だけ書き換えて「新しい県＋古い郵便番号」のキメラ住所を作らない）。旧出力が取りうる state は 23 値に限られるため、それ以外の値の実体は
@@ -934,7 +934,8 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   留め、新規書込みへの誤用の誘い水になる `AddressMapper` には置かない。
 - **Scan と Repair は同一の判定関数を共有**し、書込みだけが異なる。REST は GET（Scan。Woo のデータについて読取専用。バッチごとの集計を `cbjp_logs` に1行記録する）/POST（Repair）で分け、`dry_run` の真偽値パラメータは
   作らない（欠損・型違いが書込み側に倒れる fail-open の排除。`sample-cleanup` の preview/run と同じ流儀）。`PrefStateRepair::run()` の `$apply` も既定値なし。
-- **対象の絞り込み**: mappings が指す実体のうち、実在し、`_cbjp_platform` が自プラットフォーム、顧客はスタッフ権限（`CustomerWriter::has_protected_role()`。
+- **対象の絞り込み**: mappings が指す実体のうち、実在し、`_cbjp_platform` が自プラットフォーム（所有判定に不変の作成マーカー `_cbjp_created_by_import` は使わない。それは「誰が作成したか＝削除してよいか」の判定用で、
+  `CustomerWriter` は email 突合で採用した既存アカウントにも住所を書くため、その誤った state もインポートが書いたものとして修復の対象になる）、顧客はスタッフ権限（`CustomerWriter::has_protected_role()`。
   `CustomerWriter` は住所を書かずにスキップするため、その state は店舗自身のデータ）でなく、受注は `WC_Order`（refund 除外）かつ `trash`/`checkout-draft` でないもの。
   該当しなければ `skipped`。新規実体は作らないため `LimitPolicy` の累積カウントに影響しない。
 - **ASP アクセスは単一 ID 取得に限定**: 一覧の `ids` は受注で「直近7日」に絞られる可能性がある（要検証#18）ため使わず、日付窓の影響を受けない

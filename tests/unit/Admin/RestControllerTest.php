@@ -1505,6 +1505,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 			update_user_meta( $user_id, "{$side}_state", 'JP04' );
 			update_user_meta( $user_id, "{$side}_postcode", '1000001' );
 			update_user_meta( $user_id, "{$side}_address_1", 'Chiyoda 1-1-1' );
+			update_user_meta( $user_id, "{$side}_country", 'JP' );
 		}
 
 		update_user_meta( $user_id, '_cbjp_platform', 'colorme' );

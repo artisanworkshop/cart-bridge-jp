@@ -204,7 +204,11 @@ final class PrefStateRepair {
 	private function repair_customer( string $platform, bool $apply, int $user_id, string $remote_id, int &$fetches ): string {
 		$user = get_userdata( $user_id );
 
-		// 所有・実在・スタッフの検証は Scan と Repair で共通。スタッフ（管理者等）のアカウントは
+		// 所有・実在・スタッフの検証は Scan と Repair で共通。所有判定は不変の作成マーカー
+		// （`_cbjp_created_by_import`。「誰が作成したか＝削除してよいか」の判定用）ではなく、`_cbjp_platform`
+		// （最後に住所を書いたプラットフォーム）を使う: `CustomerWriter` は email 突合で採用した既存アカウントにも
+		// 住所を書くため、その誤った state もインポートが書いたもので、修復の対象になる。
+		// スタッフ（管理者等）のアカウントは
 		// `CustomerWriter` が住所を書かずに SKIPPED で返すため、その `billing_state` は旧バグの出力ではなく
 		// 店舗自身のデータで、ASP 由来の値で上書きしてはならない。
 		if ( ! $user instanceof WP_User
@@ -282,11 +286,13 @@ final class PrefStateRepair {
 				'state'     => $order->get_billing_state( 'edit' ),
 				'postcode'  => $order->get_billing_postcode( 'edit' ),
 				'address_1' => $order->get_billing_address_1( 'edit' ),
+				'country'   => $order->get_billing_country( 'edit' ),
 			],
 			'shipping' => [
 				'state'     => $order->get_shipping_state( 'edit' ),
 				'postcode'  => $order->get_shipping_postcode( 'edit' ),
 				'address_1' => $order->get_shipping_address_1( 'edit' ),
+				'country'   => $order->get_shipping_country( 'edit' ),
 			],
 		];
 
@@ -364,7 +370,7 @@ final class PrefStateRepair {
 
 	/**
 	 * @param array<string,mixed>  $address ASP 由来の住所（`pref_id`/`postal`/`address1` 等）。
-	 * @param array<string,string> $current Woo の現在値（`state`/`postcode`/`address_1`）。
+	 * @param array<string,string> $current Woo の現在値（`state`/`postcode`/`address_1`/`country`）。
 	 * @return 'fix'|'ok'|'unverified'
 	 */
 	private function decide( string $platform, array $address, array $current ): string {
@@ -395,11 +401,14 @@ final class PrefStateRepair {
 		}
 
 		// 旧バグの出力と一致した。ASP 側で住所が変わっていないこと（＝この state がインポート時の
-		// 住所に由来すること）を、`AddressMapper::to_woo()` が同じ入力から生成する郵便番号・番地との
-		// 一致で確認する。一致しなければ state だけを書き換えない。
+		// 住所に由来すること）を、`AddressMapper::to_woo()` が同じ入力から生成する国・郵便番号・番地との
+		// 一致で確認する。一致しなければ state だけを書き換えない。国も見るのは、Woo 側で国だけが
+		// 日本以外へ変更されている実体に `JPxx` を書くと、外国の国＋日本の都道府県という矛盾した住所に
+		// なるため。
 		$expected = AddressMapper::to_woo( $platform, $address, '', '', null, null );
 
-		if ( ! $this->same_postcode( $expected['postcode'], $current['postcode'] )
+		if ( $expected['country'] !== $current['country']
+			|| ! $this->same_postcode( $expected['postcode'], $current['postcode'] )
 			|| ! $this->same_line( $expected['address_1'], $current['address_1'] )
 		) {
 			return 'unverified';
@@ -452,13 +461,14 @@ final class PrefStateRepair {
 	}
 
 	/**
-	 * @return array{state:string,postcode:string,address_1:string}
+	 * @return array{state:string,postcode:string,address_1:string,country:string}
 	 */
 	private function user_address( int $user_id, string $side ): array {
 		return [
 			'state'     => $this->meta_string( $user_id, "{$side}_state" ),
 			'postcode'  => $this->meta_string( $user_id, "{$side}_postcode" ),
 			'address_1' => $this->meta_string( $user_id, "{$side}_address_1" ),
+			'country'   => $this->meta_string( $user_id, "{$side}_country" ),
 		];
 	}
 

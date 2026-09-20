@@ -923,7 +923,7 @@ export default function ToolsTab() {
 					</p>
 					<p>
 						{ __(
-							'Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records created by the import are touched. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool.',
+							'Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records that this plugin imported are touched, including existing accounts it matched by email and updated. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool.',
 							'cart-bridge-jp'
 						) }
 					</p>
@@ -1172,7 +1172,7 @@ export default function ToolsTab() {
 							) > 0 && (
 								<p>
 									{ __(
-										'“Skipped” records were not changed: the WooCommerce record no longer exists, was not created by this plugin’s import, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair.',
+										'“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair.',
 										'cart-bridge-jp'
 									) }
 								</p>
