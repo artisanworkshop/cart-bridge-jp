@@ -95,6 +95,15 @@ interface PlatformAdapter {
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer;
 
 	/**
+	 * 受注をID指定で1件取得する。404はnullを返す（例外にしない）。県コード修復ツール
+	 * （`Woo\Tools\PrefStateRepair`。issue #46）が、インポート済み受注の住所の権威値を
+	 * 再取得するために使う。期間指定付きの一覧取得と違い、ID指定の単一取得は日付範囲の
+	 * 暗黙の絞り込み（カラーミー: 直近7日。03 §9 #14）の影響を受けない。
+	 * 未対応のASPは UnsupportedOperationException。
+	 */
+	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder;
+
+	/**
 	 * capabilityで不可の場合は UnsupportedOperationException。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult;

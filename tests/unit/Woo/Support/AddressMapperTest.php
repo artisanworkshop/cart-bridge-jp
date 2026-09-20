@@ -52,6 +52,41 @@ final class AddressMapperTest extends WP_UnitTestCase {
 		$this->assertSame( 'JP18', $fukui['state'] );
 	}
 
+	public function test_uses_pref_id_scheme_only_for_colorme(): void {
+		$this->assertTrue( AddressMapper::uses_pref_id_scheme( 'colorme' ) );
+		$this->assertFalse( AddressMapper::uses_pref_id_scheme( 'makeshop' ) );
+		$this->assertFalse( AddressMapper::uses_pref_id_scheme( 'mock' ) );
+	}
+
+	/**
+	 * 県コード修復ツール（`Woo\Tools\PrefStateRepair`。issue #46）は、旧バグ（恒等変換）の出力と新しい出力が
+	 * 異なる県を `state_code()` から導出する。その前提（表が 1..47 の全単射で、恒等でない県がちょうど23件）を
+	 * 固定する。全単射でなければ、旧出力と別の県の正しい出力が衝突して補正の判定が曖昧になる。
+	 */
+	public function test_state_code_is_a_bijection_and_exactly_23_prefectures_differ_from_the_legacy_identity(): void {
+		$states  = [];
+		$changed = 0;
+
+		for ( $pref_id = 1; $pref_id <= 47; $pref_id++ ) {
+			$state = AddressMapper::state_code( 'colorme', [ 'pref_id' => $pref_id ] );
+
+			$this->assertMatchesRegularExpression( '/\AJP(0[1-9]|[1-3][0-9]|4[0-7])\z/', $state );
+			$states[ $state ] = true;
+
+			if ( sprintf( 'JP%02d', $pref_id ) !== $state ) {
+				++$changed;
+			}
+		}
+
+		$this->assertCount( 47, $states, '47 の pref_id は 47 の異なる state に対応する' );
+		$this->assertSame( 23, $changed );
+
+		// 海外（48）・範囲外・欠損は旧新とも空文字（影響なし）。
+		$this->assertSame( '', AddressMapper::state_code( 'colorme', [ 'pref_id' => 48 ] ) );
+		$this->assertSame( '', AddressMapper::state_code( 'colorme', [ 'pref_id' => 0 ] ) );
+		$this->assertSame( '', AddressMapper::state_code( 'colorme', [] ) );
+	}
+
 	/**
 	 * `pref_id_from_state()`は`state_code()`の対称の逆変換であるべきなので、同じ非自明な
 	 * （数値がそのまま一致しない）都道府県で往復が保たれることを確認する。

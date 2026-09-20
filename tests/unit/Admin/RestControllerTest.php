@@ -10,13 +10,18 @@ namespace CartBridgeJP\Tests\Admin;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\Tools\PrefStateRepair;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Product_Simple;
 use WP_HTTP_Response;
@@ -1468,6 +1473,245 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'cbjp_invalid_cursor', $response->as_error()->get_error_code() );
+	}
+
+	// ---- /tools/repair-states（県コード修復。issue #46）-----------------------------------------------
+
+	/**
+	 * 県コード修復は `pref_id` スキームを持つプラットフォーム（`colorme`）だけが対象のため、
+	 * レジストリのキー `colorme` にモックを登録して各シナリオを作る。
+	 */
+	private function register_colorme_mock( MockPlatformAdapter $adapter ): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters['colorme'] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+	}
+
+	/**
+	 * 旧コードで取り込まれた顧客（pref_id=4=秋田なのに JP04=宮城が入っている）と、その ASP 側の記録。
+	 *
+	 * @return array{0:int,1:CanonicalCustomer} [user_id, ASP側の顧客]
+	 */
+	private function make_legacy_customer(): array {
+		$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+
+		foreach ( [ 'billing', 'shipping' ] as $side ) {
+			update_user_meta( $user_id, "{$side}_state", 'JP04' );
+			update_user_meta( $user_id, "{$side}_postcode", '1000001' );
+			update_user_meta( $user_id, "{$side}_address_1", 'Chiyoda 1-1-1' );
+			update_user_meta( $user_id, "{$side}_country", 'JP' );
+		}
+
+		update_user_meta( $user_id, '_cbjp_platform', 'colorme' );
+		( new MappingRepository() )->upsert( 'colorme', 'customer', 'C1', $user_id, null );
+
+		$customer = new CanonicalCustomer(
+			'legacy@example.com',
+			'Yamada Taro',
+			null,
+			null,
+			null,
+			[
+				'postal'   => '1000001',
+				'pref_id'  => 4,
+				'address1' => 'Chiyoda 1-1-1',
+				'country'  => 'JP',
+			],
+			'0312345678',
+			null,
+			null,
+			null,
+			[ 'remote_id' => 'C1' ]
+		);
+
+		return [ $user_id, $customer ];
+	}
+
+	public function test_state_repair_returns_404_for_unknown_platform(): void {
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
+
+	public function test_state_repair_rejects_an_array_valued_platform(): void {
+		$this->register_colorme_mock( new MockPlatformAdapter() );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$request->set_query_params( [ 'platform' => [ 'colorme' ] ] );
+
+		$this->assertSame( 400, $this->server->dispatch( $request )->get_status() );
+	}
+
+	public function test_state_repair_requires_the_manage_woocommerce_capability(): void {
+		$this->register_colorme_mock( new MockPlatformAdapter() );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'subscriber' ] ) );
+
+		$scan = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$scan->set_query_params( [ 'platform' => 'colorme' ] );
+		$run = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$run->set_body_params( [ 'platform' => 'colorme' ] );
+
+		$this->assertSame( 403, $this->server->dispatch( $scan )->get_status() );
+		$this->assertSame( 403, $this->server->dispatch( $run )->get_status() );
+	}
+
+	public function test_state_repair_rejects_a_platform_without_the_pref_id_scheme(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_repair_not_applicable', $response->as_error()->get_error_code() );
+	}
+
+	public function test_state_repair_rejects_an_invalid_cursor(): void {
+		$this->register_colorme_mock( new MockPlatformAdapter() );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$request->set_query_params(
+			[
+				'platform' => 'colorme',
+				'cursor'   => '{"entity":"nope","offset":0}',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_invalid_cursor', $response->as_error()->get_error_code() );
+	}
+
+	public function test_state_repair_accepts_a_null_cursor(): void {
+		// 管理画面は初回リクエストで `cursor: null` を送る（`rebuild-mappings` と同じ理由で null を許容する）。
+		$this->register_colorme_mock( new MockPlatformAdapter() );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$request->set_body_params(
+			[
+				'platform' => 'colorme',
+				'cursor'   => null,
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertNull( $response->get_data()['cursor'] );
+	}
+
+	public function test_state_repair_is_rejected_while_a_run_is_active(): void {
+		$this->register_colorme_mock( new MockPlatformAdapter() );
+
+		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
+		$start = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$start->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => 'colorme',
+				'entities' => [ 'category' ],
+			]
+		);
+		$this->assertSame( 200, $this->server->dispatch( $start )->get_status() );
+
+		$scan = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$scan->set_query_params( [ 'platform' => 'colorme' ] );
+		$run = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$run->set_body_params( [ 'platform' => 'colorme' ] );
+
+		$this->assertSame( 409, $this->server->dispatch( $scan )->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $this->server->dispatch( $run )->as_error()->get_error_code() );
+	}
+
+	public function test_state_repair_scan_only_counts_and_post_repairs(): void {
+		[ $user_id, $customer ] = $this->make_legacy_customer();
+		$this->register_colorme_mock( new MockPlatformAdapter( [], [ $customer ] ) );
+
+		$scan = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
+		$scan->set_query_params( [ 'platform' => 'colorme' ] );
+		$scan_response = $this->server->dispatch( $scan );
+		$scan_data     = $scan_response->get_data();
+
+		$this->assertSame( 200, $scan_response->get_status() );
+		$this->assertFalse( $scan_data['apply'] );
+		$this->assertSame( 1, $scan_data['counts']['customer']['fixed'] );
+		$this->assertNull( $scan_data['cursor'] );
+		$this->assertSame( 'JP04', get_user_meta( $user_id, 'billing_state', true ), 'GET は読取専用' );
+
+		$run = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$run->set_body_params( [ 'platform' => 'colorme' ] );
+		$run_response = $this->server->dispatch( $run );
+
+		$this->assertSame( 200, $run_response->get_status() );
+		$this->assertTrue( $run_response->get_data()['apply'] );
+		$this->assertSame( 1, $run_response->get_data()['counts']['customer']['fixed'] );
+		$this->assertSame( 'JP05', get_user_meta( $user_id, 'billing_state', true ) );
+		$this->assertSame( 'JP05', get_user_meta( $user_id, 'shipping_state', true ) );
+		$this->assertNotSame( '', (string) get_user_meta( $user_id, PrefStateRepair::AUDIT_META, true ) );
+	}
+
+	public function test_state_repair_reports_an_adapter_without_single_record_lookup_as_unsupported(): void {
+		// 走査の途中で「このアダプタは単一 ID 取得に対応していない」と分かった場合。「修復が不要」ではなく
+		// 「実行できない」（501）で、再開しても同じ結果になるため cursor は返さない。
+		[ , $customer ] = $this->make_legacy_customer();
+		$this->register_colorme_mock(
+			new MockPlatformAdapter(
+				customers: [ $customer ],
+				fetch_by_id_failure: new UnsupportedOperationException( 'colorme', 'fetch_customer_by_remote_id' )
+			)
+		);
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$request->set_body_params( [ 'platform' => 'colorme' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 501, $response->get_status() );
+		$this->assertSame( 'cbjp_repair_unsupported', $response->as_error()->get_error_code() );
+	}
+
+	/**
+	 * @return array<string,array{0:\Throwable,1:int,2:string}>
+	 */
+	public static function state_repair_failures(): array {
+		return [
+			'rate limit'      => [ new RateLimitExhaustedException( 'colorme' ), 503, 'cbjp_rate_limited' ],
+			'platform 429'    => [ new ApiException( 'too many requests', 429, [ 'rate_limited' => true ] ), 503, 'cbjp_rate_limited' ],
+			'not connected'   => [ new ApiException( 'not connected', 0, [ 'not_connected' => true ] ), 409, 'cbjp_not_connected' ],
+			// ステータス 0 でも「未接続」と明示されていなければ通信断として扱い、再接続を促さない。
+			'network failure' => [ new ApiException( 'cURL error 28', 0, [] ), 502, 'cbjp_platform_api_error' ],
+			'server error'    => [ new ApiException( 'server error', 500, [] ), 502, 'cbjp_platform_api_error' ],
+		];
+	}
+
+	/**
+	 * @dataProvider state_repair_failures
+	 */
+	public function test_state_repair_reports_a_platform_failure_with_the_progress_and_a_resumable_cursor( \Throwable $failure, int $status, string $code ): void {
+		[ , $customer ] = $this->make_legacy_customer();
+		$this->register_colorme_mock( new MockPlatformAdapter( customers: [ $customer ], fetch_by_id_failure: $failure ) );
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$request->set_body_params( [ 'platform' => 'colorme' ] );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( $status, $response->get_status() );
+		$this->assertSame( $code, $data['code'] );
+		// 失敗した行を指す cursor と、そこまでの件数を返す（UI は件数を失わず同じ位置から再開できる）。
+		$this->assertSame( '{"entity":"customer","offset":0}', $data['data']['cursor'] );
+		$this->assertSame( 0, $data['data']['counts']['customer']['fixed'] );
+
+		if ( 503 === $status ) {
+			$this->assertSame( '60', $response->get_headers()['Retry-After'] );
+		}
 	}
 
 	public function test_get_run_verification_returns_404_for_unknown_run(): void {

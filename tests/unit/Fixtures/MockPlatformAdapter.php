@@ -37,6 +37,13 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
+	 * `fetch_customer_by_remote_id()`/`fetch_order_by_remote_id()`の呼び出し履歴（`[entity, remote_id]`）。
+	 *
+	 * @var array<int,array{0:string,1:string}>
+	 */
+	public array $fetched_by_id = [];
+
+	/**
 	 * `push_product()`に渡された`(CanonicalProduct, ?remote_id)`の記録
 	 * （`Sync\Exporter`のテストで実際にpushされた内容を検証する用）。
 	 *
@@ -101,6 +108,13 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 *   push_order()/push_stock()/push_coupon()が`UnsupportedOperationException`を投げず成功を
 	 *   返す（`push_products_supported`のPR-B版。customer/order/stock/couponをまとめて1フラグで
 	 *   制御する。4エンティティを個別に無効化するテストは`capabilities_override`で行う）。
+	 * @param \Throwable|null                $fetch_by_id_failure 指定すると`fetch_customer_by_remote_id()`/
+	 *   `fetch_order_by_remote_id()`だけがこの例外を投げる（`$fetch_failure`と違い既存のID指定取得の
+	 *   テストへ影響しない。県コード修復ツールの障害シナリオのテスト用）。
+	 * @param ?CanonicalCustomer              $customer_by_remote_id_override 指定すると
+	 *   fetch_customer_by_remote_id() が要求IDを無視してこの顧客をそのまま返す
+	 *   （要求IDと異なる顧客を返す契約違反アダプタのシナリオのテスト用。`$product_by_remote_id_override`と同じ）。
+	 * @param ?CanonicalOrder                 $order_by_remote_id_override 同上（fetch_order_by_remote_id()）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -113,7 +127,10 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly ?CanonicalProduct $product_by_remote_id_override = null,
 		private readonly ?array $mapping_candidates_override = null,
 		private readonly bool $push_products_supported = false,
-		private readonly bool $push_others_supported = false
+		private readonly bool $push_others_supported = false,
+		private readonly ?\Throwable $fetch_by_id_failure = null,
+		private readonly ?CanonicalCustomer $customer_by_remote_id_override = null,
+		private readonly ?CanonicalOrder $order_by_remote_id_override = null
 	) {}
 
 	public function id(): string {
@@ -216,10 +233,44 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		return null;
 	}
 
+	/**
+	 * ID指定取得の呼び出しを記録し、`$fetch_by_id_failure`が指定されていれば投げる
+	 * （県コード修復ツールの「事前フィルタでAPIを呼ばない」「障害で中断しcursorを返す」のテスト用）。
+	 */
+	private function record_fetch_by_id( string $entity, string $remote_id ): void {
+		$this->fetched_by_id[] = [ $entity, $remote_id ];
+
+		if ( null !== $this->fetch_by_id_failure ) {
+			throw $this->fetch_by_id_failure;
+		}
+	}
+
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
+		$this->record_fetch_by_id( 'customer', $remote_id );
+
+		if ( null !== $this->customer_by_remote_id_override ) {
+			return $this->customer_by_remote_id_override;
+		}
+
 		foreach ( $this->customers as $customer ) {
 			if ( (string) $customer->extras['remote_id'] === $remote_id ) {
 				return $customer;
+			}
+		}
+
+		return null;
+	}
+
+	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
+		$this->record_fetch_by_id( 'order', $remote_id );
+
+		if ( null !== $this->order_by_remote_id_override ) {
+			return $this->order_by_remote_id_override;
+		}
+
+		foreach ( $this->orders as $order ) {
+			if ( $order->remote_id() === $remote_id ) {
+				return $order;
 			}
 		}
 
