@@ -28,7 +28,7 @@ $ids = get_option( 'cbjp_verify_ids', [] );
 $dump = static function ( string $title ) use ( $ids ): void {
 	echo "--- {$title}\n";
 
-	foreach ( $ids['users'] as $remote => $uid ) {
+	foreach ( $ids['users'] ?? [] as $remote => $uid ) {
 		printf(
 			"  %s user#%d billing=%s shipping=%s audit=%s\n",
 			$remote,
@@ -39,8 +39,15 @@ $dump = static function ( string $title ) use ( $ids ): void {
 		);
 	}
 
-	foreach ( $ids['orders'] as $number => $oid ) {
+	foreach ( $ids['orders'] ?? [] as $number => $oid ) {
 		$order = wc_get_order( $oid );
+
+		if ( ! $order ) {
+			echo "  {$number} order#{$oid} (deleted)\n";
+
+			continue;
+		}
+
 		printf( "  %s order#%d billing=%s shipping=%s audit=%s\n", $number, $oid, $order->get_billing_state(), $order->get_shipping_state(), $order->get_meta( '_cbjp_state_repaired' ) ?: '-' );
 	}
 };

@@ -17,7 +17,15 @@ TEMPLATE="$HERE/../templates/mu-plugin-mock-adapter.php"
 # 他プロジェクトの wp-env と取り違えないため、`docker ps` や hash の総当たりではなくこれを使う。
 install_path() { npx wp-env install-path 2>/dev/null; }
 mu_dir() { echo "$(install_path)/WordPress/wp-content/mu-plugins"; }
-wp() { npx wp-env run cli --env-cwd=wp-content/plugins/cart-bridge-jp wp "$@" 2>&1 | grep -v '^ℹ\|^✔\|^$' || true; }
+# wp-env の失敗（未起動・別プロジェクト・PHP の致命的エラー）は握りつぶさず、そのまま非ゼロで返す。
+# 出力は wp-env の進捗行（ℹ / ✔）と空行だけを落とす。`grep -v` は「全行が落ちて出力が空」のとき終了コード 1 を返すが、
+# それは失敗ではないので無視する（`|| true` をパイプ全体に付けると wp-env 側の失敗まで隠れてしまう）。
+wp() {
+  local out rc
+  out=$(npx wp-env run cli --env-cwd=wp-content/plugins/cart-bridge-jp wp "$@" 2>&1); rc=$?
+  printf '%s\n' "$out" | grep -v '^ℹ\|^✔\|^$' || true
+  return "$rc"
+}
 
 cmd=${1:-}
 case "$cmd" in
