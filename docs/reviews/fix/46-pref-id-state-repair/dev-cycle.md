@@ -2,9 +2,9 @@
 - タスク: issue #46 — 県コード修正（PR #44）前にインポート済みの顧客・受注の都道府県を是正する（Tools タブの「県コード修復」ツール）
 - 開始: 2026-09-20
 - PR: #48 https://github.com/artisanworkshop/cart-bridge-jp/pull/48
-- 現在のステップ: 7（G2 確認ゲート通過済み・push 後に CI → G3）
-- Copilot: 依頼 2 回（G1・G2 応答済み。G2 は G1-2 と同一指摘）
-- Codex: 依頼 2 回（G1・G2 応答済み。G2 は cleanup で出自を失う採用アカウントの指摘→文書化+backlog）
+- 現在のステップ: **完了**（Step 8 最終報告済み。マージは人間が行う）
+- Copilot: 依頼 3 回 / 上限到達（G3 は新規指摘ゼロ。本文の Open 2 件は G1-1・G2-1 の重複）
+- Codex: 依頼 3 回 / 収束（G3 で "Didn't find any major issues"）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -17,3 +17,5 @@
 | 2026-09-20 | 5 | PR #48 作成。CI green（4 ジョブ） |
 | 2026-09-20 | 6-7 | G1: Copilot 1 件（所有判定を不変マーカーへ→不採用。UI 文言は修正）、Codex 3 件（P1 抽象メソッド追加→設計判断でユーザー確認・現状維持／P2 国の突き合わせ→修正／P2 UI 文言→修正）。Codex は自動レビュー未発火のため `@codex review` で再依頼。確認ゲート通過（ユーザーが commit・push・返信を承認） |
 | 2026-09-20 | 5-7 | CI green → G2（Copilot 2 回目・Codex 2 回目）: Copilot 1 件（`PlatformAdapter` 抽象メソッド追加。G1-2 と同一・現状維持）、Codex 1 件（P2: Sample data cleanup を先に実行した採用アカウントは出自を失い修復できない→事実と確認、根本対応は SampleCleanup の契約変更で範囲外のため UI/docs/backlog に文書化）。確認ゲート通過 |
+| 2026-09-20 | 5-7 | CI green → G3（両ボットとも 3 回目・最終）: Codex **収束**、Copilot は判定「Needs a closer look」だがインライン 0 件で本文 Open の 2 件は G1-1・G2-1 の重複（新規ゼロ）。修正 commit なし |
+| 2026-09-20 | 8 | final-report.md 作成。状態ファイルを「完了」にして報告・停止（マージせず） |
