@@ -24,7 +24,7 @@ description: >
 | ブランチ命名 | `feat/{タスクID小文字}-{短い説明}`（例: `feat/f1-7-tools-verification-report`）。バグ対応は `fix/{issue番号}-{短い説明}` |
 | 計画ドキュメント | `docs/10-tasks.md`（着手タスクはここから。隣接タスクのまとめ方は同ファイル「進め方」2 と memory の PR/branch grouping） |
 | 設計ドキュメント | `docs/03-design-decisions.md`（他と矛盾したらこちら優先）、`docs/00〜04`、`docs/20`（v2.0 検討事項） |
-| 絶対ルール | `CLAUDE.md` の「コーディング規約」「アーキテクチャ原則」全項目（レビューでは第一級項目として扱う） |
+| 絶対ルール | `CLAUDE.md` の「コーディング規約」「アーキテクチャ原則」全項目に加え、触るファイルに対応する `.claude/rules/*.md`（カラーミー固有・WooCommerce API 固有・Sync/Export・フロントエンドの落とし穴。パス指定で読み込まれる。索引は CLAUDE.md 末尾）。レビューでは第一級項目として扱う |
 | レビュー基準 | `docs/review-criteria.md` は無い → `review-loop` の重大度定義。`docs/review-baseline.md` / `docs/review-backlog.md` を必ず読む |
 | PR 本文 | 「対応フェーズ / 変更概要 / テスト内容 / 設計ドキュメントからの逸脱 / review-loop サマリ」（日本語）+ システムプロンプト指定の署名 |
 | ローカル環境 | wp-env。**ポートは `.wp-env.override.json`（gitignored）で固定する**（下記） |
@@ -51,17 +51,24 @@ description: >
 ## Step 2（実装）の追加事項
 
 - 実装完了時に更新するドキュメント: `docs/10-tasks.md`（チェック + 実装サマリ）、`docs/03-design-decisions.md`
-  （実装詳細の小節。設計変更は計画承認で合意済みのものだけ）、`docs/review-backlog.md`、`CLAUDE.md`（毎セッション効く
-  ハマりどころのみ。手順ものは書かない）。
+  （実装詳細の小節。設計変更は計画承認で合意済みのものだけ）、`docs/review-backlog.md`、`CLAUDE.md` / `.claude/rules/*.md`
+  （毎セッション効くハマりどころのみ。手順ものは書かない。**領域固有の落とし穴は該当する `.claude/rules/*.md`**
+  〔`adapters-colorme` / `woocommerce-api` / `sync-export-tools` / `frontend`〕へ、どの領域にも効く汎用規約とアーキテクチャ原則だけ
+  CLAUDE.md へ。CLAUDE.md を再び肥大化させない）。
 - 実機確認は wp-env の dev サイトに対して `npx wp-env run cli wp eval-file <repo内の一時PHP>` で REST を
-  `rest_do_request()` から通す（管理画面へのログインは行わない）。一時ファイルはコミット前に削除する。
+  `rest_do_request()` から通す。ライブの OAuth 接続なしで Tools/Import/Export の REST・UI を確認する手順
+  （mock アダプタの mu-plugin・修正前データの再現・検証・完全撤去）は **`verify-with-mock-adapter` スキル**に
+  まとめてある。一時ファイルはコミット前に削除する。
+- 管理画面（React）の目視確認が必要なときは、**ログインをユーザーに依頼する**（アシスタントはパスワードを入力できない）。
+  ビルドし直した後は **cmd+r でリロードする**（ハッシュだけが違う URL への `navigate` は SPA を再読込せず、古いバンドルが残る）。
 - コミットは「backend（tests 込み）/ frontend / docs」程度の論理単位に分ける。
 
 ## Step 3（review-loop）の追加事項
 
 - R1 では自己レビューに加えて、**フレッシュコンテキストの独立サブエージェント**（`general-purpose`、opus）に
-  `git diff main...HEAD` をファイルへ書き出して渡し、`CLAUDE.md`・`docs/review-baseline.md`・`docs/review-backlog.md`
-  を読ませたうえで敵対的レビューをさせる（R1 では自己レビューが見落とした High を複数検出した実績あり）。
+  `git diff main...HEAD` をファイルへ書き出して渡し、`CLAUDE.md`・**変更ファイルに対応する `.claude/rules/*.md`**・
+  `docs/review-baseline.md`・`docs/review-backlog.md` を読ませたうえで敵対的レビューをさせる
+  （パス指定ルールがサブエージェントに自動適用されるかはドキュメントに記載が無いため、プロンプトで明示的に読ませる）（R1 では自己レビューが見落とした High を複数検出した実績あり）。
   R2 でも同様に「R1 指摘の解消判定 + 新規混入のみ」を検証させる。
 - ボットの指摘同様、サブエージェントの重大度も鵜呑みにせず、実ソース（`~/.wp-env/<hash>/woocommerce`、
   `~/.wp-env/<hash>/WordPress`）や `wp eval` の実測で裏取りしてから判定する。
@@ -72,9 +79,9 @@ description: >
 
 | 目的 | コマンド | 備考 |
 |---|---|---|
-| CI 待ち | `scripts/ci-wait.sh <PR>` | Bash `run_in_background`（timeout 600000）で実行し、完了通知を待つ |
+| CI 待ち | `scripts/ci-wait.sh <PR>` | Bash `run_in_background`（timeout 600000）で実行し、完了通知を待つ。push 直後の古い HEAD を掴まず（ローカルの HEAD に PR が追いつくまで待つ）、後続の push で run が cancelled になったら新しい HEAD を監視し直す。"no checks reported" は再試行する（PR #48 の G2 で、古い HEAD の check-run を見て早期に抜けた）。**終了コードは `${PIPESTATUS[0]}` で見る**（`| tail` を付けると `tail` の 0 になる） |
 | ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよいが、**自動レビューが発火しないことがある**（PR #37 実績: 15 分 TIMEOUT → `@codex review` で 3 分弱で応答）。G1 で Codex だけが TIMEOUT した場合は、ユーザー確認を待たずに次ラウンドで `@codex review` により再依頼してよい（この場合も Codex の依頼回数は 1 回目として数える） |
-| 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT |
+| 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900] [--codex-nudge=秒]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT。**G1 では `--codex-nudge=300` を付ける**: Codex の自動レビューが 5 分以内に応答しなければ `@codex review` を 1 回だけ自動投稿して待ち続ける（15 分待ち切ってから再依頼する無駄を省く。Codex への依頼 1 回として数える）。**G2 以降は付けない**（`bot-request.sh` が既に `@codex review` を投稿しているため二重依頼になる） |
 | 新規スレッド取得（系統 A） | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
 | レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記） |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
@@ -85,6 +92,11 @@ description: >
   指摘を本文の `Suppressed comments` に畳むことがある（PR #35 の 2 回目のレビューが実例。
   `gate-threads.sh` だけでは 2 件を丸ごと取り逃していた）。毎ラウンド `gate-threads.sh` と
   `gate-bodies.sh` の両方を実行し、`path:line` と要旨で重複排除してから仕分ける。
+- **Copilot の最終ラウンドは、過去に返信済み・未解決のスレッドを本文の「Open」に再掲する**ことがある
+  （PR #48 の G3: 判定 🔵 Needs a closer look・インライン 0 件で、Open の 2 件は G1-1/G2-1 の重複だった）。
+  `gate-bodies.sh --raw` の Open の各項目リンク（`#discussion_r<dbid>`）を既存スレッドの `dbid` と突合し、
+  既存なら新規ではなく重複として `G<n>.md` に記録する。総評（「データを書き換えるので最終的に人間の確認を」等）は
+  修正対象ではなく、最終報告でマージ前にユーザーが確認すべき点として載せる。
 - 本文指摘（系統 B）は**スレッドが無いため Resolve できない**。`G<n>.md` と PR サマリコメントの
   記録が唯一の処理済みマーカーになる（記録が無いと、次のラウンドで同じ指摘を再評価することになる）。
 - ラウンド記録 `docs/reviews/<ブランチ>/G<n>.md` は `dev-cycle` のフォーマット。ラウンドのサマリは `gh pr comment` で投稿する
