@@ -727,6 +727,31 @@ final class PrefStateRepairTest extends WooTestCase {
 		$this->assertSame( 'JP05', $this->order( $id2 )->get_billing_state() );
 	}
 
+	public function test_a_partial_customer_write_still_records_the_side_that_was_written(): void {
+		$customer = $this->customer_model( 'C1', 4 );
+		$user_id  = $this->import_customer( $customer );
+		$this->make_customer_legacy( $user_id, 4 );
+
+		// 他プラグインが shipping_state の更新だけを握りつぶす（書き込んだつもりで実際には書かれない）状況。
+		// 請求先は書き込めたので、その変更は監査メタに残り、配送先だけが保存失敗（skipped）になる。
+		add_filter(
+			'update_user_metadata',
+			static fn ( $check, $object_id, string $meta_key ) => 'shipping_state' === $meta_key ? true : $check,
+			10,
+			3
+		);
+
+		$result = $this->tool( new MockPlatformAdapter( [], [ $customer ] ) )->run( self::PLATFORM, true );
+
+		$this->assertSame( 1, $result['counts']['customer']['skipped'] );
+		$this->assertSame( 'JP05', $this->user_state( $user_id, 'billing' ), '書き込めた側は反映されている' );
+		$this->assertSame( 'JP04', $this->user_state( $user_id, 'shipping' ) );
+
+		$audit = json_decode( (string) get_user_meta( $user_id, PrefStateRepair::AUDIT_META, true ), true );
+		$this->assertSame( [ 'billing' ], array_keys( $audit ), '実際に書き込めた側だけが監査メタに残る' );
+		$this->assertSame( 'JP04', $audit['billing']['from'] );
+	}
+
 	/**
 	 * 実 `ColorMeAdapter`（HTTP のみモック）→ 実 `OrderWriter`/`CustomerWriter` → ツールを通しで走らせる。
 	 * ツールの判定は `postal`/`address1` が Transformer → Canonical → `AddressMapper::to_woo()` の経路で

@@ -276,15 +276,17 @@ final class PrefStateRepair {
 		}
 
 		$current = [
+			// 保存値そのもの（`edit` コンテキスト）を読む。表示用フィルター（多言語・住所表示系のプラグイン等）が
+			// 書き換えた値で判定すると、旧バグの出力かどうかを誤認する。
 			'billing'  => [
-				'state'     => $order->get_billing_state(),
-				'postcode'  => $order->get_billing_postcode(),
-				'address_1' => $order->get_billing_address_1(),
+				'state'     => $order->get_billing_state( 'edit' ),
+				'postcode'  => $order->get_billing_postcode( 'edit' ),
+				'address_1' => $order->get_billing_address_1( 'edit' ),
 			],
 			'shipping' => [
-				'state'     => $order->get_shipping_state(),
-				'postcode'  => $order->get_shipping_postcode(),
-				'address_1' => $order->get_shipping_address_1(),
+				'state'     => $order->get_shipping_state( 'edit' ),
+				'postcode'  => $order->get_shipping_postcode( 'edit' ),
+				'address_1' => $order->get_shipping_address_1( 'edit' ),
 			],
 		];
 
@@ -565,17 +567,26 @@ final class PrefStateRepair {
 	 * @param array<string,array{from:string,to:string}> $changes 側 => 変更。
 	 */
 	private function write_customer( int $user_id, array $changes ): void {
-		foreach ( $changes as $side => $change ) {
-			update_user_meta( $user_id, "{$side}_state", $change['to'] );
+		$written = [];
 
-			// `update_user_meta()` は同値の更新でも書込み失敗でも false を返し区別できないため、書き込めたことは
-			// 再読込で確認する（`try_write()` が例外を「保存失敗」として扱う）。
-			if ( $this->meta_string( $user_id, "{$side}_state" ) !== $change['to'] ) {
-				throw new RuntimeException( 'The user state was not persisted.' );
+		try {
+			foreach ( $changes as $side => $change ) {
+				update_user_meta( $user_id, "{$side}_state", $change['to'] );
+
+				// `update_user_meta()` は同値の更新でも書込み失敗でも false を返し区別できないため、書き込めたことは
+				// 再読込で確認する（`try_write()` が例外を「保存失敗」として扱う）。
+				if ( $this->meta_string( $user_id, "{$side}_state" ) !== $change['to'] ) {
+					throw new RuntimeException( 'The user state was not persisted.' );
+				}
+
+				$written[ $side ] = $change;
+			}
+		} finally {
+			// 途中の側で失敗しても、既に書き込めた側は監査メタに残す（手動で巻き戻せるように）。
+			if ( [] !== $written ) {
+				update_user_meta( $user_id, self::AUDIT_META, $this->merge_audit( get_user_meta( $user_id, self::AUDIT_META, true ), $written ) );
 			}
 		}
-
-		update_user_meta( $user_id, self::AUDIT_META, $this->merge_audit( get_user_meta( $user_id, self::AUDIT_META, true ), $changes ) );
 	}
 
 	/**
@@ -609,7 +620,8 @@ final class PrefStateRepair {
 				$saved = wc_get_order( $order->get_id() );
 
 				foreach ( $changes as $side => $change ) {
-					$actual = $saved instanceof WC_Order ? ( 'billing' === $side ? $saved->get_billing_state() : $saved->get_shipping_state() ) : null;
+					// 表示用フィルターの影響を受けない保存値（`edit` コンテキスト）と比較する。
+					$actual = $saved instanceof WC_Order ? ( 'billing' === $side ? $saved->get_billing_state( 'edit' ) : $saved->get_shipping_state( 'edit' ) ) : null;
 
 					if ( $actual !== $change['to'] ) {
 						throw new RuntimeException( 'The order state was not persisted.' );
