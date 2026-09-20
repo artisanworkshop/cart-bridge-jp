@@ -68,13 +68,21 @@ while :; do
     sleep $(( remaining < wait_for ? remaining : wait_for ))
   done
 
-  # 2) 完了まで watch する。check の集計がまだ反映されておらず "no checks reported" になる場合は数回だけ再試行する。
-  rc=1
-  for _ in 1 2 3; do
+  # 2) 完了まで watch する。check の集計がまだ反映されておらず "no checks reported" になる場合は、
+  #    その終了コードを**信用せず**、期限まで再試行する。数回で諦めて最後の終了コードで抜けると、
+  #    check の登録前に「失敗（または成功）」と報告してしまい、この修正の元の不具合が再発する。
+  no_checks=1
+  while [ "$no_checks" -eq 1 ]; do
     out=$(gh pr checks "$PR" --watch --fail-fast 2>&1); rc=$?
     printf '%s\n' "$out"
-    case "$out" in *"no checks reported"*) sleep 10; continue ;; esac
-    break
+    case "$out" in
+      *"no checks reported"*)
+        if [ $((deadline - SECONDS)) -le 0 ]; then
+          echo "checks for $SHA still not reported within ${TIMEOUT}s" >&2; exit 3
+        fi
+        sleep 10 ;;
+      *) no_checks=0 ;;
+    esac
   done
 
   # 3) 監視中に後続の push があった（先行の run は cancelled になりうる）なら、新しい HEAD を監視し直す。
