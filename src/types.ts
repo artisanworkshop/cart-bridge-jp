@@ -165,6 +165,36 @@ export interface RebuildResult {
 }
 
 /**
+ * 県コード修復（`Woo\Tools\PrefStateRepair`）の判定区分。エンティティ（顧客1人・受注1件）単位で数える。
+ * Scan（GET）では `fixed` が「補正が必要な件数」、Repair（POST）では「補正した件数」を表す。
+ */
+export type StateRepairBucket =
+	| 'fixed'
+	| 'already_correct'
+	| 'unverified'
+	| 'unavailable'
+	| 'skipped';
+
+export type StateRepairEntity = 'customer' | 'order';
+
+export type StateRepairCounts = Record<
+	StateRepairEntity,
+	Record< StateRepairBucket, number >
+>;
+
+/**
+ * `GET|POST /tools/repair-states` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
+ * ASP への照会に失敗して中断した場合（503/409/502）は、エラー応答の `data` に処理済みの `counts` と
+ * 失敗した行を指す `cursor`（`interruption` = 理由）が入り、同じ位置から再開できる（処理は冪等）。
+ */
+export interface StateRepairResult {
+	platform: string;
+	apply: boolean;
+	counts: StateRepairCounts;
+	cursor: string | null;
+}
+
+/**
  * `GET /runs/{run_id}/verification` の1行（`Sync\VerificationReport`）。金額は `"1234.00"` 形式の
  * 10進文字列で、受注以外は null。
  */
