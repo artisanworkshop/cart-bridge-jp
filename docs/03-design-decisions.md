@@ -956,6 +956,9 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   (2) 受注の保存は `woocommerce_update_order` を発火するため、Analytics 取込みの Action Scheduler アクションと `order.updated` Webhook が飛ぶ（無料版の上限内なので件数は小さい）。
   (3) `wc_customer_lookup.state`（Analytics の顧客テーブル）は `update_user_meta` では更新されない。(4) 本ツールの実行前に手作業/SQL で都道府県を一括変換した実体のうち、
   巡回置換の 9 県（19〜23・25・26・28・30）は `unverified` のまま救済できない。(5) 実店舗の実 API での確認は ColorMe 認証情報待ち（要検証#18 と合わせて）。
+  (6) **「Sample data cleanup」を先に実行すると、email 突合で採用した既存アカウントは修復できなくなる**: `SampleCleanup::remove_customer()` は削除せず残すアカウントから `_cbjp_platform`/`_cbjp_remote_id` を外し
+  mapping も消すため、ASP の ID を失って本ツールが列挙できない（インポートが書いた誤った state は残る）。**修復はクリーンアップより前に実行する**（UI の説明文にも明記）。
+  クリーンアップ時に出自を残す設計変更は本 PR の範囲外（backlog）。なお、そのアカウントが次回のインポートで再び選ばれれば、現行コードの Writer が正しい state で上書きする。
 
 ### 10.4 付帯機能（D17）
 

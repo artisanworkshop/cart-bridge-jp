@@ -2,9 +2,9 @@
 - タスク: issue #46 — 県コード修正（PR #44）前にインポート済みの顧客・受注の都道府県を是正する（Tools タブの「県コード修復」ツール）
 - 開始: 2026-09-20
 - PR: #48 https://github.com/artisanworkshop/cart-bridge-jp/pull/48
-- 現在のステップ: 7（G1 確認ゲート通過済み・修正 push 後に CI → G2）
-- Copilot: 依頼 1 回（G1 応答済み: 指摘 1 件→不採用+文言修正）
-- Codex: 依頼 1 回（G1。自動レビュー未発火のため @codex review で再依頼。指摘 3 件: 1 件修正・1 件文言修正・1 件設計判断で保留）
+- 現在のステップ: 7（G2 確認ゲート通過済み・push 後に CI → G3）
+- Copilot: 依頼 2 回（G1・G2 応答済み。G2 は G1-2 と同一指摘）
+- Codex: 依頼 2 回（G1・G2 応答済み。G2 は cleanup で出自を失う採用アカウントの指摘→文書化+backlog）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -16,3 +16,4 @@
 | 2026-09-20 | 3 | review-loop R1（独立サブエージェント + 自己レビュー）: Critical/High 0、Medium 3（status 0 の分類・完了通知が警告にならない・**`WC_Abstract_Order::save()` が例外を握りつぶすため保存失敗を成功と数える**）を修正、Low のうち新規コードの誤報告に直結する5件も同 PR で修正、残りは backlog。R2（検証モード）**APPROVE**（新規 Low 3: うち2件を修正、1件 backlog）。管理画面（Chrome）で Scan → Repair → 再 Scan を実機確認。PHPUnit 1064 tests green |
 | 2026-09-20 | 5 | PR #48 作成。CI green（4 ジョブ） |
 | 2026-09-20 | 6-7 | G1: Copilot 1 件（所有判定を不変マーカーへ→不採用。UI 文言は修正）、Codex 3 件（P1 抽象メソッド追加→設計判断でユーザー確認・現状維持／P2 国の突き合わせ→修正／P2 UI 文言→修正）。Codex は自動レビュー未発火のため `@codex review` で再依頼。確認ゲート通過（ユーザーが commit・push・返信を承認） |
+| 2026-09-20 | 5-7 | CI green → G2（Copilot 2 回目・Codex 2 回目）: Copilot 1 件（`PlatformAdapter` 抽象メソッド追加。G1-2 と同一・現状維持）、Codex 1 件（P2: Sample data cleanup を先に実行した採用アカウントは出自を失い修復できない→事実と確認、根本対応は SampleCleanup の契約変更で範囲外のため UI/docs/backlog に文書化）。確認ゲート通過 |
