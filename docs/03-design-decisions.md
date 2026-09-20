@@ -270,6 +270,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | GET | `/tools/sample-cleanup?platform=` | サンプルクリーンアップの削除件数プレビュー（D16/§10.3） |
 | POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3） |
 | POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3） |
+| GET / POST | `/tools/repair-states?platform=&cursor=` | 県コード修復（issue #46/§10.3）。GET=Scan（読取専用。補正が必要な件数を数える）、POST=Repair（`state` のみ補正）。1バッチ分を処理し `cursor` を返す。ASP への照会に失敗した場合は 503（レート制限。`Retry-After`）/409（未接続・認証切れ）/502 で、処理済みの `counts` と再開用 `cursor` をボディに含めて返す |
 
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
@@ -285,7 +286,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 ### React アプリ（src/）
 
 - `@wordpress/scripts` ビルド、TypeScript strict、`@wordpress/components` + `@wordpress/api-fetch`
-- ルーティングは単一管理ページ内のタブ切替（Connections / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16、`/tools/*` ルート）を配置
+- ルーティングは単一管理ページ内のタブ切替（Connections / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16）/ 県コード修復（issue #46）（`/tools/*` ルート）を配置
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
 - UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）
 
@@ -343,6 +344,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 15 | 各ASP: 商品・顧客のID指定取得エンドポイントの有無（サンプル取得=D15） | F1-0 / B4-0 / M6-0 | **カラーミー済**: `GET /products.json` `/customers.json` `/sales.json` すべて `ids` クエリパラメータで複数ID指定取得可能。個別詳細 `/products/{id}.json` 等も利用可（swagger + 実測確認）。MakeShop/BASEは未 |
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 | 17 | カラーミー: `POST /v1/customers`の`add_member: true`が会員登録時に通知メール（パスワード設定案内等）を自動送信するか | E2-3 PR-Bで判明。実店舗での実測時（要検証#5と合わせて） | 未。swaggerに記載無し。`push_customer()`は往復インポート整合性のため新規作成時に常時`add_member: true`を送るが、本プロジェクトは移行時の副作用（通知メール等）抑止を重視する方針（`docs/01-plan-colorme.md`「通知メールは送らない」）。`POST /sales/{id}/mails.json`が受注確認メールを独立エンドポイントに切り出している設計から自動送信の可能性は低いと推測するが未確認。実店舗確認まで、E2-3の実機確認（要検証#5）と合わせて要検証のまま残す |
+| 18 | カラーミー: `GET /sales.json?ids=` が `after`/`before` 省略時の「直近7日」制限（#14）を上書きするか（複数ID指定で古い受注を取れるか） | 県コード修復（issue #46）の計画で判明。実店舗での実測時 | 未。swagger は `ids` が日付範囲を上書きするとは書いておらず（`after` の説明は「未指定時は現在から7日前の0時」）、#15 は「`ids` で複数ID指定取得可能」としか確認していない。`ids` だけでは古い受注が黙って0件になる可能性がある。県コード修復ツールは一覧の `ids` を使わず、日付窓の影響を受けない単一取得 `GET /sales/{id}.json`（`ColorMeAdapter::fetch_order_by_remote_id()`）を使う。issue #38（受注のID指定取得による無料版サンプル選定）で `ids` の一括取得を採用する場合は、`after` を明示したうえで実機確認が必要 |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -667,16 +669,17 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   から本番稼働中の既存コード**）は`pref_id`をそのまま`JP%02d`の数値部分として使っていたが、
   ColorMeのAPIドキュメント（swagger `info.description`に埋め込まれた「都道府県コード一覧」表。
   構造化されたJSONスキーマとしては提供されていないため見落としやすい）はJIS標準と異なる並びで、
-  47都道府県中約20件で番号がずれる（例: ColorMeのpref_id=4は秋田県だがJIS/Wooの4番は宮城県、
+  47都道府県中**23件**で番号がずれる（当初「約20件」と記したが、issue #46で全数を確認して訂正。
+  `AddressMapperTest`で件数と全単射性を固定。例: ColorMeのpref_id=4は秋田県だがJIS/Wooの4番は宮城県、
   16↔18は福井/富山が入れ替わり、19〜23・25〜30・31〜34・36〜37・43〜44も同様）。都道府県名で
   突き合わせた明示的な対応表`AddressMapper::PREF_ID_TO_JIS_NUMBER`を新設し、`state_code()`と
   新設`pref_id_from_state()`の両方をこの表経由に修正した（`wp eval`でのWooCommerce実測と
   swagger記載を名前で機械的に突き合わせ、全47件をプログラムで検証済み）。
   **本番データへの影響**: この不具合はPhase 1（F1-4/F1-5）から存在するため、影響を受ける
-  約20都道府県の顧客・受注住所は、本PRマージ以前にインポート済みの実店舗データで**既に誤った
-  都道府県が保存されている可能性が高い**（F1-8の実店舗2件を含む）。是正には該当都道府県の
-  既存Woo顧客・受注の`billing_state`/`shipping_state`を再インポートまたは一括修正する対応が
-  別途必要（本PRのスコープ外。マージ後に別issueとして対応要）。
+  23都道府県の顧客・受注住所は、本PRマージ以前にインポート済みの実店舗データで**既に誤った
+  都道府県が保存されている可能性が高い**（F1-8の実店舗2件を含む）。是正は本PRのスコープ外とし、
+  **issue #46 の「県コード修復ツール」（§10.3）で対応した**（再インポートでは checksum 一致スキップに
+  阻まれて直らないため、ASP から権威の `pref_id` を再取得して `state` のみを補正する設計）。
 - **住所スキーム変換は`Woo\Support\AddressMapper`に対称の逆関数を追加**: インポート方向の
   `state_code()`/`is_overseas()`（ColorMeの`pref_id`1-47=都道府県／48=海外というエンコーディングを
   `PREF_ID_SCHEME_PLATFORMS`でColorMeのみに限定して解釈する）に対し、エクスポート方向で必要な
@@ -868,6 +871,8 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   SKU（商品）/ email（顧客）/ `_cbjp_remote_order_number` メタ（受注）で既存Wooデータと突合して mappings を再構築
 - **サンプルクリーンアップツール**（`POST /tools/sample-cleanup`）: 無料版サンプル由来のWooデータと対応 mappings を一括削除。
   対象は mappings の記録に基づき、実行前に削除件数を表示して確認を取る（本移行前のリセット・サンプル再選定に使用）
+- **県コード修復ツール**（`GET/POST /tools/repair-states`。issue #46）: PR #44 より前にインポートした顧客・受注の都道府県（`state`）の是正。
+  Scan（読取専用）で補正が必要な件数を確認してから Repair を実行する。詳細は下記「県コード修復ツール（issue #46）」
 - **アップセル表示**: dry-run で総数が判明するため、上限到達時に
   「移行対象◯件のうち10件を無料版で移行済み。残り◯件は Pro 版で移行できます」と具体数で表示（`GET /limits`）
 
@@ -903,6 +908,44 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   返した件数で判定する）。SKU/email 突合は「本プラグイン外で作られた Woo データを ASP に紐付ける」動作になり誤リンクの危険があるため採用しない。
   checksum は null で upsert し、次回 import で必ず再検証させる。stock（product/variant から再解決される）と review（v1.0 に Writer 無し）は対象外。
   予算 200 件/リクエストで `{entity, offset}` の cursor を返し、管理画面がループする（upsert は走査結果を変えないため offset ページングで安定）
+
+#### 県コード修復ツール（issue #46）
+
+PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` にしていた（恒等変換）ため、それ以前にインポートした
+顧客・受注の `billing_state`/`shipping_state` は 23 県で誤っている（§「E2-3 PR-B」）。是正手段は次の理由で「ASP を正として再取得し、
+`state` のみを条件付きで補正する」ツール（`Woo\Tools\PrefStateRepair`、`GET/POST /tools/repair-states`、Tools タブの
+「Repair prefecture data」）になった。
+
+- **再インポートでは直らない**: Canonical は生の `pref_id` を保持し変換は Writer 側で行うため、対応表を直しても checksum は変わらず
+  `Sync\Importer` の checksum 一致スキップに阻まれる。checksum を無効化する案は、店舗が Woo 側で手直しした他フィールドまで D16 の既定
+  （上書き）で巻き戻すため不採用。
+- **Woo 側だけでは判別できない**: 保存されるのは変換後の `state` のみで、顧客と受注請求先（`customer_snapshot` は `OrderWriter::meta_extras()` が
+  破棄）の生 `pref_id` は残らない（受注配送先だけは `_cbjp_sale_deliveries` に残るが、ロジックを二系統にしないため使わない）。修正前後のデータは
+  値だけでは区別できず（入れ替え・巡回のため、全件へ表を適用すると修正後データを壊し、二重適用では別の県になる）、5巡回・4巡回の 9 県は
+  手作業/SQL で一括変換してしまうと戻せない。
+- **判定**（側ごと＝請求先・配送先を独立に）: ASP から権威の `pref_id`（p）を単一 ID 取得（顧客 `fetch_customer_by_remote_id()`、受注
+  `fetch_order_by_remote_id()`。`PlatformAdapter` に追加）し、現在の state（s）が旧出力（`JP{p}`）と一致し、かつ正しい値（`JP{表[p]}`）と異なり、
+  **かつ郵便番号（数字のみ）・番地が ASP 由来の期待値（`AddressMapper::to_woo()` の出力）と一致する**場合に限り `state` のみを更新する。
+  `s == 正しい値` は変更しない（冪等）。それ以外（手修正・ASP 側の住所変更・郵便番号/番地の不一致）は変更せず `unverified` として報告する
+  （state だけ書き換えて「新しい県＋古い郵便番号」のキメラ住所を作らない）。旧出力が取りうる state は 23 値に限られるため、それ以外の値の実体は
+  ASP に照会せず「被害なし」と確定する（表は `AddressMapper::state_code()` から導出し複製しない）。旧恒等変換（`legacy`）はツール内の private に
+  留め、新規書込みへの誤用の誘い水になる `AddressMapper` には置かない。
+- **Scan と Repair は同一の判定関数を共有**し、書込みだけが異なる。REST は GET（Scan・読取専用）/POST（Repair）で分け、`dry_run` の真偽値パラメータは
+  作らない（欠損・型違いが書込み側に倒れる fail-open の排除。`sample-cleanup` の preview/run と同じ流儀）。`PrefStateRepair::run()` の `$apply` も既定値なし。
+- **対象の絞り込み**: mappings が指す実体のうち、実在し、`_cbjp_platform` が自プラットフォーム、顧客はスタッフ権限（`CustomerWriter::has_protected_role()`。
+  `CustomerWriter` は住所を書かずにスキップするため、その state は店舗自身のデータ）でなく、受注は `WC_Order`（refund 除外）かつ `trash`/`checkout-draft` でないもの。
+  該当しなければ `skipped`。新規実体は作らないため `LimitPolicy` の累積カウントに影響しない。
+- **ASP アクセスは単一 ID 取得に限定**: 一覧の `ids` は受注で「直近7日」に絞られる可能性がある（要検証#18）ため使わず、日付窓の影響を受けない
+  `GET /sales/{id}.json` / `GET /customers/{id}.json` を使う。無料版の上限（顧客 10・受注 10）で 1 サイト最大約 20 行のため、1 リクエスト 20 照会
+  （`PrefStateRepair::DEFAULT_BUDGET`）・`{entity, offset}` の cursor で十分。**未接続・レート制限・ASP 障害は例外にせず**、処理済みの `counts` と失敗した行を
+  指す `cursor` を返して中断する（503/409/502。UI は件数を失わず同じ位置から再開できる。処理は冪等）。ASP が返した記録の `remote_id` が要求と一致しない場合は
+  信用しない（`unavailable`）。
+- **書込み**: 顧客は `update_user_meta`（`CustomerWriter` と同経路）、受注は `WC_Order` CRUD（HPOS 対応）を `SideEffectGuard` で囲む。補正が必要な実体だけ `save()`
+  する。補正した実体に監査メタ `_cbjp_state_repaired`（側ごとの from/to の JSON）を残す。
+- **既知の制限**（PR 本文にも記載）: (1) `WC_Order::save()` は `date_modified` を現在時刻へ更新する（実測: WC 11.1.1・HPOS 有効。`set_date_modified()` で戻しても保持できない）。
+  (2) 受注の保存は `woocommerce_update_order` を発火するため、Analytics 取込みの Action Scheduler アクションと `order.updated` Webhook が飛ぶ（無料版の上限内なので件数は小さい）。
+  (3) `wc_customer_lookup.state`（Analytics の顧客テーブル）は `update_user_meta` では更新されない。(4) 本ツールの実行前に手作業/SQL で都道府県を一括変換した実体のうち、
+  巡回置換の 9 県（19〜23・25・26・28・30）は `unverified` のまま救済できない。(5) 実店舗の実 API での確認は ColorMe 認証情報待ち（要検証#18 と合わせて）。
 
 ### 10.4 付帯機能（D17）
 
