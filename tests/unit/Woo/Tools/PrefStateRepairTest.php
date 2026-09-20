@@ -7,11 +7,14 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Tools;
 
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
+use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Support\MethodMap;
@@ -24,6 +27,7 @@ use CartBridgeJP\Woo\Writer\OrderWriter;
 use InvalidArgumentException;
 use RuntimeException;
 use WC_Order;
+use WP_Error;
 
 /**
  * 県コード修復ツール（issue #46）。
@@ -568,12 +572,15 @@ final class PrefStateRepairTest extends WooTestCase {
 	 */
 	public static function failures(): array {
 		return [
-			'rate limit'    => [ new RateLimitExhaustedException( self::PLATFORM ), RepairInterruptedException::RATE_LIMITED ],
-			'not connected' => [ new ApiException( 'not connected', 0, [] ), RepairInterruptedException::NOT_CONNECTED ],
-			'unauthorized'  => [ new ApiException( 'unauthorized', 401, [] ), RepairInterruptedException::NOT_CONNECTED ],
-			'server error'  => [ new ApiException( 'server error', 500, [] ), RepairInterruptedException::API_ERROR ],
-			'malformed'     => [ new RuntimeException( 'malformed 200 response' ), RepairInterruptedException::API_ERROR ],
-			'unsupported'   => [ new UnsupportedOperationException( self::PLATFORM, 'fetch_order_by_remote_id' ), RepairInterruptedException::UNSUPPORTED ],
+			'client-side rate limit'     => [ new RateLimitExhaustedException( self::PLATFORM ), RepairInterruptedException::RATE_LIMITED ],
+			'platform 429 (exhausted)'   => [ new ApiException( 'too many requests', 429, [ 'rate_limited' => true ] ), RepairInterruptedException::RATE_LIMITED ],
+			'adapter not connected'      => [ new ApiException( 'not connected', 0, [ 'not_connected' => true ] ), RepairInterruptedException::NOT_CONNECTED ],
+			'unauthorized'               => [ new ApiException( 'unauthorized', 401, [] ), RepairInterruptedException::NOT_CONNECTED ],
+			// ステータス 0 は通信断・JSON 破損でも使われる。「未接続」と明示されていない限り再接続を促さない。
+			'network failure (status 0)' => [ new ApiException( 'cURL error 28', 0, [ 'wp_error_code' => 'http_request_failed' ] ), RepairInterruptedException::API_ERROR ],
+			'server error'               => [ new ApiException( 'server error', 500, [] ), RepairInterruptedException::API_ERROR ],
+			'malformed'                  => [ new RuntimeException( 'malformed 200 response' ), RepairInterruptedException::API_ERROR ],
+			'unsupported'                => [ new UnsupportedOperationException( self::PLATFORM, 'fetch_order_by_remote_id' ), RepairInterruptedException::UNSUPPORTED ],
 		];
 	}
 
@@ -650,5 +657,161 @@ final class PrefStateRepairTest extends WooTestCase {
 		$this->expectException( UnsupportedOperationException::class );
 
 		$this->tool( new MockPlatformAdapter() )->run( 'mock', false );
+	}
+
+	// ---- R1 レビュー対応 ---------------------------------------------------------------------
+
+	public function test_a_stale_legacy_value_of_another_prefecture_is_not_reported_as_already_correct(): void {
+		// 旧コード時代に pref_id=4 で取り込まれて JP04 が残っているが、その後 ASP 側で東京（pref_id=13。表の固定点）へ
+		// 引っ越した顧客。JP04 は「旧バグが出力しうる値」なので照会されるが、13 の新旧は同じ値（JP13）のため、
+		// 以前は郵便番号の確認にも到達せず「正常」と断定していた。実際には Woo 側は宮城（JP04）のまま。
+		$customer = $this->customer_model( 'C1', 13 );
+		$user_id  = $this->import_customer( $customer );
+		update_user_meta( $user_id, 'billing_state', 'JP04' );
+		update_user_meta( $user_id, 'shipping_state', 'JP04' );
+
+		$result = $this->tool( new MockPlatformAdapter( [], [ $customer ] ) )->run( self::PLATFORM, true );
+
+		$this->assertSame( 1, $result['counts']['customer']['unverified'] );
+		$this->assertSame( 0, $result['counts']['customer']['already_correct'] );
+		$this->assertSame( 'JP04', $this->user_state( $user_id, 'billing' ), '断定できないので書き換えない' );
+	}
+
+	public function test_the_original_value_is_kept_in_the_audit_when_a_side_is_repaired_again(): void {
+		$first   = $this->customer_model( 'C1', 4 );
+		$user_id = $this->import_customer( $first );
+		$this->make_customer_legacy( $user_id, 4 );
+		$this->tool( new MockPlatformAdapter( [], [ $first ] ) )->run( self::PLATFORM, true );
+
+		// その後 ASP 側で静岡（pref_id=19）へ変わり、Woo 側は旧出力（JP19）の状態になった顧客を再度補正する。
+		$moved = $this->customer_model( 'C1', 19 );
+		update_user_meta( $user_id, 'billing_state', 'JP19' );
+		update_user_meta( $user_id, 'shipping_state', 'JP19' );
+		$this->tool( new MockPlatformAdapter( [], [ $moved ] ) )->run( self::PLATFORM, true );
+
+		$audit = json_decode( (string) get_user_meta( $user_id, PrefStateRepair::AUDIT_META, true ), true );
+		$this->assertSame( 'JP04', $audit['billing']['from'], '最初の補正前の値（本当の元の値）を失わない' );
+		$this->assertSame( 'JP22', $audit['billing']['to'] );
+	}
+
+	public function test_a_record_that_cannot_be_saved_is_skipped_without_aborting_the_run(): void {
+		$first  = $this->order_model( '5201', 4, 4 );
+		$second = $this->order_model( '5202', 4, 4 );
+		$id1    = $this->import_order( $first );
+		$id2    = $this->import_order( $second );
+		$this->make_order_legacy( $id1, 4, 4 );
+		$this->make_order_legacy( $id2, 4, 4 );
+
+		// 他プラグインのフックが保存時に例外を投げる状況（1件目だけ）。`WC_Abstract_Order::save()` はこの例外を
+		// 握りつぶして成功のように ID を返すため、ツールは書き込めたことを読み直して確認し、走査全体を
+		// 落とさず次の行へ進む（確認が無いと、保存に失敗したのに「補正した」と数えてしまう）。
+		$thrown = false;
+		add_action(
+			'woocommerce_before_order_object_save',
+			static function ( $order ) use ( &$thrown, $id1 ): void {
+				if ( ! $thrown && $order instanceof WC_Order && $order->get_id() === $id1 ) {
+					$thrown = true;
+
+					throw new RuntimeException( 'save blocked by another plugin' );
+				}
+			}
+		);
+
+		$result = $this->tool( new MockPlatformAdapter( [], [], [ $first, $second ] ) )->run( self::PLATFORM, true );
+
+		$this->assertNull( $result['interruption'] );
+		$this->assertNull( $result['cursor'] );
+		$this->assertSame( 1, $result['counts']['order']['skipped'], '保存に失敗した1件は skipped' );
+		$this->assertSame( 1, $result['counts']['order']['fixed'], '後続の受注は補正される' );
+		$this->assertSame( 'JP04', $this->order( $id1 )->get_billing_state() );
+		$this->assertSame( 'JP05', $this->order( $id2 )->get_billing_state() );
+	}
+
+	/**
+	 * 実 `ColorMeAdapter`（HTTP のみモック）→ 実 `OrderWriter`/`CustomerWriter` → ツールを通しで走らせる。
+	 * ツールの判定は `postal`/`address1` が Transformer → Canonical → `AddressMapper::to_woo()` の経路で
+	 * Writer が保存した値と一致することに依存する。Canonical を手で組み立てるテストでは、この層間のキー名の
+	 * ズレ（1つでもずれると全件が `unverified` に倒れて1件も直らない）を検出できない。
+	 */
+	public function test_repairs_through_the_real_colorme_adapter_and_writers(): void {
+		$token_store = new TokenStore( 'colorme-pref-repair-it' );
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		// フィクスチャの pref_id=13（東京）は表の固定点で何も検証できないため、固定点でない値へ差し替える。
+		$sale                                = FixtureLoader::load( 'colorme', 'sale_bank_detail' );
+		$sale['sale']['customer']['pref_id'] = 4;
+		$sale['sale']['sale_deliveries'][0]['pref_id'] = 5;
+		$customer                                      = FixtureLoader::load( 'colorme', 'customers' )['customers'][0];
+		$customer['member']                            = true;
+		$customer['pref_id']                           = 19;
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, string $url ) use ( $sale, $customer ) {
+				$body = null;
+
+				if ( str_contains( $url, 'payments.json' ) ) {
+					$body = FixtureLoader::load( 'colorme', 'payments' );
+				} elseif ( str_contains( $url, 'deliveries.json' ) ) {
+					$body = FixtureLoader::load( 'colorme', 'deliveries' );
+				} elseif ( str_contains( $url, 'sales/219293424.json' ) ) {
+					$body = $sale;
+				} elseif ( str_contains( $url, 'customers/175271257.json' ) ) {
+					$body = [ 'customer' => $customer ];
+				}
+
+				if ( null === $body ) {
+					return new WP_Error( 'unexpected_request', "Unhandled request: {$url}" );
+				}
+
+				return [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'headers'  => [ 'content-type' => 'application/json' ],
+					'body'     => (string) wp_json_encode( $body ),
+				];
+			},
+			10,
+			3
+		);
+
+		$adapter = new ColorMeAdapter( $token_store );
+
+		// ASP から取り込む（実 Transformer の出力）→ 実 Writer で保存 → mapping。
+		$order = $adapter->fetch_order_by_remote_id( '219293424' );
+		$this->assertInstanceOf( CanonicalOrder::class, $order );
+		$order_id = $this->import_order( $order );
+
+		$imported = $adapter->fetch_customer_by_remote_id( '175271257' );
+		$this->assertInstanceOf( CanonicalCustomer::class, $imported );
+		$user_id = $this->import_customer( $imported );
+
+		// 現行コードで取り込んだ直後は正しい値になっている（請求先は秋田、配送先は宮城、顧客は静岡）。
+		$this->assertSame( 'JP05', $this->order( $order_id )->get_billing_state() );
+		$this->assertSame( 'JP04', $this->order( $order_id )->get_shipping_state() );
+		$this->assertSame( 'JP22', $this->user_state( $user_id, 'billing' ) );
+
+		// 旧コード（恒等変換）の出力へ戻す。
+		$this->make_order_legacy( $order_id, 4, 5 );
+		$this->make_customer_legacy( $user_id, 19 );
+
+		$tool = new PrefStateRepair( $this->mappings, $adapter );
+
+		$scan = $tool->run( self::PLATFORM, false );
+		$this->assertSame( 1, $scan['counts']['customer']['fixed'] );
+		$this->assertSame( 1, $scan['counts']['order']['fixed'] );
+		$this->assertSame( 0, $scan['counts']['customer']['unverified'] + $scan['counts']['order']['unverified'], '実データの postal/address1 が期待値と一致する' );
+
+		$repair = $tool->run( self::PLATFORM, true );
+		$this->assertSame( 1, $repair['counts']['customer']['fixed'] );
+		$this->assertSame( 1, $repair['counts']['order']['fixed'] );
+		$this->assertSame( 'JP05', $this->order( $order_id )->get_billing_state() );
+		$this->assertSame( 'JP04', $this->order( $order_id )->get_shipping_state() );
+		$this->assertSame( 'JP22', $this->user_state( $user_id, 'billing' ) );
+		$this->assertSame( 'JP22', $this->user_state( $user_id, 'shipping' ) );
+
+		$token_store->delete();
 	}
 }

@@ -1374,8 +1374,14 @@ final class RestController {
 	private function repair_interrupted_response( array $result ): WP_REST_Response|WP_Error {
 		$reason = (string) $result['interruption'];
 
+		// アダプタが単一 ID 取得に対応していない（走査の途中で判明）。「修復が不要」ではなく「実行できない」で、
+		// 再開しても同じ結果になるため、再開用の cursor は返さない。
 		if ( RepairInterruptedException::UNSUPPORTED === $reason ) {
-			return $this->repair_not_applicable_error();
+			return new WP_Error(
+				'cbjp_repair_unsupported',
+				__( 'This platform cannot look up single records, so prefecture repair is not available for it.', 'cart-bridge-jp' ),
+				[ 'status' => 501 ]
+			);
 		}
 
 		[ $code, $status, $message ] = match ( $reason ) {

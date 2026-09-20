@@ -64,6 +64,7 @@ interface PlatformAdapter {
     public function fetchLatestOrders( int $limit ): array;                          // CanonicalOrder[]（新しい順）
     public function fetchProductByRemoteId( string $remoteId ): ?CanonicalProduct;   // 404はnull
     public function fetchCustomerByRemoteId( string $remoteId ): ?CanonicalCustomer; // base: UnsupportedOperationException（D12）
+    public function fetchOrderByRemoteId( string $remoteId ): ?CanonicalOrder;       // 404はnull。県コード修復（issue #46）で追加。ID指定の単一取得は日付窓（colorme: 直近7日）の影響を受けない
 
     // 書き込み（capabilityで不可のものは UnsupportedOperationException）
     public function pushProduct( CanonicalProduct $p, ?string $remoteId ): PushResult;
@@ -927,10 +928,11 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   `fetch_order_by_remote_id()`。`PlatformAdapter` に追加）し、現在の state（s）が旧出力（`JP{p}`）と一致し、かつ正しい値（`JP{表[p]}`）と異なり、
   **かつ郵便番号（数字のみ）・番地が ASP 由来の期待値（`AddressMapper::to_woo()` の出力）と一致する**場合に限り `state` のみを更新する。
   `s == 正しい値` は変更しない（冪等）。それ以外（手修正・ASP 側の住所変更・郵便番号/番地の不一致）は変更せず `unverified` として報告する
+  （その県自体は旧バグの影響を受けなくても、現在の state が「旧バグが別の県で出力しうる値」のまま残っている場合は ASP 側で県が変わった可能性があるため、`ok` とは断定せず `unverified`）
   （state だけ書き換えて「新しい県＋古い郵便番号」のキメラ住所を作らない）。旧出力が取りうる state は 23 値に限られるため、それ以外の値の実体は
   ASP に照会せず「被害なし」と確定する（表は `AddressMapper::state_code()` から導出し複製しない）。旧恒等変換（`legacy`）はツール内の private に
   留め、新規書込みへの誤用の誘い水になる `AddressMapper` には置かない。
-- **Scan と Repair は同一の判定関数を共有**し、書込みだけが異なる。REST は GET（Scan・読取専用）/POST（Repair）で分け、`dry_run` の真偽値パラメータは
+- **Scan と Repair は同一の判定関数を共有**し、書込みだけが異なる。REST は GET（Scan。Woo のデータについて読取専用。バッチごとの集計を `cbjp_logs` に1行記録する）/POST（Repair）で分け、`dry_run` の真偽値パラメータは
   作らない（欠損・型違いが書込み側に倒れる fail-open の排除。`sample-cleanup` の preview/run と同じ流儀）。`PrefStateRepair::run()` の `$apply` も既定値なし。
 - **対象の絞り込み**: mappings が指す実体のうち、実在し、`_cbjp_platform` が自プラットフォーム、顧客はスタッフ権限（`CustomerWriter::has_protected_role()`。
   `CustomerWriter` は住所を書かずにスキップするため、その state は店舗自身のデータ）でなく、受注は `WC_Order`（refund 除外）かつ `trash`/`checkout-draft` でないもの。
@@ -938,10 +940,17 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
 - **ASP アクセスは単一 ID 取得に限定**: 一覧の `ids` は受注で「直近7日」に絞られる可能性がある（要検証#18）ため使わず、日付窓の影響を受けない
   `GET /sales/{id}.json` / `GET /customers/{id}.json` を使う。無料版の上限（顧客 10・受注 10）で 1 サイト最大約 20 行のため、1 リクエスト 20 照会
   （`PrefStateRepair::DEFAULT_BUDGET`）・`{entity, offset}` の cursor で十分。**未接続・レート制限・ASP 障害は例外にせず**、処理済みの `counts` と失敗した行を
-  指す `cursor` を返して中断する（503/409/502。UI は件数を失わず同じ位置から再開できる。処理は冪等）。ASP が返した記録の `remote_id` が要求と一致しない場合は
-  信用しない（`unavailable`）。
+  指す `cursor` を返して中断する（503/409/502。UI は件数を失わず同じ位置から再開できる。処理は冪等）。分類は `PrefStateRepair::classify_api_failure()`:
+  **認証エラー（401/403）またはアダプタが `context['not_connected'] === true` で明示した「未接続」だけを 409 にする**（ステータス 0 は `HttpClient` の通信断・
+  `ColorMeClient` の JSON 破損でも使われるため、0 を一律に「再接続」と案内すると一時的な通信断でも店舗を再認可へ誘導してしまう。`ColorMeAdapter::client()` が
+  文脈で明示する）。クライアント側スロットル（`RateLimitExhaustedException`）と、ASP が 429 を返してリトライ上限に達した場合（`ApiException::is_rate_limited()`）は 503
+  （`Retry-After`）。アダプタが単一 ID 取得に非対応（`UnsupportedOperationException`）の場合は 501 `cbjp_repair_unsupported`（再開しても同じ結果になるため cursor は返さない）。
+  ASP が返した記録の `remote_id` が要求と一致しない場合は信用しない（`unavailable`）。
 - **書込み**: 顧客は `update_user_meta`（`CustomerWriter` と同経路）、受注は `WC_Order` CRUD（HPOS 対応）を `SideEffectGuard` で囲む。補正が必要な実体だけ `save()`
-  する。補正した実体に監査メタ `_cbjp_state_repaired`（側ごとの from/to の JSON）を残す。
+  する。補正した実体に監査メタ `_cbjp_state_repaired`（側ごとの from/to の JSON。同じ側を再度補正しても最初の `from`＝本当の元の値は保持）を残す。
+  **`WC_Abstract_Order::save()` は保存中の例外を内部で握りつぶしてログに残すだけで ID を返す**（WC 11.1 の実ソースで確認）ため、書き込めたことは DB からの読み直しで確認し、
+  一致しなければ（`update_user_meta()` は同値更新でも失敗でも false で区別できないため顧客も同様）その1件だけを `skipped`（保存失敗）として先へ進む。
+  確認が無いと、保存に失敗したのに「補正した」と報告してしまう。
 - **既知の制限**（PR 本文にも記載）: (1) `WC_Order::save()` は `date_modified` を現在時刻へ更新する（実測: WC 11.1.1・HPOS 有効。`set_date_modified()` で戻しても保持できない）。
   (2) 受注の保存は `woocommerce_update_order` を発火するため、Analytics 取込みの Action Scheduler アクションと `order.updated` Webhook が飛ぶ（無料版の上限内なので件数は小さい）。
   (3) `wc_customer_lookup.state`（Analytics の顧客テーブル）は `update_user_meta` では更新されない。(4) 本ツールの実行前に手作業/SQL で都道府県を一括変換した実体のうち、

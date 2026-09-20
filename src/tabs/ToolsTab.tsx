@@ -79,6 +79,15 @@ function sumCounts( counts: Counts ): number {
 
 const REPAIR_ENTITIES: readonly StateRepairEntity[] = [ 'customer', 'order' ];
 
+/**
+ * 県コード修復のエラーのうち、同じ位置から再開しても結果が変わらないもの（`RestController` のエラーコード）。
+ */
+const NON_RESUMABLE_REPAIR_ERRORS: readonly string[] = [
+	'cbjp_invalid_cursor',
+	'cbjp_repair_not_applicable',
+	'cbjp_repair_unsupported',
+];
+
 const REPAIR_BUCKETS: readonly StateRepairBucket[] = [
 	'fixed',
 	'already_correct',
@@ -526,8 +535,11 @@ export default function ToolsTab() {
 
 				setRepairView( { mode, counts, done: false } );
 
-				// 不正な cursor は再開できないため保持しない（「Start over」で先頭からやり直す）。
-				if ( 'cbjp_invalid_cursor' !== failure.code ) {
+				// 不正な cursor・修復の対象外・アダプタが単一取得に非対応、は再開しても同じ結果になるため
+				// 保持しない（「Start over」で先頭からやり直す）。
+				if (
+					! NON_RESUMABLE_REPAIR_ERRORS.includes( failure.code ?? '' )
+				) {
 					setRepairPending( { mode, cursor, counts } );
 				}
 
@@ -579,6 +591,19 @@ export default function ToolsTab() {
 	const repairNeedsRepair =
 		null !== scanTotals && repairBucketTotal( scanTotals, 'fixed' ) > 0;
 	const canRepair = repairNeedsRepair || 'repair' === repairPending?.mode;
+	// 「確認できなかった」（unverified）と「ASP から使える記録が返らなかった」（unavailable）は、直っていない
+	// 可能性が残る件数。完了通知を緑の成功にせず、警告として表に誘導する。
+	const repairUnresolved = repairView
+		? repairBucketTotal( repairView.counts, 'unverified' ) +
+		  repairBucketTotal( repairView.counts, 'unavailable' )
+		: 0;
+	let scanNoticeStatus: 'success' | 'info' | 'warning' = 'success';
+
+	if ( repairUnresolved > 0 ) {
+		scanNoticeStatus = 'warning';
+	} else if ( repairNeedsRepair ) {
+		scanNoticeStatus = 'info';
+	}
 
 	return (
 		<div className="cbjp-tools">
@@ -981,45 +1006,79 @@ export default function ToolsTab() {
 							) }
 							{ repairView.done && 'scan' === repairView.mode && (
 								<Notice
-									status={
-										repairNeedsRepair ? 'info' : 'success'
-									}
+									status={ scanNoticeStatus }
 									isDismissible={ false }
 								>
-									{ repairNeedsRepair
-										? sprintf(
-												/* translators: %d: number of records that need repair */
-												__(
-													'%d records need repair. Review the numbers below, then click “Repair”.',
-													'cart-bridge-jp'
-												),
-												repairBucketTotal(
-													repairView.counts,
-													'fixed'
-												)
-										  )
-										: __(
-												'No records need repair.',
-												'cart-bridge-jp'
-										  ) }
-								</Notice>
-							) }
-							{ repairView.done &&
-								'repair' === repairView.mode && (
-									<Notice
-										status="success"
-										isDismissible={ false }
-									>
-										{ sprintf(
-											/* translators: %d: number of records corrected */
+									{ repairNeedsRepair &&
+										sprintf(
+											/* translators: %d: number of records that need repair */
 											__(
-												'Repair finished. %d records were corrected. Run “Scan” again to confirm that nothing is left.',
+												'%d records need repair. Review the numbers below, then click “Repair”.',
 												'cart-bridge-jp'
 											),
 											repairBucketTotal(
 												repairView.counts,
 												'fixed'
 											)
+										) }
+									{ ! repairNeedsRepair &&
+										0 === repairUnresolved &&
+										__(
+											'No records need repair.',
+											'cart-bridge-jp'
+										) }
+									{ repairUnresolved > 0 && (
+										<>
+											{ repairNeedsRepair ? ' ' : '' }
+											{ sprintf(
+												/* translators: %d: number of records that could not be confirmed or checked */
+												__(
+													'%d records could not be confirmed or checked and will be left as they are. See the numbers below.',
+													'cart-bridge-jp'
+												),
+												repairUnresolved
+											) }
+										</>
+									) }
+								</Notice>
+							) }
+							{ repairView.done &&
+								'repair' === repairView.mode && (
+									<Notice
+										status={
+											repairUnresolved > 0
+												? 'warning'
+												: 'success'
+										}
+										isDismissible={ false }
+									>
+										{ sprintf(
+											/* translators: %d: number of records corrected */
+											__(
+												'Repair finished. %d records were corrected.',
+												'cart-bridge-jp'
+											),
+											repairBucketTotal(
+												repairView.counts,
+												'fixed'
+											)
+										) }
+										{ repairUnresolved > 0 && (
+											<>
+												{ ' ' }
+												{ sprintf(
+													/* translators: %d: number of records that could not be confirmed or checked */
+													__(
+														'%d records could not be confirmed or checked and were left unchanged.',
+														'cart-bridge-jp'
+													),
+													repairUnresolved
+												) }
+											</>
+										) }{ ' ' }
+										{ __(
+											'Run “Scan” again to confirm that nothing is left.',
+											'cart-bridge-jp'
 										) }
 									</Notice>
 								) }
@@ -1113,7 +1172,7 @@ export default function ToolsTab() {
 							) > 0 && (
 								<p>
 									{ __(
-										'“Skipped” records are not eligible: the WooCommerce record no longer exists, was not created by this plugin’s import, is a staff account, or is a trashed or draft order.',
+										'“Skipped” records were not changed: the WooCommerce record no longer exists, was not created by this plugin’s import, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair.',
 										'cart-bridge-jp'
 									) }
 								</p>

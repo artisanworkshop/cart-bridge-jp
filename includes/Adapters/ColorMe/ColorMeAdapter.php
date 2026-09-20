@@ -1679,7 +1679,9 @@ final class ColorMeAdapter implements PlatformAdapter {
 		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
 
 		if ( '' === $access_token ) {
-			throw new ApiException( 'ColorMe adapter is not connected.', 0, [] );
+			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（県コード修復ツール等）が
+			// 「再接続が必要」と区別できるよう、未接続であることを文脈で明示する。
+			throw new ApiException( 'ColorMe adapter is not connected.', 0, [ 'not_connected' => true ] );
 		}
 
 		return ColorMeClient::for_access_token( $access_token );

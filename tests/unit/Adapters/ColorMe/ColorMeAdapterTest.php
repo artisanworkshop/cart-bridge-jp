@@ -2343,6 +2343,20 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		];
 	}
 
+	public function test_an_unconnected_adapter_marks_the_failure_as_not_connected(): void {
+		// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（県コード修復ツール等）が
+		// 「再接続が必要」と一時的な通信断を区別できるよう、未接続は文脈で明示される。
+		[ $adapter ] = $this->make_adapter();
+
+		try {
+			$adapter->fetch_order_by_remote_id( '1' );
+			$this->fail( 'ApiException was not thrown' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 0, $exception->status_code() );
+			$this->assertTrue( $exception->context()['not_connected'] );
+		}
+	}
+
 	public function test_fetch_order_by_remote_id_returns_null_on_404(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );

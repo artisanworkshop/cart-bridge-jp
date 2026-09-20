@@ -21,6 +21,7 @@ use CartBridgeJP\Woo\Support\SideEffectGuard;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 use WC_Order;
 use WP_User;
@@ -77,7 +78,8 @@ final class PrefStateRepair {
 	 * - already_correct: 補正不要（修正後の取込・非影響県・海外・補正済み）
 	 * - unverified: 旧バグの出力と断定できず変更しなかった（手修正・ASP 側の住所変更・郵便番号/番地の不一致）
 	 * - unavailable: ASP が使える記録を返さなかった（ASP 側で削除済み・変換不能・別のIDの記録が返った）
-	 * - skipped: Woo 側が対象外（実体が無い・自プラットフォーム所有でない・スタッフ・ゴミ箱の受注等）
+	 * - skipped: Woo 側が対象外（実体が無い・自プラットフォーム所有でない・スタッフ・ゴミ箱の受注等）、
+	 *   または補正の保存に失敗した（次回の Scan で再び要補正として現れる）
 	 *
 	 * @var array<int,string>
 	 */
@@ -247,7 +249,10 @@ final class PrefStateRepair {
 
 		if ( [] !== $changes['fix'] ) {
 			if ( $apply ) {
-				$this->write_customer( $user_id, $changes['fix'] );
+				if ( ! $this->try_write( fn () => $this->write_customer( $user_id, $changes['fix'] ), 'customer', $user_id ) ) {
+					return 'skipped';
+				}
+
 				$this->log_repaired( 'customer', $user_id, $remote_id, $changes['fix'] );
 			}
 
@@ -312,7 +317,10 @@ final class PrefStateRepair {
 
 		if ( [] !== $changes['fix'] ) {
 			if ( $apply ) {
-				$this->write_order( $order, $changes['fix'] );
+				if ( ! $this->try_write( fn () => $this->write_order( $order, $changes['fix'] ), 'order', $order_id ) ) {
+					return 'skipped';
+				}
+
 				$this->log_repaired( 'order', $order_id, $remote_id, $changes['fix'] );
 			}
 
@@ -369,9 +377,15 @@ final class PrefStateRepair {
 		// 旧バグの出力（恒等変換）。
 		$legacy = sprintf( 'JP%02d', $pref_id );
 
-		// 表が恒等の24県は新旧で同じ値になる（影響なし）。
-		if ( $legacy === $correct || $current['state'] === $correct ) {
+		if ( $current['state'] === $correct ) {
 			return 'ok';
+		}
+
+		// 表が恒等の24県は新旧で同じ値になり、この県自体は旧バグの影響を受けない。ただし現在の state が
+		// 「旧バグが別の県で出力しうる値」（照会の対象になった理由）のまま残っている場合は、ASP 側で県が
+		// 変わった（＝この state は取込み時の別の県に由来する）可能性があり、正常とは断定できない。
+		if ( $legacy === $correct ) {
+			return isset( $this->affected_states( $platform )[ $current['state'] ] ) ? 'unverified' : 'ok';
 		}
 
 		if ( $current['state'] !== $legacy ) {
@@ -486,10 +500,7 @@ final class PrefStateRepair {
 		} catch ( RateLimitExhaustedException ) {
 			throw new RepairInterruptedException( RepairInterruptedException::RATE_LIMITED );
 		} catch ( ApiException $exception ) {
-			// 未接続（ステータス 0）と認証エラーは「再接続が必要」。それ以外は ASP 側の障害。
-			$needs_reconnect = in_array( $exception->status_code(), [ 0, 401, 403 ], true );
-
-			throw new RepairInterruptedException( $needs_reconnect ? RepairInterruptedException::NOT_CONNECTED : RepairInterruptedException::API_ERROR );
+			throw new RepairInterruptedException( $this->classify_api_failure( $exception ) );
 		} catch ( UnsupportedOperationException ) {
 			throw new RepairInterruptedException( RepairInterruptedException::UNSUPPORTED );
 		} catch ( Throwable $exception ) {
@@ -502,11 +513,66 @@ final class PrefStateRepair {
 	}
 
 	/**
+	 * ASP の API 失敗を、UI が案内を分けられる区分へ翻訳する。
+	 *
+	 * - 再接続が必要: 認証エラー（401/403）、またはアダプタが「未接続」と明示した場合
+	 *   （`context['not_connected'] === true`。`ColorMeAdapter::client()`）。**ステータス 0 だけでは
+	 *   判別できない**: `HttpClient`（通信断）や `ColorMeClient`（JSON 破損）も 0 で投げるため、
+	 *   0 を一律に「再接続」と案内すると、一時的な通信断でも店舗を再認可へ誘導してしまう。
+	 * - レート制限: クライアント側スロットル（`RateLimitExhaustedException`）とは別に、ASP が 429 を返して
+	 *   リトライ上限に達した場合も待てば再開できる。
+	 */
+	private function classify_api_failure( ApiException $exception ): string {
+		if ( in_array( $exception->status_code(), [ 401, 403 ], true ) || true === ( $exception->context()['not_connected'] ?? false ) ) {
+			return RepairInterruptedException::NOT_CONNECTED;
+		}
+
+		if ( $exception->is_rate_limited() || 429 === $exception->status_code() ) {
+			return RepairInterruptedException::RATE_LIMITED;
+		}
+
+		return RepairInterruptedException::API_ERROR;
+	}
+
+	/**
+	 * Woo への書込み。1件の保存失敗（他プラグインのフックが投げる例外・書込み確認の不一致等）で走査全体を落とさず、
+	 * 件数と再開位置を失わないよう、その実体だけを `skipped` として先へ進む。同じ行で失敗し続けても
+	 * 走査が止まらない。冪等なので次回の Scan で再び「要補正」として現れる。例外メッセージは個人情報を
+	 * 含みうるため記録せず、例外クラス名だけを残す。
+	 *
+	 * @param callable():void $write
+	 */
+	private function try_write( callable $write, string $entity, int $local_id ): bool {
+		try {
+			$write();
+
+			return true;
+		} catch ( Throwable $exception ) {
+			$this->logger->error(
+				'Prefecture state repair could not save a record.',
+				[
+					'entity'    => $entity,
+					'local_id'  => $local_id,
+					'exception' => $exception::class,
+				]
+			);
+
+			return false;
+		}
+	}
+
+	/**
 	 * @param array<string,array{from:string,to:string}> $changes 側 => 変更。
 	 */
 	private function write_customer( int $user_id, array $changes ): void {
 		foreach ( $changes as $side => $change ) {
 			update_user_meta( $user_id, "{$side}_state", $change['to'] );
+
+			// `update_user_meta()` は同値の更新でも書込み失敗でも false を返し区別できないため、書き込めたことは
+			// 再読込で確認する（`try_write()` が例外を「保存失敗」として扱う）。
+			if ( $this->meta_string( $user_id, "{$side}_state" ) !== $change['to'] ) {
+				throw new RuntimeException( 'The user state was not persisted.' );
+			}
 		}
 
 		update_user_meta( $user_id, self::AUDIT_META, $this->merge_audit( get_user_meta( $user_id, self::AUDIT_META, true ), $changes ) );
@@ -536,6 +602,19 @@ final class PrefStateRepair {
 
 				$order->update_meta_data( self::AUDIT_META, $this->merge_audit( $order->get_meta( self::AUDIT_META ), $changes ) );
 				$order->save();
+
+				// `WC_Abstract_Order::save()` は保存中の例外（他プラグインのフックが投げたもの等）を内部で
+				// 握りつぶしてログに残すだけで ID を返す（WC 11.1 の実ソースで確認）。呼び出し側からは成功に
+				// 見えるため、書き込めたことは DB から読み直して確認する。
+				$saved = wc_get_order( $order->get_id() );
+
+				foreach ( $changes as $side => $change ) {
+					$actual = $saved instanceof WC_Order ? ( 'billing' === $side ? $saved->get_billing_state() : $saved->get_shipping_state() ) : null;
+
+					if ( $actual !== $change['to'] ) {
+						throw new RuntimeException( 'The order state was not persisted.' );
+					}
+				}
 			}
 		);
 	}
@@ -547,8 +626,18 @@ final class PrefStateRepair {
 	 */
 	private function merge_audit( mixed $existing, array $changes ): string {
 		$previous = is_string( $existing ) && '' !== $existing ? json_decode( $existing, true ) : [];
+		$merged   = is_array( $previous ) ? $previous : [];
 
-		return (string) wp_json_encode( array_merge( is_array( $previous ) ? $previous : [], $changes ) );
+		foreach ( $changes as $side => $change ) {
+			// 同じ側を再度補正しても、最初の `from`（＝本当の元の値）は失わない（手動で巻き戻せる保証）。
+			$original        = $merged[ $side ]['from'] ?? null;
+			$merged[ $side ] = [
+				'from' => is_string( $original ) ? $original : $change['from'],
+				'to'   => $change['to'],
+			];
+		}
+
+		return (string) wp_json_encode( $merged );
 	}
 
 	/**

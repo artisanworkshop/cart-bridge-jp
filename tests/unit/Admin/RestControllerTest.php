@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Admin;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
@@ -1656,14 +1657,36 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertNotSame( '', (string) get_user_meta( $user_id, PrefStateRepair::AUDIT_META, true ) );
 	}
 
+	public function test_state_repair_reports_an_adapter_without_single_record_lookup_as_unsupported(): void {
+		// 走査の途中で「このアダプタは単一 ID 取得に対応していない」と分かった場合。「修復が不要」ではなく
+		// 「実行できない」（501）で、再開しても同じ結果になるため cursor は返さない。
+		[ , $customer ] = $this->make_legacy_customer();
+		$this->register_colorme_mock(
+			new MockPlatformAdapter(
+				customers: [ $customer ],
+				fetch_by_id_failure: new UnsupportedOperationException( 'colorme', 'fetch_customer_by_remote_id' )
+			)
+		);
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
+		$request->set_body_params( [ 'platform' => 'colorme' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 501, $response->get_status() );
+		$this->assertSame( 'cbjp_repair_unsupported', $response->as_error()->get_error_code() );
+	}
+
 	/**
 	 * @return array<string,array{0:\Throwable,1:int,2:string}>
 	 */
 	public static function state_repair_failures(): array {
 		return [
-			'rate limit'    => [ new RateLimitExhaustedException( 'colorme' ), 503, 'cbjp_rate_limited' ],
-			'not connected' => [ new ApiException( 'not connected', 0, [] ), 409, 'cbjp_not_connected' ],
-			'server error'  => [ new ApiException( 'server error', 500, [] ), 502, 'cbjp_platform_api_error' ],
+			'rate limit'      => [ new RateLimitExhaustedException( 'colorme' ), 503, 'cbjp_rate_limited' ],
+			'platform 429'    => [ new ApiException( 'too many requests', 429, [ 'rate_limited' => true ] ), 503, 'cbjp_rate_limited' ],
+			'not connected'   => [ new ApiException( 'not connected', 0, [ 'not_connected' => true ] ), 409, 'cbjp_not_connected' ],
+			// ステータス 0 でも「未接続」と明示されていなければ通信断として扱い、再接続を促さない。
+			'network failure' => [ new ApiException( 'cURL error 28', 0, [] ), 502, 'cbjp_platform_api_error' ],
+			'server error'    => [ new ApiException( 'server error', 500, [] ), 502, 'cbjp_platform_api_error' ],
 		];
 	}
 
