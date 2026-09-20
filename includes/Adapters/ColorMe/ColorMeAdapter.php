@@ -525,6 +525,32 @@ final class ColorMeAdapter implements PlatformAdapter {
 	}
 
 	/**
+	 * `GET /sales/{id}.json`（単一取得）。一覧の`GET /sales.json`と違い`after`/`before`による
+	 * 直近7日の暗黙の絞り込みを受けない（03 §9 #14）ため、古い受注でも取得できる。
+	 */
+	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
+		$sale = $this->fetch_single_by_remote_id( 'sales/' . rawurlencode( $remote_id ) . '.json', 'sale' );
+
+		if ( null === $sale ) {
+			return null;
+		}
+
+		// `order_transformer()`（初回呼び出し時に`payments.json`/`deliveries.json`を叩く）をtry節の
+		// 外で解決する。中に置くと認証切れ等の基盤障害がこの受注「1件」の変換失敗と混同され、
+		// 呼び出し側（ジョブ・ツール）が拾うべき障害が静かに握り潰される
+		// （`fetch_product_by_remote_id()`と同じ理由）。
+		$transformer = $this->order_transformer();
+
+		try {
+			return $transformer->transform( $sale );
+		} catch ( Throwable $exception ) {
+			$this->log_transform_failure( 'order', $sale, $exception );
+
+			return null;
+		}
+	}
+
+	/**
 	 * swagger実測（`docs/reviews/feat/e2-3-push-product/`計画参照）: `POST /products`は
 	 * 13項目（category_id_small/group_ids/stocks/variants/weight/画像を含まない）のみ受け付け、
 	 * `PUT /products/{id}`は加えて`category_id_small`/`group_ids`/`stocks`（simple商品のみ）を

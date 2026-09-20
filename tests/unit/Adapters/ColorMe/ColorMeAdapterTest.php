@@ -2324,6 +2324,173 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( $customers['customers'][0]['mail'], $page->items[0]->email );
 	}
 
+	/**
+	 * `fetch_order_by_remote_id()` が単一取得の前提とする、支払・配送方法の名称マップ用レスポンス
+	 * （`order_transformer()` が初回に取得する）。
+	 *
+	 * @return array<string,array{status:int,body:array<string,mixed>}>
+	 */
+	private function order_lookup_stubs(): array {
+		return [
+			'payments.json'   => [
+				'status' => 200,
+				'body'   => FixtureLoader::load( 'colorme', 'payments' ),
+			],
+			'deliveries.json' => [
+				'status' => 200,
+				'body'   => FixtureLoader::load( 'colorme', 'deliveries' ),
+			],
+		];
+	}
+
+	public function test_fetch_order_by_remote_id_returns_null_on_404(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'sales/999.json' => [
+					'status' => 404,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 404100,
+								'message' => 'Not Found',
+								'status'  => 404,
+							],
+						],
+					],
+				],
+			]
+		);
+
+		$this->assertNull( $adapter->fetch_order_by_remote_id( '999' ) );
+	}
+
+	public function test_fetch_order_by_remote_id_fails_when_the_envelope_is_malformed(): void {
+		// 200応答でも`sale`envelopeが配列でない場合を404と同じnullにすると、呼び出し側が
+		// 「ASP側で削除済み」と区別できないまま静かに読み飛ばしてしまう。例外で失敗させる。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'sales/999.json' => [
+					'status' => 200,
+					'body'   => [ 'sale' => 'unexpected-string' ],
+				],
+			]
+		);
+
+		$this->expectException( RuntimeException::class );
+
+		$adapter->fetch_order_by_remote_id( '999' );
+	}
+
+	public function test_fetch_order_by_remote_id_uses_the_detail_endpoint_without_a_date_window(): void {
+		// 一覧の `sales.json` は `after` 未指定だと直近7日にしか効かない（03 §9 #14）。ID指定の単一取得は
+		// 日付窓の影響を受けない `sales/{id}.json` を使い、古い受注でも取得できる。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		add_filter(
+			'pre_http_request',
+			function ( $preempt, $parsed_args, $url ) use ( &$captured ) {
+				$captured[] = $url;
+
+				if ( str_contains( $url, 'payments.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'payments' ) );
+				}
+
+				if ( str_contains( $url, 'deliveries.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'deliveries' ) );
+				}
+
+				if ( str_contains( $url, 'sales/219293424.json' ) ) {
+					return $this->json_response( FixtureLoader::load( 'colorme', 'sale_bank_detail' ) );
+				}
+
+				return new WP_Error( 'unexpected_request', "Unhandled request: {$url}" );
+			},
+			10,
+			3
+		);
+
+		$order = $adapter->fetch_order_by_remote_id( '219293424' );
+
+		$this->assertNotNull( $order );
+		$this->assertSame( '219293424', $order->remote_id() );
+
+		$sale_urls = array_values( array_filter( $captured, static fn ( string $url ): bool => str_contains( $url, '/sales' ) ) );
+		$this->assertCount( 1, $sale_urls );
+		$this->assertStringNotContainsString( 'after=', $sale_urls[0] );
+		$this->assertStringNotContainsString( 'ids=', $sale_urls[0] );
+	}
+
+	public function test_fetch_order_by_remote_id_carries_the_billing_and_shipping_pref_ids_for_state_repair(): void {
+		// 県コード修復（issue #46）は請求先（customer_snapshot）と配送先（shipping）の生の `pref_id` を
+		// Canonical 経由で受け取る。フィクスチャの `pref_id=13`（東京）は表の固定点で層間のズレを
+		// 検出できないため、固定点でない値（4=秋田・5=宮城）へ差し替えて通過することを確認する。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$detail                                = FixtureLoader::load( 'colorme', 'sale_bank_detail' );
+		$detail['sale']['customer']['pref_id'] = 4;
+		$detail['sale']['sale_deliveries'][0]['pref_id'] = 5;
+
+		$this->respond_from_map(
+			array_merge(
+				$this->order_lookup_stubs(),
+				[
+					'sales/219293424.json' => [
+						'status' => 200,
+						'body'   => $detail,
+					],
+				]
+			)
+		);
+
+		$order = $adapter->fetch_order_by_remote_id( '219293424' );
+
+		$this->assertNotNull( $order );
+		$this->assertSame( 4, $order->extras['customer_snapshot']['pref_id'] );
+		$this->assertSame( 5, $order->shipping['pref_id'] );
+	}
+
+	public function test_fetch_order_by_remote_id_propagates_lookup_failures_instead_of_swallowing_them(): void {
+		// `payments.json` の取得失敗（認証切れ等の基盤障害）を、この受注「1件」の変換失敗と同じ扱いで
+		// nullに握り潰すと、呼び出し側（県コード修復ツール等）が「ASP側で削除済み」と誤解して
+		// 障害に気付けない。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'sales/219293424.json' => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'sale_bank_detail' ),
+				],
+				'payments.json'        => [
+					'status' => 401,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 401001,
+								'message' => 'アクセストークンが無効です。',
+								'status'  => 401,
+							],
+						],
+					],
+				],
+			]
+		);
+
+		$this->expectException( ApiException::class );
+
+		$adapter->fetch_order_by_remote_id( '219293424' );
+	}
+
 	public function test_fetch_orders_walks_full_history_with_an_explicit_after_floor(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );

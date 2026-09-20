@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
@@ -23,6 +24,8 @@ use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
+use CartBridgeJP\Woo\Tools\PrefStateRepair;
+use CartBridgeJP\Woo\Tools\RepairInterruptedException;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
 use InvalidArgumentException;
 use RuntimeException;
@@ -295,6 +298,38 @@ final class RestController {
 						],
 					]
 				),
+			]
+		);
+		// 県コード修復ツール（issue #46）。Scan（GET・読取専用）と Repair（POST）をメソッドで分け、
+		// 「書き込むか」を真偽値パラメータにしない（欠損・型違いが書込み側に倒れるのを構造的に防ぐ。
+		// `sample-cleanup` の preview/run と同じ流儀）。
+		$repair_args = array_merge(
+			$platform_arg,
+			[
+				'cursor' => [
+					'type'              => [ 'string', 'null' ],
+					'required'          => false,
+					'validate_callback' => 'rest_validate_request_arg',
+				],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/tools/repair-states',
+			[
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'scan_state_repair' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+					'args'                => $repair_args,
+				],
+				[
+					'methods'             => 'POST',
+					'callback'            => [ $this, 'run_state_repair' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+					'args'                => $repair_args,
+				],
 			]
 		);
 	}
@@ -1270,6 +1305,124 @@ final class RestController {
 		}
 
 		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * `GET /tools/repair-states?platform=&cursor=`: 県コード修復の Scan（読取専用）。補正が必要な件数を数える。
+	 * `cursor` が null になるまで UI が繰り返し呼ぶ。
+	 */
+	public function scan_state_repair( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		return $this->repair_states( $request, false );
+	}
+
+	/**
+	 * `POST /tools/repair-states`: 県コード修復の実行（`state` のみ補正）。`cursor` が null になるまで UI が繰り返し呼ぶ。
+	 */
+	public function run_state_repair( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		return $this->repair_states( $request, true );
+	}
+
+	private function repair_states( WP_REST_Request $request, bool $apply ): WP_REST_Response|WP_Error {
+		$platform = $this->tool_platform( $request );
+
+		if ( $platform instanceof WP_Error ) {
+			return $platform;
+		}
+
+		// 進行中のジョブとは ASP のレート制限（プラットフォーム単位で共有）を奪い合い、import が同じ
+		// 実体を書いている最中に補正すると競合しうるため、Scan（読取専用）も含めて拒否する。
+		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
+			return $this->run_in_progress_error();
+		}
+
+		$adapter = AdapterRegistry::get( $platform );
+
+		if ( null === $adapter ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$cursor = $request->get_param( 'cursor' );
+
+		try {
+			$result = ( new PrefStateRepair( new MappingRepository(), $adapter ) )->run( $platform, $apply, is_string( $cursor ) ? $cursor : null );
+		} catch ( InvalidArgumentException ) {
+			return new WP_Error( 'cbjp_invalid_cursor', __( 'The repair cursor is invalid.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
+		} catch ( UnsupportedOperationException ) {
+			return $this->repair_not_applicable_error();
+		}
+
+		if ( null !== $result['interruption'] ) {
+			return $this->repair_interrupted_response( $result );
+		}
+
+		return rest_ensure_response(
+			[
+				'platform' => $platform,
+				'apply'    => $apply,
+				'counts'   => $result['counts'],
+				'cursor'   => $result['cursor'],
+			]
+		);
+	}
+
+	/**
+	 * ASP への照会に失敗して中断した場合の応答。エラーとして返しつつ、処理済みの件数と失敗した行を指す
+	 * cursor をボディに含める（UI は件数を失わず、同じ位置から再開できる。処理は冪等）。
+	 *
+	 * @param array{counts:array<string,array<string,int>>,cursor:?string,interruption:?string} $result
+	 */
+	private function repair_interrupted_response( array $result ): WP_REST_Response|WP_Error {
+		$reason = (string) $result['interruption'];
+
+		if ( RepairInterruptedException::UNSUPPORTED === $reason ) {
+			return $this->repair_not_applicable_error();
+		}
+
+		[ $code, $status, $message ] = match ( $reason ) {
+			RepairInterruptedException::RATE_LIMITED  => [
+				'cbjp_rate_limited',
+				503,
+				__( 'The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped.', 'cart-bridge-jp' ),
+			],
+			RepairInterruptedException::NOT_CONNECTED => [
+				'cbjp_not_connected',
+				409,
+				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
+			],
+			default                                   => [
+				'cbjp_platform_api_error',
+				502,
+				__( 'The platform API returned an error. Try again in a moment; it resumes where it stopped.', 'cart-bridge-jp' ),
+			],
+		};
+
+		$response = new WP_REST_Response(
+			[
+				'code'    => $code,
+				'message' => $message,
+				'data'    => [
+					'status'       => $status,
+					'counts'       => $result['counts'],
+					'cursor'       => $result['cursor'],
+					'interruption' => $reason,
+				],
+			],
+			$status
+		);
+
+		if ( RepairInterruptedException::RATE_LIMITED === $reason ) {
+			$response->header( 'Retry-After', '60' );
+		}
+
+		return $response;
+	}
+
+	private function repair_not_applicable_error(): WP_Error {
+		return new WP_Error(
+			'cbjp_repair_not_applicable',
+			__( 'This platform does not need prefecture repair.', 'cart-bridge-jp' ),
+			[ 'status' => 400 ]
+		);
 	}
 
 	/**
