@@ -15,8 +15,24 @@ TEMPLATE="$HERE/../templates/mu-plugin-mock-adapter.php"
 
 # `wp-env install-path` はこのリポジトリのインスタンスの場所（~/.wp-env/<hash>）を返す。
 # 他プロジェクトの wp-env と取り違えないため、`docker ps` や hash の総当たりではなくこれを使う。
-install_path() { npx wp-env install-path 2>/dev/null; }
-mu_dir() { echo "$(install_path)/WordPress/wp-content/mu-plugins"; }
+# 取得できなかった／存在しないパスのときは**必ず失敗する**（空のまま連結すると `/WordPress/wp-content/mu-plugins`＝
+# ホストのルート直下を対象にしてしまう）。`mu_dir` を呼ぶ側は `set -e` 下で `$(mu_dir)` の失敗を検知できるよう、
+# 代入で受けてから使うこと。
+install_path() {
+  local p
+  p=$(npx wp-env install-path 2>/dev/null) || { echo "npx wp-env install-path failed (is wp-env installed / run from the repo root?)" >&2; return 1; }
+  p=${p%$'\n'}
+  if [ -z "$p" ] || [ ! -d "$p/WordPress" ]; then
+    echo "wp-env install path is empty or has no WordPress directory: '$p' (is wp-env started for this repo?)" >&2
+    return 1
+  fi
+  printf '%s\n' "$p"
+}
+mu_dir() {
+  local p
+  p=$(install_path) || return 1
+  printf '%s\n' "$p/WordPress/wp-content/mu-plugins"
+}
 # wp-env の失敗（未起動・別プロジェクト・PHP の致命的エラー）は握りつぶさず、そのまま非ゼロで返す。
 # 出力は wp-env の進捗行（ℹ / ✔）と空行だけを落とす。`grep -v` は「全行が落ちて出力が空」のとき終了コード 1 を返すが、
 # それは失敗ではないので無視する（`|| true` をパイプ全体に付けると wp-env 側の失敗まで隠れてしまう）。
@@ -45,13 +61,15 @@ echo 'ZZV- mappings left: ' . (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} W
 PHP
     wp eval-file "$tmp"
     rm -f "$tmp"
-    echo "mu-plugins: $(ls "$(mu_dir)" 2>/dev/null | tr '\n' ' ')"
+    dir=$(mu_dir) || exit 1
+    echo "mu-plugins: $(ls "$dir" 2>/dev/null | tr '\n' ' ')"
     ;;
   install)
     key=${2:?usage: mock-adapter.sh install <platform-key>}
     case "$key" in *[!a-z0-9_-]*|'') echo "invalid platform key: $key" >&2; exit 2 ;; esac
-    dest="$(mu_dir)/$MU_FILE_NAME"
-    mkdir -p "$(mu_dir)"
+    dir=$(mu_dir) || exit 1
+    dest="$dir/$MU_FILE_NAME"
+    mkdir -p "$dir"
     # 自分が置いたファイル以外は上書きしない（他セッション由来の mu-plugin を壊さない）。
     if [ -e "$dest" ] && ! grep -q "$MARKER" "$dest"; then
       echo "refusing to overwrite $dest (not managed by this skill)" >&2; exit 1
@@ -65,7 +83,8 @@ PHP
     wp eval-file "$file"
     ;;
   uninstall)
-    dest="$(mu_dir)/$MU_FILE_NAME"
+    dir=$(mu_dir) || exit 1
+    dest="$dir/$MU_FILE_NAME"
     if [ -e "$dest" ]; then
       if grep -q "$MARKER" "$dest"; then rm -f "$dest"; echo "removed $dest"; else echo "not managed by this skill; left in place: $dest" >&2; exit 1; fi
     else
