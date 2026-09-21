@@ -80,6 +80,7 @@ npm run build                # 本番ビルド
 - 設定値（例: `cbjp_settings_{platform}`のマッピング）を検証・保存する関数が制御文字除去やtrim等の正規化を行う場合、その値の「候補一覧」を生成する別の経路（UIのプルダウン候補等）でも同じ正規化を適用すること。候補生成側だけ正規化を怠ると、空白・制御文字のみの値が候補上は非空に見えるのに保存時には空文字列化して拒否される、または前後の空白ごと異なるキーとして保存され選んだ項目が保存後に消える、という食い違いが起きる（`Admin\RestController::normalize_mapping_token()`が3箇所で共有する形に統一した実例。issue #39）
 - 正規表現で「完全に指定パターンとだけ一致するか」を検証する場合、終端アンカーは`$`ではなく`\z`を使うこと。PCREの`$`は末尾改行の直前にもマッチするため、`^[0-9\-]+$`のような形式チェックは末尾に`\n`が混入した値（例: `"0312345678\n"`）を誤って「一致」と通してしまう
 - `mb_strlen()`等のmbstring関数はホストにmbstring拡張が無くても、WordPress core自身（`wp-includes/compat.php`）が`function_exists()`ガード付きのポリフィルを無条件に提供する。プラグインコードは常にWPブートストラップ後に実行されるため、レビューbotが「mbstring拡張の宣言漏れ」を指摘しても誤りであることが多い（`composer.json`への`ext-mbstring`追加は不要。issue #44）
+- IDE/エディタが出す phpcs 診断（短縮配列構文・ファイル名規約・docblock 等）はリポジトリの `phpcs.xml.dist` とは別のルールセット由来のノイズで、`composer lint`（単体は `vendor/bin/phpcs -s <file>`）が通っていれば対応しないこと。判断は必ずリポジトリの設定で行う（実測: `.claude/skills/*/templates/mu-plugin-mock-adapter.php` は IDE が 16 件のエラーを報告したがリポジトリ設定では exit 0）
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
@@ -104,6 +105,7 @@ npm run build                # 本番ビルド
 | `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・`cbjp_mappings`（checksum・upsert）・サンプルクリーンアップ等のツールの設計上の罠 | `includes/Sync/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
+| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**` |
 
 ## テスト方針
 
@@ -120,6 +122,7 @@ npm run build                # 本番ビルド
   設定できず（クラシック保護・Rulesetsとも非対応）、管理者は元々バイパス可能なため、これは
   GitHub側の強制ではなくClaude Codeが守る運用ルールである
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
+- OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）
