@@ -23,6 +23,14 @@ add_action(
 				$customers = [];
 				$orders    = [];
 
+				// 壊れた値（配列以外・配列でない行）は読み飛ばす。mu-plugin の致命的エラー（TypeError 等）は
+				// 開発サイトの全リクエストを落とし、`mock-adapter.sh uninstall` すら wp-env 経由で動かなくなりうるため。
+				$rows = static function ( string $key ) use ( $seed ): array {
+					$list = is_array( $seed ) && is_array( $seed[ $key ] ?? null ) ? $seed[ $key ] : [];
+
+					return array_filter( $list, 'is_array' );
+				};
+
 				// ColorMe の住所形（`AddressMapper::to_woo()` が解釈するキー）。他のプラットフォームなら合わせて変える。
 				$address = static fn ( int $pref, string $postal, string $line ): array => [
 					'name'      => 'Verify User',
@@ -36,7 +44,7 @@ add_action(
 					'country'   => 'JP',
 				];
 
-				foreach ( $seed['customers'] ?? [] as $c ) {
+				foreach ( $rows( 'customers' ) as $c ) {
 					$customers[] = new CartBridgeJP\Canonical\CanonicalCustomer(
 						$c['email'],
 						'Verify User',
@@ -52,7 +60,7 @@ add_action(
 					);
 				}
 
-				foreach ( $seed['orders'] ?? [] as $o ) {
+				foreach ( $rows( 'orders' ) as $o ) {
 					$orders[] = new CartBridgeJP\Canonical\CanonicalOrder(
 						$o['number'],
 						'processing',

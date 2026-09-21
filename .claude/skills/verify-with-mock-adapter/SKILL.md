@@ -32,8 +32,10 @@ description: >
 2. **mock アダプタを登録する**: `$S/scripts/mock-adapter.sh install <platform-key>`
    （例: `colorme`。県コード修復のように `AddressMapper` が `colorme` だけを解釈するツールは、そのキーで登録する必要がある）。
    `templates/mu-plugin-mock-adapter.php` を wp-env の `mu-plugins/` へ置く。mock は `tests/unit/Fixtures/MockPlatformAdapter`
-   （composer の autoload-dev。`composer install` 済みなら dev サイトから使える）で、オプション `cbjp_verify_seed`（JSON）から
-   顧客・受注を組み立てる。**クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
+   （composer の autoload-dev。`composer install` 済みなら dev サイトから使える）で、オプション `cbjp_verify_seed` から
+   顧客・受注を組み立てる。このオプションは **PHP 配列を `update_option()` で保存する**（JSON 文字列ではない。mu-plugin は
+   `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
+   **クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
    autoloader がまだ無い）。`plugins_loaded` のコールバック内で `new` する。
 3. **修正前のデータを再現して投入する**（実 Writer を使う）: `$S/scripts/mock-adapter.sh run <seed.php>`。
    seed は `WooRepositoryFactory::for_platform()->write()` / `OrderWriter` で実際に取り込み → 旧コードの出力へ書き戻す（例:
