@@ -9,6 +9,8 @@
 	<exclude-pattern>/build/*</exclude-pattern>
 	<exclude-pattern>/tests/fixtures/*</exclude-pattern>
 	<exclude-pattern>/languages/*</exclude-pattern>
+	<!-- 手動検証用の使い捨てスクリプト（seed/verify/cleanup）。配布物ではなく（.distignore で除外）、echo や生の $wpdb を使うため WPCS の対象外にする。 -->
+	<exclude-pattern>/.claude/skills/*/examples/*</exclude-pattern>
 
 	<arg value="sp"/>
 	<arg name="basepath" value="."/>
