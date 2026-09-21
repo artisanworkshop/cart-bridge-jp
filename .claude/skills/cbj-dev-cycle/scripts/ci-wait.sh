@@ -27,11 +27,14 @@ done
 
 pr_head() { gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null; }
 
-SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid) || { echo "could not resolve PR #$PR" >&2; exit 3; }
+# HEAD とブランチ名は 1 回の呼び出しで取る（失敗は exit 3）。ブランチ名だけを別呼び出しにして `|| true` で握りつぶすと、
+# API の一時失敗で下の「push 直後の古い HEAD を掴まない」ガード自体が黙ってスキップされてしまう。
+INFO=$(gh pr view "$PR" --json headRefOid,headRefName --jq '[.headRefOid, .headRefName] | @tsv') || { echo "could not resolve PR #$PR" >&2; exit 3; }
+SHA=${INFO%%$'\t'*}
+PR_BRANCH=${INFO#*$'\t'}
 if [ -z "$SHA" ]; then echo "could not resolve the head sha of PR #$PR" >&2; exit 3; fi
 
 # ローカルの HEAD がこの PR のブランチなら、PR の HEAD が追いつくまで待つ（push 直後の古い HEAD を掴まない）。
-PR_BRANCH=$(gh pr view "$PR" --json headRefName --jq .headRefName 2>/dev/null || true)
 LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 LOCAL_SHA=$(git rev-parse HEAD 2>/dev/null || true)
 if [ -n "$PR_BRANCH" ] && [ "$PR_BRANCH" = "$LOCAL_BRANCH" ] && [ -n "$LOCAL_SHA" ] && [ "$SHA" != "$LOCAL_SHA" ]; then
@@ -89,8 +92,16 @@ while :; do
   done
 
   # 3) 監視中に後続の push があった（先行の run は cancelled になりうる）なら、新しい HEAD を監視し直す。
-  NEW=$(pr_head || true)
-  if [ -n "$NEW" ] && [ "$NEW" != "$SHA" ] && [ "$rewatch" -lt "$MAX_REWATCH" ]; then
+  #    最終 HEAD の取得に失敗したときは「変わっていない」とみなさない（`|| true` で空にすると、後続の push を見落として
+  #    古い HEAD の結果を成功として報告してしまう）。他の API 失敗と同じ方針で再試行し、超えたら exit 3。
+  head_fails=0
+  until NEW=$(pr_head) && [ -n "$NEW" ]; do
+    head_fails=$((head_fails + 1))
+    echo "gh pr view failed while re-checking the head ($head_fails/$MAX_API_FAILS)" >&2
+    if [ "$head_fails" -ge "$MAX_API_FAILS" ]; then exit 3; fi
+    sleep "$FAIL_INTERVAL"
+  done
+  if [ "$NEW" != "$SHA" ] && [ "$rewatch" -lt "$MAX_REWATCH" ]; then
     echo "PR head moved $SHA -> $NEW while watching; watching the new head" >&2
     SHA=$NEW; rewatch=$((rewatch + 1))
     deadline=$((SECONDS + TIMEOUT))
