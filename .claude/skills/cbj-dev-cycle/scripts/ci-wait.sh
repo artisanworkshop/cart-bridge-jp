@@ -36,14 +36,17 @@ LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 LOCAL_SHA=$(git rev-parse HEAD 2>/dev/null || true)
 if [ -n "$PR_BRANCH" ] && [ "$PR_BRANCH" = "$LOCAL_BRANCH" ] && [ -n "$LOCAL_SHA" ] && [ "$SHA" != "$LOCAL_SHA" ]; then
   echo "PR head ($SHA) is behind the local HEAD ($LOCAL_SHA); waiting for GitHub to catch up" >&2
-  for _ in $(seq 1 12); do
+  catchup_deadline=$((SECONDS + TIMEOUT))
+  while [ "$SHA" != "$LOCAL_SHA" ]; do
+    if [ "$SECONDS" -ge "$catchup_deadline" ]; then
+      # 古い HEAD のまま続行しない: その check-run はすでに登録済みなので、新しいコミットの CI を確認せずに
+      # 成功を報告してしまう（このスクリプトが防ぎたかった誤判定そのもの）。明示的に失敗させる。
+      echo "PR head still differs from the local HEAD after ${TIMEOUT}s (PR: $SHA, local: $LOCAL_SHA); refusing to report a stale head's checks" >&2
+      exit 3
+    fi
     sleep 5
     SHA=$(pr_head || true)
-    if [ "$SHA" = "$LOCAL_SHA" ]; then break; fi
   done
-  if [ "$SHA" != "$LOCAL_SHA" ]; then
-    echo "warning: PR head still differs from the local HEAD after 60s; watching $SHA" >&2
-  fi
 fi
 
 deadline=$((SECONDS + TIMEOUT))
