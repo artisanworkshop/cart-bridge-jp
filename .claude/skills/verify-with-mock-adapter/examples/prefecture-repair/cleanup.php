@@ -12,8 +12,17 @@ $platform = 'colorme';
 $ids      = get_option( 'cbjp_verify_ids', [] );
 $mappings = new MappingRepository();
 
+$kept = [];
+
 foreach ( $ids['users'] ?? [] as $remote => $uid ) {
-	wp_delete_user( (int) $uid );
+	// 削除してよいのは、シードの import が**新規作成した**アカウントだけ（`CustomerWriter` は新規作成時にだけ
+	// `_cbjp_created_by_import` を書く）。email 突合で再利用された既存アカウントには付かないので、ここで弾く。
+	if ( $platform === get_user_meta( (int) $uid, '_cbjp_created_by_import', true ) ) {
+		wp_delete_user( (int) $uid );
+	} elseif ( get_userdata( (int) $uid ) ) {
+		$kept[ $remote ] = (int) $uid;
+	}
+
 	$mappings->delete_one( $platform, 'customer', $remote );
 }
 
@@ -27,8 +36,14 @@ foreach ( $ids['orders'] ?? [] as $number => $oid ) {
 	$mappings->delete_one( $platform, 'order', $number );
 }
 
-delete_option( 'cbjp_verify_seed' );
-delete_option( 'cbjp_verify_ids' );
+if ( [] !== $kept ) {
+	// 作成マーカーの無いアカウントは削除しない。記録を残して、人が確認できるようにする。
+	update_option( 'cbjp_verify_ids', [ 'users' => $kept, 'orders' => [] ], false );
+	echo 'KEPT (not created by the seed import, not deleted): ' . wp_json_encode( $kept ) . "\n";
+} else {
+	delete_option( 'cbjp_verify_seed' );
+	delete_option( 'cbjp_verify_ids' );
+}
 
 global $wpdb;
 $table = $wpdb->prefix . 'cbjp_mappings';

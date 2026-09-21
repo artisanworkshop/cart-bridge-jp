@@ -30,11 +30,13 @@ $address  = static fn ( int $pref ): array => [
 	'country'   => 'JP',
 ];
 
-$ids  = [
+// 前回の投入が cleanup 前のまま残っていれば、その ID を引き継いで**累積**する（上書きすると前回分が孤立し、
+// cleanup が「完全に元へ戻す」約束を守れなくなる）。
+$ids  = get_option( 'cbjp_verify_ids', [] ) + [
 	'users'  => [],
 	'orders' => [],
 ];
-$seed = [
+$seed = get_option( 'cbjp_verify_seed', [] ) + [
 	'customers' => [],
 	'orders'    => [],
 ];
@@ -46,6 +48,21 @@ $specs = [
 	[ 'ZZV-C4', 4, 'hand-edited' ], // 手修正（JP20）: 旧出力でも正しい値でもない → 変更せず「確認できなかった」
 ];
 
+// 投入前の安全確認: seed の email が既存ユーザーのものだと、`CustomerWriter` は email 突合でそのアカウントを
+// **再利用**して住所を上書きし（作成マーカーも付かない）、cleanup がそれを消してしまう。既に自分の投入分として
+// 記録済みの ID を除き、衝突があれば何も書かずに中止する。
+$known_ids = array_map( 'intval', array_values( $ids['users'] ) );
+
+foreach ( $specs as [ $remote ] ) {
+	$existing = get_user_by( 'email', strtolower( $remote ) . '@example.com' );
+
+	if ( $existing && ! in_array( (int) $existing->ID, $known_ids, true ) ) {
+		echo "ABORT: user #{$existing->ID} already has the seed email for {$remote}; not seeding (it would be reused and overwritten).\n";
+
+		return;
+	}
+}
+
 foreach ( $specs as [ $remote, $pref, $mode ] ) {
 	$email    = strtolower( $remote ) . '@example.com';
 	$customer = new CanonicalCustomer( $email, 'Verify User', null, null, null, $address( $pref ), '0312345678', null, null, null, [ 'remote_id' => $remote ] );
@@ -56,8 +73,8 @@ foreach ( $specs as [ $remote, $pref, $mode ] ) {
 	update_user_meta( $result->local_id, 'billing_state', $state );
 	update_user_meta( $result->local_id, 'shipping_state', $state );
 
-	$ids['users'][ $remote ] = $result->local_id;
-	$seed['customers'][]     = [
+	$ids['users'][ $remote ]      = $result->local_id;
+	$seed['customers'][ $remote ] = [
 		'remote_id' => $remote,
 		'email'     => $email,
 		'pref'      => $pref,
@@ -85,7 +102,10 @@ $order        = new CanonicalOrder(
 		'customer_snapshot' => $address( 5 ),
 	]
 );
-$result       = $order_writer->write( $order, null );
+// `OrderWriter::write()` は既存の local_id を渡さない限り毎回**新規作成**する（Importer は mapping から引いて渡す）。
+// 再実行時に受注が増えて孤立しないよう、前回の投入分の ID を mapping から引いて渡し、同じ受注を更新する。
+$existing_order_id = $mappings->find_local_id( $platform, 'order', 'ZZV-O1' );
+$result            = $order_writer->write( $order, $existing_order_id );
 $mappings->upsert( $platform, 'order', 'ZZV-O1', $result->local_id, null );
 
 $wc_order = wc_get_order( $result->local_id );
@@ -93,8 +113,8 @@ $wc_order->set_billing_state( 'JP05' );  // 請求先 pref 5（宮城）の旧�
 $wc_order->set_shipping_state( 'JP16' ); // 配送先 pref 16（福井）の旧出力
 $wc_order->save();
 
-$ids['orders']['ZZV-O1'] = $result->local_id;
-$seed['orders'][]        = [
+$ids['orders']['ZZV-O1']  = $result->local_id;
+$seed['orders']['ZZV-O1'] = [
 	'number'        => 'ZZV-O1',
 	'billing_pref'  => 5,
 	'shipping_pref' => 16,
