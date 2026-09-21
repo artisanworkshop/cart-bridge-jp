@@ -115,6 +115,9 @@ final class MockPlatformAdapter implements PlatformAdapter {
 	 *   fetch_customer_by_remote_id() が要求IDを無視してこの顧客をそのまま返す
 	 *   （要求IDと異なる顧客を返す契約違反アダプタのシナリオのテスト用。`$product_by_remote_id_override`と同じ）。
 	 * @param ?CanonicalOrder                 $order_by_remote_id_override 同上（fetch_order_by_remote_id()）。
+	 * @param string                          $platform_id id() が返す値（既定 'mock'）。`Importer`/`Exporter`/`JobManager` は
+	 *   mapping・上限・サンプルのキーを登録キーではなく `$adapter->id()` から決めるため、`cbjp/adapters/register` に
+	 *   別のキー（例: `colorme`）で登録する手動検証（`verify-with-mock-adapter` スキル）では、そのキーと同じ値を渡す。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -130,11 +133,12 @@ final class MockPlatformAdapter implements PlatformAdapter {
 		private readonly bool $push_others_supported = false,
 		private readonly ?\Throwable $fetch_by_id_failure = null,
 		private readonly ?CanonicalCustomer $customer_by_remote_id_override = null,
-		private readonly ?CanonicalOrder $order_by_remote_id_override = null
+		private readonly ?CanonicalOrder $order_by_remote_id_override = null,
+		private readonly string $platform_id = 'mock'
 	) {}
 
 	public function id(): string {
-		return 'mock';
+		return $this->platform_id;
 	}
 
 	private function maybe_fail(): void {

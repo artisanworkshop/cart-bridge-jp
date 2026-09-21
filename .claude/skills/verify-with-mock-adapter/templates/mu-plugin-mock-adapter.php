@@ -83,7 +83,13 @@ add_action(
 					);
 				}
 
-				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter( [], $customers, $orders );
+				// `platform_id` は登録キーと同じ値にする。Importer/Exporter/JobManager は mapping・上限のキーを登録キーではなく
+				// `$adapter->id()` から決める（既定の 'mock' のままだと、別キーで登録しても mapping が 'mock' 名前空間へ書かれる）。
+				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter(
+					customers: $customers,
+					orders: $orders,
+					platform_id: '__PLATFORM_KEY__'
+				);
 
 				return $adapters;
 			},

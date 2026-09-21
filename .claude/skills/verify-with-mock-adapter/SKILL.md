@@ -37,6 +37,10 @@ description: >
    `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
    **クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
    autoloader がまだ無い）。`plugins_loaded` のコールバック内で `new` する。
+   mock の `id()` は登録キーと同じ値を返す（`platform_id`）。`Importer`/`Exporter`/`JobManager` は mapping・上限・サンプルのキーを
+   登録キーではなく `$adapter->id()` から決めるため。したがって `colorme` で登録して Import/Export を `JobManager` 経由で回すと、
+   実 `colorme` の mapping と無料版の上限（`LimitPolicy`）を共有する。Import/Export の配線だけを見たいなら、実 platform と
+   衝突しないキー（例: `mockv`）で登録する。`colorme` で回すなら `ZZV-` の remote_id と手順 6 の撤去を必ず守る。
 3. **修正前のデータを再現して投入する**（実 Writer を使う）: `$S/scripts/mock-adapter.sh run <seed.php>`。
    seed は `WooRepositoryFactory::for_platform()->write()` / `OrderWriter` で実際に取り込み → 旧コードの出力へ書き戻す（例:
    県コードは `JP{pref_id}` の恒等変換）。投入した ID を `cbjp_verify_ids` オプションに記録し、`cbjp_verify_seed` に mock へ渡す
