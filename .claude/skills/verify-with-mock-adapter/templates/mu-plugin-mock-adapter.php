@@ -24,7 +24,8 @@ add_action(
 				$orders    = [];
 
 				// 壊れた値（配列以外・配列でない行）は読み飛ばす。mu-plugin の致命的エラー（TypeError 等）は
-				// 開発サイトの全リクエストを落とし、`mock-adapter.sh uninstall` すら wp-env 経由で動かなくなりうるため。
+				// 開発サイトの全リクエストを落とし、WP を起動する `mock-adapter.sh run`/`inspect`（cleanup を含む）まで動かなくなるため
+				// （`uninstall` はホスト側でファイルを消すだけなので効く）。
 				$rows = static function ( string $key ) use ( $seed ): array {
 					$list = is_array( $seed ) && is_array( $seed[ $key ] ?? null ) ? $seed[ $key ] : [];
 
