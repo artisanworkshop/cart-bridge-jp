@@ -329,7 +329,13 @@ final class WarningCode {
 	 * merchantがWoo側でそのバリエーションの個別在庫管理をONにすれば`quantity`が具体的な数値に
 	 * なり自然に解消するが、確実に解消する保証は無い終端寄りの警告のため`indicates_export_
 	 * blocking()`/`indicates_unresolved_reference()`のいずれにも含めない
-	 * （`PRODUCT_IMAGES_NOT_PUSHED`と同じ位置づけ）。
+	 * （`PRODUCT_IMAGES_NOT_PUSHED`と同じ位置づけ）。**既知の限界**:
+	 * (1) `CUSTOMER_REQUIRED_FIELD_MISSING`と同じく`PushResult`からのみ発生するため
+	 * `DryRunPlatformWriter`（アダプタを呼ばない）では検出されず、dry-runでは「updated」と
+	 * 表示されるのに実行では警告付きでskipされる食い違いが起こりうる。
+	 * (2) ColorMeから往復インポートした「元々管理外」のバリエーション（Woo側も
+	 * `manage_stock=false`）は両者が一致した正常な状態でも再エクスポートのたびにこの警告が
+	 * 繰り返し発火し続ける（実害は無いノイズ。review-loop R1で判明、issue #47）。
 	 */
 	public const STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE = 'stock_variant_unmanaged_not_pushable';
 

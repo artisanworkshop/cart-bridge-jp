@@ -43,8 +43,10 @@ use Throwable;
  * カラーミーショップアダプタ（`01-plan-colorme.md`）。
  *
  * fetch系メソッドは`docs/03-design-decisions.md` §10.2 の無料版サンプル選定〜Pro版の全量走査
- * 双方から呼ばれる。push系はE2-3（エクスポート）で実装する（それまでは
- * `UnsupportedOperationException`）。`mapping_candidates()`はE2-1で実装済み。
+ * 双方から呼ばれる。push系はE2-3（エクスポート）で`push_product`/`push_customer`/`push_order`/
+ * `push_stock`を実装済み。`push_category`/`push_coupon`はE2-3未着手ではなく、`capabilities()`が
+ * 宣言するとおりColorMe側の制約（カテゴリ作成不可・クーポン読取専用）により恒久的に
+ * `UnsupportedOperationException`のまま。`mapping_candidates()`はE2-1で実装済み。
  */
 final class ColorMeAdapter implements PlatformAdapter {
 

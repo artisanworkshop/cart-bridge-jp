@@ -1701,6 +1701,31 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_push_stock_sends_zero_stocks_when_managed_quantity_is_zero(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+			],
+			$captured
+		);
+
+		$adapter->push_stock( new CanonicalStock( '501', null, 'SKU-1', 0, false ) );
+
+		$request = $this->find_captured( $captured, 'PUT', 'products/501.json' );
+		$this->assertNotNull( $request );
+		$this->assertSame(
+			[
+				'stock_managed' => true,
+				'stocks'        => 0,
+			],
+			$request['body']['product']
+		);
+	}
+
 	public function test_push_stock_clears_stock_managed_on_simple_product_when_quantity_is_unmanaged(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
