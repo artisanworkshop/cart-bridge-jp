@@ -863,6 +863,47 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   指摘（ワイルドカードバリエーションの選択値喪失=High/要検証、`OrderReader.php`が本PRの
   差分範囲外のため）は`docs/review-backlog.md`の`e2-3-push-order/G2-*`を参照。
 
+#### エクスポート方向の実装（E2-3 PR-D: `push_stock()`）
+
+`ColorMeAdapter::push_stock()`（issue #47）がE2-3の最後のピースを実装した。ColorMeには在庫専用の
+書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/バリエーション更新APIを
+1リクエストだけ叩く:
+
+- **単純商品**（`variant_ref === null`）: `PUT /v1/products/{id}`に`stock_managed`
+  （`quantity !== null`）を常時送り、管理中（`quantity`が非null）のときのみ`stocks`（絶対値）を
+  加える。`Adapters\ColorMe\Transform\ProductTransformer::base_payload()`が`push_product()`で
+  既に確立している規約と同じにした。`increment`は使わない: 再送のたびに二重加算されると
+  checksum一致スキップによる冪等性（再エクスポートで重複がゼロになる契約）と相容れないため
+  （`push_order()`が`reserve_stocks=false`で二重引き当てを避けるのと同じ理由）。
+- **バリエーション**（`variant_ref !== null`）: `PUT /v1/products/{id}/variants/{id}`に`stocks`
+  （絶対値）のみ送る。swagger実測: `productVariantUpdateRequest`には商品レベルの`stock_managed`に
+  相当するフィールドが無い。`CanonicalStock::$quantity = null`（Wooがそのバリエーションを個別
+  管理していない）はColorMe側へ明示的に伝える手段が無いため、`stocks`フィールド自体は
+  nullable=trueだが送信せず、APIを一切呼ばずフェイルクローズしてスキップする
+  （新設`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`。CLAUDE.mdアーキテクチャ原則9）。
+  `stocks`は他のnullableフィールド（`weight`/`option_price`等）と違い「`null`で未設定に戻る」という
+  記載が無く、逆に「全バリエーション未設定の状態で1件でも値を送ると他バリエーションの在庫が0に
+  なる」という副作用のみ記載されているため、未確認の挙動に賭けるより安全側に倒した。この警告は
+  `indicates_export_blocking()`/`indicates_unresolved_reference()`のいずれにも含めない
+  （`PRODUCT_IMAGES_NOT_PUSHED`と同じ位置づけ。merchantがWoo側で個別在庫管理をONにすれば
+  `quantity`が具体的な数値になり自然に解消するが、確実に解消する保証は無い終端寄りの警告）。
+- **単一リクエストのみのため部分完了契約は不要**: `push_customer()`/`push_order()`と同じく
+  `is_retryable_failure()`/`record_failure()`等（`push_product()`の複数リクエスト用パターン）は
+  使わず、例外は`Sync\Exporter::process_items()`の汎用catchへそのまま委ねる。ColorMe側で商品/
+  バリエーションが削除済み（404）の場合も同様に素通しする（stale mapping全般の設計は別途、
+  `e2-3-push-product/G1-stale-mapping-on-404`と同根の申し送り）。
+- **既知の限界（本PRでは対応せず）**: `docs/review-backlog.md`の`e2-3-push-product/R1-L3`
+  （一部バリエーションだけ`stocks`を送ると他バリエーションの在庫がColorMe仕様上0になりうる）は
+  `push_stock()`にも引き続き適用される。`Sync\Exporter`がCanonicalモデルを1件ずつpushする設計
+  （同一商品の全バリエーションをまとめて1リクエストへ束ねる仕組みが無い）と構造的に結び付いており、
+  本PRの差分範囲では解消しない。
+- `PushResult::$remote_id`は`CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）を返す
+  （`cbjp_mappings`の`stock`エンティティ行のキーとして使われる。E2-2 PR-Bで追加済みだった同メソッドの
+  唯一の呼び出し元）。
+- `Woo\Export\AdapterPlatformWriter::write()`の`stock`ディスパッチ・`JobManager`の配線（E2-2 PR-B）は
+  変更なし。`JobManagerExportTest::test_export_pushes_stock_when_supported`等が`MockPlatformAdapter`
+  経由で既にこの配線をテスト済みのため、ColorMe固有の新規結合テストは追加していない。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
