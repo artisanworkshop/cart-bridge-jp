@@ -346,7 +346,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 | 17 | カラーミー: `POST /v1/customers`の`add_member: true`が会員登録時に通知メール（パスワード設定案内等）を自動送信するか | E2-3 PR-Bで判明。実店舗での実測時（要検証#5と合わせて） | 未。swaggerに記載無し。`push_customer()`は往復インポート整合性のため新規作成時に常時`add_member: true`を送るが、本プロジェクトは移行時の副作用（通知メール等）抑止を重視する方針（`docs/01-plan-colorme.md`「通知メールは送らない」）。`POST /sales/{id}/mails.json`が受注確認メールを独立エンドポイントに切り出している設計から自動送信の可能性は低いと推測するが未確認。実店舗確認まで、E2-3の実機確認（要検証#5）と合わせて要検証のまま残す |
 | 18 | カラーミー: `GET /sales.json?ids=` が `after`/`before` 省略時の「直近7日」制限（#14）を上書きするか（複数ID指定で古い受注を取れるか） | 県コード修復（issue #46）の計画で判明。実店舗での実測時 | 未。swagger は `ids` が日付範囲を上書きするとは書いておらず（`after` の説明は「未指定時は現在から7日前の0時」）、#15 は「`ids` で複数ID指定取得可能」としか確認していない。`ids` だけでは古い受注が黙って0件になる可能性がある。県コード修復ツールは一覧の `ids` を使わず、日付窓の影響を受けない単一取得 `GET /sales/{id}.json`（`ColorMeAdapter::fetch_order_by_remote_id()`）を使う。issue #38（受注のID指定取得による無料版サンプル選定）で `ids` の一括取得を採用する場合は、`after` を明示したうえで実機確認が必要 |
-| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`の商品でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明、R2で記述を精査。実店舗での実測時 | 未。swaggerの`variant.stocks`説明文が明記しているのは「**全バリエーションの在庫数が未設定(`null`)の状態**で本フィールドに0以上の値を指定すると、他のバリエーションの在庫数は`0`になり、商品全体の在庫数（`product.stocks`という数値）がバリエーション在庫に揃う」という1点のみで、`product.stock_managed`という**真偽値フラグ自体**がこれに伴って`true`になるとは書かれていない。また「全バリエーション`null`」は`stock_managed=false`の商品にありがちな状態ではあるが同一の状態とは限らない（一度在庫管理をONにして数量を入れた後にOFFへ戻した商品は`stock_managed=false`のままバリエーション在庫が非`null`でありうる。この場合swaggerの当該記述は前提条件を満たさず対象外）。`push_stock()`は現状この不確かな解釈に基づき商品側の`stock_managed`を確認・設定せず`variant.stocks`のみ送る設計だが、(a)全バリエーション`null`の商品で書込みが反映されるか、(b)`stock_managed=false`かつバリエーション在庫が非`null`の商品でどう振る舞うか、の両方を実店舗で確認する必要がある |
+| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`の商品でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明、R2で記述を精査、G1（Codex指摘）でコード側の対応方針を確定。実店舗での実測時 | 未実測だが**運用上は解消済み**。swaggerの`variant.stocks`説明文は「全バリエーションの在庫数が未設定(`null`)の状態で1件でも値を送ると商品全体の在庫数（数値）がバリエーション在庫に揃う」としか述べておらず、`product.stock_managed`という真偽値フラグ自体が追随するとは書かれていないため、`push_stock()`はG1でバリエーションの`stocks`をPUTする前に`PUT /products/{id}`へ`{stock_managed: true}`を明示送信するよう変更した（`docs/03`§10.2「E2-3 PR-D」参照）。これによりコードは「`variant.stocks`だけで反映されるか」という未確認の挙動に依存しなくなったため、本項目は**ブロッカーではない**。実店舗で2リクエスト構成が意図どおり動くことの確認自体は今後の実機確認（E2-4/R3-1）で行う |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -876,21 +876,22 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   既に確立している規約と同じにした。`increment`は使わない: 再送のたびに二重加算されると
   checksum一致スキップによる冪等性（再エクスポートで重複がゼロになる契約）と相容れないため
   （`push_order()`が`reserve_stocks=false`で二重引き当てを避けるのと同じ理由）。
-- **バリエーション**（`variant_ref !== null`）: `PUT /v1/products/{id}/variants/{id}`に`stocks`
-  （絶対値）のみ送る。swagger実測: `productVariantUpdateRequest`には商品レベルの`stock_managed`に
-  相当するフィールドが無い。商品側の`stock_managed`を確認・設定せず`stocks`のみ送る設計だが、
-  この動作を裏付ける記載はswaggerに限定的にしかない: `stocks`の説明文は「**全バリエーションの
-  在庫数が未設定の状態**で本フィールドに0以上の値を指定すると、他のバリエーションの在庫数は`0`に
-  なり、商品全体の在庫数（`product.stocks`という数値）はバリエーション在庫に揃う」とだけ述べており、
-  `product.stock_managed`という**真偽値フラグ自体**が追随してtrueになるとは書かれていない
-  （review-loop R1でCodex相当の独立サブエージェントが「商品側`stock_managed=false`のままだと
-  無視されるのでは」と指摘し、R1では「swagger記載はむしろ逆と解釈できる」として見送ったが、
-  R2の検証サブエージェントが「数値が揃うことと真偽値フラグが変わることは別」「`stock_managed=false`
-  と`全バリエーションnull`は同一とは限らない〈一度ONにして数量を入れた後にOFFへ戻した商品は
-  `stock_managed=false`のままバリエーション在庫が非nullでありうる〉」と指摘し妥当と判断、本節・
-  要検証#19の記述を訂正した）。未実測のため要検証#19として記録し、(a)全バリエーションnullの商品で
-  書込みが反映されるか、(b)`stock_managed=false`かつバリエーション在庫が非nullの商品でどう
-  振る舞うか、の両方を実店舗で確認する必要がある。
+- **バリエーション**（`variant_ref !== null`）: バリエーションの`stocks`（絶対値）をPUTする**前**に
+  `PUT /v1/products/{id}`へ`{product: {stock_managed: true}}`を送り、商品全体の在庫管理を明示的に
+  有効化してから`PUT /v1/products/{id}/variants/{id}`に`stocks`のみ送る（G1ゲート、Codex指摘）。
+  swagger実測: `productVariantUpdateRequest`には商品レベルの`stock_managed`に相当するフィールドが
+  無く、`stocks`の説明文は「全バリエーションの在庫数が未設定の状態で本フィールドに0以上の値を
+  指定すると、他のバリエーションの在庫数は`0`になり、商品全体の在庫数（数値）はバリエーション在庫に
+  揃う」とだけ述べていて、`product.stock_managed`という**真偽値フラグ自体**が追随してtrueになるとは
+  書かれておらず、「全バリエーションnull」と「`stock_managed=false`」も同一とは限らない
+  （review-loop R1〜R2で判明、要検証#19）。この曖昧さに賭けて`stocks`のみを送ると、ColorMe側が
+  実際には在庫管理を認識せず値を無視した場合、`push_stock()`は成功を返してしまい`Exporter`が
+  checksumをキャッシュして以後再試行されなくなる（Codex指摘: 恒久的な在庫未同期のリスク）。
+  商品側`stock_managed`を明示的に`true`へ更新してからバリエーションを送ることで、この曖昧さに
+  依存しない設計にした（`ProductTransformer::base_payload()`が`stock_managed`を常時明示送信する
+  規約と同じ思想）。要検証#19（実店舗での動作確認）は解消していないが、コードがその答えに
+  依存しない形になったため、確認できなくてもリスクは限定的。1リクエスト増える（100req/分の
+  レート制限への影響は軽微）。
   `CanonicalStock::$quantity = null`（Wooがそのバリエーションを個別管理していない）はColorMe側へ
   明示的に伝える手段が無いため、`stocks`フィールド自体はnullable=trueだが送信せず、APIを一切
   呼ばずフェイルクローズしてスキップする（新設`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`。
@@ -906,16 +907,26 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   ColorMeから往復インポートした「元々管理外（`stock_managed=false`）」のバリエーションは、
   Woo側も`manage_stock=false`のまま両者が一致した正常な状態でも、再エクスポートのたびに
   この警告が繰り返し発火し続ける（実害は無いノイズ）。
-- **単一リクエストのみのため部分完了契約は不要**: `push_customer()`/`push_order()`と同じく
-  `is_retryable_failure()`/`record_failure()`等（`push_product()`の複数リクエスト用パターン）は
-  使わず、例外は`Sync\Exporter::process_items()`の汎用catchへそのまま委ねる。ColorMe側で商品/
-  バリエーションが削除済み（404）の場合も同様に素通しする（stale mapping全般の設計は別途、
-  `e2-3-push-product/G1-stale-mapping-on-404`と同根の申し送り）。
+- **部分完了契約は不要**: 単純商品/バリエーション（管理外スキップ）は単一リクエストのみのため
+  `push_customer()`/`push_order()`と同じく`is_retryable_failure()`/`record_failure()`等
+  （`push_product()`の複数リクエスト用パターン）は使わない。バリエーション（管理中）は
+  `stock_managed`PUT→`stocks`PUTの2リクエストになったが、1件目は冪等（何度送っても
+  `stock_managed:true`のまま）で2件目だけが在庫数を変えるため、2件目が失敗すれば例外が
+  そのまま`Sync\Exporter::process_items()`の汎用catchへ伝播しchecksumはキャッシュされず、
+  次回exportで2件とも再試行される。部分完了状態が永続することはないため、これも専用の
+  部分完了契約は不要と判断した。ColorMe側で商品/バリエーションが削除済み（404）の場合も
+  同様に素通しする（stale mapping全般の設計は別途、`e2-3-push-product/G1-stale-mapping-on-404`
+  と同根の申し送り）。
 - **既知の限界（本PRでは対応せず）**: `docs/review-backlog.md`の`e2-3-push-product/R1-L3`
   （一部バリエーションだけ`stocks`を送ると他バリエーションの在庫がColorMe仕様上0になりうる）は
   `push_stock()`にも引き続き適用される。`Sync\Exporter`がCanonicalモデルを1件ずつpushする設計
   （同一商品の全バリエーションをまとめて1リクエストへ束ねる仕組みが無い）と構造的に結び付いており、
-  本PRの差分範囲では解消しない。
+  本PRの差分範囲では解消しない。G1ゲートでCopilotから同種の指摘（Wooで個別在庫管理していない
+  =`quantity=null`のため恒久的にpushをスキップするバリエーションが、兄弟バリエーションのpushで
+  ColorMe側を0にされたまま二度と補正されない、というR1-L3の具体化）を受けたが、根本対応には
+  同一商品の全バリエーションをまとめて扱う設計変更（`Sync\Exporter`の1アイテムずつのpushループの
+  見直し）が必要でありPRの差分範囲を大きく超えるため、ユーザー判断のもと本PRでは対応せず
+  `docs/review-backlog.md`（`e2-3-push-stock/G1-1`）へ記録した。
 - `PushResult::$remote_id`は`CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）を返す
   （`cbjp_mappings`の`stock`エンティティ行のキーとして使われる。E2-2 PR-Bで追加済みだった同メソッドの
   唯一の呼び出し元）。

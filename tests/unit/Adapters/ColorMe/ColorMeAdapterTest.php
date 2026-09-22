@@ -1745,6 +1745,12 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'stock_managed' => false ], $request['body']['product'] );
 	}
 
+	/**
+	 * G1ゲート指摘（Codex）: バリエーション更新スキーマに`stock_managed`相当のフィールドが
+	 * 無いため、商品全体が`stock_managed=false`のまま`variant.stocks`だけ送っても反映される
+	 * 保証が無い（要検証#19）。反映されない場合の恒久的な在庫未同期を避けるため、バリエーション
+	 * pushの前に商品側を明示的に`stock_managed:true`へ更新することを確認する。
+	 */
 	public function test_push_stock_updates_variant_when_quantity_is_managed(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -1752,6 +1758,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$captured = [];
 		$this->mock_push_requests(
 			[
+				'PUT products/501.json'              => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
 				'PUT products/501/variants/701.json' => [ [ 'body' => [ 'variant' => [ 'id' => 701 ] ] ] ],
 			],
 			$captured
@@ -1762,9 +1769,19 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( '701', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
 
-		$request = $this->find_captured( $captured, 'PUT', 'products/501/variants/701.json' );
-		$this->assertNotNull( $request );
-		$this->assertSame( [ 'stocks' => 3 ], $request['body']['variant'] );
+		$product_request = $this->find_captured( $captured, 'PUT', 'products/501.json' );
+		$this->assertNotNull( $product_request );
+		$this->assertSame( [ 'stock_managed' => true ], $product_request['body']['product'] );
+
+		$variant_request = $this->find_captured( $captured, 'PUT', 'products/501/variants/701.json' );
+		$this->assertNotNull( $variant_request );
+		$this->assertSame( [ 'stocks' => 3 ], $variant_request['body']['variant'] );
+
+		// 商品側の更新がバリエーション更新より先に送られていることを確認する
+		// （順序を誤るとColorMe側が在庫管理をまだ認識しないままバリエーション数量を送ることになる）。
+		$product_index = array_search( $product_request, $captured, true );
+		$variant_index = array_search( $variant_request, $captured, true );
+		$this->assertLessThan( $variant_index, $product_index );
 	}
 
 	/**

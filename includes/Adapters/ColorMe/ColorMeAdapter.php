@@ -1382,6 +1382,13 @@ final class ColorMeAdapter implements PlatformAdapter {
 				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE ] );
 			}
 
+			// バリエーション更新スキーマに`stock_managed`相当のフィールドが無く、商品全体が
+			// `stock_managed=false`のまま`variant.stocks`だけ送っても反映されるかはswagger記載
+			// からは確定できない（要検証#19）。反映されない場合に`variant.stocks`が無警告で
+			// 無視されると恒久的な在庫未同期になるため、確実にColorMe側で在庫管理を有効化した
+			// 状態でバリエーションの数量を送る（`ProductTransformer::base_payload()`の
+			// `stock_managed`常時送信と同じ思想。review-loop G1でCodexが指摘）。
+			$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => [ 'stock_managed' => true ] ] );
 			$this->client()->put( "products/{$stock->product_ref}/variants/{$stock->variant_ref}.json", [ 'variant' => $payload ] );
 
 			return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
