@@ -5,9 +5,10 @@ description: >
   Codex/Copilot ゲート→最終報告）を、このリポジトリの規約・環境（docs/10-tasks.md のタスク台帳、
   wp-env のポート固定、`composer test:wpenv`、Codex は PR 作成時に自動レビュー・再依頼は `@codex review` コメント、レビュー返信は日本語）
   と同梱スクリプト（bot-request / bot-wait / ci-wait / gate-threads / gate-bodies / gate-reply / gate-resolve / quality）で
-  具体化したもの。「cbj-dev-cycle」「次のタスクを進めて」「F1-8 を実装して PR まで」「ゲートラウンドを回して」
-  などと言われたら、`dev-cycle` の代わりにこちらを使う。人間の判断が必要な場面（計画承認・各ゲートラウンドの
-  commit 判断・想定外の事象）では必ず停止する。
+  具体化したもの。グローバル同様 `sequential` を付けると Codex → Copilot → Codex … と1体ずつ順番に
+  ゲートを回す（既定は同時依頼）。「cbj-dev-cycle」「次のタスクを進めて」「F1-8 を実装して PR まで」
+  「ゲートラウンドを回して」などと言われたら、`dev-cycle` の代わりにこちらを使う。人間の判断が必要な場面
+  （計画承認・各ゲートラウンドの commit 判断・想定外の事象）では必ず停止する。
 ---
 
 # /cbj-dev-cycle — Cart Bridge JP の開発サイクル
@@ -108,3 +109,45 @@ description: >
 
 - `final-report.md` を書いたら状態ファイルを「完了」にして commit・push し、ユーザーへ報告して**停止**（マージしない）。
 - マージ後は `/post-merge`。CLAUDE.md への蒸留はそこで行う（PR 中に追加した学びはそのまま残す）。
+
+## 順番実行（`sequential` 指定時）
+
+既定の同時依頼（Step 4〜7）は 1 ラウンドで両ボットに依頼し、両方の指摘をまとめて直す。同じ箇所を別々に
+指摘されて二重に直しがちで、後から来たボットは直る前のコードを見ている。`sequential` は **1 体ずつ、前の
+ボットの修正が入った HEAD を次のボットに見せる**。Step 4〜7 の同時依頼をこの流れに置き換える
+（Step 0〜3・8 と `dev-cycle` の「絶対にしないこと」「人間に確認する条件」はそのまま有効）。
+
+**順序**: Codex → Copilot → Codex → Copilot → Codex → Copilot（各ボット最大 3 回、合計最大 6 ターン）。
+
+**1 ターン** = 1 体のボットに対する「CI 待ち（`ci-wait.sh`）→ 依頼・待ち（`bot-request.sh`/`bot-wait.sh`）→
+指摘取得・仕分け・修正・確認ゲート・commit/push・GitHub への反映（`gate-threads.sh`/`gate-bodies.sh`/
+`gate-reply.sh`/`gate-resolve.sh`）」。**ターンが完結してから次のターンに進み、他のボットへの依頼を
+先に出さない。**
+
+- **依頼はそのターンのボットだけ**:
+  ```bash
+  T=$(scripts/bot-request.sh <PR> codex)                          # Codex のターン
+  scripts/bot-wait.sh <PR> "$T" --copilot=0 --codex=1              # 最初の Codex ターン（G1）だけ --codex-nudge=300 を追加
+
+  T=$(scripts/bot-request.sh <PR> copilot)                        # Copilot のターン
+  scripts/bot-wait.sh <PR> "$T" --copilot=1 --codex=0
+  ```
+  Bash は同時依頼と同じく `run_in_background`（`ci-wait.sh` は timeout 600000、`bot-wait.sh` は timeout 960000）。
+  最初の Codex のターン（G1）は Step 4〜7 の表と同じく PR 作成時の自動レビューを応答として待ってよく、
+  発火していなければ `bot-request.sh <PR> codex` で明示依頼する（この場合も依頼 1 回目として数える）。
+- **対象スレッドの絞り込み**: `gate-threads.sh`/`gate-bodies.sh` は全ボットのスレッド・本文を返すため、
+  そのターンのボットの author（Codex: `chatgpt-codex-connector`、Copilot: `copilot-pull-request-reviewer`）
+  だけに絞って仕分ける。`gate-bodies.sh` は Copilot のターンだけ読む。他のボットが前のターンで保留にして
+  未解決のまま残したスレッドは判断済みなので対象外。
+- **記録**: ターン番号は通し連番（G1 = 1 ターン目）。`G<n>.md` の見出しの下に「bot: Codex（2 回目）」の
+  ように書く。指摘 ID は `G<n>-<k>`。状態ファイルに各ボットの依頼回数と「次のターン」を書く。
+- **次のターンのボット**は順序で次のボット。ただし次のいずれかなら飛ばして、その次のボットにする:
+  - 収束済み（新規指摘が 0 件だった）
+  - 依頼回数が 3 に達した
+  - そのボットが最後にレビューした HEAD から変わっていない（同じ HEAD への再依頼は同じ指摘を返すだけ）
+- **終了**: 飛ばされずに残るボットがいなくなったら Step 8 へ。片方のボットだけが残った場合は、そのボットが
+  CI 待ちを挟みながら続けてターンを取る。最後のターンの修正は push して CI を待つが、再依頼はしない
+  （既定と同じ）。
+- **確認ゲート**は既定と同じくターンごとに必ず発生する。`auto-commit` 指定時のみ飛ばせる。
+- **TIMEOUT・Copilot の依頼が登録されない場合**の扱いは既定（Step 4〜7 の表）と同じ。TIMEOUT で「待たずに
+  進める」を選んだ時は、そのボットを「未確認」として記録し、依頼回数には数えたまま次のターンへ進む。
