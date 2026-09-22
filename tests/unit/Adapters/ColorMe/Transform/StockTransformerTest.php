@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Adapters\ColorMe\Transform\StockTransformer;
+use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use RuntimeException;
 use WP_UnitTestCase;
@@ -117,6 +118,57 @@ final class StockTransformerTest extends WP_UnitTestCase {
 		foreach ( $stocks as $index => $stock ) {
 			$this->assertSame( $product_variants[ $index ]['sku'], $stock->sku );
 		}
+	}
+
+	public function test_to_product_payload_sends_stock_managed_and_stocks_when_quantity_is_managed(): void {
+		$stock = new CanonicalStock( '192616831', null, 'SKU-1', 50, true );
+
+		$this->assertSame(
+			[
+				'stock_managed' => true,
+				'stocks'        => 50,
+			],
+			StockTransformer::to_product_payload( $stock )
+		);
+	}
+
+	public function test_to_product_payload_sends_zero_stocks_when_managed_quantity_is_zero(): void {
+		$stock = new CanonicalStock( '192616831', null, 'SKU-1', 0, false );
+
+		$this->assertSame(
+			[
+				'stock_managed' => true,
+				'stocks'        => 0,
+			],
+			StockTransformer::to_product_payload( $stock )
+		);
+	}
+
+	public function test_to_product_payload_omits_stocks_when_quantity_is_unmanaged(): void {
+		$stock = new CanonicalStock( '192616831', null, 'SKU-1', null, true );
+
+		$this->assertSame(
+			[ 'stock_managed' => false ],
+			StockTransformer::to_product_payload( $stock )
+		);
+	}
+
+	public function test_to_variant_payload_sends_stocks_when_quantity_is_managed(): void {
+		$stock = new CanonicalStock( '192616832', '1802130612', 'SKU-2', 3, true );
+
+		$this->assertSame( [ 'stocks' => 3 ], StockTransformer::to_variant_payload( $stock ) );
+	}
+
+	public function test_to_variant_payload_sends_zero_stocks_when_managed_quantity_is_zero(): void {
+		$stock = new CanonicalStock( '192616832', '1802130612', 'SKU-2', 0, false );
+
+		$this->assertSame( [ 'stocks' => 0 ], StockTransformer::to_variant_payload( $stock ) );
+	}
+
+	public function test_to_variant_payload_returns_null_when_quantity_is_unmanaged(): void {
+		$stock = new CanonicalStock( '192616832', '1802130612', 'SKU-2', null, true );
+
+		$this->assertNull( StockTransformer::to_variant_payload( $stock ) );
 	}
 
 	/**

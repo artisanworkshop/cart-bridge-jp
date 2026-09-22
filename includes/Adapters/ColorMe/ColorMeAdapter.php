@@ -1365,8 +1365,29 @@ final class ColorMeAdapter implements PlatformAdapter {
 		return $warnings;
 	}
 
+	/**
+	 * ColorMeには在庫専用の書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/
+	 * バリエーション更新APIを1リクエストだけ叩く。`push_customer()`/`push_order()`と同じ理由
+	 * （単一リクエストのみ）で`is_retryable_failure()`等の部分完了パターンは使わず、例外は
+	 * `Sync\Exporter::process_items()`の汎用catchへそのまま委ねる。ColorMe側で削除済み
+	 * （404）の場合も同様に素通しする（stale mapping全般の設計は別途。issue #47）。
+	 */
 	public function push_stock( CanonicalStock $stock ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		if ( null !== $stock->variant_ref ) {
+			$payload = StockTransformer::to_variant_payload( $stock );
+
+			if ( null === $payload ) {
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE ] );
+			}
+
+			$this->client()->put( "products/{$stock->product_ref}/variants/{$stock->variant_ref}.json", [ 'variant' => $payload ] );
+
+			return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
+		}
+
+		$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => StockTransformer::to_product_payload( $stock ) ] );
+
+		return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
 	}
 
 	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {

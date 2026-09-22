@@ -15,6 +15,7 @@ use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
@@ -1669,6 +1670,96 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->expectException( RuntimeException::class );
 
 		$adapter->push_order( $this->exported_order(), null );
+	}
+
+	public function test_push_stock_updates_simple_product_when_quantity_is_managed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_stock( new CanonicalStock( '501', null, 'SKU-1', 12, true ) );
+
+		$this->assertSame( '501', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+
+		$request = $this->find_captured( $captured, 'PUT', 'products/501.json' );
+		$this->assertNotNull( $request );
+		$this->assertSame(
+			[
+				'stock_managed' => true,
+				'stocks'        => 12,
+			],
+			$request['body']['product']
+		);
+	}
+
+	public function test_push_stock_clears_stock_managed_on_simple_product_when_quantity_is_unmanaged(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+			],
+			$captured
+		);
+
+		$adapter->push_stock( new CanonicalStock( '501', null, 'SKU-1', null, true ) );
+
+		$request = $this->find_captured( $captured, 'PUT', 'products/501.json' );
+		$this->assertNotNull( $request );
+		$this->assertSame( [ 'stock_managed' => false ], $request['body']['product'] );
+	}
+
+	public function test_push_stock_updates_variant_when_quantity_is_managed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'PUT products/501/variants/701.json' => [ [ 'body' => [ 'variant' => [ 'id' => 701 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_stock( new CanonicalStock( '501', '701', 'SKU-1-RED', 3, true ) );
+
+		$this->assertSame( '701', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $result->operation );
+
+		$request = $this->find_captured( $captured, 'PUT', 'products/501/variants/701.json' );
+		$this->assertNotNull( $request );
+		$this->assertSame( [ 'stocks' => 3 ], $request['body']['variant'] );
+	}
+
+	/**
+	 * カラーミーのバリエーション更新スキーマ（`productVariantUpdateRequest`）には商品レベルの
+	 * `stock_managed`に相当するフィールドが無いため、「個別管理しない」状態を送る手段が無い。
+	 * 未確認の挙動に賭けず、APIを一切呼ばずフェイルクローズすることを確認する。
+	 */
+	public function test_push_stock_skips_variant_without_calling_api_when_quantity_is_unmanaged(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$result = $adapter->push_stock( new CanonicalStock( '501', '701', 'SKU-1-RED', null, true ) );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE ], $result->warnings );
+		$this->assertSame( [], $captured );
 	}
 
 	private function exported_order( string $discount = '0', string $shipping_fee = '0' ): CanonicalOrder {
