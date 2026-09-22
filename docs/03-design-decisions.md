@@ -346,7 +346,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 | 17 | カラーミー: `POST /v1/customers`の`add_member: true`が会員登録時に通知メール（パスワード設定案内等）を自動送信するか | E2-3 PR-Bで判明。実店舗での実測時（要検証#5と合わせて） | 未。swaggerに記載無し。`push_customer()`は往復インポート整合性のため新規作成時に常時`add_member: true`を送るが、本プロジェクトは移行時の副作用（通知メール等）抑止を重視する方針（`docs/01-plan-colorme.md`「通知メールは送らない」）。`POST /sales/{id}/mails.json`が受注確認メールを独立エンドポイントに切り出している設計から自動送信の可能性は低いと推測するが未確認。実店舗確認まで、E2-3の実機確認（要検証#5）と合わせて要検証のまま残す |
 | 18 | カラーミー: `GET /sales.json?ids=` が `after`/`before` 省略時の「直近7日」制限（#14）を上書きするか（複数ID指定で古い受注を取れるか） | 県コード修復（issue #46）の計画で判明。実店舗での実測時 | 未。swagger は `ids` が日付範囲を上書きするとは書いておらず（`after` の説明は「未指定時は現在から7日前の0時」）、#15 は「`ids` で複数ID指定取得可能」としか確認していない。`ids` だけでは古い受注が黙って0件になる可能性がある。県コード修復ツールは一覧の `ids` を使わず、日付窓の影響を受けない単一取得 `GET /sales/{id}.json`（`ColorMeAdapter::fetch_order_by_remote_id()`）を使う。issue #38（受注のID指定取得による無料版サンプル選定）で `ids` の一括取得を採用する場合は、`after` を明示したうえで実機確認が必要 |
-| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`（＝全バリエーション未設定`null`のまま在庫管理していない商品）でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明。実店舗での実測時 | 未。swaggerの`variant.stocks`説明文「全バリエーションの在庫数が未設定(`null`)の状態で本フィールドに0以上の値を指定すると、他のバリエーションの在庫数は`0`になり、**商品全体の在庫数はバリエーション在庫に揃える形になり**、本フィールドの指定値と等しくなります」から、`product.stock_managed`の値に関わらずバリエーション側の書込みで自動的に在庫管理状態へ揃うと読める（`stock_managed=false`が前提条件として書込みをブロックする記載は無い）。`push_stock()`は現状この解釈に基づき商品側の`stock_managed`を確認・設定せず`variant.stocks`のみ送る設計だが、swagger記載のみに基づく未実測の推測のため実店舗確認が必要 |
+| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`の商品でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明、R2で記述を精査。実店舗での実測時 | 未。swaggerの`variant.stocks`説明文が明記しているのは「**全バリエーションの在庫数が未設定(`null`)の状態**で本フィールドに0以上の値を指定すると、他のバリエーションの在庫数は`0`になり、商品全体の在庫数（`product.stocks`という数値）がバリエーション在庫に揃う」という1点のみで、`product.stock_managed`という**真偽値フラグ自体**がこれに伴って`true`になるとは書かれていない。また「全バリエーション`null`」は`stock_managed=false`の商品にありがちな状態ではあるが同一の状態とは限らない（一度在庫管理をONにして数量を入れた後にOFFへ戻した商品は`stock_managed=false`のままバリエーション在庫が非`null`でありうる。この場合swaggerの当該記述は前提条件を満たさず対象外）。`push_stock()`は現状この不確かな解釈に基づき商品側の`stock_managed`を確認・設定せず`variant.stocks`のみ送る設計だが、(a)全バリエーション`null`の商品で書込みが反映されるか、(b)`stock_managed=false`かつバリエーション在庫が非`null`の商品でどう振る舞うか、の両方を実店舗で確認する必要がある |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -879,12 +879,18 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
 - **バリエーション**（`variant_ref !== null`）: `PUT /v1/products/{id}/variants/{id}`に`stocks`
   （絶対値）のみ送る。swagger実測: `productVariantUpdateRequest`には商品レベルの`stock_managed`に
   相当するフィールドが無い。商品側の`stock_managed`を確認・設定せず`stocks`のみ送る設計だが、
-  `stocks`の説明文「全バリエーションの在庫数が未設定の状態で本フィールドに0以上の値を指定すると、
-  他のバリエーションの在庫数は`0`になり、**商品全体の在庫数はバリエーション在庫に揃える形になる**」
-  から、商品側`stock_managed`の値に関わらずバリエーション側の書込みで自動的に在庫管理状態へ揃うと
-  読める（review-loop R1でCodex相当の独立サブエージェントが「商品側`stock_managed=false`のまま
-  だと無視されるのでは」と指摘したが、swagger記載はむしろ逆〈バリエーション書込みが商品側を追随
-  させる〉と解釈できるため見送った。未実測のため要検証#19として記録）。
+  この動作を裏付ける記載はswaggerに限定的にしかない: `stocks`の説明文は「**全バリエーションの
+  在庫数が未設定の状態**で本フィールドに0以上の値を指定すると、他のバリエーションの在庫数は`0`に
+  なり、商品全体の在庫数（`product.stocks`という数値）はバリエーション在庫に揃う」とだけ述べており、
+  `product.stock_managed`という**真偽値フラグ自体**が追随してtrueになるとは書かれていない
+  （review-loop R1でCodex相当の独立サブエージェントが「商品側`stock_managed=false`のままだと
+  無視されるのでは」と指摘し、R1では「swagger記載はむしろ逆と解釈できる」として見送ったが、
+  R2の検証サブエージェントが「数値が揃うことと真偽値フラグが変わることは別」「`stock_managed=false`
+  と`全バリエーションnull`は同一とは限らない〈一度ONにして数量を入れた後にOFFへ戻した商品は
+  `stock_managed=false`のままバリエーション在庫が非nullでありうる〉」と指摘し妥当と判断、本節・
+  要検証#19の記述を訂正した）。未実測のため要検証#19として記録し、(a)全バリエーションnullの商品で
+  書込みが反映されるか、(b)`stock_managed=false`かつバリエーション在庫が非nullの商品でどう
+  振る舞うか、の両方を実店舗で確認する必要がある。
   `CanonicalStock::$quantity = null`（Wooがそのバリエーションを個別管理していない）はColorMe側へ
   明示的に伝える手段が無いため、`stocks`フィールド自体はnullable=trueだが送信せず、APIを一切
   呼ばずフェイルクローズしてスキップする（新設`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`。
