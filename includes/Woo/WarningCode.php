@@ -320,6 +320,25 @@ final class WarningCode {
 	 */
 	public const VARIATION_STOCK_SHARED_WITH_PARENT = 'variation_stock_shared_with_parent';
 
+	/**
+	 * `ColorMeAdapter::push_stock()`: バリエーションの`CanonicalStock::$quantity`が`null`
+	 * （Wooがそのバリエーションを個別管理していない）。ColorMeのバリエーション更新スキーマ
+	 * （`productVariantUpdateRequest`）には商品レベルの`stock_managed`に相当するフィールドが無く、
+	 * 「個別管理しない」状態を明示的に伝える手段が無いため、APIを呼ばずスキップする
+	 * （`Adapters\ColorMe\Transform\StockTransformer::to_variant_payload()`docblock参照）。
+	 * merchantがWoo側でそのバリエーションの個別在庫管理をONにすれば`quantity`が具体的な数値に
+	 * なり自然に解消するが、確実に解消する保証は無い終端寄りの警告のため`indicates_export_
+	 * blocking()`/`indicates_unresolved_reference()`のいずれにも含めない
+	 * （`PRODUCT_IMAGES_NOT_PUSHED`と同じ位置づけ）。**既知の限界**:
+	 * (1) `CUSTOMER_REQUIRED_FIELD_MISSING`と同じく`PushResult`からのみ発生するため
+	 * `DryRunPlatformWriter`（アダプタを呼ばない）では検出されず、dry-runでは「updated」と
+	 * 表示されるのに実行では警告付きでskipされる食い違いが起こりうる。
+	 * (2) ColorMeから往復インポートした「元々管理外」のバリエーション（Woo側も
+	 * `manage_stock=false`）は両者が一致した正常な状態でも再エクスポートのたびにこの警告が
+	 * 繰り返し発火し続ける（実害は無いノイズ。review-loop R1で判明、issue #47）。
+	 */
+	public const STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE = 'stock_variant_unmanaged_not_pushable';
+
 	public const COUPON_REUSED_EXISTING = 'coupon_reused_existing';
 
 	/**

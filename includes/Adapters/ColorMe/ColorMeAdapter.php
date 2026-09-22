@@ -43,8 +43,10 @@ use Throwable;
  * カラーミーショップアダプタ（`01-plan-colorme.md`）。
  *
  * fetch系メソッドは`docs/03-design-decisions.md` §10.2 の無料版サンプル選定〜Pro版の全量走査
- * 双方から呼ばれる。push系はE2-3（エクスポート）で実装する（それまでは
- * `UnsupportedOperationException`）。`mapping_candidates()`はE2-1で実装済み。
+ * 双方から呼ばれる。push系はE2-3（エクスポート）で`push_product`/`push_customer`/`push_order`/
+ * `push_stock`を実装済み。`push_category`/`push_coupon`はE2-3未着手ではなく、`capabilities()`が
+ * 宣言するとおりColorMe側の制約（カテゴリ作成不可・クーポン読取専用）により恒久的に
+ * `UnsupportedOperationException`のまま。`mapping_candidates()`はE2-1で実装済み。
  */
 final class ColorMeAdapter implements PlatformAdapter {
 
@@ -1365,8 +1367,40 @@ final class ColorMeAdapter implements PlatformAdapter {
 		return $warnings;
 	}
 
+	/**
+	 * ColorMeには在庫専用の書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/
+	 * バリエーション更新APIを叩く。単純商品・管理外バリエーション（フェイルクローズでskip）は
+	 * 1リクエストのみだが、管理中バリエーションは商品側`stock_managed`の明示PUT→バリエーション
+	 * 本体PUTの2リクエストになる（G1ゲート、Codex指摘。要検証#19）。いずれの経路も
+	 * `push_customer()`/`push_order()`と同じ理由で`is_retryable_failure()`等の部分完了
+	 * パターンは使わず、例外は`Sync\Exporter::process_items()`の汎用catchへそのまま委ねる
+	 * （2リクエスト目が失敗しても1リクエスト目は冪等なため、次回exportで両方とも再試行される。
+	 * `docs/03-design-decisions.md`§10.2「E2-3 PR-D」参照）。ColorMe側で削除済み（404）の場合も
+	 * 同様に素通しする（stale mapping全般の設計は別途。issue #47）。
+	 */
 	public function push_stock( CanonicalStock $stock ): PushResult {
-		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
+		if ( null !== $stock->variant_ref ) {
+			$payload = StockTransformer::to_variant_payload( $stock );
+
+			if ( null === $payload ) {
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE ] );
+			}
+
+			// バリエーション更新スキーマに`stock_managed`相当のフィールドが無く、商品全体が
+			// `stock_managed=false`のまま`variant.stocks`だけ送っても反映されるかはswagger記載
+			// からは確定できない（要検証#19）。反映されない場合に`variant.stocks`が無警告で
+			// 無視されると恒久的な在庫未同期になるため、確実にColorMe側で在庫管理を有効化した
+			// 状態でバリエーションの数量を送る（`ProductTransformer::base_payload()`の
+			// `stock_managed`常時送信と同じ思想。review-loop G1でCodexが指摘）。
+			$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => [ 'stock_managed' => true ] ] );
+			$this->client()->put( "products/{$stock->product_ref}/variants/{$stock->variant_ref}.json", [ 'variant' => $payload ] );
+
+			return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
+		}
+
+		$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => StockTransformer::to_product_payload( $stock ) ] );
+
+		return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
 	}
 
 	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {

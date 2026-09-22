@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 進行中: E2-1・E2-2 完了、E2-3 は `push_product`/`push_customer`/`push_order`（#43〜#45）まで完了で `push_stock`（#47）が残り、E2-4 未着手。実店舗へのエクスポート（E2-4/R3-1）の前に県コード修復（#46）が必要 |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 進行中: E2-1・E2-2・E2-3（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47）完了、E2-4 未着手。実店舗へのエクスポート（E2-4/R3-1）の前に県コード修復（#46）が必要 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -297,7 +297,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `UnsupportedOperationException`のため、実行(非dry-run)のexportは全件skipped/warnedで完了するのが
   現状の期待動作（配線の正しさはモックアダプタで検証済み）。詳細は `docs/03-design-decisions.md`
   §10.2「エクスポート方向の実装（E2-2 PR-B）」参照。
-- [ ] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**）
+- [x] **E2-3: ColorMe push\***（商品→顧客→受注→在庫。**要検証#5を確定してから受注実装**）
   - **PR-A（`push_product()`のみ、完了、PR #43・2026-09-15）**: 画像は `canPushImages`（`shop.json` の
     `contract_plan` 依存。03 §9 #1）が true なら `POST /v1/products/{product_id}/images`、false/403 なら
     画像URL一覧CSV出力フローへ切替する設計だが、本PRではプレミアムプラン時のみ画像push実装、
@@ -323,7 +323,15 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     （ColorMeの`PUT /sales/{id}`が明細・決済/配送方法の更新を実質サポートしないため、再POSTでの
     重複作成を防ぐ）。受注ステータス（paid/delivered/cancelled）の事後同期は対象外（既知の制限）。
     詳細は `docs/03-design-decisions.md` §10.2「E2-3 PR-C」。
-  - **残り**: `push_stock`。
+  - **PR-D（`push_stock()`のみ、完了、issue #47・2026-09-23）**: 在庫専用の書込みエンドポイントが
+    無い（`GET /v1/stocks`はGETのみ）ため、単純商品は`PUT /v1/products/{id}`
+    （`stock_managed`+`stocks`）を1リクエスト、バリエーションは商品側`stock_managed:true`の
+    明示PUT→`PUT /v1/products/{id}/variants/{id}`（`stocks`のみ）の2リクエストを送る
+    （G1ゲート、Codex指摘。要検証#19）。`CanonicalStock::$quantity=null`（在庫管理外）は
+    単純商品では`stock_managed:false`で表現できるが、バリエーション更新スキーマには相当する
+    フィールドが無いため、その場合はAPIを呼ばずフェイルクローズしてスキップする
+    （`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`）。詳細は
+    `docs/03-design-decisions.md` §10.2「E2-3 PR-D」。
 - [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
 
 **Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。

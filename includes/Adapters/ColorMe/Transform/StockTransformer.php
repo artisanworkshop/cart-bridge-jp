@@ -116,4 +116,45 @@ final class StockTransformer {
 			CanonicalStock::is_in_stock( $quantity )
 		);
 	}
+
+	/**
+	 * `PUT /v1/products/{id}`（単純商品の在庫更新）向けのペイロード。`quantity`は
+	 * `CanonicalStock`の規約どおり`null`=在庫管理外、int=管理中の絶対数量（`increment`は使わない。
+	 * `push_order()`が`reserve_stocks=false`で二重引き当てを避けるのと同じ理由で、絶対値でなければ
+	 * 再送のたびに二重加算されchecksum一致スキップの冪等性と相容れない）。`Adapters\ColorMe\
+	 * Transform\ProductTransformer::base_payload()`が確立済みの規約（`stock_managed`は常時送信、
+	 * `stocks`は管理中のときのみ送信）に揃える。
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function to_product_payload( CanonicalStock $stock ): array {
+		$payload = [ 'stock_managed' => null !== $stock->quantity ];
+
+		if ( null !== $stock->quantity ) {
+			$payload['stocks'] = $stock->quantity;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * `PUT /v1/products/{id}/variants/{id}`（バリエーションの在庫更新）向けのペイロード。
+	 * `productVariantUpdateRequest`（swagger）には商品レベルの`stock_managed`に相当する
+	 * フィールドが存在しないため、`quantity=null`（Wooがそのバリエーションを個別管理していない）は
+	 * ColorMe側へ明示的に伝える手段が無い。`stocks`はnullable整数だが、他のnullableフィールド
+	 * （`weight`/`option_price`等）と異なり「nullで未設定に戻る」という記載が無く、逆に
+	 * 「全バリエーション未設定の状態で1件でも値を送ると他バリエーションの在庫が0になる」という
+	 * 副作用のみ記載されている。未確認の挙動に賭けて`stocks: null`を送るより、pushせずフェイル
+	 * クローズする方が安全（CLAUDE.mdアーキテクチャ原則9）。
+	 *
+	 * @return ?array<string,mixed> null=push不可（呼び出し元が`WarningCode::
+	 *   STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`でフェイルクローズする）。
+	 */
+	public static function to_variant_payload( CanonicalStock $stock ): ?array {
+		if ( null === $stock->quantity ) {
+			return null;
+		}
+
+		return [ 'stocks' => $stock->quantity ];
+	}
 }
