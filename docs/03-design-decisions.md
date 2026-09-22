@@ -867,8 +867,9 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
 #### エクスポート方向の実装（E2-3 PR-D: `push_stock()`）
 
 `ColorMeAdapter::push_stock()`（issue #47）がE2-3の最後のピースを実装した。ColorMeには在庫専用の
-書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/バリエーション更新APIを
-1リクエストだけ叩く:
+書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/バリエーション更新APIを叩く。
+単純商品・管理外バリエーション（skip）は1リクエストのみだが、管理中バリエーションは2リクエスト
+（詳細は下記「バリエーション」項）:
 
 - **単純商品**（`variant_ref === null`）: `PUT /v1/products/{id}`に`stock_managed`
   （`quantity !== null`）を常時送り、管理中（`quantity`が非null）のときのみ`stocks`（絶対値）を

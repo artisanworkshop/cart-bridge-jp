@@ -1369,10 +1369,14 @@ final class ColorMeAdapter implements PlatformAdapter {
 
 	/**
 	 * ColorMeには在庫専用の書込みエンドポイントが無い（`GET /v1/stocks`はGETのみ）ため、商品/
-	 * バリエーション更新APIを1リクエストだけ叩く。`push_customer()`/`push_order()`と同じ理由
-	 * （単一リクエストのみ）で`is_retryable_failure()`等の部分完了パターンは使わず、例外は
-	 * `Sync\Exporter::process_items()`の汎用catchへそのまま委ねる。ColorMe側で削除済み
-	 * （404）の場合も同様に素通しする（stale mapping全般の設計は別途。issue #47）。
+	 * バリエーション更新APIを叩く。単純商品・管理外バリエーション（フェイルクローズでskip）は
+	 * 1リクエストのみだが、管理中バリエーションは商品側`stock_managed`の明示PUT→バリエーション
+	 * 本体PUTの2リクエストになる（G1ゲート、Codex指摘。要検証#19）。いずれの経路も
+	 * `push_customer()`/`push_order()`と同じ理由で`is_retryable_failure()`等の部分完了
+	 * パターンは使わず、例外は`Sync\Exporter::process_items()`の汎用catchへそのまま委ねる
+	 * （2リクエスト目が失敗しても1リクエスト目は冪等なため、次回exportで両方とも再試行される。
+	 * `docs/03-design-decisions.md`§10.2「E2-3 PR-D」参照）。ColorMe側で削除済み（404）の場合も
+	 * 同様に素通しする（stale mapping全般の設計は別途。issue #47）。
 	 */
 	public function push_stock( CanonicalStock $stock ): PushResult {
 		if ( null !== $stock->variant_ref ) {

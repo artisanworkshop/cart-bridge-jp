@@ -325,8 +325,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     詳細は `docs/03-design-decisions.md` §10.2「E2-3 PR-C」。
   - **PR-D（`push_stock()`のみ、完了、issue #47・2026-09-23）**: 在庫専用の書込みエンドポイントが
     無い（`GET /v1/stocks`はGETのみ）ため、単純商品は`PUT /v1/products/{id}`
-    （`stock_managed`+`stocks`）、バリエーションは`PUT /v1/products/{id}/variants/{id}`
-    （`stocks`のみ）を1リクエストだけ叩く。`CanonicalStock::$quantity=null`（在庫管理外）は
+    （`stock_managed`+`stocks`）を1リクエスト、バリエーションは商品側`stock_managed:true`の
+    明示PUT→`PUT /v1/products/{id}/variants/{id}`（`stocks`のみ）の2リクエストを送る
+    （G1ゲート、Codex指摘。要検証#19）。`CanonicalStock::$quantity=null`（在庫管理外）は
     単純商品では`stock_managed:false`で表現できるが、バリエーション更新スキーマには相当する
     フィールドが無いため、その場合はAPIを呼ばずフェイルクローズしてスキップする
     （`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`）。詳細は
