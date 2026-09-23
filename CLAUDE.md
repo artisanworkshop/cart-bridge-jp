@@ -121,6 +121,11 @@ npm run build                # 本番ビルド
   `main`への直接pushを許容する。GitHub側のブランチ保護は「PR必須」だが、パス単位の例外は
   設定できず（クラシック保護・Rulesetsとも非対応）、管理者は元々バイパス可能なため、これは
   GitHub側の強制ではなくClaude Codeが守る運用ルールである
+- dev-cycle完了（最終報告済み）後に追加の作業（backlog/docsへのissue番号追記等）を行う場合は、
+  着手前に`gh pr view <PR> --json state`でPRがまだOPENか確認すること。squash/rebaseマージ済み
+  だとそのfeatureブランチへpushしても本流には反映されない（issue #47 PR #51で実際に発生:
+  マージ後の追記コミットをマージ済みfeatureブランチへpushしてしまい、mainへ直接コミットし直す
+  手戻りが発生した）
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
