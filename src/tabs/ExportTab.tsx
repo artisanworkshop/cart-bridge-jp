@@ -354,6 +354,13 @@ export default function ExportTab() {
 	// マッピングのGET/PUTに加えて実行フローのPOST/GETにも広げたもの）。
 	const dryRunExportRetryConfirmPendingRef = useRef( false );
 	const exportRetryConfirmPendingRef = useRef( false );
+	// limits取得effectが応答を受け取った時点でまだ同じexport runを指しているかを判定するための
+	// 参照（`useRunPolling`の`runIdRef`と同じ役割）。`platformGenerationRef`は同一platform内で
+	// 新しいrunが始まった場合には変化しないため、そのケースの古い応答を弾けない
+	// （Codexレビュー指摘, G3: runA完了時の`/limits`取得中にrunBを開始し`setLimits(null)`で
+	// クリアした後、runAの応答が遅れて届くと`limits`を古い使用状況で上書きしてしまう）。
+	const exportRunIdRef = useRef< string | null >( null );
+	exportRunIdRef.current = exportState.runId;
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -481,6 +488,11 @@ export default function ExportTab() {
 
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
+		// この取得を発生させたrunのIDを閉じ込める。`platformGenerationRef`は同一platform内で
+		// 新しいrunが始まっただけでは変化しないため、応答が届いた時点でまだ「この取得の
+		// きっかけになったrun」がexportStateの現在値か（＝新しいrunに置き換わっていないか）も
+		// 別途確認する（`exportRunIdRef`参照）。
+		const requestedRunId = exportPolling.run?.run_id ?? null;
 
 		apiFetch< Limits >( {
 			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
@@ -488,14 +500,20 @@ export default function ExportTab() {
 			) }`,
 		} )
 			.then( ( data ) => {
-				if ( platformGenerationRef.current !== requestId ) {
+				if (
+					platformGenerationRef.current !== requestId ||
+					exportRunIdRef.current !== requestedRunId
+				) {
 					return;
 				}
 
 				setLimits( data );
 			} )
 			.catch( () => {
-				if ( platformGenerationRef.current !== requestId ) {
+				if (
+					platformGenerationRef.current !== requestId ||
+					exportRunIdRef.current !== requestedRunId
+				) {
 					return;
 				}
 
