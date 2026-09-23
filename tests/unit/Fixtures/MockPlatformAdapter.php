@@ -7,11 +7,11 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Fixtures;
 
+use CartBridgeJP\Adapters\AbstractPlatformAdapter;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ConnectionResult;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
-use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCategory;
@@ -26,7 +26,7 @@ use CartBridgeJP\Canonical\CanonicalTag;
  * テスト用のモックアダプタ。固定フィクスチャをカーソル（offset方式）でページングして返す。
  * Sync層（JobManager/Importer/LimitPolicy/SampleSelector）のテストに使う。
  */
-final class MockPlatformAdapter implements PlatformAdapter {
+final class MockPlatformAdapter extends AbstractPlatformAdapter {
 
 	private const PAGE_SIZE = 2;
 

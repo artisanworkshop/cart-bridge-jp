@@ -9,7 +9,9 @@ namespace CartBridgeJP\Adapters;
 
 /**
  * 登録済み `PlatformAdapter` の一覧を管理する。
- * `cbjp/adapters/register` フィルターで登録する（Pro版アドオンの拡張ポイントを兼ねる）。
+ * `cbjp/adapters/register` フィルターで登録する（Pro版アドオンの拡張ポイントを兼ねる。
+ * 外部アダプタは `PlatformAdapter` を直接 implements せず `AbstractPlatformAdapter` を
+ * 継承すること。D20、`docs/03-design-decisions.md` §2）。
  */
 final class AdapterRegistry {
 

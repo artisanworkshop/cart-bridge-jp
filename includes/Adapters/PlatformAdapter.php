@@ -21,6 +21,10 @@ use CartBridgeJP\Canonical\CanonicalTag;
  * 注: 設計ドキュメントではメソッド名をcamelCaseで表記しているが、本インターフェースは
  * WordPress Coding Standards（snake_case）に合わせて変換している。パラメータ・戻り値・
  * 意味論は設計ドキュメントと同一。
+ *
+ * 外部（Pro版・サードパーティ）実装は本インターフェースを直接 implements せず
+ * {@see AbstractPlatformAdapter} を継承すること（D20）。v1.0.0 公開後はここへの
+ * 破壊的変更をしない。新しいメソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する。
  */
 interface PlatformAdapter {
 
