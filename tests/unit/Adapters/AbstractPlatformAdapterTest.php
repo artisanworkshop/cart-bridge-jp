@@ -22,8 +22,9 @@ use WP_UnitTestCase;
  * - BASELINEに記録済みのメソッドのシグネチャが変わった（`test_interface_signatures_match_v1_baseline`）。
  *   `AbstractPlatformAdapter`側で既定実装を持つようになった後でも、インターフェース側の宣言を
  *   直接変更すれば検出する（既定実装の有無に関わらず、シグネチャ自体はBASELINE記録時点で凍結）
- * - BASELINEに無い新しいメソッドが `AbstractPlatformAdapter` で既定実装を持たないまま追加された
- *   （`test_new_methods_have_default_implementations`）
+ * - v1.0時点に存在しなかった（＝`V1_METHOD_NAMES`に無い）新しいメソッドが `AbstractPlatformAdapter`
+ *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。BASELINEへ
+ *   追記済みかどうかに関わらず、`V1_METHOD_NAMES`に無い限り恒久的にチェックし続ける）
  * いずれも `AbstractPlatformAdapter` を継承した外部実装を fatal にしうる変更である。
  * 公開後はBASELINEの既存エントリを書き換えず、新メソッドは`AbstractPlatformAdapter`に既定実装を
  * 添えて追加すること（BASELINEへの追記は任意。追記すればそのメソッドのシグネチャも以降凍結される）。
@@ -34,7 +35,8 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 
 	/**
 	 * v1.0 時点の `PlatformAdapter` 全メソッドのシグネチャ一覧（凍結対象）。
-	 * `describe_signature()` と同じ形式（メソッド名 => "(引数...): 戻り値型"）。
+	 * `describe_signature()` と同じ形式（メソッド名 => "(引数...): 戻り値型"。static修飾子・
+	 * 参照渡し戻り値がある場合は先頭に付与）。
 	 *
 	 * @var array<string,string>
 	 */
@@ -66,6 +68,43 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	];
 
 	/**
+	 * v1.0 時点で `PlatformAdapter` に存在した全メソッド名。`BASELINE`のキーと**意図的に別の定数**にしている。
+	 * `BASELINE`は将来（v1.0以降に追加されたメソッドの）シグネチャ凍結のために任意で追記されうるが、
+	 * それを「既定実装が要らない側」の判定にも流用すると、一度`AbstractPlatformAdapter`が既定実装を
+	 * 持ち`BASELINE`にも追記された後で、その既定実装だけが（シグネチャは変えずに）削除される変更を
+	 * 検出できなくなる（PR #58 G1-2 Codex指摘）。このリストは`BASELINE`の増減と関係なく固定し、
+	 * 「v1.0時点で存在しなかったメソッドは常に既定実装を持つこと」を恒久的にチェックする土台にする。
+	 *
+	 * @var array<int,string>
+	 */
+	private const V1_METHOD_NAMES = [
+		'capabilities',
+		'connection_fields',
+		'fetch_categories',
+		'fetch_coupons',
+		'fetch_customer_by_remote_id',
+		'fetch_customers',
+		'fetch_latest_orders',
+		'fetch_order_by_remote_id',
+		'fetch_orders',
+		'fetch_product_by_remote_id',
+		'fetch_products',
+		'fetch_reviews',
+		'fetch_stocks',
+		'fetch_tags',
+		'id',
+		'label',
+		'mapping_candidates',
+		'push_category',
+		'push_coupon',
+		'push_customer',
+		'push_order',
+		'push_product',
+		'push_stock',
+		'test_connection',
+	];
+
+	/**
 	 * BASELINEに記録済みのメソッドは、`AbstractPlatformAdapter`側で既定実装を持つようになった後でも
 	 * シグネチャが変わっていないこと（インターフェース自体を反射して確認する。既定実装の有無では
 	 * 判定しない）。BASELINEに無い新しいメソッドが増えるのは許容する（`test_new_methods_have_default_implementations`
@@ -92,13 +131,14 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * BASELINEに無い（＝v1.0以降に追加された）メソッドは、`AbstractPlatformAdapter`で既定実装を
-	 * 持っている（＝抽象のままではない）こと。既定実装が無いまま追加すると、`AbstractPlatformAdapter`を
-	 * 継承した外部実装がPHPの型宣言エラーで fatal になる。
+	 * `V1_METHOD_NAMES`に無い（＝v1.0以降に追加された）メソッドは、`AbstractPlatformAdapter`で既定実装を
+	 * 持っている（＝抽象のままではない）こと。BASELINEに追記済みかどうかは判定に使わない（そのメソッドが
+	 * 既定実装ごと`AbstractPlatformAdapter`から削除される変更も、シグネチャ自体は変わらないため
+	 * `test_interface_signatures_match_v1_baseline`では検出できず、このテストで恒久的に検出し続ける必要がある）。
 	 */
 	public function test_new_methods_have_default_implementations(): void {
-		$interface_methods = self::describe_methods( new ReflectionClass( PlatformAdapter::class ) );
-		$new_method_names  = array_diff( array_keys( $interface_methods ), array_keys( self::BASELINE ) );
+		$interface_method_names = array_keys( self::describe_methods( new ReflectionClass( PlatformAdapter::class ) ) );
+		$new_method_names       = array_diff( $interface_method_names, self::V1_METHOD_NAMES );
 
 		$abstract_method_names       = array_keys( self::describe_methods( new ReflectionClass( AbstractPlatformAdapter::class ) ) );
 		$new_methods_without_default = array_intersect( $new_method_names, $abstract_method_names );
@@ -106,9 +146,9 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 		$this->assertSame(
 			[],
 			array_values( $new_methods_without_default ),
-			'BASELINEに無い新しいPlatformAdapterメソッドが、AbstractPlatformAdapterで既定実装を持たないまま' .
-			'追加されています。外部実装を継承エラーにしないため、AbstractPlatformAdapterに既定実装（原則' .
-			'UnsupportedOperationException）を追加してください（D20、docs/03-design-decisions.md §2）。'
+			'v1.0時点に存在しなかった PlatformAdapter メソッドが、AbstractPlatformAdapterで既定実装を持たないまま' .
+			'（または既定実装が削除されて）います。外部実装を継承エラーにしないため、AbstractPlatformAdapterに' .
+			'既定実装（原則UnsupportedOperationException）を追加してください（D20、docs/03-design-decisions.md §2）。'
 		);
 	}
 
@@ -157,7 +197,8 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 		}
 
 		$return_type = $method->getReturnType();
+		$modifiers   = ( $method->isStatic() ? 'static ' : '' ) . ( $method->returnsReference() ? '&' : '' );
 
-		return '(' . implode( ', ', $params ) . '): ' . ( null !== $return_type ? (string) $return_type : 'void' );
+		return $modifiers . '(' . implode( ', ', $params ) . '): ' . ( null !== $return_type ? (string) $return_type : 'void' );
 	}
 }
