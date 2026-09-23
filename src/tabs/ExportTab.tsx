@@ -138,7 +138,16 @@ function initialExportRunSectionState(): ExportRunSectionState {
  * 全てskipped/warnedになっても（例: 未マッピングの決済方法・必須項目欠落等）ジョブは
  * `STATUS_COMPLETED`のまま終わり、個別警告はどこにも永続化されない（`Sync\Importer`と同じ
  * 既存方針）。実際に何も書き込まれなかったことに店舗オーナーが気付けるよう、
- * `created+updated===0 && warned>0`のcompletedジョブをUI側で検出してバナー表示する。
+ * `created+updated===0`のcompletedジョブをUI側で検出してバナー表示する。
+ *
+ * `warned>0`（1件でも警告）ではなく`warned===processed`（処理した全件が警告）を条件にする:
+ * `Sync\Exporter::process_items()`はchecksum一致でskipした場合でも、読出時点の非ブロッキング
+ * 警告（`$read_item->warnings`が空でなければ）を引き続き`warned`へ加算する（「解消済みに見えて
+ * しまう」のを防ぐための既存仕様。`Exporter.php`のコメント参照）。そのため`warned>0`のままだと、
+ * 健全な冪等スキップ（一部アイテムだけ残留警告あり）でも「何も書き込まれなかった」と誤検出しうる。
+ * `warned===processed`（＝1件も書けず全件に警告が付いた）に絞ることで、この種の偽陽性を減らす
+ * （完全な排除ではない: 全件が同じ残留警告を持つ場合は理論上なお誤検出しうるが、`Sync\Importer`
+ * と同じ既存方針が対象とする「実質的に何も進まなかった」ケースにより近い判定になる）。
  * @param jobs
  */
 function zeroWrittenWarnedEntities( jobs: Job[] ): EntityType[] {
@@ -146,8 +155,9 @@ function zeroWrittenWarnedEntities( jobs: Job[] ): EntityType[] {
 		.filter(
 			( job ) =>
 				'completed' === job.status &&
+				job.totals.processed > 0 &&
 				0 === job.totals.created + job.totals.updated &&
-				job.totals.warned > 0
+				job.totals.warned === job.totals.processed
 		)
 		.map( ( job ) => job.entity );
 }
@@ -577,6 +587,10 @@ export default function ExportTab() {
 
 			if ( 'export' === type ) {
 				setLimits( null );
+				// 実行のたびに再確認させる（`ImportTab.tsx`の`window.confirm()`は
+				// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
+				// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
+				setAcknowledgeProductionWrite( false );
 			}
 
 			setState( ( prev ) => ( {
@@ -608,6 +622,11 @@ export default function ExportTab() {
 			'dry_run_export' === type
 				? dryRunExportRetryConfirmPendingRef
 				: exportRetryConfirmPendingRef;
+		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める。応答が届くまでの間に
+		// ユーザーが別プラットフォームへ切り替えていた場合、そちらの状態（platform-change時に
+		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
+		// 同じ`platformGenerationRef`を使う）。
+		const requestId = platformGenerationRef.current;
 
 		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
 
@@ -616,9 +635,18 @@ export default function ExportTab() {
 				path: `/cbjp/v1/jobs/${ jobId }/retry`,
 				method: 'POST',
 			} );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
 			confirmPendingRef.current = true;
 			refetch();
 		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
 			setRunStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 		}
@@ -634,6 +662,7 @@ export default function ExportTab() {
 			'dry_run_export' === type
 				? dryRunExportPolling.refetch
 				: exportPolling.refetch;
+		const requestId = platformGenerationRef.current;
 
 		setState( ( prev ) => ( { ...prev, cancelling: true } ) );
 
@@ -642,11 +671,22 @@ export default function ExportTab() {
 				path: `/cbjp/v1/runs/${ runId }/cancel`,
 				method: 'POST',
 			} );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
 			refetch();
 		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
 			setRunStartError( errorMessage( err ) );
 		} finally {
-			setState( ( prev ) => ( { ...prev, cancelling: false } ) );
+			if ( platformGenerationRef.current === requestId ) {
+				setState( ( prev ) => ( { ...prev, cancelling: false } ) );
+			}
 		}
 	}
 
@@ -912,7 +952,7 @@ export default function ExportTab() {
 				</>
 			) }
 
-			<Card>
+			<Card className="cbjp-export__run">
 				<CardHeader>
 					<strong>{ __( 'Export setup', 'cart-bridge-jp' ) }</strong>
 				</CardHeader>
