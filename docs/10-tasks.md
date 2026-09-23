@@ -157,6 +157,16 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   ASP と一致する場合に限り `state` のみを補正する（`Woo\Tools\PrefStateRepair`、`GET/POST /tools/repair-states`）。Scan（読取専用）→ Repair の2段階、
   冪等、所有権・スタッフ・ゴミ箱の受注はスキップ、ASP 障害時は処理済み件数と再開用 cursor を返して中断。実店舗（F1-8 の2店舗・`v0.1.0` 試用サイト）での
   実行と `v0.1.1` の要否は別途判断。実 API での確認は ColorMe 認証情報待ち（要検証#18）。詳細は `docs/03-design-decisions.md` §10.3「県コード修復ツール」
+- [x] **fix: `JobManager::retry()` にプラットフォーム単位の同時実行ガードを追加**（2026-09-23、issue #54）
+  E2-4（PR #53）のCodex/Copilotゲートで判明: `start_run()` は `has_active_job_for_platform()` で同一プラットフォームの
+  同時実行を防ぐが、`retry()` はこのガードを経由せず失敗ジョブをrequeueしていたため、別タブ/別セッションで別runが
+  進行中でも失敗ジョブのRetryが素通りし、同一ASPへの二重書き込みを招きうる状態だった。`JobRepository::has_active_job_for_platform_excluding_run()`
+  を新設（対象ジョブ自身の `run_id` を判定から除外し、`start_run()` がrun開始時に作る未処理な兄弟ジョブを「進行中の別run」と
+  誤検知しないようにする）し、`retry()` に適用。ガードに引っかかった場合は既存の `RunAlreadyInProgressException`/
+  `run_in_progress_error()`（409）を再利用する。フロントエンドの同型ギャップ（`ImportTab.tsx` の `retryDisabled` が
+  他run種別のbusyのみを見て自分の種別の`starting`を見ていない。`docs/review-backlog.md` `e2-4-export-ui-e2e/G1-codex-import-tab-same-gap`）
+  も同時に解消。`cancel_run()` の同種の競合（`f1-6-import-ui/R1-X1`）は根本原因（Action Scheduler側の実行中断不可）が
+  異なるため本fixのスコープには含めず、別issueのまま残した
 
 ---
 

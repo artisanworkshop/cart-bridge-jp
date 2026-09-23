@@ -544,4 +544,74 @@ final class JobManagerTest extends WP_UnitTestCase {
 			$this->assertTrue( as_has_scheduled_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' ) );
 		}
 	}
+
+	/**
+	 * `fetch_categories()`のみ失敗させ`fetch_tags()`は常に空配列を返す（`MockPlatformAdapter`が
+	 * `fetch_failure`をtagには適用しない）ことを利用し、同一run内で1件目（category）が失敗し
+	 * 2件目（tag）が未処理のまま`pending`で残る状態を作る。この兄弟ジョブは`retry()`の
+	 * ガード（issue #54）に誤検知されないこと（同一run_idは判定から除外される）を確認する。
+	 */
+	public function test_retry_succeeds_when_only_sibling_jobs_of_the_same_run_are_pending(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new \RuntimeException( 'boom' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_id      = $manager->start_run( 'import', 'mock', [ 'category', 'tag' ] );
+		$run_jobs    = $this->jobs->find_by_run( $run_id );
+		$category_id = (int) $run_jobs[0]['id'];
+		$tag_id      = (int) $run_jobs[1]['id'];
+
+		$manager->process_job( $category_id );
+
+		$this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( $category_id )['status'] );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $tag_id )['status'] );
+
+		$this->assertTrue( $manager->retry( $category_id ) );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $category_id )['status'] );
+	}
+
+	public function test_retry_throws_when_a_different_run_is_active_for_the_platform(): void {
+		$adapter = new MockPlatformAdapter(
+			categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ],
+			fetch_failure: new \RuntimeException( 'boom' )
+		);
+
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$manager = $this->make_manager( new InMemoryWriter() );
+
+		$run_a = $manager->start_run( 'import', 'mock', [ 'category' ] );
+		$job_a = (int) $this->jobs->find_by_run( $run_a )[0]['id'];
+		$manager->process_job( $job_a );
+		$this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( $job_a )['status'] );
+
+		// run Aの唯一のジョブが失敗してterminalになったため、同プラットフォームで新規run Bを
+		// 開始できる（`start_run()`の同時実行ガードには引っかからない）。run Bの先頭ジョブは
+		// `running`のまま（`process_job()`を呼ばず未処理）にしておき、「別runが進行中」を再現する。
+		$manager->start_run( 'import', 'mock', [ 'category' ] );
+
+		$this->expectException( RunAlreadyInProgressException::class );
+		$manager->retry( $job_a );
+	}
 }

@@ -594,7 +594,16 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ dryRunState.cancelling }
-								retryDisabled={ importBusy }
+								// 別run種別（`importBusy`）に加え、同じ種別で新しいrunを開始中
+								// （`dryRunState.starting`）の間もRetryを止める: POST `/runs`が
+								// 解決するまでこのカードは旧runを表示し続けるため、その間に旧runの
+								// 失敗ジョブをRetryすると、サーバー側は新runがpendingになった時点で
+								// 409を返すようになった（`JobManager::retry()`のガード、issue #54）が、
+								// ユーザーに無用な409エラーを見せないよう先にボタン側で止める
+								// （`ExportTab.tsx`と同型）。
+								retryDisabled={
+									importBusy || dryRunState.starting
+								}
 								isTerminal={ dryRunTerminal }
 								reportsAvailable
 								onlyWarnings={ dryRunState.onlyWarnings }
@@ -656,7 +665,10 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ importState.cancelling }
-								retryDisabled={ dryRunBusy }
+								// `starting`を含める理由は上のdry-run側カードと同じ（issue #54）。
+								retryDisabled={
+									dryRunBusy || importState.starting
+								}
 								isTerminal={ importTerminal }
 								reportsAvailable={ false }
 								onlyWarnings={ importState.onlyWarnings }

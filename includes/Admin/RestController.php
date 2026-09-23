@@ -1111,7 +1111,13 @@ final class RestController {
 			return new WP_Error( 'cbjp_job_not_found', __( 'Job not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
 		}
 
-		if ( ! JobManager::create()->retry( $id ) ) {
+		try {
+			$retried = JobManager::create()->retry( $id );
+		} catch ( RunAlreadyInProgressException ) {
+			return $this->run_in_progress_error();
+		}
+
+		if ( ! $retried ) {
 			return new WP_Error( 'cbjp_invalid_job_state', __( 'Only failed jobs can be retried.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
 		}
 

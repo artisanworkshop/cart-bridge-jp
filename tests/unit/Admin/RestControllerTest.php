@@ -1781,6 +1781,32 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( JobRepository::STATUS_FAILED, $jobs->find( $job_b )['status'] );
 	}
 
+	public function test_retry_job_returns_409_when_a_different_run_is_active_for_the_platform(): void {
+		$this->register_mock_adapter();
+		$jobs = new JobRepository();
+
+		// run-a: 唯一のジョブがfailed（terminal）。
+		$job_a = $jobs->create( 'run-a', 'import', 'mock', 'category' );
+		$jobs->mark_failed(
+			$job_a,
+			[
+				'code'    => 'exception',
+				'message' => 'boom',
+			]
+		);
+
+		// run-b: 同一プラットフォームでrunningのジョブが進行中。
+		$job_b = $jobs->create( 'run-b', 'import', 'mock', 'category' );
+		$jobs->update_status( $job_b, JobRepository::STATUS_RUNNING );
+
+		$request  = new WP_REST_Request( 'POST', "/cbjp/v1/jobs/{$job_a}/retry" );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assertSame( JobRepository::STATUS_FAILED, $jobs->find( $job_a )['status'] );
+	}
+
 	public function test_get_run_verification_returns_the_report_for_an_import_run(): void {
 		$this->register_mock_adapter();
 

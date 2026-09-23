@@ -231,7 +231,11 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - ページサイズ初期値50（アダプタが上書き可）。1アクションはPHPのmax_execution_time内に収まる粒度を保つ
 - **dry-run**: 同一パイプラインで Woo書き込みだけを `DryRunReporter` に差し替え。件数・警告（未マッピング決済方法、SKU重複等）を totals_json に集計し、UIでプレビュー表示
 - 冪等性: mappings の UNIQUE キーで upsert。checksum 一致ならスキップ（totals.skipped++）
-- 同時実行: 同一 platform で running のジョブがある場合は新規開始を拒否（レート制限保護）
+- 同時実行: 同一 platform で running のジョブがある場合は新規開始を拒否（レート制限保護）。
+  `retry()`（失敗ジョブの再開）も同様に、対象ジョブとは異なる run が同一 platform で進行中なら拒否する
+  （issue #54）。ただし判定は `run_id` を除外して行い、対象ジョブと同一 run 内でまだ未処理な
+  兄弟ジョブ（`start_run()` は run 開始時に全エンティティのジョブを先に `pending` で作るため、
+  1件が `failed` になっても他は `pending` のまま残りうる）を「進行中の別 run」と誤検知しない
 
 ### 受注インポートの詳細（D10）
 

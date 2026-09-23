@@ -138,6 +138,30 @@ final class JobRepository {
 		return $count > 0;
 	}
 
+	/**
+	 * `has_active_job_for_platform()`の`run_id`除外版。`retry()`が対象ジョブと同一run内の
+	 * 未処理な兄弟ジョブ（`start_run()`がrun開始時に全エンティティを`pending`で作るため、
+	 * 1件が`failed`になっても他は`pending`のまま残りうる）を「進行中の別run」と誤検知しない
+	 * ようにするため、対象run自身は判定対象から除く。
+	 */
+	public function has_active_job_for_platform_excluding_run( string $platform, string $run_id ): bool {
+		global $wpdb;
+
+		$count = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"SELECT COUNT(*) FROM {$this->table()} WHERE platform = %s AND run_id != %s AND status IN (%s, %s, %s)",
+				$platform,
+				$run_id,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED
+			)
+		);
+
+		return $count > 0;
+	}
+
 	public function update_status( int $id, string $status ): void {
 		global $wpdb;
 
