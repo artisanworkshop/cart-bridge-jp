@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 進行中: E2-1・E2-2・E2-3（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47）完了、E2-4 未着手。実店舗へのエクスポート（E2-4/R3-1）の前に県コード修復（#46）が必要 |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。実店舗へのエクスポート（R3-1）の前に県コード修復（#46）が必要 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -332,9 +332,55 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     フィールドが無いため、その場合はAPIを呼ばずフェイルクローズしてスキップする
     （`WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE`）。詳細は
     `docs/03-design-decisions.md` §10.2「E2-3 PR-D」。
-- [ ] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
+- [x] **E2-4: エクスポートUI + 往復E2E**（Export タブ（エンティティ選択→dry-run→本番書込み警告→実行→進捗→結果レポート）。テストショップへの ColorMe→Woo→ColorMe 往復移行でデータ欠損・冪等性を確認）
+  2026-09-23実装。`src/tabs/ExportTab.tsx`に既存のマッピング設定カードへ実行フローを追加。
+  `availableExportEntities()`（`JobManager::filter_and_order_export_entities()`と同条件を
+  ミラー。product/stockは常時、customer/order/couponはcapabilityでゲート）・`ImportTab.tsx`と
+  同型の`dryRunExportState`/`exportState`（localStorage永続化・Retry/Cancel・`useRunPolling`/
+  `RunProgress`/`LimitsUpsellNotice`をそのまま再利用）を実装。`GET /runs/{id}/verification`は
+  `type=import`専用（400になる）ため`VerificationReport`は使わない。
+  **本番書込み警告（D17）はImportTabの`window.confirm()`ではなく常時表示の`Notice`+
+  `CheckboxControl`によるゲート方式にした**（`.claude/rules/frontend.md`がネイティブ
+  `window.confirm()`はClaude in Chrome等のブラウザ自動操作をフリーズさせると指摘済みで、
+  本タスク自体が下記の実機E2Eをブラウザ自動操作で行う必要があったため。チェック時
+  `POST /runs`へ`acknowledge_production_write: true`を送る）。
+  `docs/review-backlog.md`の`e2-2-exporter-pr-b/R1-L6`（capabilityゲート）・
+  `e2-2-exporter-core/R1-M8`（実行export全skip/warnedの無警告）を解消（後者はexport結果カードに
+  `created+updated===0 && warned===processed`のcompletedジョブを検出する警告バナーを追加。
+  `warned>0`だとchecksum一致skipに残留する非ブロッキング警告だけで誤検出しうるため、R1レビュー
+  指摘を受けて絞った）。
+  **実機E2E（ColorMeテストショップ、2026-09-23）**: 開発者ポータルの既存プライベートアプリ
+  （`colorme.env`・アシスタントのローカルmemoryが指す資格情報）が別ログインに紐づいていたため、
+  同一セッション内で新規アプリ+新規テストショップを作成し直して接続。同ショップは非プレミアム
+  プラン（`can_create_order=false`/`can_create_coupon=false`）のため、受注・クーポンのexportは
+  このE2Eでは検証できず（Export UI側でチェックボックス自体が正しく非表示になることは確認済み）、
+  **製品・顧客・在庫のみで検証**した:
+  1. dry-run export（全量走査）→ Preview export results・CSVレポートDLが正しく機能
+  2. 実export → 対象7件中2件のみ作成。原因は無料版上限（product=50、未到達）ではなく
+     `ExportSampleSelector`の受注起点サンプル選定が拾った3候補のうち1件が元々exportできない
+     商品（variable商品で全バリエーション非公開）だったため。`LimitsUpsellNotice`の
+     「remaining N require Pro」表示はこのケースを上限到達と誤って表現しており、この表示
+     文言自体の不正確さを`docs/review-backlog.md`の
+     `e2-4-export-ui-e2e/limits-upsell-message-misleading`に記録した（共有コンポーネントの
+     既存の問題で本PRの差分範囲外）。ColorMe側に商品2件・顧客1件が実際に作成されたことを
+     API直叩きで確認
+  3. Importタブから再取込み（`window.confirm()`を避けるため`rest_do_request()`で直接起動）→
+     mappingにより既存のWoo商品/顧客を**重複作成せず更新**（往復でのデータ増殖なし）。
+     価格・在庫管理フラグ・郵便番号/県ID(pref_id)/電話番号は正しく往復した。
+     **既知の制限を実地で再現**: ColorMeの`name`は単一文字列（「姓 名」の想定）だが、
+     ColorMe由来ではないネイティブWoo顧客（`_cbjp_full_name`メタ無し）をexportすると
+     `first_name . ' ' . last_name`（Western順）で組み立てた文字列がColorMeへ送られ、
+     再importの`split_name()`が「姓 名」前提で分割するため姓名が入れ替わる
+     （`Woo\Reader\CustomerReader::name()`のdocblockに既知の制限として記載済み。今回の
+     テスト顧客がまさにこのケースで、修正は本タスクの範囲外）
+  4. 再exportで冪等性を確認: 顧客・在庫はchecksum一致で`Skipped`。商品は
+     カテゴリマッピング未設定（Uncategorized→ColorMeカテゴリ未指定）による
+     `category_map_unresolved`警告が`WarningCode::indicates_unresolved_reference()`に
+     該当し続けるため、仕様どおりchecksumをキャッシュせず`Updated`を繰り返すが、
+     ColorMe側の商品数はAPI確認で2件のまま**重複ゼロ**（既存remote_idへのPUTのみ）。
+  詳細は `docs/03-design-decisions.md` §10.2「E2-4」参照。
 
-**Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。
+**Phase 2 完了チェック**: カラーミーのテストショップに対して dry-run → サンプルエクスポート → 再エクスポート（checksum一致skip・重複ゼロ）が通ること。**達成**（2026-09-23実機E2E。重複ゼロは確認、checksum一致skipは顧客/在庫で確認・商品はカテゴリマッピング未設定により毎回Updatedになるが既存remote_idへの上書きのみで重複は作らない。詳細は上記E2-4参照）。
 
 ---
 

@@ -5,14 +5,24 @@ import {
 	Card,
 	CardBody,
 	CardHeader,
+	CheckboxControl,
 	Notice,
 	SelectControl,
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
+import RunProgress from '../components/RunProgress';
+import { ENTITY_LABELS } from '../entity-labels';
+import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
 import type {
+	Capabilities,
 	Connection,
+	EntityType,
+	Job,
+	Limits,
 	MappingCandidate,
+	RunType,
 	SettingsMappings,
 	SettingsMappingValues,
 } from '../types';
@@ -22,6 +32,140 @@ function errorMessage( err: unknown ): string {
 }
 
 const UNMAPPED = '';
+
+/**
+ * `Sync\JobManager::EXPORT_ENTITIES_WITH_READER`（category/tag/reviewはexportエンティティ化しない。
+ * categoryは`category_map`が担う。CLAUDE.md/`docs/03-design-decisions.md` §10.2「カテゴリ」）。
+ */
+const EXPORT_ENTITIES: EntityType[] = [
+	'product',
+	'customer',
+	'order',
+	'stock',
+	'coupon',
+];
+
+/**
+ * `Sync\JobManager::filter_and_order_export_entities()`と同じ条件をミラーする
+ * （product/stockは常時対象、customer/order/couponはcapabilityでゲート）。
+ * @param capabilities
+ */
+function availableExportEntities( capabilities: Capabilities ): EntityType[] {
+	return EXPORT_ENTITIES.filter( ( entity ) => {
+		switch ( entity ) {
+			case 'customer':
+				return capabilities.can_update_customer;
+			case 'order':
+				return capabilities.can_create_order;
+			case 'coupon':
+				return (
+					capabilities.has_coupons && capabilities.can_create_coupon
+				);
+			default:
+				return true;
+		}
+	} );
+}
+
+function exportRunStorageKey( platform: string, type: RunType ): string {
+	return `cbjp_run_${ type }_${ platform }`;
+}
+
+/**
+ * `ImportTab.tsx`の同名ヘルパーと同じ役割（実行中のrunはAction Scheduler側で進むため、
+ * 管理画面をリロードしても直前のrun_idからポーリングを再開できるようにlocalStorageへ
+ * 控えておく）。localStorageキーの命名規則を共有するため、Import側の`dry_run`/`import`と
+ * 衝突しないよう`type`（`dry_run_export`/`export`）を含める。
+ * @param platform
+ * @param type
+ */
+function loadStoredExportRunId(
+	platform: string,
+	type: RunType
+): string | null {
+	try {
+		return window.localStorage.getItem(
+			exportRunStorageKey( platform, type )
+		);
+	} catch {
+		return null;
+	}
+}
+
+function storeExportRunId(
+	platform: string,
+	type: RunType,
+	runId: string
+): void {
+	try {
+		window.localStorage.setItem(
+			exportRunStorageKey( platform, type ),
+			runId
+		);
+	} catch {
+		// プライベートブラウジング等でlocalStorageが使えなくても実行自体は継続できる。
+	}
+}
+
+function clearStoredExportRunId( platform: string, type: RunType ): void {
+	try {
+		window.localStorage.removeItem( exportRunStorageKey( platform, type ) );
+	} catch {
+		// 何もしない（保存できていないなら消す必要もない）。
+	}
+}
+
+interface ExportRunSectionState {
+	runId: string | null;
+	starting: boolean;
+	retryingJobId: number | null;
+	cancelling: boolean;
+	onlyWarnings: boolean;
+}
+
+function initialExportRunSectionState(): ExportRunSectionState {
+	return {
+		runId: null,
+		starting: false,
+		retryingJobId: null,
+		cancelling: false,
+		onlyWarnings: false,
+	};
+}
+
+/**
+ * `docs/review-backlog.md`の`e2-2-exporter-core/R1-M8`: 実行(非dry-run)のexportで対象アイテムが
+ * 全てskipped/warnedになっても（例: 未マッピングの決済方法・必須項目欠落等）ジョブは
+ * `STATUS_COMPLETED`のまま終わり、個別警告はどこにも永続化されない（`Sync\Importer`と同じ
+ * 既存方針）。実際に何も書き込まれなかったことに店舗オーナーが気付けるよう、
+ * `created+updated===0`のcompletedジョブをUI側で検出してバナー表示する。
+ *
+ * `warned>0`（1件でも警告）ではなく`warned===processed`（処理した全件が警告）を条件にする:
+ * `Sync\Exporter::process_items()`はchecksum一致でskipした場合でも、読出時点の非ブロッキング
+ * 警告（`$read_item->warnings`が空でなければ）を引き続き`warned`へ加算する（「解消済みに見えて
+ * しまう」のを防ぐための既存仕様。`Exporter.php`のコメント参照）。そのため`warned>0`のままだと、
+ * 健全な冪等スキップ（一部アイテムだけ残留警告あり）でも「何も書き込まれなかった」と誤検出しうる。
+ * `warned===processed`（＝1件も書けず全件に警告が付いた）に絞ることで、この種の偽陽性を減らす
+ * （完全な排除ではない: 全件が同じ残留警告を持つ場合は理論上なお誤検出しうるが、`Sync\Importer`
+ * と同じ既存方針が対象とする「実質的に何も進まなかった」ケースにより近い判定になる）。
+ * この絞り込みはトレードオフでもある: 「一部は警告付きでskip・残りは警告なしでskip
+ * （無料版上限到達等。`Exporter.php`のクォータ枯渇分岐参照）」のように`warned < processed`と
+ * なる部分的な失敗は検出できなくなる（偽陰性）。クォータ枯渇のケースは`LimitsUpsellNotice`が
+ * 別途表示するため実害は小さいと判断した（R2レビューで指摘、`docs/review-backlog.md`の
+ * `e2-4-export-ui-e2e/R2-L1`参照）。
+ * @param jobs
+ */
+function zeroWrittenWarnedEntities( jobs: Job[] ): EntityType[] {
+	return jobs
+		.filter(
+			( job ) =>
+				'completed' === job.status &&
+				job.totals.processed > 0 &&
+				0 === job.totals.created + job.totals.updated &&
+				job.totals.warned === job.totals.processed
+		)
+		.map( ( job ) => job.entity );
+}
 
 type MapKey = 'category_map' | 'payment_map' | 'shipping_map' | 'status_map';
 
@@ -187,6 +331,37 @@ export default function ExportTab() {
 	// 「このリクエストが発行された時点のプラットフォーム選択がまだ現在のものか」を判定する。
 	const platformGenerationRef = useRef( 0 );
 
+	const [ selectedExportEntities, setSelectedExportEntities ] = useState<
+		Set< EntityType >
+	>( new Set() );
+	const [ acknowledgeProductionWrite, setAcknowledgeProductionWrite ] =
+		useState( false );
+	const [ runStartError, setRunStartError ] = useState< string | null >(
+		null
+	);
+	const [ dryRunExportState, setDryRunExportState ] =
+		useState< ExportRunSectionState >( initialExportRunSectionState() );
+	const [ exportState, setExportState ] = useState< ExportRunSectionState >(
+		initialExportRunSectionState()
+	);
+	const [ dryRunTotals, setDryRunTotals ] = useState< Partial<
+		Record< EntityType, number >
+	> | null >( null );
+	const [ limits, setLimits ] = useState< Limits | null >( null );
+	// `startRun()`/`limits`取得effectが応答を受け取った時点でまだ同じプラットフォーム選択かを
+	// 判定するために、マッピング取得effectと同じ`platformGenerationRef`を共有する（frontend.md:
+	// 「同じ状態を更新しうる複数の非同期処理は同じ世代カウンタを共有する必要がある」の対象を
+	// マッピングのGET/PUTに加えて実行フローのPOST/GETにも広げたもの）。
+	const dryRunExportRetryConfirmPendingRef = useRef( false );
+	const exportRetryConfirmPendingRef = useRef( false );
+	// limits取得effectが応答を受け取った時点でまだ同じexport runを指しているかを判定するための
+	// 参照（`useRunPolling`の`runIdRef`と同じ役割）。`platformGenerationRef`は同一platform内で
+	// 新しいrunが始まった場合には変化しないため、そのケースの古い応答を弾けない
+	// （Codexレビュー指摘, G3: runA完了時の`/limits`取得中にrunBを開始し`setLimits(null)`で
+	// クリアした後、runAの応答が遅れて届くと`limits`を古い使用状況で上書きしてしまう）。
+	const exportRunIdRef = useRef< string | null >( null );
+	exportRunIdRef.current = exportState.runId;
+
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
 			.then( ( data ) => setConnections( data ) )
@@ -248,6 +423,306 @@ export default function ExportTab() {
 				setMappingsError( errorMessage( err ) );
 			} );
 	}, [ platform ] );
+
+	// プラットフォームが変わったら、実行フロー側の状態（エンティティ選択・直前のrun_id・
+	// 警告チェックボックス等）も読み込み直す。マッピング取得effectとは独立した状態を扱うため
+	// 別effectにするが、判定に使う`platformGenerationRef`は共有する。
+	useEffect( () => {
+		if ( null === platform || null === currentConnection ) {
+			return;
+		}
+
+		setSelectedExportEntities(
+			new Set( availableExportEntities( currentConnection.capabilities ) )
+		);
+		setAcknowledgeProductionWrite( false );
+		setRunStartError( null );
+		setDryRunTotals( null );
+		setLimits( null );
+		setDryRunExportState( {
+			...initialExportRunSectionState(),
+			runId: loadStoredExportRunId( platform, 'dry_run_export' ),
+		} );
+		setExportState( {
+			...initialExportRunSectionState(),
+			runId: loadStoredExportRunId( platform, 'export' ),
+		} );
+		// currentConnectionはplatformから導出される値なので、platform変更時のみ発火させる。
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ platform ] );
+
+	const dryRunExportPolling = useRunPolling( dryRunExportState.runId );
+	const exportPolling = useRunPolling( exportState.runId );
+
+	const dryRunExportTerminal =
+		null !== dryRunExportPolling.run &&
+		isRunTerminal( dryRunExportPolling.run );
+	const exportTerminal =
+		null !== exportPolling.run && isRunTerminal( exportPolling.run );
+
+	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」をキャッシュする
+	// （`ImportTab.tsx`と同じロジック。サンプリングを行わない全量走査なのでprocessedが
+	// そのまま総数になる）。
+	useEffect( () => {
+		if ( ! dryRunExportPolling.run || ! dryRunExportTerminal ) {
+			return;
+		}
+
+		const totals: Partial< Record< EntityType, number > > = {};
+
+		for ( const job of dryRunExportPolling.run.jobs ) {
+			if ( 'completed' === job.status ) {
+				totals[ job.entity ] = job.totals.processed;
+			}
+		}
+
+		setDryRunTotals( ( prev ) => ( { ...prev, ...totals } ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ dryRunExportPolling.run, dryRunExportTerminal ] );
+
+	// 実エクスポートが完了したら上限使用状況を取得し、Pro案内に使う（`ImportTab.tsx`と同じ）。
+	useEffect( () => {
+		if ( ! exportTerminal || null === platform ) {
+			return;
+		}
+
+		const requestedPlatform = platform;
+		const requestId = platformGenerationRef.current;
+		// この取得を発生させたrunのIDを閉じ込める。`platformGenerationRef`は同一platform内で
+		// 新しいrunが始まっただけでは変化しないため、応答が届いた時点でまだ「この取得の
+		// きっかけになったrun」がexportStateの現在値か（＝新しいrunに置き換わっていないか）も
+		// 別途確認する（`exportRunIdRef`参照）。
+		const requestedRunId = exportPolling.run?.run_id ?? null;
+
+		apiFetch< Limits >( {
+			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
+				requestedPlatform
+			) }`,
+		} )
+			.then( ( data ) => {
+				if (
+					platformGenerationRef.current !== requestId ||
+					exportRunIdRef.current !== requestedRunId
+				) {
+					return;
+				}
+
+				setLimits( data );
+			} )
+			.catch( () => {
+				if (
+					platformGenerationRef.current !== requestId ||
+					exportRunIdRef.current !== requestedRunId
+				) {
+					return;
+				}
+
+				setLimits( null );
+			} );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ exportPolling.run, exportTerminal, platform ] );
+
+	useEffect( () => {
+		if ( ! dryRunExportRetryConfirmPendingRef.current ) {
+			return;
+		}
+
+		dryRunExportRetryConfirmPendingRef.current = false;
+		setDryRunExportState( ( prev ) => ( {
+			...prev,
+			retryingJobId: null,
+		} ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ dryRunExportPolling.run ] );
+
+	useEffect( () => {
+		if ( ! exportRetryConfirmPendingRef.current ) {
+			return;
+		}
+
+		exportRetryConfirmPendingRef.current = false;
+		setExportState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ exportPolling.run ] );
+
+	const dryRunExportActive =
+		null !== dryRunExportState.runId && ! dryRunExportTerminal;
+	const exportActive = null !== exportState.runId && ! exportTerminal;
+	const dryRunExportBusy =
+		dryRunExportActive ||
+		dryRunExportState.starting ||
+		null !== dryRunExportState.retryingJobId;
+	const exportBusy =
+		exportActive ||
+		exportState.starting ||
+		null !== exportState.retryingJobId;
+
+	function toggleExportEntity( entity: EntityType, checked: boolean ) {
+		setSelectedExportEntities( ( prev ) => {
+			const next = new Set( prev );
+
+			if ( checked ) {
+				next.add( entity );
+			} else {
+				next.delete( entity );
+			}
+
+			return next;
+		} );
+	}
+
+	async function startExportRun( type: 'dry_run_export' | 'export' ) {
+		if ( null === platform || 0 === selectedExportEntities.size ) {
+			return;
+		}
+
+		if ( 'export' === type && ! acknowledgeProductionWrite ) {
+			return;
+		}
+
+		const setState =
+			'dry_run_export' === type ? setDryRunExportState : setExportState;
+		const requestedPlatform = platform;
+		const requestId = platformGenerationRef.current;
+
+		setRunStartError( null );
+		setState( ( prev ) => ( { ...prev, starting: true } ) );
+
+		try {
+			const response = await apiFetch< { run_id: string } >( {
+				path: '/cbjp/v1/runs',
+				method: 'POST',
+				data: {
+					type,
+					platform: requestedPlatform,
+					entities: Array.from( selectedExportEntities ),
+					...( 'export' === type
+						? { acknowledge_production_write: true }
+						: {} ),
+				},
+			} );
+
+			storeExportRunId( requestedPlatform, type, response.run_id );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			if ( 'export' === type ) {
+				setLimits( null );
+				// 実行のたびに再確認させる（`ImportTab.tsx`の`window.confirm()`は
+				// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
+				// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
+				setAcknowledgeProductionWrite( false );
+			}
+
+			setState( ( prev ) => ( {
+				...prev,
+				runId: response.run_id,
+				starting: false,
+			} ) );
+		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			setRunStartError( errorMessage( err ) );
+			setState( ( prev ) => ( { ...prev, starting: false } ) );
+		}
+	}
+
+	async function retryExportJob(
+		type: 'dry_run_export' | 'export',
+		jobId: number
+	) {
+		const setState =
+			'dry_run_export' === type ? setDryRunExportState : setExportState;
+		const refetch =
+			'dry_run_export' === type
+				? dryRunExportPolling.refetch
+				: exportPolling.refetch;
+		const confirmPendingRef =
+			'dry_run_export' === type
+				? dryRunExportRetryConfirmPendingRef
+				: exportRetryConfirmPendingRef;
+		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める。応答が届くまでの間に
+		// ユーザーが別プラットフォームへ切り替えていた場合、そちらの状態（platform-change時に
+		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
+		// 同じ`platformGenerationRef`を使う）。
+		const requestId = platformGenerationRef.current;
+
+		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
+
+		try {
+			await apiFetch( {
+				path: `/cbjp/v1/jobs/${ jobId }/retry`,
+				method: 'POST',
+			} );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			confirmPendingRef.current = true;
+			refetch();
+		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			setRunStartError( errorMessage( err ) );
+			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+		}
+	}
+
+	async function cancelExportRun(
+		type: 'dry_run_export' | 'export',
+		runId: string
+	) {
+		const setState =
+			'dry_run_export' === type ? setDryRunExportState : setExportState;
+		const refetch =
+			'dry_run_export' === type
+				? dryRunExportPolling.refetch
+				: exportPolling.refetch;
+		const requestId = platformGenerationRef.current;
+
+		setState( ( prev ) => ( { ...prev, cancelling: true } ) );
+
+		try {
+			await apiFetch( {
+				path: `/cbjp/v1/runs/${ runId }/cancel`,
+				method: 'POST',
+			} );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			refetch();
+		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			setRunStartError( errorMessage( err ) );
+		} finally {
+			if ( platformGenerationRef.current === requestId ) {
+				setState( ( prev ) => ( { ...prev, cancelling: false } ) );
+			}
+		}
+	}
+
+	function clearExportRun( type: 'dry_run_export' | 'export' ) {
+		if ( null === platform ) {
+			return;
+		}
+
+		clearStoredExportRunId( platform, type );
+		( 'dry_run_export' === type ? setDryRunExportState : setExportState )(
+			initialExportRunSectionState()
+		);
+	}
 
 	function updateMap( key: MapKey, sourceId: string, targetId: string ) {
 		setEdited( ( current ) => {
@@ -314,6 +789,10 @@ export default function ExportTab() {
 			setSaving( false );
 		}
 	}
+
+	const zeroWrittenExportEntities = exportPolling.run
+		? zeroWrittenWarnedEntities( exportPolling.run.jobs )
+		: [];
 
 	if ( connectionsError ) {
 		return (
@@ -494,6 +973,247 @@ export default function ExportTab() {
 						</Button>
 					</div>
 				</>
+			) }
+
+			<Card className="cbjp-export__run">
+				<CardHeader>
+					<strong>{ __( 'Export setup', 'cart-bridge-jp' ) }</strong>
+				</CardHeader>
+				<CardBody>
+					<p>
+						<strong>
+							{ __( 'Entities to export', 'cart-bridge-jp' ) }
+						</strong>
+					</p>
+
+					<div className="cbjp-export__entities">
+						{ currentConnection &&
+							availableExportEntities(
+								currentConnection.capabilities
+							).map( ( entity ) => (
+								<CheckboxControl
+									key={ entity }
+									label={ ENTITY_LABELS[ entity ] }
+									checked={ selectedExportEntities.has(
+										entity
+									) }
+									disabled={ dryRunExportBusy || exportBusy }
+									onChange={ ( checked ) =>
+										toggleExportEntity( entity, checked )
+									}
+								/>
+							) ) }
+					</div>
+
+					<Notice status="warning" isDismissible={ false }>
+						{ __(
+							'Running an export writes data to the connected shop right away, up to the current plan’s limits. We recommend running this against a test shop first, not your live shop.',
+							'cart-bridge-jp'
+						) }
+					</Notice>
+
+					<CheckboxControl
+						label={ __(
+							'I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop).',
+							'cart-bridge-jp'
+						) }
+						checked={ acknowledgeProductionWrite }
+						disabled={ exportBusy }
+						onChange={ setAcknowledgeProductionWrite }
+					/>
+
+					{ runStartError && (
+						<Notice
+							status="error"
+							onRemove={ () => setRunStartError( null ) }
+						>
+							{ runStartError }
+						</Notice>
+					) }
+
+					<div className="cbjp-export__actions">
+						<Button
+							variant="secondary"
+							isBusy={ dryRunExportState.starting }
+							disabled={
+								dryRunExportBusy ||
+								exportBusy ||
+								0 === selectedExportEntities.size
+							}
+							onClick={ () => startExportRun( 'dry_run_export' ) }
+						>
+							{ __(
+								'Preview export (dry run, no writes)',
+								'cart-bridge-jp'
+							) }
+						</Button>{ ' ' }
+						<Button
+							variant="primary"
+							isBusy={ exportState.starting }
+							disabled={
+								dryRunExportBusy ||
+								exportBusy ||
+								0 === selectedExportEntities.size ||
+								! acknowledgeProductionWrite
+							}
+							onClick={ () => startExportRun( 'export' ) }
+						>
+							{ __( 'Run export', 'cart-bridge-jp' ) }
+						</Button>
+					</div>
+				</CardBody>
+			</Card>
+
+			{ dryRunExportState.runId && (
+				<Card className="cbjp-export__run">
+					<CardHeader>
+						<strong>
+							{ __( 'Preview export results', 'cart-bridge-jp' ) }
+						</strong>
+						<Button
+							variant="tertiary"
+							disabled={
+								null !== dryRunExportState.retryingJobId ||
+								( ! dryRunExportTerminal &&
+									! dryRunExportPolling.notFound )
+							}
+							onClick={ () => clearExportRun( 'dry_run_export' ) }
+						>
+							{ __( 'Clear', 'cart-bridge-jp' ) }
+						</Button>
+					</CardHeader>
+					<CardBody>
+						{ dryRunExportPolling.error && (
+							<Notice status="error" isDismissible={ false }>
+								{ dryRunExportPolling.error }
+							</Notice>
+						) }
+						{ dryRunExportPolling.run && (
+							<RunProgress
+								run={ dryRunExportPolling.run }
+								entityLabels={ ENTITY_LABELS }
+								onRetry={ ( jobId ) =>
+									retryExportJob( 'dry_run_export', jobId )
+								}
+								retryingJobId={
+									dryRunExportState.retryingJobId
+								}
+								onCancel={ () =>
+									cancelExportRun(
+										'dry_run_export',
+										dryRunExportState.runId as string
+									)
+								}
+								cancelling={ dryRunExportState.cancelling }
+								// 別run種別（`exportBusy`）に加え、同じ種別で新しいrunを
+								// 開始中（`starting`）の間もRetryを止める: POST `/runs`が
+								// 解決するまでこのカードは旧runを表示し続けるため、その間に
+								// 旧runの失敗ジョブをRetryすると`JobManager::retry()`が
+								// `start_run()`の同時実行ガードを経由せずrequeueし、
+								// 新旧2つのrunが同時に本番へ書き込みうる（Codexレビュー指摘）。
+								retryDisabled={
+									exportBusy || dryRunExportState.starting
+								}
+								isTerminal={ dryRunExportTerminal }
+								reportsAvailable
+								onlyWarnings={ dryRunExportState.onlyWarnings }
+								onOnlyWarningsChange={ ( value ) =>
+									setDryRunExportState( ( prev ) => ( {
+										...prev,
+										onlyWarnings: value,
+									} ) )
+								}
+							/>
+						) }
+					</CardBody>
+				</Card>
+			) }
+
+			{ exportState.runId && (
+				<Card className="cbjp-export__run">
+					<CardHeader>
+						<strong>
+							{ __( 'Export results', 'cart-bridge-jp' ) }
+						</strong>
+						<Button
+							variant="tertiary"
+							disabled={
+								null !== exportState.retryingJobId ||
+								( ! exportTerminal && ! exportPolling.notFound )
+							}
+							onClick={ () => clearExportRun( 'export' ) }
+						>
+							{ __( 'Clear', 'cart-bridge-jp' ) }
+						</Button>
+					</CardHeader>
+					<CardBody>
+						{ exportPolling.error && (
+							<Notice status="error" isDismissible={ false }>
+								{ exportPolling.error }
+							</Notice>
+						) }
+						{ exportTerminal &&
+							zeroWrittenExportEntities.length > 0 && (
+								<Notice
+									status="warning"
+									isDismissible={ false }
+								>
+									{ sprintf(
+										/* translators: %s: comma-separated list of entity labels */
+										__(
+											'Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why.',
+											'cart-bridge-jp'
+										),
+										zeroWrittenExportEntities
+											.map(
+												( entity ) =>
+													ENTITY_LABELS[ entity ]
+											)
+											.join( ', ' )
+									) }
+								</Notice>
+							) }
+						{ exportTerminal && limits && exportPolling.run && (
+							<LimitsUpsellNotice
+								jobs={ exportPolling.run.jobs }
+								limits={ limits }
+								entityLabels={ ENTITY_LABELS }
+								dryRunTotals={ dryRunTotals }
+							/>
+						) }
+						{ exportPolling.run && (
+							<RunProgress
+								run={ exportPolling.run }
+								entityLabels={ ENTITY_LABELS }
+								onRetry={ ( jobId ) =>
+									retryExportJob( 'export', jobId )
+								}
+								retryingJobId={ exportState.retryingJobId }
+								onCancel={ () =>
+									cancelExportRun(
+										'export',
+										exportState.runId as string
+									)
+								}
+								cancelling={ exportState.cancelling }
+								// `starting`を含める理由は上のdry-run側カードと同じ
+								// （Codexレビュー指摘）。
+								retryDisabled={
+									dryRunExportBusy || exportState.starting
+								}
+								isTerminal={ exportTerminal }
+								reportsAvailable={ false }
+								onlyWarnings={ exportState.onlyWarnings }
+								onOnlyWarningsChange={ ( value ) =>
+									setExportState( ( prev ) => ( {
+										...prev,
+										onlyWarnings: value,
+									} ) )
+								}
+							/>
+						) }
+					</CardBody>
+				</Card>
 			) }
 		</div>
 	);

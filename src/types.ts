@@ -59,7 +59,7 @@ export const ENTITY_ORDER = [
 
 export type EntityType = ( typeof ENTITY_ORDER )[ number ];
 
-export type RunType = 'dry_run' | 'import';
+export type RunType = 'dry_run' | 'import' | 'dry_run_export' | 'export';
 
 export type JobStatus =
 	| 'pending'

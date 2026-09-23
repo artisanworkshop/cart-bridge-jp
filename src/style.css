@@ -162,6 +162,18 @@
 	margin-top: 1.5em;
 }
 
+.cbjp-export__run {
+	margin-top: 1.5em;
+}
+
+.cbjp-export__run .components-card__header {
+	justify-content: space-between;
+}
+
+.cbjp-export__entities .components-checkbox-control + .components-checkbox-control {
+	margin-top: 0.5em;
+}
+
 .cbjp-tools__repair-table {
 	margin-top: 0.5em;
 }
