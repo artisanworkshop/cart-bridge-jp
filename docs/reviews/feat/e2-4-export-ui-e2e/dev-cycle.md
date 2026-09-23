@@ -2,8 +2,8 @@
 - タスク: E2-4 エクスポートUI + 往復E2E
 - 開始: 2026-09-23
 - PR: #53 https://github.com/artisanworkshop/cart-bridge-jp/pull/53
-- 現在のステップ: 6（G3依頼へ。両bot依頼2回・未収束、最大3回まで）
-- Copilot: 依頼2回・未収束 / Codex: 依頼2回・未収束（1件保留のまま未解決で残置）
+- 現在のステップ: 6（G3応答待ち。最終ラウンド）
+- Copilot: 依頼3回・未収束 / Codex: 依頼3回・未収束（1件保留のまま未解決で残置）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -19,3 +19,4 @@
 | 2026-09-23 | 8 | ユーザー確認取得。push（`a8e4da7`）・CI green・両スレッドへ返信しResolve・G1サマリコメント投稿。G1.md記録。両bot未収束のためG2へ |
 | 2026-09-23 | 9 | G1記録commit（`e612c2a`）push・CI green。Codex/CopilotへG2依頼（T=2026-09-23T08:32:25Z） |
 | 2026-09-23 | 10 | G2応答受信: Codex 1件（P1、`JobManager::retry()`のプラットフォーム単位ガード欠如）・Copilot本文1件（R2.mdの実サブドメイン残存）。Copilot分は修正、Codex分はバックエンド変更を要しPHP変更なしのスコープを超えるためユーザーに確認し保留（backlog記録・スレッドは未解決のまま返信）。push（`ec94dd9`）・CI green・G2.md記録・サマリコメント投稿済み |
+| 2026-09-23 | 11 | G2記録commit（`c8531c2`）push・CI green。Codex/CopilotへG3依頼（T=2026-09-23T08:52:49Z、最終ラウンド） |
