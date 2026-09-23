@@ -23,3 +23,4 @@
 | 2026-09-23 | 12 | G3応答受信: Codex 1件（P2、limits応答の古さ判定漏れ、修正・Resolve済み）、Copilot 2件（`reportsAvailable`誤検知1件・G2-1と重複1件、いずれも根拠を返信し未解決のまま残置）。push（`f3e1cb7`）・CI green・G3.md記録・サマリコメント投稿済み。両bot依頼上限（3回）到達につき依頼終了 |
 | 2026-09-23 | 13 | final-report.md作成。dev-cycle完了、マージ待ち |
 | 2026-09-23 | 14 | ユーザー依頼によりissue #54起票（`JobManager::retry()`のプラットフォーム単位ガード欠如）。backlog2件（G1-codex-import-tab-same-gap・G2-codex-retry-platform-wide-guard）とPRスレッド2件に issue番号を反映 |
+| 2026-09-23 | 15 | ユーザー依頼によりissue #55起票（`LimitsUpsellNotice`が無料版上限未到達でも「Pro版が必要」と誤表示しうる）。backlogに issue番号を反映 |
