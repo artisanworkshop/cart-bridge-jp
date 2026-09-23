@@ -88,9 +88,11 @@ interface PlatformAdapter {
 2. **v1.0.0 公開前**: 従来どおりインターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`の
    シグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例）。変更したら
    `AbstractPlatformAdapterTest::BASELINE` を更新する
-3. **v1.0.0 公開後**（BASELINEは凍結）: 既存メソッドのシグネチャ（引数・型・戻り値型）を変更しない。
-   変更が要る場合は新しいメソッドを足す。新しいメソッドは `AbstractPlatformAdapter` に既定実装を
-   **同時に**追加する。既定実装は原則 `UnsupportedOperationException` を投げる。ただし `null`・空配列
+3. **v1.0.0 公開後**（BASELINEの既存エントリは凍結）: 既存メソッドのシグネチャ（引数・型・戻り値型）を
+   変更しない。変更が要る場合は新しいメソッドを足す。新しいメソッドは `AbstractPlatformAdapter` に
+   既定実装を、`AbstractPlatformAdapterTest::BASELINE` にシグネチャを**同時に**追加する
+   （どちらか一方だけでは互換性を保証できない。規則5参照）。既定実装は原則 `UnsupportedOperationException`
+   を投げる。ただし `null`・空配列
    など「正常な結果」と区別できない値を既定にはしない（アーキテクチャ原則9。例: ID指定取得の`null`は
    「404（存在しない）」を意味するため、既定値にすると外部アダプタ側の「未実装」を「存在しない」と
    誤認させる）。呼び出し側は`UnsupportedOperationException`を捕捉してスキップ/フェイルクローズする
@@ -99,18 +101,21 @@ interface PlatformAdapter {
    `ConnectionField`/`Page`/`Cursor`）: 新しい引数は末尾に既定値付きで追加する。`Capabilities`の新フラグの
    既定値は安全側（`false`）にする。`Canonical*`モデルの「`extras`より後ろに追加」規則（原則8）と同じ扱い
 5. 上記2・3を `tests/unit/Adapters/AbstractPlatformAdapterTest` が2本のテストで強制する:
-   `test_interface_signatures_match_v1_baseline`は`PlatformAdapter`インターフェース自体をリフレクションし
-   `BASELINE`定数に記録済みのメソッドのシグネチャ（引数・型・参照渡し・可変長引数に加え`static`修飾子・
-   戻り値の参照渡しも含む）が変わっていないか確認する（`AbstractPlatformAdapter`側で後から既定実装を
-   持つようになったメソッドでも、インターフェース宣言自体の変更は検出する）。
+   `test_interface_signatures_match_v1_baseline`は`PlatformAdapter`インターフェース自体をリフレクションし、
+   **現在の全メソッド一覧・シグネチャ（引数・型・参照渡し・可変長引数に加え`static`修飾子・戻り値の
+   参照渡しも含む）が`BASELINE`定数と完全一致するか**を確認する（`AbstractPlatformAdapter`側で後から
+   既定実装を持つようになったメソッドでも、インターフェース宣言自体の変更は検出する）。`BASELINE`は
+   常にインターフェースの全メソッドを1対1で記録する設計にしており、新しいメソッドを`BASELINE`へ
+   追記し忘れた場合もこのテストの不一致として検出する（追記を「任意」にすると、そのメソッドの
+   シグネチャがどのテストでも一切凍結されないまま変更できてしまう。本ポリシー導入PRのG2でCodexが指摘）。
    `test_new_methods_have_default_implementations`は、v1.0時点で存在しなかったメソッド
    （`BASELINE`とは別に固定した`V1_METHOD_NAMES`定数に無いメソッド名）が`AbstractPlatformAdapter`で
    既定実装を持たないまま（＝抽象のまま）追加されていないかを恒久的に確認する。判定基準を`BASELINE`
-   ではなく固定の`V1_METHOD_NAMES`にしているのは、`BASELINE`は新しいメソッドのシグネチャ凍結のために
-   任意で追記されうるため、それを判定にも流用すると「一度既定実装を持ち`BASELINE`にも追記された後で、
-   シグネチャは変えずに既定実装だけが削除される」変更を検出できなくなるため（本ポリシー導入PRのG1で
-   Codexが指摘）。ただし`BASELINE`/`V1_METHOD_NAMES`定数自体の書き換えはテストでは防げない（公開後に
-   既存エントリを書き換えてテストを通してしまうことは技術的に可能なため、レビューで検出する運用が前提）
+   ではなく固定の`V1_METHOD_NAMES`にしているのは、`BASELINE`のキーをそのまま使うと「一度既定実装を持ち
+   `BASELINE`にも追記された後で、シグネチャは変えずに既定実装だけが削除される」変更を検出できなくなる
+   ため（同PRのG1でCodexが指摘）。ただし`BASELINE`/`V1_METHOD_NAMES`定数自体の書き換えはテストでは
+   防げない（公開後に既存エントリを書き換えてテストを通してしまうことは技術的に可能なため、レビューで
+   検出する運用が前提）
 6. 不採用案: 機能ごとの任意インターフェースへの分割（例: 受注の単一取得だけを別インターフェースにし、
    呼び出し側が`instanceof`で分岐する）。前例が無く分岐が増え、#38（受注のID指定取得）のように結局
    `PlatformAdapter`へ統合したくなる見込みのため（PR #48でCodex/Copilotが提案した代替案）

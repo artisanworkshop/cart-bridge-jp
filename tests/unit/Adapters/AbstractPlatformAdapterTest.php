@@ -19,24 +19,26 @@ use WP_UnitTestCase;
  * `PlatformAdapter` の外部互換ポリシー（D20。`docs/03-design-decisions.md` §2）を強制する契約テスト。
  *
  * v1.0.0 公開後にここが失敗する場合は次のいずれかを意味する:
- * - BASELINEに記録済みのメソッドのシグネチャが変わった（`test_interface_signatures_match_v1_baseline`）。
- *   `AbstractPlatformAdapter`側で既定実装を持つようになった後でも、インターフェース側の宣言を
- *   直接変更すれば検出する（既定実装の有無に関わらず、シグネチャ自体はBASELINE記録時点で凍結）
+ * - `PlatformAdapter`インターフェースの現在のメソッド一覧・シグネチャが`BASELINE`と一致しなくなった
+ *   （`test_interface_signatures_match_v1_baseline`。**`BASELINE`は常にインターフェースの全メソッドを
+ *   1対1で記録する**。新しいメソッドを追加したらそのメソッドも同時に`BASELINE`へ追加しないとこのテストが
+ *   失敗する — 追加を「任意」にすると、そのメソッドのシグネチャが以降まったく凍結されないまま
+ *   `AbstractPlatformAdapter`の既定実装ごと変更できてしまう。PR #58 G2 Codex指摘）
  * - v1.0時点に存在しなかった（＝`V1_METHOD_NAMES`に無い）新しいメソッドが `AbstractPlatformAdapter`
- *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。BASELINEへ
- *   追記済みかどうかに関わらず、`V1_METHOD_NAMES`に無い限り恒久的にチェックし続ける）
+ *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。`BASELINE`とは
+ *   別に固定した`V1_METHOD_NAMES`を基準にする。PR #58 G1-2 Codex指摘）
  * いずれも `AbstractPlatformAdapter` を継承した外部実装を fatal にしうる変更である。
- * 公開後はBASELINEの既存エントリを書き換えず、新メソッドは`AbstractPlatformAdapter`に既定実装を
- * 添えて追加すること（BASELINEへの追記は任意。追記すればそのメソッドのシグネチャも以降凍結される）。
+ * 公開後はBASELINEの既存エントリを書き換えず、新しいメソッドを`PlatformAdapter`へ追加するときは
+ * `AbstractPlatformAdapter`への既定実装の追加と`BASELINE`への追記を**同時に**行うこと。
  *
  * v1.0.0 公開前はBASELINEを自由に更新してよい（D19/D20が許容する期間）。
  */
 final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 
 	/**
-	 * v1.0 時点の `PlatformAdapter` 全メソッドのシグネチャ一覧（凍結対象）。
+	 * `PlatformAdapter` の現在の全メソッドのシグネチャ一覧（凍結対象。1対1で完全一致する必要がある）。
 	 * `describe_signature()` と同じ形式（メソッド名 => "(引数...): 戻り値型"。static修飾子・
-	 * 参照渡し戻り値がある場合は先頭に付与）。
+	 * 参照渡し戻り値がある場合は先頭に付与）。新しいメソッドを追加したら必ずここにも追記すること。
 	 *
 	 * @var array<string,string>
 	 */
@@ -105,36 +107,37 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	];
 
 	/**
-	 * BASELINEに記録済みのメソッドは、`AbstractPlatformAdapter`側で既定実装を持つようになった後でも
-	 * シグネチャが変わっていないこと（インターフェース自体を反射して確認する。既定実装の有無では
-	 * 判定しない）。BASELINEに無い新しいメソッドが増えるのは許容する（`test_new_methods_have_default_implementations`
-	 * が別途チェックする）。
+	 * `PlatformAdapter`の現在の全メソッド・シグネチャがBASELINEと完全一致すること
+	 * （既定実装の有無に関わらず、インターフェース自体を反射して確認する）。BASELINEは常に
+	 * インターフェースの全メソッドを1対1で記録するため、新しいメソッドの追加も検出する
+	 * （BASELINEへの追記漏れとして失敗する。`test_new_methods_have_default_implementations`と役割が
+	 * 分かれており、こちらはシグネチャ凍結、あちらは既定実装の有無を担当する）。
 	 */
 	public function test_interface_signatures_match_v1_baseline(): void {
 		$reflection = new ReflectionClass( PlatformAdapter::class );
 		$actual     = self::describe_methods( $reflection );
 
-		foreach ( self::BASELINE as $name => $expected_signature ) {
-			$this->assertArrayHasKey(
-				$name,
-				$actual,
-				"PlatformAdapter::{$name}() がインターフェースから削除されています。BASELINEに記録済みのメソッドは削除できません（D20）。"
-			);
-			$this->assertSame(
-				$expected_signature,
-				$actual[ $name ],
-				"PlatformAdapter::{$name}() のシグネチャが変わっています。v1.0.0 公開後はBASELINEに記録済みの" .
-				'シグネチャを変更できません。変更が必要なら新しいメソッドとして追加してください（D20、docs/03-design-decisions.md §2）。' .
-				'v1.0.0 公開前の意図した変更であれば、このテストの BASELINE 定数を更新してください。'
-			);
-		}
+		ksort( $actual );
+		$expected = self::BASELINE;
+		ksort( $expected );
+
+		$this->assertSame(
+			$expected,
+			$actual,
+			'PlatformAdapterの現在のメソッド一覧・シグネチャがBASELINEと一致しません。新しいメソッドを追加した' .
+			'場合はBASELINEにも同時に追記してください（追記を怠ると、そのメソッドのシグネチャが凍結されないまま' .
+			'変更できてしまいます）。既存メソッドのシグネチャ変更であれば、v1.0.0 公開後は許可されません' .
+			'（D20、docs/03-design-decisions.md §2）。公開前の意図した変更であれば、このテストの BASELINE ' .
+			'定数を更新してください。'
+		);
 	}
 
 	/**
 	 * `V1_METHOD_NAMES`に無い（＝v1.0以降に追加された）メソッドは、`AbstractPlatformAdapter`で既定実装を
-	 * 持っている（＝抽象のままではない）こと。BASELINEに追記済みかどうかは判定に使わない（そのメソッドが
-	 * 既定実装ごと`AbstractPlatformAdapter`から削除される変更も、シグネチャ自体は変わらないため
-	 * `test_interface_signatures_match_v1_baseline`では検出できず、このテストで恒久的に検出し続ける必要がある）。
+	 * 持っている（＝抽象のままではない）こと。`BASELINE`（シグネチャ凍結用）とは独立した判定基準を使う
+	 * （そのメソッドが既定実装ごと`AbstractPlatformAdapter`から削除される変更は、シグネチャ自体は
+	 * 変わらないため`test_interface_signatures_match_v1_baseline`では検出できず、このテストで
+	 * 恒久的に検出し続ける必要がある。`V1_METHOD_NAMES`が固定である理由は同定数のdocblock参照）。
 	 */
 	public function test_new_methods_have_default_implementations(): void {
 		$interface_method_names = array_keys( self::describe_methods( new ReflectionClass( PlatformAdapter::class ) ) );
