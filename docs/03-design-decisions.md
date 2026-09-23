@@ -958,12 +958,20 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   `acknowledge_production_write: true`を含める（サーバー側の検証は既存の
   `RestController::acknowledged_production_write()`をそのまま利用。E2-2で実装済み）。
   ImportTab側の`window.confirm()`は本PRの差分範囲外のため変更していない（将来的に揃えるかは
-  別途判断。`docs/review-backlog.md`未記載の申し送り事項）。
+  別途判断。`docs/review-backlog.md`の`e2-4-export-ui-e2e/confirm-ux-asymmetry`参照）。
+  R1レビュー指摘を受け、チェック済みで実export（`type=export`）を開始できたら
+  `acknowledgeProductionWrite`を自動的にfalseへ戻すよう修正した（ImportTabの
+  `window.confirm()`は実行のたびに確認を取るのに対し、チェックボックスは状態として
+  残り続けるため、外さないと2回目以降の本番実行が確認なしでクリック1回になってしまう）。
 - **警告バナー**（`docs/review-backlog.md`の`e2-2-exporter-core/R1-M8`を解消）: 実行(非dry-run)の
   exportで対象アイテムが全てskipped/warnedになってもジョブは`STATUS_COMPLETED`のまま終わり
   個別警告はどこにも永続化されない（`Sync\Importer`と同じ既存方針）。export結果カードで
-  `created + updated === 0 && warned > 0`のcompletedジョブを検出し、対象エンティティを列挙する
-  警告バナーを表示するようにした。
+  `created + updated === 0`のcompletedジョブを検出し、対象エンティティを列挙する警告バナーを
+  表示するようにした。条件は`warned > 0`ではなく`warned === processed`（処理した全件が警告）
+  にしている: `Sync\Exporter::process_items()`はchecksum一致でskipした場合でも読出時点の
+  非ブロッキング警告があれば`warned`を加算し続けるため（「解消済みに見えてしまう」のを防ぐ
+  既存仕様）、`warned > 0`のままだと健全な冪等スキップ（一部アイテムだけ残留警告あり）でも
+  誤検出しうる（R1レビュー指摘、独立サブエージェントが検出）。
 - **capabilityゲート**（`docs/review-backlog.md`の`e2-2-exporter-pr-b/R1-L6`を解消）:
   上記`availableExportEntities()`により、`can_create_order=false`等のプラットフォームでは
   そもそも対応するチェックボックスを出さない（実機E2E時、非プレミアムのColorMeテストショップで
@@ -971,20 +979,29 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
 
 ##### 実機E2E（ColorMeテストショップ、2026-09-23）
 
-`docs/reference`のColorMe資格情報メモ（旧アプリ・旧テストショップ）が別ログインに紐づいていたため、
-同一セッション内でdeveloper.shop-pro.jpに新規プライベートアプリ＋新規テストショップ
-（`ttka3lg60f.shop-pro.jp`）を作成し直して接続した（旧テストショップの実データは今回引き継げて
-いない）。同ショップは非プレミアムプラン（`can_create_order=false`/`can_create_coupon=false`）の
-ため、**受注・クーポンのexportは検証できていない**（Export UI側でチェックボックスが正しく
-非表示になることのみ確認）。製品・顧客・在庫で以下を確認した:
+セッション内メモ（developer.shop-pro.jpの資格情報。gitにはコミットしていないローカル
+`colorme.env`と、アシスタントのローカルmemory）が指すColorMe資格情報（旧アプリ・旧テストショップ）
+が別ログインに紐づいていたため、同一セッション内でdeveloper.shop-pro.jpに新規プライベートアプリ＋
+新規テストショップを作成し直して接続した（旧テストショップの実データは今回引き継げていない）。
+同ショップは非プレミアムプラン（`can_create_order=false`/`can_create_coupon=false`）のため、
+**受注・クーポンのexportは検証できていない**（Export UI側でチェックボックスが正しく非表示になる
+ことのみ確認）。製品・顧客・在庫で以下を確認した:
 
 1. dry-run export（全量走査、無料版でも上限なし=D15）→ Preview export resultsのcompleted表示・
    CSVレポートDLが機能することを確認。
-2. 実export → 自由版サンプル上限（product=2）により対象7件中2件のみ実際に作成されることを
-   `LimitsUpsellNotice`のアップセル表示で確認し、ColorMe側APIを直接叩いて商品2件・顧客1件が
-   実際に作成されたことを確認（price/stock_managed/pref_id/postal/telが正しく変換されている）。
-   同じrun内でproductジョブが先に完了しmappingが確定するため、後続のstockジョブが新規作成
-   直後の商品へも正しくpush（updated）できることを確認した。
+2. 実export → 対象7件中2件のみ実際に作成された。原因は無料版の上限（`LimitPolicy::
+   DEFAULT_LIMITS['product']=50`。未到達）ではなく、`Sync\ExportSampleSelector`が受注起点
+   （wp-env環境に残っていた過去セッション由来のHPOSプレースホルダー受注10件）でサンプルを
+   選定し、その明細に含まれていた3商品のうち1件（variable商品で全バリエーション非公開＝
+   dry-runでも`skipped`だった商品）が対象外だったため（`LimitsUpsellNotice`の「Products: 7
+   found, 2 migrated...the remaining 5 require the Pro version」という文言は、この「限定的な
+   サンプルにしか含まれず未走査」なケースを「上限到達」と区別できておらず、実態を正確に
+   表していない。`docs/review-backlog.md`の`e2-4-export-ui-e2e/limits-upsell-message-misleading`
+   参照。`LimitsUpsellNotice.tsx`はE2-1由来の共有コンポーネントで本PRの差分範囲外のため
+   修正はしていない）。ColorMe側APIを直接叩いて商品2件・顧客1件が実際に作成されたことを確認
+   （price/stock_managed/pref_id/postal/telが正しく変換されている）。同じrun内でproductジョブが
+   先に完了しmappingが確定するため、後続のstockジョブが新規作成直後の商品へも正しくpush
+   （updated）できることを確認した。
 3. Importタブで再取込み（ImportTab側の`window.confirm()`はブラウザ自動操作を止めうるため、UI
    クリックではなく`rest_do_request()`を`wp eval-file`から直接呼んでrunを起動し、Action
    Schedulerジョブは`wp action-scheduler run`で手動実行した。ImportTab自体のUI変更は無いため

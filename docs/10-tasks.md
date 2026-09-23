@@ -346,16 +346,24 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `POST /runs`へ`acknowledge_production_write: true`を送る）。
   `docs/review-backlog.md`の`e2-2-exporter-pr-b/R1-L6`（capabilityゲート）・
   `e2-2-exporter-core/R1-M8`（実行export全skip/warnedの無警告）を解消（後者はexport結果カードに
-  `created+updated===0 && warned>0`のcompletedジョブを検出する警告バナーを追加）。
+  `created+updated===0 && warned===processed`のcompletedジョブを検出する警告バナーを追加。
+  `warned>0`だとchecksum一致skipに残留する非ブロッキング警告だけで誤検出しうるため、R1レビュー
+  指摘を受けて絞った）。
   **実機E2E（ColorMeテストショップ、2026-09-23）**: 開発者ポータルの既存プライベートアプリ
-  （`docs/reference/colorme-env-credentials`参照）が別ログインに紐づいていたため、
-  同一セッション内で新規アプリ+新規テストショップ（`ttka3lg60f.shop-pro.jp`）を作成し直して接続。
-  同ショップは非プレミアムプラン（`can_create_order=false`/`can_create_coupon=false`）のため、
-  受注・クーポンのexportはこのE2Eでは検証できず（Export UI側でチェックボックス自体が
-  正しく非表示になることは確認済み）、**製品・顧客・在庫のみで検証**した:
+  （`colorme.env`・アシスタントのローカルmemoryが指す資格情報）が別ログインに紐づいていたため、
+  同一セッション内で新規アプリ+新規テストショップを作成し直して接続。同ショップは非プレミアム
+  プラン（`can_create_order=false`/`can_create_coupon=false`）のため、受注・クーポンのexportは
+  このE2Eでは検証できず（Export UI側でチェックボックス自体が正しく非表示になることは確認済み）、
+  **製品・顧客・在庫のみで検証**した:
   1. dry-run export（全量走査）→ Preview export results・CSVレポートDLが正しく機能
-  2. 実export（フリー版サンプル上限=2で自動的に絞り込まれることを`LimitsUpsellNotice`で確認）→
-     ColorMe側に商品2件・顧客1件が実際に作成されたことをAPI直叩きで確認
+  2. 実export → 対象7件中2件のみ作成。原因は無料版上限（product=50、未到達）ではなく
+     `ExportSampleSelector`の受注起点サンプル選定が拾った3候補のうち1件が元々exportできない
+     商品（variable商品で全バリエーション非公開）だったため。`LimitsUpsellNotice`の
+     「remaining N require Pro」表示はこのケースを上限到達と誤って表現しており、この表示
+     文言自体の不正確さを`docs/review-backlog.md`の
+     `e2-4-export-ui-e2e/limits-upsell-message-misleading`に記録した（共有コンポーネントの
+     既存の問題で本PRの差分範囲外）。ColorMe側に商品2件・顧客1件が実際に作成されたことを
+     API直叩きで確認
   3. Importタブから再取込み（`window.confirm()`を避けるため`rest_do_request()`で直接起動）→
      mappingにより既存のWoo商品/顧客を**重複作成せず更新**（往復でのデータ増殖なし）。
      価格・在庫管理フラグ・郵便番号/県ID(pref_id)/電話番号は正しく往復した。
