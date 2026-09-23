@@ -2,7 +2,8 @@
 - タスク: E2-4 エクスポートUI + 往復E2E
 - 開始: 2026-09-23
 - PR: #53 https://github.com/artisanworkshop/cart-bridge-jp/pull/53
-- 現在のステップ: 5（CI待ち）
+- 現在のステップ: 6（ボットレビュー待ち、G1）
+- Copilot: 依頼1回 / Codex: 依頼1回
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -13,3 +14,4 @@
 | 2026-09-23 | 3 | R1独立サブエージェントレビュー完了: Medium3件（acknowledge未リセット・M8バナー偽陽性・retry/cancelの世代ガード欠落）を修正、Low6件をbacklog送り。調査の過程でdocsの「product=2上限」記述が誤りと判明し訂正（実際は`ExportSampleSelector`のサンプル選定＋1件exportできない商品が原因）。修正後HEAD `3065a65`。R1.md記録済み |
 | 2026-09-23 | 4 | R2検証（独立サブエージェント）完了: R1-1〜R1-3（Medium）解消確認、R1-10（Low）の一部未解消（実テストショップのサブドメインが状態ファイルに残存）を修正、新規Low1件（`R2-L1`）をbacklog送り。APPROVE。修正後HEAD `a38f0bc`。review-loop完了 |
 | 2026-09-23 | 5 | push・PR #53作成。CI待ちへ |
+| 2026-09-23 | 6 | CI green（JS/TS, PHP quality 8.2/8.3, PHPUnit wp-env）。Codex/Copilotへ同時依頼（T=2026-09-23T06:26:36Z） |
