@@ -5,7 +5,7 @@
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13 / D20は2026-09-24）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -28,6 +28,7 @@
 | D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
 | D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は、プラットフォーム固有のコードをアダプタ外に書かない（アーキテクチャ原則1）ことを維持しつつ、プラットフォーム非依存のコア拡張点（例: 受注インポート時に抽出した顧客をImporterが永続化するフック=B4-5、レート制限超過時の再試行遅延をアダプタ側から指定できるJobManagerの拡張点=E5-1）の追加は許容し、Importer/Exporter本体にプラットフォーム固有の分岐を持ち込まないことを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
 | D19 | マッピング候補一覧の取得方式（E2-1） | `PlatformAdapter`（§2「確定版」）に `mappingCandidates(): array` を追加する。`/settings/mappings/{platform}` のマッピングUI（カテゴリ/決済/配送/注文ステータス）が選択肢を動的に描画するための自己記述スキーマで、既存の `connectionFields()` と同じ設計思想。外部アドオンによるカスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換リスクは低いと判断した（該当メソッドが無いカスタムアダプタは致命的エラーになるため、将来外部アダプタが増えた場合はこの追加を周知する）。あわせて `cbjp_settings_{platform}` に `category_map`（キー: Woo側カテゴリID、値: ASP側カテゴリID）を追加。カラーミーがカテゴリ作成不可なため、既存の `payment_map`/`shipping_map`/`status_map`（ASP側ID→Woo側ID）とは向きが逆になる。**E2-2/E2-3への申し送り**: `payment_map`/`shipping_map`はASP→Wooの単射とは限らない（複数のASP決済/配送方法が同じWooゲートウェイ/配送方法へ寄せられうる）ため、エクスポート時にWoo側の値からASP側の値へ機械的に逆引きすることはできない。E2-3の`push_order`実装時にこの逆引きの曖昧性をどう解決するか（例: 最初に一致した1件を使う、複数一致時は警告付きでフェイルクローズする等）を設計すること |
+| D20 | `PlatformAdapter` の外部互換ポリシー（issue #49） | D19が「将来外部アダプタが増えた場合に周知する」としていた宿題を、v1.0公開前の今のうちに確定する。**外部（Pro版・サードパーティ）実装は `PlatformAdapter` を直接 implements せず、新設の `AbstractPlatformAdapter`（§2）を継承する**。v1.0.0公開までは（本決定を含め）インターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`のシグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例を踏襲）。**v1.0.0公開後は既存メソッドのシグネチャを変更しない**。新しいメソッドは `AbstractPlatformAdapter` に既定実装（原則 `UnsupportedOperationException`）を同時に追加する形でのみ足す。この2点を `tests/unit/Adapters/AbstractPlatformAdapterTest`（リフレクションで抽象メソッド一覧とシグネチャをBASELINE定数と照合する契約テスト）でCI上強制する。詳細は §2「外部互換ポリシー」。不採用: 機能ごとの任意インターフェースへの分割（前例が無く`instanceof`分岐が増える。PR #48でCodex/Copilotが提案）。PR #48の該当2スレッド（`fetch_order_by_remote_id()`追加への指摘）はこの決定を根拠に解決する |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -75,6 +76,39 @@ interface PlatformAdapter {
     public function pushCoupon( CanonicalCoupon $c, ?string $remoteId ): PushResult;
 }
 ```
+
+### 外部互換ポリシー（D20）
+
+`PlatformAdapter` はメソッドを足すたびに、これを直接 `implements` する外部実装を読み込み時点で fatal に
+しうる（PHPは抽象メソッドの欠けたクラスをロードした時点でエラーにする）。issue #49 で以下を確定した:
+
+1. **外部（Pro版・サードパーティ）アダプタは `PlatformAdapter` を直接 `implements` せず、
+   `AbstractPlatformAdapter`（`includes/Adapters/AbstractPlatformAdapter.php`。本体は空の抽象クラス）
+   を継承する。** 直接 `implements` する実装は本ポリシーの互換保証の対象外
+2. **v1.0.0 公開前**: 従来どおりインターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`の
+   シグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例）。変更したら
+   `AbstractPlatformAdapterTest::BASELINE` を更新する
+3. **v1.0.0 公開後**（BASELINEは凍結）: 既存メソッドのシグネチャ（引数・型・戻り値型）を変更しない。
+   変更が要る場合は新しいメソッドを足す。新しいメソッドは `AbstractPlatformAdapter` に既定実装を
+   **同時に**追加する。既定実装は原則 `UnsupportedOperationException` を投げる。ただし `null`・空配列
+   など「正常な結果」と区別できない値を既定にはしない（アーキテクチャ原則9。例: ID指定取得の`null`は
+   「404（存在しない）」を意味するため、既定値にすると外部アダプタ側の「未実装」を「存在しない」と
+   誤認させる）。呼び出し側は`UnsupportedOperationException`を捕捉してスキップ/フェイルクローズする
+   （既存の`fetch_reviews()`等と同じ扱い）
+4. **アダプタが組み立てる値オブジェクト**（`Capabilities`/`PushResult`/`ConnectionResult`/
+   `ConnectionField`/`Page`/`Cursor`）: 新しい引数は末尾に既定値付きで追加する。`Capabilities`の新フラグの
+   既定値は安全側（`false`）にする。`Canonical*`モデルの「`extras`より後ろに追加」規則（原則8）と同じ扱い
+5. 上記2・3を `tests/unit/Adapters/AbstractPlatformAdapterTest` が強制する。`AbstractPlatformAdapter`の
+   未実装（抽象のままの）メソッド一覧・シグネチャをリフレクションで取得し、`BASELINE`定数と比較する。
+   一致しなければ「既定実装のないメソッド追加」または「既存シグネチャの変更」が発生している
+6. 不採用案: 機能ごとの任意インターフェースへの分割（例: 受注の単一取得だけを別インターフェースにし、
+   呼び出し側が`instanceof`で分岐する）。前例が無く分岐が増え、#38（受注のID指定取得）のように結局
+   `PlatformAdapter`へ統合したくなる見込みのため（PR #48でCodex/Copilotが提案した代替案）
+
+**PR #48の申し送り**: `fetch_order_by_remote_id()`追加（#46）に対するCodex/Copilotの指摘
+（[Codex](https://github.com/artisanworkshop/cart-bridge-jp/pull/48#discussion_r4057015250) /
+[Copilot](https://github.com/artisanworkshop/cart-bridge-jp/pull/48#discussion_r4057158034)）は、
+本D20の確定をもって解決したものとして扱う（該当スレッドは本ポリシー導入のPRで返信・Resolveする）。
 
 ### Capabilities（readonly値オブジェクト）
 

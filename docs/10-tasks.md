@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-20
+最終更新: 2026-09-24
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -167,6 +167,15 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   他run種別のbusyのみを見て自分の種別の`starting`を見ていない。`docs/review-backlog.md` `e2-4-export-ui-e2e/G1-codex-import-tab-same-gap`）
   も同時に解消。`cancel_run()` の同種の競合（`f1-6-import-ui/R1-X1`）は根本原因（Action Scheduler側の実行中断不可）が
   異なるため本fixのスコープには含めず、別issueのまま残した
+- [x] **refactor: `PlatformAdapter` の外部互換ポリシー（D20）**（2026-09-24、issue #49）
+  PR #39/#45/#48でCodex/Copilotから繰り返し指摘されていた「インターフェースへのメソッド追加が外部実装を
+  fatalにしうる」問題に方針を確定。新設 `Adapters\AbstractPlatformAdapter`（空の抽象クラス）を外部
+  （Pro版・サードパーティ）アダプタが継承すべき基底とし、`ColorMeAdapter`/`MockPlatformAdapter`をそれへ移行。
+  v1.0.0公開前は従来どおりインターフェースへの追加・変更を許容し、公開後は既存シグネチャを変えず新メソッドは
+  基底クラスに既定実装を添えて追加する、という2段階のルールを`docs/03-design-decisions.md` §2「外部互換
+  ポリシー」とCLAUDE.md原則8に明記。`tests/unit/Adapters/AbstractPlatformAdapterTest`（リフレクションで
+  未実装メソッド一覧とシグネチャをBASELINE定数と照合する契約テスト）でCI上強制する。PR #48の該当2スレッド
+  （`fetch_order_by_remote_id()`追加への指摘）はこの決定を根拠にResolve
 
 ---
 
@@ -399,7 +408,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断）
-- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release）
+- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開と同時に `AbstractPlatformAdapterTest` のBASELINEが凍結される（D20・issue #49）**: これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する）
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
 
 > **要判断（v1.0公開前）**: 無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。
