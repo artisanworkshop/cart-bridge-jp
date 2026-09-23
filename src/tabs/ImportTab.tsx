@@ -597,9 +597,10 @@ export default function ImportTab() {
 								// 別run種別（`importBusy`）に加え、同じ種別で新しいrunを開始中
 								// （`dryRunState.starting`）の間もRetryを止める: POST `/runs`が
 								// 解決するまでこのカードは旧runを表示し続けるため、その間に旧runの
-								// 失敗ジョブをRetryすると`JobManager::retry()`が`start_run()`の
-								// 同時実行ガードを経由せずrequeueし、新旧2つのrunが同時に書き込み
-								// うる（`ExportTab.tsx`と同型。Codex/Copilotレビュー指摘、issue #54）。
+								// 失敗ジョブをRetryすると、サーバー側は新runがpendingになった時点で
+								// 409を返すようになった（`JobManager::retry()`のガード、issue #54）が、
+								// ユーザーに無用な409エラーを見せないよう先にボタン側で止める
+								// （`ExportTab.tsx`と同型）。
 								retryDisabled={
 									importBusy || dryRunState.starting
 								}
