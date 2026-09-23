@@ -927,7 +927,7 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   ColorMe側を0にされたまま二度と補正されない、というR1-L3の具体化）を受けたが、根本対応には
   同一商品の全バリエーションをまとめて扱う設計変更（`Sync\Exporter`の1アイテムずつのpushループの
   見直し）が必要でありPRの差分範囲を大きく超えるため、ユーザー判断のもと本PRでは対応せず
-  `docs/review-backlog.md`（`e2-3-push-stock/G1-1`）へ記録した。
+  `docs/review-backlog.md`（`e2-3-push-stock/G1-1`）へ記録し、issue #52として起票した。
 - `PushResult::$remote_id`は`CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）を返す
   （`cbjp_mappings`の`stock`エンティティ行のキーとして使われる。E2-2 PR-Bで追加済みだった同メソッドの
   唯一の呼び出し元）。
