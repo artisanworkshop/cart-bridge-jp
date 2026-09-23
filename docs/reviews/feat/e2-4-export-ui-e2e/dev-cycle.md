@@ -2,8 +2,8 @@
 - タスク: E2-4 エクスポートUI + 往復E2E
 - 開始: 2026-09-23
 - PR: #53 https://github.com/artisanworkshop/cart-bridge-jp/pull/53
-- 現在のステップ: 5（CI待ち→G2依頼へ）
-- Copilot: 依頼1回・未収束 / Codex: 依頼1回・未収束
+- 現在のステップ: 6（G2応答待ち）
+- Copilot: 依頼2回・未収束 / Codex: 依頼2回・未収束
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -17,3 +17,4 @@
 | 2026-09-23 | 6 | CI green（JS/TS, PHP quality 8.2/8.3, PHPUnit wp-env）。Codex/Copilotへ同時依頼（T=2026-09-23T06:26:36Z） |
 | 2026-09-23 | 7 | G1応答受信: Codex 1件（P1、リトライ時の並行実行競合）・Copilot 1件（個人ローカルパスの露出）。両方妥当と判定し修正（`cae297f`、ローカルcommitのみ）。cbj-dev-cycleの確認ゲートのためpush・GitHub反映（reply/resolve）はユーザー確認待ちで停止 |
 | 2026-09-23 | 8 | ユーザー確認取得。push（`a8e4da7`）・CI green・両スレッドへ返信しResolve・G1サマリコメント投稿。G1.md記録。両bot未収束のためG2へ |
+| 2026-09-23 | 9 | G1記録commit（`e612c2a`）push・CI green。Codex/CopilotへG2依頼（T=2026-09-23T08:32:25Z） |
