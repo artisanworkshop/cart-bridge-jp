@@ -727,6 +727,10 @@ export default function ExportTab() {
 		}
 	}
 
+	const zeroWrittenExportEntities = exportPolling.run
+		? zeroWrittenWarnedEntities( exportPolling.run.jobs )
+		: [];
+
 	if ( connectionsError ) {
 		return (
 			<Notice status="error" isDismissible={ false }>
@@ -1078,38 +1082,26 @@ export default function ExportTab() {
 							</Notice>
 						) }
 						{ exportTerminal &&
-							exportPolling.run &&
-							( () => {
-								const zeroWrittenEntities =
-									zeroWrittenWarnedEntities(
-										exportPolling.run.jobs
-									);
-
-								if ( 0 === zeroWrittenEntities.length ) {
-									return null;
-								}
-
-								return (
-									<Notice
-										status="warning"
-										isDismissible={ false }
-									>
-										{ sprintf(
-											/* translators: %s: comma-separated list of entity labels */
-											__(
-												'Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why.',
-												'cart-bridge-jp'
-											),
-											zeroWrittenEntities
-												.map(
-													( entity ) =>
-														ENTITY_LABELS[ entity ]
-												)
-												.join( ', ' )
-										) }
-									</Notice>
-								);
-							} )() }
+							zeroWrittenExportEntities.length > 0 && (
+								<Notice
+									status="warning"
+									isDismissible={ false }
+								>
+									{ sprintf(
+										/* translators: %s: comma-separated list of entity labels */
+										__(
+											'Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why.',
+											'cart-bridge-jp'
+										),
+										zeroWrittenExportEntities
+											.map(
+												( entity ) =>
+													ENTITY_LABELS[ entity ]
+											)
+											.join( ', ' )
+									) }
+								</Notice>
+							) }
 						{ exportTerminal && limits && exportPolling.run && (
 							<LimitsUpsellNotice
 								jobs={ exportPolling.run.jobs }
