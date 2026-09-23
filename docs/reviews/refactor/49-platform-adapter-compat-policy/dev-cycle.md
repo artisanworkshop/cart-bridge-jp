@@ -2,9 +2,9 @@
 - タスク: issue #49（PlatformAdapter の外部互換ポリシー。D20。(a)+(b) を今導入）
 - 開始: 2026-09-24
 - PR: #58 https://github.com/artisanworkshop/cart-bridge-jp/pull/58
-- 現在のステップ: 6（ボット応答待ち。G1）
-- Copilot: 依頼1回 / 応答待ち
-- Codex: 依頼1回（自動レビュー待ち） / 応答待ち
+- 現在のステップ: 5（CI待ち。G2へ向けて）
+- Copilot: 依頼1回 / 未収束（G1で1件、修正済み）
+- Codex: 依頼1回 / 未収束（G1で2件、修正済み）
 - T(G1): 2026-09-23T22:05:01Z
 
 ## ログ
