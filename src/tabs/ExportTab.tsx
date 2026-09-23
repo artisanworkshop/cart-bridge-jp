@@ -1087,7 +1087,15 @@ export default function ExportTab() {
 									)
 								}
 								cancelling={ dryRunExportState.cancelling }
-								retryDisabled={ exportBusy }
+								// 別run種別（`exportBusy`）に加え、同じ種別で新しいrunを
+								// 開始中（`starting`）の間もRetryを止める: POST `/runs`が
+								// 解決するまでこのカードは旧runを表示し続けるため、その間に
+								// 旧runの失敗ジョブをRetryすると`JobManager::retry()`が
+								// `start_run()`の同時実行ガードを経由せずrequeueし、
+								// 新旧2つのrunが同時に本番へ書き込みうる（Codexレビュー指摘）。
+								retryDisabled={
+									exportBusy || dryRunExportState.starting
+								}
 								isTerminal={ dryRunExportTerminal }
 								reportsAvailable
 								onlyWarnings={ dryRunExportState.onlyWarnings }
@@ -1170,7 +1178,11 @@ export default function ExportTab() {
 									)
 								}
 								cancelling={ exportState.cancelling }
-								retryDisabled={ dryRunExportBusy }
+								// `starting`を含める理由は上のdry-run側カードと同じ
+								// （Codexレビュー指摘）。
+								retryDisabled={
+									dryRunExportBusy || exportState.starting
+								}
 								isTerminal={ exportTerminal }
 								reportsAvailable={ false }
 								onlyWarnings={ exportState.onlyWarnings }
