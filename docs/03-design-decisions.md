@@ -260,7 +260,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base）。`?mode=oob` でコード手動貼り付けフォールバック用URLを取得 |
 | POST | `/connections/{platform}/exchange-code` | OAuthコード手動貼り付けフォールバック（`{code}`。認証済み管理画面からの呼び出しのため通常のnonce+capability保護のみ。F1-2で追加） |
 | GET | `/connect/{platform}/callback` | OAuthコールバック（ASP側に登録する公開URL。**permission例外**: `__return_true` + state検証必須。詳細は下記） |
-| POST | `/runs` | 移行実行の開始 `{type, platform, entities[]}` |
+| POST | `/runs` | 移行実行の開始 `{type, platform, entities[], acknowledge_production_write?}`（`type=export`は`acknowledge_production_write=true`必須。D17/§10.2「E2-4」） |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
 | GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4） |
@@ -934,6 +934,75 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
 - `Woo\Export\AdapterPlatformWriter::write()`の`stock`ディスパッチ・`JobManager`の配線（E2-2 PR-B）は
   変更なし。`JobManagerExportTest::test_export_pushes_stock_when_supported`等が`MockPlatformAdapter`
   経由で既にこの配線をテスト済みのため、ColorMe固有の新規結合テストは追加していない。
+
+#### エクスポートUI + 往復E2E（E2-4）
+
+バックエンド（E2-2/E2-3）は完成済みのため、本タスクはフロントエンドのみ（PHP変更なし）。
+`src/tabs/ExportTab.tsx`（E2-1のマッピング設定カード）へ、`ImportTab.tsx`と同型の実行フロー
+（エンティティ選択・dry-run/実行・進捗ポーリング・結果レポート）を追加した。
+
+- **エンティティ選択**: `availableExportEntities()`が`JobManager::filter_and_order_export_entities()`
+  と同じ条件（product/stockは常時、customer=`can_update_customer`、order=`can_create_order`、
+  coupon=`has_coupons && can_create_coupon`）をフロント側でミラーする。category/tag/reviewは
+  exportエンティティとして選択肢に出さない（`category_map`が別途担う）。
+- **`VerificationReport`は使わない**: `GET /runs/{run_id}/verification`は`type=import`専用
+  （§6のREST表・`RestController::get_run_verification()`参照）で、exportのrunに対しては400を返す。
+- **本番書込み警告（D17）の実装方式**: §10.4は「実行前に確認ダイアログで...」とだけ規定しており
+  実装手段までは指定していない。`ImportTab.tsx`は`window.confirm()`（ネイティブ確認ダイアログ）を
+  使っているが、ExportTabでは常時表示の`Notice status="warning"`＋その下の`CheckboxControl`
+  （「本番データへの書込みであることを理解した」）で「Run export」ボタンをゲートする方式にした。
+  理由: `.claude/rules/frontend.md`がネイティブ`window.confirm()`はブラウザ拡張の自動操作
+  （Claude in Chrome等）やE2Eツールからのクリックでレンダラーをブロックしフリーズしうると
+  既に指摘しており、本タスク自体が下記の実機E2Eをブラウザ自動操作で行う必要があったため。
+  チェック済みで「Run export」を押すと、`POST /runs`のJSONボディへ
+  `acknowledge_production_write: true`を含める（サーバー側の検証は既存の
+  `RestController::acknowledged_production_write()`をそのまま利用。E2-2で実装済み）。
+  ImportTab側の`window.confirm()`は本PRの差分範囲外のため変更していない（将来的に揃えるかは
+  別途判断。`docs/review-backlog.md`未記載の申し送り事項）。
+- **警告バナー**（`docs/review-backlog.md`の`e2-2-exporter-core/R1-M8`を解消）: 実行(非dry-run)の
+  exportで対象アイテムが全てskipped/warnedになってもジョブは`STATUS_COMPLETED`のまま終わり
+  個別警告はどこにも永続化されない（`Sync\Importer`と同じ既存方針）。export結果カードで
+  `created + updated === 0 && warned > 0`のcompletedジョブを検出し、対象エンティティを列挙する
+  警告バナーを表示するようにした。
+- **capabilityゲート**（`docs/review-backlog.md`の`e2-2-exporter-pr-b/R1-L6`を解消）:
+  上記`availableExportEntities()`により、`can_create_order=false`等のプラットフォームでは
+  そもそも対応するチェックボックスを出さない（実機E2E時、非プレミアムのColorMeテストショップで
+  Order/Couponのチェックボックスが出ないことを確認済み）。
+
+##### 実機E2E（ColorMeテストショップ、2026-09-23）
+
+`docs/reference`のColorMe資格情報メモ（旧アプリ・旧テストショップ）が別ログインに紐づいていたため、
+同一セッション内でdeveloper.shop-pro.jpに新規プライベートアプリ＋新規テストショップ
+（`ttka3lg60f.shop-pro.jp`）を作成し直して接続した（旧テストショップの実データは今回引き継げて
+いない）。同ショップは非プレミアムプラン（`can_create_order=false`/`can_create_coupon=false`）の
+ため、**受注・クーポンのexportは検証できていない**（Export UI側でチェックボックスが正しく
+非表示になることのみ確認）。製品・顧客・在庫で以下を確認した:
+
+1. dry-run export（全量走査、無料版でも上限なし=D15）→ Preview export resultsのcompleted表示・
+   CSVレポートDLが機能することを確認。
+2. 実export → 自由版サンプル上限（product=2）により対象7件中2件のみ実際に作成されることを
+   `LimitsUpsellNotice`のアップセル表示で確認し、ColorMe側APIを直接叩いて商品2件・顧客1件が
+   実際に作成されたことを確認（price/stock_managed/pref_id/postal/telが正しく変換されている）。
+   同じrun内でproductジョブが先に完了しmappingが確定するため、後続のstockジョブが新規作成
+   直後の商品へも正しくpush（updated）できることを確認した。
+3. Importタブで再取込み（ImportTab側の`window.confirm()`はブラウザ自動操作を止めうるため、UI
+   クリックではなく`rest_do_request()`を`wp eval-file`から直接呼んでrunを起動し、Action
+   Schedulerジョブは`wp action-scheduler run`で手動実行した。ImportTab自体のUI変更は無いため
+   本タスクの検証対象外）→ 既存mappingにより**重複作成されず更新**（Woo側の商品/顧客総数は
+   往復前後で不変）。価格・在庫管理フラグ・郵便番号・pref_id・電話番号は正しく往復した。
+   **既知の制限を実地で再現**: `Woo\Reader\CustomerReader::name()`のdocblockが記載するとおり、
+   ColorMe由来ではないネイティブWoo顧客（`_cbjp_full_name`メタが無い）をexportすると
+   `first_name . ' ' . last_name`（Western順）の文字列がColorMeの単一`name`フィールドへ送られ、
+   再importの`AddressMapper::split_name()`（「姓 名」＝Japanese順を前提に分割）で姓名が入れ替わる。
+   今回のE2Eテスト顧客（wp-env上でネイティブに作成）がまさにこのケースで再現したが、既存の
+   設計判断どおり対応不要（修正は本タスクの範囲外）。
+4. 再exportで冪等性を確認: 顧客・在庫はchecksum一致で`Skipped`（`Sync\Exporter::process_items()`）。
+   商品はカテゴリマッピング未設定（テストショップにマッピング可能なカテゴリを用意していない）
+   により`category_map_unresolved`警告が`WarningCode::indicates_unresolved_reference()`へ
+   該当し続け、設計どおりchecksumをキャッシュせず`Updated`を繰り返すが、ColorMe側の商品数は
+   API確認で2件のまま**重複ゼロ**（既存remote_idへのPUTのみ）。Phase 2完了チェック
+  （`docs/10-tasks.md`）の「重複ゼロ」は満たすが、「checksum一致skip」は商品エンティティでは
+   未確認のまま（カテゴリマッピング設定後に別途確認可能。本PRの差分範囲外）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
