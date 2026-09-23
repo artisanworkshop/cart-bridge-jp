@@ -408,7 +408,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断）
-- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開と同時に `AbstractPlatformAdapterTest` のBASELINEが凍結される（D20・issue #49）**: これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する）
+- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開と同時に `AbstractPlatformAdapterTest` のBASELINEが凍結される（D20・issue #49）**: これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する。**凍結前に `docs/review-backlog.md` の `PlatformAdapter` 契約拡張前提の保留項目（`e2-3-push-*/G1-duplicate-on-retry`・`fix-46-pref-state-repair/L-unavailable-not-split`）の対応要否を判断する**（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
 
 > **要判断（v1.0公開前）**: 無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。

@@ -98,12 +98,23 @@ interface PlatformAdapter {
 4. **アダプタが組み立てる値オブジェクト**（`Capabilities`/`PushResult`/`ConnectionResult`/
    `ConnectionField`/`Page`/`Cursor`）: 新しい引数は末尾に既定値付きで追加する。`Capabilities`の新フラグの
    既定値は安全側（`false`）にする。`Canonical*`モデルの「`extras`より後ろに追加」規則（原則8）と同じ扱い
-5. 上記2・3を `tests/unit/Adapters/AbstractPlatformAdapterTest` が強制する。`AbstractPlatformAdapter`の
-   未実装（抽象のままの）メソッド一覧・シグネチャをリフレクションで取得し、`BASELINE`定数と比較する。
-   一致しなければ「既定実装のないメソッド追加」または「既存シグネチャの変更」が発生している
+5. 上記2・3を `tests/unit/Adapters/AbstractPlatformAdapterTest` が2本のテストで強制する:
+   `test_interface_signatures_match_v1_baseline`は`PlatformAdapter`インターフェース自体をリフレクションし
+   `BASELINE`定数に記録済みのメソッドのシグネチャが変わっていないか確認する（`AbstractPlatformAdapter`側で
+   後から既定実装を持つようになったメソッドでも、インターフェース宣言自体の変更は検出する）。
+   `test_new_methods_have_default_implementations`は`BASELINE`に無い新しいメソッドが
+   `AbstractPlatformAdapter`で既定実装を持たないまま（＝抽象のまま）追加されていないか確認する。
+   ただし`BASELINE`定数自体の書き換えはテストでは防げない（公開後に既存エントリを書き換えて
+   テストを通してしまうことは技術的に可能なため、レビューで検出する運用が前提）
 6. 不採用案: 機能ごとの任意インターフェースへの分割（例: 受注の単一取得だけを別インターフェースにし、
    呼び出し側が`instanceof`で分岐する）。前例が無く分岐が増え、#38（受注のID指定取得）のように結局
    `PlatformAdapter`へ統合したくなる見込みのため（PR #48でCodex/Copilotが提案した代替案）
+7. `docs/review-backlog.md`には`PlatformAdapter`の契約拡張が前提の保留項目がある
+   （`e2-3-push-{product,customer,order}/G1-duplicate-on-retry`＝`PushResult`への部分成功remote_id
+   伝搬、`fix-46-pref-state-repair/L-unavailable-not-split`＝`fetch_*_by_remote_id()`の404/変換不能の
+   区別）。前者は`PushResult`への末尾追加（規則4）で対応できる見込みだが、後者は既存メソッドの戻り値の
+   意味論変更が要る可能性がある。**R3-4（公開）前にこれらの対応要否を判断すること**（凍結後は新メソッド
+   追加でしか解決できなくなる）
 
 **PR #48の申し送り**: `fetch_order_by_remote_id()`追加（#46）に対するCodex/Copilotの指摘
 （[Codex](https://github.com/artisanworkshop/cart-bridge-jp/pull/48#discussion_r4057015250) /
