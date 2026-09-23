@@ -594,7 +594,15 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ dryRunState.cancelling }
-								retryDisabled={ importBusy }
+								// 別run種別（`importBusy`）に加え、同じ種別で新しいrunを開始中
+								// （`dryRunState.starting`）の間もRetryを止める: POST `/runs`が
+								// 解決するまでこのカードは旧runを表示し続けるため、その間に旧runの
+								// 失敗ジョブをRetryすると`JobManager::retry()`が`start_run()`の
+								// 同時実行ガードを経由せずrequeueし、新旧2つのrunが同時に書き込み
+								// うる（`ExportTab.tsx`と同型。Codex/Copilotレビュー指摘、issue #54）。
+								retryDisabled={
+									importBusy || dryRunState.starting
+								}
 								isTerminal={ dryRunTerminal }
 								reportsAvailable
 								onlyWarnings={ dryRunState.onlyWarnings }
@@ -656,7 +664,10 @@ export default function ImportTab() {
 									)
 								}
 								cancelling={ importState.cancelling }
-								retryDisabled={ dryRunBusy }
+								// `starting`を含める理由は上のdry-run側カードと同じ（issue #54）。
+								retryDisabled={
+									dryRunBusy || importState.starting
+								}
 								isTerminal={ importTerminal }
 								reportsAvailable={ false }
 								onlyWarnings={ importState.onlyWarnings }
