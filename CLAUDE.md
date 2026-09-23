@@ -45,7 +45,7 @@ composer lint                # PHPCS (WordPress Coding Standards)
 composer analyze             # PHPStan (level 6+)
 composer test                # PHPUnit（wp-envコンテナ内で直接実行する場合。ホストからは動かない）
 composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
-npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）
+npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）。permalink_structure が空（新規 wp-env 等）だと flush だけでは直らず、先に `wp rewrite structure '/%postname%/' --hard` が必要（rest_url() が /wp-json/ ではなく ?rest_route= 形式にフォールバックし、OAuth コールバック URL の登録値と食い違う）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
 ```
@@ -63,6 +63,7 @@ npm run build                # 本番ビルド
 - 既知の危険パターンの指摘を受けたら、その1箇所だけでなく同一ファイル内の類似呼び出し全てを grep 等で洗い出して横展開すること（`platform` の `get_url_params()` 化は issue #32/PR #33 で 6 箇所、`run_id`/`id` は PR #34 で 5 箇所を、いずれも初回の指摘時に取りこぼしていた）
 - フィクスチャの匿名化で実ドメイン（例: `shop-pro.jp`）を部分置換（サブドメイン名だけ変更）すると、ドメイン全体が予約済みexampleドメインでないため匿名化ルール違反になる。ドメインは丸ごと `example.com`/`example.jp` に置き換えること。自由入力欄（`note`/`other`/`answer_free_form*`等）は中身が無害に見えても内容に関わらず必ずプレースホルダーへ置換する
 - PHPの`??`（null合体）演算子はベースがnullの配列アクセス（例: `$possiblyNull['key'] ?? $default`）でも警告を出さない。Copilotレビューはこのパターンを誤って「null配列アクセス警告」と指摘することがあるため、同種の指摘は鵜呑みにせず`php -r`等で実際に検証すること
+- CopilotレビューはJSXの真偽値プロパティ省略記法（`<Component someProp />` は `someProp={true}` と等価）を「未宣言の識別子への参照でReferenceErrorになる」と誤検知することがある（実例: `reportsAvailable`単体の記述、E2-4 PR #53 G3）。`tsc --noEmit`/ビルドが通っていれば構文として正しいため、鵜呑みにせず型チェック結果で検証すること
 - 安全側の判定に使うboolを配列から復元するときは `(bool)` キャストを使わないこと。`(bool) '0'` は `false`、`(bool) 'false'` は `true` になるため、壊れた値・型違いが「安全」の宣言に化けてフェイルクローズを迂回しうる（`CanonicalCoupon::from_array()` の `has_unsupported_restrictions` が実例。issue #15）。`is_bool()` で実boolのみ受け、それ以外は不明（null）へ倒す
 - PHPCS（`WordPress-Extra` + `Universal.Operators.DisallowShortTernary`）は短縮三項演算子 `?:` を**エラー**にする（`?? ` のnull合体とは別物）。フォールバック値には `$a ?? $b` か、複数候補から最初の非空値を選ぶ自前ヘルパー（例: `Cast::first_non_empty()`）を使うこと
 - テストでJSONフィクスチャを読む際は `file_get_contents()` ではなく `wp_json_file_decode( $path, [ 'associative' => true ] )` を使うこと。`file_get_contents()` はPHPCSの `WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents` warningの対象になり `composer lint` が失敗する
