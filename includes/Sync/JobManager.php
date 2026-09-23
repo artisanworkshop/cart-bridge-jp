@@ -137,12 +137,20 @@ final class JobManager {
 	 * 失敗ジョブを pending に戻し、Action Scheduler に再エンキューする。
 	 *
 	 * @return bool 対象ジョブが存在し、failed だった場合のみ true。
+	 * @throws RunAlreadyInProgressException 対象ジョブとは異なる run が同一プラットフォームで
+	 *   進行中（pending/running/paused）の場合。`start_run()`と同じ例外・同じ理由（レート制限保護・
+	 *   二重書き込み防止）だが、対象ジョブ自身のrunは判定から除外する（同一run内の未処理な兄弟
+	 *   ジョブまで「進行中」と誤検知して正当なRetryをブロックしないため）。
 	 */
 	public function retry( int $job_id ): bool {
 		$job = $this->jobs->find( $job_id );
 
 		if ( null === $job || JobRepository::STATUS_FAILED !== $job['status'] ) {
 			return false;
+		}
+
+		if ( $this->jobs->has_active_job_for_platform_excluding_run( $job['platform'], $job['run_id'] ) ) {
+			throw new RunAlreadyInProgressException( $job['platform'] );
 		}
 
 		$this->jobs->update_status( $job_id, JobRepository::STATUS_PENDING );
