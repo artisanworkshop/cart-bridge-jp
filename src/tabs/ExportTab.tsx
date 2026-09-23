@@ -148,6 +148,11 @@ function initialExportRunSectionState(): ExportRunSectionState {
  * `warned===processed`（＝1件も書けず全件に警告が付いた）に絞ることで、この種の偽陽性を減らす
  * （完全な排除ではない: 全件が同じ残留警告を持つ場合は理論上なお誤検出しうるが、`Sync\Importer`
  * と同じ既存方針が対象とする「実質的に何も進まなかった」ケースにより近い判定になる）。
+ * この絞り込みはトレードオフでもある: 「一部は警告付きでskip・残りは警告なしでskip
+ * （無料版上限到達等。`Exporter.php`のクォータ枯渇分岐参照）」のように`warned < processed`と
+ * なる部分的な失敗は検出できなくなる（偽陰性）。クォータ枯渇のケースは`LimitsUpsellNotice`が
+ * 別途表示するため実害は小さいと判断した（R2レビューで指摘、`docs/review-backlog.md`の
+ * `e2-4-export-ui-e2e/R2-L1`参照）。
  * @param jobs
  */
 function zeroWrittenWarnedEntities( jobs: Job[] ): EntityType[] {
