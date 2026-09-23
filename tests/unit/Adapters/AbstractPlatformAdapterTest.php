@@ -24,9 +24,9 @@ use WP_UnitTestCase;
  *   1対1で記録する**。新しいメソッドを追加したらそのメソッドも同時に`BASELINE`へ追加しないとこのテストが
  *   失敗する — 追加を「任意」にすると、そのメソッドのシグネチャが以降まったく凍結されないまま
  *   `AbstractPlatformAdapter`の既定実装ごと変更できてしまう。PR #58 G2 Codex指摘）
- * - v1.0時点に存在しなかった（＝`V1_METHOD_NAMES`に無い）新しいメソッドが `AbstractPlatformAdapter`
- *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。`BASELINE`とは
- *   別に固定した`V1_METHOD_NAMES`を基準にする。PR #58 G1-2 Codex指摘）
+ * - v1.0.0公開後に追加された（＝`v1_method_names()`に無い）メソッドが `AbstractPlatformAdapter`
+ *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。
+ *   `v1_method_names()`は公開時に固定するまでは`BASELINE`と連動して動く。PR #58 G1-2/G3指摘）
  * いずれも `AbstractPlatformAdapter` を継承した外部実装を fatal にしうる変更である。
  * 公開後はBASELINEの既存エントリを書き換えず、新しいメソッドを`PlatformAdapter`へ追加するときは
  * `AbstractPlatformAdapter`への既定実装の追加と`BASELINE`への追記を**同時に**行うこと。
@@ -70,41 +70,24 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	];
 
 	/**
-	 * v1.0 時点で `PlatformAdapter` に存在した全メソッド名。`BASELINE`のキーと**意図的に別の定数**にしている。
-	 * `BASELINE`は将来（v1.0以降に追加されたメソッドの）シグネチャ凍結のために任意で追記されうるが、
-	 * それを「既定実装が要らない側」の判定にも流用すると、一度`AbstractPlatformAdapter`が既定実装を
-	 * 持ち`BASELINE`にも追記された後で、その既定実装だけが（シグネチャは変えずに）削除される変更を
-	 * 検出できなくなる（PR #58 G1-2 Codex指摘）。このリストは`BASELINE`の増減と関係なく固定し、
-	 * 「v1.0時点で存在しなかったメソッドは常に既定実装を持つこと」を恒久的にチェックする土台にする。
+	 * 「既定実装が無くても許容される（＝抽象のままでよい）」メソッド名の一覧。
 	 *
-	 * @var array<int,string>
+	 * v1.0.0 公開前の**今は**`BASELINE`のキーをそのまま返す（動的）。D20は公開前のメソッド追加に
+	 * 既定実装を要求しないため、`BASELINE`に追記されたメソッドは（`test_interface_signatures_match_v1_baseline`
+	 * によってシグネチャ凍結の対象にはなるが）自動的にこちらの「既定実装不要」側にも含まれる
+	 * （PR #58 G3 Copilot指摘。固定リストにすると公開前の正当な追加まで失敗していた）。
+	 *
+	 * **v1.0.0 公開時（`docs/10-tasks.md` R3-4）に必ずこの実装を書き換え、その時点の
+	 * `array_keys( self::BASELINE )` をコピーしたリテラル配列に置き換えること。** 書き換えないと、
+	 * 公開後に追加されたメソッドの既定実装が（シグネチャを変えずに）削除される変更を検出できなくなる
+	 * （PR #58 G1-2 Codex指摘のケースが再発する）。書き換え後は本メソッドの内容が固定され、以降
+	 * `BASELINE`が成長してもこちらは変わらなくなる。
+	 *
+	 * @return array<int,string>
 	 */
-	private const V1_METHOD_NAMES = [
-		'capabilities',
-		'connection_fields',
-		'fetch_categories',
-		'fetch_coupons',
-		'fetch_customer_by_remote_id',
-		'fetch_customers',
-		'fetch_latest_orders',
-		'fetch_order_by_remote_id',
-		'fetch_orders',
-		'fetch_product_by_remote_id',
-		'fetch_products',
-		'fetch_reviews',
-		'fetch_stocks',
-		'fetch_tags',
-		'id',
-		'label',
-		'mapping_candidates',
-		'push_category',
-		'push_coupon',
-		'push_customer',
-		'push_order',
-		'push_product',
-		'push_stock',
-		'test_connection',
-	];
+	private static function v1_method_names(): array {
+		return array_keys( self::BASELINE );
+	}
 
 	/**
 	 * `PlatformAdapter`の現在の全メソッド・シグネチャがBASELINEと完全一致すること
@@ -133,15 +116,14 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `V1_METHOD_NAMES`に無い（＝v1.0以降に追加された）メソッドは、`AbstractPlatformAdapter`で既定実装を
-	 * 持っている（＝抽象のままではない）こと。`BASELINE`（シグネチャ凍結用）とは独立した判定基準を使う
-	 * （そのメソッドが既定実装ごと`AbstractPlatformAdapter`から削除される変更は、シグネチャ自体は
-	 * 変わらないため`test_interface_signatures_match_v1_baseline`では検出できず、このテストで
-	 * 恒久的に検出し続ける必要がある。`V1_METHOD_NAMES`が固定である理由は同定数のdocblock参照）。
+	 * `v1_method_names()`に無い（＝v1.0.0公開後に追加された）メソッドは、`AbstractPlatformAdapter`で
+	 * 既定実装を持っている（＝抽象のままではない）こと。v1.0.0公開前の今は`v1_method_names()`が
+	 * `BASELINE`と連動するため実質的に何もチェックしない（D20が公開前の既定実装なし追加を許容するため）。
+	 * `v1_method_names()`が公開時に固定される理由は同メソッドのdocblock参照。
 	 */
 	public function test_new_methods_have_default_implementations(): void {
 		$interface_method_names = array_keys( self::describe_methods( new ReflectionClass( PlatformAdapter::class ) ) );
-		$new_method_names       = array_diff( $interface_method_names, self::V1_METHOD_NAMES );
+		$new_method_names       = array_diff( $interface_method_names, self::v1_method_names() );
 
 		$abstract_method_names       = array_keys( self::describe_methods( new ReflectionClass( AbstractPlatformAdapter::class ) ) );
 		$new_methods_without_default = array_intersect( $new_method_names, $abstract_method_names );
