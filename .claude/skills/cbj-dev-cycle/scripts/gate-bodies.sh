@@ -13,7 +13,7 @@
 #   - 旧形式: `Suppressed comments` の節（`**path:line**` + `* 本文`）
 #   - 新形式（`<!-- ccr-overview-v2 -->`）: `**Findings:**` の件数、`<details>` の節
 #       `Open (N)`（既存スレッドへのリンク `#discussion_r<dbid>` と `· New` の印）、
-#       `Previously missed (N)`（**スレットの無い新規指摘**。変更していないコードへの指摘）。
+#       `Previously missed (N)`（**スレッドの無い新規指摘**。変更していないコードへの指摘）。
 #       `What changed in this PR`（ファイル要約の表）はノイズなので出さない。
 #     未知の `<details>` 節は出す側に倒す（指摘を握りつぶさない）。
 set -euo pipefail
