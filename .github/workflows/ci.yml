@@ -97,3 +97,6 @@ jobs:
 
       - name: Regression test for gate-bodies.sh
         run: .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
+
+      - name: Regression test for gate-turn.sh
+        run: .claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh

@@ -80,6 +80,7 @@ description: >
 
 | 目的 | コマンド | 備考 |
 |---|---|---|
+| ターン開始側をまとめて実行 | `scripts/gate-turn.sh <PR> <codex\|copilot> [--first] [--timeout=秒] [--no-ci-wait]` | CI green を待つ → 依頼 → 応答を待つ → 新規スレッド・整形した本文・Codex のコメントを続けて表示する（下の個別スクリプトを呼ぶだけの薄いラッパー）。`run_in_background`（timeout 600000。CI 待ち＋応答待ちで最長 25 分ほど）。標準出力の `T=<依頼時刻>` を以降の `gate-threads.sh`/`gate-reply.sh` に使う。**CI が green でなければ依頼せず** exit 2（判定不能・API エラーは 3、応答待ちのタイムアウトは 1 で指摘は表示する）。`--first` は最初の Codex ターン専用（`bot-request.sh` を呼ばず自動レビューを待ち、`--codex-nudge=300` を付ける。T は CI 待ちより前に取る）。修正・commit・返信・Resolve・サマリコメントは判断を含むので対象外。回帰テストは `scripts/test-gate-turn.sh` |
 | CI 待ち | `scripts/ci-wait.sh <PR>` | Bash `run_in_background`（timeout 600000）で実行し、完了通知を待つ。push 直後の古い HEAD を掴まず（ローカルの HEAD に PR が追いつくまで待つ）、後続の push で run が cancelled になったら新しい HEAD を監視し直す。"no checks reported" は再試行する（PR #48 の G2 で、古い HEAD の check-run を見て早期に抜けた）。**終了コードは `${PIPESTATUS[0]}` で見る**（`| tail` を付けると `tail` の 0 になる） |
 | ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよいが、**自動レビューが発火しないことがある**（PR #37 実績: 15 分 TIMEOUT → `@codex review` で 3 分弱で応答）。G1 で Codex だけが TIMEOUT した場合は、ユーザー確認を待たずに次ラウンドで `@codex review` により再依頼してよい（この場合も Codex の依頼回数は 1 回目として数える） |
 | 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900] [--codex-nudge=秒]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT。**G1 では `--codex-nudge=300` を付ける**: Codex の自動レビューが 5 分以内に応答しなければ `@codex review` を 1 回だけ自動投稿して待ち続ける（15 分待ち切ってから再依頼する無駄を省く。Codex への依頼 1 回として数える）。**G2 以降は付けない**（`bot-request.sh` が既に `@codex review` を投稿しているため二重依頼になる） |
@@ -130,7 +131,9 @@ description: >
 `gate-reply.sh`/`gate-resolve.sh`）」。**ターンが完結してから次のターンに進み、他のボットへの依頼を
 先に出さない。**
 
-- **依頼はそのターンのボットだけ**:
+- **ターンの開始側は `gate-turn.sh` で 1 コマンド**: `scripts/gate-turn.sh <PR> codex`（最初の Codex ターンは `--first`）／`scripts/gate-turn.sh <PR> copilot`。
+  内部で下の `ci-wait.sh` → `bot-request.sh` → `bot-wait.sh` → `gate-threads.sh`/`gate-bodies.sh` を順に呼ぶ（個別に実行してもよい）。
+- **依頼はそのターンのボットだけ**（`gate-turn.sh` を使わず個別に実行する場合）:
   ```bash
   T=$(scripts/bot-request.sh <PR> codex)                          # Codex のターン
   scripts/bot-wait.sh <PR> "$T" --copilot=0 --codex=1              # 最初の Codex ターン（G1）だけ --codex-nudge=300 を追加
