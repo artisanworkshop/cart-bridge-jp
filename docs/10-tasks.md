@@ -176,6 +176,20 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   ポリシー」とCLAUDE.md原則8に明記。`tests/unit/Adapters/AbstractPlatformAdapterTest`（リフレクションで
   未実装メソッド一覧とシグネチャをBASELINE定数と照合する契約テスト）でCI上強制する。PR #48の該当2スレッド
   （`fetch_order_by_remote_id()`追加への指摘）はこの決定を根拠にResolve
+- [x] **fix: エクスポート価格の税込正規化とバリエーションのセール価格**（2026-09-24、issue #59 / #60）
+  E2-3 PR-A のゲートで「差分範囲外・要判断」として保留していた High 2件（`docs/review-backlog.md`
+  `e2-3-push-product/G1-out-of-scope-prices-include-tax` / `G2-variation-sale-price`）を v1.0 公開前に解消。
+  (1) 税計算ON・税抜入力（`woocommerce_prices_include_tax=no`）の店舗で、`ProductReader` が税抜価格を税込として
+  ColorMe へ渡し売価が税分だけ低くなる問題: 新設 `Woo\Support\TaxInclusivePrice` が店舗の基準所在地の税率
+  （`WC_Tax::get_base_tax_rates()`）で税込へ換算する。`wc_get_price_including_tax()` は顧客ロケーションが
+  空の文脈（WP-CLI・Action Scheduler）では無変換で返すため使わない。税率登録済みだが基準所在地に合致しない
+  場合はフェイルクローズ（`PRICE_TAX_BASIS_UNRESOLVED`、blocking）。税計算OFF（WC の既定）は無変換で正しく、
+  旧仕様の `PRICES_INCLUDE_TAX_DISABLED` は Reader では出さない（誤検知だった。換算適用時のみ情報警告
+  `PRICES_CONVERTED_TO_TAX_INCLUSIVE`）。(2) バリエーションのセール価格: セール中のバリエーションにだけ
+  `variants[].sale_price` を載せ、`push_variant_details()` が `option_price`＝実売価格・`option_market_price`＝
+  通常価格で送る。詳細は `docs/03-design-decisions.md` §10.2「価格の税込正規化とバリエーションのセール価格」。
+  インポート方向（`ProductWriter` が税込額を税抜入力の店舗へ書く鏡像）は対象外で警告のみのまま
+  （`e2-2-exporter-core/G3-M-tax-basis-conversion` の残り）
 
 ---
 
