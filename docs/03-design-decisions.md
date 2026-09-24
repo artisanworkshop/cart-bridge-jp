@@ -1117,8 +1117,10 @@ ColorMe の税設定（`shop.tax_type`）へ逆算する。
    **セール中でなければキー自体を出さない**: 全 variable 商品の checksum が変わり、次回 export で（多段階
    リクエストの重い）全件再 push になるのを避けるため。`ColorMeAdapter::push_variant_details()` はセール中
    `option_price`（販売価格）＝実売価格・`option_market_price`（定価）＝通常価格を送る（swagger
-   `productVariantUpdateRequest`。商品レベルの `sales_price`/`price` と同じ意味論）。実売価格を換算できない場合は
-   通常価格を販売価格として送らないよう価格フィールドを両方省く（「省く」は ColorMe 側の既存値を保持する。`null` 明示で未設定に戻す案は採らない: 実フィクスチャ `product_option_detail.json` のとおり `option_price: null` のバリエーションは商品レベルの価格〈variable 親では最安の定価〉にフォールバックし、より高いバリエーションの売価を誤るため。PR #61 Copilot G2-1）。
+   `productVariantUpdateRequest`。商品レベルの `sales_price`/`price` と同じ意味論）。実売価格を換算できない・0以下・通常価格超え
+   （通常価格を換算できず比較できない場合を含む。`CanonicalProduct::$variants` は外部アダプタ境界のため
+   `ProductReader` の検証を通っている保証が無く、`to_push_amount()` は 0・負値・定価超えをそのまま通す。PR #61
+   Copilot G3-1）の場合は、0円・不正な販売価格や通常価格を販売価格として送らないよう価格フィールドを両方省く（「省く」は ColorMe 側の既存値を保持する。`null` 明示で未設定に戻す案は採らない: 実フィクスチャ `product_option_detail.json` のとおり `option_price: null` のバリエーションは商品レベルの価格〈variable 親では最安の定価〉にフォールバックし、より高いバリエーションの売価を誤るため。PR #61 Copilot G2-1）。
    - 既知の限界: セール外の送信では `option_market_price` を省略する（単純商品の `push_prices()` と同じ）ため、
      セール終了後に ColorMe 側へ古い定価が残る（販売価格は正しい。表示上の差のみ）。
    - **セール終了日（`date_on_sale_to`）は運べない**: `CanonicalProduct` は終了日を持たず、エクスポートは継続同期

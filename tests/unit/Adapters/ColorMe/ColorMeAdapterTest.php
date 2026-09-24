@@ -821,6 +821,52 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `CanonicalProduct::$variants`は外部アダプタ境界のため、`sale_price`が`ProductReader`の検証を
+	 * 通っている保証が無い。0円・負値・通常価格超えの販売価格をそのまま`option_price`として送ると、
+	 * バリエーションが無料・不正な価格になる（`to_push_amount()`はこれらをそのまま通す）ため、
+	 * 価格フィールドを両方省く（PR #61 Copilot G3-1）。
+	 *
+	 * @dataProvider provide_unusable_sale_prices
+	 */
+	public function test_push_product_omits_variant_prices_when_the_sale_price_is_zero_negative_or_above_the_regular_price( string $sale_price ): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', $sale_price ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function provide_unusable_sale_prices(): array {
+		return [
+			'zero'          => [ '0' ],
+			'negative'      => [ '-10' ],
+			'above regular' => [ '2500' ],
+		];
+	}
+
+	/**
+	 * 販売価格と定価が同額（換算の丸めで等しくなりうる境界）は有効な組として送る。
+	 */
+	public function test_push_product_accepts_a_sale_price_equal_to_the_regular_price(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', '2200' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertSame( 2200, $red['body']['variant']['option_price'] );
+		$this->assertSame( 2200, $red['body']['variant']['option_market_price'] );
+	}
+
+	/**
 	 * 店舗の税設定を解決できない（`tax_type=excluded`なのに税率が無い）場合は、通常価格も実売価格も
 	 * 換算できないため価格フィールドを両方省く（フェイルクローズ）。
 	 */
