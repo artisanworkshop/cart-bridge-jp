@@ -41,6 +41,14 @@ final class WarningCode {
 	public const PRICES_CONVERTED_TO_TAX_INCLUSIVE = 'prices_converted_to_tax_inclusive';
 
 	/**
+	 * `Woo\Reader\ProductReader`: セール終了日（`date_on_sale_to`）付きのセール価格を、終了日を運べないまま
+	 * ASPへ販売価格として送る（Canonicalは終了日を持たず、エクスポートは継続同期しない。D14）。Woo側でセールが
+	 * 終わってもASP側は値引き価格のまま残るため、dry-runレポートで知らせる。情報のみ（blocking化すると
+	 * 期間限定セール中の商品を一切エクスポートできない）。バリエーションは`:{variation_id}`のdetail付き。
+	 */
+	public const SALE_END_DATE_NOT_PUSHED = 'sale_end_date_not_pushed';
+
+	/**
 	 * `Woo\Reader\ProductReader`: 税込価格へ換算できない。`PRODUCT_PRICE_INVALID`/`VARIATION_PRICE_INVALID`と
 	 * 併せて積み、`indicates_export_blocking()`の対象にする（理由の説明用コード）。
 	 */

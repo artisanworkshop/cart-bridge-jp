@@ -361,19 +361,113 @@ final class ProductReaderTest extends WooTestCase {
 		$this->assertArrayNotHasKey( 'sale_price', $variants['L'] );
 	}
 
-	public function test_variation_sale_price_not_lower_than_regular_price_is_ignored(): void {
+	/**
+	 * 0円のセール価格は`is_on_sale()`が真でもセール扱いにしない（`ProductWriter::resolve_sale_price()`と
+	 * 同じ基準。0円のまま送ると無料商品として恒久的に登録される）。`valid_sale_price()`の「0より大きい」
+	 * ガードを通す（`sale >= regular`は`is_on_sale()`自身が偽にするため、このガードの検証にならない）。
+	 */
+	public function test_variation_zero_sale_price_is_ignored(): void {
 		update_option( 'woocommerce_calc_taxes', 'no' );
 
 		$variation_ids = $this->write_two_variants( '1000', '1200' );
 
 		$medium = wc_get_product( $variation_ids['M'] );
-		$medium->set_sale_price( '1000' );
+		$medium->set_sale_price( '0' );
 		$medium->save();
+
+		$this->assertTrue( wc_get_product( $variation_ids['M'] )->is_on_sale( 'edit' ), '前提: WCは0円のセール価格でもセール中と判定する' );
 
 		$canonical = $this->first_item( $this->make_reader(), [ wc_get_product( $variation_ids['M'] )->get_parent_id() ] );
 		$variants  = array_column( $canonical->variants, null, 'option1_value' );
 
 		$this->assertArrayNotHasKey( 'sale_price', $variants['M'] );
+	}
+
+	/**
+	 * セール終了日（`date_on_sale_to`）は`CanonicalProduct`が運べず、ASPでは恒久的な販売価格になる。
+	 * 単純商品・バリエーションとも情報警告（非blocking）で知らせる。終了日の無いセールは警告しない。
+	 */
+	public function test_sale_with_end_date_warns_that_the_end_date_is_not_carried(): void {
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		$dated = new \WC_Product_Simple();
+		$dated->set_name( 'Dated sale' );
+		$dated->set_regular_price( '1000' );
+		$dated->set_sale_price( '800' );
+		$dated->set_date_on_sale_to( time() + WEEK_IN_SECONDS );
+		$dated_id = $dated->save();
+
+		$open = new \WC_Product_Simple();
+		$open->set_name( 'Open-ended sale' );
+		$open->set_regular_price( '1000' );
+		$open->set_sale_price( '800' );
+		$open_id = $open->save();
+
+		$items = $this->make_reader()->query( Cursor::start(), [ $dated_id, $open_id ] )->items;
+		$by_id = [];
+
+		foreach ( $items as $item ) {
+			$by_id[ $item->local_id ] = $item;
+		}
+
+		$this->assertSame( '800', $by_id[ $dated_id ]->item->sale_price );
+		$this->assertContains( WarningCode::SALE_END_DATE_NOT_PUSHED, $by_id[ $dated_id ]->warnings );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $by_id[ $dated_id ]->warnings ) );
+		$this->assertSame( '800', $by_id[ $open_id ]->item->sale_price );
+		$this->assertNotContains( WarningCode::SALE_END_DATE_NOT_PUSHED, $by_id[ $open_id ]->warnings );
+	}
+
+	public function test_variation_sale_with_end_date_warns_with_the_variation_id(): void {
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$large = wc_get_product( $variation_ids['L'] );
+		$large->set_sale_price( '900' );
+		$large->set_date_on_sale_to( time() + WEEK_IN_SECONDS );
+		$large->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ wc_get_product( $variation_ids['L'] )->get_parent_id() ] )->items[0];
+		$variants  = array_column( $read_item->item->variants, null, 'option1_value' );
+
+		$this->assertSame( '900', $variants['L']['sale_price'] );
+		$this->assertContains( WarningCode::with_detail( WarningCode::SALE_END_DATE_NOT_PUSHED, (string) $variation_ids['L'] ), $read_item->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::SALE_END_DATE_NOT_PUSHED, (string) $variation_ids['M'] ), $read_item->warnings );
+	}
+
+	/**
+	 * 親の税区分（標準）は換算できるが、1つのバリエーションだけ換算できない（バリエーション個別の税区分
+	 * `reduced-rate`は税率が基準所在地に無い）部分ケース。そのバリエーションは除外され、
+	 * `indicates_export_blocking()`は`:detail`を落として判定するため商品全体のpushが止まる（安全側）。
+	 */
+	public function test_a_single_variation_with_unresolvable_tax_basis_blocks_the_whole_product(): void {
+		$this->tax_exclusive_store();
+
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => 'US',
+				'tax_rate_state'    => '',
+				'tax_rate'          => '8.0000',
+				'tax_rate_name'     => 'US reduced',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 1,
+				'tax_rate_class'    => 'reduced-rate',
+			]
+		);
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$large = wc_get_product( $variation_ids['L'] );
+		$large->set_tax_class( 'reduced-rate' );
+		$large->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ wc_get_product( $variation_ids['L'] )->get_parent_id() ] )->items[0];
+
+		$this->assertSame( [ 'M' ], array_column( $read_item->item->variants, 'option1_value' ) );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, (string) $variation_ids['L'] ), $read_item->warnings );
+		$this->assertNotContains( WarningCode::ALL_VARIATIONS_EXCLUDED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
 	/**

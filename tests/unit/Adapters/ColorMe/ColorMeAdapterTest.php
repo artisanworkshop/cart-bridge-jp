@@ -801,10 +801,30 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 店舗の税設定を解決できず実売価格を換算できない場合、通常価格を販売価格として送ってしまわないよう
-	 * 価格フィールドを両方省く（フェイルクローズ）。
+	 * 実売価格だけが換算できない（通常価格は換算できる）場合、通常価格を販売価格として送ってしまわない
+	 * よう価格フィールドを両方省く（フェイルクローズ）。`cbjp/adapters/register`経由のCanonicalは外部境界
+	 * のため`sale_price`が数値でない値でありうる。`tax_type=included`なら通常価格は必ず換算できるので、
+	 * 「販売価格が換算できず通常価格は換算できる」分岐を確実に通す（`excluded`で税率欠損の店舗では
+	 * 通常価格も換算できず、この分岐に入らない）。
 	 */
-	public function test_push_product_omits_both_variant_prices_when_the_sale_price_cannot_be_converted(): void {
+	public function test_push_product_does_not_send_the_regular_price_as_option_price_when_only_the_sale_price_is_unusable(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', 'abc' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
+		$this->assertSame( 'VAR-RED', $red['body']['variant']['model_number'] );
+	}
+
+	/**
+	 * 店舗の税設定を解決できない（`tax_type=excluded`なのに税率が無い）場合は、通常価格も実売価格も
+	 * 換算できないため価格フィールドを両方省く（フェイルクローズ）。
+	 */
+	public function test_push_product_omits_variant_prices_when_the_shop_tax_settings_are_unresolvable(): void {
 		$captured = $this->push_two_variants(
 			[ 'tax_type' => 'excluded' ],
 			[ $this->color_variant( 'Red', '2200', '1980' ), $this->color_variant( 'Blue', '2200' ) ]
@@ -814,7 +834,6 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNotNull( $red );
 		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
 		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
-		$this->assertSame( 'VAR-RED', $red['body']['variant']['model_number'] );
 	}
 
 	/**

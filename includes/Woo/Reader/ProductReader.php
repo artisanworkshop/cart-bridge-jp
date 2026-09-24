@@ -248,6 +248,8 @@ final class ProductReader implements EntityReader {
 	 * セール開始/終了日程を考慮しない（`is_on_sale()`のみが日程を見る）。`edit`コンテキストで
 	 * 表示用フィルターを経由せず判定し、`ProductWriter::resolve_sale_price()`（インポート方向）と
 	 * 同じ基準（数値・0より大きい・通常価格未満）で検証する。満たさない場合はセールなし（null）。
+	 * 「通常価格未満」は`is_on_sale()`自身も見ており重複する防御だが、「0より大きい」（0円のセール価格は
+	 * `is_on_sale()`が真でもセール扱いにしない）と数値検証はこちらだけが担う。
 	 *
 	 * @param string $regular_price 検証済みの通常価格（換算前の生の値）。
 	 */
@@ -291,10 +293,31 @@ final class ProductReader implements EntityReader {
 		$inclusive_sale    = null !== $raw_sale_price ? $this->normalize_price( $product, $raw_sale_price, $warnings ) : null;
 
 		if ( null === $inclusive_regular || ( null !== $raw_sale_price && null === $inclusive_sale ) ) {
-			return [ '0', null, [ WarningCode::PRODUCT_PRICE_INVALID, WarningCode::PRICE_TAX_BASIS_UNRESOLVED ] ];
+			return [ '0', null, array_merge( $warnings, [ WarningCode::PRODUCT_PRICE_INVALID, WarningCode::PRICE_TAX_BASIS_UNRESOLVED ] ) ];
+		}
+
+		if ( null !== $inclusive_sale ) {
+			$this->warn_if_sale_is_scheduled_to_end( $product, null, $warnings );
 		}
 
 		return [ $inclusive_regular, $inclusive_sale, $warnings ];
+	}
+
+	/**
+	 * セール終了日（`date_on_sale_to`）付きのセールは、`CanonicalProduct`が終了日を運べないため
+	 * ASPでは恒久的な販売価格になる（エクスポートは継続同期しない）。情報警告で知らせる。
+	 *
+	 * @param array<int,string> $warnings
+	 * @param ?string           $detail バリエーションID等（単純商品はnull）。
+	 */
+	private function warn_if_sale_is_scheduled_to_end( WC_Product $product, ?string $detail, array &$warnings ): void {
+		if ( null === $product->get_date_on_sale_to( 'edit' ) ) {
+			return;
+		}
+
+		$warnings[] = null === $detail
+			? WarningCode::SALE_END_DATE_NOT_PUSHED
+			: WarningCode::with_detail( WarningCode::SALE_END_DATE_NOT_PUSHED, $detail );
 	}
 
 	/**
@@ -383,7 +406,8 @@ final class ProductReader implements EntityReader {
 			}
 
 			// 定価・セール価格とも税込へ換算する（`Woo\Support\TaxInclusivePrice`）。換算不能な
-			// バリエーションは、価格不正と同じ理由でスキップする（誤った売価を送らない）。
+			// バリエーションはスキップし、blockingの`PRICE_TAX_BASIS_UNRESOLVED`で商品全体もpushを
+			// 止める（`indicates_export_blocking()`は`:detail`を落として判定する。誤った売価を送らない）。
 			$inclusive_price = $this->normalize_price( $variation, $price, $warnings );
 			$raw_sale_price  = $this->valid_sale_price( $variation, $price );
 			$inclusive_sale  = null !== $raw_sale_price ? $this->normalize_price( $variation, $raw_sale_price, $warnings ) : null;
@@ -407,6 +431,7 @@ final class ProductReader implements EntityReader {
 			// 全件再pushになるのを避けるため（`CanonicalProduct`のdocblock参照）。
 			if ( null !== $inclusive_sale ) {
 				$variant['sale_price'] = $inclusive_sale;
+				$this->warn_if_sale_is_scheduled_to_end( $variation, (string) $variation_id, $warnings );
 			}
 
 			$this->apply_axis_values( $variant, $variation, $axis_attributes );
