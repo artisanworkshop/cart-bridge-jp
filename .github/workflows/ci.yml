@@ -88,3 +88,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  dev-tooling:
+    name: Dev tooling (cbj-dev-cycle scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Regression test for gate-bodies.sh
+        run: .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
