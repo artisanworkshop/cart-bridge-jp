@@ -2,8 +2,8 @@
 # gate-bodies.sh の整形部分（--format）の回帰テスト。ネットワーク不要。
 # 使い方: .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
 #
-# fixtures/gate-bodies/ の copilot-v2-*.md は PR #61 の実際の Copilot レビュー本文（公開コメント）。
-# copilot-old-suppressed-comments.md は旧形式の見た目を模した合成データ（実物ではない）。
+# fixtures/gate-bodies/ の copilot-v2-*.md は PR #61 / #64 の実際の Copilot レビュー本文（公開コメント）。
+# ただし copilot-v2-unknown-section.md と copilot-old-suppressed-comments.md は合成データ（実物ではない）。
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 FIX="$HERE/fixtures/gate-bodies"
@@ -65,6 +65,21 @@ expect "findings-and-open: Findings 行（重要度ごとの件数）" "$out" "F
 expect "findings-and-open: New 印付きの Open 項目" "$out" "#discussion_r4090024208) · New"
 expect "findings-and-open: Open (4)" "$out" "-- Open (4)"
 expect "findings-and-open: 新規スレッドのリンク" "$out" "#discussion_r4090024208"
+
+# 未知の <details> 節は握りつぶさず出す（fail-open）。実物: 「Resolved since last review」（PR #64 のレビュー）
+load "copilot-v2-resolved-since-last-review" "$FIX/copilot-v2-resolved-since-last-review.md"
+expect "resolved-since-last-review: 未知の節の見出し" "$out" "-- Resolved since last review (1)"
+expect "resolved-since-last-review: 未知の節の本文（項目とその dbid）" "$out" "[Low] [「スレット」を「スレッド」に修正](#discussion_r4092049277)"
+expect "resolved-since-last-review: Findings なし" "$out" "Findings: None"
+expect "resolved-since-last-review: 同居する Previously missed も出る" "$out" "-- Previously missed (1)"
+expect "resolved-since-last-review: path:line（ゼロ幅スペース除去済み）" "$out" '`.claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh:3`'
+
+# 未知の節（合成）: 見出しと全項目を出し、ノイズと分かっている What changed だけを出さない
+load "copilot-v2-unknown-section" "$FIX/copilot-v2-unknown-section.md"
+expect "unknown-section: 見出し" "$out" "-- Some future section (2)"
+expect "unknown-section: 1 件目の項目" "$out" "First future item"
+expect "unknown-section: 2 件目の項目" "$out" "Second future item"
+expect_absent "unknown-section: What changed の表を出さない" "$out" "Noise that must not be printed."
 
 # 旧形式: Suppressed comments を従来どおり出す
 load "copilot-old-suppressed-comments" "$FIX/copilot-old-suppressed-comments.md"
