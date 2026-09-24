@@ -25,8 +25,34 @@ final class WarningCode {
 	 */
 	public const VALIDATION_EXCEPTION = 'validation_exception';
 
+	/**
+	 * `Woo\Writer\ProductWriter`（インポート方向）専用。`woocommerce_prices_include_tax`が偽のため、
+	 * ASPの税込価格をそのまま書くとWoo側でチェックアウト時に税が上乗せされうる（警告のみ・自動変更しない。
+	 * docs/03 §5「税の扱い」）。エクスポート方向は`PRICES_CONVERTED_TO_TAX_INCLUSIVE`。
+	 */
 	public const PRICES_INCLUDE_TAX_DISABLED = 'prices_include_tax_disabled';
 	public const CURRENCY_MISMATCH           = 'currency_mismatch';
+
+	/**
+	 * `Woo\Reader\ProductReader`（エクスポート方向）: 税計算ON・税抜入力の店舗の価格を、店舗の基準所在地の税率で
+	 * 税込価格へ換算した（`Woo\Support\TaxInclusivePrice`）。情報のみ。エクスポート結果の売価が
+	 * Wooの入力値と異なる理由をdry-runレポートで説明する。ページ（Readerインスタンス）につき1回だけ付く。
+	 */
+	public const PRICES_CONVERTED_TO_TAX_INCLUSIVE = 'prices_converted_to_tax_inclusive';
+
+	/**
+	 * `Woo\Reader\ProductReader`: セール終了日（`date_on_sale_to`）付きのセール価格を、終了日を運べないまま
+	 * ASPへ販売価格として送る（Canonicalは終了日を持たず、エクスポートは継続同期しない。D14）。Woo側でセールが
+	 * 終わってもASP側は値引き価格のまま残るため、dry-runレポートで知らせる。情報のみ（blocking化すると
+	 * 期間限定セール中の商品を一切エクスポートできない）。バリエーションは`:{variation_id}`のdetail付き。
+	 */
+	public const SALE_END_DATE_NOT_PUSHED = 'sale_end_date_not_pushed';
+
+	/**
+	 * `Woo\Reader\ProductReader`: 税込価格へ換算できない。`PRODUCT_PRICE_INVALID`/`VARIATION_PRICE_INVALID`と
+	 * 併せて積み、`indicates_export_blocking()`の対象にする（理由の説明用コード）。
+	 */
+	public const PRICE_TAX_BASIS_UNRESOLVED = 'price_tax_basis_unresolved';
 
 	public const SKU_DUPLICATE                 = 'sku_duplicate';
 	public const TAX_CLASS_MISSING             = 'tax_class_missing';
@@ -520,16 +546,14 @@ final class WarningCode {
 			// 送料のみ課税・非課税の商品がColorMe側で通常課税として扱われてしまう
 			// （R3レビュー指摘, Copilot）。
 			self::TAX_STATUS_NOT_TAXABLE,
-			// `PRICES_INCLUDE_TAX_DISABLED`（`woocommerce_prices_include_tax=no`の店舗）は
-			// **意図的にここへ含めない**。R3レビュー（Codex）は`ProductTransformer::
-			// to_push_amount()`が常に税込前提で換算するため実売価格を誤らせると正しく指摘したが、
-			// `woocommerce_prices_include_tax`は多くの実店舗で既定の「税抜で価格入力」設定
-			// （未設定時`get_option()`はfalseを返す＝実測: フレッシュなWP/WC環境でも発火）であり、
-			// export blockingにすると無料版の挙動確認自体ができなくなる店舗が続出する
-			// （既存の`JobManagerExportTest`が実際にこれで2件失敗した）。正しい修正は
-			// `Woo\Reader\ProductReader`側で税込基準へ正規化してから`CanonicalProduct`へ渡す
-			// ことだが、本PRの差分範囲（`ColorMeAdapter`/`ProductTransformer`書込方向）を超える
-			// ため、ユーザー確認事項として最終報告に残す（`docs/review-backlog.md`参照）。
+			// `Woo\Reader\ProductReader`: 税計算ON・税抜入力の店舗で、その税区分に税率は登録済みだが
+			// 店舗の基準所在地に合致するものが無く、税込価格へ換算できない（`Woo\Support\
+			// TaxInclusivePrice`）。税抜のまま`ProductTransformer::to_push_amount()`（入力は税込前提）へ
+			// 渡すと税分だけ低い売価がColorMeへ恒久的に登録されるため止める（issue #59。金銭的リスク）。
+			// なお`PRICES_INCLUDE_TAX_DISABLED`（`Woo\Writer\ProductWriter`のインポート方向）は
+			// エクスポートの対象外で、`ProductReader`は税込へ正規化するようになったため、税計算OFFの
+			// 既定環境でもここには含めなくてよい（blocking化すると無料版の挙動確認ができなくなる）。
+			self::PRICE_TAX_BASIS_UNRESOLVED,
 			// `Woo\Support\VariationAxisResolver`: バリエーション軸が3つ以上あり、`CanonicalProduct::
 			// $variants`のoption1/2規約（2軸まで）に合わせ3軸目以降を切り捨てている。
 			// `ColorMeAdapter::sync_variants()`は`option1/2`の組のみで突合するため、3軸目の値だけが

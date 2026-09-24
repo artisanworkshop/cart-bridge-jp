@@ -12,6 +12,11 @@ use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
 
 /**
  * 正規化された商品モデル。価格は浮動小数点誤差を避けるため文字列で保持する。
+ *
+ * 価格の契約: `price`/`sale_price`/`variants[].price`/`variants[].sale_price` はいずれも
+ * **消費者が実際に支払う税込金額**（`price`＝通常価格、`sale_price`＝セール中の実売価格）。
+ * `variants[].sale_price` はセール中のバリエーションにだけ存在するキー（セール外は省略。
+ * checksumを不必要に変えないため。読む側は `$variant['sale_price'] ?? null` とする）。
  */
 final readonly class CanonicalProduct implements CanonicalModel {
 

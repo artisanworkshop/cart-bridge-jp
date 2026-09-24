@@ -1082,6 +1082,65 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   （`docs/10-tasks.md`）の「重複ゼロ」は満たすが、「checksum一致skip」は商品エンティティでは
    未確認のまま（カテゴリマッピング設定後に別途確認可能。本PRの差分範囲外）。
 
+#### エクスポート方向の実装（価格の税込正規化とバリエーションのセール価格。issue #59 / #60）
+
+E2-3 PR-A のゲートで「差分範囲外・要判断」として保留していた High 2件（`docs/review-backlog.md`
+`e2-3-push-product/G1-out-of-scope-prices-include-tax` / `G2-variation-sale-price`）を v1.0 公開前に解消した。
+
+**Canonical の価格契約は「消費者が実際に支払う税込金額」**（`CanonicalProduct` docblock）。`ProductReader`
+がこの契約に正規化してから渡し、`ProductTransformer::to_push_amount()` は従来どおり「入力は税込」前提で
+ColorMe の税設定（`shop.tax_type`）へ逆算する。
+
+1. **税込への正規化（`Woo\Support\TaxInclusivePrice`）**。換算するのは「税計算ON（`wc_tax_enabled()`）・
+   税抜入力（`! wc_prices_include_tax()`）・課税商品（`is_taxable()`）」のときだけ。税計算OFF
+   （フレッシュな WC の既定）は入力価格＝消費者の支払額＝税込なので無変換が正しく、旧仕様の
+   `PRICES_INCLUDE_TAX_DISABLED` は既定環境でも発火する誤検知だった（Reader では出さなくなった）。
+   - **`wc_get_price_including_tax()` は使わない**: 税抜モードでは顧客ロケーション依存の `WC_Tax::get_rates()`
+     を使い、顧客が居ない／ロケーションが空の文脈（WP-CLI・Action Scheduler）では税率0件になり価格が
+     **無変換で返る**（実測: 基準所在地JP・税率10%登録済みでも `wc_get_price_including_tax(999)` が `999.0`、
+     `get_rates()` が0件・`get_base_tax_rates()` が1件）。決定的な店舗の基準所在地の税率
+     （`WC_Tax::get_base_tax_rates( $product->get_tax_class() )`）で、WC 本体の税抜分岐と同じ計算・丸め
+     （`calc_tax` → `woocommerce_tax_round_at_subtotal` → `wc_round_tax_total` → `NumberUtil::round`
+     〈`wc_get_price_decimals()`〉）を行う。`TaxInclusivePriceTest` が `woocommerce_get_tax_location` で
+     ロケーションを基準所在地へ固定して `wc_get_price_including_tax()` との一致を検証し、丸めのドリフトを検出する。
+   - **フェイルクローズ**: その税区分に税率が1件も無ければ Woo は課税しない（入力価格＝支払額）ので無変換。
+     税率は登録済みだが基準所在地に合致するものが無い場合は、どの税率で課税されるか（顧客の配送先次第）を
+     決められないため換算不能とし、`PRODUCT_PRICE_INVALID`（バリエーションは `VARIATION_PRICE_INVALID`）＋
+     `PRICE_TAX_BASIS_UNRESOLVED` を積む（後者は `indicates_export_blocking()` 対象）。
+   - 換算を適用したときだけ、情報警告 `PRICES_CONVERTED_TO_TAX_INCLUSIVE` をページ（Reader インスタンス）
+     につき1回積む（非 blocking。dry-run レポートで売価が Woo の入力値と異なる理由を示す）。
+   - 変換対象は単純商品の定価・セール価格、variable 親の代表値（最安定価。親の税区分で換算。バリエーション
+     間で税区分が異なる場合の厳密さは対象外）、各バリエーションの定価・セール価格。
+2. **バリエーションのセール価格**。`ProductReader::variants()` が、`is_on_sale( 'edit' )` かつ単純商品と同じ基準
+   （数値・0超・通常価格未満）を満たすバリエーションにだけ、税込の `sale_price` キーを載せる。
+   `CanonicalProduct::$variants[]` は自由形式の連想配列なのでコンストラクタは変えていない（外部アダプタ互換）。
+   **セール中でなければキー自体を出さない**: 全 variable 商品の checksum が変わり、次回 export で（多段階
+   リクエストの重い）全件再 push になるのを避けるため。`ColorMeAdapter::push_variant_details()` はセール中
+   `option_price`（販売価格）＝実売価格・`option_market_price`（定価）＝通常価格を送る（swagger
+   `productVariantUpdateRequest`。商品レベルの `sales_price`/`price` と同じ意味論）。実売価格を換算できない・0以下・通常価格超え
+   （通常価格を換算できず比較できない場合を含む。`CanonicalProduct::$variants` は外部アダプタ境界のため
+   `ProductReader` の検証を通っている保証が無く、`to_push_amount()` は 0・負値・定価超えをそのまま通す。PR #61
+   Copilot G3-1）の場合は、0円・不正な販売価格や通常価格を販売価格として送らないよう価格フィールドを両方省く（「省く」は ColorMe 側の既存値を保持する。`null` 明示で未設定に戻す案は採らない: 実フィクスチャ `product_option_detail.json` のとおり `option_price: null` のバリエーションは商品レベルの価格〈variable 親では最安の定価〉にフォールバックし、より高いバリエーションの売価を誤るため。PR #61 Copilot G2-1）。
+   - 既知の限界: セール外の送信では `option_market_price` を省略する（単純商品の `push_prices()` と同じ）ため、
+     セール終了後に ColorMe 側へ古い定価が残る（販売価格は正しい。表示上の差のみ）。
+   - **セール終了日（`date_on_sale_to`）は運べない**: `CanonicalProduct` は終了日を持たず、エクスポートは継続同期
+     しない（D14）ため、期間限定セールの実売価格が ColorMe では恒久的な販売価格になり、Woo 側でセールが終わっても
+     値引き価格のまま残る。単純商品・バリエーションとも、終了日付きのセールを送るときは情報警告
+     `SALE_END_DATE_NOT_PUSHED`（バリエーションは `:{variation_id}`。非 blocking。blocking にすると期間限定セール中の
+     商品を一切エクスポートできない）で dry-run レポートに知らせる。variable 親の代表値がセールを焼き付けない
+     （最安の定価を使う）のとは対照的だが、バリエーション単位の実売価格はセール中の売価そのものなので送る
+     （#60）。単純商品は本 PR 以前から同じ構図で、警告だけが新しい。
+   - **未確認（要検証）**: `option_market_price` の税基準が `option_price` と同じ（`shop.tax_type=excluded`
+     なら税抜）という仮定は実店舗で未確認。商品レベルの `price`（定価）が `sales_price` と同じ基準であることは
+     実機確認済み（要検証#16）だが、バリエーション側は `_including_tax` の対が無く swagger に明記が無い。
+3. **checksum への影響**: 税抜入力店舗の商品（価格が変わる）とセール中バリエーションを持つ商品は、リリース後の
+   初回 export で canonical が変わり1回だけ再 push される（意図どおり。ColorMe 側は既存 remote_id への PUT で重複しない）。
+
+**インポート方向は対象外**（本項目の鏡像として残る）: `Woo\Writer\ProductWriter` は ColorMe の税込額を
+`regular_price` へ書く。税計算ON・税抜入力の Woo 店舗ではチェックアウト時に税が上乗せされて二重課税になりうる
+が、docs/03 §5「税の扱い」（取込み方向は警告のみ・自動変更しない）のとおり `PRICES_INCLUDE_TAX_DISABLED` の警告に留めている
+（`docs/review-backlog.md` `e2-2-exporter-core/G3-M-tax-basis-conversion` の残り）。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ

@@ -1077,10 +1077,29 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$payload['model_number'] = $sku;
 		}
 
-		$price = $this->product_transformer()->to_push_amount( Cast::to_string_or_null( $variant['price'] ?? null ), $product->tax_class );
+		$transformer = $this->product_transformer();
+		$regular     = $transformer->to_push_amount( Cast::to_string_or_null( $variant['price'] ?? null ), $product->tax_class );
+		$sale_raw    = Cast::to_string_or_null( $variant['sale_price'] ?? null );
 
-		if ( null !== $price ) {
-			$payload['option_price'] = $price;
+		if ( null === $sale_raw ) {
+			if ( null !== $regular ) {
+				$payload['option_price'] = $regular;
+			}
+		} else {
+			// セール中: `option_price`（販売価格）＝実売価格、`option_market_price`（定価）＝通常価格
+			// （商品レベルの`sales_price`/`price`＝`ProductTransformer::push_prices()`と同じ意味論。
+			// swagger `productVariantUpdateRequest`）。`CanonicalProduct::$variants`は外部アダプタ
+			// 境界のため、`ProductReader::valid_sale_price()`を通っている保証が無い。実売価格を
+			// 換算できない、0以下、または通常価格を超える（通常価格も換算できず比較できない場合を
+			// 含む）ときは、0円・負値・定価超えの販売価格や、通常価格を販売価格として送らないよう
+			// 価格フィールドを両方省く（ColorMe側の既存値を保持。`null`明示だと商品レベルの価格へ
+			// 戻り誤る。issue #60。通常価格とセール価格が換算の丸めで等しくなる場合は許容する）。
+			$sale = $transformer->to_push_amount( $sale_raw, $product->tax_class );
+
+			if ( null !== $sale && null !== $regular && $sale > 0 && $sale <= $regular ) {
+				$payload['option_price']        = $sale;
+				$payload['option_market_price'] = $regular;
+			}
 		}
 
 		$stock = $variant['stock'] ?? null;

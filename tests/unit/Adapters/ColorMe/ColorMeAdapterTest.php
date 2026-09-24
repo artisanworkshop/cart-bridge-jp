@@ -646,6 +646,243 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Color/Red・Color/Blueの2バリエーションを持つ新規variable商品をpushし、送信された全リクエストを返す
+	 * （`GET shop.json`は`$shop`を返す）。
+	 *
+	 * @param array<string,mixed> $shop
+	 * @param array<int,array<string,mixed>> $variants `variable_product()`と同じ形の2要素（Red, Blue）。
+	 * @return array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}>
+	 */
+	private function push_two_variants( array $shop, array $variants ): array {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'                       => [ [ 'body' => [ 'shop' => $shop ] ] ],
+				'POST products.json'                  => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				'PUT products/900.json'               => [ [ 'body' => [ 'product' => [ 'id' => 900 ] ] ] ],
+				'GET products/900.json'               => [
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [],
+							],
+						],
+					],
+					[
+						'body' => [
+							'product' => [
+								'id'       => 900,
+								'options'  => [],
+								'variants' => [
+									[
+										'id'            => 9001,
+										'option1_value' => 'Red',
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Red',
+										],
+										'option2'       => null,
+									],
+									[
+										'id'            => 9002,
+										'option1_value' => 'Blue',
+										'option1'       => [
+											'id'    => 1,
+											'name'  => 'Color',
+											'value' => 'Blue',
+										],
+										'option2'       => null,
+									],
+								],
+							],
+						],
+					],
+				],
+				'POST products/900/options.json'      => [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				],
+				'PUT products/900/variants/9001.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9001 ] ] ] ],
+				'PUT products/900/variants/9002.json' => [ [ 'body' => [ 'variant' => [ 'id' => 9002 ] ] ] ],
+			],
+			$captured
+		);
+
+		$product = $this->variable_product();
+		$adapter->push_product(
+			new CanonicalProduct(
+				$product->name,
+				null,
+				$product->price,
+				null,
+				null,
+				[],
+				$variants,
+				[],
+				[],
+				null,
+				'publish'
+			),
+			null
+		);
+
+		return $captured;
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function color_variant( string $value, string $price, ?string $sale_price = null ): array {
+		$variant = [
+			'remote_id'     => '',
+			'sku'           => 'VAR-' . strtoupper( $value ),
+			'option1_name'  => 'Color',
+			'option1_value' => $value,
+			'option2_name'  => null,
+			'option2_value' => null,
+			'price'         => $price,
+			'stock'         => 3,
+			'weight'        => null,
+		];
+
+		if ( null !== $sale_price ) {
+			$variant['sale_price'] = $sale_price;
+		}
+
+		return $variant;
+	}
+
+	/**
+	 * issue #60: セール中のバリエーションは`option_price`（販売価格）＝実売価格、`option_market_price`
+	 * （定価）＝通常価格で送る（商品レベルの`sales_price`/`price`と同じ意味論）。セール外のバリエーションは
+	 * 従来どおり通常価格を`option_price`として送り、`option_market_price`は送らない。
+	 */
+	public function test_push_product_pushes_sale_price_of_on_sale_variants_as_option_price(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', '1980' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertSame( 1980, $red['body']['variant']['option_price'] );
+		$this->assertSame( 2200, $red['body']['variant']['option_market_price'] );
+
+		$blue = $this->find_captured( $captured, 'PUT', 'products/900/variants/9002.json' );
+		$this->assertNotNull( $blue );
+		$this->assertSame( 2200, $blue['body']['variant']['option_price'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $blue['body']['variant'] );
+	}
+
+	public function test_push_product_converts_variant_sale_and_list_prices_for_tax_exclusive_shops(): void {
+		$captured = $this->push_two_variants(
+			[
+				'tax_type'            => 'excluded',
+				'tax'                 => 10,
+				'reduce_tax_rate'     => 8,
+				'tax_rounding_method' => 'round_off',
+			],
+			[ $this->color_variant( 'Red', '2200', '1100' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		// 税込1100→税抜1000、税込2200→税抜2000。
+		$this->assertSame( 1000, $red['body']['variant']['option_price'] );
+		$this->assertSame( 2000, $red['body']['variant']['option_market_price'] );
+	}
+
+	/**
+	 * 実売価格だけが換算できない（通常価格は換算できる）場合、通常価格を販売価格として送ってしまわない
+	 * よう価格フィールドを両方省く（フェイルクローズ）。`cbjp/adapters/register`経由のCanonicalは外部境界
+	 * のため`sale_price`が数値でない値でありうる。`tax_type=included`なら通常価格は必ず換算できるので、
+	 * 「販売価格が換算できず通常価格は換算できる」分岐を確実に通す（`excluded`で税率欠損の店舗では
+	 * 通常価格も換算できず、この分岐に入らない）。
+	 */
+	public function test_push_product_does_not_send_the_regular_price_as_option_price_when_only_the_sale_price_is_unusable(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', 'abc' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
+		$this->assertSame( 'VAR-RED', $red['body']['variant']['model_number'] );
+	}
+
+	/**
+	 * `CanonicalProduct::$variants`は外部アダプタ境界のため、`sale_price`が`ProductReader`の検証を
+	 * 通っている保証が無い。0円・負値・通常価格超えの販売価格をそのまま`option_price`として送ると、
+	 * バリエーションが無料・不正な価格になる（`to_push_amount()`はこれらをそのまま通す）ため、
+	 * 価格フィールドを両方省く（PR #61 Copilot G3-1）。
+	 *
+	 * @dataProvider provide_unusable_sale_prices
+	 */
+	public function test_push_product_omits_variant_prices_when_the_sale_price_is_zero_negative_or_above_the_regular_price( string $sale_price ): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', $sale_price ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function provide_unusable_sale_prices(): array {
+		return [
+			'zero'          => [ '0' ],
+			'negative'      => [ '-10' ],
+			'above regular' => [ '2500' ],
+		];
+	}
+
+	/**
+	 * 販売価格と定価が同額（換算の丸めで等しくなりうる境界）は有効な組として送る。
+	 */
+	public function test_push_product_accepts_a_sale_price_equal_to_the_regular_price(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', '2200', '2200' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertSame( 2200, $red['body']['variant']['option_price'] );
+		$this->assertSame( 2200, $red['body']['variant']['option_market_price'] );
+	}
+
+	/**
+	 * 店舗の税設定を解決できない（`tax_type=excluded`なのに税率が無い）場合は、通常価格も実売価格も
+	 * 換算できないため価格フィールドを両方省く（フェイルクローズ）。
+	 */
+	public function test_push_product_omits_variant_prices_when_the_shop_tax_settings_are_unresolvable(): void {
+		$captured = $this->push_two_variants(
+			[ 'tax_type' => 'excluded' ],
+			[ $this->color_variant( 'Red', '2200', '1980' ), $this->color_variant( 'Blue', '2200' ) ]
+		);
+
+		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );
+		$this->assertNotNull( $red );
+		$this->assertArrayNotHasKey( 'option_price', $red['body']['variant'] );
+		$this->assertArrayNotHasKey( 'option_market_price', $red['body']['variant'] );
+	}
+
+	/**
 	 * R1レビュー指摘: `ensure_option_values()`は軸を名前で解決するため、ColorMe側の既存
 	 * オプションのスロット割当（作成順で決まる）とWoo側の軸抽出順が一致する保証は無い。
 	 * ここではリモート側で軸のスロットが逆（option1=Size, option2=Color）になっている状態を

@@ -176,6 +176,20 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   ポリシー」とCLAUDE.md原則8に明記。`tests/unit/Adapters/AbstractPlatformAdapterTest`（リフレクションで
   未実装メソッド一覧とシグネチャをBASELINE定数と照合する契約テスト）でCI上強制する。PR #48の該当2スレッド
   （`fetch_order_by_remote_id()`追加への指摘）はこの決定を根拠にResolve
+- [x] **fix: エクスポート価格の税込正規化とバリエーションのセール価格**（2026-09-24、issue #59 / #60）
+  E2-3 PR-A のゲートで「差分範囲外・要判断」として保留していた High 2件（`docs/review-backlog.md`
+  `e2-3-push-product/G1-out-of-scope-prices-include-tax` / `G2-variation-sale-price`）を v1.0 公開前に解消。
+  (1) 税計算ON・税抜入力（`woocommerce_prices_include_tax=no`）の店舗で、`ProductReader` が税抜価格を税込として
+  ColorMe へ渡し売価が税分だけ低くなる問題: 新設 `Woo\Support\TaxInclusivePrice` が店舗の基準所在地の税率
+  （`WC_Tax::get_base_tax_rates()`）で税込へ換算する。`wc_get_price_including_tax()` は顧客ロケーションが
+  空の文脈（WP-CLI・Action Scheduler）では無変換で返すため使わない。税率登録済みだが基準所在地に合致しない
+  場合はフェイルクローズ（`PRICE_TAX_BASIS_UNRESOLVED`、blocking）。税計算OFF（WC の既定）は無変換で正しく、
+  旧仕様の `PRICES_INCLUDE_TAX_DISABLED` は Reader では出さない（誤検知だった。換算適用時のみ情報警告
+  `PRICES_CONVERTED_TO_TAX_INCLUSIVE`）。(2) バリエーションのセール価格: セール中のバリエーションにだけ
+  `variants[].sale_price` を載せ、`push_variant_details()` が `option_price`＝実売価格・`option_market_price`＝
+  通常価格で送る。詳細は `docs/03-design-decisions.md` §10.2「価格の税込正規化とバリエーションのセール価格」。
+  インポート方向（`ProductWriter` が税込額を税抜入力の店舗へ書く鏡像）は対象外で警告のみのまま
+  （`e2-2-exporter-core/G3-M-tax-basis-conversion` の残り）
 
 ---
 
@@ -405,7 +419,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 ## Phase 3: v1.0 仕上げ・公開
 
-- [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認）
+- [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認。**あわせて、`tax_type=excluded` の店舗でセール中バリエーションの `option_market_price`（定価）の税基準が `option_price` と同じか実機確認する**〔`docs/03` §10.2「価格の税込正規化とバリエーションのセール価格」の要検証。PR #61 Copilot G1-1〕）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。**凍結前に `docs/review-backlog.md` の `PlatformAdapter` 契約拡張前提の保留項目（`e2-3-push-*/G1-duplicate-on-retry`・`fix-46-pref-state-repair/L-unavailable-not-split`）の対応要否を判断する**（03 §2 D20 規則7））

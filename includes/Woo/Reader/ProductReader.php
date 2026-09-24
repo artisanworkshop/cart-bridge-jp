@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\StockDerivation;
+use CartBridgeJP\Woo\Support\TaxInclusivePrice;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\Support\WeightUnit;
 use CartBridgeJP\Woo\WarningCode;
@@ -41,10 +42,10 @@ final class ProductReader implements EntityReader {
 	public const EXPORTABLE_TYPES    = [ 'simple', 'variable' ];
 
 	/**
-	 * `Woo\Writer\ProductWriter`と同じ理由: 商品ごとに積むと結果が埋もれるため
-	 * インスタンス（=1ページ走査）につき1回だけ警告する。
+	 * 商品ごとに積むと結果が埋もれるためインスタンス（=1ページ走査）につき1回だけ
+	 * `PRICES_CONVERTED_TO_TAX_INCLUSIVE`を積む。
 	 */
-	private bool $prices_include_tax_warned = false;
+	private bool $prices_converted_warned = false;
 
 	public function __construct(
 		private readonly string $platform,
@@ -116,16 +117,6 @@ final class ProductReader implements EntityReader {
 
 		$weight    = WeightUnit::convert_to_grams( (string) $product->get_weight() );
 		$tax_class = $product->get_tax_class();
-
-		// Codex指摘（PR #40, G3）: `woocommerce_prices_include_tax=no`の店舗では
-		// `get_regular_price()`が税抜金額を返すが、ASP側のcanonical price契約は税込前提
-		// （`Woo\Writer\ProductWriter`のインポート方向と同じ契約）。実際の税換算は行わず
-		// （`ProductWriter`側も同様に換算はせず警告のみ。インポート方向で既に確立した方針との
-		// 対称性を優先）、`ProductWriter`と同じ基準で1回だけ警告する。
-		if ( ! wc_prices_include_tax() && ! $this->prices_include_tax_warned ) {
-			$warnings[]                      = WarningCode::PRICES_INCLUDE_TAX_DISABLED;
-			$this->prices_include_tax_warned = true;
-		}
 
 		// Codex指摘（PR #40, G3）: `get_tax_class()`は`tax_status`（`taxable`/`shipping`/`none`）を
 		// 運ばない。`CanonicalProduct`にも`tax_status`を持つフィールドが無いため、送料のみ課税・
@@ -222,7 +213,58 @@ final class ProductReader implements EntityReader {
 			return [ '0', null, [ WarningCode::PRODUCT_PRICE_INVALID ] ];
 		}
 
-		return [ $min_price, null, [] ];
+		// 親の代表値は親商品の税区分で税込へ換算する（バリエーション個別の税区分が親と異なる場合の
+		// 代表値の厳密さは対象外。`tax_reduced`も商品単位でしかASPへ運べない）。
+		$warnings  = [];
+		$inclusive = $this->normalize_price( $product, $min_price, $warnings );
+
+		if ( null === $inclusive ) {
+			return [ '0', null, [ WarningCode::PRODUCT_PRICE_INVALID, WarningCode::PRICE_TAX_BASIS_UNRESOLVED ] ];
+		}
+
+		return [ $inclusive, null, $warnings ];
+	}
+
+	/**
+	 * 価格をCanonicalの価格契約（税込）へ正規化する。税抜入力の店舗で換算を適用したときだけ、
+	 * ページにつき1回`PRICES_CONVERTED_TO_TAX_INCLUSIVE`を`$warnings`へ積む。
+	 *
+	 * @param array<int,string> $warnings
+	 * @return ?string 税込金額。換算不能（`Woo\Support\TaxInclusivePrice`参照）ならnull。
+	 */
+	private function normalize_price( WC_Product $product, string $amount, array &$warnings ): ?string {
+		[ $inclusive, $converted ] = TaxInclusivePrice::from_product_price( $product, $amount );
+
+		if ( $converted && ! $this->prices_converted_warned ) {
+			$warnings[]                    = WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE;
+			$this->prices_converted_warned = true;
+		}
+
+		return $inclusive;
+	}
+
+	/**
+	 * セール中の実売価格（換算前の生の値）。`get_sale_price()`は生の`_sale_price`をそのまま返し、
+	 * セール開始/終了日程を考慮しない（`is_on_sale()`のみが日程を見る）。`edit`コンテキストで
+	 * 表示用フィルターを経由せず判定し、`ProductWriter::resolve_sale_price()`（インポート方向）と
+	 * 同じ基準（数値・0より大きい・通常価格未満）で検証する。満たさない場合はセールなし（null）。
+	 * 「通常価格未満」は`is_on_sale()`自身も見ており重複する防御だが、「0より大きい」（0円のセール価格は
+	 * `is_on_sale()`が真でもセール扱いにしない）と数値検証はこちらだけが担う。
+	 *
+	 * @param string $regular_price 検証済みの通常価格（換算前の生の値）。
+	 */
+	private function valid_sale_price( WC_Product $product, string $regular_price ): ?string {
+		if ( ! $product->is_on_sale( 'edit' ) ) {
+			return null;
+		}
+
+		$raw_sale_price = $product->get_sale_price();
+
+		if ( is_numeric( $raw_sale_price ) && (float) $raw_sale_price > 0 && (float) $raw_sale_price < (float) $regular_price ) {
+			return $raw_sale_price;
+		}
+
+		return null;
 	}
 
 	/**
@@ -245,21 +287,37 @@ final class ProductReader implements EntityReader {
 			return [ '0', null, $warnings ];
 		}
 
-		$sale_price = null;
+		// 検証は換算前の生の値で行い（`ProductWriter`と同じ基準を維持）、通った値を税込へ換算する。
+		$inclusive_regular = $this->normalize_price( $product, $regular_price, $warnings );
+		$raw_sale_price    = $this->valid_sale_price( $product, $regular_price );
+		$inclusive_sale    = null !== $raw_sale_price ? $this->normalize_price( $product, $raw_sale_price, $warnings ) : null;
 
-		// `get_sale_price()`は生の`_sale_price`をそのまま返し、セール開始/終了日程を考慮しない
-		// （`is_on_sale()`のみが日程を見る）。`edit`コンテキストで表示用フィルターを経由せず
-		// 判定する。`ProductWriter::resolve_sale_price()`（インポート方向）と同じ基準
-		// （数値・0より大きい・通常価格未満）で検証し、満たさない場合はセールなし扱いにする。
-		if ( $product->is_on_sale( 'edit' ) ) {
-			$raw_sale_price = $product->get_sale_price();
-
-			if ( is_numeric( $raw_sale_price ) && (float) $raw_sale_price > 0 && (float) $raw_sale_price < (float) $regular_price ) {
-				$sale_price = $raw_sale_price;
-			}
+		if ( null === $inclusive_regular || ( null !== $raw_sale_price && null === $inclusive_sale ) ) {
+			return [ '0', null, array_merge( $warnings, [ WarningCode::PRODUCT_PRICE_INVALID, WarningCode::PRICE_TAX_BASIS_UNRESOLVED ] ) ];
 		}
 
-		return [ $regular_price, $sale_price, $warnings ];
+		if ( null !== $inclusive_sale ) {
+			$this->warn_if_sale_is_scheduled_to_end( $product, null, $warnings );
+		}
+
+		return [ $inclusive_regular, $inclusive_sale, $warnings ];
+	}
+
+	/**
+	 * セール終了日（`date_on_sale_to`）付きのセールは、`CanonicalProduct`が終了日を運べないため
+	 * ASPでは恒久的な販売価格になる（エクスポートは継続同期しない）。情報警告で知らせる。
+	 *
+	 * @param array<int,string> $warnings
+	 * @param ?string           $detail バリエーションID等（単純商品はnull）。
+	 */
+	private function warn_if_sale_is_scheduled_to_end( WC_Product $product, ?string $detail, array &$warnings ): void {
+		if ( null === $product->get_date_on_sale_to( 'edit' ) ) {
+			return;
+		}
+
+		$warnings[] = null === $detail
+			? WarningCode::SALE_END_DATE_NOT_PUSHED
+			: WarningCode::with_detail( WarningCode::SALE_END_DATE_NOT_PUSHED, $detail );
 	}
 
 	/**
@@ -347,13 +405,34 @@ final class ProductReader implements EntityReader {
 				continue;
 			}
 
+			// 定価・セール価格とも税込へ換算する（`Woo\Support\TaxInclusivePrice`）。換算不能な
+			// バリエーションはスキップし、blockingの`PRICE_TAX_BASIS_UNRESOLVED`で商品全体もpushを
+			// 止める（`indicates_export_blocking()`は`:detail`を落として判定する。誤った売価を送らない）。
+			$inclusive_price = $this->normalize_price( $variation, $price, $warnings );
+			$raw_sale_price  = $this->valid_sale_price( $variation, $price );
+			$inclusive_sale  = null !== $raw_sale_price ? $this->normalize_price( $variation, $raw_sale_price, $warnings ) : null;
+
+			if ( null === $inclusive_price || ( null !== $raw_sale_price && null === $inclusive_sale ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_PRICE_INVALID, (string) $variation_id );
+				$warnings[] = WarningCode::with_detail( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, (string) $variation_id );
+				continue;
+			}
+
 			$variant = [
 				'remote_id' => $remote_id ?? '',
 				'sku'       => '' !== $variation->get_sku() ? $variation->get_sku() : null,
-				'price'     => $price,
+				'price'     => $inclusive_price,
 				'stock'     => $this->variation_stock( $variation, $warnings ),
 				'weight'    => WeightUnit::convert_to_grams( (string) $variation->get_weight() ),
 			];
+
+			// セール中のバリエーションだけ`sale_price`（税込の実売価格）を運ぶ。セール外はキー自体を
+			// 出さない: 全variable商品のchecksumが変わり、次回exportで（多段階リクエストの重い）
+			// 全件再pushになるのを避けるため（`CanonicalProduct`のdocblock参照）。
+			if ( null !== $inclusive_sale ) {
+				$variant['sale_price'] = $inclusive_sale;
+				$this->warn_if_sale_is_scheduled_to_end( $variation, (string) $variation_id, $warnings );
+			}
 
 			$this->apply_axis_values( $variant, $variation, $axis_attributes );
 
