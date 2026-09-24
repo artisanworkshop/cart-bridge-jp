@@ -85,14 +85,14 @@ npm run build                # 本番ビルド
 
 ## アーキテクチャ原則（詳細は docs/00-plan-overview.md）
 
-1. **アダプタパターン**: 各ASPは `Adapters\PlatformAdapter` インターフェースの実装。プラットフォーム固有コードをアダプタ外に書かない
+1. **アダプタパターン**: 各ASPは `Adapters\AbstractPlatformAdapter`（`PlatformAdapter` の基底実装。原則8）を継承して実装し、`AbstractPlatformAdapterTest::test_bundled_adapters_extend_base` の対象にも加える。プラットフォーム固有コードをアダプタ外に書かない
 2. **正規化モデル**: ASP⇔Woo間は必ず `Canonical\*` モデル（CanonicalProduct等）を経由。直接変換禁止
 3. **capability宣言**: 各アダプタは `capabilities()` で可否（カテゴリ作成可否・削除可否等）を宣言し、UI/ジョブ側が分岐
 4. **破壊的操作の禁止**: リモート側データのDELETEは行わない（MakeShopは技術的に可能だが、削除は「非公開化」提案に留める）。ローカル側も上書き前にdry-run/プレビューを提供
 5. **レート制限遵守**: 全API呼び出しは `Support\RateLimiter` 経由（カラーミー: 120req/分）
 6. **再開可能なジョブ**: バッチはカーソル方式で中断・再開可能に。進捗は `cbjp_jobs` テーブルに永続化
 7. **無料版/Pro版の分離**: 本リポジトリは無料版（dry-runは全量、実移行はサンプル上限つき。`docs/03-design-decisions.md` §10）。Pro版（上限解除・買切りライセンス）は別プラグインがフック（`cbjp/limits/*` 等）で拡張する設計にし、Pro固有コードは含めない。継続同期は販売しない（D14）。新しいインポート経路（カーソル走査以外のID指定取得等）を追加する際は必ず`LimitPolicy`を通すこと。サンプル選定自体の上限は「1回に選ばれるセットのサイズ」しか制限せず、`LimitPolicy`（`cbjp_mappings`累積カウント）を経由しないと、クリーンアップ→再選定の繰り返しで無料版上限を回避できてしまう
-8. **アダプタ拡張点の信頼境界**: `cbjp/adapters/register` フィルターはPro版アドオン等の外部コードが使う拡張点。返り値の型はdocblock上の契約でしかなく実行時に強制されないため、アダプタの戻り値（`connection_fields()` 等）は信用せず防御的に検証する（不正な1アダプタが全体のAPIエンドポイントを落とさないように）。`Canonical*`モデルのコンストラクタも同じ境界。新しい引数は必ず`extras`より後ろに追加し、既存引数の位置を動かさないこと。外部アダプタが位置引数で `new CanonicalProduct(..., $extras)` のように呼び出しうるため、位置がずれるとTypeErrorになる。`CanonicalProduct::$variants`のような配列<配列>型プロパティも同じ信頼境界の一部で、各要素が配列であるか`is_array()`で確認せずオフセットアクセスしないこと（非配列要素はTypeError/Errorでジョブ全体を落としうる）。**`PlatformAdapter`自体の外部互換ポリシー（D20、issue #49）**: 外部アダプタは`PlatformAdapter`を直接implementsせず`AbstractPlatformAdapter`を継承する。v1.0.0公開前はインターフェースへの追加・変更を許容するが、公開後は既存シグネチャを変えず、新メソッドは`AbstractPlatformAdapter`に既定実装を添えて追加する（`AbstractPlatformAdapterTest`がCIで検出するが、`BASELINE`定数自体の書き換えは防げないためレビューでも確認すること）。値オブジェクト（`Capabilities`等）の新しい引数は末尾に既定値付きで追加する。詳細は `docs/03-design-decisions.md` §2「外部互換ポリシー」
+8. **アダプタ拡張点の信頼境界**: `cbjp/adapters/register` フィルターはPro版アドオン等の外部コードが使う拡張点。返り値の型はdocblock上の契約でしかなく実行時に強制されないため、アダプタの戻り値（`connection_fields()` 等）は信用せず防御的に検証する（不正な1アダプタが全体のAPIエンドポイントを落とさないように）。`Canonical*`モデルのコンストラクタも同じ境界。新しい引数は必ず`extras`より後ろに追加し、既存引数の位置を動かさないこと。外部アダプタが位置引数で `new CanonicalProduct(..., $extras)` のように呼び出しうるため、位置がずれるとTypeErrorになる。`CanonicalProduct::$variants`のような配列<配列>型プロパティも同じ信頼境界の一部で、各要素が配列であるか`is_array()`で確認せずオフセットアクセスしないこと（非配列要素はTypeError/Errorでジョブ全体を落としうる）。**`PlatformAdapter`自体の外部互換ポリシー（D20、issue #49）**: 外部アダプタは`PlatformAdapter`を直接implementsせず`AbstractPlatformAdapter`を継承する。v1.0.0公開前はインターフェースへの追加・変更を許容するが、公開後は既存シグネチャを変えず、新メソッドは`AbstractPlatformAdapter`に既定実装を添えて追加する。値オブジェクト（`Capabilities`等）の新しい引数は末尾に既定値付きで追加する。契約テスト（`AbstractPlatformAdapterTest`）の運用と公開時の固定手順は `.claude/rules/adapters-colorme.md` と `docs/03-design-decisions.md` §2「外部互換ポリシー」
 9. **境界データはフェイルクローズで検証**: ASPレスポンスのenum/必須値は「required」とスキーマ明記されないことが多く、欠損・不正値・想定外の新値がありうる。既知の除外値を否定する形（`!== 'x'`）ではなく既知の許可値を肯定する形（`=== 'x'`）で判定し、解釈できない値は安全側（除外/private/在庫切れ/例外）に倒すこと。楽観的デフォルト（公開・無期限・在庫あり・数量1等へのフォールバック）は金銭的リスクや誤出荷に直結する
 
 ## トピック別ルール（`.claude/rules/`）
