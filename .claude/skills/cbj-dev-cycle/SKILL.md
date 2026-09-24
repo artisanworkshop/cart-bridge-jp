@@ -84,7 +84,7 @@ description: >
 | ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよいが、**自動レビューが発火しないことがある**（PR #37 実績: 15 分 TIMEOUT → `@codex review` で 3 分弱で応答）。G1 で Codex だけが TIMEOUT した場合は、ユーザー確認を待たずに次ラウンドで `@codex review` により再依頼してよい（この場合も Codex の依頼回数は 1 回目として数える） |
 | 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900] [--codex-nudge=秒]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT。**G1 では `--codex-nudge=300` を付ける**: Codex の自動レビューが 5 分以内に応答しなければ `@codex review` を 1 回だけ自動投稿して待ち続ける（15 分待ち切ってから再依頼する無駄を省く。Codex への依頼 1 回として数える）。**G2 以降は付けない**（`bot-request.sh` が既に `@codex review` を投稿しているため二重依頼になる） |
 | 新規スレッド取得（系統 A） | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
-| レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記） |
+| レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Findings`（重要度別）・`Open`（既存スレッドの dbid と `· New`）・**`Previously missed`（スレッドの無い新規指摘）**・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記）。整形の回帰テストは `scripts/test-gate-bodies.sh`（ネットワーク不要） |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
 | Resolve | `scripts/gate-resolve.sh <threadId>...` | **修正したスレッドのみ**。保留は返信だけして未解決のまま残す |
 
@@ -93,9 +93,15 @@ description: >
   指摘を本文の `Suppressed comments` に畳むことがある（PR #35 の 2 回目のレビューが実例。
   `gate-threads.sh` だけでは 2 件を丸ごと取り逃していた）。毎ラウンド `gate-threads.sh` と
   `gate-bodies.sh` の両方を実行し、`path:line` と要旨で重複排除してから仕分ける。
+- **新形式の本文（`ccr-overview-v2`）では、新規指摘がインラインでも `Suppressed comments` でもなく、本文の
+  `Previously missed`（変更していないコードへの指摘。スレッド無し）に出ることがある**（PR #61 の G2 が実例: インライン 0 件・
+  `Open` は既存スレッドの再掲で、新規 1 件が `Previously missed` にだけあった。旧版の `gate-bodies.sh` は整形出力に
+  出さず、`--raw` で読まなければ見落とすところだった）。整形出力の `Previously missed` の各項目は、系統 B の新規指摘として
+  `G<n>-<k>` を振って仕分ける。
 - **Copilot の最終ラウンドは、過去に返信済み・未解決のスレッドを本文の「Open」に再掲する**ことがある
   （PR #48 の G3: 判定 🔵 Needs a closer look・インライン 0 件で、Open の 2 件は G1-1/G2-1 の重複だった）。
-  `gate-bodies.sh --raw` の Open の各項目リンク（`#discussion_r<dbid>`）を既存スレッドの `dbid` と突合し、
+  `gate-bodies.sh` の Open の各項目（`#discussion_r<dbid>`。`· New` の付いた項目は今回の新規スレッドで
+  `gate-threads.sh` にも出る）を既存スレッドの `dbid` と突合し、
   既存なら新規ではなく重複として `G<n>.md` に記録する。総評（「データを書き換えるので最終的に人間の確認を」等）は
   修正対象ではなく、最終報告でマージ前にユーザーが確認すべき点として載せる。
 - 本文指摘（系統 B）は**スレッドが無いため Resolve できない**。`G<n>.md` と PR サマリコメントの
