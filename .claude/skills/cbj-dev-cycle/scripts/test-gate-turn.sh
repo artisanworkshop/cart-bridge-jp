@@ -33,10 +33,30 @@ DONE"
 mkstub gate-threads THREADS "threads: 0 / unresolved bot threads: 0"
 mkstub gate-bodies BODIES "no bot review bodies"
 
+# gh: `pr view`（--first の HEAD 固定）は 1 回目に STUB_HEAD、2 回目以降に STUB_HEAD_AFTER（未指定なら STUB_HEAD と同じ）を返す。
+#   STUB_SLEEP_PRVIEW（1 回目だけ待つ秒数）・STUB_FAIL_PRVIEW_AFTER=1（2 回目以降を失敗させる）で振る舞いを切り替え、
+#   1 回目の完了時刻を $STUB_LOG.prview.end に残す。それ以外の gh 呼び出しは Codex の issue コメントを返す。
 cat >"$STUBS/bin/gh" <<'EOS'
 #!/usr/bin/env bash
 echo "gh $*" >> "$STUB_LOG"
 if [ "${STUB_RC_GH:-0}" -ne 0 ]; then exit "$STUB_RC_GH"; fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  n=$(cat "$STUB_LOG.prview.n" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" > "$STUB_LOG.prview.n"
+  if [ "$n" -eq 1 ]; then
+    sleep "${STUB_SLEEP_PRVIEW:-0}"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$STUB_LOG.prview.end"
+  elif [ "${STUB_FAIL_PRVIEW_AFTER:-0}" = 1 ]; then
+    exit 1
+  fi
+  if [ "$n" -eq 1 ]; then
+    printf '%s\n' "${STUB_HEAD-1111111111111111111111111111111111111111}"
+  else
+    printf '%s\n' "${STUB_HEAD_AFTER-${STUB_HEAD-1111111111111111111111111111111111111111}}"
+  fi
+  exit 0
+fi
 printf '%s\n' "2026-09-24T10:03:00Z
 Codex Review: Didn't find any major issues. Reviewed commit: abc123
 ---"
@@ -57,6 +77,7 @@ run_gt() {
   while [ "$1" != "--" ]; do envs+=("$1"); shift; done
   shift
   : >"$LOG"
+  rm -f "$LOG.prview.n" "$LOG.prview.end"
   RC=0
   OUT=$(env CBJ_GATE_SCRIPTS_DIR="$STUBS" STUB_LOG="$LOG" PATH="$STUBS/bin:$PATH" "${envs[@]+"${envs[@]}"}" "$GT" "$@" 2>&1) || RC=$?
 }
@@ -163,6 +184,16 @@ assert_out "--no-ci-wait の見積りは応答待ちだけ（900+60 秒）" "out
 run_gt -- 64 copilot --timeout=30 --ci-timeout=20
 assert_out "オプションを反映した見積り（20+30+60 秒）" "outer timeout of at least 110000 ms"
 
+# 14b. 先頭が 0 の秒数は 8 進数ではなく 10 進数として扱う（0600 は 384、0900 は算術エラーになる）
+run_gt -- 64 codex --timeout=0900 --ci-timeout=0600
+assert_rc "先頭 0 の秒数: 終了コード 0（0900 で算術エラーにならない）" 0
+assert_log "--ci-timeout=0600 は 600 として ci-wait へ渡す" "ci-wait 64 --timeout=600"
+assert_log "--timeout=0900 は 900 として bot-wait へ渡す" "bot-wait 64 $T1 --timeout=900 --copilot=0 --codex=1"
+assert_out "先頭 0 でも見積りは 10 進数（600+900+60 秒）" "outer timeout of at least 1560000 ms"
+run_gt -- 64 codex --timeout=010 --ci-timeout=020
+assert_log "8 進数として読める値（020 は 16）も 10 進数の 20 として渡す" "ci-wait 64 --timeout=20"
+assert_out "先頭 0 の値の見積り（20+10+60 秒）" "outer timeout of at least 90000 ms"
+
 # 15. nudge の記録を落とさない（依頼回数の上限 3 回を数え違えないため）。連続する同一の進捗行だけ畳む。
 NUDGE_LINE="codex: no response after 300s; posted '@codex review' (counts as Codex request #1)"
 NUDGE_WAIT=$(printf 'copilot=0 codex=0\ncopilot=0 codex=0\n%s\ncopilot=0 codex=0\ncopilot=0 codex=0\ncopilot=0 codex=0\ncopilot=0 codex=1\nDONE' "$NUDGE_LINE")
@@ -186,7 +217,48 @@ run_gt STUB_MKTEMP_FAIL=1 -- 64 codex
 assert_rc "mktemp 失敗: 3" 3
 assert_no_call "mktemp 失敗: 何も呼ばない" "ci-wait"
 
-# 18. 引数不正
+# 18. --first の HEAD 固定: T は CI 待ちより前に取るので、待つ間に PR の HEAD が動くと旧 HEAD への自動レビューが
+#     応答として数えられる（bot-wait は提出時刻だけで判定する）。CI 待ちの前後で HEAD を比べ、動いていたら待たない。
+SHA_A=1111111111111111111111111111111111111111
+SHA_B=2222222222222222222222222222222222222222
+run_gt -- 64 codex --first
+order=$(awk '{print $1}' "$LOG" | tr '\n' ' ')
+if [ "$order" = "gh ci-wait gh bot-wait gate-threads gate-bodies gh " ]; then ok "--first: CI 待ちの前後で HEAD を読む（呼び出し順）"; else fail "--first: 呼び出し順が違う: $order"; fi
+run_gt STUB_HEAD=$SHA_A STUB_HEAD_AFTER=$SHA_B -- 64 codex --first
+assert_rc "--first: CI 待ちの間に HEAD が動いたら 2" 2
+assert_no_call "--first: HEAD が動いたら応答を待たない" "bot-wait"
+assert_no_call "--first: HEAD が動いたら依頼もしない" "bot-request"
+assert_no_call "--first: HEAD が動いたら指摘も取らない" "gate-threads"
+assert_out "--first: HEAD が動いたことを理由に出す（旧→新の短縮 sha）" "moved during the CI wait (1111111 -> 2222222)"
+assert_out "--first: 再実行の手順を案内する" "re-run without --first"
+run_gt STUB_HEAD=$SHA_A STUB_HEAD_AFTER=$SHA_A -- 64 codex --first
+assert_rc "--first: HEAD が動かなければ 0" 0
+run_gt STUB_HEAD=$SHA_A STUB_HEAD_AFTER=$SHA_B -- 64 codex --first --no-ci-wait
+assert_rc "--first --no-ci-wait: CI 待ちが無いので HEAD の比較もしない（0）" 0
+assert_no_call "--first --no-ci-wait: HEAD を読まない" "gh pr view"
+run_gt STUB_HEAD=$SHA_A STUB_HEAD_AFTER=$SHA_B -- 64 codex
+assert_rc "通常ターン: HEAD の比較をしない（0）" 0
+assert_no_call "通常ターン: HEAD を読まない" "gh pr view"
+# 判定の前提になる取得はフェイルクローズ（取得失敗・空の値を「動いていない」に化けさせない）
+run_gt STUB_RC_GH=1 -- 64 codex --first
+assert_rc "--first: 最初の HEAD を取得できない: 3" 3
+assert_no_call "--first: 最初の HEAD を取得できなければ CI 待ちへ進まない" "ci-wait"
+run_gt STUB_HEAD= -- 64 codex --first
+assert_rc "--first: 最初の HEAD が空: 3" 3
+assert_no_call "--first: 最初の HEAD が空なら CI 待ちへ進まない" "ci-wait"
+run_gt STUB_FAIL_PRVIEW_AFTER=1 -- 64 codex --first
+assert_rc "--first: CI 待ち後の HEAD を取得できない: 3" 3
+assert_no_call "--first: CI 待ち後の HEAD を取得できなければ待たない" "bot-wait"
+run_gt STUB_HEAD_AFTER= -- 64 codex --first
+assert_rc "--first: CI 待ち後の HEAD が空: 3" 3
+assert_no_call "--first: CI 待ち後の HEAD が空なら待たない" "bot-wait"
+# 順序契約: HEAD は T より先に読む（逆順だと、T と HEAD の間に入った push を検出できない）
+run_gt STUB_SLEEP_PRVIEW=2 -- 64 codex --first
+t_first=$(sed -n 's/^bot-wait 64 \([^ ]*\) .*/\1/p' "$LOG")
+head_read=$(cat "$LOG.prview.end")
+if [ "$(( ${t_first//[^0-9]/} ))" -ge "$(( ${head_read//[^0-9]/} ))" ]; then ok "--first: 最初の HEAD を読み終えた後に T を取る"; else fail "--first: T が最初の HEAD の取得より前になっている（T=${t_first}, HEAD 取得完了=${head_read}）"; fi
+
+# 19. 引数不正
 run_gt -- 64
 assert_rc "bot 省略: 2" 2
 run_gt -- abc codex

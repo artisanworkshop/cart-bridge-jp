@@ -5,10 +5,15 @@
 #   --first        最初の Codex ターン用（Codex 専用）。PR 作成時の自動レビューを待つので bot-request.sh は
 #                  呼ばず、bot-wait.sh に --codex-nudge=300 を付ける。T は起動時刻（CI 待ちの間に自動レビューが
 #                  届いても取りこぼさないよう、CI 待ちより前に取る）。G2 以降で付けると二重依頼になる。
+#                  bot-wait.sh は提出時刻だけで応答を判定するため、CI 待ちの間に PR の HEAD が動くと旧 HEAD への
+#                  自動レビューが待ちを満たしてしまい、CI で green を確認した新 HEAD が未レビューのまま「応答あり」になる。
+#                  そこで CI 待ちの前後で PR の HEAD を比べ、動いていたら待たずに終了する（2）。`--first` を外して
+#                  再実行すれば新 HEAD に `@codex review` を依頼できる（届いていた自動レビューは依頼 1 回目として数える）。
 #   --timeout=秒   応答待ち（bot-wait.sh）の上限（既定 900）。
 #   --ci-timeout=秒 CI 待ち（ci-wait.sh）の上限（既定 600）。
 #   --no-ci-wait   CI 待ちを省く（直前に CI green を確認済みのときだけ）。
-# 標準出力に `T=<依頼時刻>` を出す。以降の gate-threads.sh / gate-bodies.sh / gate-reply.sh の T にはこれを使う。
+# 標準出力に `T=<依頼時刻>` を出す。以降の gate-threads.sh / gate-bodies.sh の T にはこれを使う。
+# gate-reply.sh に渡すのは T ではなく、gate-threads.sh が返すコメントの dbid。
 # Bash の run_in_background で使う想定。CI 待ちと応答待ちは**直列**なので、最悪の所要時間は
 # --ci-timeout + --timeout（既定で 600 + 900 秒）。呼び出し側の外側のタイムアウト（Bash ツールの timeout）は
 # **(--ci-timeout + --timeout + 60) × 1000 ミリ秒以上**にすること（既定なら 1560000）。短いと、遅い CI や遅れて届いた
@@ -16,7 +21,8 @@
 # ツールの上限に収まらないときは、CI 待ちを別に実行して --no-ci-wait を使うか、--timeout / --ci-timeout を短くする。
 #
 # 終了コード: 0=応答あり / 1=応答待ちがタイムアウト（取得できる指摘は表示する）
-#            2=引数不正、または CI が green でない（依頼していない）/ 3=API エラー・依頼失敗
+#            2=引数不正 / CI が green でない / --first の HEAD が CI 待ちの間に動いた（いずれも依頼も応答待ちもしていない）
+#            3=API エラー・依頼失敗
 #
 # 兄弟スクリプトを呼ぶだけの薄いオーケストレーター（ロジックを重複させない）。修正・コミット・返信・Resolve・
 # サマリコメントはターンごとに判断を含むため、このスクリプトの対象外。
@@ -51,6 +57,10 @@ for arg in "${@:3}"; do
 done
 [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--timeout must be a number of seconds (got: '$TIMEOUT')" >&2; exit 2; }
 [[ "$CI_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--ci-timeout must be a number of seconds (got: '$CI_TIMEOUT')" >&2; exit 2; }
+# 先頭が 0 の値は、後続の `$(( ))`（と子スクリプトの算術）で 8 進数として解釈される（0600 は 384、0900 はエラー）。
+# 検証を通った後に基数 10 へ正規化してから計算・子スクリプトへ渡す。
+TIMEOUT=$((10#$TIMEOUT))
+CI_TIMEOUT=$((10#$CI_TIMEOUT))
 if [ "$FIRST" -eq 1 ] && [ "$BOT" != "codex" ]; then
   echo "--first is for the first Codex turn only" >&2
   exit 2
@@ -73,8 +83,18 @@ else
   echo "budget: wait<=${TIMEOUT}s + 60s overhead => run with an outer timeout of at least $((budget * 1000)) ms"
 fi
 
+pr_head() { gh pr view "$PR" --json headRefOid --jq .headRefOid; }
+
 T=""
+HEAD0=""
 if [ "$FIRST" -eq 1 ]; then
+  # HEAD0 は T より先に読む。逆順だと、T と HEAD0 の間に入った push が CI 待ち後の比較で検出できない。
+  if [ "$CI_WAIT" -eq 1 ]; then
+    if ! HEAD0=$(pr_head) || [ -z "$HEAD0" ]; then
+      echo "could not resolve the head of PR #$PR" >&2
+      exit 3
+    fi
+  fi
   T=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
 
@@ -82,6 +102,17 @@ fi
 if [ "$CI_WAIT" -eq 1 ]; then
   if "$DIR/ci-wait.sh" "$PR" "--timeout=$CI_TIMEOUT" >"$TMP/ci.out" 2>&1; then
     echo "ci: green"
+    # --first の T は CI 待ちより前なので、待つ間に HEAD が動くと旧 HEAD への自動レビューが応答として数えられてしまう。
+    if [ "$FIRST" -eq 1 ]; then
+      if ! HEAD1=$(pr_head) || [ -z "$HEAD1" ]; then
+        echo "could not resolve the head of PR #$PR after the CI wait" >&2
+        exit 3
+      fi
+      if [ "$HEAD1" != "$HEAD0" ]; then
+        echo "the PR head moved during the CI wait (${HEAD0:0:7} -> ${HEAD1:0:7}); an automatic Codex review would be for the old head, not the commit CI just validated. Not waiting; re-run without --first to request a review of the new head (count the automatic review as request #1 if it arrived)" >&2
+        exit 2
+      fi
+    fi
   else
     rc=$?
     tail -n 12 "$TMP/ci.out" >&2
