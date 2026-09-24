@@ -84,7 +84,7 @@ description: >
 | ボット依頼 | `T=$(scripts/bot-request.sh <PR> [both\|copilot\|codex])` | 標準出力が依頼時刻 T。状態ファイルに記録する。Codex は PR 作成（ready）時に自動でレビューし、2 回目以降は `@codex review` コメントで再依頼する。初回は自動レビューを応答として待ってよいが、**自動レビューが発火しないことがある**（PR #37 実績: 15 分 TIMEOUT → `@codex review` で 3 分弱で応答）。G1 で Codex だけが TIMEOUT した場合は、ユーザー確認を待たずに次ラウンドで `@codex review` により再依頼してよい（この場合も Codex の依頼回数は 1 回目として数える） |
 | 応答待ち | `scripts/bot-wait.sh <PR> <T> [--copilot=0\|1] [--codex=0\|1] [--timeout=900] [--codex-nudge=秒]` | `run_in_background`（timeout 960000）。DONE/TIMEOUT。**G1 では `--codex-nudge=300` を付ける**: Codex の自動レビューが 5 分以内に応答しなければ `@codex review` を 1 回だけ自動投稿して待ち続ける（15 分待ち切ってから再依頼する無駄を省く。Codex への依頼 1 回として数える）。**G2 以降は付けない**（`bot-request.sh` が既に `@codex review` を投稿しているため二重依頼になる） |
 | 新規スレッド取得（系統 A） | `scripts/gate-threads.sh <PR> <T>`（`--json` で生データ） | 未解決 かつ T 以降 かつ bot 起票のみ。`id=` が threadId、`dbid=` が返信用 |
-| レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Findings`（重要度別）・`Open`（既存スレッドの dbid と `· New`）・**`Previously missed`（スレッドの無い新規指摘）**・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記）。整形の回帰テストは `scripts/test-gate-bodies.sh`（ネットワーク不要） |
+| レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Findings`（重要度別）・`Open`（既存スレッドの dbid と `· New`）・**`Previously missed`（スレッドの無い新規指摘）**・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記）。整形の回帰テストは `scripts/test-gate-bodies.sh`（ネットワーク不要。`quality.sh` と CI の `dev-tooling` ジョブで実行される） |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
 | Resolve | `scripts/gate-resolve.sh <threadId>...` | **修正したスレッドのみ**。保留は返信だけして未解決のまま残す |
 
