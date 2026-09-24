@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\AbstractPlatformAdapter;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\Transform\Cast;
 use CartBridgeJP\Adapters\ColorMe\Transform\CategoryTransformer;
@@ -20,7 +21,6 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\ConnectionResult;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
-use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCategory;
@@ -48,7 +48,7 @@ use Throwable;
  * 宣言するとおりColorMe側の制約（カテゴリ作成不可・クーポン読取専用）により恒久的に
  * `UnsupportedOperationException`のまま。`mapping_candidates()`はE2-1で実装済み。
  */
-final class ColorMeAdapter implements PlatformAdapter {
+final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 	public const ID = 'colorme';
 
