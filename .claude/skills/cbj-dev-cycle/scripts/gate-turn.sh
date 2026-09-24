@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # ゲート 1 ターンの「開始側」を 1 コマンドにする: CI green を待つ → ボットへ依頼 → 応答を待つ →
 # 新規の指摘（スレッド・レビュー本文・Codex のコメント）を続けて表示する。
-# 使い方: gate-turn.sh <PR番号> <codex|copilot> [--first] [--timeout=秒] [--no-ci-wait]
+# 使い方: gate-turn.sh <PR番号> <codex|copilot> [--first] [--timeout=秒] [--ci-timeout=秒] [--no-ci-wait]
 #   --first        最初の Codex ターン用（Codex 専用）。PR 作成時の自動レビューを待つので bot-request.sh は
 #                  呼ばず、bot-wait.sh に --codex-nudge=300 を付ける。T は起動時刻（CI 待ちの間に自動レビューが
 #                  届いても取りこぼさないよう、CI 待ちより前に取る）。G2 以降で付けると二重依頼になる。
-#   --timeout=秒   応答待ちの上限（既定 900）。
+#   --timeout=秒   応答待ち（bot-wait.sh）の上限（既定 900）。
+#   --ci-timeout=秒 CI 待ち（ci-wait.sh）の上限（既定 600）。
 #   --no-ci-wait   CI 待ちを省く（直前に CI green を確認済みのときだけ）。
 # 標準出力に `T=<依頼時刻>` を出す。以降の gate-threads.sh / gate-bodies.sh / gate-reply.sh の T にはこれを使う。
-# Bash の run_in_background で使う想定（CI 待ち＋応答待ちで最長 25 分ほどかかる）。
+# Bash の run_in_background で使う想定。CI 待ちと応答待ちは**直列**なので、最悪の所要時間は
+# --ci-timeout + --timeout（既定で 600 + 900 秒）。呼び出し側の外側のタイムアウト（Bash ツールの timeout）は
+# **(--ci-timeout + --timeout + 60) × 1000 ミリ秒以上**にすること（既定なら 1560000）。短いと、遅い CI や遅れて届いた
+# レビューの途中でプロセスごと打ち切られ、指摘の取得もタイムアウトの報告もされない。起動時に必要な値を出力する。
+# ツールの上限に収まらないときは、CI 待ちを別に実行して --no-ci-wait を使うか、--timeout / --ci-timeout を短くする。
 #
 # 終了コード: 0=応答あり / 1=応答待ちがタイムアウト（取得できる指摘は表示する）
 #            2=引数不正、または CI が green でない（依頼していない）/ 3=API エラー・依頼失敗
@@ -19,7 +24,7 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: gate-turn.sh <pr> <codex|copilot> [--first] [--timeout=秒] [--no-ci-wait]" >&2
+  echo "usage: gate-turn.sh <pr> <codex|copilot> [--first] [--timeout=秒] [--ci-timeout=秒] [--no-ci-wait]" >&2
   exit 2
 }
 
@@ -33,24 +38,40 @@ esac
 
 FIRST=0
 TIMEOUT=900
+CI_TIMEOUT=600
 CI_WAIT=1
 for arg in "${@:3}"; do
   case "$arg" in
     --first) FIRST=1 ;;
     --timeout=*) TIMEOUT=${arg#*=} ;;
+    --ci-timeout=*) CI_TIMEOUT=${arg#*=} ;;
     --no-ci-wait) CI_WAIT=0 ;;
     *) echo "unknown option: $arg" >&2; usage ;;
   esac
 done
 [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--timeout must be a number of seconds (got: '$TIMEOUT')" >&2; exit 2; }
+[[ "$CI_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--ci-timeout must be a number of seconds (got: '$CI_TIMEOUT')" >&2; exit 2; }
 if [ "$FIRST" -eq 1 ] && [ "$BOT" != "codex" ]; then
   echo "--first is for the first Codex turn only" >&2
   exit 2
 fi
 
 DIR=${CBJ_GATE_SCRIPTS_DIR:-$(cd "$(dirname "$0")" && pwd)}
-TMP=$(mktemp -d)
+# mktemp が失敗したまま進むと TMP が空になり、`$TMP/ci.out` が `/ci.out` になってしまう。
+if ! TMP=$(mktemp -d) || [ -z "$TMP" ]; then
+  echo "could not create a temporary directory (mktemp failed)" >&2
+  exit 3
+fi
 trap 'rm -rf "$TMP"' EXIT
+
+# 必要な外側のタイムアウトを起動時に示す（CI 待ちと応答待ちは直列）。
+if [ "$CI_WAIT" -eq 1 ]; then
+  budget=$((CI_TIMEOUT + TIMEOUT + 60))
+  echo "budget: ci<=${CI_TIMEOUT}s + wait<=${TIMEOUT}s + 60s overhead => run with an outer timeout of at least $((budget * 1000)) ms"
+else
+  budget=$((TIMEOUT + 60))
+  echo "budget: wait<=${TIMEOUT}s + 60s overhead => run with an outer timeout of at least $((budget * 1000)) ms"
+fi
 
 T=""
 if [ "$FIRST" -eq 1 ]; then
@@ -59,7 +80,7 @@ fi
 
 # 1. CI green を待つ（未確認の HEAD にボットへ依頼しない）。ci-wait の出力は長いので失敗時に末尾だけ出す。
 if [ "$CI_WAIT" -eq 1 ]; then
-  if "$DIR/ci-wait.sh" "$PR" >"$TMP/ci.out" 2>&1; then
+  if "$DIR/ci-wait.sh" "$PR" "--timeout=$CI_TIMEOUT" >"$TMP/ci.out" 2>&1; then
     echo "ci: green"
   else
     rc=$?
@@ -100,7 +121,12 @@ else
 fi
 wait_rc=0
 "$DIR/bot-wait.sh" "$PR" "$T" "${WAIT_ARGS[@]}" >"$TMP/wait.out" 2>&1 || wait_rc=$?
-tail -n 4 "$TMP/wait.out"
+# 連続する同一行（毎回の `copilot=0 codex=0` の進捗）だけを畳み、nudge 投稿などの記録は残す。
+# `tail` で末尾だけにすると、nudge の後に 2 回以上ポーリングした場合に「@codex review を投稿した
+# （Codex への依頼 1 回目として数える）」の行が落ちて、依頼回数（上限 3 回）を数え違える。
+uniq "$TMP/wait.out"
+NUDGED=0
+if grep -q "posted '@codex review'" "$TMP/wait.out"; then NUDGED=1; fi
 if [ "$wait_rc" -ne 0 ] && [ "$wait_rc" -ne 1 ]; then
   echo "wait: failed (bot-wait exit $wait_rc)" >&2
   exit 3
@@ -134,9 +160,11 @@ if [ "$BOT" = "codex" ]; then
 fi
 
 echo
+NOTE=""
+if [ "$NUDGED" -eq 1 ]; then NOTE=" — '@codex review' was posted by the nudge (counts as Codex request #1)"; fi
 if [ "$wait_rc" -eq 0 ]; then
-  echo "gate-turn: PR #$PR $BOT — T=$T — responded"
+  echo "gate-turn: PR #$PR $BOT — T=$T — responded${NOTE}"
 else
-  echo "gate-turn: PR #$PR $BOT — T=$T — TIMEOUT (no response within ${TIMEOUT}s; the findings above may be incomplete)"
+  echo "gate-turn: PR #$PR $BOT — T=$T — TIMEOUT (no response within ${TIMEOUT}s; the findings above may be incomplete)${NOTE}"
 fi
 exit "$wait_rc"

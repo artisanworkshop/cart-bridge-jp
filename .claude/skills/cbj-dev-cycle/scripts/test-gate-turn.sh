@@ -13,11 +13,14 @@ LOG="$STUBS/calls.log"
 mkdir -p "$STUBS/bin"
 
 # mkstub <スクリプト名> <環境変数の接尾辞> <既定の標準出力> :
-#   呼び出しを $STUB_LOG に記録し、STUB_OUT_<接尾辞>（標準出力）と STUB_RC_<接尾辞>（終了コード）で振る舞いを切り替える。
+#   呼び出しを $STUB_LOG に記録し、STUB_OUT_<接尾辞>（標準出力）・STUB_RC_<接尾辞>（終了コード）・
+#   STUB_SLEEP_<接尾辞>（待つ秒数）で振る舞いを切り替える。終了時刻は $STUB_LOG.<名前>.end に残す。
 mkstub() {
   cat >"$STUBS/$1.sh" <<EOS
 #!/usr/bin/env bash
 echo "$1 \$*" >> "\$STUB_LOG"
+sleep "\${STUB_SLEEP_$2:-0}"
+date -u +%Y-%m-%dT%H:%M:%SZ > "\$STUB_LOG.$1.end"
 printf '%s\n' "\${STUB_OUT_$2:-$3}"
 exit "\${STUB_RC_$2:-0}"
 EOS
@@ -40,6 +43,14 @@ Codex Review: Didn't find any major issues. Reviewed commit: abc123
 EOS
 chmod +x "$STUBS/bin/gh"
 
+# mktemp: STUB_MKTEMP_FAIL=1 のときだけ失敗させる（macOS の mktemp -d は TMPDIR を見ないので、環境変数では再現できない）。
+cat >"$STUBS/bin/mktemp" <<'EOS'
+#!/usr/bin/env bash
+if [ "${STUB_MKTEMP_FAIL:-0}" = 1 ]; then echo "mktemp: stubbed failure" >&2; exit 1; fi
+exec /usr/bin/env -i PATH=/usr/bin:/bin mktemp "$@"
+EOS
+chmod +x "$STUBS/bin/mktemp"
+
 # run_gt <環境変数の代入...> -- <gate-turn.sh の引数...> : 出力を $OUT に、終了コードを $RC に入れる。
 run_gt() {
   local envs=()
@@ -61,7 +72,7 @@ T1="2026-09-24T10:00:00Z"
 # 1. Codex ターン（通常）
 run_gt -- 64 codex
 assert_rc "codex: 終了コード 0" 0
-assert_log "codex: CI を待つ" "ci-wait 64"
+assert_log "codex: CI を待つ（上限つき）" "ci-wait 64 --timeout=600"
 assert_log "codex: codex へ依頼する" "bot-request 64 codex"
 assert_log "codex: codex だけを待つ" "bot-wait 64 $T1 --timeout=900 --copilot=0 --codex=1"
 assert_log "codex: 系統 A（スレッド）を取得する" "gate-threads 64 $T1"
@@ -142,7 +153,40 @@ assert_rc "依頼時刻の形式不正: 3" 3
 run_gt -- 64 copilot --timeout=30
 assert_log "--timeout を bot-wait へ渡す" "bot-wait 64 $T1 --timeout=30 --copilot=1 --codex=0"
 
-# 14. 引数不正
+# 14. CI 待ちの上限と、外側のタイムアウトの見積り（CI 待ちと応答待ちは直列）
+run_gt -- 64 codex --ci-timeout=30
+assert_log "--ci-timeout を ci-wait へ渡す" "ci-wait 64 --timeout=30"
+run_gt -- 64 codex
+assert_out "既定の外側タイムアウトの見積りを出す（600+900+60 秒）" "outer timeout of at least 1560000 ms"
+run_gt -- 64 codex --no-ci-wait
+assert_out "--no-ci-wait の見積りは応答待ちだけ（900+60 秒）" "outer timeout of at least 960000 ms"
+run_gt -- 64 copilot --timeout=30 --ci-timeout=20
+assert_out "オプションを反映した見積り（20+30+60 秒）" "outer timeout of at least 110000 ms"
+
+# 15. nudge の記録を落とさない（依頼回数の上限 3 回を数え違えないため）。連続する同一の進捗行だけ畳む。
+NUDGE_LINE="codex: no response after 300s; posted '@codex review' (counts as Codex request #1)"
+NUDGE_WAIT=$(printf 'copilot=0 codex=0\ncopilot=0 codex=0\n%s\ncopilot=0 codex=0\ncopilot=0 codex=0\ncopilot=0 codex=0\ncopilot=0 codex=1\nDONE' "$NUDGE_LINE")
+run_gt STUB_OUT_WAIT="$NUDGE_WAIT" -- 64 codex --first
+assert_rc "nudge 後に複数回ポーリングしても終了コード 0" 0
+assert_out "nudge の投稿記録を出力に残す" "posted '@codex review'"
+assert_out "最終行に nudge が依頼 1 回目として数えられることを出す" "was posted by the nudge"
+polls=$(grep -c '^copilot=0 codex=0$' <<<"$OUT" || true)
+if [ "$polls" -eq 2 ]; then ok "連続する同一の進捗行は畳む（nudge を挟んだ 2 塊）"; else fail "進捗行の畳み方が違う: $polls 塊"; fi
+run_gt -- 64 codex --first
+if grep -qF "was posted by the nudge" <<<"$OUT"; then fail "nudge が無いのに nudge の注記が出ている"; else ok "nudge が無ければ注記を出さない"; fi
+
+# 16. --first の順序契約: T は CI 待ちより前に取る（CI 待ちの間に届いた自動レビューを取りこぼさない）
+run_gt STUB_SLEEP_CI=2 -- 64 codex --first
+t_first=$(sed -n 's/^bot-wait 64 \([^ ]*\) .*/\1/p' "$LOG")
+ci_end=$(cat "$LOG.ci-wait.end")
+if [ "$(( ${t_first//[^0-9]/} ))" -lt "$(( ${ci_end//[^0-9]/} ))" ]; then ok "--first: T は CI 待ちの完了より前の時刻"; else fail "--first: T が CI 待ちの後になっている（T=${t_first}, CI 完了=${ci_end}）"; fi
+
+# 17. mktemp が失敗したら、何も呼ばずに 3（TMP が空のまま /ci.out へ書かない）
+run_gt STUB_MKTEMP_FAIL=1 -- 64 codex
+assert_rc "mktemp 失敗: 3" 3
+assert_no_call "mktemp 失敗: 何も呼ばない" "ci-wait"
+
+# 18. 引数不正
 run_gt -- 64
 assert_rc "bot 省略: 2" 2
 run_gt -- abc codex
@@ -153,6 +197,8 @@ run_gt -- 64 codex --bogus
 assert_rc "未知のオプション: 2" 2
 run_gt -- 64 codex --timeout=abc
 assert_rc "--timeout が数字でない: 2" 2
+run_gt -- 64 codex --ci-timeout=abc
+assert_rc "--ci-timeout が数字でない: 2" 2
 
 if [ "$FAILS" -ne 0 ]; then
   echo "test-gate-turn: $FAILS 件失敗"
