@@ -1077,10 +1077,28 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$payload['model_number'] = $sku;
 		}
 
-		$price = $this->product_transformer()->to_push_amount( Cast::to_string_or_null( $variant['price'] ?? null ), $product->tax_class );
+		$transformer = $this->product_transformer();
+		$regular     = $transformer->to_push_amount( Cast::to_string_or_null( $variant['price'] ?? null ), $product->tax_class );
+		$sale_raw    = Cast::to_string_or_null( $variant['sale_price'] ?? null );
 
-		if ( null !== $price ) {
-			$payload['option_price'] = $price;
+		if ( null === $sale_raw ) {
+			if ( null !== $regular ) {
+				$payload['option_price'] = $regular;
+			}
+		} else {
+			// セール中: `option_price`（販売価格）＝実売価格、`option_market_price`（定価）＝通常価格
+			// （商品レベルの`sales_price`/`price`＝`ProductTransformer::push_prices()`と同じ意味論。
+			// swagger `productVariantUpdateRequest`）。実売価格を換算できない場合は、通常価格を
+			// 販売価格として送らないよう価格フィールドを両方省く（issue #60）。
+			$sale = $transformer->to_push_amount( $sale_raw, $product->tax_class );
+
+			if ( null !== $sale ) {
+				$payload['option_price'] = $sale;
+
+				if ( null !== $regular ) {
+					$payload['option_market_price'] = $regular;
+				}
+			}
 		}
 
 		$stock = $variant['stock'] ?? null;

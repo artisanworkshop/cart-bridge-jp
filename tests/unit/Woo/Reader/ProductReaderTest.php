@@ -208,24 +208,241 @@ final class ProductReaderTest extends WooTestCase {
 	}
 
 	/**
-	 * `woocommerce_prices_include_tax=no`の店舗では`get_regular_price()`が税抜金額を返すが、
-	 * ASP側のcanonical price契約は税込前提（`ProductWriter`のインポート方向と同じ契約）。
-	 * 実際の税換算は行わず（インポート方向と対称に警告のみ）、`ProductWriter`と同じ
-	 * `PRICES_INCLUDE_TAX_DISABLED`警告で店舗オーナーに気付かせる（Codex指摘, PR #40 G3）。
+	 * 税計算ON・税抜入力（`woocommerce_prices_include_tax=no`）・基準所在地JPの店舗にし、
+	 * 国全体の税率を登録する（`Woo\Support\TaxInclusivePrice`は店舗の基準所在地の税率で換算する）。
 	 */
-	public function test_prices_excluding_tax_warns(): void {
+	private function tax_exclusive_store( string $country = 'JP', string $rate = '10.0000' ): void {
+		update_option( 'woocommerce_currency', 'JPY' );
+		update_option( 'woocommerce_price_num_decimals', '0' );
+		update_option( 'woocommerce_default_country', 'JP' );
 		update_option( 'woocommerce_calc_taxes', 'yes' );
 		update_option( 'woocommerce_prices_include_tax', 'no' );
+
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => $country,
+				'tax_rate_state'    => '',
+				'tax_rate'          => $rate,
+				'tax_rate_name'     => 'Test',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 1,
+				'tax_rate_class'    => '',
+			]
+		);
+	}
+
+	/**
+	 * `woocommerce_prices_include_tax=no`かつ税計算ONの店舗では`get_regular_price()`が税抜金額を返すが、
+	 * Canonicalの価格契約は税込（消費者の支払額）。店舗の基準所在地の税率で税込へ換算して運び、
+	 * 換算したことを情報警告（非blocking）で知らせる（issue #59。旧仕様は換算せず警告のみ）。
+	 */
+	public function test_tax_exclusive_prices_are_converted_to_tax_inclusive(): void {
+		$this->tax_exclusive_store();
 
 		$wc_product = new \WC_Product_Simple();
 		$wc_product->set_name( 'Tax Exclusive' );
 		$wc_product->set_regular_price( '1000' );
+		$wc_product->set_sale_price( '800' );
 		$local_id = $wc_product->save();
 
-		$read_page = $this->make_reader()->query( Cursor::start(), [ $local_id ] );
-		$read_item = $read_page->items[0];
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $local_id ] )->items[0];
 
-		$this->assertContains( WarningCode::PRICES_INCLUDE_TAX_DISABLED, $read_item->warnings );
+		$this->assertSame( '1100', $read_item->item->price );
+		$this->assertSame( '880', $read_item->item->sale_price );
+		$this->assertContains( WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE, $read_item->warnings );
+		$this->assertNotContains( WarningCode::PRICES_INCLUDE_TAX_DISABLED, $read_item->warnings );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 税計算OFF（フレッシュなWCの既定）では入力価格がそのまま消費者の支払額＝税込のため、換算も警告も不要
+	 * （旧仕様の`PRICES_INCLUDE_TAX_DISABLED`はこの既定環境でも発火する誤検知だった）。
+	 */
+	public function test_tax_calculation_disabled_reads_prices_unchanged_without_warning(): void {
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'No Tax' );
+		$wc_product->set_regular_price( '1000' );
+		$local_id = $wc_product->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $local_id ] )->items[0];
+
+		$this->assertSame( '1000', $read_item->item->price );
+		$this->assertNotContains( WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE, $read_item->warnings );
+		$this->assertNotContains( WarningCode::PRICES_INCLUDE_TAX_DISABLED, $read_item->warnings );
+	}
+
+	/**
+	 * 税率は登録済みだが基準所在地に合致しない（どの税率で課税されるか決められない）場合、税抜のまま
+	 * 税込として送ると売価が税分だけ低くなる。価格不正と同じく`0`にフェイルクローズし、blockingにする。
+	 */
+	public function test_tax_exclusive_price_with_unresolvable_tax_basis_is_blocking(): void {
+		$this->tax_exclusive_store( 'US' );
+
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Unresolvable' );
+		$wc_product->set_regular_price( '1000' );
+		$local_id = $wc_product->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $local_id ] )->items[0];
+
+		$this->assertSame( '0', $read_item->item->price );
+		$this->assertContains( WarningCode::PRODUCT_PRICE_INVALID, $read_item->warnings );
+		$this->assertContains( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 換算情報の警告は商品ごとに積むと結果が埋もれるため、Readerインスタンス（=1ページ）につき1回だけ。
+	 */
+	public function test_conversion_warning_is_reported_once_per_page(): void {
+		$this->tax_exclusive_store();
+
+		$ids = [];
+
+		foreach ( [ 'A', 'B' ] as $name ) {
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( $name );
+			$wc_product->set_regular_price( '1000' );
+			$ids[] = $wc_product->save();
+		}
+
+		$items = $this->make_reader()->query( Cursor::start(), $ids )->items;
+
+		$this->assertCount( 2, $items );
+		$reported = array_sum(
+			array_map(
+				static fn ( $item ): int => in_array( WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE, $item->warnings, true ) ? 1 : 0,
+				$items
+			)
+		);
+		$this->assertSame( 1, $reported );
+	}
+
+	/**
+	 * 税抜入力の店舗のvariable商品: 親の代表値（最安定価）・各バリエーションの定価をすべて税込へ換算し、
+	 * セール中のバリエーションだけが税込の`sale_price`を運ぶ（セール外はキー自体を出さない。
+	 * 全variable商品のchecksumを不必要に変えないため）。
+	 */
+	public function test_variable_product_prices_are_converted_and_only_on_sale_variants_carry_sale_price(): void {
+		$this->tax_exclusive_store();
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$large = wc_get_product( $variation_ids['L'] );
+		$large->set_sale_price( '900' );
+		$large->save();
+
+		$canonical = $this->first_item( $this->make_reader(), [ wc_get_product( $variation_ids['L'] )->get_parent_id() ] );
+		$variants  = array_column( $canonical->variants, null, 'option1_value' );
+
+		$this->assertSame( '1100', $canonical->price );
+		$this->assertSame( '1100', $variants['M']['price'] );
+		$this->assertArrayNotHasKey( 'sale_price', $variants['M'] );
+		$this->assertSame( '1320', $variants['L']['price'] );
+		$this->assertSame( '990', $variants['L']['sale_price'] );
+	}
+
+	public function test_scheduled_future_variation_sale_price_is_not_carried(): void {
+		$this->tax_exclusive_store();
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$large = wc_get_product( $variation_ids['L'] );
+		$large->set_sale_price( '900' );
+		$large->set_date_on_sale_from( time() + WEEK_IN_SECONDS );
+		$large->save();
+
+		$canonical = $this->first_item( $this->make_reader(), [ wc_get_product( $variation_ids['L'] )->get_parent_id() ] );
+		$variants  = array_column( $canonical->variants, null, 'option1_value' );
+
+		$this->assertArrayNotHasKey( 'sale_price', $variants['L'] );
+	}
+
+	public function test_variation_sale_price_not_lower_than_regular_price_is_ignored(): void {
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$medium = wc_get_product( $variation_ids['M'] );
+		$medium->set_sale_price( '1000' );
+		$medium->save();
+
+		$canonical = $this->first_item( $this->make_reader(), [ wc_get_product( $variation_ids['M'] )->get_parent_id() ] );
+		$variants  = array_column( $canonical->variants, null, 'option1_value' );
+
+		$this->assertArrayNotHasKey( 'sale_price', $variants['M'] );
+	}
+
+	/**
+	 * 換算できないバリエーションは価格不正と同じ理由で除外し、全バリエーションが除外された商品は
+	 * blockingになる（誤った売価を本番へ送らない）。
+	 */
+	public function test_variations_with_unresolvable_tax_basis_are_excluded_and_block_the_product(): void {
+		$this->tax_exclusive_store( 'US' );
+
+		$variation_ids = $this->write_two_variants( '1000', '1200' );
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ wc_get_product( $variation_ids['M'] )->get_parent_id() ] )->items[0];
+
+		$this->assertSame( [], $read_item->item->variants );
+		$this->assertContains( WarningCode::ALL_VARIATIONS_EXCLUDED, $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, (string) $variation_ids['M'] ), $read_item->warnings );
+		$this->assertContains( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * Size軸（M/L）の2バリエーションを持つvariable商品を`ProductWriter`で作り、
+	 * `['M' => variation_id, 'L' => variation_id]`を返す。
+	 *
+	 * @return array{M:int,L:int}
+	 */
+	private function write_two_variants( string $medium_price, string $large_price ): array {
+		$product = new CanonicalProduct(
+			'Shirt',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'v1',
+					'sku'           => 'SKU-V1',
+					'price'         => $medium_price,
+					'stock'         => 3,
+					'option1_name'  => 'Size',
+					'option1_value' => 'M',
+				],
+				[
+					'remote_id'     => 'v2',
+					'sku'           => 'SKU-V2',
+					'price'         => $large_price,
+					'stock'         => 4,
+					'option1_name'  => 'Size',
+					'option1_value' => 'L',
+				],
+			],
+			[],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '100' ]
+		);
+
+		$result = $this->make_writer()->write( $product, null );
+		$ids    = [];
+
+		foreach ( wc_get_product( $result->local_id )->get_children() as $child_id ) {
+			$variation = wc_get_product( $child_id );
+
+			$ids[ 'SKU-V1' === $variation->get_sku() ? 'M' : 'L' ] = (int) $child_id;
+		}
+
+		return $ids;
 	}
 
 	/**
