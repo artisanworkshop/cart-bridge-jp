@@ -2,7 +2,7 @@
 - タスク: issue #59（税抜入力店舗で税抜価格を税込として換算して push する）+ issue #60（バリエーションのセール価格を運べず定価で push する）
 - 開始: 2026-09-24
 - PR: #61 https://github.com/artisanworkshop/cart-bridge-jp/pull/61
-- 現在のステップ: 7（G3 修正の確認ゲート待ち。Copilot 依頼は 3 回で打ち止め）
+- 現在のステップ: 8（完了。最終報告済み。マージ待ち）
 - Copilot: 依頼 3 回 / 未収束（G1 Low 3 件・G2 Low 1 件を保留、G3 で外部境界の防御漏れ 1 件を修正）
 - Codex: 依頼 1 回 / 収束（G1 で「no major issues」）
 
@@ -20,3 +20,5 @@
 | 2026-09-24 | 6 | G2: Copilot のみ再依頼（T=2026-09-24T04:28:29Z、CI green の e9f56a7）。インライン 0 件、本文の Open 3 件は G1 スレッドの再掲、新規は「Previously missed」1 件（G2-1: 実売価格換算不能時に `null` で既存価格を消すべき）。実フィクスチャで `option_price: null` が商品レベル価格へフォールバックすると確認し、金銭的に逆方向と判断して保留（docs へ理由追記のみ）。確認ゲートで承認 |
 | 2026-09-24 | 6 | G2 docs push 後 CI green（9547397）→ Copilot に G3（最終・3 回目）を依頼（T=2026-09-24T04:39:45Z） |
 | 2026-09-24 | 7 | G3: 新規 1 件（G3-1: `push_variant_details` が外部境界の `sale_price` の 0・負値・定価超えをそのまま `option_price` に送る）。`to_push_amount()` が 0/-10/2500 を素通しすることを実測で確認し修正（換算不能・0以下・通常価格超え・通常価格換算不能のとき価格フィールドを両方省く）。テスト追加、品質チェック green（PHPUnit 1113 件） |
+| 2026-09-24 | 7 | G3 修正を確認ゲートで承認 → commit・push（2b4428c / 7f22a86）、スレッド返信・Resolve、CI green（7f22a86）。Copilot 依頼 3 回で打ち止め |
+| 2026-09-24 | 8 | 最終報告作成（`final-report.md`）。dev-cycle 完了、マージ待ち |
