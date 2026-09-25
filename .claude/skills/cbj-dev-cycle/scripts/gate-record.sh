@@ -16,7 +16,10 @@
 #   判定は「修正」（「修正済み」も可）「保留」「対応不要」のどれかで始める（「修正不要」「保留中」のように漢字・かなが続く語は別の語として
 #   拒否する）。対応不要のスレッドを Resolve するのはユーザー承認済みのときだけで、判定に固定の印「【承認済み】」を書き添えたときに限り
 #   replies が Resolve のコマンドを出す（書かなければ返信のみ。「未承認」「承認待ち」などの語や HTML コメント内の語では出さない）。
-# 記入漏れ（TODO(記入) の残り・判定なし・不明な判定・対応なし・修正なのに sha なし・存在しない sha・見出しの崩れ・ID や thread の重複・
+# 指摘が 0 件のラウンドは、最初の指摘の見出しより前に「指摘なし: <確認した内容>」を書いて明示する（見出しが無いだけでは止める）。
+# 本文指摘（スレッド無し）は `スレッド: なし（[review <id>](…#pullrequestreview-<id>)）` と書くと、サマリの表に元のレビューへのリンクが出る。
+# 要旨・対応などの本文に `TODO(記入)` という文字列そのものは書けない（未記入のマーカーとして止まる。HTML コメントの中は数えない）。
+# 記入漏れ（TODO(記入) の残り・判定なし・不明な判定・対応なし・要旨なし・修正なのに sha なし・存在しない sha・見出しの崩れ・ID や thread の重複・
 # スレッドの欄が無い/壊れている（discussion_r<dbid> のリンクか、本文指摘を示す「なし」で始まる値のどちらかが必須）・
 # 閉じていない HTML コメント／コードフェンス）は check/summary/replies が非ゼロで止める（記入途中のものを PR に投稿しない）。
 # sha はこのリポジトリのローカルに存在するかだけを確認する（push 済みか・PR に含まれるかは見ない）。replies は返信ファイルを作って
@@ -118,7 +121,12 @@ load_record() {
     ( .todo_lines | if length > 0 then "TODO(記入) remains at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .bad_headings | if length > 0 then "malformed finding heading (expected ### [ID][bot][path:line], ID = letters, digits, . _ -) at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .unterminated | if . != "" then "unterminated \(.) (an opening <!-- or code fence is never closed; everything after it is ignored)" else empty end ),
-    ( if (.has_findings_section | not) then "no \"## 指摘\" section" elif (.findings | length) == 0 then "no findings under \"## 指摘\"" else empty end ),
+    ( if (.has_findings_section | not) then "no \"## 指摘\" section"
+      elif (.findings | length) == 0 then
+        ( if .no_findings then ( if .no_findings_text == "" then "指摘なし needs a note of what was checked (e.g. 指摘なし: gate-threads.sh 0 件・gate-bodies.sh の本文指摘 0 件を確認した)" else empty end )
+          else "no findings under \"## 指摘\": for a clean round write 指摘なし: <what you checked>, for body-only findings add ### [G<n>-B1][bot][path:line] blocks" end )
+      elif .no_findings then "指摘なし conflicts with the findings below (remove one of them)"
+      else empty end ),
     ( .findings | group_by(.id)[] | select(length > 1) | "duplicate finding id: " + .[0].id ),
     ( [.findings[] | .id as $id | .dbids[] | {d: ., id: $id}] | group_by(.d)[] | select(length > 1) | "thread r\(.[0].d) is used by more than one finding: " + (map(.id) | join(", ")) ),
     ( .findings[] | .id as $id | (
@@ -126,6 +134,7 @@ load_record() {
         elif .kind == "unknown" then "\($id): 判定 must start with 修正 / 保留 / 対応不要 (got: \(.verdict | .[0:30]))"
         else empty end ),
       ( if .action == "" then "\($id): 対応 is empty" else empty end ),
+      ( if .summary == "" then "\($id): 要旨 is empty" else empty end ),
       ( if (.dbids | length) == 0 and (.no_thread | not) then "\($id): スレッド must hold a discussion_r<dbid> link, or start with なし for a body-only finding (a lost link would drop a live thread from replies)" else empty end ),
       ( if .kind == "fixed" and (.commits | length) == 0 then "\($id): 修正 needs a commit sha in コミット" else empty end ) )
   ' <<<"$REC_JSON"); then
@@ -153,7 +162,8 @@ load_record() {
 
 cmd_check() {
   load_record || exit 1
-  jq -r '"OK: \(.findings | length) findings (修正 \([.findings[] | select(.kind == "fixed")] | length) / 保留 \([.findings[] | select(.kind == "held")] | length) / 対応不要 \([.findings[] | select(.kind == "dismissed")] | length))"' <<<"$REC_JSON"
+  jq -r 'if (.findings | length) == 0 then "OK: 0 findings (指摘なし: \(.no_findings_text))"
+    else "OK: \(.findings | length) findings (修正 \([.findings[] | select(.kind == "fixed")] | length) / 保留 \([.findings[] | select(.kind == "held")] | length) / 対応不要 \([.findings[] | select(.kind == "dismissed")] | length))" end' <<<"$REC_JSON"
 }
 
 cmd_summary() {
@@ -163,19 +173,26 @@ cmd_summary() {
     def kindlabel: if .kind == "fixed" then "修正" elif .kind == "held" then "保留" else "対応不要" end;
     def cell: gsub("\\|"; "\\|") | gsub("\\s*\n\\s*"; "<br>");
     def resolves: (.kind == "fixed" or (.kind == "dismissed" and .approved));
+    def threadcell: if (.links | length) > 0 then ((.links + .review_links) | join(", "))
+      elif (.review_links | length) > 0 then "なし（" + (.review_links | join(", ")) + "）" else "なし" end;
     "## レビュー指摘への対応サマリ（G\($n)）",
     "",
     (.header[]),
     (([.findings[].commits[]] | uniq) as $c | if ($c | length) > 0 then "- 対応コミット: " + ($c | map("`" + .[0:7] + "`") | join(", ")) else empty end),
+    (if (.findings | length) == 0 then
+      "",
+      "- 指摘なし（Resolve したスレッド 0 件）: \(.no_findings_text)"
+    else
     "",
     "| ID | 出所 | 場所 | スレッド | 内容 | 処理 |",
     "|---|---|---|---|---|---|",
-    (.findings[] | "| \(.id | cell) | \(.bot | cell) | `\(.where | cell)` | \(if (.links | length) > 0 then (.links | join(", ")) else "なし" end) | \(.summary | cell) | **\(kindlabel)**\(if (.commits | length) > 0 then "（" + (.commits | map("`" + .[0:7] + "`") | join(", ")) + "）" else "" end)。\(.action | cell) |"),
+    (.findings[] | "| \(.id | cell) | \(.bot | cell) | `\(.where | cell)` | \(threadcell) | \(.summary | cell) | **\(kindlabel)**\(if (.commits | length) > 0 then "（" + (.commits | map("`" + .[0:7] + "`") | join(", ")) + "）" else "" end)。\(.action | cell) |"),
     "",
-    ([.findings[] | select(.dbids | length > 0) | select(resolves)] | length) as $r
+    (([.findings[] | select(.dbids | length > 0) | select(resolves)] | length) as $r
     | ([.findings[] | select(.dbids | length > 0) | select(resolves | not)] | length) as $o
     | ([.findings[] | select(.dbids | length == 0)] | length) as $b
-    | "- Resolve したスレッド: \($r) 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: \($o) 件 / 本文指摘（スレッド無し。このコメントと G\($n).md が処理済みの記録）: \($b) 件",
+    | "- Resolve したスレッド: \($r) 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: \($o) 件 / 本文指摘（スレッド無し。このコメントと G\($n).md が処理済みの記録）: \($b) 件")
+    end),
     (if (.verify | length) > 0 then "", "検証:", (.verify[]) else empty end)
   ' <<<"$REC_JSON"
 }
@@ -328,7 +345,7 @@ cmd_init() {
     if [ -n "$findings" ]; then
       printf '%s\n\n' "$findings"
     else
-      printf '（未解決のボットスレッドはありません。本文指摘だけの場合は gate-bodies.sh の出力から `### [G%s-B1][Copilot][path:line]` を手で足す）\n\n' "$N"
+      printf '<!-- 未解決のボットスレッドはありません。本文指摘（gate-bodies.sh）も 0 件なら、次の行を「指摘なし: <確認した内容>」に書き換える。本文指摘があるなら次の行を消し、`### [G%s-B1][Copilot][path:line]` を手で足す（`スレッド: なし（[review <id>](…#pullrequestreview-<id>)）` と書く） -->\n指摘なし: TODO(記入)\n\n' "$N"
     fi
     printf '## 検証\n- TODO(記入)（テスト・lint・ミューテーションの結果）\n\n'
     printf '## 収束判定\n| bot | 依頼回数 | 新規スレッド | 状態 |\n|---|---|---|---|\n'

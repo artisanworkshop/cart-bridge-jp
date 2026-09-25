@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 # gate-record.sh が使う G<n>.md のパーサー。記録を JSON にして標準出力へ出す（日本語のラベルを扱うので awk ではなく UTF-8 で読む）。
 # 使い方: gate-record-parse.pl <G<n>.md>   （直接呼ぶ必要はない）
+# 指摘が 0 件のラウンドは、最初の指摘の見出しより前の「指摘なし: <確認した内容>」の行で明示する（見出しが無いだけでは通さない）。
 # 値は HTML コメントを除いた後の文字列から取る（描画されない語で判定や承認が決まらないように）。コードフェンス（``` / ~~~）の
 # 中は見出し・ラベルとして解釈しない。閉じていないコメント／フェンスは以降を黙って飲み込むので、unterminated として報告する。
 use strict;
@@ -13,6 +14,7 @@ my %label = ('要旨' => 'summary', '判定' => 'verdict', '対応' => 'action',
 my (@header, @verify, @findings, @bad, @todo);
 my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, undef, 0, 0, 0);
 my $has_section = 0;
+my ($no_findings, $no_findings_text) = (0, '');
 # 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
 # 裸の \p{Han} 等は Script_Extensions の意味になり U+3001/3002 にも一致するため、Script= で書く。
 my $boundary = qr/(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\x{30FC}])/;
@@ -37,6 +39,10 @@ sub flush {
   $f{dbids} = \@d;
   $f{links} = [map { exists $url{$_} ? "[r$_]($url{$_})" : "r$_" } @d];
   $f{no_thread} = $f{thread} =~ /^なし/ ? JSON::PP::true : JSON::PP::false;
+  my (%rurl, %rseen, @rl);
+  while ($f{thread} =~ /\((https?:\/\/[^)\s]*#pullrequestreview-(\d+))\)/g) { $rurl{$2} = $1 }
+  for my $r ($f{thread} =~ /pullrequestreview-(\d+)/g) { push @rl, (exists $rurl{$r} ? "[review $r]($rurl{$r})" : "review $r") unless $rseen{$r}++ }
+  $f{review_links} = \@rl;
   push @findings, \%f;
   undef $cur;
   undef $lab;
@@ -78,6 +84,11 @@ while (my $l = <$fh>) {
     }
     next;
   }
+  if ($struct && !$cur && $vis =~ /^指摘なし$boundary\s*(?::|：)?\s*(.*)$/) {
+    $no_findings = 1;
+    $no_findings_text = trim($1);
+    next;
+  }
   next unless $cur;
   if ($struct && $vis =~ /^(?:\*\*)?(要旨|判定|対応|コミット|スレッド)(?:\*\*)?(?::|：)(?:\*\*)?\s*(.*)$/) {
     $lab = $label{$1};
@@ -92,5 +103,6 @@ my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
 print JSON::PP->new->utf8->canonical->encode({
   title => $title, header => \@header, verify => \@verify, findings => \@findings,
   bad_headings => \@bad, todo_lines => \@todo, unterminated => $unterminated,
+  no_findings => $no_findings ? JSON::PP::true : JSON::PP::false, no_findings_text => $no_findings_text,
   has_findings_section => $has_section ? JSON::PP::true : JSON::PP::false,
 });

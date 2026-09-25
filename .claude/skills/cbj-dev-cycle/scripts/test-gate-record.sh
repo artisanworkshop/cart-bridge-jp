@@ -21,6 +21,16 @@ if ! WORK=$(mktemp -d) || [ -z "$WORK" ]; then
   exit 1
 fi
 trap 'rm -rf "$WORK"' EXIT
+GITREPO="$WORK/gitrepo"
+GITC=(-c user.name=test -c user.email=test@example.com -c commit.gpgsign=false)
+if ! git init -q "$GITREPO" || ! git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m one || ! git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m two; then
+  echo "test-gate-record: could not create the scratch git repository" >&2
+  exit 1
+fi
+if ! SHA_B=$(git -C "$GITREPO" rev-parse HEAD) || ! SHA_A=$(git -C "$GITREPO" rev-parse HEAD~1) || [ -z "$SHA_A" ] || [ -z "$SHA_B" ]; then
+  echo "test-gate-record: could not read the scratch repository commits" >&2
+  exit 1
+fi
 STUBS="$WORK/stubs"
 LOG="$WORK/calls.log"
 mkdir -p "$STUBS/bin" "$WORK/root"
@@ -70,6 +80,7 @@ ok() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; FAILS=$((FAILS + 1)); }
 assert_rc() { if [ "$RC" -eq "$2" ]; then ok "$1"; else fail "$1: 終了コード ${RC}（期待 $2）"; fi; }
 assert_out() { if grep -qF -- "$2" <<<"$OUT"; then ok "$1"; else fail "$1: 標準出力に見つからない: $2"; fi; }
+assert_out_line() { if grep -qxF -- "$2" <<<"$OUT"; then ok "$1"; else fail "$1: 標準出力に完全一致する行が見つからない: $2"; fi; }
 assert_err() { if grep -qF -- "$2" <<<"$ERR"; then ok "$1"; else fail "$1: 標準エラーに見つからない: $2"; fi; }
 assert_no_out() { if grep -qF -- "$2" <<<"$OUT"; then fail "$1: 標準出力にあってはならない: $2"; else ok "$1"; fi; }
 assert_file_has() { if grep -qF -- "$3" "$2"; then ok "$1"; else fail "$1: ファイルに見つからない: $3"; fi; }
@@ -156,7 +167,13 @@ run_gr -- summary 66 9 --file="$WORK/rec-ok.md"
 assert_rc "summary: 終了コード 0" 0
 assert_out "summary: 見出し" "## レビュー指摘への対応サマリ（G9）"
 assert_out "summary: 記録の先頭の箇条書きをそのまま入れる（レビューへのリンク）" "[Codex #1](https://example.com/pull/64#pullrequestreview-1)"
-assert_out "summary: 対応コミット（重複は畳み、短縮 sha）" "- 対応コミット: \`${SHA7}\`"
+assert_out_line "summary: 対応コミットは重複を畳んで 1 件（同じ sha が 4 か所に書いてあっても、行全体が一致する）" "- 対応コミット: \`${SHA7}\`"
+sed "s/@SHA@/$SHA_A/g" "$FX/filled.md" >"$WORK/rec-2c.md"
+perl -0pi -e 's/(### \[G9-B1\].*?コミット: )[0-9a-f]{40}/${1}'"$SHA_B"'/s' "$WORK/rec-2c.md"
+run_gr GIT_DIR="$GITREPO/.git" -- summary 66 9 --file="$WORK/rec-2c.md"
+assert_rc "summary: 別々の 2 つの commit（別リポジトリの sha）: 0" 0
+assert_out_line "summary: 異なる commit は初出の順に並べ、同じ commit は畳む" "- 対応コミット: \`${SHA_A:0:7}\`, \`${SHA_B:0:7}\`"
+run_gr -- summary 66 9 --file="$WORK/rec-ok.md"
 assert_out "summary: 表の | をエスケープし、複数行の要旨は <br> でつなぐ" '表の \| を含む要旨。<br>2 行目の要旨。'
 assert_out "summary: 旧書式の判定と対応（**修正**・**対応:**）も読め、スレッドのリンク列を持つ" "| G9-1 | Codex P1 | \`src/a.sh:10\` | [r1001](https://example.com/pull/64#discussion_r1001) | \`--first\` が旧 HEAD の自動レビューを応答と誤認する。 | **修正**（\`${SHA7}\`）。CI 待ちの前後で HEAD を比べる。 |"
 assert_out "summary: 各行にスレッドへのリンク（#discussion_r<dbid>）を入れる" "[r1002](https://example.com/pull/64#discussion_r1002)"
@@ -250,6 +267,51 @@ run_gr -- replies 66 9 --file="$WORK/rec-cmt.md" --out="$WORK/out-cmt"
 if [ "$(grep -A1 -F -- '- 箇条書き A' "$WORK/out-cmt/reply-G9-2.md" | tail -n 1)" = "- 箇条書き B" ]; then ok "値の途中のコメント行は返信に空行を残さない"; else fail "値の途中のコメント行が返信に空行として残っている"; fi
 if grep -qF 'メモ' "$WORK/out-cmt/reply-G9-2.md"; then fail "コメントの中身が返信に入っている"; else ok "コメントの中身は返信に入れない"; fi
 
+# ---- 0 件のラウンド: 「指摘なし: <確認した内容>」で明示したときだけ通す ----
+clean_rec() { # <名前> <## 指摘 の中身>
+  printf '# ゲートラウンド G9\n- PR: #66\n\n## 指摘\n%s\n\n## 検証\n- テスト ok\n' "$2" >"$WORK/rec-$1.md"
+}
+clean_rec clean '指摘なし: gate-threads.sh 0 件・gate-bodies.sh の本文指摘 0 件を確認した'
+run_gr -- check 66 9 --file="$WORK/rec-clean.md"
+assert_rc "0 件のラウンド（指摘なしの明示あり）の check: 0" 0
+assert_out "0 件のラウンド: check は確認内容を出す" "OK: 0 findings (指摘なし: gate-threads.sh 0 件・gate-bodies.sh の本文指摘 0 件を確認した)"
+run_gr -- summary 66 9 --file="$WORK/rec-clean.md"
+assert_rc "0 件のラウンドの summary: 0" 0
+assert_out "0 件のラウンド: summary に指摘なしと確認内容を出す" "- 指摘なし（Resolve したスレッド 0 件）: gate-threads.sh 0 件・gate-bodies.sh の本文指摘 0 件を確認した"
+assert_no_out "0 件のラウンド: summary に表を出さない" "| ID |"
+assert_out "0 件のラウンド: 検証欄は出す" "- テスト ok"
+run_gr -- replies 66 9 --file="$WORK/rec-clean.md" --out="$WORK/out-clean"
+assert_rc "0 件のラウンドの replies: 0" 0
+assert_no_out "0 件のラウンド: 返信のコマンドは出さない" "gate-reply.sh"
+clean_rec cleanbare '指摘なし'
+run_gr -- check 66 9 --file="$WORK/rec-cleanbare.md"
+assert_rc "確認内容のない「指摘なし」: 1" 1
+assert_err "確認内容のない「指摘なし」は理由を出す" "指摘なし needs a note of what was checked"
+clean_rec cleanunmarked ''
+run_gr -- check 66 9 --file="$WORK/rec-cleanunmarked.md"
+assert_rc "指摘の見出しも「指摘なし」も無い記録: 1" 1
+assert_err "指摘の見出しも「指摘なし」も無い記録は理由を出す" 'no findings under "## 指摘"'
+clean_rec cleantodo '指摘なし: TODO(記入)'
+run_gr -- check 66 9 --file="$WORK/rec-cleantodo.md"
+assert_rc "骨組みのままの「指摘なし: TODO(記入)」: 1" 1
+mkrec cleanconflict 's/## 指摘\n/## 指摘\n指摘なし: あり得ない\n/'
+run_gr -- check 66 9 --file="$WORK/rec-cleanconflict.md"
+assert_rc "指摘があるのに「指摘なし」: 1" 1
+assert_err "指摘があるのに「指摘なし」は矛盾として報告" "指摘なし conflicts with the findings below"
+run_gr STUB_THREADS_FILE="$WORK/no-threads.json" -- init 66 16
+assert_file_has "init: スレッドが無いときの骨組みは「指摘なし」の行を TODO(記入) で置く" "$REC_DIR/G16.md" "指摘なし: TODO(記入)"
+
+# ---- 本文指摘（スレッド無し）に、元のレビューへのリンクを付けられる ----
+mkrec bodylink 's/スレッド: なし（本文指摘）/スレッド: なし（[review 5315094015](https:\/\/example.com\/pull\/64#pullrequestreview-5315094015)）/'
+run_gr -- summary 66 9 --file="$WORK/rec-bodylink.md"
+assert_out "summary: 本文指摘の行に元のレビューへのリンクを出す" "| なし（[review 5315094015](https://example.com/pull/64#pullrequestreview-5315094015)） |"
+mkrec bodyplain 's/スレッド: なし（本文指摘）/スレッド: なし（pullrequestreview-777）/'
+run_gr -- summary 66 9 --file="$WORK/rec-bodyplain.md"
+assert_out "summary: URL の無いレビュー参照は review <id> の文字だけで出す" "| なし（review 777） |"
+mkrec threadreview 's/(スレッド: \[r1001\]\([^\n]*\))/$1 [review 9](https:\/\/example.com\/pull\/64#pullrequestreview-9)/'
+run_gr -- summary 66 9 --file="$WORK/rec-threadreview.md"
+assert_out "summary: スレッドのある指摘にレビューのリンクも書けば両方出す" "| [r1001](https://example.com/pull/64#discussion_r1001), [review 9](https://example.com/pull/64#pullrequestreview-9) |"
+
 # ---- 記入漏れの検出（check / summary / replies のどれも止まる。止まるときは標準出力に何も出さない） ----
 expect_incomplete() { # <名前> <perl の置換式> <期待するメッセージ>
   mkrec "$1" "$2"
@@ -273,6 +335,7 @@ expect_incomplete noverdict 's/判定: 保留\n//' "G9-5: 判定 is empty"
 expect_incomplete noaction 's/対応: Low のため backlog へ。/対応:/' "G9-5: 対応 is empty"
 expect_incomplete nocommit 's/コミット: \Q'"$SHA"'\E\nスレッド: \[r1001\]/コミット: —\nスレッド: [r1001]/' "G9-1: 修正 needs a commit sha"
 expect_incomplete badsha 's/コミット: —\nスレッド: \[r1005\]/コミット: 0123456789abcdef0123456789abcdef01234567\nスレッド: [r1005]/' "G9-5: commit 0123456789abcdef0123456789abcdef01234567 does not exist"
+expect_incomplete nosummary 's/要旨: 後日対応する Low。\n//' "G9-5: 要旨 is empty"
 expect_incomplete dupid 's/\[G9-5\]/[G9-4]/' "duplicate finding id: G9-4"
 expect_incomplete dupthread 's/\[r1005\]\(https:\/\/example.com\/pull\/64#discussion_r1005\)/[r1001](https:\/\/example.com\/pull\/64#discussion_r1001)/' "thread r1001 is used by more than one finding: G9-1, G9-5"
 expect_incomplete nothreadline 's/スレッド: \[r1005\][^\n]*\n//' "G9-5: スレッド must hold a discussion_r<dbid> link"
