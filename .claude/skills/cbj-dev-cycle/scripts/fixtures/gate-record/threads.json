@@ -1,0 +1,7 @@
+[
+  {"id":"PRRT_1","path":"src/a.sh","line":10,"comments":{"nodes":[{"databaseId":1001,"body":"x","author":{"login":"chatgpt-codex-connector"},"createdAt":"2026-09-25T00:00:00Z","url":"https://example.com/pull/64#discussion_r1001"}]}},
+  {"id":"PRRT_2","path":"src/b.sh","line":20,"comments":{"nodes":[{"databaseId":1002,"body":"x","author":{"login":"copilot-pull-request-reviewer"},"createdAt":"2026-09-25T00:00:00Z","url":"https://example.com/pull/64#discussion_r1002"}]}},
+  {"id":"PRRT_3","path":"src/c.sh","line":30,"comments":{"nodes":[{"databaseId":1003,"body":"x","author":{"login":"copilot-pull-request-reviewer"},"createdAt":"2026-09-25T00:00:00Z","url":"https://example.com/pull/64#discussion_r1003"}]}},
+  {"id":"PRRT_4","path":"src/d.sh","line":40,"comments":{"nodes":[{"databaseId":1004,"body":"x","author":{"login":"copilot-pull-request-reviewer"},"createdAt":"2026-09-25T00:00:00Z","url":"https://example.com/pull/64#discussion_r1004"}]}},
+  {"id":"PRRT_5","path":"src/e.sh","line":50,"comments":{"nodes":[{"databaseId":1005,"body":"x","author":{"login":"copilot-pull-request-reviewer"},"createdAt":"2026-09-25T00:00:00Z","url":"https://example.com/pull/64#discussion_r1005"}]}}
+]

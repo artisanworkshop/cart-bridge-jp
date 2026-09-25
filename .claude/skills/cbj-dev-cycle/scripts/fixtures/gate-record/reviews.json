@@ -1,0 +1,6 @@
+[
+  {"id":9001,"user":{"login":"chatgpt-codex-connector[bot]"},"state":"COMMENTED","commit_id":"1111111111111111111111111111111111111111","submitted_at":"2026-09-25T00:10:00Z","body":""},
+  {"id":9002,"user":{"login":"copilot-pull-request-reviewer[bot]"},"state":"COMMENTED","commit_id":"1111111111111111111111111111111111111111","submitted_at":"2026-09-25T00:11:00Z","body":"## Copilot review overview\n### 🟡 Changes recommended\nSummary."},
+  {"id":9003,"user":{"login":"copilot-pull-request-reviewer[bot]"},"state":"COMMENTED","commit_id":"2222222222222222222222222222222222222222","submitted_at":"2026-09-24T00:00:00Z","body":"### 🟢 Approval recommended"},
+  {"id":9004,"user":{"login":"a-human"},"state":"COMMENTED","commit_id":"1111111111111111111111111111111111111111","submitted_at":"2026-09-25T00:12:00Z","body":"ok"}
+]
