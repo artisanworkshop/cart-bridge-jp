@@ -89,9 +89,10 @@ REC="$REC_DIR/G9.md"
 if [ -f "$REC" ]; then ok "init: docs/reviews/<branch>/G9.md を作る（ブランチ名のスラッシュは階層）"; else fail "init: 記録ファイルができていない: $REC"; fi
 assert_file_has "init: 見出し" "$REC" "# ゲートラウンド G9"
 assert_file_has "init: PR と HEAD の短縮 sha" "$REC" "- PR: #66 / 対象 HEAD: 1111111"
-assert_file_has "init: Codex のレビューへのリンク" "$REC" "[Codex #9001](https://example.com/o/r/pull/66#pullrequestreview-9001)"
-assert_file_has "init: Copilot のレビューへのリンクと判定見出し" "$REC" "[Copilot #9002](https://example.com/o/r/pull/66#pullrequestreview-9002)（🟡 Changes recommended）"
-if grep -qE '9003|9004' "$REC"; then fail "init: 旧 HEAD のレビューと人間のレビューを含めてはならない"; else ok "init: HEAD 以外のレビューと bot 以外のレビューを除く"; fi
+assert_file_has "init: Codex のレビューへのリンクと対象 commit" "$REC" "[Codex #9001](https://example.com/o/r/pull/66#pullrequestreview-9001)（対象 1111111）"
+assert_file_has "init: Copilot のレビューへのリンクと判定見出しと対象 commit" "$REC" "[Copilot #9002](https://example.com/o/r/pull/66#pullrequestreview-9002)（🟡 Changes recommended、対象 1111111）"
+assert_file_has "init --since: 現在の HEAD 以外へのレビューも T 以降なら拾い、対象 commit を併記する" "$REC" "[Copilot #9005](https://example.com/o/r/pull/66#pullrequestreview-9005)（🔵 Needs a closer look、対象 3333333）"
+if grep -qE '9003|9004' "$REC"; then fail "init --since: T より前のレビューと人間のレビューを含めてはならない"; else ok "init --since: T より前のレビューと bot 以外のレビューを除く"; fi
 assert_file_has "init: Codex の重大度バッジを見出しに入れる" "$REC" "### [G9-1][Codex P1][.claude/skills/x/gate-turn.sh:78]"
 assert_file_has "init: 行が無い（outdated）ときは ? を入れる" "$REC" "### [G9-2][Copilot][.claude/skills/x/gate-turn.sh:?]"
 assert_file_has "init: スレッドへのリンク（dbid）" "$REC" "スレッド: [r2001](https://example.com/pull/66#discussion_r2001)"
@@ -102,6 +103,16 @@ assert_file_has "init: 収束表に Copilot の新規スレッド数" "$REC" "| 
 if grep -F '原文:' "$REC" | grep -F -- '-->' | grep -qF -- '--&gt;'; then ok "init: 原文中の --> は HTML コメントを壊さないよう無害化する"; else fail "init: 原文コメントの --> が無害化されていない"; fi
 if [ "$(grep -F '原文:' "$REC" | head -n 1 | grep -o -- '-->' | wc -l | tr -d ' ')" -eq 1 ]; then ok "init: 原文コメントの終端 --> は 1 つだけ"; else fail "init: 原文コメントの --> が複数ある"; fi
 assert_log "init: --since を gate-threads.sh へ渡す" "gate-threads 66 2026-09-25T00:00:00Z --json"
+
+run_gr STUB_THREADS_FILE="$FX/init-threads.json" -- init 66 13
+assert_rc "init（--since なし）: 0" 0
+assert_file_has "init（--since なし）: 現在の HEAD へのレビューを拾う" "$REC_DIR/G13.md" "[Copilot #9002]"
+if grep -qE '9003|9004|9005' "$REC_DIR/G13.md"; then fail "init（--since なし）: 現在の HEAD 以外へのレビュー・bot 以外のレビューを含めてはならない"; else ok "init（--since なし）: 現在の HEAD 以外へのレビューと bot 以外のレビューを除く"; fi
+echo '[]' >"$WORK/no-reviews.json"
+run_gr STUB_REVIEWS_FILE="$WORK/no-reviews.json" -- init 66 14 --since=2026-09-25T00:00:00Z
+assert_file_has "init --since: レビューが無いときは T 以降と示す" "$REC_DIR/G14.md" "なし（2026-09-25T00:00:00Z 以降の bot レビューが見つからない）"
+run_gr STUB_REVIEWS_FILE="$WORK/no-reviews.json" -- init 66 15
+assert_file_has "init（--since なし）: レビューが無いときは HEAD 名で示す" "$REC_DIR/G15.md" "なし（1111111 への bot レビューが見つからない）"
 
 run_gr -- check 66 9
 assert_rc "骨組みのままの check は非ゼロ（記入途中のものを通さない）" 1
@@ -219,6 +230,11 @@ approval_case negated 's/判定: 対応不要（誤検知）\n/判定: 対応不
 approval_case denied 's/判定: 対応不要（誤検知）\n/判定: 対応不要（誤検知）承認なし\n/' no
 approval_case hidden 's/判定: 対応不要（誤検知）\n/判定: 対応不要 <!-- 【承認済み】 -->\n/' no
 approval_case marked 's/判定: 対応不要（誤検知）\n/判定: 対応不要（誤検知）【承認済み】\n/' yes
+# 判定語の直後の句読点（。、）は許す（裸の \p{Han} は U+3001/3002 にも一致して「修正。」を拒否した）。一方「修正不要」「保留中」は拒否する
+mkrec punct 's/判定: 修正\n対応: 1 行目/判定: 修正。実コードで確認した\n対応: 1 行目/; s/判定: 保留/判定: 保留、後日対応/; s/判定: 対応不要（誤検知）\n/判定: 対応不要。誤検知\n/'
+run_gr -- check 66 9 --file="$WORK/rec-punct.md"
+assert_rc "判定語の直後の句読点（。、）は許す: 0" 0
+assert_out "判定語の直後の句読点でも種別は変わらない" "OK: 6 findings (修正 3 / 保留 1 / 対応不要 2)"
 mkrec fixeddone 's/判定: 保留/判定: 修正済み/; s/(対応: Low のため backlog へ。\n)コミット: —/$1コミット: '"$SHA"'/'
 run_gr -- replies 66 9 --file="$WORK/rec-fixeddone.md" --out="$WORK/out-fixeddone"
 assert_rc "判定「修正済み」は修正として受け付ける: 0" 0

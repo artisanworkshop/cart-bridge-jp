@@ -7,6 +7,8 @@
 #   gate-record.sh summary <PR> <n> [--file=PATH]                        PR のサマリコメント本文を標準出力へ
 #   gate-record.sh replies <PR> <n> [--file=PATH] [--out=DIR]            スレッドごとの返信ファイルと実行コマンドを出す
 # --file を省くと PR の head ブランチから docs/reviews/<branch>/G<n>.md を決める。--since は init だけ（gate-threads.sh の T）。
+# init は指摘を取得した直後（修正の前）に実行するのが確実: 修正を push した後だと、修正済みのスレッドは outdated になって行番号が `?` になる。
+# --since を付けるとレビューは「T 以降に提出されたもの」を拾い、対象の commit を併記する（付けなければ現在の HEAD へのレビュー）。
 #
 # 記録の書式（init が作る形。既存の G ファイルの書式 `判定:` / `**対応:**` / `コミット:` / `スレッド:` も読める）:
 #   ### [G<n>-<k>][<bot>][<path>:<line>]      ← 指摘 1 件。本文指摘（スレッド無し）も同じ形で手で足す
@@ -281,11 +283,12 @@ cmd_init() {
   fi
   if ! revlines=$(jq -r --arg head "$head" --arg since "$SINCE" --arg url "$url" '
     [ .[] | select(.user.login | IN("copilot-pull-request-reviewer[bot]", "chatgpt-codex-connector[bot]"))
-      | select(.commit_id == $head) | select($since == "" or .submitted_at > $since)
+      | select(if $since == "" then .commit_id == $head else .submitted_at > $since end)
       | (.user.login | startswith("copilot")) as $cp
-      | "[\(if $cp then "Copilot" else "Codex" end) #\(.id)](\($url)#pullrequestreview-\(.id))"
-        + (if $cp then ((.body // "") | split("\n") | map(select(test("^### "))) | (.[0] // "") | sub("^### *"; "") | if . == "" then "" else "（" + . + "）" end) else "" end) ]
-    | if length == 0 then "なし（\($head[0:7]) への bot レビューが見つからない）" else join(" / ") end' <<<"$reviews"); then
+      | "[\(if $cp then "Copilot" else "Codex" end) #\(.id)](\($url)#pullrequestreview-\(.id))（"
+        + (if $cp then ((.body // "") | split("\n") | map(select(test("^### "))) | (.[0] // "") | sub("^### *"; "") | if . == "" then "" else . + "、" end) else "" end)
+        + "対象 " + .commit_id[0:7] + "）" ]
+    | if length == 0 then (if $since == "" then "なし（\($head[0:7]) への bot レビューが見つからない）" else "なし（\($since) 以降の bot レビューが見つからない）" end) else join(" / ") end' <<<"$reviews"); then
     echo "could not format the reviews" >&2
     exit 3
   fi

@@ -13,8 +13,9 @@ my %label = ('要旨' => 'summary', '判定' => 'verdict', '対応' => 'action',
 my (@header, @verify, @findings, @bad, @todo);
 my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, undef, 0, 0, 0);
 my $has_section = 0;
-# 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。
-my $boundary = qr/(?![\p{Han}\p{Hiragana}\p{Katakana}\x{30FC}])/;
+# 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
+# 裸の \p{Han} 等は Script_Extensions の意味になり U+3001/3002 にも一致するため、Script= で書く。
+my $boundary = qr/(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\x{30FC}])/;
 sub trim { my $s = shift; $s =~ s/^\s+//; $s =~ s/\s+$//; return $s }
 sub flush {
   return unless $cur;
