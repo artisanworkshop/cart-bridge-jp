@@ -1,0 +1,4 @@
+[
+  {"id":"PRRT_a","path":".claude/skills/x/gate-turn.sh","line":78,"comments":{"nodes":[{"databaseId":2001,"body":"**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Bind the waited review to the HEAD**\n\nWhen `--first` starts, a stale review --> may count.\nSecond   paragraph.","author":{"login":"chatgpt-codex-connector"},"createdAt":"2026-09-25T00:10:00Z","url":"https://example.com/pull/66#discussion_r2001"}]}},
+  {"id":"PRRT_b","path":".claude/skills/x/gate-turn.sh","line":null,"comments":{"nodes":[{"databaseId":2002,"body":"`!` inverts the exit code.","author":{"login":"copilot-pull-request-reviewer"},"createdAt":"2026-09-25T00:11:00Z","url":"https://example.com/pull/66#discussion_r2002"}]}}
+]

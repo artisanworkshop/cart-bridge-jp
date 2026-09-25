@@ -100,3 +100,6 @@ jobs:
 
       - name: Regression test for gate-turn.sh
         run: .claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh
+
+      - name: Regression test for gate-record.sh
+        run: .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
