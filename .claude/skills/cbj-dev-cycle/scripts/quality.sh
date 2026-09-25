@@ -8,6 +8,7 @@ composer analyze
 composer test:wpenv
 npm run lint
 npm run build
-# 開発補助スクリプト（bot レビュー本文の整形）の回帰テスト。ネットワーク不要
+# 開発補助スクリプト（bot レビュー本文の整形・ゲート 1 ターンのオーケストレーター）の回帰テスト。ネットワーク不要
 .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
+.claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh
 echo "quality: all green"
