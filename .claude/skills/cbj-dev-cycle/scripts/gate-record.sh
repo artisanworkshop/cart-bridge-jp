@@ -16,6 +16,8 @@
 #   判定は「修正」（「修正済み」も可）「保留」「対応不要」のどれかで始める（「修正不要」「保留中」のように漢字・かなが続く語は別の語として
 #   拒否する）。対応不要のスレッドを Resolve するのはユーザー承認済みのときだけで、判定に固定の印「【承認済み】」を書き添えたときに限り
 #   replies が Resolve のコマンドを出す（書かなければ返信のみ。「未承認」「承認待ち」などの語や HTML コメント内の語では出さない）。
+# 記録の PR 番号（`- PR: #<n>`）とラウンド（`# ゲートラウンド G<n>`）が引数と違う記録は止める（--file で別 PR の記録を渡して、
+# 別 PR へ返信するコマンドやラベルの違うサマリを作らないため）。修正した指摘があるのに検証欄（## 検証）が空の記録も止める。
 # 指摘が 0 件のラウンドは、最初の指摘の見出しより前に「指摘なし: <確認した内容>」を書いて明示する（見出しが無いだけでは止める）。
 # 本文指摘（スレッド無し）は `スレッド: なし（[review <id>](…#pullrequestreview-<id>)）` と書くと、サマリの表に元のレビューへのリンクが出る。
 # 要旨・対応などの本文に `TODO(記入)` という文字列そのものは書けない（未記入のマーカーとして止まる。HTML コメントの中は数えない）。
@@ -117,7 +119,12 @@ load_record() {
     exit 3
   fi
   local errs
-  if ! errs=$(jq -r '
+  if ! errs=$(jq -r --argjson pr "$PR" --argjson round "$N" '
+    ( if .pr_number == null then "record header lacks \"- PR: #<n>\" (needed to check that the record belongs to this PR)"
+      elif .pr_number != $pr then "record is for PR #\(.pr_number) but the command says PR #\($pr)" else empty end ),
+    ( if .round == null then "record title lacks \"# ゲートラウンド G<n>\" (needed to check the round)"
+      elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end ),
+    ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 and (.verify | length) == 0 then "検証 needs at least one line (test / lint / mutation results) when a finding is 修正" else empty end ),
     ( .todo_lines | if length > 0 then "TODO(記入) remains at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .bad_headings | if length > 0 then "malformed finding heading (expected ### [ID][bot][path:line], ID = letters, digits, . _ -) at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .unterminated | if . != "" then "unterminated \(.) (an opening <!-- or code fence is never closed; everything after it is ignored)" else empty end ),
@@ -188,8 +195,8 @@ cmd_summary() {
     "|---|---|---|---|---|---|",
     (.findings[] | "| \(.id | cell) | \(.bot | cell) | `\(.where | cell)` | \(threadcell) | \(.summary | cell) | **\(kindlabel)**\(if (.commits | length) > 0 then "（" + (.commits | map("`" + .[0:7] + "`") | join(", ")) + "）" else "" end)。\(.action | cell) |"),
     "",
-    (([.findings[] | select(.dbids | length > 0) | select(resolves)] | length) as $r
-    | ([.findings[] | select(.dbids | length > 0) | select(resolves | not)] | length) as $o
+    (([.findings[] | select(resolves) | .dbids | length] | add // 0) as $r
+    | ([.findings[] | select(resolves | not) | .dbids | length] | add // 0) as $o
     | ([.findings[] | select(.dbids | length == 0)] | length) as $b
     | "- Resolve したスレッド: \($r) 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: \($o) 件 / 本文指摘（スレッド無し。このコメントと G\($n).md が処理済みの記録）: \($b) 件")
     end),

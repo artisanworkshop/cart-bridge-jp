@@ -1,5 +1,5 @@
 # ゲートラウンド G9（テスト用の記録）
-- PR: #64 / 対象 HEAD: abc1234
+- PR: #66 / 対象 HEAD: abc1234
 - レビュー: [Codex #1](https://example.com/pull/64#pullrequestreview-1) / [Copilot #2](https://example.com/pull/64#pullrequestreview-2)（🟡 Changes recommended）
 - 再依頼: していない
 

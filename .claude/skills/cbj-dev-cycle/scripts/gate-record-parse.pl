@@ -13,6 +13,8 @@ open(my $fh, '<:encoding(UTF-8)', $file) or do { print STDERR "cannot read $file
 my %label = ('要旨' => 'summary', '判定' => 'verdict', '対応' => 'action', 'コミット' => 'commit', 'スレッド' => 'thread');
 my (@header, @verify, @findings, @bad, @todo);
 my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, undef, 0, 0, 0);
+my ($fchar, $flen) = ('', 0);
+my ($pr_number, $round);
 my $has_section = 0;
 my ($no_findings, $no_findings_text) = (0, '');
 # 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
@@ -52,10 +54,16 @@ while (my $l = <$fh>) {
   chomp $l;
   $l =~ s/\r$//;
   my $vis = $l;
-  my $is_fence = $l =~ /^\s*(?:```|~~~)/ ? 1 : 0;
-  if ($is_fence) {
-    $infence = $infence ? 0 : 1;
-  } elsif (!$infence) {
+  my $is_fence = 0;
+  if ($l =~ /^\s*(`{3,}|~{3,})(.*)$/) {
+    my ($delim, $rest) = ($1, $2);
+    if (!$infence) {
+      ($is_fence, $infence, $fchar, $flen) = (1, 1, substr($delim, 0, 1), length $delim);
+    } elsif (substr($delim, 0, 1) eq $fchar && length($delim) >= $flen && $rest =~ /^\s*$/) {
+      ($is_fence, $infence) = (1, 0);
+    }
+  }
+  if (!$is_fence && !$infence) {
     if ($incomment) { if ($vis =~ s/^.*?-->//) { $incomment = 0 } else { $vis = '' } }
     $vis =~ s/<!--.*?-->//g;
     if ($vis =~ s/<!--.*$//) { $incomment = 1 }
@@ -63,7 +71,14 @@ while (my $l = <$fh>) {
   push @todo, $ln if $vis =~ /TODO\(記入\)/;
   my $struct = !$infence && !$is_fence;
   next if $struct && $l =~ /\S/ && $vis !~ /\S/;
-  if ($struct && $vis =~ /^# /) { $title = $vis unless $title; flush(); $section = 'header'; next }
+  if ($struct && $vis =~ /^#{1,6}\s*\[[^\]]*\]\s*\[/ && $vis !~ /^### \[/) { push @bad, $ln; next }
+  if ($struct && $vis =~ /^# /) {
+    $title = $vis unless $title;
+    $round = $1 + 0 if !defined $round && $vis =~ /^# ゲートラウンド G(\d+)/;
+    flush();
+    $section = 'header';
+    next;
+  }
   if ($struct && $vis =~ /^## (.*)$/) {
     flush();
     my $h = $1;
@@ -71,7 +86,11 @@ while (my $l = <$fh>) {
     $has_section = 1 if $section eq 'findings';
     next;
   }
-  if ($section eq 'header') { push @header, $vis if $vis =~ /\S/; next }
+  if ($section eq 'header') {
+    push @header, $vis if $vis =~ /\S/;
+    $pr_number = $1 + 0 if !defined $pr_number && $vis =~ /^- PR: #(\d+)/;
+    next;
+  }
   if ($section eq 'verify') { push @verify, $vis if $vis =~ /\S/; next }
   next unless $section eq 'findings';
   if ($struct && $vis =~ /^### (.*)$/) {
@@ -101,7 +120,7 @@ while (my $l = <$fh>) {
 flush();
 my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
 print JSON::PP->new->utf8->canonical->encode({
-  title => $title, header => \@header, verify => \@verify, findings => \@findings,
+  title => $title, pr_number => $pr_number, round => $round, header => \@header, verify => \@verify, findings => \@findings,
   bad_headings => \@bad, todo_lines => \@todo, unterminated => $unterminated,
   no_findings => $no_findings ? JSON::PP::true : JSON::PP::false, no_findings_text => $no_findings_text,
   has_findings_section => $has_section ? JSON::PP::true : JSON::PP::false,

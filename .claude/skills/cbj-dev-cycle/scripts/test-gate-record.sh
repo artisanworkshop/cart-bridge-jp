@@ -247,6 +247,38 @@ approval_case negated 's/判定: 対応不要（誤検知）\n/判定: 対応不
 approval_case denied 's/判定: 対応不要（誤検知）\n/判定: 対応不要（誤検知）承認なし\n/' no
 approval_case hidden 's/判定: 対応不要（誤検知）\n/判定: 対応不要 <!-- 【承認済み】 -->\n/' no
 approval_case marked 's/判定: 対応不要（誤検知）\n/判定: 対応不要（誤検知）【承認済み】\n/' yes
+# G3: 記録の PR 番号・ラウンドが引数と違う
+run_gr -- summary 67 9 --file="$WORK/rec-ok.md"
+assert_rc "記録の PR 番号が引数と違う: 1" 1
+assert_err "記録の PR 番号が違うときは両方の番号を出す" "record is for PR #66 but the command says PR #67"
+if [ -z "$OUT" ]; then ok "記録の PR 番号が違うとき summary は標準出力に何も出さない"; else fail "記録の PR 番号が違うのに summary が出力した"; fi
+run_gr -- replies 67 9 --file="$WORK/rec-ok.md" --out="$WORK/out-wrongpr"
+assert_rc "別 PR の記録に対する replies は 1 で止まる（返信コマンドを出さない）" 1
+assert_no_out "別 PR の記録に対しては返信のコマンドを出さない" "gate-reply.sh"
+run_gr -- summary 66 8 --file="$WORK/rec-ok.md"
+assert_rc "記録のラウンドが引数と違う: 1" 1
+assert_err "記録のラウンドが違うときは両方を出す" "record is for round G9 but the command says G8"
+# G3: 1 つの指摘に複数のスレッド → スレッドの件数で数える（指摘の件数ではない）
+mkrec twothreads 's/(スレッド: \[r1002\]\([^\n]*\))/$1 [r1006](https:\/\/example.com\/pull\/64#discussion_r1006)/'
+run_gr -- summary 66 9 --file="$WORK/rec-twothreads.md"
+assert_out "summary: 1 つの指摘に 2 つのスレッドがあれば Resolve 件数も 2 件と数える（修正 1+2、承認済みの対応不要 1 = 4、保留・承認記録なし = 2）" "- Resolve したスレッド: 4 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: 2 件"
+mkrec twoheld 's/(スレッド: \[r1005\]\([^\n]*\))/$1 [r1007](https:\/\/example.com\/pull\/64#discussion_r1007)/'
+run_gr -- summary 66 9 --file="$WORK/rec-twoheld.md"
+assert_out "summary: 保留の指摘に 2 つのスレッドがあれば、未解決のまま残すスレッドも 2 件と数える（承認記録なしの対応不要 1 + 保留 2 = 3）" "- Resolve したスレッド: 3 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: 3 件"
+# G3: 検証欄が要るのは修正した指摘があるときだけ（0 件・保留・対応不要だけのラウンドは検証欄なしでも通る）
+printf '# ゲートラウンド G9\n- PR: #66\n\n## 指摘\n指摘なし: 確認した\n' >"$WORK/rec-cleannoverify.md"
+run_gr -- check 66 9 --file="$WORK/rec-cleannoverify.md"
+assert_rc "検証欄の無い 0 件のラウンドは通る" 0
+# G3: フェンスの区切り。4 つの ``` の内側の ``` は中身、``` の内側の ~~~ も中身
+mkrec fence4 's/(スレッド: \[r1004\][^\n]*\n)/$1````text\n```\n### [G9-X][Copilot][a:1]\n```\n````\n/'
+run_gr -- check 66 9 --file="$WORK/rec-fence4.md"
+assert_rc "4 つのバッククォートのフェンスの中の 3 つのバッククォートは閉じフェンスではない: 0" 0
+assert_out "フェンスの中の見出しは指摘として数えない（4 つのフェンス）" "OK: 6 findings"
+mkrec fencetilde 's/(スレッド: \[r1004\][^\n]*\n)/$1```text\n~~~\n### [G9-X][Copilot][a:1]\n~~~\n```\n/'
+run_gr -- check 66 9 --file="$WORK/rec-fencetilde.md"
+assert_rc "バッククォートのフェンスの中のチルダは閉じフェンスではない: 0" 0
+assert_out "フェンスの中の見出しは指摘として数えない（チルダ）" "OK: 6 findings"
+
 # 判定語の直後の句読点（。、）は許す（裸の \p{Han} は U+3001/3002 にも一致して「修正。」を拒否した）。一方「修正不要」「保留中」は拒否する
 mkrec punct 's/判定: 修正\n対応: 1 行目/判定: 修正。実コードで確認した\n対応: 1 行目/; s/判定: 保留/判定: 保留、後日対応/; s/判定: 対応不要（誤検知）\n/判定: 対応不要。誤検知\n/'
 run_gr -- check 66 9 --file="$WORK/rec-punct.md"
@@ -341,6 +373,16 @@ expect_incomplete dupthread 's/\[r1005\]\(https:\/\/example.com\/pull\/64#discus
 expect_incomplete nothreadline 's/スレッド: \[r1005\][^\n]*\n//' "G9-5: スレッド must hold a discussion_r<dbid> link"
 expect_incomplete emptythread 's/スレッド: \[r1005\][^\n]*\n/スレッド:\n/' "G9-5: スレッド must hold a discussion_r<dbid> link"
 expect_incomplete garbagethread 's/スレッド: \[r1005\][^\n]*\n/スレッド: 後で追記\n/' "G9-5: スレッド must hold a discussion_r<dbid> link"
+# G3: 見出しの階層・形式が違う指摘マーカーは、直前の指摘を黙って上書きしないよう拒否する
+expect_incomplete h4 's/### \[G9-2\]/#### [G9-2]/' "malformed finding heading"
+expect_incomplete h3nospace 's/### \[G9-2\]/###[G9-2]/' "malformed finding heading"
+expect_incomplete h2 's/### \[G9-2\]/## [G9-2]/' "malformed finding heading"
+# G3: 修正した指摘があるのに検証欄が無い記録は通さない
+expect_incomplete noverify 's/## 検証\n(?:- [^\n]*\n)+\n//' "検証 needs at least one line"
+# G3: 記録の PR 番号・ラウンドが引数と違えば、別 PR へ返信するコマンドを出さずに止める
+expect_incomplete nopr 's/^- PR: #66[^\n]*\n//m' 'record header lacks "- PR: #<n>"'
+expect_incomplete noround 's/^# ゲートラウンド G9/# ゲートラウンド/' 'record title lacks "# ゲートラウンド G<n>"'
+# G3: 閉じフェンスは、開きと同じ文字で、同じかそれより長いときだけ（内側の ``` や ~~~ は中身）
 expect_incomplete notfixed 's/判定: 保留/判定: 修正不要/' "G9-5: 判定 must start with"
 expect_incomplete badid 's/### \[G9-5\]/### [G9 5]/' "malformed finding heading"
 expect_incomplete treesha 's/コミット: —\nスレッド: \[r1005\]/コミット: '"$(git -C "$HERE" rev-parse 'HEAD^{tree}')"'\nスレッド: [r1005]/' "does not exist in this repository"
@@ -349,7 +391,7 @@ expect_incomplete openfence 's/## 検証\n/## 検証\n```bash\n/' "unterminated 
 # コードフェンスの中の # 行や ### 行を見出しとして読まない（読むと、以降の指摘が黙って消える）
 expect_incomplete fence 's/(スレッド: \[r1004\][^\n]*\n)/$1```bash\n# repro\n## not a section\n### [G9-X][Copilot][a:1]\n```\n/; s/判定: 保留/判定: 検討中/' "G9-5: 判定 must start with"
 expect_incomplete badheading 's/### \[G9-5\]\[Copilot\]\[src\/e.sh:50\]/### [G9-5][Copilot]/' "malformed finding heading"
-printf '# ゲートラウンド G9\n- PR: #64\n' >"$WORK/rec-nosection.md"
+printf '# ゲートラウンド G9\n- PR: #66\n' >"$WORK/rec-nosection.md"
 run_gr -- check 66 9 --file="$WORK/rec-nosection.md"
 assert_rc "指摘の節が無い記録: 1" 1
 assert_err "指摘の節が無い記録: 理由" 'no "## 指摘" section'
