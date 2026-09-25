@@ -3,14 +3,23 @@
 # サマリと返信の生成を検証する。
 # 使い方: .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
 set -euo pipefail
-HERE=$(cd "$(dirname "$0")" && pwd)
+if ! HERE=$(cd "$(dirname "$0")" && pwd) || [ -z "$HERE" ]; then
+  echo "test-gate-record: could not resolve the script directory" >&2
+  exit 1
+fi
 GR="$HERE/gate-record.sh"
 FX="$HERE/fixtures/gate-record"
 FAILS=0
-SHA=$(git -C "$HERE" rev-parse HEAD)
+if ! SHA=$(git -C "$HERE" rev-parse HEAD) || [ -z "$SHA" ]; then
+  echo "test-gate-record: git rev-parse HEAD failed (run inside the repository)" >&2
+  exit 1
+fi
 SHA7=${SHA:0:7}
 
-WORK=$(mktemp -d)
+if ! WORK=$(mktemp -d) || [ -z "$WORK" ]; then
+  echo "test-gate-record: could not create a temporary directory (mktemp failed)" >&2
+  exit 1
+fi
 trap 'rm -rf "$WORK"' EXIT
 STUBS="$WORK/stubs"
 LOG="$WORK/calls.log"
@@ -138,7 +147,14 @@ assert_out "summary: 見出し" "## レビュー指摘への対応サマリ（G9
 assert_out "summary: 記録の先頭の箇条書きをそのまま入れる（レビューへのリンク）" "[Codex #1](https://example.com/pull/64#pullrequestreview-1)"
 assert_out "summary: 対応コミット（重複は畳み、短縮 sha）" "- 対応コミット: \`${SHA7}\`"
 assert_out "summary: 表の | をエスケープし、複数行の要旨は <br> でつなぐ" '表の \| を含む要旨。<br>2 行目の要旨。'
-assert_out "summary: 旧書式の判定と対応（**修正**・**対応:**）も読める" "| G9-1 | Codex P1 | \`src/a.sh:10\` | \`--first\` が旧 HEAD の自動レビューを応答と誤認する。 | **修正**（\`${SHA7}\`）。CI 待ちの前後で HEAD を比べる。 |"
+assert_out "summary: 旧書式の判定と対応（**修正**・**対応:**）も読め、スレッドのリンク列を持つ" "| G9-1 | Codex P1 | \`src/a.sh:10\` | [r1001](https://example.com/pull/64#discussion_r1001) | \`--first\` が旧 HEAD の自動レビューを応答と誤認する。 | **修正**（\`${SHA7}\`）。CI 待ちの前後で HEAD を比べる。 |"
+assert_out "summary: 各行にスレッドへのリンク（#discussion_r<dbid>）を入れる" "[r1002](https://example.com/pull/64#discussion_r1002)"
+assert_out "summary: 本文指摘（スレッド無し）の行はスレッド欄が「なし」" "| G9-B1 | Copilot | \`src/f.sh:60\` | なし | 本文指摘（スレッド無し）。 |"
+mkrec plainlink 's/\[r1005\]\(https:\/\/example.com\/pull\/64#discussion_r1005\)/discussion_r1005/'
+run_gr -- check 66 9 --file="$WORK/rec-plainlink.md"
+assert_rc "スレッドが URL の無い discussion_r<dbid> だけでも check は通る" 0
+run_gr -- summary 66 9 --file="$WORK/rec-plainlink.md"
+assert_out "summary: URL の無い参照は r<dbid> の文字だけで表に出す" "| G9-5 | Copilot | \`src/e.sh:50\` | r1005 |"
 assert_out "summary: 保留" "**保留**。Low のため backlog へ。"
 assert_out "summary: スレッドの Resolve 件数（修正 + 承認済みの対応不要 = 3、保留 + 承認記録なし = 2、本文指摘 = 1）" "- Resolve したスレッド: 3 件 / 未解決のまま残すスレッド（保留・承認の記録がない対応不要）: 2 件 / 本文指摘（スレッド無し。このコメントと G9.md が処理済みの記録）: 1 件"
 assert_out "summary: 検証欄をそのまま入れる" "- テスト: 86 項目すべて ok"
@@ -208,6 +224,10 @@ run_gr -- replies 66 9 --file="$WORK/rec-fixeddone.md" --out="$WORK/out-fixeddon
 assert_rc "判定「修正済み」は修正として受け付ける: 0" 0
 assert_out "判定「修正済み」は Resolve のコマンドを出す" "gate-resolve.sh PRRT_5"
 
+mkrec dupwithin 's/(スレッド: \[r1002\]\([^\n]*\))/$1 $1/'
+run_gr -- replies 66 9 --file="$WORK/rec-dupwithin.md" --out="$WORK/out-dupwithin"
+if [ "$(grep -c 'gate-reply.sh 66 1002 ' <<<"$OUT")" -eq 1 ]; then ok "同じ thread を 1 つの指摘に 2 回書いても返信のコマンドは 1 件"; else fail "同じ thread を 2 回書くと返信が重複する: $(grep -c 'gate-reply.sh 66 1002 ' <<<"$OUT")"; fi
+
 # HTML コメントだけの行は値に混ぜない（複数行の対応の途中に置いても、返信に空行や注釈が入らない）
 mkrec cmt 's/- 箇条書き A\n/- 箇条書き A\n<!-- メモ: 返信には出さない -->\n/'
 run_gr -- replies 66 9 --file="$WORK/rec-cmt.md" --out="$WORK/out-cmt"
@@ -239,6 +259,9 @@ expect_incomplete nocommit 's/コミット: \Q'"$SHA"'\E\nスレッド: \[r1001\
 expect_incomplete badsha 's/コミット: —\nスレッド: \[r1005\]/コミット: 0123456789abcdef0123456789abcdef01234567\nスレッド: [r1005]/' "G9-5: commit 0123456789abcdef0123456789abcdef01234567 does not exist"
 expect_incomplete dupid 's/\[G9-5\]/[G9-4]/' "duplicate finding id: G9-4"
 expect_incomplete dupthread 's/\[r1005\]\(https:\/\/example.com\/pull\/64#discussion_r1005\)/[r1001](https:\/\/example.com\/pull\/64#discussion_r1001)/' "thread r1001 is used by more than one finding: G9-1, G9-5"
+expect_incomplete nothreadline 's/スレッド: \[r1005\][^\n]*\n//' "G9-5: スレッド must hold a discussion_r<dbid> link"
+expect_incomplete emptythread 's/スレッド: \[r1005\][^\n]*\n/スレッド:\n/' "G9-5: スレッド must hold a discussion_r<dbid> link"
+expect_incomplete garbagethread 's/スレッド: \[r1005\][^\n]*\n/スレッド: 後で追記\n/' "G9-5: スレッド must hold a discussion_r<dbid> link"
 expect_incomplete notfixed 's/判定: 保留/判定: 修正不要/' "G9-5: 判定 must start with"
 expect_incomplete badid 's/### \[G9-5\]/### [G9 5]/' "malformed finding heading"
 expect_incomplete treesha 's/コミット: —\nスレッド: \[r1005\]/コミット: '"$(git -C "$HERE" rev-parse 'HEAD^{tree}')"'\nスレッド: [r1005]/' "does not exist in this repository"

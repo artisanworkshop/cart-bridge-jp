@@ -15,6 +15,7 @@
 #   拒否する）。対応不要のスレッドを Resolve するのはユーザー承認済みのときだけで、判定に固定の印「【承認済み】」を書き添えたときに限り
 #   replies が Resolve のコマンドを出す（書かなければ返信のみ。「未承認」「承認待ち」などの語や HTML コメント内の語では出さない）。
 # 記入漏れ（TODO(記入) の残り・判定なし・不明な判定・対応なし・修正なのに sha なし・存在しない sha・見出しの崩れ・ID や thread の重複・
+# スレッドの欄が無い/壊れている（discussion_r<dbid> のリンクか、本文指摘を示す「なし」で始まる値のどちらかが必須）・
 # 閉じていない HTML コメント／コードフェンス）は check/summary/replies が非ゼロで止める（記入途中のものを PR に投稿しない）。
 # sha はこのリポジトリのローカルに存在するかだけを確認する（push 済みか・PR に含まれるかは見ない）。replies は返信ファイルを作って
 # 実行コマンドを表示するだけで、投稿・Resolve はしない（コマンドを確認して実行する）。
@@ -123,6 +124,7 @@ load_record() {
         elif .kind == "unknown" then "\($id): 判定 must start with 修正 / 保留 / 対応不要 (got: \(.verdict | .[0:30]))"
         else empty end ),
       ( if .action == "" then "\($id): 対応 is empty" else empty end ),
+      ( if (.dbids | length) == 0 and (.no_thread | not) then "\($id): スレッド must hold a discussion_r<dbid> link, or start with なし for a body-only finding (a lost link would drop a live thread from replies)" else empty end ),
       ( if .kind == "fixed" and (.commits | length) == 0 then "\($id): 修正 needs a commit sha in コミット" else empty end ) )
   ' <<<"$REC_JSON"); then
     echo "internal error while checking $REC" >&2
@@ -164,9 +166,9 @@ cmd_summary() {
     (.header[]),
     (([.findings[].commits[]] | uniq) as $c | if ($c | length) > 0 then "- 対応コミット: " + ($c | map("`" + .[0:7] + "`") | join(", ")) else empty end),
     "",
-    "| ID | 出所 | 場所 | 内容 | 処理 |",
-    "|---|---|---|---|---|",
-    (.findings[] | "| \(.id | cell) | \(.bot | cell) | `\(.where | cell)` | \(.summary | cell) | **\(kindlabel)**\(if (.commits | length) > 0 then "（" + (.commits | map("`" + .[0:7] + "`") | join(", ")) + "）" else "" end)。\(.action | cell) |"),
+    "| ID | 出所 | 場所 | スレッド | 内容 | 処理 |",
+    "|---|---|---|---|---|---|",
+    (.findings[] | "| \(.id | cell) | \(.bot | cell) | `\(.where | cell)` | \(if (.links | length) > 0 then (.links | join(", ")) else "なし" end) | \(.summary | cell) | **\(kindlabel)**\(if (.commits | length) > 0 then "（" + (.commits | map("`" + .[0:7] + "`") | join(", ")) + "）" else "" end)。\(.action | cell) |"),
     "",
     ([.findings[] | select(.dbids | length > 0) | select(resolves)] | length) as $r
     | ([.findings[] | select(.dbids | length > 0) | select(resolves | not)] | length) as $o

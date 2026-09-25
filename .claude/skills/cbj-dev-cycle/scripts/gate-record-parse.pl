@@ -30,7 +30,12 @@ sub flush {
   my (%seen, @c);
   for my $s ($f{commit} =~ /\b([0-9a-f]{7,40})\b/g) { push @c, $s unless $seen{$s}++ }
   $f{commits} = \@c;
-  $f{dbids} = [map { $_ + 0 } ($f{thread} =~ /discussion_r(\d+)/g)];
+  my (%url, %dseen, @d);
+  while ($f{thread} =~ /\((https?:\/\/[^)\s]*#discussion_r(\d+))\)/g) { $url{$2} = $1 }
+  for my $d ($f{thread} =~ /discussion_r(\d+)/g) { push @d, $d + 0 unless $dseen{$d}++ }
+  $f{dbids} = \@d;
+  $f{links} = [map { exists $url{$_} ? "[r$_]($url{$_})" : "r$_" } @d];
+  $f{no_thread} = $f{thread} =~ /^なし/ ? JSON::PP::true : JSON::PP::false;
   push @findings, \%f;
   undef $cur;
   undef $lab;
