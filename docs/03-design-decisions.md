@@ -1,11 +1,11 @@
 # 設計補遺・確定事項
 
-最終更新: 2026-09-13
+最終更新: 2026-09-26
 
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13 / D20は2026-09-24）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13 / D20は2026-09-24 / D21〜D23は2026-09-26）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -29,6 +29,9 @@
 | D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は、プラットフォーム固有のコードをアダプタ外に書かない（アーキテクチャ原則1）ことを維持しつつ、プラットフォーム非依存のコア拡張点（例: 受注インポート時に抽出した顧客をImporterが永続化するフック=B4-5、レート制限超過時の再試行遅延をアダプタ側から指定できるJobManagerの拡張点=E5-1）の追加は許容し、Importer/Exporter本体にプラットフォーム固有の分岐を持ち込まないことを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
 | D19 | マッピング候補一覧の取得方式（E2-1） | `PlatformAdapter`（§2「確定版」）に `mappingCandidates(): array` を追加する。`/settings/mappings/{platform}` のマッピングUI（カテゴリ/決済/配送/注文ステータス）が選択肢を動的に描画するための自己記述スキーマで、既存の `connectionFields()` と同じ設計思想。外部アドオンによるカスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換リスクは低いと判断した（該当メソッドが無いカスタムアダプタは致命的エラーになるため、将来外部アダプタが増えた場合はこの追加を周知する）。あわせて `cbjp_settings_{platform}` に `category_map`（キー: Woo側カテゴリID、値: ASP側カテゴリID）を追加。カラーミーがカテゴリ作成不可なため、既存の `payment_map`/`shipping_map`/`status_map`（ASP側ID→Woo側ID）とは向きが逆になる。**E2-2/E2-3への申し送り**: `payment_map`/`shipping_map`はASP→Wooの単射とは限らない（複数のASP決済/配送方法が同じWooゲートウェイ/配送方法へ寄せられうる）ため、エクスポート時にWoo側の値からASP側の値へ機械的に逆引きすることはできない。E2-3の`push_order`実装時にこの逆引きの曖昧性をどう解決するか（例: 最初に一致した1件を使う、複数一致時は警告付きでフェイルクローズする等）を設計すること |
 | D20 | `PlatformAdapter` の外部互換ポリシー（issue #49） | D19が「将来外部アダプタが増えた場合に周知する」としていた宿題を、v1.0公開前の今のうちに確定する。**外部（Pro版・サードパーティ）実装は `PlatformAdapter` を直接 implements せず、新設の `AbstractPlatformAdapter`（§2）を継承する**。v1.0.0公開までは（本決定を含め）インターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`のシグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例を踏襲）。**v1.0.0公開後は既存メソッドのシグネチャを変更しない**。新しいメソッドは `AbstractPlatformAdapter` に既定実装（原則 `UnsupportedOperationException`）を同時に追加する形でのみ足す。この2点を `tests/unit/Adapters/AbstractPlatformAdapterTest`（リフレクションで抽象メソッド一覧とシグネチャをBASELINE定数と照合する契約テスト）でCI上強制する。詳細は §2「外部互換ポリシー」。不採用: 機能ごとの任意インターフェースへの分割（前例が無く`instanceof`分岐が増える。PR #48でCodex/Copilotが提案）。PR #48の該当2スレッド（`fetch_order_by_remote_id()`追加への指摘）はこの決定を根拠に解決する |
+| D21 | エクスポートの重複作成防止（review-backlog `e2-3-push-*/G1-duplicate-on-retry`） | ColorMe への作成が確定した後で処理が途切れて mapping が残らず、次回 export が再作成して重複する問題を、途切れ方で2つに分けて対処する。**A**: remote_id が分かっている「作成後の中断」は、新設 `PartialPushException` で remote_id を `Exporter` まで運び checksum=null で mapping を書く（次回は PUT）。**B**: 作成結果が不明な場合（POST のタイムアウト・5xx・id 欠損・プロセス停止）は、送信前に `cbjp_push_intents` へ印を書き、送信しなかった／拒否が確定した場合だけ消す。印が残る実体は自動では再送せず、店舗が ColorMe を確認して「作成されていなかった」か「作成済み（ID を紐付け）」で解除する。B は受注だけでなく作成を伴う全エンティティに適用する。送信前検索（案C）は採らない。`PlatformAdapter` のシグネチャは変えない（D20 の凍結とは独立）。詳細は §10.2「エクスポートの重複作成防止（D21）」 |
+| D22 | 在庫管理が混在する variable 商品のエクスポート（issue #52） | Woo でバリエーションごとに在庫管理の有無が違う商品は、商品単位の在庫管理しか持たない ColorMe では表現できず、管理外のバリエーションが売り切れ表示のまま戻らない。**混在した商品（とその在庫行）はエクスポートを止めて警告**し、Woo 側で揃えてもらう。仮の在庫数を送る案・商品全体を管理外で送る案は過剰販売につながるため採らない。判定は Reader（Woo の事実）、止めるかは `Capabilities::$supports_per_variant_stock_management`（末尾に既定 `false` で追加）で `Exporter` が決める。詳細は §10.2「在庫管理が混在する variable 商品のエクスポート（D22）」 |
+| D23 | 「Any」バリエーションのエクスポート | Woo の「Any（すべての）」バリエーションは ColorMe に相当する仕組みが無く、正規化モデルでも表現できない。**v1.0 では非対応**とし、Any を含む商品と、その明細を持つ受注のエクスポートを止めて警告する（プラットフォーム非依存の blocking）。全組み合わせへの展開は v1.x で要望を見て検討する。詳細は §10.2「「Any（すべての）」バリエーションのエクスポート（D23）」 |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -989,6 +992,8 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   同一商品の全バリエーションをまとめて扱う設計変更（`Sync\Exporter`の1アイテムずつのpushループの
   見直し）が必要でありPRの差分範囲を大きく超えるため、ユーザー判断のもと本PRでは対応せず
   `docs/review-backlog.md`（`e2-3-push-stock/G1-1`）へ記録し、issue #52として起票した。
+  **2026-09-26 追記**: 原因は1件ずつの push ループではなく ColorMe の在庫管理が商品単位しかないことで、束ねても直らないと判明した。
+  混在した商品のエクスポートを止める方針に決定（D22。下記「在庫管理が混在する variable 商品のエクスポート（D22）」）。
 - `PushResult::$remote_id`は`CanonicalStock::remote_id()`（`variant_ref ?? product_ref`）を返す
   （`cbjp_mappings`の`stock`エンティティ行のキーとして使われる。E2-2 PR-Bで追加済みだった同メソッドの
   唯一の呼び出し元）。
@@ -1140,6 +1145,158 @@ ColorMe の税設定（`shop.tax_type`）へ逆算する。
 `regular_price` へ書く。税計算ON・税抜入力の Woo 店舗ではチェックアウト時に税が上乗せされて二重課税になりうる
 が、docs/03 §5「税の扱い」（取込み方向は警告のみ・自動変更しない）のとおり `PRICES_INCLUDE_TAX_DISABLED` の警告に留めている
 （`docs/review-backlog.md` `e2-2-exporter-core/G3-M-tax-basis-conversion` の残り）。
+
+#### エクスポートの重複作成防止（D21）
+
+**背景**: エクスポートは ColorMe 側への作成（POST）が成功した後で `cbjp_mappings` に remote_id を書く。
+その間で処理が途切れると mapping が残らず、次回の export が同じ Woo 実体を「未エクスポート」として再度 POST し、
+ColorMe 側に**重複**を作る。原則4によりプラグインはリモートを削除しないため、重複は店舗が手作業で消すしかない
+（受注の重複は売上集計も狂わせる）。`docs/review-backlog.md` の `e2-3-push-product/G1-duplicate-on-retry`・
+`e2-3-push-customer/G1-duplicate-on-retry`・`e2-3-push-order/G1-duplicate-on-retry`（いずれも High）をまとめて扱う。
+
+**途切れ方の分類**（コード確認 2026-09-26）:
+
+| 分類 | 場面 | remote_id | 対策 |
+|---|---|---|---|
+| (1) 作成後の中断 | `push_product()` の POST 成功後、追いPUT・バリエーション・画像のいずれかで `RateLimitExhaustedException` が再スローされる（他の失敗は既に警告へ畳んで `PushResult` を返している） | **アダプタは知っている** | A: 例外で remote_id を運ぶ |
+| (2) 作成結果が不明 | 作成 POST のタイムアウト・通信断・5xx（`HttpClient` は POST を自動再送しない）、2xx だが応答に id が無い（`RuntimeException`）、POST 後・mapping 書込み前の PHP プロセス停止 | **誰も知らない** | B: 送信中の印（push intent） |
+
+当初は「商品・顧客は remote_id を運べば直る」と整理していたが、顧客の重複シナリオ（2xx で id 欠損）と商品・受注の
+POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直らない。そのため B は受注に限らず、**作成（POST）を伴う
+全エンティティ**に適用する。
+
+##### A: 作成後の中断で remote_id を運ぶ（`PartialPushException`）
+
+- 新設 `Adapters\PartialPushException`（`RuntimeException` 派生）: コンストラクタ `( string $remote_id, Throwable $previous )`。
+  「リモートへの作成（または更新）は確定したが、後続の処理が途中で止まった」ことを表す
+- **アダプタの契約**（`PlatformAdapter` の `push_*` docblock と `AbstractPlatformAdapter` に明記）: 作成が確定した後は、
+  `RateLimitExhaustedException` を含むあらゆる例外を素のまま外へ出さず、`PartialPushException` に包んで投げる。
+  ColorMe は `push_product()` の作成後ブロック（追いPUT〜画像）で再スローしている `RateLimitExhaustedException` を包む
+- **`Sync\Exporter`**: `PartialPushException` を捕まえたら、remote_id を **checksum=null** で upsert する（旧 remote_id と
+  異なれば既存どおり `delete_one()` で旧行を消す）。次回 export は既存 remote_id への PUT になり、後続処理を再試行する。
+  `previous` が `RateLimitExhaustedException` なら mapping を書いた後にそれを再スローし、ジョブを従来どおり `paused` にする。
+  それ以外なら1件の部分失敗として `created`＋`warned` に数えて先へ進む。警告コード `PUSH_INTERRUPTED_AFTER_CREATE` を積む
+- 空の remote_id を持つ `PartialPushException` は契約違反として (2) と同じ扱い（印を残す）にする（原則8）
+- **互換性**: シグネチャは変えない（例外クラスの追加と docblock 上の挙動契約のみ）。D20 の BASELINE は変わらない。
+  契約に従わない外部アダプタでも、現状（重複しうる）より悪くはならない
+
+##### B: 作成結果が不明な実体を自動では再送しない（push intent）
+
+- **新テーブル `{$wpdb->prefix}cbjp_push_intents`**（`Core\Activator::DB_VERSION` を上げ、`Uninstaller` で削除）:
+  `id`・`platform`・`entity_type`・`local_id`・`run_id`・`job_id`・`reason`（`NULL`=送信中／停止、`ambiguous_error` 等）・
+  `created_at`・`updated_at`、`UNIQUE KEY (platform, entity_type, local_id)`
+  - Woo 実体のメタに持たない理由: 受注のメタ保存は `WC_Order::save()` を通り、`date_modified` の更新・
+    `woocommerce_update_order`（Analytics 取込み・Webhook）を毎回発火させる（§10.3 県コード修復ツールの既知の制限と同じ）
+  - `cbjp_mappings` にプレースホルダ行（`pending:{local_id}`）を置かない理由: `find_many_by_local_ids()` が remote_id として
+    返し `PUT products/pending:12` を送りうるほか、`VerificationReport`・`SampleCleanup`・`LimitPolicy` の全読み手に
+    意味の読み替えを強いる
+- **対象**: `existing_remote_id === null`（作成経路）かつ dry-run でない、**作成を伴う push**（`?string $remote_id` を取る
+  `push_product`/`push_customer`/`push_order`/`push_coupon`）。`push_stock()` は既存実体への更新のみで冪等なため対象外。
+  判定はインターフェースのシグネチャから導くためプラットフォーム非依存（原則1）
+- **ライフサイクル**（`Sync\Exporter::process_items()`）: 無料版の枠を確保した後、`$writer->write()` の直前に intent を INSERT する
+  （既に存在すれば push せず下記「ブロック」へ）。push の結果で次のとおり扱う:
+
+  | push の結果 | intent | mapping |
+  |---|---|---|
+  | `PushResult`（remote_id あり・created/updated） | upsert の後に削除 | upsert（従来どおり） |
+  | `PushResult`（remote_id 空・skipped。例: `CUSTOMER_REQUIRED_FIELD_MISSING`） | 削除（送信していない） | なし |
+  | `PartialPushException`（A） | upsert の後に削除 | checksum=null で upsert |
+  | 素の `RateLimitExhaustedException`（`RateLimiter::wait()` が送信**前**に投げる） | 削除 | なし（再スローして paused） |
+  | `UnsupportedOperationException` | 削除 | なし |
+  | `ApiException` で 4xx（429 を含む） | 削除（サーバーが拒否したことが確定） | なし |
+  | `ApiException` で 5xx・status 0（通信断・タイムアウト） | **残す**（`reason=ambiguous_error`） | なし |
+  | その他の例外（id 欠損の `RuntimeException`・`TypeError` 等） | **残す** | なし |
+  | PHP プロセスの停止（POST 後・mapping 書込み前） | **残る**（`reason=NULL`） | なし |
+
+  判定は「送信していない／拒否が確定した」を肯定形で列挙し、それ以外はすべて残す（原則9）。
+  POST 前に停止した場合も印は残る（誤って止める側に倒れる。店舗の確認で解除できる）
+- **ブロック**: intent が残る実体は、以後の export（dry-run を含む）で push せず `skipped`＋`warned` とし、警告コード
+  `PUSH_OUTCOME_UNCONFIRMED` を付ける。checksum 判定より前に行う（mapping が無いので checksum 一致には入らないが、
+  判定順を明示する）。dry-run レポート・CSV にもこの警告が並ぶ
+- **無料版の上限**: 未解決の intent は `LimitPolicy` の累積カウントに**含める**（作成済みかもしれない実体の分の枠を空けない。
+  原則7）。「作成されていなかった」と解除すると枠が戻る。店舗が作成済みのものを「作成されていない」と偽って解除すると
+  上限を超えて作れるが、送信結果が不明になる状況を利用者が意図して起こすのは現実的でないため受容する
+- **解除 UI と REST**（`manage_woocommerce`。パスの `platform` は `get_url_params()`、`id` はスキーマで整数検証）:
+  - `GET /push-intents/{platform}`: 未解決の一覧。種別・ローカルID・表示名（`DryRunLabel`）・Woo 編集画面 URL・送信日時・run。
+    店舗が ColorMe 管理画面で探せるよう、受注は受注番号・日時・合計、商品は名前・SKU、顧客はメールを添える
+    （画面と REST 応答のみ。`Support\Logger` には出さない）
+  - `POST /push-intents/{platform}/{id}/resolve`、`action`:
+    - `not_created`: ColorMe に無いことを店舗が確認した → intent を削除。次回 export で改めて作成する
+    - `link` ＋ `remote_id`: ColorMe に作成済みだった → `fetch_{entity}_by_remote_id()` で実在と種別を確認し、その remote_id が
+      別の実体の mapping に使われていないこと（`upsert()` の `ON DUPLICATE KEY UPDATE` が他の `local_id` を黙って
+      付け替えるため）を確認してから、checksum=null で upsert して intent を削除する。
+      `PlatformAdapter` に ID 指定取得が無いエンティティ（クーポン）とアダプタが `UnsupportedOperationException` を投げる場合は、実在を確認できないため `link` を 422 で拒否し `not_created` だけを許す
+  - Export タブ: 未解決の intent があれば Notice と一覧（解除ボタン、ColorMe ID の入力欄）を表示する。
+    `window.confirm()` は使わない（`.claude/rules/frontend.md`）
+- **周辺への影響**: `SampleCleanup` は対応するローカル実体を削除・unlink する際に、その実体の intent も消す
+  （残すと、存在しない実体の印が一覧に残り続ける）。intent は自動では期限切れにしない（フェイルクローズ）。
+  `JobManager` の同時実行ガードとは独立だが、`UNIQUE KEY` により同じ実体を2つの run が同時に作成することも防ぐ
+  （#57 の部分的な緩和。ガード全体の原子化は引き続き #57）
+- **テスト方針**: `Exporter` は結果表の全行（特に「残す」行）を、分岐を一時的に壊して落ちることまで確認する（CLAUDE.md
+  「テスト方針」のミューテーション）。ColorMe は HTTP モックで「POST 成功→追いPUT で `RateLimitExhaustedException`」と
+  「POST が 5xx／タイムアウト」を再現する。実機（wp-env）では `/verify-with-mock-adapter` のモックアダプタに
+  「作成 POST を 5xx にする」切替を足して、ブロック→一覧表示→解除（`not_created`・`link`）→再 export を確認する
+
+**残る制限**: (2) の後、店舗が確認せずに `not_created` で解除すれば重複しうる（UI の説明文で、ColorMe 側を確認してから
+解除するよう促す）。ColorMe には冪等キーが無く、送信前検索（顧客・日時の突き合わせ）は誤判定しやすいため採らない（D21 案C 不採用）。
+インポート方向は、作成済みで mapping の無い ColorMe 実体を次のインポートが別の Woo 実体として取り込みうるが、
+`link` で解除すれば mapping で突合されて解消する。
+
+#### 在庫管理が混在する variable 商品のエクスポート（D22、issue #52）
+
+**問題**: Woo は在庫管理をバリエーションごとに設定できるが、ColorMe の `stock_managed` は**商品単位のみ**
+（variant スキーマに相当フィールドが無い）。`StockDerivation::for_variation()` はバリエーション在庫を
+「整数（管理中、または管理外で在庫切れ=0）」か「`null`（管理外で在庫あり）」で表す。整数と `null` が同じ商品に混在すると、
+`ProductTransformer::is_stock_managed_for_push()` が商品を `stock_managed=true` にし、`null` のバリエーションは
+ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態で1件に値を入れると他は0になる）＝**売り切れ表示**になる。
+`push_stock()` は管理外バリエーションを `STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE` で恒久的に送らないため、以後も戻らない（売り逃し）。
+`push_product()` の時点で起きるため、issue #52 に挙げていた「在庫を商品単位でまとめて送る」「送信前に GET で確認する」案では直らない
+（送り方ではなく、ColorMe で表現できないことが原因）。
+
+**決定（2026-09-26）**: 混在した商品は**エクスポートを止め**、Woo 側で全バリエーションの在庫管理を揃えるよう警告する。
+仮の在庫数を送る案（過剰販売）と商品全体を管理外で送る案（管理中のバリエーションも在庫が効かなくなり過剰販売）は、原則9に反するため採らない。
+
+- **判定**（Woo 側の事実。`Woo\Reader`）: variable 商品のバリエーション在庫（`StockDerivation::for_variation()` の `quantity`。
+  ゴミ箱・非公開で除外済みのものは数えない）に**整数と `null` が両方ある**。`ProductReader` は商品の `ReadItem` に、
+  `StockReader` はその商品の各バリエーションの在庫行に、警告 `VARIATION_STOCK_MANAGEMENT_MIXED` を積む
+- **止めるかどうか**（プラットフォームの能力。`Sync\Exporter`）: 商品単位の在庫管理しか持たない ASP では表現できないが、
+  バリエーション単位で持つ ASP では正しく送れる（原則1: ColorMe 固有の制約を Reader に書かない）。`Capabilities` に
+  `supports_per_variant_stock_management`（bool）を**末尾に既定値 `false` 付きで**追加し（D20 の値オブジェクト規則。
+  既定を `false` にするのは、宣言しない外部アダプタでも安全側＝止める側に倒すため）、`Exporter` は `false` かつ警告ありなら
+  push せず `skipped`＋`warned` とする（`indicates_export_blocking()` と同じ位置。dry-run・CSV にも出る）。ColorMe は `false`
+- **在庫行も止める理由**: 商品が混在になる前にエクスポート済みだった場合、在庫 push が `stock_managed=true` を明示 PUT し、
+  管理外バリエーションは古い値のまま残る。商品と同じ判定で止め、揃えるまで在庫を動かさない
+- **案内**: 警告文言は「在庫管理を全バリエーションで有効にする、または全バリエーションで無効にする」ことを示す。
+  親で一括管理（`manage_stock='parent'`）は既存の `VARIATION_STOCK_SHARED_WITH_PARENT`（在庫0へフェイルクローズ）の対象で本判定とは別
+- **テスト**: 混在（整数と `null`）・全て整数・全て `null`・管理外の在庫切れ（0）と在庫あり（`null`）の混在（これも混在として止まる）を
+  Reader と Exporter で確認し、判定を一時的に壊すと落ちることを確かめる
+
+#### 「Any（すべての）」バリエーションのエクスポート（D23）
+
+**問題**: Woo は軸属性を「Any」にしたバリエーション（例: サイズ=Any）を作れる。バリエーション自体の属性値は空文字列で保存され
+（`VariationAxisResolver::attribute_value()` は `null` を返す）、購入時に選ばれた値は受注明細のメタにだけ残る。ColorMe の
+バリエーションは具体的な値の組ごとに存在し、「Any」に当たる仕組みが無い。現状:
+- **商品**: 軸名はあるが値が `null` のバリエーションは、`ColorMeAdapter::axis_map_from_pairs()` がフェイルクローズして
+  ColorMe のバリエーションに対応付けられず送られない。商品の残り（他のバリエーション・商品本体）は送られるため、
+  **ColorMe 側でバリエーションが欠けた商品になりうる**（全バリエーションが Any なら、選択肢の無い商品になりうる）
+- **受注**: `OrderReader::variation_option_values()` は Any の軸を `null` のまま「解決済み」（`true`）として返すため、
+  **どの値の注文か分からないまま `push_order()` へ渡りうる**（review-backlog `e2-3-push-order/G2-wildcard-variation-option-values`。
+  コード上は確認、ColorMe の実応答は未検証）
+
+**決定（2026-09-26）**: **v1.0 では「Any」を非対応**とし、含む商品と、その明細を持つ受注のエクスポートを止める。
+全組み合わせへの展開（ColorMe に S/M/L を作り、受注は明細メタから選ばれた値を読む）は、在庫の割り振り等の新たな判断を伴うため、要望が出てから v1.x で検討する。
+
+- **商品**: `ProductReader` は、軸属性のいずれかが `null`（Any）のバリエーションを1件でも持つ商品に警告
+  `VARIATION_ANY_ATTRIBUTE_UNSUPPORTED` を積み、`WarningCode::indicates_export_blocking()` に登録する。「Any」は正規化モデル
+  （`CanonicalProduct::$variants` の `option*_value`）で表現できないため、`ALL_VARIATIONS_EXCLUDED` と同じくプラットフォーム非依存に止める
+  （capability にしない）。ゴミ箱・非公開で除外済みのバリエーションは数えない
+- **受注**: `variation_option_values()` は、存在する軸の値が `null` なら解決不能（`false`）を返す。明細は既存の
+  `ORDER_LINE_VARIATION_UNRESOLVED`（blocking）で止まる。商品が止まっていれば通常は mapping が無いため別経路でも止まるが、
+  商品が Any を含む前にエクスポート済みだった場合に備えて明細側でも止める
+- **案内**: 警告文言は「Any を具体的な値のバリエーションに分けると移行できる」ことを示す
+- **実測（実装の最初に行う）**: wp-env で Any バリエーションを持つ商品と受注を作り、(1) バリエーションの属性値が空文字列で保存されること、
+  (2) 受注明細のメタに選ばれた値が残ること、(3) 現行コードで商品・受注がどう送られるか（モックアダプタで payload を観測）を確認して記録する
+- **テスト**: Any を含む商品が止まること・含まない商品は止まらないこと、Any の明細を持つ受注が止まること。判定を一時的に壊すと落ちること
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

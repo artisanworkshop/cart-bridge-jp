@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-24
+最終更新: 2026-09-26
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -190,6 +190,11 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   通常価格で送る。詳細は `docs/03-design-decisions.md` §10.2「価格の税込正規化とバリエーションのセール価格」。
   インポート方向（`ProductWriter` が税込額を税抜入力の店舗へ書く鏡像）は対象外で警告のみのまま
   （`e2-2-exporter-core/G3-M-tax-basis-conversion` の残り）
+- [ ] **feat: 県コード修復ツールで未修復の顧客・受注を一覧表示し、郵便番号から推定した県を候補として示す**（issue #71、`v0.1.1` 想定）
+  修復ツール（issue #46）は結果を区分ごとの件数でしか返さず、自動修復できなかった `unverified`/`unavailable` の対象を店舗が特定・手修正できない。
+  県が誤ったままの顧客はチェックアウトの既定住所・県単位の送料・送り状に影響する（未発送の受注は誤配送リスク）。Tools タブに対象一覧（編集画面リンク付き）を追加し、
+  郵便番号から推定した県を候補として表示する（自動では書き込まない。複数県にまたがる範囲は断定しない）。`review-backlog` の
+  `fix-46-pref-state-repair/L-unavailable-not-split`（`PlatformAdapter` 契約拡張）はこの代替として見送る。対象は `v0.1.0`〜2026-09-15 にインポートしたサイトのみ
 
 ---
 
@@ -419,10 +424,15 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 ## Phase 3: v1.0 仕上げ・公開
 
-- [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認。**あわせて、`tax_type=excluded` の店舗でセール中バリエーションの `option_market_price`（定価）の税基準が `option_price` と同じか実機確認する**〔`docs/03` §10.2「価格の税込正規化とバリエーションのセール価格」の要検証。PR #61 Copilot G1-1〕）
+- [ ] **R3-0a: 作成後の中断による重複作成を防ぐ（D21-A）**（issue #72）: 新設 `PartialPushException` で、作成確定後に中断した商品の remote_id を `Exporter` まで運び、checksum=null で mapping を書く（再開時は PUT）。`ColorMeAdapter::push_product()` の作成後ブロックで再スローしている `RateLimitExhaustedException` を包む。単独 PR
+- [ ] **R3-0b: 作成結果が不明な実体を自動で再送しない（D21-B）**（issue #73、R3-0a の後）: `cbjp_push_intents`（送信中の印）、`Exporter` のライフサイクル（送信していない／拒否が確定したときだけ消す）、`PUSH_OUTCOME_UNCONFIRMED` によるブロック、`LimitPolicy` への算入、解除 REST（`not_created`/`link`）と Export タブの一覧 UI。バックエンドだけでは解除手段が無く動作確認できる振る舞いにならないため、REST・UI まで1 PR にまとめる（大きすぎる場合はバックエンド＋REST と UI の2 PR に分け、同じリリースに入れる）
+- [ ] **R3-0c: 在庫管理が混在する variable 商品のエクスポートを止める（D22）**（issue #52）: Reader が `VARIATION_STOCK_MANAGEMENT_MIXED` を積み、`Exporter` が `Capabilities::$supports_per_variant_stock_management`（末尾に既定 `false` で追加。ColorMe は `false`）で商品と在庫行を止める
+- [ ] **R3-0d: 「Any」バリエーションを含む商品と受注のエクスポートを止める（D23）**（issue #74）: 最初に wp-env で実測。`VARIATION_ANY_ATTRIBUTE_UNSUPPORTED`（blocking）と `OrderReader::variation_option_values()` の解決不能判定。R3-0c と同じ `ProductReader`・`WarningCode` を触るため1 PR にまとめてよい
+- [ ] **R3-0e: ColorMe 受注の一覧取得で基盤取得の失敗を握りつぶさない**（issue #69）: `order_transformer()` を行単位の catch の外で解決する（単一ID取得と同じ形）。判断事項なし
+- [ ] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップで実データ移行。インポート→エクスポートの往復でデータ欠損確認。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認。**R3-0a/b の実機確認（ブロック→解除→再 export）も含める。** **あわせて、`tax_type=excluded` の店舗でセール中バリエーションの `option_market_price`（定価）の税基準が `option_price` と同じか実機確認する**〔`docs/03` §10.2「価格の税込正規化とバリエーションのセール価格」の要検証。PR #61 Copilot G1-1〕）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断）
-- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。**凍結前に `docs/review-backlog.md` の `PlatformAdapter` 契約拡張前提の保留項目（`e2-3-push-*/G1-duplicate-on-retry`・`fix-46-pref-state-repair/L-unavailable-not-split`）の対応要否を判断する**（03 §2 D20 規則7））
+- [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
 
 > **要判断（v1.0公開前）**: 無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。
