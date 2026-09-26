@@ -527,10 +527,12 @@ final class ProductWriterTest extends WooTestCase {
 		// カテゴリが空のまま保存すると、WooCommerceは`default_product_cat`が指すタームを自動付与する
 		// （`WC_Product_Data_Store_CPT::update_terms()`）。既定の「未分類」（bootstrapの
 		// `WC_Install::install()`が作成）は、WPテストスイートが各クラス終了時に呼ぶ
-		// `_delete_all_data()`（term_id=1以外を削除。optionは残す）で消えるため、実在するのは
+		// `_delete_all_data()`（term_id=1以外を削除してCOMMIT。optionは残す）で消えるため、実在するのは
 		// プロセス最初のテストクラスの間だけで、このテストが先頭クラスで走ると`[15]`になっていた
-		// （issue #63）。「削除済みタームのIDを付与しない」ことだけを検証するため、自動付与を
-		// 無効にして実行順に依存しない状態へ固定する（実測: 0/''/optionなし/存在しないIDは全て`[]`）。
+		// （issue #63）。自動付与を無効にして、実行順に依存せず`[]`になる状態へ固定する（実測: 0/''/
+		// optionなし/存在しないIDは全て`[]`）。なお`wp_set_post_terms()`は存在しないIDを読み飛ばすため、
+		// `[]`のアサーション自体は削除済みIDを未解決扱いにしたかを判別できない。それは警告と
+		// `fully_resolved`のアサーションが担う。
 		update_option( 'default_product_cat', 0 );
 
 		$category_term_id = wp_insert_term( 'Cat', 'product_cat' )['term_id'];
