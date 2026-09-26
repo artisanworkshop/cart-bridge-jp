@@ -444,6 +444,16 @@ final class WarningCode {
 	public const PRODUCT_IMAGE_PUSH_FAILED = 'product_image_push_failed';
 
 	/**
+	 * `Sync\Exporter`: リモートへの作成は確定した（`Adapters\PartialPushException`でremote_idが
+	 * 届いた）が、後続の処理（追加項目の反映・バリエーション・画像等）が途中で止まった。
+	 * mappingはremote_idをchecksum=nullで書き、次回のexportは作成ではなく更新（PUT）になって
+	 * 後続処理をやり直す（D21-A）。次回再試行させるため`indicates_unresolved_reference()`の対象に
+	 * 含める（simple商品には`PRODUCT_*_PUSH_INCOMPLETE`のような別の未完了印が無く、この登録が
+	 * checksumをキャッシュしない唯一の根拠になる）。
+	 */
+	public const PUSH_INTERRUPTED_AFTER_CREATE = 'push_interrupted_after_create';
+
+	/**
 	 * `ColorMeAdapter::push_product()`: ColorMeはオプション追加で全組み合わせ（直積）を
 	 * 自動生成するため、Woo側に対応するバリエーションが無い組み合わせがリモートに残ることがある
 	 * （原則4「破壊的操作の禁止」によりこちらから削除できない）。再試行しても消えるとは限らない
@@ -606,6 +616,8 @@ final class WarningCode {
 			self::PRODUCT_DETAILS_PUSH_INCOMPLETE,
 			self::PRODUCT_VARIANT_PUSH_INCOMPLETE,
 			self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
+			// 作成が確定した後に処理が止まった場合の警告（Exporterが部分完了の例外から組み立てる）。
+			self::PUSH_INTERRUPTED_AFTER_CREATE,
 		];
 
 		foreach ( $warnings as $warning ) {
