@@ -41,7 +41,7 @@ R1 は APPROVE（コード修正なし）。自己レビュー＋独立サブエ
 ## 次にできること（人間の判断）
 - **マージ前に確認してほしい点**
   - Copilot の「🔵 Needs a closer look」は、自動承認できないという総評で指摘ではない。データ書込みの重複防止に関わる変更なので、`Sync\Exporter::process_items()` の2重 try/catch と `ColorMeAdapter::push_product()` の包む範囲は人間の目でも確認してほしい
-  - **R1-X1（対象外・Medium・既存挙動）**: hidden 安全策（価格を換算できない・`tax_class` が未知のとき、作成だけ `display_state=hidden` に倒す）が更新経路には効かないため、安全策付きで作成された商品は次回の更新 PUT で価格未設定／税区分が誤ったまま公開されうる。本 PR の「作成後に中断→再開」でも同じ経路を通るが、中断が無くても次回 export で同じ（従来は重複作成に隠れていた）。GitHub issue にするか、v1.0 に含めるかの判断が要る（`docs/review-backlog.md` の `fix-72-partial-push/R1-X1`）
+  - **R1-X1（対象外・Medium・既存挙動）**: hidden 安全策（価格を換算できない・`tax_class` が未知のとき、作成だけ `display_state=hidden` に倒す）が更新経路には効かないため、安全策付きで作成された商品は次回の更新 PUT で価格未設定／税区分が誤ったまま公開されうる。本 PR の「作成後に中断→再開」でも同じ経路を通るが、中断が無くても次回 export で同じ（従来は重複作成に隠れていた）。**2026-09-27 に判断済み: issue #78 として起票し、v1.0.x 以降に回す**（R3-1 の実機リハーサルで安全策が発動するかを確認してから優先度を決める。`docs/review-backlog.md` の `fix-72-partial-push/R1-X1`、`docs/10` の R3-1 に確認項目を追記）
 - 実 API では意図的に起こせないため実機確認はしていない（R3-1 のモック確認に含める）
 - マージ（GitHub 上で人間が行う）→ マージ後は `/post-merge`
 - 次のタスク: R3-0b（#73、D21-B: push intent）。上の逸脱 2（空 remote_id）と、backlog `fix-72-partial-push/R1-L4`（`push_customer`/`push_order`/`push_coupon` の docblock から契約を参照）を、その PR で合わせて扱う
