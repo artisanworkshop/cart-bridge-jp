@@ -2,10 +2,9 @@
 - タスク: R3-0f（issue #63）ランダム順で稀に落ちる `ProductWriterTest` を安定させる
 - 開始: 2026-09-26
 - PR: #76 https://github.com/artisanworkshop/cart-bridge-jp/pull/76
-- 現在のステップ: 7（ゲート G1・確認ゲート待ち）
+- 現在のステップ: 完了（最終報告済み。マージ待ち）
 - Codex: 依頼 1 回 / 収束（G1: PR 作成時の自動レビューが来ず `@codex review` を自動投稿 → 新規指摘なし。対象 84f7d41）
-- Copilot: 依頼 1 回 / 未収束（G1 で新規 1 件〔Low・修正〕→ 修正 push 後に 2 回目を依頼）
-- 次の依頼: Copilot 2 回目（CI green 後）
+- Copilot: 依頼 2 回 / 収束（G1 で 1 件〔Low・修正済み〕→ G2 で新規指摘なし。対象 bc80428）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -18,3 +17,6 @@
 | 2026-09-26 | 5 | CI green（PHPUnit wp-env 3m46s ほか 5 ジョブ） |
 | 2026-09-26 | 6 | G1: Copilot 依頼（timeline で登録確認）／ Codex は 5 分無応答のため `@codex review` を自動投稿。Codex「Didn't find any major issues」、Copilot 🟢 Approval recommended・インライン 1 件（Low） |
 | 2026-09-26 | 7 | G1 仕分け: G1-1（状態ファイルが PR 作成前の内容で同梱）を修正。確認ゲート待ち |
+| 2026-09-26 | 7 | G1 反映: 修正 d499087 を push、スレッド返信・Resolve、サマリコメント投稿 |
+| 2026-09-26 | 6 | G2: CI green 後に Copilot 2 回目を依頼 → 🟢 Approval recommended・指摘なし（対象 bc80428）。両 bot 収束 |
+| 2026-09-26 | 8 | 最終報告を作成（final-report.md）。状態を完了に更新 |
