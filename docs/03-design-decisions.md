@@ -1180,6 +1180,27 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
 - 空の remote_id を持つ `PartialPushException` は契約違反として (2) と同じ扱い（印を残す）にする（原則8）
 - **互換性**: シグネチャは変えない（例外クラスの追加と docblock 上の挙動契約のみ）。D20 の BASELINE は変わらない。
   契約に従わない外部アダプタでも、現状（重複しうる）より悪くはならない
+- **実装（R3-0a、issue #72）**:
+  - `ColorMeAdapter::push_product()` は、商品本体（POST/PUT）が成功して remote_id が確定した後の処理（追いPUT・
+    バリエーション同期・画像）を `finish_product_push()` に切り出し、**作成経路（`$remote_id === null`）のときだけ**その呼び出し全体を
+    1つの `try/catch (Throwable)` で `PartialPushException` に包む。6か所の個別 catch（`RateLimitExhaustedException` の再スロー）は
+    変えない（包む場所を1か所にして取りこぼしを避ける。個別 catch の外側にある `wp_remote_get()` 等の予期しない例外も拾える）
+  - `Sync\Exporter::process_items()` は `PartialPushException` を捕まえ、`PushResult( remote_id, created|updated, [ PUSH_INTERRUPTED_AFTER_CREATE ] )` に
+    読み替えて**通常の書込み経路に流す**（旧 remote_id が違えば `delete_one()`、`upsert()`、`indicates_unresolved_reference()` による
+    checksum=null、totals、warned を再利用する）。原因が `RateLimitExhaustedException` のときは、そのアイテムの mapping を書き終えた後に再スローする
+  - `WarningCode::PUSH_INTERRUPTED_AFTER_CREATE` を `indicates_unresolved_reference()` に登録した（simple 商品には
+    `PRODUCT_*_PUSH_INCOMPLETE` のような別の未完了印が無く、これが checksum をキャッシュしない唯一の根拠になる）
+  - 無料版の枠は戻さない（リモートに実体ができているため、mapping が `LimitPolicy` の累計に数えられる）
+  - **D21 の記述からの差**（実装時に判断した点）:
+    1. 更新経路（既存 remote_id への PUT）は包まない。mapping が既にあり、checksum が一致するまで次回も同じ PUT になるため重複しない。
+       外部アダプタが更新経路で `PartialPushException` を投げた場合は `updated`＋`warned` に数える（D21 は作成経路の `created` のみ記述）
+    2. remote_id が空の `PartialPushException`（契約違反）は、包まれていなかった場合と同じにするため**本来の原因を投げ直す**
+       （レート制限ならジョブを一時停止、それ以外は汎用の1件失敗）。R3-0a 時点では印（push intent）が無いので「印を残す」は未実装。
+       **R3-0b（B）を実装するときは、この経路を結果表の「その他の例外」行（印を残す）として扱うこと**
+- **テスト**: 3経路（追いPUT・バリエーション〔詳細取得・オプション作成・バリエーションPUT〕・画像）の `RateLimitExhaustedException` が
+  remote_id 付きで包まれること、`Exporter` が mapping を checksum=null で書いてから再スローすること、再開時に `POST products.json` が増えず
+  PUT になること（`ColorMeAdapterTest` の結合テスト）。包む処理・`Exporter` の catch・`indicates_unresolved_reference()` への登録・
+  再スローの位置（mapping 書込みの後）・空 remote_id の分岐・更新経路を包まない判断を、それぞれ一時的に壊して落ちることを確認した
 
 ##### B: 作成結果が不明な実体を自動では再送しない（push intent）
 
