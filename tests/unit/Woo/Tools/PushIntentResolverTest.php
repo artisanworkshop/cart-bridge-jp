@@ -78,6 +78,30 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 		$this->assertNull( $this->mappings->find_checksum( 'mock', 'customer', 'remote-c1' ) );
 	}
 
+	/**
+	 * レビュー指摘（Copilot/Codex）: 外部アダプタの戻り値は信用しない（アーキテクチャ原則8。
+	 * `Woo\Tools\PrefStateRepair`と同じ理由）。契約違反アダプタが要求と異なる実体を返した場合、
+	 * 実在確認をすり抜けて無関係な別のローカル実体へ紐付けてしまわないことを確認する。
+	 */
+	public function test_resolve_link_rejects_a_remote_entity_whose_remote_id_does_not_match_the_request(): void {
+		$this->intents->begin( 'mock', 'product', 101, null, null );
+		$id = $this->intents->find_unresolved( 'mock' )[0]['id'];
+		// 要求IDを無視し、別のremote_idを持つ商品を返す契約違反アダプタ（`product_by_remote_id_override`）。
+		$adapter = new MockPlatformAdapter( product_by_remote_id_override: CanonicalFactory::product( 'different-remote-id', 'SKU-X' ) );
+
+		$this->expectException( PushIntentResolutionException::class );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'requested-remote-id' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_NOT_FOUND, $exception->reason() );
+
+			throw $exception;
+		} finally {
+			$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'requested-remote-id' ) );
+		}
+	}
+
 	public function test_resolve_link_rejects_a_remote_id_already_linked_to_a_different_local_id(): void {
 		$id      = $this->begin_customer_intent();
 		$adapter = new MockPlatformAdapter( customers: [ CanonicalFactory::customer( 'remote-c1', 'buyer@example.test' ) ] );

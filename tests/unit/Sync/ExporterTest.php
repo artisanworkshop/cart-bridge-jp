@@ -1078,4 +1078,68 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
 	}
+
+	/**
+	 * レビュー指摘（Copilot/Codex）: mapping書込み後・印削除前にプロセスが止まる、または
+	 * REST側の解除（`Woo\Tools\PushIntentResolver`）がmappingを結んだ直後に印を消し損なうと、
+	 * 以後この実体は`existing_remote_id`が非nullになり、印を検査・削除する経路（作成経路限定）が
+	 * 二度と実行されず孤立した印が恒久的に残ってしまう。mappingが既にある実体を次に処理する
+	 * 機会（更新経路）で自己修復されることを確認する。
+	 */
+	public function test_a_stale_intent_left_behind_after_a_mapping_already_exists_is_reconciled_on_the_next_export(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Updated' ) ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertCount( 1, $writer->writes, '既存mappingへの通常の更新は引き続き行われる' );
+	}
+
+	/**
+	 * 上と同じ自己修復は、dry-runでは行われない（`has_unresolved()`は読取専用の確認のみ）。
+	 * F1-6「dry-runは何も永続化しない」不変条件を守る。
+	 */
+	public function test_the_stale_intent_reconciliation_does_not_happen_during_a_dry_run(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Updated' ) ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * レビュー指摘（Copilot）: 未解決intentのブロック判定が`indicates_export_blocking()`の
+	 * 早期`continue`より後にあると、読出時点のブロック警告（例: 価格が不正）も同時に持つ
+	 * アイテムはブロック警告側の経路だけを通り、dry-run行に`PUSH_OUTCOME_UNCONFIRMED`が
+	 * 含まれなくなる。両方に該当する場合でも警告がマージされて残ることを確認する。
+	 */
+	public function test_an_unresolved_intent_and_a_blocking_reader_warning_both_surface_in_the_dry_run_row(): void {
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader   = new FixedWooReader(
+			[ new ReadItem( 101, $this->product(), [ WarningCode::ALL_VARIATIONS_EXCLUDED ] ) ]
+		);
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9301, 'run-9301' );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+
+		$rows = ( new DryRunItemRepository() )->list_after( 'run-9301', 0, 10 );
+		$this->assertCount( 1, $rows );
+		$this->assertStringContainsString( WarningCode::ALL_VARIATIONS_EXCLUDED, $rows[0]['warnings_json'] );
+		$this->assertStringContainsString( WarningCode::PUSH_OUTCOME_UNCONFIRMED, $rows[0]['warnings_json'] );
+	}
 }

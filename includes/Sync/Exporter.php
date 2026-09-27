@@ -140,6 +140,38 @@ final class Exporter {
 			$item               = $read_item->item;
 			$row                = $existing[ $local_id ] ?? null;
 			$existing_remote_id = $row['remote_id'] ?? null;
+			$push_intent_entity = in_array( $entity, self::PUSH_INTENT_ENTITIES, true );
+
+			// D21-Bレビュー指摘（Copilot/Codex）: mapping書込みと印の削除は別々の書込みのため、
+			// 「mapping書込み後・印削除前」にプロセスが止まる、またはREST側の解除
+			// （`Woo\Tools\PushIntentResolver`）がmappingを結んだ直後に何らかの理由で印が
+			// 消せなかった場合、以後この実体は`existing_remote_id`が非nullになり
+			// `$creates_remote_entity`がfalseになるため、印を再検査・削除する経路が二度と
+			// 無くなり孤立した印が恒久的に残る（一覧に出続け、無料枠も占有し続ける）。
+			// mappingが既にある実体を処理する機会（このアイテム）で自己修復する。
+			if ( ! $is_dry_run && null !== $existing_remote_id && $push_intent_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
+				$this->push_intents->delete( $platform, $entity, $local_id );
+			}
+
+			// D21-B（issue #73）: 作成経路（既存remote_id無し）で、以前の試行の結果が不明なまま
+			// 印（`cbjp_push_intents`）が残っている実体は自動で再送しない。dry-runも含めて
+			// ブロックする（`has_unresolved()`は読取専用のためF1-6の「dry-runは何も永続化しない」
+			// 不変条件は破らない）。Copilotレビュー指摘: `indicates_export_blocking()`の判定より
+			// **前**に置く（読出時点の警告と両方該当する場合でも、dry-run行に
+			// `PUSH_OUTCOME_UNCONFIRMED`が必ず含まれるようにするため。`$read_item->warnings`は
+			// 下でそのままマージするので、データ品質側の警告を握り潰しはしない）。
+			$creates_remote_entity = null === $existing_remote_id && $push_intent_entity;
+
+			if ( $creates_remote_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
+				++$totals['skipped'];
+				++$totals['warned'];
+
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::PUSH_OUTCOME_UNCONFIRMED ] ) );
+				}
+
+				continue;
+			}
 
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性。読出時点の警告
 			// （`$read_item->warnings`）はchecksumの対象外のため、警告の有無だけでは
@@ -178,25 +210,6 @@ final class Exporter {
 
 				if ( $is_dry_run ) {
 					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
-				}
-
-				continue;
-			}
-
-			// D21-B（issue #73）: 作成経路（既存remote_id無し）で、以前の試行の結果が不明なまま
-			// 印（`cbjp_push_intents`）が残っている実体は自動で再送しない。`existing_remote_id`が
-			// nullなら`$row`自体も通常null（`cbjp_mappings`は空remote_idの行を書かない）のため、
-			// 上のchecksum一致判定より前後どちらに置いても結果は変わらないが、D21-Bの記述に合わせて
-			// ここに明示する。dry-runも含めてブロックする（`has_unresolved()`は読取専用のため
-			// F1-6の「dry-runは何も永続化しない」不変条件は破らない）。
-			$creates_remote_entity = null === $existing_remote_id && in_array( $entity, self::PUSH_INTENT_ENTITIES, true );
-
-			if ( $creates_remote_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
-				++$totals['skipped'];
-				++$totals['warned'];
-
-				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::PUSH_OUTCOME_UNCONFIRMED ] ) );
 				}
 
 				continue;

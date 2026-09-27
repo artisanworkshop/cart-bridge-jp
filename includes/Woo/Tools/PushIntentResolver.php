@@ -87,7 +87,12 @@ final class PushIntentResolver {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 
-		if ( null === $remote_entity ) {
+		// 外部アダプタの戻り値は信用しない（アーキテクチャ原則8。`Woo\Tools\PrefStateRepair`と
+		// 同じ理由）。契約違反のアダプタが要求と異なる実体を返すと、要求した`remote_id`が
+		// あたかも実在するかのように見え、無関係な別のローカル実体へ紐付いてしまう
+		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
+		// `$remote_id`と一致することまで確認する。
+		if ( null === $remote_entity || $remote_entity->remote_id() !== $remote_id ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
 		}
 
@@ -98,6 +103,15 @@ final class PushIntentResolver {
 		}
 
 		$this->mappings->upsert( $platform, $entity_type, $remote_id, $intent['local_id'], null );
+
+		// レビュー指摘（Codex P1）: `MappingRepository::upsert()`は`$wpdb->query()`の戻り値を
+		// 捨てて`void`を返すため、一過性のDB障害があっても例外にならない。upsert後にmappingが
+		// 本当に書けたことを読み直して確認してからintentを消す（先に消すと、書けていないのに
+		// 「解決済み」を返し、次回exportが未送信の実体をもう一度作成しうる）。
+		if ( $intent['local_id'] !== $this->mappings->find_local_id( $platform, $entity_type, $remote_id ) ) {
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
+		}
+
 		$this->intents->delete_by_id( $id );
 	}
 
