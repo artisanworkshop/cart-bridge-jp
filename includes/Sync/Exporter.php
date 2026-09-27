@@ -152,13 +152,15 @@ final class Exporter {
 			if ( ! $is_dry_run && null !== $existing_remote_id && $push_intent_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
 				$this->push_intents->delete( $platform, $entity, $local_id );
 
-				// レビュー指摘（Codex/Copilot, G2）: ページ開始時に一度だけ計算した`$remaining`は
+				// レビュー指摘（Codex, G3）: ページ開始時に一度だけ計算した`$remaining`は
 				// mappingsと未解決intentの両方を数える`LimitPolicy::used()`に基づくため、この実体を
-				// 二重に数えていた（mapping1件＋intent1件）。印を消した分、実質的な使用数は1件
-				// 減るので、このページ内の残り処理のために枠を1つ戻す。戻さないと、上限に近い
-				// 状態でこの後の本来pushしてよい新規アイテムが不要にskipされうる。
-				if ( null !== $remaining ) {
-					++$remaining;
+				// 二重に数えていた（mapping1件＋intent1件）。`LimitPolicy::remaining()`は負の値を
+				// 0へクランプするため、複数のstale intentが同時に存在し使用数が上限を超えている
+				// 場合、単純に`++$remaining`を繰り返すとクランプで隠れていた超過分まで枠として
+				// 復活してしまう（G2時点の`++$remaining`はこの多重発生ケースを見落としていた）。
+				// 都度`$limit_policy`から再計算し、常にDBの実状態と一致させる。
+				if ( null !== $remaining && null !== $limit_policy ) {
+					$remaining = $limit_policy->remaining( $platform, $entity );
 				}
 			}
 

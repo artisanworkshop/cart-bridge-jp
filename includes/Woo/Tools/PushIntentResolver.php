@@ -102,6 +102,19 @@ final class PushIntentResolver {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_ID_IN_USE );
 		}
 
+		// レビュー指摘（Copilot, G3）: この実体（intentのlocal_id）に対応する古いmapping行が
+		// 別のremote_idで既に存在する場合（例: crashでintentが消えないまま残った後、店舗が
+		// 別のremote_idで`link`した）、`upsert()`のユニークキー（platform, entity_type,
+		// remote_id）は新remote_idで別行をINSERTするだけで旧remote_idの行が孤児として残る。
+		// `find_remote_id()`はid昇順の最初の行（＝古い方）を採用するため、以後のexportは
+		// 今回linkした新remote_idではなく古い方へ再送し続けてしまう（`Sync\Exporter::
+		// process_items()`が作成/バリエーション双方で同じ理由で先に行っている処理と同じ）。
+		$stale_remote_id = $this->mappings->find_remote_id( $platform, $entity_type, $intent['local_id'] );
+
+		if ( null !== $stale_remote_id && $stale_remote_id !== $remote_id ) {
+			$this->mappings->delete_one( $platform, $entity_type, $stale_remote_id );
+		}
+
 		$this->mappings->upsert( $platform, $entity_type, $remote_id, $intent['local_id'], null );
 
 		// レビュー指摘（Codex P1）: `MappingRepository::upsert()`は`$wpdb->query()`の戻り値を

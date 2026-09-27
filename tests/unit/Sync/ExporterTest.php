@@ -1172,4 +1172,45 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['created'], '101の自己修復で戻った枠を使い102が作成される' );
 		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
 	}
+
+	/**
+	 * レビュー指摘（Codex, G3）: `LimitPolicy::remaining()`は負の値を0へクランプするため、
+	 * 複数のstale intent（mapping+未解決intentの組）が同時に存在し使用数が既に上限を超えている
+	 * 場合、単純な`++$remaining`を繰り返すとクランプで隠れていた超過分まで枠として復活し、
+	 * 上限を超えて新規アイテムが作成されうる。上限1件・101と102がそれぞれmapping+stale
+	 * intentを持つ（実使用数2、既に上限超過）状態で、両方を自己修復した後も103（新規）は
+	 * 作成されないことを確認する。
+	 */
+	public function test_reconciling_multiple_stale_intents_does_not_restore_quota_beyond_the_true_usage(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-101', 101, 'stale-checksum' );
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+		$this->mappings->upsert( 'mock', 'product', 'remote-102', 102, 'stale-checksum' );
+		$this->push_intents->begin( 'mock', 'product', 102, null, null );
+
+		// 3件を1ページにまとめて処理させる（`FixedWooReader`の既定ページサイズ2件だと
+		// 103が次ページへ回り、本テストが検証したい「同一ページ内での相互作用」を再現できない）。
+		$reader       = new FixedWooReader(
+			[
+				new ReadItem( 101, $this->product( 'Updated101' ) ),
+				new ReadItem( 102, $this->product( 'Updated102' ) ),
+				new ReadItem( 103, $this->product( 'New' ) ),
+			],
+			3
+		);
+		$writer       = new InMemoryPlatformWriter();
+		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
+		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
+
+		add_filter( 'cbjp/limits/product', static fn () => 1 );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 102 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 103 ), '実使用数が既に上限を超えているため103は作成されない' );
+	}
 }

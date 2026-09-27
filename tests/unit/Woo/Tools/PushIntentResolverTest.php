@@ -79,6 +79,25 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * レビュー指摘（Copilot, G3）: crash等でintentが消えないまま残った後、この実体
+	 * （intentのlocal_id）に別のremote_idで`link`すると、`upsert()`のユニークキー
+	 * （platform, entity_type, remote_id）は新remote_idで別行をINSERTするだけになり、
+	 * 古いremote_idの行が孤児として残る。`find_remote_id()`はid昇順の最初の行（＝古い方）を
+	 * 採用するため、以後のexportが今回linkした新remote_idを無視してしまう。旧行が消え、
+	 * local_id当たり1行だけが残ることを確認する。
+	 */
+	public function test_resolve_link_replaces_a_stale_mapping_row_for_the_same_local_id(): void {
+		$id = $this->begin_customer_intent();
+		$this->mappings->upsert( 'mock', 'customer', 'stale-remote-id', 101, 'stale-checksum' );
+		$adapter = new MockPlatformAdapter( customers: [ CanonicalFactory::customer( 'remote-c1', 'buyer@example.test' ) ] );
+
+		$this->resolver->resolve_link( 'mock', $id, $adapter, 'remote-c1' );
+
+		$this->assertSame( 101, $this->mappings->find_local_id( 'mock', 'customer', 'remote-c1' ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'customer', 'stale-remote-id' ), '旧remote_idの行が孤児として残っていないこと' );
+	}
+
+	/**
 	 * レビュー指摘（Copilot/Codex）: 外部アダプタの戻り値は信用しない（アーキテクチャ原則8。
 	 * `Woo\Tools\PrefStateRepair`と同じ理由）。契約違反アダプタが要求と異なる実体を返した場合、
 	 * 実在確認をすり抜けて無関係な別のローカル実体へ紐付けてしまわないことを確認する。
