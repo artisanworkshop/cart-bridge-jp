@@ -109,6 +109,13 @@ interface PlatformAdapter {
 
 	/**
 	 * capabilityで不可の場合は UnsupportedOperationException。
+	 *
+	 * **`push_*()`共通の契約（D21-A）**: `$remote_id`が null（作成）のとき、リモート側の作成が
+	 * 確定した（remote_idが分かった）後に起きた例外は、`RateLimitExhaustedException`を含め
+	 * どれも素のまま外へ出さず、{@see PartialPushException}（remote_id付き）に包んで投げること。
+	 * 素のまま出すとmappingが残らず、次回のexportが同じ実体をもう一度作成して重複する。
+	 * 作成そのものが失敗した場合（remote_idが分からない）は従来どおり素の例外でよい。
+	 * 契約に従わない実装でも、`Sync\Exporter`は従来どおり動く（重複しうる状態は変わらない）。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult;
 

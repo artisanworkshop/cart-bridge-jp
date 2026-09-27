@@ -18,5 +18,11 @@ namespace CartBridgeJP\Adapters;
  * v1.0.0 公開前はこのクラスへ既定実装を置かずインターフェースへ直接追加してよい（D19/D20が許容する
  * 期間中の前例: `mapping_candidates()` D19、`push_order()`の`$remote_id`追加 #45、
  * `fetch_order_by_remote_id()` #46）。`AbstractPlatformAdapterTest::BASELINE` を更新すること。
+ *
+ * `push_*()` を実装するときの契約（D21-A。`PlatformAdapter::push_product()` のdocblock参照）:
+ * 作成（`$remote_id === null`）が確定した後に起きた例外は、素のまま外へ出さず
+ * {@see PartialPushException}（remote_id付き）に包んで投げる。`Sync\Exporter` がそのremote_idを
+ * 書き留め、次回のexportを作成ではなく更新にするため、重複作成を防げる。これは例外クラスと
+ * 挙動の契約の追加であり、`PlatformAdapter` のシグネチャは変えない（D20 の BASELINE は不変）。
  */
 abstract class AbstractPlatformAdapter implements PlatformAdapter {}

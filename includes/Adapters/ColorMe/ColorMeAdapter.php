@@ -21,6 +21,7 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\ConnectionResult;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
+use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCategory;
@@ -565,10 +566,15 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * `WarningCode`（`indicates_unresolved_reference()`対象）を積んで部分完了として返す
 	 * （`docs/03-design-decisions.md` §10.2「E2-3への申し送り」の部分完了契約。次回exportで
 	 * checksumがキャッシュされないため自動的に再試行される）。
+	 *
+	 * 例外: 作成（`$remote_id === null`）が確定した後の追いPUT〜画像の処理が
+	 * `RateLimitExhaustedException`等の例外で止まった場合は、`PartialPushException`（作成された
+	 * remote_id付き）に包んで投げる（D21-A。issue #72）。`Sync\Exporter`がそのremote_idを
+	 * checksum=nullでmappingに書き、次回exportをPOSTではなくPUTにして重複作成を防ぐ。
+	 * 更新（既存remote_idへのPUT）は包まない（mappingが既にあるため）。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
 		$transformer = $this->product_transformer();
-		$warnings    = [];
 
 		if ( null === $remote_id ) {
 			$body      = $this->client()->post( 'products.json', [ 'product' => $transformer->to_create_payload( $product ) ] );
@@ -592,6 +598,33 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$this->logger->warning( 'ColorMe product push response was missing the product id; falling back to the known remote_id.', [ 'remote_id' => $product_remote_id ] );
 		}
 
+		if ( null !== $remote_id ) {
+			// 更新（既存remote_idへのPUT）は包まない。mappingが既にあり、checksumが一致するまで
+			// 次回exportも同じPUTになるため、途中で例外が出ても重複は作られない。
+			return $this->finish_product_push( $transformer, $product, $product_remote_id, $operation, false );
+		}
+
+		try {
+			return $this->finish_product_push( $transformer, $product, $product_remote_id, $operation, true );
+		} catch ( Throwable $exception ) {
+			// 作成（POST）が確定してremote_idが分かった後の例外（`RateLimitExhaustedException`を含む）は、
+			// 素のまま出すと`Sync\Exporter`がmappingを書けず、次回exportが同じ商品をもう一度POSTして
+			// 重複させる（D21-A。issue #72）。remote_idを`PartialPushException`で運び、次回はPUTにする。
+			throw new PartialPushException( $product_remote_id, $exception );
+		}
+	}
+
+	/**
+	 * `push_product()`の、商品本体（POST/PUT products）が成功してremote_idが確定した後の処理
+	 * （追いPUT・バリエーション同期・画像push）。作成経路（`$is_create`）ではこの中で起きた例外を
+	 * 呼び出し元が`PartialPushException`に包む（`push_product()`のcatch参照）ため、ここでは
+	 * `RateLimitExhaustedException`を含む例外を握り潰さず素のまま投げてよい。
+	 *
+	 * @param string $operation `PushResult::OPERATION_CREATED` | `OPERATION_UPDATED`。
+	 */
+	private function finish_product_push( ProductTransformer $transformer, CanonicalProduct $product, string $product_remote_id, string $operation, bool $is_create ): PushResult {
+		$warnings = [];
+
 		$create_payload         = $transformer->to_create_payload( $product );
 		$needs_hidden_safeguard = $transformer->requires_hidden_safeguard( $product, $create_payload );
 
@@ -604,7 +637,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
 		}
 
-		if ( null === $remote_id ) {
+		if ( $is_create ) {
 			// 新規作成はPOSTが受け付けない項目（category_id_small/group_ids/stocks）を
 			// 反映するための追いPUTを行う。この追いPUTの失敗は商品自体の作成成功を無効にしない。
 			$details_failure   = [
@@ -624,7 +657,8 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $follow_up_payload ] );
 			} catch ( RateLimitExhaustedException $exception ) {
 				// レート制限はジョブ全体を一時停止すべきシグナル（`Sync\Exporter`のPR #40 G1-1
-				// 専用catch）のため、ここでは握り潰さずそのまま再スローする。
+				// 専用catch）のため、ここでは握り潰さずそのまま再スローする。作成経路では呼び出し元
+				// （`push_product()`）が`PartialPushException`に包んでremote_idごと運ぶ（D21-A）。
 				throw $exception;
 			} catch ( Throwable $exception ) {
 				self::record_failure( $details_failure, $exception );

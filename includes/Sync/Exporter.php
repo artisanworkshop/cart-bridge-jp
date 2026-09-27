@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalModel;
@@ -182,8 +183,47 @@ final class Exporter {
 				$consumed_quota_slot = true;
 			}
 
+			// 作成確定後の中断（`PartialPushException`）の原因がレート制限だった場合、mappingを書いた後に
+			// 再スローするため控えておく（下の`try`の内側と、このアイテム処理の末尾を参照）。
+			$deferred_rate_limit = null;
+
 			try {
-				$result = $writer->write( $entity, $item, $existing_remote_id );
+				try {
+					$result = $writer->write( $entity, $item, $existing_remote_id );
+				} catch ( PartialPushException $partial ) {
+					// D21-A（issue #72）: リモートへの作成は確定したが後続の処理が止まった。remote_idを
+					// mappingへ書き（checksum=null。下の通常経路が`indicates_unresolved_reference()`で決める）、
+					// 次回exportを作成ではなく更新にして重複作成を防ぐ。
+					$cause = $partial->getPrevious();
+
+					if ( '' === $partial->remote_id() ) {
+						// remote_idの無い`PartialPushException`は契約違反（アーキテクチャ原則8）で、何も
+						// 書き留められない。包まれていなかった場合と同じ扱いにするため本来の原因を投げ直し、
+						// 下のcatch（レート制限は再スロー、それ以外は汎用の1件失敗）に処理させる。
+						throw $cause ?? $partial;
+					}
+
+					if ( $cause instanceof RateLimitExhaustedException ) {
+						$deferred_rate_limit = $cause;
+					}
+
+					// Support\Loggerの個人情報禁止ルールに従い、固定文言と例外クラス名のみ記録する。
+					$this->logger->warning(
+						"Push of a {$entity} item was interrupted after the remote entity was created.",
+						[
+							'local_id'  => $local_id,
+							'remote_id' => $partial->remote_id(),
+							'exception' => null !== $cause ? $cause::class : $partial::class,
+						],
+						$job_id
+					);
+
+					$result = new PushResult(
+						$partial->remote_id(),
+						null === $existing_remote_id ? PushResult::OPERATION_CREATED : PushResult::OPERATION_UPDATED,
+						[ WarningCode::PUSH_INTERRUPTED_AFTER_CREATE ]
+					);
+				}
 			} catch ( RateLimitExhaustedException $exception ) {
 				// Copilot指摘（PR #40）: レート制限は「このアイテムだけの異常」ではなく
 				// ジョブ全体を一時停止して後で再開すべきシグナル（`JobManager::process_job()`の
@@ -355,6 +395,14 @@ final class Exporter {
 
 			if ( $is_dry_run ) {
 				$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), $operation, $warnings );
+			}
+
+			// 作成確定後の中断の原因がレート制限だった場合は、上でremote_idをmappingへ書いた後に
+			// 再スローする（`JobManager::process_job()`がジョブを`paused`にし、再開時は同じページが
+			// mapping済みの既存remote_idへのPUTとして処理される）。mappingの書込みより前に投げると
+			// remote_idが失われ、再開時に同じ商品がもう一度POSTされる。
+			if ( null !== $deferred_rate_limit ) {
+				throw $deferred_rate_limit;
 			}
 		}
 

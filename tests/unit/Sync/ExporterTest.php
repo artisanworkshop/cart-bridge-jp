@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
@@ -15,6 +16,7 @@ use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Exporter;
 use CartBridgeJP\Sync\LimitPolicy;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PlatformWriter;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
@@ -23,6 +25,7 @@ use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
+use Throwable;
 use WP_UnitTestCase;
 
 final class ExporterTest extends WP_UnitTestCase {
@@ -467,5 +470,191 @@ final class ExporterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
 		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
+	}
+
+	/**
+	 * `$interrupted_name`の商品だけ`PartialPushException`（作成確定後の中断）を投げ、それ以外は
+	 * 通常どおり作成/更新として成功するwriter。`$calls`に`existing_remote_id`を記録する。
+	 */
+	private function partial_push_writer( string $interrupted_name, string $remote_id, Throwable $cause ): PlatformWriter {
+		return new class( $interrupted_name, $remote_id, $cause ) implements PlatformWriter {
+			/** @var array<int,?string> */
+			public array $calls = [];
+
+			private int $next_remote_id = 1;
+
+			public function __construct(
+				private readonly string $interrupted_name,
+				private readonly string $remote_id,
+				private readonly Throwable $cause
+			) {}
+
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				$this->calls[] = $existing_remote_id;
+
+				if ( $this->interrupted_name === $item->name ) {
+					throw new PartialPushException( $this->remote_id, $this->cause );
+				}
+
+				return new PushResult(
+					'ok-' . $this->next_remote_id++,
+					null === $existing_remote_id ? PushResult::OPERATION_CREATED : PushResult::OPERATION_UPDATED
+				);
+			}
+		};
+	}
+
+	/**
+	 * D21-A（issue #72）: 作成が確定した後にレート制限で中断した場合、`PartialPushException`が
+	 * 運んだremote_idをchecksum=nullでmappingへ書いてから、レート制限を再スローする
+	 * （`JobManager`はジョブを`paused`にし、再開時は同じ商品への更新になって重複しない）。
+	 * remote_idが失われる（mappingを書かずに投げる）と再開時に同じ商品がもう一度作成される。
+	 */
+	public function test_partial_push_caused_by_rate_limit_writes_the_mapping_before_rethrowing(): void {
+		$cause    = new RateLimitExhaustedException( 'mock' );
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->partial_push_writer( 'P', '501', $cause );
+		$exporter = new Exporter( $this->mappings );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+			$this->fail( 'RateLimitExhaustedException should propagate so that JobManager pauses the job.' );
+		} catch ( RateLimitExhaustedException $caught ) {
+			$this->assertSame( $cause, $caught );
+		}
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ), '次回exportで後続処理をやり直すためchecksumをキャッシュしない' );
+	}
+
+	/**
+	 * 再開時の挙動: 上のテストで書かれたmappingにより、同じ商品は作成ではなく更新（既存remote_id
+	 * への送信）として処理され、重複作成されない。
+	 */
+	public function test_export_resumed_after_an_interrupted_create_updates_instead_of_creating_again(): void {
+		$item     = new ReadItem( 101, $this->product() );
+		$exporter = new Exporter( $this->mappings );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $this->partial_push_writer( 'P', '501', new RateLimitExhaustedException( 'mock' ) ), new FixedWooReader( [ $item ] ), 'product', Cursor::start(), false );
+			$this->fail( 'RateLimitExhaustedException should propagate.' );
+		} catch ( RateLimitExhaustedException $caught ) {
+			$this->assertSame( 'mock', $caught->platform() );
+		}
+
+		$resumed_writer = new InMemoryPlatformWriter();
+		$result         = $exporter->run_page( new MockPlatformAdapter(), $resumed_writer, new FixedWooReader( [ $item ] ), 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $resumed_writer->writes );
+		$this->assertSame( '501', $resumed_writer->writes[0]['remote_id'], '再開時は既存remote_idへの更新になる（作成し直さない）' );
+		$this->assertSame( 1, $result['totals']['updated'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * レート制限以外の原因なら1件の部分失敗として先へ進む: `created`＋`warned`に数え、mappingは
+	 * checksum=nullで書き、同じページの次のアイテムも処理される。
+	 */
+	public function test_partial_push_with_another_cause_is_counted_as_created_and_warned_and_the_page_continues(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ), new ReadItem( 102, $this->product( 'Second' ) ) ] );
+		$writer   = $this->partial_push_writer( 'P', '501', new RuntimeException( 'boom' ) );
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, null, null, 9102 );
+
+		$this->assertSame( 2, $result['totals']['created'] );
+		$this->assertSame( 0, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		// 中断は「作成済みだが後続処理が未完了」の警告として残る（原因の例外は握り潰さず記録される）。
+		$logs = ( new LogRepository() )->list( 9102 );
+		$this->assertCount( 1, $logs );
+		$this->assertSame( 'warning', $logs[0]['level'] );
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', '501' ) );
+		$this->assertSame( 'ok-1', $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
+		$this->assertSame( Exporter::export_checksum( $this->product( 'Second' ) ), $this->mappings->find_checksum( 'mock', 'product', 'ok-1' ) );
+	}
+
+	/**
+	 * 既存mappingのある商品の更新中に`PartialPushException`が来た場合（外部アダプタが更新経路でも
+	 * 包む場合）は`updated`＋`warned`に数える。remote_idが変わっていれば旧行を消す
+	 * （PR #40 G3と同じ理由）。
+	 */
+	public function test_partial_push_on_an_existing_mapping_is_counted_as_updated_and_replaces_a_changed_remote_id(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-old', 101, 'stale-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->partial_push_writer( 'P', 'remote-new', new RuntimeException( 'boom' ) );
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['updated'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 'remote-new', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'remote-old' ) );
+		$this->assertNull( $this->mappings->find_checksum( 'mock', 'product', 'remote-new' ) );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * アーキテクチャ原則8: remote_idの無い`PartialPushException`は契約違反で何も書き留められない。
+	 * 包まれていなかった場合と同じに扱う: レート制限が原因ならそのまま伝播（ジョブを一時停止）、
+	 * それ以外は1件の失敗として`skipped`＋`warned`（mappingは書かない）。
+	 */
+	public function test_partial_push_with_an_empty_remote_id_is_treated_like_the_unwrapped_cause(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $this->partial_push_writer( 'P', '', new RuntimeException( 'boom' ) ), $reader, 'product', Cursor::start(), false, null, null, 9101 );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertSame( 0, $this->mappings->count( 'mock', 'product' ) );
+		// 集計は「中断を記録した場合」と同じになるため、汎用の1件失敗として扱われた（remote_idを
+		// 書き留められない契約違反）ことはerrorレベルのログで区別する。
+		$logs = ( new LogRepository() )->list( 9101 );
+		$this->assertCount( 1, $logs );
+		$this->assertSame( 'error', $logs[0]['level'] );
+
+		$cause = new RateLimitExhaustedException( 'mock' );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $this->partial_push_writer( 'P', '', $cause ), $reader, 'product', Cursor::start(), false );
+			$this->fail( 'RateLimitExhaustedException should propagate.' );
+		} catch ( RateLimitExhaustedException $caught ) {
+			$this->assertSame( $cause, $caught );
+		}
+
+		$this->assertSame( 0, $this->mappings->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * 中断した作成もリモートに実体を作っているため、無料版の枠は戻さない（mappingが
+	 * `LimitPolicy`の累計に数えられる）。枠が1件のとき、中断した1件目で枠を使い切り、2件目は
+	 * 送信されずskippedになる。
+	 */
+	public function test_interrupted_create_keeps_its_free_tier_quota_slot(): void {
+		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product() ), new ReadItem( 102, $this->product( 'Second' ) ) ] );
+		$writer       = $this->partial_push_writer( 'P', '501', new RuntimeException( 'boom' ) );
+		$exporter     = new Exporter( $this->mappings );
+		$limit_policy = new LimitPolicy( $this->mappings );
+
+		add_filter( 'cbjp/limits/product', static fn () => 1 );
+
+		try {
+			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertSame( [ null ], $writer->calls );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
 	}
 }

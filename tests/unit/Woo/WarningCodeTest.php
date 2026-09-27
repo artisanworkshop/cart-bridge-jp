@@ -56,6 +56,16 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED ] ) );
 	}
 
+	/**
+	 * D21-A（issue #72）: 作成確定後に処理が止まった商品は、次回exportで後続処理をやり直すため
+	 * checksumをキャッシュしない（simple商品には他の未完了印が無く、この登録が唯一の根拠になる）。
+	 * ただし、送信自体を止める（blocking）警告ではない。
+	 */
+	public function test_push_interrupted_after_create_is_unresolved_but_not_export_blocking(): void {
+		$this->assertTrue( WarningCode::indicates_unresolved_reference( [ WarningCode::PUSH_INTERRUPTED_AFTER_CREATE ] ) );
+		$this->assertFalse( WarningCode::indicates_export_blocking( [ WarningCode::PUSH_INTERRUPTED_AFTER_CREATE ] ) );
+	}
+
 	public function test_prices_include_tax_disabled_is_not_export_blocking(): void {
 		$this->assertFalse( WarningCode::indicates_export_blocking( [ WarningCode::PRICES_INCLUDE_TAX_DISABLED ] ) );
 	}

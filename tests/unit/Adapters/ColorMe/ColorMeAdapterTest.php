@@ -10,18 +10,27 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
+use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\Exporter;
+use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
+use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
+use Throwable;
 use WP_Error;
 use WP_UnitTestCase;
 
@@ -1600,6 +1609,245 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [ WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE ], $result->warnings );
 	}
 
+	/**
+	 * D21-A（issue #72）用: 作成POST（`POST products.json` → id=501）が成功した後、`$scenario`の
+	 * リクエストで`$cause`が投げられる状況を組み立てて`push_product()`を呼ぶ。作成確定後の例外は
+	 * 素のまま出さず`PartialPushException`（remote_id=501）に包まれる。
+	 *
+	 * @param 'followup_put'|'variant_detail'|'option_create'|'variant_put'|'image_download'|'image_upload' $scenario
+	 */
+	private function push_and_catch_partial( string $scenario, Throwable $cause ): PartialPushException {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$ok            = [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ];
+		$image         = [
+			[
+				'src'      => 'https://cdn.example.test/photo.jpg',
+				'position' => 0,
+			],
+		];
+		$empty_detail  = [
+			[
+				'body' => [
+					'product' => [
+						'id'       => 501,
+						'options'  => [],
+						'variants' => [],
+					],
+				],
+			],
+		];
+		$with_variants = [
+			'body' => [
+				'product' => [
+					'id'       => 501,
+					'options'  => [],
+					'variants' => [
+						[
+							'id'            => 5011,
+							'option1_value' => 'Red',
+							'option2_value' => null,
+							'option1'       => [
+								'id'    => 1,
+								'name'  => 'Color',
+								'value' => 'Red',
+							],
+							'option2'       => null,
+						],
+						[
+							'id'            => 5012,
+							'option1_value' => 'Blue',
+							'option2_value' => null,
+							'option1'       => [
+								'id'    => 1,
+								'name'  => 'Color',
+								'value' => 'Blue',
+							],
+							'option2'       => null,
+						],
+					],
+				],
+			],
+		];
+
+		$handlers = [
+			'GET shop.json'      => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+			'POST products.json' => $ok,
+		];
+		$product  = $this->simple_product();
+
+		switch ( $scenario ) {
+			case 'followup_put':
+				$handlers['PUT products/501.json'] = [ [ 'throw' => $cause ] ];
+				break;
+			case 'variant_detail':
+				$product                           = $this->variable_product();
+				$handlers['PUT products/501.json'] = $ok;
+				$handlers['GET products/501.json'] = [ [ 'throw' => $cause ] ];
+				break;
+			case 'option_create':
+				$product                                    = $this->variable_product();
+				$handlers['PUT products/501.json']          = $ok;
+				$handlers['GET products/501.json']          = $empty_detail;
+				$handlers['POST products/501/options.json'] = [ [ 'throw' => $cause ] ];
+				break;
+			case 'variant_put':
+				$product                                    = $this->variable_product();
+				$handlers['PUT products/501.json']          = $ok;
+				$handlers['GET products/501.json']          = [ $empty_detail[0], $with_variants ];
+				$handlers['POST products/501/options.json'] = [
+					[
+						'body'   => [ 'option' => [ 'id' => 1 ] ],
+						'status' => 201,
+					],
+				];
+				$handlers['PUT products/501/variants/5011.json'] = [ [ 'throw' => $cause ] ];
+				break;
+			case 'image_download':
+				$product                           = $this->simple_product( $image );
+				$handlers['PUT products/501.json'] = $ok;
+				$handlers['GET https://cdn.example.test/photo.jpg'] = [ [ 'throw' => $cause ] ];
+				break;
+			case 'image_upload':
+				$product                           = $this->simple_product( $image );
+				$handlers['PUT products/501.json'] = $ok;
+				$handlers['GET https://cdn.example.test/photo.jpg'] = [ [ 'raw_body' => 'FAKE-JPEG-BYTES' ] ];
+				$handlers['POST products/501/images.json']          = [ [ 'throw' => $cause ] ];
+				break;
+		}
+
+		$this->mock_push_requests( $handlers );
+
+		try {
+			$adapter->push_product( $product, null );
+		} catch ( PartialPushException $partial ) {
+			return $partial;
+		}
+
+		$this->fail( "push_product() should have thrown a PartialPushException in the '{$scenario}' scenario." );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function interrupted_create_scenarios(): array {
+		return [
+			'follow-up PUT after the create POST' => [ 'followup_put' ],
+			'variant detail GET'                  => [ 'variant_detail' ],
+			'option creation POST'                => [ 'option_create' ],
+			'variant PUT'                         => [ 'variant_put' ],
+			'image upload POST'                   => [ 'image_upload' ],
+		];
+	}
+
+	/**
+	 * D21-A（issue #72）: 新規作成（POST）が成功してremote_idが確定した後、追いPUT・バリエーション・
+	 * 画像のどこで`RateLimitExhaustedException`が出ても、素のまま出さず`PartialPushException`
+	 * （作成された商品のremote_id付き）に包む。素のまま出すと`Sync\Exporter`がmappingを書けず、
+	 * 再開時に同じ商品がもう一度POSTされて重複する。
+	 *
+	 * @dataProvider interrupted_create_scenarios
+	 */
+	public function test_push_product_wraps_a_rate_limit_after_creation_in_a_partial_push_exception( string $scenario ): void {
+		$cause   = new RateLimitExhaustedException( 'colorme' );
+		$partial = $this->push_and_catch_partial( $scenario, $cause );
+
+		$this->assertSame( '501', $partial->remote_id() );
+		$this->assertSame( $cause, $partial->getPrevious() );
+	}
+
+	/**
+	 * RateLimit以外の予期しない例外（`try`の外側にあった画像バイナリの取得等）も、作成確定後なら
+	 * 同じく包む。個別catchの取りこぼしで素の例外が出て重複する経路を残さない。
+	 */
+	public function test_push_product_wraps_an_unexpected_exception_after_creation_in_a_partial_push_exception(): void {
+		$cause   = new RuntimeException( 'boom' );
+		$partial = $this->push_and_catch_partial( 'image_download', $cause );
+
+		$this->assertSame( '501', $partial->remote_id() );
+		$this->assertSame( $cause, $partial->getPrevious() );
+	}
+
+	/**
+	 * 更新（既存remote_idへのPUT）は包まない: mappingが既にあり、次回も同じPUTになるため重複しない
+	 * （`RateLimitExhaustedException`は従来どおり素のまま伝播し、`JobManager`がジョブを一時停止する）。
+	 */
+	public function test_push_product_does_not_wrap_a_rate_limit_on_the_update_path(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'PUT products/501.json' => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+				'GET products/501.json' => [ [ 'throw' => new RateLimitExhaustedException( 'colorme' ) ] ],
+			]
+		);
+
+		$this->expectException( RateLimitExhaustedException::class );
+		$adapter->push_product( $this->variable_product(), '501' );
+	}
+
+	/**
+	 * D21-A（issue #72）の結合確認（`Exporter` + `AdapterPlatformWriter` + `ColorMeAdapter`）:
+	 * 作成POSTの直後の追いPUTでレート制限が出て中断した後、同じ商品を再度exportしても
+	 * `POST products.json`は増えず、既存remote_idへのPUTになる（ColorMeに同じ商品が2つできない）。
+	 */
+	public function test_export_resumed_after_a_rate_limit_interruption_puts_the_created_product_instead_of_posting_it_again(): void {
+		Activator::activate();
+
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ],
+				// 1回目: 作成直後の追いPUTがレート制限で中断。2回目（再開後）: 更新PUTが成功する。
+				'PUT products/501.json' => [
+					[ 'throw' => new RateLimitExhaustedException( 'colorme' ) ],
+					[ 'body' => [ 'product' => [ 'id' => 501 ] ] ],
+				],
+			],
+			$captured
+		);
+
+		$mappings = new MappingRepository();
+		$exporter = new Exporter( $mappings );
+		$writer   = new AdapterPlatformWriter( $adapter );
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->simple_product() ) ] );
+
+		try {
+			$exporter->run_page( $adapter, $writer, $reader, 'product', Cursor::start(), false );
+			$this->fail( 'RateLimitExhaustedException should propagate so that JobManager pauses the job.' );
+		} catch ( RateLimitExhaustedException $caught ) {
+			// 期待どおり: ジョブは一時停止し、後で同じページが再開される。
+			$this->assertSame( ColorMeAdapter::ID, $caught->platform() );
+		}
+
+		$this->assertSame( '501', $mappings->find_remote_id( ColorMeAdapter::ID, 'product', 101 ) );
+		$this->assertNull( $mappings->find_checksum( ColorMeAdapter::ID, 'product', '501' ) );
+
+		$result = $exporter->run_page( $adapter, $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['updated'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+
+		$posts = array_filter(
+			$captured,
+			static fn ( array $request ): bool => 'POST' === $request['method'] && str_contains( $request['url'], 'products.json' )
+		);
+		$this->assertCount( 1, $posts, '再開時に同じ商品を作成し直していないこと（POSTは最初の1回だけ）' );
+		$this->assertSame( 1, $mappings->count( ColorMeAdapter::ID, 'product' ) );
+	}
+
 	public function test_push_customer_creates_new_customer_with_a_single_post(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -2190,7 +2438,9 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	 * `push_product()`用のHTTPモック。`$handlers`のキーは`"{METHOD} {URLに含まれる文字列}"`で、
 	 * 値は呼び出し順に消費されるレスポンス列（尽きたら最後の要素を繰り返す）。レスポンスは
 	 * `body`（JSONエンコードして返す）または`raw_body`（文字列をそのまま返す。画像バイナリ取得用）
-	 * のいずれかを持つ連想配列。
+	 * のいずれかを持つ連想配列。`throw`（`Throwable`）を持つレスポンスはHTTPを返さずその例外を
+	 * 投げる（`RateLimiter::wait()`の枯渇〔`RateLimitExhaustedException`〕のように、リクエストが
+	 * 出る前後に呼び出し元へ届く例外の再現用）。
 	 *
 	 * @param array<string,array<int,array<string,mixed>>>                          $handlers
 	 * @param array<int,array{method:string,url:string,body:?array<string,mixed>,raw:?string}> $captured 呼び出し元へ書き戻す実リクエスト履歴。
@@ -2227,6 +2477,10 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 					$index             = $counts[ $needle ] ?? 0;
 					$counts[ $needle ] = $index + 1;
 					$response          = $sequence[ $index ] ?? $sequence[ count( $sequence ) - 1 ];
+
+					if ( ( $response['throw'] ?? null ) instanceof Throwable ) {
+						throw $response['throw'];
+					}
 
 					if ( array_key_exists( 'raw_body', $response ) ) {
 						return [
