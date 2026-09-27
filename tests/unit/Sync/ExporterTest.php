@@ -1032,6 +1032,38 @@ final class ExporterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 上と同じ理由だが、例外経路ではなく`PushResult`が`created`＋空remote_idを主張する契約違反
+	 * 経路（`$did_push`の`else`節）でも同じ解放漏れが起きないことを確認する。
+	 */
+	public function test_a_push_result_kept_ambiguous_does_not_free_up_its_quota_slot_within_the_same_page(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-existing', 999, null );
+
+		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Ambiguous' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
+		$writer       = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				if ( null === $existing_remote_id && 'Ambiguous' === $item->name ) {
+					return new PushResult( '', PushResult::OPERATION_CREATED );
+				}
+
+				return new PushResult( 'ok', PushResult::OPERATION_CREATED );
+			}
+		};
+		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
+		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
+
+		add_filter( 'cbjp/limits/product', static fn () => 2 );
+
+		try {
+			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), '101の印が枠を占有したままなので102は作成されない' );
+	}
+
+	/**
 	 * D21-A（`PartialPushException`、remote_idあり）の成功に近い経路でも、mapping書込み後に
 	 * push intentが消えることを確認する（`$did_push`の通常経路だけでなく、この経路も
 	 * `push_intent_pending`の解放を通ることの裏取り）。

@@ -487,17 +487,22 @@ final class Exporter {
 				// 「2xxだがid欠損」と同型の契約違反）や、未知のoperation文字列（正規化で`skipped`に
 				// 倒れるだけで「送信していない」ことの合図ではない）を、安全側＝印を残す側に倒すため
 				// （原則8: 信頼境界の戻り値は肯定形でしか安全側に倒さない。原則9）。
-				$confirmed_not_sent = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
+				$confirmed_not_sent    = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
+				$intent_kept_ambiguous = false;
 
 				if ( $push_intent_pending ) {
 					if ( $confirmed_not_sent ) {
 						$this->push_intents->delete( $platform, $entity, $local_id );
 					} else {
 						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+						$intent_kept_ambiguous = true;
 					}
 				}
 
-				if ( $consumed_quota_slot ) {
+				// R1-2と同じ理由: 印を残した（`mark_ambiguous`）分は`LimitPolicy::used()`上
+				// 引き続き枠を占有するため、無条件に解放すると同じページの後続アイテムが
+				// 同じ枠を二重に使いうる（原則7）。
+				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
 					++$remaining;
 				}
 
