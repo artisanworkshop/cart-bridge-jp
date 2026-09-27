@@ -31,7 +31,10 @@ final class LimitPolicy {
 		'review'   => null,
 	];
 
-	public function __construct( private readonly MappingRepository $mappings ) {}
+	public function __construct(
+		private readonly MappingRepository $mappings,
+		private readonly PushIntentRepository $push_intents = new PushIntentRepository()
+	) {}
 
 	/**
 	 * null は無制限。
@@ -56,7 +59,7 @@ final class LimitPolicy {
 			return false;
 		}
 
-		return $this->mappings->count( $platform, $entity ) >= $limit;
+		return $this->used( $platform, $entity ) >= $limit;
 	}
 
 	/**
@@ -69,6 +72,16 @@ final class LimitPolicy {
 			return null;
 		}
 
-		return max( 0, $limit - $this->mappings->count( $platform, $entity ) );
+		return max( 0, $limit - $this->used( $platform, $entity ) );
+	}
+
+	/**
+	 * 無料版上限に対する累積使用件数。D21-B（`docs/03-design-decisions.md` §10.2「無料版の上限」）:
+	 * 未解決の`cbjp_push_intents`（作成済みかもしれない実体）を`cbjp_mappings`の累積カウントに
+	 * 含める（枠を空けない）。`push_stock`等intentsが存在しないentityは常に0が加算されるだけなので
+	 * entity名で分岐する必要は無い。
+	 */
+	public function used( string $platform, string $entity ): int {
+		return $this->mappings->count( $platform, $entity ) + $this->push_intents->count( $platform, $entity );
 	}
 }

@@ -11,7 +11,9 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Reader\ReadItem;
@@ -50,10 +52,20 @@ final class Exporter {
 	 */
 	public const CHECKSUM_NAMESPACE = 'cbjp-export:';
 
+	/**
+	 * `PlatformWriter::write()`がディスパッチする`push_*()`のうち、作成/更新を`?string $remote_id`で
+	 * 分岐するエンティティ（D21-B「作成を伴う push」）。`push_stock()`はこの引数を取らず既存実体への
+	 * 更新のみで冪等なため対象外（判定はインターフェースのシグネチャから導く。原則1）。
+	 *
+	 * @var array<int,string>
+	 */
+	private const PUSH_INTENT_ENTITIES = [ 'product', 'customer', 'order', 'coupon' ];
+
 	public function __construct(
 		private readonly MappingRepository $mappings,
 		private readonly Logger $logger = new Logger(),
-		private readonly DryRunItemRepository $dry_run_items = new DryRunItemRepository()
+		private readonly DryRunItemRepository $dry_run_items = new DryRunItemRepository(),
+		private readonly PushIntentRepository $push_intents = new PushIntentRepository()
 	) {}
 
 	/**
@@ -128,6 +140,49 @@ final class Exporter {
 			$item               = $read_item->item;
 			$row                = $existing[ $local_id ] ?? null;
 			$existing_remote_id = $row['remote_id'] ?? null;
+			$push_intent_entity = in_array( $entity, self::PUSH_INTENT_ENTITIES, true );
+
+			// D21-Bレビュー指摘（Copilot/Codex）: mapping書込みと印の削除は別々の書込みのため、
+			// 「mapping書込み後・印削除前」にプロセスが止まる、またはREST側の解除
+			// （`Woo\Tools\PushIntentResolver`）がmappingを結んだ直後に何らかの理由で印が
+			// 消せなかった場合、以後この実体は`existing_remote_id`が非nullになり
+			// `$creates_remote_entity`がfalseになるため、印を再検査・削除する経路が二度と
+			// 無くなり孤立した印が恒久的に残る（一覧に出続け、無料枠も占有し続ける）。
+			// mappingが既にある実体を処理する機会（このアイテム）で自己修復する。
+			if ( ! $is_dry_run && null !== $existing_remote_id && $push_intent_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
+				$this->push_intents->delete( $platform, $entity, $local_id );
+
+				// レビュー指摘（Codex, G3）: ページ開始時に一度だけ計算した`$remaining`は
+				// mappingsと未解決intentの両方を数える`LimitPolicy::used()`に基づくため、この実体を
+				// 二重に数えていた（mapping1件＋intent1件）。`LimitPolicy::remaining()`は負の値を
+				// 0へクランプするため、複数のstale intentが同時に存在し使用数が上限を超えている
+				// 場合、単純に`++$remaining`を繰り返すとクランプで隠れていた超過分まで枠として
+				// 復活してしまう（G2時点の`++$remaining`はこの多重発生ケースを見落としていた）。
+				// 都度`$limit_policy`から再計算し、常にDBの実状態と一致させる。
+				if ( null !== $remaining && null !== $limit_policy ) {
+					$remaining = $limit_policy->remaining( $platform, $entity );
+				}
+			}
+
+			// D21-B（issue #73）: 作成経路（既存remote_id無し）で、以前の試行の結果が不明なまま
+			// 印（`cbjp_push_intents`）が残っている実体は自動で再送しない。dry-runも含めて
+			// ブロックする（`has_unresolved()`は読取専用のためF1-6の「dry-runは何も永続化しない」
+			// 不変条件は破らない）。Copilotレビュー指摘: `indicates_export_blocking()`の判定より
+			// **前**に置く（読出時点の警告と両方該当する場合でも、dry-run行に
+			// `PUSH_OUTCOME_UNCONFIRMED`が必ず含まれるようにするため。`$read_item->warnings`は
+			// 下でそのままマージするので、データ品質側の警告を握り潰しはしない）。
+			$creates_remote_entity = null === $existing_remote_id && $push_intent_entity;
+
+			if ( $creates_remote_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
+				++$totals['skipped'];
+				++$totals['warned'];
+
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::PUSH_OUTCOME_UNCONFIRMED ] ) );
+				}
+
+				continue;
+			}
 
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性。読出時点の警告
 			// （`$read_item->warnings`）はchecksumの対象外のため、警告の有無だけでは
@@ -183,9 +238,32 @@ final class Exporter {
 				$consumed_quota_slot = true;
 			}
 
+			// D21-B: 作成経路の送信直前に印を書く（dry-runでは書かない）。既に行があれば
+			// （直前の`has_unresolved()`確認後、他run/他プロセスが同時に開始した稀な競合。
+			// `UNIQUE KEY`で検知する。#57の部分緩和）今回はpushしない。
+			$push_intent_pending = false;
+
+			if ( ! $is_dry_run && $creates_remote_entity ) {
+				if ( ! $this->push_intents->begin( $platform, $entity, $local_id, $run_id, $job_id ) ) {
+					if ( $consumed_quota_slot ) {
+						++$remaining;
+					}
+
+					++$totals['skipped'];
+					++$totals['warned'];
+					continue;
+				}
+
+				$push_intent_pending = true;
+			}
+
 			// 作成確定後の中断（`PartialPushException`）の原因がレート制限だった場合、mappingを書いた後に
 			// 再スローするため控えておく（下の`try`の内側と、このアイテム処理の末尾を参照）。
 			$deferred_rate_limit = null;
+
+			// D21-A「D21の記述からの差」2.の再スロー経路（remote_idの無い`PartialPushException`）を
+			// 通ったかどうか。この経路は原因の例外型によらず必ず「印を残す」（D21-Aのdocblock参照）。
+			$contract_violation_after_create = false;
 
 			try {
 				try {
@@ -200,6 +278,10 @@ final class Exporter {
 						// remote_idの無い`PartialPushException`は契約違反（アーキテクチャ原則8）で、何も
 						// 書き留められない。包まれていなかった場合と同じ扱いにするため本来の原因を投げ直し、
 						// 下のcatch（レート制限は再スロー、それ以外は汎用の1件失敗）に処理させる。
+						// D21-B: この経路は結果表の「その他の例外」行（印を残す）として扱う（原因の
+						// 例外型によらず）。
+						$contract_violation_after_create = true;
+
 						throw $cause ?? $partial;
 					}
 
@@ -233,6 +315,16 @@ final class Exporter {
 				// レート制限に達した以降の全アイテム（このページ・後続ページとも）が
 				// 「1件ずつ失敗」として握り潰され、`JobManager`の一時停止・再開が機能しなくなる。
 				// 下の汎用`Throwable`catchより先に拾い、そのまま再送出する。
+				if ( $push_intent_pending ) {
+					if ( $contract_violation_after_create ) {
+						// D21-A「その他の例外」行として扱う（原因がレート制限でも「送信前」とは限らない）。
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+					} else {
+						// `RateLimiter::wait()`が送信前に投げた素の例外＝未送信が確定している（D21-B表）。
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					}
+				}
+
 				throw $exception;
 			} catch ( Throwable $exception ) {
 				// `Importer::process_items()`と同じ方針: 1件の異常（capability未対応の
@@ -240,7 +332,39 @@ final class Exporter {
 				// PR-A時点のColorMeは`push_*`が全てこの例外を投げるため、実行(非dry-run)の
 				// exportジョブは全件がここを通りskipped/warned扱いで完了する（ジョブ自体は
 				// STATUS_FAILEDにならない）のが現状の期待動作（E2-3で解消）。
-				if ( $consumed_quota_slot ) {
+				// D21-Bレビュー指摘: 印を残す（`mark_ambiguous`）場合、そのローカルIDは
+				// `LimitPolicy::used()`（mappings＋未解決intent）上は引き続き枠を占有したままになる。
+				// 無条件に`$consumed_quota_slot`を解放すると、この1ページの残り処理で別アイテムが
+				// 同じ枠を二重に使ってしまい、ページ内に限って無料版上限を実質的に超過しうる
+				// （原則7: 未解決intentは枠を空けない）。印を削除できた場合（未送信/拒否が確定）だけ
+				// 解放する。
+				$intent_kept_ambiguous = false;
+
+				if ( $push_intent_pending ) {
+					// D21-B表: capability未対応・4xx（429を含む）は「拒否/未対応が確定」で印を消す。
+					// 5xx・status 0（通信断/タイムアウト）・その他の例外・契約違反の再スロー
+					// （`$contract_violation_after_create`）は結果が不明のため印を残す。
+					// `.claude/rules/adapters-colorme.md`: `ApiException`のstatus 0は「未接続」
+					// 「通信断」「JSON破損」のいずれでも使われ、status 0**だけ**では判別できない。
+					// アダプタが`context['not_connected'] === true`で明示した場合（`ColorMeAdapter::
+					// client()`が送信前に投げる）のみ「未送信が確定」と扱う（`is_bool()`ではなく
+					// 既存コード〔`PrefStateRepair::classify_api_failure()`〕と同じ`true ===`の
+					// 厳密比較。CLAUDE.mdの`(bool)`キャスト回避ルールと同じ理由）。
+					$confirmed_not_sent = ! $contract_violation_after_create && (
+						$exception instanceof UnsupportedOperationException
+						|| ( $exception instanceof ApiException && $exception->status_code() >= 400 && $exception->status_code() < 500 )
+						|| ( $exception instanceof ApiException && true === ( $exception->context()['not_connected'] ?? false ) )
+					);
+
+					if ( $confirmed_not_sent ) {
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					} else {
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+						$intent_kept_ambiguous = true;
+					}
+				}
+
+				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
 					++$remaining;
 				}
 
@@ -330,6 +454,21 @@ final class Exporter {
 
 				$this->mappings->upsert( $platform, $entity, $result->remote_id, $local_id, $checksum );
 
+				// D21-B: mapping書込み後に印を消す（永続化してから消す。`.claude/rules/
+				// sync-export-tools.md`の「先に永続化してから原因を再スロー/後続処理」の順序どおり）。
+				// レビュー指摘（Codex P1/Copilot, G2）: `MappingRepository::upsert()`は
+				// `$wpdb->query()`の戻り値を捨てて`void`を返すため、一過性のDB障害があっても
+				// 例外にならない。`Woo\Tools\PushIntentResolver::resolve_link()`と同じく、
+				// upsert後にmappingが本当に書けたことを読み直して確認してから印を消す
+				// （確認できない場合は印を残し、次回exportで再送をブロックしたまま安全側に倒す）。
+				if ( $push_intent_pending ) {
+					if ( $local_id === $this->mappings->find_local_id( $platform, $entity, $result->remote_id ) ) {
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					} else {
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+					}
+				}
+
 				// `Importer`と同じ理由: 直前に確定したremote_idでこの場のスナップショットも
 				// 更新し、同一ページ内の以後の処理に反映する。
 				$existing[ $local_id ] = [
@@ -374,7 +513,29 @@ final class Exporter {
 					}
 				}
 			} else {
-				if ( $consumed_quota_slot ) {
+				// D21-B: 「未送信が確定」と言えるのは、アダプタ自身が明示的に
+				// `skipped`＋空remote_idを返した場合（例: `CUSTOMER_REQUIRED_FIELD_MISSING`で
+				// 送信前にフェイルクローズ）だけ。ここで`$result->operation`（正規化前の生の値）を
+				// 見るのは、`created`/`updated`を主張しつつremote_idが空（＝D21-Bがまさに警戒する
+				// 「2xxだがid欠損」と同型の契約違反）や、未知のoperation文字列（正規化で`skipped`に
+				// 倒れるだけで「送信していない」ことの合図ではない）を、安全側＝印を残す側に倒すため
+				// （原則8: 信頼境界の戻り値は肯定形でしか安全側に倒さない。原則9）。
+				$confirmed_not_sent    = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
+				$intent_kept_ambiguous = false;
+
+				if ( $push_intent_pending ) {
+					if ( $confirmed_not_sent ) {
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					} else {
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+						$intent_kept_ambiguous = true;
+					}
+				}
+
+				// R1-2と同じ理由: 印を残した（`mark_ambiguous`）分は`LimitPolicy::used()`上
+				// 引き続き枠を占有するため、無条件に解放すると同じページの後続アイテムが
+				// 同じ枠を二重に使いうる（原則7）。
+				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
 					++$remaining;
 				}
 

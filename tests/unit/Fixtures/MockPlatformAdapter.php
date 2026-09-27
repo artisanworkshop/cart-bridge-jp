@@ -115,6 +115,10 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 *   fetch_customer_by_remote_id() が要求IDを無視してこの顧客をそのまま返す
 	 *   （要求IDと異なる顧客を返す契約違反アダプタのシナリオのテスト用。`$product_by_remote_id_override`と同じ）。
 	 * @param ?CanonicalOrder                 $order_by_remote_id_override 同上（fetch_order_by_remote_id()）。
+	 * @param \Throwable|null                $create_push_failure 指定すると`push_product()`/`push_customer()`/
+	 *   `push_order()`/`push_coupon()`の**作成経路**（`$remote_id === null`）だけがこの例外を投げる
+	 *   （D21-B。push intentが「作成結果不明」として残る/確定して消えるシナリオのテスト用。
+	 *   更新経路〔`$remote_id`が非null〕には影響しない）。
 	 * @param string                          $platform_id id() が返す値（既定 'mock'）。`Importer`/`Exporter`/`JobManager` は
 	 *   mapping・上限・サンプルのキーを登録キーではなく `$adapter->id()` から決めるため、`cbjp/adapters/register` に
 	 *   別のキー（例: `colorme`）で登録する手動検証（`verify-with-mock-adapter` スキル）では、そのキーと同じ値を渡す。
@@ -134,6 +138,7 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		private readonly ?\Throwable $fetch_by_id_failure = null,
 		private readonly ?CanonicalCustomer $customer_by_remote_id_override = null,
 		private readonly ?CanonicalOrder $order_by_remote_id_override = null,
+		private readonly ?\Throwable $create_push_failure = null,
 		private readonly string $platform_id = 'mock'
 	) {}
 
@@ -281,10 +286,22 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		return null;
 	}
 
+	/**
+	 * D21-B: `$create_push_failure`が指定されている場合、作成経路（`$remote_id === null`）だけ
+	 * この例外を投げる。更新経路には影響しない。
+	 */
+	private function maybe_fail_create( ?string $remote_id ): void {
+		if ( null !== $this->create_push_failure && null === $remote_id ) {
+			throw $this->create_push_failure;
+		}
+	}
+
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
 		if ( ! $this->push_products_supported ) {
 			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 		}
+
+		$this->maybe_fail_create( $remote_id );
 
 		$this->pushed_products[] = [ $product, $remote_id ];
 
@@ -304,6 +321,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 		}
 
+		$this->maybe_fail_create( $remote_id );
+
 		$this->pushed_customers[] = [ $customer, $remote_id ];
 
 		if ( null !== $remote_id ) {
@@ -317,6 +336,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		if ( ! $this->push_others_supported ) {
 			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 		}
+
+		$this->maybe_fail_create( $remote_id );
 
 		$this->pushed_orders[] = [ $order, $remote_id ];
 
@@ -341,6 +362,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		if ( ! $this->push_others_supported ) {
 			throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 		}
+
+		$this->maybe_fail_create( $remote_id );
 
 		$this->pushed_coupons[] = [ $coupon, $remote_id ];
 

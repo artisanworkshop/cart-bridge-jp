@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Core;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Core\Plugin;
 use WP_UnitTestCase;
 
@@ -50,6 +51,24 @@ final class PluginTest extends WP_UnitTestCase {
 		// boot()が登録後にキャッシュを破棄しない場合、ここでは固定済みの空配列が
 		// 返り続け、ColorMeがリクエストの間ずっと見えない。
 		$this->assertArrayHasKey( ColorMeAdapter::ID, AdapterRegistry::all() );
+	}
+
+	/**
+	 * レビュー指摘（Copilot, G3）: `Activator::maybe_upgrade()`が`admin_init`限定だと、
+	 * プラグイン更新後に誰も管理画面を開かないままAction Scheduler経由のジョブ・REST
+	 * （`admin-ajax.php`は`admin_init`を発火しない）が先に走った場合、新しいテーブル
+	 * （例: `cbjp_push_intents`）がまだ無いまま処理される。`boot()`自身が`plugins_loaded`から
+	 * 呼ばれる想定のため、`admin_init`を経由せず直接マイグレーションが走ることを確認する。
+	 */
+	public function test_boot_runs_the_db_migration_without_requiring_admin_init(): void {
+		delete_option( Activator::DB_VERSION_OPTION );
+
+		$plugin = Plugin::instance();
+		$booted = new \ReflectionProperty( Plugin::class, 'booted' );
+		$booted->setValue( $plugin, false );
+		$plugin->boot();
+
+		$this->assertSame( Activator::DB_VERSION, get_option( Activator::DB_VERSION_OPTION ) );
 	}
 
 	public function test_colorme_registration_survives_a_misbehaving_earlier_filter(): void {

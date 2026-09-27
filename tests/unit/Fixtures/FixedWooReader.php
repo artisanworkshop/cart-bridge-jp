@@ -19,12 +19,18 @@ use CartBridgeJP\Woo\Reader\ReadPage;
  */
 final class FixedWooReader implements WooReader {
 
-	private const PAGE_SIZE = 2;
+	private const DEFAULT_PAGE_SIZE = 2;
 
 	/**
 	 * @param array<int,ReadItem> $items
+	 * @param int $page_size 既定2件（複数ページに分かれる挙動のテスト用）。1ページに収めて
+	 *   まとめて処理させたいテスト（例: 同一ページ内の複数アイテムに渡る無料枠の相互作用）は
+	 *   `count($items)`以上の値を渡す。
 	 */
-	public function __construct( private readonly array $items = [] ) {}
+	public function __construct(
+		private readonly array $items = [],
+		private readonly int $page_size = self::DEFAULT_PAGE_SIZE
+	) {}
 
 	public function read( string $entity, Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$items = $this->items;
@@ -36,8 +42,8 @@ final class FixedWooReader implements WooReader {
 		}
 
 		$offset = (int) $cursor->get( 'offset', 0 );
-		$slice  = array_slice( $items, $offset, self::PAGE_SIZE );
-		$next   = ( $offset + self::PAGE_SIZE ) < count( $items ) ? new Cursor( [ 'offset' => $offset + self::PAGE_SIZE ] ) : null;
+		$slice  = array_slice( $items, $offset, $this->page_size );
+		$next   = ( $offset + $this->page_size ) < count( $items ) ? new Cursor( [ 'offset' => $offset + $this->page_size ] ) : null;
 
 		return new ReadPage( $slice, $next, count( $items ) );
 	}

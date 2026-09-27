@@ -19,12 +19,16 @@ use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\PrefStateRepair;
+use CartBridgeJP\Woo\Tools\PushIntentPresenter;
+use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
+use CartBridgeJP\Woo\Tools\PushIntentResolver;
 use CartBridgeJP\Woo\Tools\RepairInterruptedException;
 use CartBridgeJP\Woo\Tools\SampleCleanup;
 use InvalidArgumentException;
@@ -329,6 +333,44 @@ final class RestController {
 					'callback'            => [ $this, 'run_state_repair' ],
 					'permission_callback' => [ $this, 'check_permission' ],
 					'args'                => $repair_args,
+				],
+			]
+		);
+
+		// D21-B（issue #73）: 作成結果が不明な実体（push intent）の一覧・解除。`platform`/`id`は
+		// URLパスが名指しするリソース識別子のため、コールバック側では必ず`get_url_params()`
+		// 経由で読む（CLAUDE.mdのパスパラメータ規約）。
+		register_rest_route(
+			self::NAMESPACE,
+			'/push-intents/(?P<platform>[a-z0-9_-]+)',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'list_push_intents' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+			]
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/push-intents/(?P<platform>[a-z0-9_-]+)/(?P<id>\d+)/resolve',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'resolve_push_intent' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => [
+					'action'    => [
+						'type'              => 'string',
+						'enum'              => [ 'not_created', 'link' ],
+						'required'          => true,
+						'validate_callback' => 'rest_validate_request_arg',
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+					'remote_id' => [
+						'type'              => 'string',
+						'required'          => false,
+						'validate_callback' => 'rest_validate_request_arg',
+						'sanitize_callback' => 'sanitize_text_field',
+					],
 				],
 			]
 		);
@@ -1197,7 +1239,7 @@ final class RestController {
 			$entities[ $entity ] = [
 				'limit'     => $limit,
 				'unlocked'  => null === $limit,
-				'used'      => '' !== $platform ? $mappings->count( $platform, $entity ) : null,
+				'used'      => '' !== $platform ? $limits->used( $platform, $entity ) : null,
 				'remaining' => '' !== $platform ? $limits->remaining( $platform, $entity ) : null,
 			];
 		}
@@ -1435,6 +1477,169 @@ final class RestController {
 			__( 'This platform does not need prefecture repair.', 'cart-bridge-jp' ),
 			[ 'status' => 400 ]
 		);
+	}
+
+	/**
+	 * `GET /push-intents/{platform}`: 作成結果が不明なまま残っている実体（D21-B）の一覧。
+	 */
+	public function list_push_intents( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->platform_param( $request );
+
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$presenter = new PushIntentPresenter();
+
+		$items = array_map(
+			static fn ( array $intent ): array => array_merge( $intent, $presenter->describe( $intent['entity_type'], $intent['local_id'] ) ),
+			( new PushIntentRepository() )->find_unresolved( $platform )
+		);
+
+		return rest_ensure_response(
+			[
+				'platform' => $platform,
+				'intents'  => $items,
+			]
+		);
+	}
+
+	/**
+	 * `POST /push-intents/{platform}/{id}/resolve`: `not_created`（ColorMeに無いことを確認した→
+	 * intentを消す）または`link`+`remote_id`（ColorMeに作成済みだった→mappingを結んでintentを消す）。
+	 */
+	public function resolve_push_intent( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->platform_param( $request );
+
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		// 進行中のexport/importとmappings/intentsを奪い合わないよう、他の`/tools/*`と同じく拒否する。
+		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
+			return $this->run_in_progress_error();
+		}
+
+		$id      = $this->push_intent_id_param( $request );
+		$action  = (string) $request->get_param( 'action' );
+		$intents = new PushIntentRepository();
+		// ログ用に事前取得しておく（解除に成功すると行自体が消えるため）。見つからない場合は
+		// 下の`resolve_*()`が`NOT_FOUND`を投げるのでここでは何もしない。
+		$intent_for_log = $intents->find( $id, $platform );
+
+		try {
+			if ( 'link' === $action ) {
+				$remote_id = $request->get_param( 'remote_id' );
+
+				if ( ! is_string( $remote_id ) || '' === $remote_id ) {
+					return new WP_Error(
+						'cbjp_remote_id_required',
+						__( 'A remote_id is required to link this item.', 'cart-bridge-jp' ),
+						[ 'status' => 400 ]
+					);
+				}
+
+				$adapter = AdapterRegistry::get( $platform );
+
+				if ( null === $adapter ) {
+					return $this->unknown_platform_error( $platform );
+				}
+
+				( new PushIntentResolver( $intents, new MappingRepository() ) )->resolve_link( $platform, $id, $adapter, $remote_id );
+			} else {
+				( new PushIntentResolver( $intents, new MappingRepository() ) )->resolve_not_created( $platform, $id );
+			}
+		} catch ( PushIntentResolutionException $exception ) {
+			return $this->push_intent_resolution_error( $exception );
+		}
+
+		if ( null !== $intent_for_log ) {
+			// Support\Loggerの個人情報禁止ルールに従い、固定文言とentity_type/local_id/actionのみ
+			// 記録する（remote_id・PIIは記録しない）。
+			( new Logger() )->info(
+				'A push intent was resolved.',
+				[
+					'platform'    => $platform,
+					'entity_type' => $intent_for_log['entity_type'],
+					'local_id'    => $intent_for_log['local_id'],
+					'action'      => $action,
+				]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'resolved' => true,
+				'action'   => $action,
+			]
+		);
+	}
+
+	private function push_intent_resolution_error( PushIntentResolutionException $exception ): WP_Error|WP_REST_Response {
+		return match ( $exception->reason() ) {
+			PushIntentResolutionException::NOT_FOUND         => new WP_Error(
+				'cbjp_push_intent_not_found',
+				__( 'Push intent not found.', 'cart-bridge-jp' ),
+				[ 'status' => 404 ]
+			),
+			PushIntentResolutionException::REMOTE_NOT_FOUND  => new WP_Error(
+				'cbjp_remote_entity_not_found',
+				__( 'The given remote_id does not exist on the connected platform.', 'cart-bridge-jp' ),
+				[ 'status' => 404 ]
+			),
+			PushIntentResolutionException::REMOTE_ID_IN_USE  => new WP_Error(
+				'cbjp_remote_id_in_use',
+				__( 'The given remote_id is already linked to a different local item.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
+			),
+			PushIntentResolutionException::LINK_UNSUPPORTED  => new WP_Error(
+				'cbjp_link_unsupported',
+				__( 'This item type cannot be looked up by remote_id, so it can only be resolved as not created.', 'cart-bridge-jp' ),
+				[ 'status' => 422 ]
+			),
+			// 以下3件は`Woo\Tools\PrefStateRepair`が`repair_interrupted_response()`で返す
+			// コード・ステータス・文言と揃える（同じ「ASPへの照会に失敗して中断」という状況）。
+			PushIntentResolutionException::NOT_CONNECTED     => new WP_Error(
+				'cbjp_not_connected',
+				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
+			),
+			PushIntentResolutionException::RATE_LIMITED      => $this->rate_limited_response(),
+			PushIntentResolutionException::REMOTE_UNAVAILABLE => new WP_Error(
+				'cbjp_platform_api_error',
+				__( 'The platform API returned an error. Try again in a moment.', 'cart-bridge-jp' ),
+				[ 'status' => 502 ]
+			),
+			default                                          => new WP_Error(
+				'cbjp_push_intent_resolution_failed',
+				__( 'The push intent could not be resolved.', 'cart-bridge-jp' ),
+				[ 'status' => 500 ]
+			),
+		};
+	}
+
+	private function rate_limited_response(): WP_REST_Response {
+		$response = new WP_REST_Response(
+			[
+				'code'    => 'cbjp_rate_limited',
+				'message' => __( 'The platform API rate limit was reached. Wait a minute, then try again.', 'cart-bridge-jp' ),
+				'data'    => [ 'status' => 503 ],
+			],
+			503
+		);
+		$response->header( 'Retry-After', '60' );
+
+		return $response;
+	}
+
+	/**
+	 * `/push-intents/{platform}/{id}/resolve` の `id`（URLパス由来）。ルート正規表現が`\d+`のため
+	 * 通常は必ず数値文字列だが、念のためフェイルクローズする。
+	 */
+	private function push_intent_id_param( WP_REST_Request $request ): int {
+		$id = $request->get_url_params()['id'] ?? null;
+
+		return is_numeric( $id ) ? (int) $id : 0;
 	}
 
 	/**

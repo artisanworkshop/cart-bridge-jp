@@ -48,9 +48,15 @@ final class Plugin {
 
 		load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
 
-		// プラグイン更新時はactivation hookが発火しないため、管理画面アクセス時に
-		// DBスキーマバージョンを比較して必要ならマイグレーションする。
-		add_action( 'admin_init', [ Activator::class, 'maybe_upgrade' ] );
+		// プラグイン更新時はactivation hookが発火しないため、DBスキーマバージョンを比較して
+		// 必要ならマイグレーションする。`admin_init`限定だと、更新後に管理画面を誰も開かないまま
+		// Action Scheduler経由のジョブ・REST（`admin-ajax.php`は`admin_init`を発火しない）が
+		// 先に走った場合、新しいテーブル（例: `cbjp_push_intents`）がまだ無いまま処理され、
+		// 依存する書込みが黙って失敗・全件skipになりうる（レビュー指摘, G3）。`boot()`自体が
+		// `plugins_loaded`から呼ばれる想定のため、ここで直接（別フックを介さず）実行し、
+		// 管理画面訪問に依存しないようにする。`maybe_upgrade()`はバージョン一致時は
+		// `get_option()`1回のみで即returnするため、毎リクエストのオーバーヘッドは無視できる。
+		Activator::maybe_upgrade();
 
 		add_action( 'admin_notices', [ $this, 'render_missing_sodium_notice' ] );
 

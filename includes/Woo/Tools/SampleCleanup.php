@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Tools;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Sync\ExportSampleSelector;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
@@ -65,7 +66,8 @@ final class SampleCleanup {
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
-		private readonly Logger $logger = new Logger()
+		private readonly Logger $logger = new Logger(),
+		private readonly PushIntentRepository $push_intents = new PushIntentRepository()
 	) {}
 
 	/**
@@ -240,6 +242,15 @@ final class SampleCleanup {
 		$this->mappings->delete_for_platform( $platform );
 		SampleSelector::clear( $platform );
 		ExportSampleSelector::clear( $platform );
+
+		// D21-B（issue #73）: 未解決の`cbjp_push_intents`は定義上mappingを持たないため、上の
+		// mapping駆動ループ（`ENTITY_ORDER`）では個別に検出できない。ただし、対応するローカル実体
+		// （多くはexport方向で本プラグイン所有ではないため上のループでは削除されず残る）が
+		// まだ存在する印を一律に消すと、次回のサンプル選定が「未送信」として扱い再度POSTし、
+		// 実際には作成済みかもしれない実体を重複作成しうる（レビュー指摘, G2）。
+		// ローカル実体が本当に無くなっている（このクリーンアップで削除された、または既に無い）
+		// ものだけを消す。
+		$this->clear_push_intents_for_deleted_entities( $platform );
 
 		return $this->result( $platform, $deleted, $unlinked, false );
 	}
@@ -511,6 +522,32 @@ final class SampleCleanup {
 		);
 
 		return is_array( $term_ids ) ? array_map( 'intval', $term_ids ) : [];
+	}
+
+	/**
+	 * D21-Bレビュー指摘（Copilot, G2）: 未解決intentは、対応するローカル実体が本当に無くなって
+	 * いる（このクリーンアップで削除された、または既に無い）場合だけ消す。ローカル実体が
+	 * まだ存在するのに（本プラグイン所有ではない等の理由で）mapping駆動ループが削除しなかった
+	 * 場合、印は「作成結果が不明」という本来の意味を保ったまま残さなければならない。
+	 */
+	private function clear_push_intents_for_deleted_entities( string $platform ): void {
+		$by_entity_type = [];
+
+		foreach ( $this->push_intents->find_unresolved( $platform ) as $intent ) {
+			$by_entity_type[ $intent['entity_type'] ][] = $intent['local_id'];
+		}
+
+		$lookup = new LocalEntityLookup();
+
+		foreach ( $by_entity_type as $intent_entity_type => $local_ids ) {
+			$existing_ids = array_flip( $lookup->existing_ids( $intent_entity_type, $local_ids ) );
+
+			foreach ( $local_ids as $local_id ) {
+				if ( ! isset( $existing_ids[ $local_id ] ) ) {
+					$this->push_intents->delete( $platform, $intent_entity_type, $local_id );
+				}
+			}
+		}
 	}
 
 	/**
