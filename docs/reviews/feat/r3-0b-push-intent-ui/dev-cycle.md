@@ -2,8 +2,8 @@
 
 - タスク: R3-0b（D21-B、issue #73）PR 2/2 — Export タブへの push intent 解除 UI
 - 開始: 2026-09-27
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
+- PR: #80 https://github.com/artisanworkshop/cart-bridge-jp/pull/80
+- 現在のステップ: 5（CI 待ち）
 - Copilot: 未依頼
 - Codex: 未依頼
 
