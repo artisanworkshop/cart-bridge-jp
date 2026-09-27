@@ -3,7 +3,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { Button, Notice, TextControl } from '@wordpress/components';
 import apiFetch from '../api';
 import { ENTITY_LABELS } from '../entity-labels';
-import { formatUtcMysqlTime } from '../format-time';
+import { formatIsoTime, formatUtcMysqlTime } from '../format-time';
 import type { PushIntent } from '../types';
 
 interface Props {
@@ -19,6 +19,14 @@ interface Props {
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
+}
+
+/**
+ * WPのREST APIエラー応答（`{code, message, data}`）の`code`。apiFetchはこの形のままrejectする。
+ * @param err
+ */
+function errorCode( err: unknown ): string | undefined {
+	return ( err as { code?: string } )?.code;
 }
 
 /**
@@ -50,11 +58,14 @@ function describeIntent( intent: PushIntent ): string {
 			return details.email ?? '';
 		case 'order':
 			return sprintf(
-				/* translators: 1: order number, 2: order total, 3: currency code */
-				__( '#%1$s — %2$s %3$s', 'cart-bridge-jp' ),
+				/* translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time */
+				__( '#%1$s — %2$s %3$s (%4$s)', 'cart-bridge-jp' ),
 				details.number ?? '',
 				details.total ?? '',
-				details.currency ?? ''
+				details.currency ?? '',
+				details.date_created
+					? formatIsoTime( details.date_created )
+					: __( 'date unknown', 'cart-bridge-jp' )
 			);
 		case 'coupon':
 			return details.code ?? '';
@@ -77,6 +88,9 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 	const [ intents, setIntents ] = useState< PushIntent[] | null >( null );
 	const [ listError, setListError ] = useState< string | null >( null );
 	const [ resolvingId, setResolvingId ] = useState< number | null >( null );
+	const [ resolvingAction, setResolvingAction ] = useState<
+		'not_created' | 'link' | null
+	>( null );
 	const [ remoteIdInputs, setRemoteIdInputs ] = useState<
 		Record< number, string >
 	>( {} );
@@ -142,7 +156,13 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		action: 'not_created' | 'link',
 		remoteId?: string
 	) {
+		// 解除中はこの世代を進めて、進行中（他のタイミングで発火した）一覧取得の応答を無効化する。
+		// これが無いと、export完了後の再取得GETが解除のPOSTより後に届いた場合、削除前のスナップ
+		// ショットで`setIntents()`が呼ばれ、解除済みの行が復活してしまう（Codex/Copilot両方の指摘）。
+		generationRef.current += 1;
+
 		setResolvingId( intent.id );
+		setResolvingAction( action );
 		setRowErrors( ( prev ) => {
 			const next = { ...prev };
 
@@ -163,6 +183,7 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		} )
 			.then( () => {
 				setResolvingId( null );
+				setResolvingAction( null );
 				// 余分なGETを避け、解除できた行だけローカルで取り除く。
 				setIntents(
 					( prev ) =>
@@ -171,6 +192,20 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			} )
 			.catch( ( err: unknown ) => {
 				setResolvingId( null );
+				setResolvingAction( null );
+
+				// 別タブでの解除やSampleCleanupの一括削除で既に消えている場合、404のまま
+				// 行エラーを出し続けても解除する手段が無くなる。成功時と同じくローカルで
+				// 取り除く（Copilot指摘）。
+				if ( 'cbjp_push_intent_not_found' === errorCode( err ) ) {
+					setIntents(
+						( prev ) =>
+							prev?.filter( ( i ) => i.id !== intent.id ) ?? prev
+					);
+
+					return;
+				}
+
 				setRowErrors( ( prev ) => ( {
 					...prev,
 					[ intent.id ]: errorMessage( err ),
@@ -178,7 +213,11 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			} );
 	}
 
-	if ( listError ) {
+	// 取得済みの一覧が無い（初回取得中・取得に一度も成功していない）ときだけ、エラーで
+	// パネル全体を差し替える。既に表示中の一覧がある状態での再取得（export完了後）が
+	// 一時的に失敗しても、その一覧を消してエラーだけにはしない（Copilot指摘。再試行手段が
+	// 無いまま解除対象が画面から消えてしまうため）。
+	if ( listError && null === intents ) {
 		return (
 			<Notice status="error" isDismissible={ false }>
 				{ listError }
@@ -192,6 +231,11 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 
 	return (
 		<div className="cbjp-push-intents">
+			{ listError && (
+				<Notice status="error" isDismissible={ false }>
+					{ listError }
+				</Notice>
+			) }
 			<Notice status="warning" isDismissible={ false }>
 				{ __(
 					'Some items could not be confirmed as created or rejected on the connected platform. They will not be re-sent automatically. Check the platform’s own admin screen to see whether each item actually exists there before resolving it below.',
@@ -201,7 +245,7 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			{ runInProgress && (
 				<Notice status="info" isDismissible={ false }>
 					{ __(
-						'An export or import is currently running for this platform. Wait for it to finish before resolving these items.',
+						'An export is currently running for this platform. Wait for it to finish before resolving these items.',
 						'cart-bridge-jp'
 					) }
 				</Notice>
@@ -217,7 +261,7 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 				</thead>
 				<tbody>
 					{ intents.map( ( intent ) => {
-						const busy = resolvingId === intent.id;
+						const isRow = resolvingId === intent.id;
 						const disabled = runInProgress || null !== resolvingId;
 
 						return (
@@ -259,7 +303,11 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 									<div className="cbjp-push-intents__actions">
 										<Button
 											variant="secondary"
-											isBusy={ busy }
+											isBusy={
+												isRow &&
+												'not_created' ===
+													resolvingAction
+											}
 											disabled={ disabled }
 											onClick={ () =>
 												resolve( intent, 'not_created' )
@@ -298,7 +346,10 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 										/>
 										<Button
 											variant="secondary"
-											isBusy={ busy }
+											isBusy={
+												isRow &&
+												'link' === resolvingAction
+											}
 											disabled={
 												disabled ||
 												! (
