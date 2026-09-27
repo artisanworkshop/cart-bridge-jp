@@ -93,7 +93,7 @@ add_action(
 				// D21-B（issue #73）検証用: `push`が配列でない・`enabled`が真偽値でない場合は
 				// 無効（push_*()は全てUnsupportedOperationExceptionのまま）として読み飛ばす
 				// （mu-pluginのfatalを避ける既存方針。`$rows()`と同じ考え方）。
-				$push_seed        = is_array( $seed['push'] ?? null ) ? $seed['push'] : [];
+				$push_seed        = is_array( $seed ) && is_array( $seed['push'] ?? null ) ? $seed['push'] : [];
 				$push_enabled     = true === ( $push_seed['enabled'] ?? false );
 				$create_push_fail = 'ambiguous_5xx' === ( $push_seed['create_failure'] ?? null )
 					? new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 )

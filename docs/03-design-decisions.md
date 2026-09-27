@@ -1277,10 +1277,12 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     「リンクして解除」（`link`）を提供する。`link` が使えない種別（クーポン等。`LINK_UNSUPPORTED`／422）は
     entity_type によるハードコードで事前に隠さず、行内のエラー表示に委ねる（原則8「アダプタ拡張点の信頼境界」。
     どの entity_type が `link` 非対応かはアダプタ実装依存であり、UI に持ち込むとプラットフォーム固有の制約が
-    アダプタ外に漏れる）。一覧はマウント時（platform 切替時）と、実 export の実行中フラグが
-    true→false に変わったとき（新たに ambiguous な intent が残りうるため）に取得し直す。取得は
-    `frontend.md` の規約どおり単調増加する世代カウンタで古い応答を捨てる（解除成功時はローカルで
-    行を除去するだけで再取得はしない）
+    アダプタ外に漏れる）。一覧はマウント時（platform 切替時）、実 export の実行中フラグが
+    true→false に変わったとき（新たに ambiguous な intent が残りうるため）、および解除成功時／
+    解除が404（既に解除済み）だったときに取得し直す。取得は `frontend.md` の規約どおり単調増加する
+    世代カウンタで古い応答を捨てる。解除成功時にローカルで行を除去するだけの実装は、export完了直後の
+    再取得と解除が競合すると新しく増えた intent を取りこぼす回帰を招いたため（G2、Codex 指摘）、
+    全ての取得経路を`fetchIntents()`一本に統一し、常に最後に発行した取得だけが反映される設計にした
   - **検証ツール**: `.claude/skills/verify-with-mock-adapter/templates/mu-plugin-mock-adapter.php` に
     `cbjp_verify_seed.push`（`enabled`/`create_failure`）を追加し、`MockPlatformAdapter` の
     `push_products_supported`/`push_others_supported`/`create_push_failure` を配線した（それまでは push 系が
