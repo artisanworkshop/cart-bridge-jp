@@ -1575,34 +1575,61 @@ final class RestController {
 		);
 	}
 
-	private function push_intent_resolution_error( PushIntentResolutionException $exception ): WP_Error {
+	private function push_intent_resolution_error( PushIntentResolutionException $exception ): WP_Error|WP_REST_Response {
 		return match ( $exception->reason() ) {
-			PushIntentResolutionException::NOT_FOUND        => new WP_Error(
+			PushIntentResolutionException::NOT_FOUND         => new WP_Error(
 				'cbjp_push_intent_not_found',
 				__( 'Push intent not found.', 'cart-bridge-jp' ),
 				[ 'status' => 404 ]
 			),
-			PushIntentResolutionException::REMOTE_NOT_FOUND => new WP_Error(
+			PushIntentResolutionException::REMOTE_NOT_FOUND  => new WP_Error(
 				'cbjp_remote_entity_not_found',
 				__( 'The given remote_id does not exist on the connected platform.', 'cart-bridge-jp' ),
 				[ 'status' => 404 ]
 			),
-			PushIntentResolutionException::REMOTE_ID_IN_USE => new WP_Error(
+			PushIntentResolutionException::REMOTE_ID_IN_USE  => new WP_Error(
 				'cbjp_remote_id_in_use',
 				__( 'The given remote_id is already linked to a different local item.', 'cart-bridge-jp' ),
 				[ 'status' => 409 ]
 			),
-			PushIntentResolutionException::LINK_UNSUPPORTED => new WP_Error(
+			PushIntentResolutionException::LINK_UNSUPPORTED  => new WP_Error(
 				'cbjp_link_unsupported',
 				__( 'This item type cannot be looked up by remote_id, so it can only be resolved as not created.', 'cart-bridge-jp' ),
 				[ 'status' => 422 ]
 			),
-			default                                         => new WP_Error(
+			// 以下3件は`Woo\Tools\PrefStateRepair`が`repair_interrupted_response()`で返す
+			// コード・ステータス・文言と揃える（同じ「ASPへの照会に失敗して中断」という状況）。
+			PushIntentResolutionException::NOT_CONNECTED     => new WP_Error(
+				'cbjp_not_connected',
+				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
+			),
+			PushIntentResolutionException::RATE_LIMITED      => $this->rate_limited_response(),
+			PushIntentResolutionException::REMOTE_UNAVAILABLE => new WP_Error(
+				'cbjp_platform_api_error',
+				__( 'The platform API returned an error. Try again in a moment.', 'cart-bridge-jp' ),
+				[ 'status' => 502 ]
+			),
+			default                                          => new WP_Error(
 				'cbjp_push_intent_resolution_failed',
 				__( 'The push intent could not be resolved.', 'cart-bridge-jp' ),
 				[ 'status' => 500 ]
 			),
 		};
+	}
+
+	private function rate_limited_response(): WP_REST_Response {
+		$response = new WP_REST_Response(
+			[
+				'code'    => 'cbjp_rate_limited',
+				'message' => __( 'The platform API rate limit was reached. Wait a minute, then try again.', 'cart-bridge-jp' ),
+				'data'    => [ 'status' => 503 ],
+			],
+			503
+		);
+		$response->header( 'Retry-After', '60' );
+
+		return $response;
 	}
 
 	/**

@@ -9,8 +9,11 @@ namespace CartBridgeJP\Woo\Tools;
 
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
+use Throwable;
 
 /**
  * `POST /push-intents/{platform}/{id}/resolve` の解除ロジック（D21-B。
@@ -72,6 +75,16 @@ final class PushIntentResolver {
 			};
 		} catch ( UnsupportedOperationException ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
+		} catch ( RateLimitExhaustedException ) {
+			// `Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分（クライアント側
+			// スロットル。待てば再開できる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::RATE_LIMITED );
+		} catch ( ApiException $exception ) {
+			throw new PushIntentResolutionException( $this->classify_api_failure( $exception ) );
+		} catch ( Throwable $exception ) {
+			// 200応答でも想定した形でない等、アダプタの契約違反。個人情報を含みうるメッセージは
+			// 記録せず、REST層へは理由コードのみ渡す（`PrefStateRepair`と同じ方針）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 
 		if ( null === $remote_entity ) {
@@ -86,5 +99,23 @@ final class PushIntentResolver {
 
 		$this->mappings->upsert( $platform, $entity_type, $remote_id, $intent['local_id'], null );
 		$this->intents->delete_by_id( $id );
+	}
+
+	/**
+	 * `Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分（再接続が必要 / レート制限 /
+	 * その他のAPIエラー）。status 0 だけでは「未接続」「通信断」「JSON破損」を区別できないため、
+	 * `context['not_connected'] === true`（アダプタが明示。`ColorMeAdapter::client()`）または
+	 * 401/403のときだけ再接続案内にする（`.claude/rules/adapters-colorme.md`）。
+	 */
+	private function classify_api_failure( ApiException $exception ): string {
+		if ( in_array( $exception->status_code(), [ 401, 403 ], true ) || true === ( $exception->context()['not_connected'] ?? false ) ) {
+			return PushIntentResolutionException::NOT_CONNECTED;
+		}
+
+		if ( $exception->is_rate_limited() || 429 === $exception->status_code() ) {
+			return PushIntentResolutionException::RATE_LIMITED;
+		}
+
+		return PushIntentResolutionException::REMOTE_UNAVAILABLE;
 	}
 }

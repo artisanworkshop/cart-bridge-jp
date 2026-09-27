@@ -308,23 +308,39 @@ final class Exporter {
 				// PR-A時点のColorMeは`push_*`が全てこの例外を投げるため、実行(非dry-run)の
 				// exportジョブは全件がここを通りskipped/warned扱いで完了する（ジョブ自体は
 				// STATUS_FAILEDにならない）のが現状の期待動作（E2-3で解消）。
+				// D21-Bレビュー指摘: 印を残す（`mark_ambiguous`）場合、そのローカルIDは
+				// `LimitPolicy::used()`（mappings＋未解決intent）上は引き続き枠を占有したままになる。
+				// 無条件に`$consumed_quota_slot`を解放すると、この1ページの残り処理で別アイテムが
+				// 同じ枠を二重に使ってしまい、ページ内に限って無料版上限を実質的に超過しうる
+				// （原則7: 未解決intentは枠を空けない）。印を削除できた場合（未送信/拒否が確定）だけ
+				// 解放する。
+				$intent_kept_ambiguous = false;
+
 				if ( $push_intent_pending ) {
 					// D21-B表: capability未対応・4xx（429を含む）は「拒否/未対応が確定」で印を消す。
 					// 5xx・status 0（通信断/タイムアウト）・その他の例外・契約違反の再スロー
 					// （`$contract_violation_after_create`）は結果が不明のため印を残す。
+					// `.claude/rules/adapters-colorme.md`: `ApiException`のstatus 0は「未接続」
+					// 「通信断」「JSON破損」のいずれでも使われ、status 0**だけ**では判別できない。
+					// アダプタが`context['not_connected'] === true`で明示した場合（`ColorMeAdapter::
+					// client()`が送信前に投げる）のみ「未送信が確定」と扱う（`is_bool()`ではなく
+					// 既存コード〔`PrefStateRepair::classify_api_failure()`〕と同じ`true ===`の
+					// 厳密比較。CLAUDE.mdの`(bool)`キャスト回避ルールと同じ理由）。
 					$confirmed_not_sent = ! $contract_violation_after_create && (
 						$exception instanceof UnsupportedOperationException
 						|| ( $exception instanceof ApiException && $exception->status_code() >= 400 && $exception->status_code() < 500 )
+						|| ( $exception instanceof ApiException && true === ( $exception->context()['not_connected'] ?? false ) )
 					);
 
 					if ( $confirmed_not_sent ) {
 						$this->push_intents->delete( $platform, $entity, $local_id );
 					} else {
 						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+						$intent_kept_ambiguous = true;
 					}
 				}
 
-				if ( $consumed_quota_slot ) {
+				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
 					++$remaining;
 				}
 
@@ -464,11 +480,21 @@ final class Exporter {
 					}
 				}
 			} else {
-				// D21-B: アダプタが「実際には送信しなかった」と明示的に返した（例:
-				// `CUSTOMER_REQUIRED_FIELD_MISSING`で送信前にフェイルクローズ）。未送信が
-				// 確定しているため印を消す。
+				// D21-B: 「未送信が確定」と言えるのは、アダプタ自身が明示的に
+				// `skipped`＋空remote_idを返した場合（例: `CUSTOMER_REQUIRED_FIELD_MISSING`で
+				// 送信前にフェイルクローズ）だけ。ここで`$result->operation`（正規化前の生の値）を
+				// 見るのは、`created`/`updated`を主張しつつremote_idが空（＝D21-Bがまさに警戒する
+				// 「2xxだがid欠損」と同型の契約違反）や、未知のoperation文字列（正規化で`skipped`に
+				// 倒れるだけで「送信していない」ことの合図ではない）を、安全側＝印を残す側に倒すため
+				// （原則8: 信頼境界の戻り値は肯定形でしか安全側に倒さない。原則9）。
+				$confirmed_not_sent = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
+
 				if ( $push_intent_pending ) {
-					$this->push_intents->delete( $platform, $entity, $local_id );
+					if ( $confirmed_not_sent ) {
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					} else {
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+					}
 				}
 
 				if ( $consumed_quota_slot ) {

@@ -39,6 +39,23 @@ final class PushIntentResolutionException extends RuntimeException {
 	 */
 	public const LINK_UNSUPPORTED = 'link_unsupported';
 
+	/**
+	 * `link`: プラットフォームへの接続が切れている（401/403、または`ApiException::context()`の
+	 * `not_connected`が明示された場合。`Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分）。
+	 */
+	public const NOT_CONNECTED = 'not_connected';
+
+	/**
+	 * `link`: クライアント側スロットル（`RateLimitExhaustedException`）、またはASP側が429で
+	 * リトライ上限に達した。待てば再開できる。
+	 */
+	public const RATE_LIMITED = 'rate_limited';
+
+	/**
+	 * `link`: 上記以外のAPIエラー・契約違反（5xx・通信断・想定外のレスポンス形）。
+	 */
+	public const REMOTE_UNAVAILABLE = 'remote_unavailable';
+
 	public function __construct( private readonly string $reason ) {
 		parent::__construct( "Push intent resolution failed: {$reason}" );
 	}

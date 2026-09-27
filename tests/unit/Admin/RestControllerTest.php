@@ -2110,6 +2110,67 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * レビュー指摘: `PushIntentResolver::resolve_link()`が接続切れ・レート制限・その他のAPIエラーを
+	 * `PushIntentResolutionException`へ変換し、REST層が対応するHTTPステータスへ翻訳することを
+	 * 確認する（`Woo\Tools\PrefStateRepair`の`repair_interrupted_response()`と同じ方針）。
+	 */
+	public function test_resolve_push_intent_link_returns_409_when_the_platform_is_not_connected(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter( fetch_by_id_failure: new ApiException( 'not connected', 0, [ 'not_connected' => true ] ) );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'customer', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'remote-c1',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_not_connected', $response->as_error()->get_error_code() );
+	}
+
+	public function test_resolve_push_intent_link_returns_503_with_retry_after_when_rate_limited(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter( fetch_by_id_failure: new RateLimitExhaustedException( 'mock' ) );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'customer', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'remote-c1',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 503, $response->get_status() );
+		$this->assertSame( '60', $response->get_headers()['Retry-After'] );
+	}
+
+	/**
 	 * `MockPlatformAdapter`に`$product`/`$customer`/`$order`のいずれかを渡すと、対応する
 	 * `fetch_*_by_remote_id()`がその実体を返す（`link`のテスト用）。
 	 */

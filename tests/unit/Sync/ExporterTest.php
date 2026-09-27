@@ -801,6 +801,49 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
 	}
 
+	/**
+	 * 4xx境界（400・499）を確認する。`>= 400 && < 500`のいずれかの向きを`>`/`<=`に取り違えると
+	 * これらの境界だけ判定が反転する。
+	 *
+	 * @dataProvider provide_confirmed_rejection_status_codes
+	 */
+	public function test_4xx_boundary_status_codes_confirm_rejection( int $status_code ): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new ApiException( 'rejected', $status_code ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ), "status {$status_code} should confirm rejection and clear the intent" );
+	}
+
+	/**
+	 * @return array<string,array{0:int}>
+	 */
+	public function provide_confirmed_rejection_status_codes(): array {
+		return [
+			'400 (lower boundary)' => [ 400 ],
+			'429 (rate limited by the platform, not our own RateLimiter)' => [ 429 ],
+			'499 (upper boundary)' => [ 499 ],
+		];
+	}
+
+	/**
+	 * `status 0`は「未接続」「通信断」「JSON破損」のいずれでも使われ、それだけでは判別できない
+	 * （`.claude/rules/adapters-colorme.md`）。アダプタが`context['not_connected'] === true`で
+	 * 明示した場合（`ColorMeAdapter::client()`が送信前に投げる）だけは「未送信が確定」とみなし、
+	 * 印を消す。
+	 */
+	public function test_an_explicitly_not_connected_api_exception_confirms_rejection_and_clears_the_intent(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new ApiException( 'not connected', 0, [ 'not_connected' => true ] ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
 	public function test_a_5xx_api_exception_keeps_the_intent_ambiguous_and_blocks_the_next_export(): void {
 		global $wpdb;
 
@@ -911,6 +954,27 @@ final class ExporterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * レビュー指摘: `PushResult`が`created`/`updated`を主張しつつ`remote_id`が空文字列を返す
+	 * （2xxだがid欠損というD21-Bが最も警戒する状態そのもの。信頼境界の契約違反）場合、
+	 * 「実際にpushされなかった」ことが確定していないため、明示的な`skipped`＋空remote_idの場合
+	 * （上のテスト）と違って印を消してはならない（原則8・9: 肯定形でしか安全側に倒さない）。
+	 */
+	public function test_push_result_claiming_created_with_an_empty_remote_id_keeps_the_intent_ambiguous(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '', PushResult::OPERATION_CREATED );
+			}
+		};
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
 	 * `LimitPolicy::used()`は未解決intent自体を累積カウントに含める（D21-Bの意図どおり。上限2件の
 	 * うち101の未解決intent1件分は既に消費済みで残り枠は1件）。ブロックされた101はこの1ページの
 	 * 処理中に**追加で**枠を消費しない（quota判定より前に`continue`する）ため、残り1件の枠は
@@ -937,5 +1001,49 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['created'] );
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), 'ブロックされた1件目が残り1件の枠を余分に消費しないため2件目が作成される' );
+	}
+
+	/**
+	 * レビュー指摘: 5xx等で印を`mark_ambiguous`のまま残した（＝`used()`上は引き続き枠を占有する）
+	 * アイテムの分まで`$consumed_quota_slot`を無条件に解放すると、同じページ内の後続アイテムが
+	 * 同じ枠を二重に使い、ページ内に限って無料版上限を実質的に超過しうる（原則7）。
+	 * 上限2件のうち1件は既存mapping（使用済み）、101が5xxで印を残す（2件目の使用扱い）ため
+	 * 残り枠は0。この状態で102は作成されてはならない。
+	 */
+	public function test_an_intent_kept_ambiguous_does_not_free_up_its_quota_slot_within_the_same_page(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-existing', 999, null );
+
+		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Ambiguous' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
+		$writer       = $this->writer_failing_on_create( 'Ambiguous', new ApiException( 'server error', 500 ) );
+		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
+		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
+
+		add_filter( 'cbjp/limits/product', static fn () => 2 );
+
+		try {
+			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertSame( 2, $result['totals']['skipped'], '101は印を残してskip、102は枠が無く追加でskip' );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), '101の印が枠を占有したままなので102は作成されない' );
+	}
+
+	/**
+	 * D21-A（`PartialPushException`、remote_idあり）の成功に近い経路でも、mapping書込み後に
+	 * push intentが消えることを確認する（`$did_push`の通常経路だけでなく、この経路も
+	 * `push_intent_pending`の解放を通ることの裏取り）。
+	 */
+	public function test_partial_push_with_a_remote_id_clears_the_push_intent_after_the_mapping_write(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->partial_push_writer( 'P', '501', new RuntimeException( 'boom' ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( '501', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
 	}
 }
