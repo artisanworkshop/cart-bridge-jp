@@ -120,6 +120,42 @@ export interface Limits {
 }
 
 /**
+ * `Woo\Tools\PushIntentPresenter::describe()`が種別ごとに返す手がかり（D21-B）。
+ * 全フィールド任意なのは、`entity_type`ごとに異なるサブセットしか埋まらないため
+ * （product: name/sku、customer: email、order: number/total/currency/date_created、
+ * coupon: code）。実体が削除済み（`exists === false`）の場合は空になる。
+ */
+export interface PushIntentDetails {
+	name?: string;
+	sku?: string | null;
+	email?: string;
+	number?: string;
+	total?: string;
+	currency?: string;
+	date_created?: string | null;
+	code?: string;
+}
+
+/**
+ * `GET /push-intents/{platform}`の1行（`Sync\PushIntentRepository::find_unresolved()`の行に
+ * `PushIntentPresenter::describe()`の結果をmergeしたもの）。D21-B（issue #73）: 作成結果が
+ * 不明なままの実体を表す「送信中の印」。
+ */
+export interface PushIntent {
+	id: number;
+	entity_type: EntityType;
+	local_id: number;
+	run_id: string | null;
+	job_id: number | null;
+	reason: string | null;
+	created_at: string;
+	updated_at: string;
+	exists: boolean;
+	edit_url: string | null;
+	details: PushIntentDetails;
+}
+
+/**
  * `GET /logs`は`$wpdb->get_results(..., ARRAY_A)`の生の行をそのまま返すため、
  * `id`/`job_id`を含む数値カラムも文字列で返る（wpdb/MySQLiの一般的な挙動）。
  */
