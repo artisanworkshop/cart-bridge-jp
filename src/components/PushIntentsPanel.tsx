@@ -98,9 +98,10 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		{}
 	);
 
-	// マウント時／platform切替時の取得と、export完了後の再取得の両方がこのstateを更新しうるため、
-	// frontend.mdの規約どおり値比較ではなく単調増加する世代カウンタで古い応答を捨てる
-	// （解除成功時はローカルで行を除去するだけで再取得はしない。世代カウンタは使わない）。
+	// マウント時／platform切替時の取得、export完了後の再取得、解除成功後の再取得のいずれもが
+	// このstateを更新しうるため、frontend.mdの規約どおり値比較ではなく単調増加する世代カウンタで
+	// 古い応答を捨てる。`fetchIntents()`を呼ぶ経路を1つに統一しているため、どの経路から呼んでも
+	// 常に最後に発行した取得だけが反映される（G1/G2でのCodex/Copilot指摘を踏まえた設計）。
 	const generationRef = useRef( 0 );
 
 	function fetchIntents() {
@@ -156,11 +157,6 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		action: 'not_created' | 'link',
 		remoteId?: string
 	) {
-		// 解除中はこの世代を進めて、進行中（他のタイミングで発火した）一覧取得の応答を無効化する。
-		// これが無いと、export完了後の再取得GETが解除のPOSTより後に届いた場合、削除前のスナップ
-		// ショットで`setIntents()`が呼ばれ、解除済みの行が復活してしまう（Codex/Copilot両方の指摘）。
-		generationRef.current += 1;
-
 		setResolvingId( intent.id );
 		setResolvingAction( action );
 		setRowErrors( ( prev ) => {
@@ -184,24 +180,23 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			.then( () => {
 				setResolvingId( null );
 				setResolvingAction( null );
-				// 余分なGETを避け、解除できた行だけローカルで取り除く。
-				setIntents(
-					( prev ) =>
-						prev?.filter( ( i ) => i.id !== intent.id ) ?? prev
-				);
+				// ローカルでの除去ではなく一覧を取り直す。解除の直前に別の実体が新たに
+				// ambiguousになっていた場合（実exportが完了しGETが飛んでいる最中に、この
+				// 解除を行ったケース）、ローカル除去だけだと世代カウンタがその応答を無効化
+				// してしまい、新しく増えた行が二度と見えなくなる（G2、Codex指摘）。
+				// `fetchIntents()`自身が世代を進めるため、これより前に発行された取得・
+				// 解除の古い応答は自動的に捨てられる。
+				fetchIntents();
 			} )
 			.catch( ( err: unknown ) => {
 				setResolvingId( null );
 				setResolvingAction( null );
 
 				// 別タブでの解除やSampleCleanupの一括削除で既に消えている場合、404のまま
-				// 行エラーを出し続けても解除する手段が無くなる。成功時と同じくローカルで
-				// 取り除く（Copilot指摘）。
+				// 行エラーを出し続けても解除する手段が無くなる。成功時と同じく一覧を取り直す
+				// （Copilot指摘）。
 				if ( 'cbjp_push_intent_not_found' === errorCode( err ) ) {
-					setIntents(
-						( prev ) =>
-							prev?.filter( ( i ) => i.id !== intent.id ) ?? prev
-					);
+					fetchIntents();
 
 					return;
 				}
@@ -213,11 +208,13 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			} );
 	}
 
-	// 取得済みの一覧が無い（初回取得中・取得に一度も成功していない）ときだけ、エラーで
-	// パネル全体を差し替える。既に表示中の一覧がある状態での再取得（export完了後）が
-	// 一時的に失敗しても、その一覧を消してエラーだけにはしない（Copilot指摘。再試行手段が
-	// 無いまま解除対象が画面から消えてしまうため）。
-	if ( listError && null === intents ) {
+	// 表示できる行が無い（初回取得中・一度も成功していない・前回は0件だった）ときだけ、
+	// エラーでパネル全体を差し替える。`intents`が空配列（前回0件で取得成功済み）でも、
+	// その後の再取得が失敗したら埋もれさせず表示する（G2、Copilot指摘。`0 === length`だけで
+	// 判定すると、新たにambiguousになった実体があってもエラーごと消えてしまう）。
+	// 一方、既に表示中の行がある状態での再取得失敗は、その行を消してエラーだけにはしない
+	// （G1、Copilot指摘。再試行手段が無いまま解除対象が画面から消えてしまうため）。
+	if ( listError && ( null === intents || 0 === intents.length ) ) {
 		return (
 			<Notice status="error" isDismissible={ false }>
 				{ listError }
