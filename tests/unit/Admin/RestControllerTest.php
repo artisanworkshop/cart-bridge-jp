@@ -12,6 +12,8 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCustomer;
+use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
@@ -20,9 +22,13 @@ use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Sync\PushIntentRepository;
+use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Tools\PrefStateRepair;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
+use WC_Coupon;
+use WC_Order;
 use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
@@ -1830,6 +1836,301 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'import', $data['type'] );
 		$this->assertSame( 'category', $data['entities'][0]['entity'] );
 		$this->assertSame( 0, $data['entities'][0]['missing'] );
+	}
+
+	// ---- /push-intents/{platform}（D21-B、issue #73）---------------------------------------------------
+
+	public function test_list_push_intents_returns_404_for_unknown_platform(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/not-a-real-platform' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_unknown_platform', $response->as_error()->get_error_code() );
+	}
+
+	public function test_list_push_intents_is_empty_when_nothing_is_unresolved(): void {
+		$this->register_mock_adapter();
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( 'mock', $data['platform'] );
+		$this->assertSame( [], $data['intents'] );
+	}
+
+	/**
+	 * `manage_woocommerce` を持たないユーザーは一覧・解除のいずれも見られない
+	 * （他の `/tools/*` ルートと同じ `check_permission`）。
+	 */
+	public function test_push_intents_routes_require_the_manage_woocommerce_capability(): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'subscriber' ] ) );
+
+		$list = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' ) );
+		$this->assertSame( 403, $list->get_status() );
+
+		$resolve = new WP_REST_Request( 'POST', '/cbjp/v1/push-intents/mock/1/resolve' );
+		$resolve->set_body_params( [ 'action' => 'not_created' ] );
+		$this->assertSame( 403, $this->server->dispatch( $resolve )->get_status() );
+	}
+
+	public function test_list_push_intents_describes_product_customer_and_order_entities(): void {
+		$this->register_mock_adapter();
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Widget' );
+		$product->set_sku( 'SKU-9' );
+		$product_id = $product->save();
+
+		$customer_id = self::factory()->user->create(
+			[
+				'role'       => 'customer',
+				'user_email' => 'buyer@example.test',
+			]
+		);
+
+		$order = new WC_Order();
+		$order->set_status( 'processing' );
+		$order->save();
+		$order_id = $order->get_id();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', $product_id, 'run-1', 10 );
+		$intents->begin( 'mock', 'customer', $customer_id, 'run-1', 11 );
+		$intents->begin( 'mock', 'order', $order_id, 'run-1', 12 );
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertCount( 3, $data['intents'] );
+
+		$by_entity = [];
+		foreach ( $data['intents'] as $intent ) {
+			$by_entity[ $intent['entity_type'] ] = $intent;
+		}
+
+		$this->assertTrue( $by_entity['product']['exists'] );
+		$this->assertSame( 'Widget', $by_entity['product']['details']['name'] );
+		$this->assertSame( 'SKU-9', $by_entity['product']['details']['sku'] );
+		$this->assertNotNull( $by_entity['product']['edit_url'] );
+
+		$this->assertTrue( $by_entity['customer']['exists'] );
+		$this->assertSame( 'buyer@example.test', $by_entity['customer']['details']['email'] );
+
+		$this->assertTrue( $by_entity['order']['exists'] );
+		$this->assertArrayHasKey( 'number', $by_entity['order']['details'] );
+		$this->assertArrayHasKey( 'total', $by_entity['order']['details'] );
+	}
+
+	public function test_list_push_intents_marks_a_deleted_local_entity_as_not_existing(): void {
+		$this->register_mock_adapter();
+
+		( new PushIntentRepository() )->begin( 'mock', 'product', 999999, null, null );
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' );
+		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
+
+		$this->assertFalse( $data['intents'][0]['exists'] );
+		$this->assertNull( $data['intents'][0]['edit_url'] );
+	}
+
+	public function test_resolve_push_intent_not_created_deletes_the_intent_without_writing_a_mapping(): void {
+		$this->register_mock_adapter();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params( [ 'action' => 'not_created' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'resolved' => true,
+				'action'   => 'not_created',
+			],
+			$response->get_data()
+		);
+		$this->assertFalse( $intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertNull( ( new MappingRepository() )->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	public function test_resolve_push_intent_returns_404_when_the_id_does_not_belong_to_the_platform(): void {
+		$this->register_mock_adapter();
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['other'] = new MockPlatformAdapter( platform_id: 'other' );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'other', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'other' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params( [ 'action' => 'not_created' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_push_intent_not_found', $response->as_error()->get_error_code() );
+	}
+
+	public function test_resolve_push_intent_is_rejected_while_a_run_is_active(): void {
+		$this->register_mock_adapter();
+		$this->start_mock_dry_run();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params( [ 'action' => 'not_created' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+	}
+
+	public function test_resolve_push_intent_link_requires_a_remote_id(): void {
+		$this->register_mock_adapter();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params( [ 'action' => 'link' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_id_required', $response->as_error()->get_error_code() );
+	}
+
+	public function test_resolve_push_intent_link_writes_a_mapping_and_deletes_the_intent(): void {
+		$this->register_mock_adapter_with_lookup( product: CanonicalFactory::product( 'remote-p1', 'SKU-1' ) );
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'remote-p1',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertFalse( $intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertSame( 101, ( new MappingRepository() )->find_local_id( 'mock', 'product', 'remote-p1' ) );
+		// D21-Aと同じ規約: checksum=nullで書き、次回exportに残りの詳細を再試行させる。
+		$this->assertNull( ( new MappingRepository() )->find_checksum( 'mock', 'product', 'remote-p1' ) );
+	}
+
+	public function test_resolve_push_intent_link_returns_404_when_the_remote_entity_does_not_exist(): void {
+		$this->register_mock_adapter_with_lookup();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'does-not-exist',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_entity_not_found', $response->as_error()->get_error_code() );
+	}
+
+	public function test_resolve_push_intent_link_returns_409_when_the_remote_id_is_already_linked_elsewhere(): void {
+		$this->register_mock_adapter_with_lookup( product: CanonicalFactory::product( 'remote-p1', 'SKU-1' ) );
+
+		( new MappingRepository() )->upsert( 'mock', 'product', 'remote-p1', 555, null );
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'remote-p1',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_id_in_use', $response->as_error()->get_error_code() );
+	}
+
+	/**
+	 * クーポンは`PlatformAdapter`にID指定取得メソッドが無い（ColorMe側が読取専用のため元々
+	 * 非対応）ため、実在を確認できず`link`は常に422で拒否する（`not_created`のみ可）。
+	 */
+	public function test_resolve_push_intent_link_is_unsupported_for_coupons(): void {
+		$this->register_mock_adapter();
+
+		$coupon = new WC_Coupon();
+		$coupon->set_code( 'save10' );
+		$coupon_id = $coupon->save();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'coupon', $coupon_id, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'anything',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 422, $response->get_status() );
+		$this->assertSame( 'cbjp_link_unsupported', $response->as_error()->get_error_code() );
+	}
+
+	/**
+	 * `MockPlatformAdapter`に`$product`/`$customer`/`$order`のいずれかを渡すと、対応する
+	 * `fetch_*_by_remote_id()`がその実体を返す（`link`のテスト用）。
+	 */
+	private function register_mock_adapter_with_lookup(
+		?CanonicalProduct $product = null,
+		?CanonicalCustomer $customer = null,
+		?CanonicalOrder $order = null
+	): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $product, $customer, $order ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					products: null !== $product ? [ $product ] : [],
+					customers: null !== $customer ? [ $customer ] : [],
+					orders: null !== $order ? [ $order ] : []
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
 	}
 
 	private function start_mock_dry_run(): string {
