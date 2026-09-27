@@ -84,8 +84,9 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		{}
 	);
 
-	// GET（一覧取得）とPOST後の再取得の両方がこのstateを更新しうるため、frontend.mdの規約どおり
-	// 値比較ではなく単調増加する世代カウンタで古い応答を捨てる。
+	// マウント時／platform切替時の取得と、export完了後の再取得の両方がこのstateを更新しうるため、
+	// frontend.mdの規約どおり値比較ではなく単調増加する世代カウンタで古い応答を捨てる
+	// （解除成功時はローカルで行を除去するだけで再取得はしない。世代カウンタは使わない）。
 	const generationRef = useRef( 0 );
 
 	function fetchIntents() {
@@ -118,6 +119,23 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 		fetchIntents();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ platform ] );
+
+	// `runInProgress`（dry-run export／実exportの実行中フラグ）がtrue→falseに変わったら
+	// 一覧を取り直す。実exportが新たにambiguousなpush intentを残しうるため、これが無いと
+	// 同じExportタブを開いたままexportを繰り返しても一覧が更新されず（マウント時の1回しか
+	// 取得しない）、D21-Bの主眼である「ブロックされた実体を店舗が見つけて解除する」動線が
+	// 機能しない（独立レビュー指摘）。dry-run完了時にも走るが、dry-runはintentを作らないため
+	// 無害な空振りのGETになるだけ。
+	const wasInProgressRef = useRef( runInProgress );
+
+	useEffect( () => {
+		if ( wasInProgressRef.current && ! runInProgress ) {
+			fetchIntents();
+		}
+
+		wasInProgressRef.current = runInProgress;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ runInProgress ] );
 
 	function resolve(
 		intent: PushIntent,
@@ -216,6 +234,7 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 												variant="link"
 												href={ intent.edit_url }
 												target="_blank"
+												rel="noreferrer noopener"
 											>
 												{ __(
 													'Edit in WooCommerce',

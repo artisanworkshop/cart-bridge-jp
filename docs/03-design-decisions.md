@@ -1263,8 +1263,9 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
        mapping を持たないため、mapping 駆動の削除ループでは個別に検出できない）
     2. `Sync\LimitPolicy::used()`（＝ `/limits` の `used`）が未解決の intent を含むようになったため、既存の値の
        意味が変わる（`limit - used === remaining` の整合性を保つための変更。D21-B 本文の記述どおり）
-    3. 契約違反（remote_id が空の `PartialPushException`。R3-0a の申し送り）は、原因の例外型（レート制限か否か）に
-       よらず必ず「印を残す」側に倒す
+    3. 契約違反（remote_id が空の `PartialPushException`。R3-0a の申し送り。または `PushResult` が
+       created/updated を主張しつつ remote_id が空）は、原因の例外型（レート制限か否か）によらず
+       必ず「印を残す」側に倒す
     4. `Core\Activator::maybe_upgrade()` のようなマイグレーションは `admin_init` 限定のフックに登録しない
        （issue #73 の実装過程で発見。`Core\Plugin::boot()` 自体は `plugins_loaded` から呼ばれるため、そこで
        直接呼ぶ。CLAUDE.md「コーディング規約」参照）
@@ -1276,8 +1277,10 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     「リンクして解除」（`link`）を提供する。`link` が使えない種別（クーポン等。`LINK_UNSUPPORTED`／422）は
     entity_type によるハードコードで事前に隠さず、行内のエラー表示に委ねる（原則8「アダプタ拡張点の信頼境界」。
     どの entity_type が `link` 非対応かはアダプタ実装依存であり、UI に持ち込むとプラットフォーム固有の制約が
-    アダプタ外に漏れる）。一覧取得・解除後の再取得は `frontend.md` の規約どおり単調増加する世代カウンタで
-    古い応答を捨てる
+    アダプタ外に漏れる）。一覧はマウント時（platform 切替時）と、実 export の実行中フラグが
+    true→false に変わったとき（新たに ambiguous な intent が残りうるため）に取得し直す。取得は
+    `frontend.md` の規約どおり単調増加する世代カウンタで古い応答を捨てる（解除成功時はローカルで
+    行を除去するだけで再取得はしない）
   - **検証ツール**: `.claude/skills/verify-with-mock-adapter/templates/mu-plugin-mock-adapter.php` に
     `cbjp_verify_seed.push`（`enabled`/`create_failure`）を追加し、`MockPlatformAdapter` の
     `push_products_supported`/`push_others_supported`/`create_push_failure` を配線した（それまでは push 系が
