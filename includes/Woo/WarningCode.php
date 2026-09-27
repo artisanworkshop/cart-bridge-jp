@@ -454,6 +454,18 @@ final class WarningCode {
 	public const PUSH_INTERRUPTED_AFTER_CREATE = 'push_interrupted_after_create';
 
 	/**
+	 * `Sync\Exporter`: 作成経路（`existing_remote_id === null`）でこの実体を送信する前に、
+	 * `Sync\PushIntentRepository`に未解決の印（前回以前の試行で結果が不明のまま残ったもの）が
+	 * 見つかったため、今回はpushせずスキップした（D21-B。`docs/03-design-decisions.md` §10.2
+	 * 「B: 作成結果が不明な実体を自動では再送しない」）。印は`Woo\Tools\PushIntentPresenter`/
+	 * REST（`GET/POST /push-intents/{platform}`）経由で店舗がColorMe側を確認してから解除するまで
+	 * 残り続ける。`ReadItem::$warnings`起点の`indicates_export_blocking()`/
+	 * `indicates_unresolved_reference()`とは独立した判定（`Exporter`自身がintentの有無で決める）
+	 * のため、どちらにも登録しない。
+	 */
+	public const PUSH_OUTCOME_UNCONFIRMED = 'push_outcome_unconfirmed';
+
+	/**
 	 * `ColorMeAdapter::push_product()`: ColorMeはオプション追加で全組み合わせ（直積）を
 	 * 自動生成するため、Woo側に対応するバリエーションが無い組み合わせがリモートに残ることがある
 	 * （原則4「破壊的操作の禁止」によりこちらから削除できない）。再試行しても消えるとは限らない

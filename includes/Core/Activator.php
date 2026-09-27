@@ -14,7 +14,7 @@ namespace CartBridgeJP\Core;
  */
 final class Activator {
 
-	public const DB_VERSION = '0.2.0';
+	public const DB_VERSION = '0.3.0';
 
 	public const DB_VERSION_OPTION = 'cbjp_db_version';
 
@@ -50,6 +50,7 @@ final class Activator {
 		$mappings_table      = $prefix . 'cbjp_mappings';
 		$logs_table          = $prefix . 'cbjp_logs';
 		$dry_run_items_table = $prefix . 'cbjp_dry_run_items';
+		$push_intents_table  = $prefix . 'cbjp_push_intents';
 
 		$sql = "CREATE TABLE {$jobs_table} (
   id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -105,6 +106,20 @@ CREATE TABLE {$dry_run_items_table} (
   UNIQUE KEY job_entity_remote (job_id, entity, remote_id),
   KEY run_entity_id (run_id, entity, id),
   KEY created_at (created_at)
+) {$charset_collate};
+CREATE TABLE {$push_intents_table} (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  platform varchar(20) NOT NULL,
+  entity_type varchar(20) NOT NULL,
+  local_id bigint(20) unsigned NOT NULL,
+  run_id char(36) NULL,
+  job_id bigint(20) unsigned NULL,
+  reason varchar(30) NULL,
+  created_at datetime NOT NULL,
+  updated_at datetime NOT NULL,
+  PRIMARY KEY  (id),
+  UNIQUE KEY platform_entity_local (platform, entity_type, local_id),
+  KEY platform (platform)
 ) {$charset_collate};";
 
 		dbDelta( $sql );

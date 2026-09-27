@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Tools;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Sync\ExportSampleSelector;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
@@ -65,7 +66,8 @@ final class SampleCleanup {
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
-		private readonly Logger $logger = new Logger()
+		private readonly Logger $logger = new Logger(),
+		private readonly PushIntentRepository $push_intents = new PushIntentRepository()
 	) {}
 
 	/**
@@ -240,6 +242,12 @@ final class SampleCleanup {
 		$this->mappings->delete_for_platform( $platform );
 		SampleSelector::clear( $platform );
 		ExportSampleSelector::clear( $platform );
+
+		// D21-B（issue #73）: 未解決の`cbjp_push_intents`は定義上mappingを持たないため、上の
+		// mapping駆動ループ（`ENTITY_ORDER`）では個別に検出できない。このプラットフォームの
+		// mappingsを全て処理し終えた（＝全量クリーンアップ完了）この時点で一括して消す
+		// （残すと、存在しない実体の印が一覧に残り続ける）。
+		$this->push_intents->delete_for_platform( $platform );
 
 		return $this->result( $platform, $deleted, $unlinked, false );
 	}

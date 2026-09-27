@@ -10,18 +10,23 @@ namespace CartBridgeJP\Tests\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Exporter;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PlatformWriter;
+use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\InMemoryPlatformWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -31,11 +36,34 @@ use WP_UnitTestCase;
 final class ExporterTest extends WP_UnitTestCase {
 
 	private MappingRepository $mappings;
+	private PushIntentRepository $push_intents;
 
 	public function set_up(): void {
 		parent::set_up();
 		Activator::activate();
-		$this->mappings = new MappingRepository();
+		$this->mappings     = new MappingRepository();
+		$this->push_intents = new PushIntentRepository();
+	}
+
+	/**
+	 * `PlatformWriter`で、指定した名前の商品に対してだけ渡された例外を投げる（作成経路のみ）。
+	 * D21-B（push intent）の各分岐テスト用。
+	 */
+	private function writer_failing_on_create( string $failing_name, Throwable $exception ): PlatformWriter {
+		return new class( $failing_name, $exception ) implements PlatformWriter {
+			public function __construct(
+				private readonly string $failing_name,
+				private readonly Throwable $exception
+			) {}
+
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				if ( null === $existing_remote_id && $this->failing_name === $item->name ) {
+					throw $this->exception;
+				}
+
+				return new PushResult( 'ok', PushResult::OPERATION_UPDATED );
+			}
+		};
 	}
 
 	private function product( string $name = 'P' ): CanonicalProduct {
@@ -620,6 +648,11 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $logs );
 		$this->assertSame( 'error', $logs[0]['level'] );
 
+		// D21-B: 上の呼び出しは契約違反として印を残した（`mark_ambiguous`）ため、このままでは
+		// 次のexportがブロックされてwriterが一切呼ばれなくなる。この後の呼び出しは別の独立した
+		// シナリオ（原因がレート制限の場合）を検証するためのものなので、印を消してリセットする。
+		( new PushIntentRepository() )->delete( 'mock', 'product', 101 );
+
 		$cause = new RateLimitExhaustedException( 'mock' );
 
 		try {
@@ -656,5 +689,253 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
 		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
+	}
+
+	// ---- D21-B（issue #73）: push intent ----------------------------------------------------
+
+	public function test_successful_creation_clears_the_push_intent_it_started(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	public function test_an_unresolved_push_intent_blocks_the_item_without_calling_the_writer(): void {
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ), '解除するまで印は残り続ける' );
+	}
+
+	/**
+	 * D21-B「以後のexport（dry-runを含む）」: dry-runもブロックする。ただし`has_unresolved()`は
+	 * 読取専用のため、この経路自体はintentsテーブルへ何も書き込まない（F1-6不変条件）。
+	 */
+	public function test_an_unresolved_push_intent_blocks_dry_run_and_reports_the_warning_without_writing_to_the_table(): void {
+		global $wpdb;
+
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$before_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_push_intents" );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9201, 'run-9201' );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( $before_count, (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_push_intents" ), 'dry-runはintentsテーブルへ何も書き込まない' );
+
+		$rows = ( new DryRunItemRepository() )->list_after( 'run-9201', 0, 10 );
+		$this->assertCount( 1, $rows );
+		$this->assertStringContainsString( WarningCode::PUSH_OUTCOME_UNCONFIRMED, $rows[0]['warnings_json'] );
+	}
+
+	public function test_the_update_path_with_an_existing_mapping_never_creates_a_push_intent(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Updated' ) ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 0, $this->push_intents->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * `push_stock()`はシグネチャに`?string $remote_id`を取らない（既存実体への更新のみで冪等）ため、
+	 * D21-Bの対象外（`Exporter::PUSH_INTENT_ENTITIES`に含めない）。
+	 */
+	public function test_stock_entity_never_creates_a_push_intent(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'stock', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 0, $this->push_intents->count( 'mock', 'stock' ) );
+	}
+
+	/**
+	 * `MockPlatformAdapter::$create_push_failure`（issue #73 モックアダプタの5xxトグル）が
+	 * 実際のディスパッチ経路（`Woo\Export\AdapterPlatformWriter`）を通して`Exporter`まで正しく
+	 * 伝わり、印が残ることを確認する（wp-env実機確認で使う切替の単体テストでの裏取り）。
+	 */
+	public function test_mock_adapter_create_push_failure_toggle_keeps_the_intent_through_the_real_dispatch_path(): void {
+		$adapter  = new MockPlatformAdapter( push_products_supported: true, create_push_failure: new ApiException( 'server error', 500 ) );
+		$writer   = new AdapterPlatformWriter( $adapter );
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( $adapter, $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	public function test_a_4xx_api_exception_confirms_rejection_and_clears_the_intent(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new ApiException( 'rejected', 422 ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	public function test_a_5xx_api_exception_keeps_the_intent_ambiguous_and_blocks_the_next_export(): void {
+		global $wpdb;
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new ApiException( 'server error', 500 ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$reason = $wpdb->get_var( "SELECT reason FROM {$wpdb->prefix}cbjp_push_intents WHERE platform = 'mock' AND entity_type = 'product' AND local_id = 101" );
+		$this->assertSame( 'ambiguous_error', $reason );
+
+		// 次回exportはブロックされ、writerが呼ばれない。
+		$next_writer = new InMemoryPlatformWriter();
+		$exporter->run_page( new MockPlatformAdapter(), $next_writer, new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] ), 'product', Cursor::start(), false );
+		$this->assertSame( [], $next_writer->writes );
+	}
+
+	/**
+	 * status 0（HttpClientの通信断・タイムアウト）も5xxと同じく「結果不明」として印を残す。
+	 */
+	public function test_an_api_exception_with_status_zero_keeps_the_intent_ambiguous(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new ApiException( 'no response', 0 ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	public function test_a_generic_exception_keeps_the_intent_ambiguous(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new RuntimeException( 'id missing from response' ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	public function test_unsupported_operation_exception_confirms_rejection_and_clears_the_intent(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new UnsupportedOperationException( 'mock', 'push_product' ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * `RateLimiter::wait()`が送信前に投げた素の例外＝未送信が確定しているため、再スローの前に
+	 * 印を消す（次回exportは改めて作成を試みる。JobManagerがジョブをpausedにするのは変わらない）。
+	 */
+	public function test_a_plain_rate_limit_exception_clears_the_intent_before_rethrowing(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->writer_failing_on_create( 'P', new RateLimitExhaustedException( 'mock' ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$this->expectException( RateLimitExhaustedException::class );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+		} finally {
+			$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		}
+	}
+
+	/**
+	 * D21-Aの「その他の例外」行として扱う契約違反経路（remote_idの無い`PartialPushException`）は、
+	 * 原因が`RateLimitExhaustedException`であっても——素の場合（上のテスト）とは異なり——
+	 * 「送信前が確定」とはみなさず、印を残す（`docs/03` §10.2「D21の記述からの差」2.参照）。
+	 */
+	public function test_a_contract_violating_partial_push_keeps_the_intent_even_when_the_cause_is_rate_limit(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = $this->partial_push_writer( 'P', '', new RateLimitExhaustedException( 'mock' ) );
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$this->expectException( RateLimitExhaustedException::class );
+
+		try {
+			$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+		} finally {
+			$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ), '契約違反は原因の例外型によらず必ず印を残す' );
+		}
+	}
+
+	/**
+	 * アダプタが「実際には送信しなかった」ことを明示的に返す場合（例:
+	 * `CUSTOMER_REQUIRED_FIELD_MISSING`で送信前にフェイルクローズ）、未送信が確定しているため
+	 * 印を消す。
+	 */
+	public function test_a_push_result_reporting_nothing_was_sent_clears_the_intent(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * `LimitPolicy::used()`は未解決intent自体を累積カウントに含める（D21-Bの意図どおり。上限2件の
+	 * うち101の未解決intent1件分は既に消費済みで残り枠は1件）。ブロックされた101はこの1ページの
+	 * 処理中に**追加で**枠を消費しない（quota判定より前に`continue`する）ため、残り1件の枠は
+	 * 102の作成にそのまま使える。ブロック判定がquota判定より後になる退行が起きると、101が
+	 * 残り1件の枠を消費してしまい102が作成されなくなる。
+	 */
+	public function test_a_blocked_intent_does_not_consume_an_additional_free_tier_quota_slot(): void {
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Blocked' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
+		$writer       = new InMemoryPlatformWriter();
+		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
+		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
+
+		add_filter( 'cbjp/limits/product', static fn () => 2 );
+
+		try {
+			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), 'ブロックされた1件目が残り1件の枠を余分に消費しないため2件目が作成される' );
 	}
 }

@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\ExportSampleSelector;
+use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
@@ -474,6 +475,24 @@ final class SampleCleanupTest extends WooTestCase {
 
 		$this->assertFalse( $result['has_more'] );
 		$this->assertFalse( get_option( ExportSampleSelector::option_name_for( 'mock' ) ) );
+	}
+
+	/**
+	 * D21-B（issue #73）: 未解決push intentはmappingを持たないため、mapping駆動のクリーンアップ
+	 * ループでは検出できない。全量完了（`has_more: false`）のタイミングで対象platformの
+	 * intentが一括で消え、他platformのintentは残ることを確認する。
+	 */
+	public function test_run_finalization_clears_unresolved_push_intents_for_the_platform_only(): void {
+		$push_intents = new PushIntentRepository();
+		$push_intents->begin( 'mock', 'product', 999999, null, null );
+		$push_intents->begin( 'other', 'product', 999999, null, null );
+
+		$cleanup = new SampleCleanup( $this->mappings, push_intents: $push_intents );
+		$result  = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertFalse( $push_intents->has_unresolved( 'mock', 'product', 999999 ) );
+		$this->assertTrue( $push_intents->has_unresolved( 'other', 'product', 999999 ) );
 	}
 
 	public function test_images_of_products_that_are_still_linked_elsewhere_or_unmapped_are_preserved(): void {
