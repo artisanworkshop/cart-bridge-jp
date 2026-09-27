@@ -151,6 +151,15 @@ final class Exporter {
 			// mappingが既にある実体を処理する機会（このアイテム）で自己修復する。
 			if ( ! $is_dry_run && null !== $existing_remote_id && $push_intent_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
 				$this->push_intents->delete( $platform, $entity, $local_id );
+
+				// レビュー指摘（Codex/Copilot, G2）: ページ開始時に一度だけ計算した`$remaining`は
+				// mappingsと未解決intentの両方を数える`LimitPolicy::used()`に基づくため、この実体を
+				// 二重に数えていた（mapping1件＋intent1件）。印を消した分、実質的な使用数は1件
+				// 減るので、このページ内の残り処理のために枠を1つ戻す。戻さないと、上限に近い
+				// 状態でこの後の本来pushしてよい新規アイテムが不要にskipされうる。
+				if ( null !== $remaining ) {
+					++$remaining;
+				}
 			}
 
 			// D21-B（issue #73）: 作成経路（既存remote_id無し）で、以前の試行の結果が不明なまま
@@ -445,8 +454,17 @@ final class Exporter {
 
 				// D21-B: mapping書込み後に印を消す（永続化してから消す。`.claude/rules/
 				// sync-export-tools.md`の「先に永続化してから原因を再スロー/後続処理」の順序どおり）。
+				// レビュー指摘（Codex P1/Copilot, G2）: `MappingRepository::upsert()`は
+				// `$wpdb->query()`の戻り値を捨てて`void`を返すため、一過性のDB障害があっても
+				// 例外にならない。`Woo\Tools\PushIntentResolver::resolve_link()`と同じく、
+				// upsert後にmappingが本当に書けたことを読み直して確認してから印を消す
+				// （確認できない場合は印を残し、次回exportで再送をブロックしたまま安全側に倒す）。
 				if ( $push_intent_pending ) {
-					$this->push_intents->delete( $platform, $entity, $local_id );
+					if ( $local_id === $this->mappings->find_local_id( $platform, $entity, $result->remote_id ) ) {
+						$this->push_intents->delete( $platform, $entity, $local_id );
+					} else {
+						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
+					}
 				}
 
 				// `Importer`と同じ理由: 直前に確定したremote_idでこの場のスナップショットも

@@ -23,6 +23,7 @@ use CartBridgeJP\Woo\WooRepositoryFactory;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Order;
 use WC_Product;
+use WC_Product_Simple;
 use WP_User;
 
 final class SampleCleanupTest extends WooTestCase {
@@ -493,6 +494,30 @@ final class SampleCleanupTest extends WooTestCase {
 		$this->assertFalse( $result['has_more'] );
 		$this->assertFalse( $push_intents->has_unresolved( 'mock', 'product', 999999 ) );
 		$this->assertTrue( $push_intents->has_unresolved( 'other', 'product', 999999 ) );
+	}
+
+	/**
+	 * D21-Bレビュー指摘（Copilot, G2）: 未解決intentは、対応するローカル実体が本当に無くなって
+	 * いる場合だけ消してよい。まだ存在するローカル実体（export方向の未マッピング商品。
+	 * 本プラグイン所有ではないためmapping駆動ループは削除しない＝mapping自体が無い）への印を
+	 * 一律に消すと、次回のサンプル選定が「未送信」として扱い再度POSTし、実際には作成済み
+	 * かもしれない実体を重複作成しうる。ローカル実体がまだ存在する限り印は残ることを確認する。
+	 */
+	public function test_run_finalization_preserves_unresolved_push_intents_whose_local_entity_still_exists(): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Still exists' );
+		$existing_product_id = $product->save();
+
+		$push_intents = new PushIntentRepository();
+		$push_intents->begin( 'mock', 'product', $existing_product_id, null, null );
+		$push_intents->begin( 'mock', 'product', 999999, null, null );
+
+		$cleanup = new SampleCleanup( $this->mappings, push_intents: $push_intents );
+		$result  = $cleanup->run( 'mock' );
+
+		$this->assertFalse( $result['has_more'] );
+		$this->assertTrue( $push_intents->has_unresolved( 'mock', 'product', $existing_product_id ), 'ローカル実体が残る限り印は残す' );
+		$this->assertFalse( $push_intents->has_unresolved( 'mock', 'product', 999999 ), '実在しない商品への印は消える' );
 	}
 
 	public function test_images_of_products_that_are_still_linked_elsewhere_or_unmapped_are_preserved(): void {

@@ -1142,4 +1142,34 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( WarningCode::ALL_VARIATIONS_EXCLUDED, $rows[0]['warnings_json'] );
 		$this->assertStringContainsString( WarningCode::PUSH_OUTCOME_UNCONFIRMED, $rows[0]['warnings_json'] );
 	}
+
+	/**
+	 * レビュー指摘（Codex/Copilot, G2）: ページ開始時に一度だけ計算する`$remaining`は、
+	 * mapping+未解決intentの両方を持つ実体を二重に数えている（`LimitPolicy::used()`が両方を
+	 * 加算するため）。自己修復（上のテスト）で印を消した分、このページの残り処理のために枠を
+	 * 1つ戻さないと、本来pushしてよい別の新規アイテムが不要にskipされる。
+	 */
+	public function test_reconciling_a_stale_intent_restores_the_free_tier_quota_slot_it_was_holding(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
+		$this->push_intents->begin( 'mock', 'product', 101, null, null );
+
+		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Updated' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
+		$writer       = new InMemoryPlatformWriter();
+		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
+		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
+
+		// 上限2件のうち、101のmapping1件＋stale intent1件で「使用済み2件」に見えるため、
+		// 修正前は残り枠0で102がskipされてしまう。
+		add_filter( 'cbjp/limits/product', static fn () => 2 );
+
+		try {
+			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertSame( 1, $result['totals']['created'], '101の自己修復で戻った枠を使い102が作成される' );
+		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
+	}
 }
