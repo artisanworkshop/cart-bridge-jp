@@ -1254,6 +1254,44 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
   （残すと、存在しない実体の印が一覧に残り続ける）。intent は自動では期限切れにしない（フェイルクローズ）。
   `JobManager` の同時実行ガードとは独立だが、`UNIQUE KEY` により同じ実体を2つの run が同時に作成することも防ぐ
   （#57 の部分的な緩和。ガード全体の原子化は引き続き #57）
+- **実装（R3-0b、issue #73）**: バックエンド＋REST を PR #79（PR 1/2、2026-09-27 マージ）、Export タブの解除 UI を
+  PR 2/2（本節）で実装した。
+  - **D21 の記述からの差**（実装時に判断した点）:
+    1. `SampleCleanup` の intent 削除は個別エンティティ単位ではなく、「プラットフォームの mappings を全て処理し
+       終えた（全量完了）」タイミングで、そのプラットフォームの未解決 intent を一括で対象にする
+       （`LocalEntityLookup` で対応する Woo 実体がまだ実在するか確認してから消す。未解決の intent は定義上
+       mapping を持たないため、mapping 駆動の削除ループでは個別に検出できない）
+    2. `Sync\LimitPolicy::used()`（＝ `/limits` の `used`）が未解決の intent を含むようになったため、既存の値の
+       意味が変わる（`limit - used === remaining` の整合性を保つための変更。D21-B 本文の記述どおり）
+    3. 契約違反（remote_id が空の `PartialPushException`。R3-0a の申し送り）は、原因の例外型（レート制限か否か）に
+       よらず必ず「印を残す」側に倒す
+    4. `Core\Activator::maybe_upgrade()` のようなマイグレーションは `admin_init` 限定のフックに登録しない
+       （issue #73 の実装過程で発見。`Core\Plugin::boot()` 自体は `plugins_loaded` から呼ばれるため、そこで
+       直接呼ぶ。CLAUDE.md「コーディング規約」参照）
+  - **UI（`src/components/PushIntentsPanel.tsx`、Export タブ）**: 実装した REST 応答は当初の設計メモが示していた
+    `DryRunLabel` より詳細な `entity_type` 別 `details`（`Woo\Tools\PushIntentPresenter::describe()`。product は
+    name/sku、customer は email、order は number/total/currency/date_created、coupon は code）に進化している。
+    未解決 intent があるときだけ常時表示の `Notice` + 表を出し（`window.confirm()` は使わない。
+    `.claude/rules/frontend.md`）、行ごとに「未作成として解除」（`not_created`）と remote_id 入力＋
+    「リンクして解除」（`link`）を提供する。`link` が使えない種別（クーポン等。`LINK_UNSUPPORTED`／422）は
+    entity_type によるハードコードで事前に隠さず、行内のエラー表示に委ねる（原則8「アダプタ拡張点の信頼境界」。
+    どの entity_type が `link` 非対応かはアダプタ実装依存であり、UI に持ち込むとプラットフォーム固有の制約が
+    アダプタ外に漏れる）。一覧取得・解除後の再取得は `frontend.md` の規約どおり単調増加する世代カウンタで
+    古い応答を捨てる
+  - **検証ツール**: `.claude/skills/verify-with-mock-adapter/templates/mu-plugin-mock-adapter.php` に
+    `cbjp_verify_seed.push`（`enabled`/`create_failure`）を追加し、`MockPlatformAdapter` の
+    `push_products_supported`/`push_others_supported`/`create_push_failure` を配線した（それまでは push 系が
+    常に `UnsupportedOperationException` になり、export 方向の実機検証ができなかった）
+  - **実機確認（wp-env、2026-09-27）**: mock を非衝突キー（`mockv`）で登録し、`rest_do_request()` 経由で
+    push=disabled（`UnsupportedOperationException`）／push.create_failure=`ambiguous_5xx`（intent が残る）→
+    以後の export がブロック（`skipped`+`PUSH_OUTCOME_UNCONFIRMED`）→ `GET /push-intents` 一覧に反映→
+    `not_created` 解除→再 export で作成される、を確認した。UI（`PushIntentsPanel`）自体は実店舗（`colorme`）に
+    手動で intent 行を挿入し、Export タブで Notice・表・編集リンクの表示と「未作成として解除」操作（押下後に
+    行が消える、`window.confirm()` によるフリーズなし）を目視確認した。`link` の成功系統一式（実在確認・別実体
+    使用中の 409）は `PushIntentResolverTest`／`RestControllerTest` の単体テストで確認済みで、実機では
+    `link` の 404（remote 側に存在しない）応答が正しく届くことのみ確認した（mock アダプタに商品を事前登録して
+    いないため、実機での link 成功系統は未確認のまま）。検証に使った一時スクリプトはコミットしていない
+    （撤去済み。手順は `.claude/skills/verify-with-mock-adapter/SKILL.md`）
 - **テスト方針**: `Exporter` は結果表の全行（特に「残す」行）を、分岐を一時的に壊して落ちることまで確認する（CLAUDE.md
   「テスト方針」のミューテーション）。ColorMe は HTTP モックで「POST 成功→追いPUT で `RateLimitExhaustedException`」と
   「POST が 5xx／タイムアウト」を再現する。実機（wp-env）では `/verify-with-mock-adapter` のモックアダプタに
