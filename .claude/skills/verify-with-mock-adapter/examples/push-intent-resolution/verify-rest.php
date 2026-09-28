@@ -63,7 +63,16 @@ $intents_now = static function () use ( $call, $platform ): array {
 //   - `cbjp_process_job`（Action Scheduler）は CLI では自走しないので、pending を自分で処理する。**この run のジョブだけ**を job_id で引いて処理する
 //     （サイト全体の pending を流すと、他 platform〔colorme 等〕のジョブを同期実行して実 API を叩きかねない）。20 回で処理し切れなければエラーにする
 $run_export = static function ( array $seed ) use ( $call, $platform ): array {
-	update_option( 'cbjp_verify_seed', $seed );
+	// `cbjp_verify_seed` は prefecture-repair の example と共有する（customers/orders）ので、丸ごと上書きせず `push` キーだけを差し替える。
+	$current = get_option( 'cbjp_verify_seed', [] );
+	$current = is_array( $current ) ? $current : [];
+	unset( $current['push'] );
+
+	if ( is_array( $seed['push'] ?? null ) ) {
+		$current['push'] = $seed['push'];
+	}
+
+	update_option( 'cbjp_verify_seed', $current );
 	AdapterRegistry::reset_cache();
 
 	$started = $call(
@@ -167,6 +176,7 @@ $initial = count( $intents );
 
 // ---- 3) 印が残る実体は、再送が成功する状況でも送られない ----
 // warned は「ブロックされた」証拠（PUSH_OUTCOME_UNCONFIRMED の警告）。無料版の上限で作成されなかっただけの場合は warned が増えないので、created 0 だけでは区別できない。
+// 限界: warned は他の警告（商品データの品質など）も数えるので、それが印の数以上ある環境ではブロックが外れても通りうる。厳密には印のある local_id ごとに確かめる必要がある。
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] ); // 5xx を止める。ブロックが無ければここで作成される。
 $check( '3 印が残る実体は再 export でブロックされる（作成 0、印の数以上の警告）', 0 === (int) ( $r['created'] ?? -1 ) && (int) ( $r['warned'] ?? 0 ) >= $initial, wp_json_encode( $r ) );
 $check( '3 ブロック中は印の数が変わらない', count( $intents_now() ) === $initial );
