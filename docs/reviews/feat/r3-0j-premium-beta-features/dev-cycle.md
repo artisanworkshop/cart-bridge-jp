@@ -3,8 +3,8 @@
 - タスク: R3-0j（D24、issue #75）— プレミアムプラン限定の受注エクスポートと商品画像アップロードをベータ表示にし、既定オフにする
 - 開始: 2026-09-28
 - PR: #84 https://github.com/artisanworkshop/cart-bridge-jp/pull/84
-- 現在のステップ: 7（ゲート G2・確認ゲート待ち）
-- Copilot: 依頼 2 回 / 未収束（G2 で新規 Low 1 件）
+- 現在のステップ: 8（完了。final-report.md 記録済み）
+- Copilot: 依頼 3 回（上限） / G3 は本文指摘のみ（誤検知 Medium 2 件・Low 1 件は修正）
 - Codex: 依頼 2 回 / 収束（G2 で新規指摘なし）
 
 ## ログ
@@ -17,3 +17,5 @@
 | 2026-09-28 | 4〜6 | PR #84 作成 → CI green → Copilot 依頼 1 回目（登録確認済み）・Codex は自動レビューが5分以内に来ず `@codex review` を自動投稿（依頼1回目としてカウント） |
 | 2026-09-28 | 7 | G1: Copilot 2 件（High「beta_features 非配列で TypeError」・Medium「mock テンプレートの null 扱い」）、Codex 1 件（P1「画像設定読込前に Run export が押せる」）を修正（`e08f38e`・`d4b727f`・`22436c9`）。CI green → 両 bot へ 2 回目を依頼 |
 | 2026-09-28 | 7 | G2: Codex は新規指摘なし（収束）。Copilot は Low 1 件（本状態ファイルが PR 作成前のまま古い。CLAUDE.md の既知の落とし穴〔PR #76 G1-1〕と同種） |
+| 2026-09-28 | 7 | G3: Copilot 依頼 3 回目（上限）。インラインスレッドは無く、本文の `Previously missed` に 3 件。Medium 2 件（新設テストの永続オプションが漏れる、という指摘）は手元でテストの実行順を一時的に入れ替えて実測し、WP コアの per-test ROLLBACK で option が戻ることを確認して**対応不要（誤検知）**と判定。Low 1 件（backlog のステータス欄の表記揺れ）は修正（`810ccba`）。Codex は G2 で収束済みのため再依頼せず |
+| 2026-09-28 | 8 | 最終報告（`final-report.md`）作成・完了。マージは人間が行う |
