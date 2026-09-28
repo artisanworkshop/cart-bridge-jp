@@ -640,6 +640,13 @@ for spec in "space|${SHA_NEW:0:7} メモ" "paren|${SHA_NEW:0:7}（G1 の対応�
   run_check_ap "ap-o-${pname}"
   assert_rc "承認: 対象 HEAD の直後が空白・括弧（${pname}）なら補足があっても除外する: 0" 0
 done
+# 最初の `対象 HEAD:` の値が不正なとき、行内の後ろにある別の `対象 HEAD:` を採用しない（不正な値は除外なしに倒す）。
+mkrec_sha ap-o-two "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "deadbee! / 対象 HEAD: ${SHA_NEW:0:7}"
+run_check_ap ap-o-two
+assert_rc "承認: 最初の対象 HEAD が不正なら、後ろの対象 HEAD を採用せず除外なしで検査する: 1" 1
+mkrec_sha ap-o-first "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_NEW:0:7} / 対象 HEAD: deadbee!"
+run_check_ap ap-o-first
+assert_rc "承認: 最初の対象 HEAD が有効なら、後ろに別のラベルがあっても最初の値を採用する: 0" 0
 mkrec_sha ap-o "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "1111111"
 run_check_ap ap-o
 assert_rc "承認: 対象 HEAD が存在しない（祖先と確かめられない）ときは除外せず検査する: 1" 1
