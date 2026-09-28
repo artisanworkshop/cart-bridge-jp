@@ -20,6 +20,13 @@ namespace CartBridgeJP\Adapters;
  * `beta_features`（D24）は、宣言済みの能力のうち「実店舗で未検証のベータ機能」に当たるものの識別子
  * （`BETA_*` 定数）。UI は「Beta」表示と既定オフにだけ使い、可否そのもの（`can_create_order` /
  * `can_push_images`）は従来どおりそれぞれの能力が決める。宣言しない外部アダプタの既定は空（ベータなし）。
+ *
+ * **`can_push_images` の契約（D24）**: 宣言するアダプタは、実際に画像を送るかを
+ * `Support\ExportOptions::push_images_enabled( $this->id() )`（Export タブの「商品画像をアップロードする」。
+ * 既定オフ）に従わせること。Export タブの項目・`PUT /settings/export-options`・`Sync\Exporter` の
+ * checksum の印は、`can_push_images` が true の全アダプタがこの設定に従う前提で動く。従わないアダプタでは、
+ * 設定がオフでも画像が送られ（既定オフが成り立たない）、切り替えるたびに商品が再送されるだけになる
+ * （`ColorMeAdapter::should_push_images()` が参照実装）。
  */
 final readonly class Capabilities {
 

@@ -116,6 +116,11 @@ interface PlatformAdapter {
 	 * 素のまま出すとmappingが残らず、次回のexportが同じ実体をもう一度作成して重複する。
 	 * 作成そのものが失敗した場合（remote_idが分からない）は従来どおり素の例外でよい。
 	 * 契約に従わない実装でも、`Sync\Exporter`は従来どおり動く（重複しうる状態は変わらない）。
+	 *
+	 * **画像（D24）**: `Capabilities::$can_push_images`が true のアダプタは、画像を
+	 * `Support\ExportOptions::push_images_enabled( $this->id() )`が true のときだけ送ること
+	 * （既定オフ。オフのときは送らず`WarningCode::PRODUCT_IMAGES_NOT_PUSHED`を積む）。
+	 * 外部のリモート側画像を上書きしうる操作のため、店舗が明示的に選んだときだけ動かす。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult;
 

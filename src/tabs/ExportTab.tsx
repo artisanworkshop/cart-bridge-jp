@@ -154,6 +154,21 @@ function clearStoredExportRunId( platform: string, type: RunType ): void {
 }
 
 /**
+ * 翻訳済みの文を 2 つ連結する。半角スペースを直に挟むと日本語訳で「。 」のように不自然な空白が入るため、
+ * 区切りは翻訳者が決められるよう 1 つの文字列（`%1$s %2$s`）にする。
+ * @param first
+ * @param second
+ */
+function joinSentences( first: string, second: string ): string {
+	return sprintf(
+		/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
+		__( '%1$s %2$s', 'cart-bridge-jp' ),
+		first,
+		second
+	);
+}
+
+/**
  * ベータ機能に共通の注意書き（D24）。プレミアムプラン限定の API に依存し、テストショップが無く実店舗で
  * 検証できていないことを伝える。
  */
@@ -166,22 +181,36 @@ function betaNote(): string {
 
 function betaEntityHelp( entity: EntityType ): string {
 	if ( 'order' === entity ) {
-		return `${ __(
-			'Creates orders (sales) in the connected shop.',
-			'cart-bridge-jp'
-		) } ${ betaNote() }`;
+		return joinSentences(
+			__(
+				'Creates orders (sales) in the connected shop.',
+				'cart-bridge-jp'
+			),
+			betaNote()
+		);
 	}
 
 	return betaNote();
 }
 
+/**
+ * 画像アップロードの説明。オンにすると export 済みの商品が更新として再送され、ColorMe の
+ * `POST /products/{id}/images` は同じ position の既存画像を**上書き**する（swagger）ため、
+ * 管理画面で手作業で登録した画像が置き換わりうることを先に伝える。
+ * @param beta
+ */
 function pushImagesHelp( beta: boolean ): string {
-	const base = __(
-		'Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting. Turning it on sends products that were already exported again (as updates) on the next export, so their images are uploaded.',
+	const off = __(
+		'Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting.',
 		'cart-bridge-jp'
 	);
+	const on = __(
+		'Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images.',
+		'cart-bridge-jp'
+	);
+	const base = joinSentences( off, on );
 
-	return beta ? `${ base } ${ betaNote() }` : base;
+	return beta ? joinSentences( base, betaNote() ) : base;
 }
 
 interface ExportRunSectionState {
@@ -1285,6 +1314,7 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								exportOptionsSaving ||
 								0 === selectedExportEntities.size
 							}
 							onClick={ () => startExportRun( 'dry_run_export' ) }
@@ -1300,6 +1330,7 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								exportOptionsSaving ||
 								0 === selectedExportEntities.size ||
 								! acknowledgeProductionWrite
 							}
