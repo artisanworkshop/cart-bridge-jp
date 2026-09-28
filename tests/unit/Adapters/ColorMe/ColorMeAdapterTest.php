@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
@@ -19,6 +20,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\Exporter;
@@ -39,6 +41,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'pre_http_request' );
 		delete_option( 'cbjp_settings_colorme' );
+		delete_option( ExportOptions::option_name( ColorMeAdapter::ID ) );
 		parent::tear_down();
 	}
 
@@ -50,6 +53,14 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$token_store = new TokenStore( $platform );
 
 		return [ new ColorMeAdapter( $token_store ), $token_store, $platform ];
+	}
+
+	/**
+	 * D24: 画像アップロードは既定オフ。画像を実際に送るテストは、Export タブの「商品画像をアップロードする（Beta）」に
+	 * 当たる設定を明示的にオンにする（設定は`ColorMeAdapter::ID`単位で、`make_adapter()`のTokenStoreとは無関係）。
+	 */
+	private function enable_image_upload(): void {
+		ExportOptions::save_push_images( ColorMeAdapter::ID, true );
 	}
 
 	public function test_id_and_label(): void {
@@ -112,6 +123,50 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( 100, $capabilities->rate_limit_per_minute );
 		// 在庫管理は商品単位のみでバリエーションに相当する項目が無い（D22）。混在した商品はExporterが止める。
 		$this->assertFalse( $capabilities->supports_per_variant_stock_management );
+	}
+
+	/**
+	 * D24: プレミアム限定の受注エクスポートと画像アップロードはベータ版。プラン（＝能力の有無）に関わらず静的に宣言し、
+	 * 項目を出すかどうかは`can_create_order`/`can_push_images`が決める。
+	 */
+	public function test_capabilities_declare_the_premium_only_features_as_beta_regardless_of_plan(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+
+		$this->assertSame( [ Capabilities::BETA_ORDER_EXPORT, Capabilities::BETA_IMAGE_PUSH ], $adapter->capabilities()->beta_features, '未接続（プラン不明）' );
+
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->assertSame( [ Capabilities::BETA_ORDER_EXPORT, Capabilities::BETA_IMAGE_PUSH ], $adapter->capabilities()->beta_features );
+	}
+
+	/**
+	 * `capabilities()->can_push_images`は能力（プラン）を表し、画像アップロードの設定では変わらない。設定で変わると、
+	 * オフのとき UI が「この店舗で画像をアップロードできる」ことを判別できず、オンにする手段が無くなる。
+	 */
+	public function test_capabilities_can_push_images_does_not_depend_on_the_image_upload_setting(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$this->assertTrue( $adapter->capabilities()->can_push_images, '設定オフ（既定）でも能力は true' );
+
+		$this->enable_image_upload();
+
+		$this->assertTrue( $adapter->capabilities()->can_push_images );
+
+		// 非プレミアムでは設定がオンでも能力は false のまま（設定が能力を作らない）。
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->assertFalse( $adapter->capabilities()->can_push_images );
 	}
 
 	public function test_connection_fields_declares_client_credentials_and_oauth_button(): void {
@@ -1416,7 +1471,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( [ '', '' ], $result->variant_remote_ids );
 	}
 
-	public function test_push_product_pushes_images_when_premium_plan(): void {
+	public function test_push_product_pushes_images_when_premium_plan_and_image_upload_is_on(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save(
 			[
@@ -1424,6 +1479,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'extras'       => [ 'contract_plan' => 'premium' ],
 			]
 		);
+		$this->enable_image_upload();
 
 		$captured = [];
 		$this->mock_push_requests(
@@ -1491,6 +1547,125 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * D24: プレミアムプランでも画像アップロードは既定オフ。画像を一切送らず（ダウンロードも画像POSTもしない）、
+	 * 従来の`PRODUCT_IMAGES_NOT_PUSHED`（情報提供の警告）を積む。商品自体は通常どおり作成される。
+	 */
+	public function test_push_product_does_not_push_images_on_premium_plan_while_the_setting_is_off(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save(
+			[
+				'access_token' => 'token',
+				'extras'       => [ 'contract_plan' => 'premium' ],
+			]
+		);
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 605 ] ] ] ],
+				'PUT products/605.json' => [ [ 'body' => [ 'product' => [ 'id' => 605 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product(
+			$this->simple_product(
+				[
+					[
+						'src'      => 'https://cdn.example.test/photo.jpg',
+						'position' => 0,
+					],
+				]
+			),
+			null
+		);
+
+		$this->assertSame( '605', $result->remote_id );
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings );
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products/605/images.json' ) );
+		$this->assertNull( $this->find_captured( $captured, 'GET', 'https://cdn.example.test/photo.jpg' ), 'オフのときは画像のダウンロードもしない' );
+	}
+
+	/**
+	 * 設定は能力を作らない: 非プレミアム（画像POSTがプランで使えない）では、設定がオンでも画像を送らない。
+	 */
+	public function test_push_product_does_not_push_images_on_a_non_premium_plan_even_if_the_setting_is_on(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+		$this->enable_image_upload();
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 606 ] ] ] ],
+				'PUT products/606.json' => [ [ 'body' => [ 'product' => [ 'id' => 606 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product(
+			$this->simple_product(
+				[
+					[
+						'src'      => 'https://cdn.example.test/photo.jpg',
+						'position' => 0,
+					],
+				]
+			),
+			null
+		);
+
+		$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings );
+		$this->assertNull( $this->find_captured( $captured, 'POST', 'products/606/images.json' ) );
+	}
+
+	/**
+	 * 壊れた設定値（`'true'`・`1`・配列等の型違い）は「オン」と解釈しない（フェイルクローズ。`(bool)`キャストだと
+	 * `'false'`が true になり、明示的に選んでいない店舗で画像が送られる）。
+	 */
+	public function test_push_product_treats_a_malformed_image_setting_as_off(): void {
+		foreach ( [ 'true', '1', 1, [ 'x' ] ] as $bad_value ) {
+			remove_all_filters( 'pre_http_request' );
+			update_option( ExportOptions::option_name( ColorMeAdapter::ID ), [ 'push_images' => $bad_value ], false );
+
+			[ $adapter, $token_store ] = $this->make_adapter();
+			$token_store->save(
+				[
+					'access_token' => 'token',
+					'extras'       => [ 'contract_plan' => 'premium' ],
+				]
+			);
+
+			$captured = [];
+			$this->mock_push_requests(
+				[
+					'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
+					'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 607 ] ] ] ],
+					'PUT products/607.json' => [ [ 'body' => [ 'product' => [ 'id' => 607 ] ] ] ],
+				],
+				$captured
+			);
+
+			$result = $adapter->push_product(
+				$this->simple_product(
+					[
+						[
+							'src'      => 'https://cdn.example.test/photo.jpg',
+							'position' => 0,
+						],
+					]
+				),
+				null
+			);
+
+			$this->assertSame( [ WarningCode::PRODUCT_IMAGES_NOT_PUSHED ], $result->warnings, wp_json_encode( $bad_value ) );
+			$this->assertNull( $this->find_captured( $captured, 'POST', 'products/607/images.json' ) );
+		}
+	}
+
+	/**
 	 * 404（Wooサイト自身から添付が削除された等）は再試行しても解決しない終端状態のため
 	 * `PRODUCT_IMAGE_PUSH_FAILED`（retry対象外）になる（R3レビュー指摘, Copilot Suppressed
 	 * comments）。
@@ -1503,6 +1678,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'extras'       => [ 'contract_plan' => 'premium' ],
 			]
 		);
+		$this->enable_image_upload();
 
 		$this->mock_push_requests(
 			[
@@ -1542,6 +1718,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'extras'       => [ 'contract_plan' => 'premium' ],
 			]
 		);
+		$this->enable_image_upload();
 
 		$this->mock_push_requests(
 			[
@@ -1583,6 +1760,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'extras'       => [ 'contract_plan' => 'premium' ],
 			]
 		);
+		$this->enable_image_upload();
 
 		$this->mock_push_requests(
 			[
@@ -1626,6 +1804,10 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 				'extras'       => [ 'contract_plan' => 'premium' ],
 			]
 		);
+
+		if ( str_starts_with( $scenario, 'image_' ) ) {
+			$this->enable_image_upload();
+		}
 
 		$ok            = [ [ 'body' => [ 'product' => [ 'id' => 501 ] ] ] ];
 		$image         = [

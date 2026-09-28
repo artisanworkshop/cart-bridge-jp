@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
@@ -237,6 +238,27 @@ final class RestController {
 				[
 					'methods'             => 'PUT',
 					'callback'            => [ $this, 'save_settings_mappings' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+				],
+			]
+		);
+
+		// D24: プラットフォーム単位のエクスポート設定（現在は商品画像のアップロード可否 `push_images` のみ）。
+		// `platform` はURLパスが名指しするリソース識別子のため、コールバック側では`platform_param()`
+		// （`get_url_params()`）で読む。本文は`save_export_options()`が手で厳格に検証する（`args`の
+		// `type: boolean` は `"true"`・`1` 等を真偽値へ寄せてしまい、`is_bool()` 規約に反する）。
+		register_rest_route(
+			self::NAMESPACE,
+			'/settings/export-options/(?P<platform>[a-z0-9_-]+)',
+			[
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'get_export_options' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+				],
+				[
+					'methods'             => 'PUT',
+					'callback'            => [ $this, 'save_export_options' ],
 					'permission_callback' => [ $this, 'check_permission' ],
 				],
 			]
@@ -599,6 +621,74 @@ final class RestController {
 		// ジョブが一時停止しうる）。候補一覧はマッピング設定の保存操作そのものでは変化しないため、
 		// フロントは直前のGETで取得した候補をそのまま使い回せばよい。
 		return rest_ensure_response( $this->settings_mappings_response( $updated ) );
+	}
+
+	/**
+	 * プラットフォーム単位のエクスポート設定を返す（`Support\ExportOptions`。D24）。未設定・壊れた値は
+	 * 既定（オフ）で返す。
+	 */
+	public function get_export_options( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->platform_param( $request );
+
+		if ( ! AdapterRegistry::has( $platform ) ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		return rest_ensure_response( $this->export_options_response( $platform ) );
+	}
+
+	/**
+	 * プラットフォーム単位のエクスポート設定を保存する（D24）。受け付けるのは`push_images`（真偽値）のみ:
+	 *
+	 * - `is_bool()` で検証する。`(bool)` キャストや `rest_sanitize_boolean()` は `"true"`・`1` 等の型違いを
+	 *   受け入れ、外部への書込み（画像アップロード）をオンにする方向へ倒れうるため使わない。欠損・型違いは 400
+	 *   （既存の設定を変えない）。
+	 * - オン（true）にできるのは、そのプラットフォームが画像アップロードの能力（`can_push_images`）を持つときだけ。
+	 *   能力の無い店舗で先にオンを保存しておくと、後でプランが変わった時に誰も選ばないまま画像が送られ始める。
+	 *   オフ（false）はいつでも保存できる。
+	 * - 進行中の run があるときは 409。実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる
+	 *   （`SampleCleanup` 等のツールと同じガード。UI も実行中は操作を止めるが、サーバー側でも担保する）。
+	 */
+	public function save_export_options( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->platform_param( $request );
+		$adapter  = AdapterRegistry::get( $platform );
+
+		if ( null === $adapter ) {
+			return $this->unknown_platform_error( $platform );
+		}
+
+		$push_images = $request->get_params()['push_images'] ?? null;
+
+		if ( ! is_bool( $push_images ) ) {
+			return new WP_Error(
+				'cbjp_invalid_request',
+				__( '"push_images" must be true or false.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( $push_images && ! $adapter->capabilities()->can_push_images ) {
+			return new WP_Error(
+				'cbjp_unsupported_option',
+				__( 'This platform cannot upload product images, so the option cannot be turned on.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
+			return $this->run_in_progress_error();
+		}
+
+		ExportOptions::save_push_images( $platform, $push_images );
+
+		return rest_ensure_response( $this->export_options_response( $platform ) );
+	}
+
+	/**
+	 * @return array{push_images:bool}
+	 */
+	private function export_options_response( string $platform ): array {
+		return [ 'push_images' => ExportOptions::push_images_enabled( $platform ) ];
 	}
 
 	/**

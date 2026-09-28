@@ -32,6 +32,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Canonical\CanonicalTag;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
@@ -123,24 +124,30 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$this->is_premium_plan(), // can_create_order: `POST /v1/sales` はプレミアムプラン契約のショップのみ利用可（swagger.json）。
 			true,  // can_fetch_customers
 			true,  // can_update_customer
-			$this->can_push_images(),
+			$this->is_premium_plan(), // can_push_images: 能力（プランで決まる）。実際に送るかは`should_push_images()`が設定と合わせて決める（D24）。
 			false, // can_create_coupon: クーポンは読取のみ
 			true,  // has_coupons
 			true,  // has_tags: groupsをタグとして扱う
 			false, // has_reviews
 			true,  // has_variants
 			self::RATE_LIMIT_PER_MINUTE,
-			false  // supports_per_variant_stock_management: `stock_managed`は商品単位のみ（variantに相当フィールドが無い）。混在する商品は`Sync\Exporter`が止める（D22）。
+			false, // supports_per_variant_stock_management: `stock_managed`は商品単位のみ（variantに相当フィールドが無い）。混在する商品は`Sync\Exporter`が止める（D22）。
+			// beta_features（D24）: プレミアムのテストショップが無く実 API で未検証。UI が Beta 表示と既定オフにする。
+			// 静的な宣言で、項目を出すかどうかは上の`can_create_order`/`can_push_images`（プラン）が決める。
+			[ Capabilities::BETA_ORDER_EXPORT, Capabilities::BETA_IMAGE_PUSH ]
 		);
 	}
 
 	/**
-	 * 要検証#1（03 §9）確定済み: `POST /v1/products/{id}/images` はプレミアムプラン契約のショップのみ利用可。
-	 * `test_connection()` が `shop.json` から取得・キャッシュした契約プランを見て動的に判定する。
-	 * 未接続・未キャッシュの場合は安全側（false）に倒す。
+	 * 商品画像を実際にアップロードするか（D24）。プレミアムプラン契約（`POST /v1/products/{id}/images` は
+	 * プレミアム限定。要検証#1〔03 §9〕確定済み）**かつ** Export タブで「画像をアップロードする」が
+	 * オンのときだけ true。既定はオフで、オフのときは`push_product()`が`PRODUCT_IMAGES_NOT_PUSHED`を積む。
+	 * `capabilities()->can_push_images`（能力＝プラン）とは別物: 設定がオフでも UI は「この店舗で画像を
+	 * アップロードできる」ことを知る必要があるため、能力自体は設定で変えない。
+	 * `is_premium_plan()`が未接続・未キャッシュで安全側（false）に倒れる点はそのまま引き継ぐ。
 	 */
-	private function can_push_images(): bool {
-		return $this->is_premium_plan();
+	private function should_push_images(): bool {
+		return $this->is_premium_plan() && ExportOptions::push_images_enabled( self::ID );
 	}
 
 	/**
@@ -672,7 +679,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			? $this->sync_variants( $product_remote_id, $product, $warnings )
 			: [];
 
-		if ( $this->can_push_images() ) {
+		if ( $this->should_push_images() ) {
 			$this->push_images( $product_remote_id, $product, $warnings );
 		} elseif ( [] !== $product->images ) {
 			$warnings[] = WarningCode::PRODUCT_IMAGES_NOT_PUSHED;
@@ -1168,7 +1175,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 	/**
 	 * 画像push（`POST /products/{id}/images`、`multipart/form-data`、プレミアムプラン限定。
-	 * 呼び出し元=`push_product()`が`can_push_images()`で事前に判定する）。Wooの画像はこの
+	 * 呼び出し元=`push_product()`が`should_push_images()`で事前に判定する）。Wooの画像はこの
 	 * プラグインが動くWordPressサイト自身のメディア（`Woo\Reader\ProductReader::images()`が
 	 * 返す`src`はローカルURL）のため、`wp_remote_get()`でバイナリを取得してからカラーミーへ
 	 * 再アップロードする（`Support\HttpClient`はJSON body専用のためここは生のWP HTTP APIを使う）。

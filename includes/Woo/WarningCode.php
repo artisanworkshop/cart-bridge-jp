@@ -444,10 +444,11 @@ final class WarningCode {
 	public const PRODUCT_IMAGE_PUSH_INCOMPLETE = 'product_image_push_incomplete';
 
 	/**
-	 * `ColorMeAdapter::push_product()`: `capabilities()->can_push_images`が false
-	 * （非プレミアムプラン契約）のため画像を一切pushしなかった。プラン変更しない限り
-	 * 解決しない終端状態のため`indicates_unresolved_reference()`には含めない
-	 * （画像URL一覧の集約UIはE2-4スコープ。本コードは警告としてのみ結果に残す）。
+	 * `ColorMeAdapter::push_product()`: 画像を一切pushしなかった。原因は2つ: 非プレミアムプラン契約
+	 * （`capabilities()->can_push_images`が false）、またはプレミアムだがExportタブの「商品画像をアップロード
+	 * する（Beta）」がオフ（既定。D24）。前者はプラン変更しない限り、後者は設定をオンにするまで解決しない
+	 * 終端状態のため`indicates_unresolved_reference()`には含めない（画像URL一覧の集約UIはE2-4スコープ。
+	 * 本コードは警告としてのみ結果に残す）。
 	 */
 	public const PRODUCT_IMAGES_NOT_PUSHED = 'product_images_not_pushed';
 
