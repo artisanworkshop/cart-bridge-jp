@@ -86,4 +86,26 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	public function test_order_line_quantity_invalid_is_export_blocking(): void {
 		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::ORDER_LINE_QUANTITY_INVALID ] ) );
 	}
+
+	/**
+	 * D23: 「Any」バリエーションはプラットフォーム非依存でexport blocking（`CanonicalProduct::$variants`で
+	 * 表現できないため、`ALL_VARIATIONS_EXCLUDED`と同じ位置づけ）。バリエーションIDのdetail付きでも判定できる。
+	 */
+	public function test_variation_any_attribute_unsupported_is_export_blocking(): void {
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED ] ) );
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::with_detail( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, '123' ) ] ) );
+	}
+
+	/**
+	 * D22: 在庫管理の混在は、止めるかどうかがプラットフォームの能力（`Capabilities::
+	 * $supports_per_variant_stock_management`）次第のため、`indicates_export_blocking()`には登録しない
+	 * （登録すると、バリエーション単位で在庫管理できるASPでも止まってしまう）。専用の判定で識別する。
+	 */
+	public function test_variation_stock_management_mixed_is_capability_gated_not_export_blocking(): void {
+		$this->assertFalse( WarningCode::indicates_export_blocking( [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) );
+		$this->assertTrue( WarningCode::indicates_variation_stock_mixed( [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) );
+		$this->assertTrue( WarningCode::indicates_variation_stock_mixed( [ 'other', WarningCode::with_detail( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, 'x' ) ] ) );
+		$this->assertFalse( WarningCode::indicates_variation_stock_mixed( [ WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT ] ) );
+		$this->assertFalse( WarningCode::indicates_variation_stock_mixed( [] ) );
+	}
 }

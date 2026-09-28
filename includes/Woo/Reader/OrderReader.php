@@ -407,7 +407,7 @@ final class OrderReader implements EntityReader {
 	 * 経由せず直接読み、区別する。
 	 *
 	 * 商品リンクを一度も持たない行（`ORDER_LINE_PRODUCT_MISSING`）も、バリエーションの識別に
-	 * 失敗した行（`ORDER_LINE_VARIATION_UNRESOLVED`。削除済み、または軸が3つ以上で
+	 * 失敗した行（`ORDER_LINE_VARIATION_UNRESOLVED`。削除済み、「Any」の軸を持つ〔D23〕、または軸が3つ以上で
 	 * option1/2だけでは異なるバリエーションと区別できない場合）も、いずれも
 	 * `indicates_export_blocking()`の対象にする: 対応ASP（ColorMe）の受注作成APIは
 	 * 明細ごとに商品参照を必須とするため、`remote_product_id`が無い行・意図しない
@@ -465,8 +465,9 @@ final class OrderReader implements EntityReader {
 	/**
 	 * バリエーション明細のoption1/2値を親商品の軸属性から導出する（`Woo\Reader\ProductReader`が
 	 * `push_product()`用に組み立てるのと同じ値。`Woo\Support\VariationAxisResolver`で共有）。
-	 * `$resolved=false`は2パターン: (1) 親またはバリエーション自体が取得できない（削除済み等）、
-	 * (2) 親の軸が3つ以上（`VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_
+	 * `$resolved=false`は3パターン: (1) 親またはバリエーション自体が取得できない（削除済み等）、
+	 * (2) バリエーションが「Any」の軸を持つ（D23。`VariationAxisResolver::has_any_attribute()`）、
+	 * (3) 親の軸が3つ以上（`VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_
 	 * EXCEEDED`を積む）。`Woo\Reader\ProductReader`はこのケースを無警告（3軸目を切り捨てるだけ）で
 	 * 扱うが、受注明細では3軸目の値が異なる複数のバリエーションがoption1/2の組だけでは区別できず
 	 * 誤った商品を受注として記録しうるため、product exportより厳しくここでは解決不能として扱う
@@ -492,6 +493,15 @@ final class OrderReader implements EntityReader {
 		$axis_attributes = VariationAxisResolver::axis_attributes( $parent, $axis_warnings );
 
 		if ( [] !== $axis_warnings ) {
+			return [ null, null, false ];
+		}
+
+		// D23: 「Any（すべての）」の軸を持つバリエーションは、バリエーション自体の属性値が空のまま保存され、
+		// 購入時に選ばれた値は受注明細のメタにだけ残る（実測確認済み）。option1/2が`null`のまま「解決済み」と
+		// すると、どの値の注文か分からないまま`push_order()`へ渡る。解決不能として明細ごと止める
+		// （`ORDER_LINE_VARIATION_UNRESOLVED`。商品側は`ProductReader`の`VARIATION_ANY_ATTRIBUTE_UNSUPPORTED`）。
+		// 全組み合わせへの展開と明細メタから選択値を読む対応はv1.xで要望を見て検討する。
+		if ( VariationAxisResolver::has_any_attribute( $variation, $axis_attributes ) ) {
 			return [ null, null, false ];
 		}
 

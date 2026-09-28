@@ -1331,10 +1331,45 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
   push せず `skipped`＋`warned` とする（`indicates_export_blocking()` と同じ位置。dry-run・CSV にも出る）。ColorMe は `false`
 - **在庫行も止める理由**: 商品が混在になる前にエクスポート済みだった場合、在庫 push が `stock_managed=true` を明示 PUT し、
   管理外バリエーションは古い値のまま残る。商品と同じ判定で止め、揃えるまで在庫を動かさない
-- **案内**: 警告文言は「在庫管理を全バリエーションで有効にする、または全バリエーションで無効にする」ことを示す。
+- **案内**: 警告文言は「在庫管理を全バリエーションで有効にする、または全バリエーションで無効にしたうえで在庫状況（在庫あり／在庫切れ）も揃える」ことを示す
+  （管理外の在庫切れは `0`、在庫ありは `null` のため、全て管理外でも両者が混ざっていれば混在のまま止まる。R1 独立レビューで指摘）。
   親で一括管理（`manage_stock='parent'`）は既存の `VARIATION_STOCK_SHARED_WITH_PARENT`（在庫0へフェイルクローズ）の対象で本判定とは別
 - **テスト**: 混在（整数と `null`）・全て整数・全て `null`・管理外の在庫切れ（0）と在庫あり（`null`）の混在（これも混在として止まる）を
   Reader と Exporter で確認し、判定を一時的に壊すと落ちることを確かめる
+- **実装（R3-0c、issue #52）**: 設計どおり。実装時に決めた点:
+  1. **判定は 1 つの純関数を両 Reader が共有**する（`Woo\Support\StockDerivation::has_mixed_variation_management()`）。
+     母集団は「公開（`publish`）バリエーションすべて」の `for_variation()['quantity']`。価格不正・換算不能で
+     `CanonicalProduct::$variants` から外れるバリエーションも数える（`StockReader` は価格を見ないため、両 Reader の母集団を
+     揃えて商品行と在庫行の判定が食い違わないようにする。安全側でもある）。`shared_with_parent` は 0（整数）として数える。
+     商品行と在庫行の一致は `StockReaderTest::test_product_and_stock_readers_agree_on_mixed_management` で固定
+  2. **`StockReader` は mapping 未解決の行（`STOCK_PRODUCT_NOT_EXPORTED`）にも警告を積む**。商品より先に在庫行だけを
+     dry-run で見る店舗にも理由が出る（該当行は元々 blocking のため挙動は変わらない）
+  3. **`VARIATION_STOCK_MANAGEMENT_MIXED` は `indicates_export_blocking()` に登録しない**（登録するとバリエーション単位で
+     在庫管理できる ASP でも止まる）。専用の `WarningCode::indicates_variation_stock_mixed()` を `Exporter` が
+     `! $adapter->capabilities()->supports_per_variant_stock_management` と組み合わせて使う。警告が付いたときだけ
+     `capabilities()` を呼ぶ。判定位置は既存の blocking 分岐と同じ（D21-B の未解決 intent 判定の後・checksum 一致スキップの前）ため、
+     エクスポート済みで内容が変わった商品も止まり、checksum はキャッシュされない（揃えれば次回 export で再送される）
+  4. 警告の「案内文言」は `WarningCode` 定数の docblock に書く（警告コードは i18n しない安定キーで、UI・CSV にコードの説明文は
+     無い。全コード共通）。CSV の `note` 列には固有ノートを足していない
+  5. **実機確認（mock アダプタ `mockv`・push 有効、`JobManager` 経由。2026-09-28）**: 混在商品（管理中5・管理外の在庫あり・管理外の
+     在庫切れ）は product 行が `skipped`＋`variation_stock_management_mixed`（エクスポート済みの商品でも）、在庫 3 行も同様に
+     `skipped`。実 export でも push されず mapping/checksum は変わらない。在庫管理を全バリエーションで有効にすると止まらなくなる
+  6. **実 ColorMe API での確認（テストショップ `ttka3lg60f`・非プレミアム〔regular〕・税抜10%/軽減8%/四捨五入。2026-09-28）**:
+     実アダプタ（`ColorMeAdapter`）＋ `Exporter` で、Woo のテスト商品 3 件（control＝全バリエーション管理中・具体値のみ／mixed＝管理中5＋管理外の在庫あり／
+     any＝S と Any）を確認した。(a) 実アダプタでの dry-run は control が作成対象、mixed が `variation_stock_management_mixed`、any が
+     `variation_any_attribute_unsupported:{id}` で skipped。(b) 実 export は control だけが作成され（ColorMe 側は `stock_managed=true`・在庫 8＝S5＋M3・
+     バリエーションの型番/オプション値/在庫が Woo と一致）、mixed・any は push も mapping 作成もされない。(c) エクスポート済みの control の M を管理外に変えて再 export
+     すると、商品 3 件・在庫 6 行とも skipped で **ColorMe 側は変わらない**（在庫 5/3・商品 3 件のまま）。(d) mixed の M を管理中に、any の Any を具体値 L に直して再 export すると
+     ColorMe に作成された（`stock_managed=true`、mixed は S5/M2、any は S4/L4）。未解決の push intent は 0 件。管理画面（`admin.shop-pro.jp`）の商品一覧でも 5 件を目視確認。
+     **未確認**: 受注の Any 明細（テストショップが非プレミアムで `POST /v1/sales` が使えない。mock まで）
+  7. **swagger の副作用の実測（テストショップにプローブ用の非公開商品を作って確認。2026-09-28）**: D22 の前提を実 API で確認した。
+     (a) `stock_managed` が false でも true でも、全バリエーション未設定（`null`）の状態で `PUT /products/{id}/variants/{vid}` に `stocks: 5` を送ると
+     **他のバリエーションは 0 になり、商品全体の在庫は 5 に揃う**（`stock_managed` の値は変わらない）。(b) その後に別のバリエーションへ `stocks: null` を送ると
+     **422「商品オプションごとの在庫数を設定する場合は、全てのオプションに設定してください」**＝バリエーション単位で「未設定（管理外）」に戻す手段は無い。
+     (c) 商品 `PUT` の `variants[]`（`id` ではなく `option1_value`/`option2_value` で識別）で一部のバリエーションだけ送っても同じ 422 になり、全バリエーションを送ると
+     原子的に更新される（商品の在庫は合計）。したがって ColorMe は在庫を「全バリエーションに設定する」か「1 つも設定しない」しか許さず、
+     管理中と管理外が混在するバリエーション構成は**仕様として表現できない**（D22 の前提は実測でも成り立つ）。`ColorMeAdapter` が現在バリエーションごとに PUT する送り方は、
+     全バリエーションを送り終えるまで未送信のバリエーションが一時的に 0 になる（中断されても再試行される。`docs/review-backlog.md` `r3-0cd-swagger-probe/L1`）
 
 #### 「Any（すべての）」バリエーションのエクスポート（D23）
 
@@ -1362,6 +1397,33 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
 - **実測（実装の最初に行う）**: wp-env で Any バリエーションを持つ商品と受注を作り、(1) バリエーションの属性値が空文字列で保存されること、
   (2) 受注明細のメタに選ばれた値が残ること、(3) 現行コードで商品・受注がどう送られるか（モックアダプタで payload を観測）を確認して記録する
 - **テスト**: Any を含む商品が止まること・含まない商品は止まらないこと、Any の明細を持つ受注が止まること。判定を一時的に壊すと落ちること
+- **実測結果（2026-09-28、wp-env の dev サイト。修正前のコード）**:
+  1. **Any のバリエーションの属性値は空文字列で保存される**（ローカル属性 `attribute_size=""`、taxonomy 属性
+     `attribute_pa_…=""` とも。`WC_Product_Variation::get_attributes()` も `['size'=>'']`）。具体値の兄弟は `'S'`
+  2. **受注明細のメタに選ばれた値が残る**: `wc_create_order()`＋`add_product( $any_variation, 1, ['variation'=>['attribute_size'=>'M']] )`
+     の明細メタは `{"size":"M"}`（`attribute_` を除いたキー）、`get_variation_id()` は Any のバリエーション自身
+  3. **現行コードの挙動**（修正前）: `ProductReader` は Any のバリエーションを `option1_value=null` の要素として警告なしで `variants`
+     に入れる。`OrderReader` は Any の明細を `option1_value_current=null` のまま**警告なしの解決済み**として返す
+     （backlog `e2-3-push-order/G2-wildcard-variation-option-values` の主張どおり。実 API への送信は未確認だが、コード上は
+     どの値の注文か不明のまま `push_order()` に渡る）。`ColorMeAdapter::push_product()`（HTTP スタブ）は商品を作成し、
+     オプション値には S だけを送り、Any のバリエーションは `axis_map_from_pairs()` で対応付けられずバリエーション更新が行われない
+     （`variant_remote_ids=["9001",""]`、警告 `product_variant_push_failed`＋`product_variant_surplus_on_remote`）＝
+     **ColorMe 側でバリエーションが欠けた商品になる**（`created` として扱われる）
+- **実装（R3-0d、issue #74）**: 設計どおり。実装時に決めた点:
+  1. **「Any」の定義は 1 箇所**（`Woo\Support\VariationAxisResolver::has_any_attribute()`。存在する軸のいずれかで
+     `attribute_value()` が `null`＝空文字列またはキー欠損）。`ProductReader` と `OrderReader` が共有する。軸が 1 つも無いバリエーションは
+     Any ではない（従来どおり）
+  2. 商品: 公開バリエーションごとに `VARIATION_ANY_ATTRIBUTE_UNSUPPORTED:{variation_id}`（`VARIATION_UNPUBLISHED` と同形式）。
+     `indicates_export_blocking()` に登録（プラットフォーム非依存）。非公開の Any は数えない。Any の要素は従来どおり `variants` に入れる
+     （`Exporter` が止めるため送られない。`ColorMeAdapter::axis_map_from_pairs()` のフェイルクローズは多重防御として残す）
+  3. 受注: `OrderReader::variation_option_values()` が Any を解決不能（`[null, null, false]`）にし、既存の
+     `ORDER_LINE_VARIATION_UNRESOLVED:{variation_id}`（blocking）で受注ごと止まる。具体値の明細は従来どおり解決する
+  4. **実機確認（mock アダプタ・`JobManager` 経由。2026-09-28）**: Any を含む商品は product 行が `skipped`＋
+     `variation_any_attribute_unsupported:{id}`、Any 明細の受注は `skipped`＋`order_line_variation_unresolved:{id}`。実 export でも
+     push されず mapping は作られない。Any を具体値のバリエーションにすると止まらなくなる
+  5. **実 ColorMe API での確認（テストショップ。2026-09-28）**: 商品側は D22 の実 API 確認（上記 6.）と同じ実行で確認した。Any を含む商品は実アダプタの dry-run・実 export とも
+     止まり ColorMe に作成されず（修正前は Any のバリエーションだけ欠けた商品が `created` になっていた）、Any を具体値 L に直すと作成された（S4/L4）。
+     **受注の Any 明細は実 API では未確認**（テストショップが非プレミアムのため。mock まで）
 
 #### プレミアムプラン限定機能のベータ扱い（D24）
 

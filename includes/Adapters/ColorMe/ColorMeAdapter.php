@@ -129,7 +129,8 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			true,  // has_tags: groupsをタグとして扱う
 			false, // has_reviews
 			true,  // has_variants
-			self::RATE_LIMIT_PER_MINUTE
+			self::RATE_LIMIT_PER_MINUTE,
+			false  // supports_per_variant_stock_management: `stock_managed`は商品単位のみ（variantに相当フィールドが無い）。混在する商品は`Sync\Exporter`が止める（D22）。
 		);
 	}
 

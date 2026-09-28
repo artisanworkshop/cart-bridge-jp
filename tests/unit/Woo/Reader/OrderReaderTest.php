@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Tests\Fixtures\VariableProductFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Reader\OrderReader;
 use CartBridgeJP\Woo\WarningCode;
@@ -824,5 +825,107 @@ final class OrderReaderTest extends WooTestCase {
 		sort( $all_ids );
 		sort( $ids );
 		$this->assertSame( $ids, $all_ids );
+	}
+
+	/**
+	 * D23: 「Any（すべての）」バリエーションの明細は、バリエーション自体の属性値が空のまま保存され、購入時に
+	 * 選ばれた値は受注明細のメタにだけ残る（`{"size":"M"}`。実測確認済み）。以前は`option1_value_current=null`の
+	 * ままバリエーション解決済みとして通り、どの値の注文か分からないまま`push_order()`へ渡りえた。
+	 * 解決不能（`ORDER_LINE_VARIATION_UNRESOLVED`。blocking）として明細ごと止める。
+	 */
+	public function test_any_variation_line_item_blocks_export_instead_of_passing_null_option_values(): void {
+		$parent_id    = VariableProductFactory::create_parent( 'Shirt', [ 'Size' => [ 'S', 'M' ] ] );
+		$variation_id = VariableProductFactory::add_variation( $parent_id, [ 'size' => '' ] );
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $variation_id ), 1, [ 'variation' => [ 'attribute_size' => 'M' ] ] );
+		$order->calculate_totals();
+		$order->save();
+
+		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
+		$read_item = $page->items[0];
+		$line      = $read_item->item->line_items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+		$this->assertNull( $line['option1_value_current'] );
+
+		// 前提: 選ばれた値は明細メタにあり、バリエーション自体の属性値は空（=Any）。
+		$item_meta = [];
+
+		foreach ( $order->get_items() as $order_item ) {
+			foreach ( $order_item->get_meta_data() as $meta ) {
+				$item_meta[ $meta->key ] = $meta->value;
+			}
+		}
+
+		$this->assertSame( 'M', $item_meta['size'] ?? null );
+		$this->assertSame( [ 'size' => '' ], wc_get_product( $variation_id )->get_attributes() );
+	}
+
+	/**
+	 * 2軸のうち1軸だけ「Any」の明細も止める（もう一方の軸の値が具体的でも、どの組の注文か決まらない）。
+	 */
+	public function test_variation_line_item_with_any_on_one_of_two_axes_blocks_export(): void {
+		$parent_id    = VariableProductFactory::create_parent(
+			'Shirt',
+			[
+				'Size'  => [ 'S', 'M' ],
+				'Color' => [ 'Red', 'Blue' ],
+			]
+		);
+		$variation_id = VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'S',
+				'color' => '',
+			]
+		);
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $parent_id, 1, '1000', '0', $variation_id );
+		$order->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] )->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 具体的な値のバリエーション明細は従来どおり解決する（Any判定が具体値の明細まで巻き込まない）。
+	 */
+	public function test_concrete_two_axis_variation_line_item_still_resolves(): void {
+		$parent_id    = VariableProductFactory::create_parent(
+			'Shirt',
+			[
+				'Size'  => [ 'S', 'M' ],
+				'Color' => [ 'Red', 'Blue' ],
+			]
+		);
+		$variation_id = VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'S',
+				'color' => 'Blue',
+			]
+		);
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+
+		$order = wc_create_order();
+		$this->add_line_item( $order, $parent_id, 1, '1000', '0', $variation_id );
+		$order->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] )->items[0];
+		$line      = $read_item->item->line_items[0];
+
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+		$this->assertSame( 'S', $line['option1_value_current'] );
+		$this->assertSame( 'Blue', $line['option2_value_current'] );
 	}
 }

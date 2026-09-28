@@ -10,6 +10,7 @@ export interface Capabilities {
 	has_reviews: boolean;
 	has_variants: boolean;
 	rate_limit_per_minute: number;
+	supports_per_variant_stock_management: boolean;
 }
 
 export interface ConnectionField {

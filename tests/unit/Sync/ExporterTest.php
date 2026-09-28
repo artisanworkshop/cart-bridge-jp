@@ -7,12 +7,14 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Sync;
 
+use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
@@ -1212,5 +1214,120 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 102 ) );
 		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 103 ), '実使用数が既に上限を超えているため103は作成されない' );
+	}
+
+	/**
+	 * @param bool $supports_per_variant_stock `Capabilities::$supports_per_variant_stock_management`。
+	 */
+	private function adapter_with_per_variant_stock( bool $supports_per_variant_stock ): MockPlatformAdapter {
+		return new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, $supports_per_variant_stock ) );
+	}
+
+	/**
+	 * D22: 在庫管理が混在する商品（`VARIATION_STOCK_MANAGEMENT_MIXED`）は、アダプタが
+	 * `supports_per_variant_stock_management`を宣言していない（既定）と、`indicates_export_blocking()`の
+	 * 警告と同じ扱い（writerを呼ばずskipped＋warned・mapping無し）で止まる。
+	 */
+	public function test_mixed_stock_management_blocks_the_push_when_the_adapter_lacks_per_variant_stock_support(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		// アダプタが能力を宣言しない既定でも止まる（宣言しない外部アダプタは安全側に倒す）。
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * バリエーション単位で在庫管理できるアダプタ（`supports_per_variant_stock_management=true`）では
+	 * 混在した商品も正しく送れるため止めない（原則1: ColorMe固有の制約をReaderに書かない）。
+	 */
+	public function test_mixed_stock_management_is_pushed_when_the_adapter_supports_per_variant_stock(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( $this->adapter_with_per_variant_stock( true ), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 0, $result['totals']['skipped'] );
+		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * 在庫行（`stock`）も同じ判定で止まる（商品が混在になる前にエクスポート済みの場合、在庫pushが
+	 * `stock_managed`を明示PUTし、管理外バリエーションが古い値のまま残るのを防ぐ）。
+	 */
+	public function test_mixed_stock_management_also_blocks_stock_rows(): void {
+		$stock    = new CanonicalStock( 'p-1', 'v-1', 'SKU-1', 5, true );
+		$reader   = new FixedWooReader( [ new ReadItem( 201, $stock, [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'stock', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+	}
+
+	/**
+	 * エクスポート済み（mappingあり）で内容が変わった（checksum不一致）商品も、混在に変わった時点で止まる
+	 * （更新経路でも`indicates_export_blocking()`と同じ位置で判定する）。
+	 */
+	public function test_mixed_stock_management_blocks_updates_of_an_already_exported_product(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Now mixed' ), [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['updated'] );
+		$this->assertSame( 'stale-checksum', $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ), 'checksumはキャッシュされない（揃えたら次回exportで再送される）' );
+	}
+
+	/**
+	 * dry-runにも同じ判定で出す（skipped行に警告が残る。実行せずに理由が分かる）。
+	 */
+	public function test_mixed_stock_management_is_reported_in_the_dry_run_row(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9301, 'run-9301' );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+
+		$rows = ( new DryRunItemRepository() )->list_after( 'run-9301', 0, 10 );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $rows[0]['operation'] );
+		$this->assertStringContainsString( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $rows[0]['warnings_json'] );
+	}
+
+	/**
+	 * 混在の警告が無いアイテムは、`supports_per_variant_stock_management=false`でも止めない
+	 * （capabilityの条件が警告の有無と無関係に効いてしまうと、全ての商品が止まる）。
+	 */
+	public function test_items_without_the_mixed_warning_are_unaffected_by_the_per_variant_stock_capability(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::with_detail( WarningCode::CATEGORY_MAP_UNRESOLVED, '5' ) ] ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( $this->adapter_with_per_variant_stock( false ), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 1, $result['totals']['created'] );
 	}
 }
