@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
@@ -16,6 +17,7 @@ use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
@@ -2216,5 +2218,247 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		return (string) $response->get_data()['run_id'];
+	}
+
+	/**
+	 * D24: 画像アップロード等のプラットフォーム単位のエクスポート設定用に、能力を指定した mock を `mock` キーで登録する。
+	 *
+	 * @param bool              $can_push_images 画像アップロードの能力。
+	 * @param mixed $beta_features `Capabilities::$beta_features`（外部アダプタの不正値〔配列でない値を含む〕の再現にも使う）。
+	 */
+	private function register_mock_with_image_capability( bool $can_push_images, mixed $beta_features = [] ): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $can_push_images, $beta_features ) {
+				$adapters['mock'] = new MockPlatformAdapter(
+					capabilities_override: new Capabilities( true, true, true, true, $can_push_images, true, true, true, true, true, 600, false, $beta_features )
+				);
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+	}
+
+	public function test_get_connections_exposes_the_beta_features_of_the_colorme_adapter(): void {
+		$this->register_colorme_adapter();
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+
+		$this->assertSame( [ 'order_export', 'image_push' ], $data[0]['capabilities']['beta_features'] );
+	}
+
+	/**
+	 * 外部アダプタが `beta_features` に文字列以外・重複・飛んだキーを返しても、エンドポイントは落ちず、UI が受け取るのは
+	 * 文字列だけのJSON配列になる（原則8）。
+	 */
+	public function test_get_connections_normalizes_beta_features_from_a_misbehaving_adapter(): void {
+		$this->register_mock_with_image_capability(
+			true,
+			[
+				3 => 'order_export',
+				5 => null,
+				8 => [ 'x' ],
+				9 => 'order_export',
+			]
+		);
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+		$features = $response->get_data()[0]['capabilities']['beta_features'];
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( '["order_export"]', wp_json_encode( $features ) );
+	}
+
+	/**
+	 * `beta_features` に配列でない値（文字列・stdClass 等）を渡した外部アダプタがあっても、`/connections` は 200 で
+	 * 空配列を返す（issue #75。以前は `array` 型のため `new Capabilities()` が TypeError になった）。
+	 */
+	public function test_get_connections_survives_a_non_array_beta_features_from_a_misbehaving_adapter(): void {
+		foreach ( [ 'order_export', new \stdClass(), null ] as $bad ) {
+			remove_all_filters( 'cbjp/adapters/register' );
+			$this->register_mock_with_image_capability( true, $bad );
+
+			$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+
+			$this->assertSame( 200, $response->get_status() );
+			$this->assertSame( [], $response->get_data()[0]['capabilities']['beta_features'] );
+		}
+	}
+
+	public function test_get_export_options_defaults_to_image_upload_off(): void {
+		$this->register_mock_with_image_capability( true );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/export-options/mock' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'push_images' => false ], $response->get_data() );
+	}
+
+	public function test_save_export_options_persists_and_is_read_back(): void {
+		$this->register_mock_with_image_capability( true );
+
+		$on = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$on->set_body_params( [ 'push_images' => true ] );
+		$response = $this->server->dispatch( $on );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'push_images' => true ], $response->get_data() );
+		$this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
+		$this->assertSame( [ 'push_images' => true ], $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/export-options/mock' ) )->get_data() );
+
+		$off = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$off->set_body_params( [ 'push_images' => false ] );
+
+		$this->assertSame( [ 'push_images' => false ], $this->server->dispatch( $off )->get_data() );
+		$this->assertFalse( ExportOptions::push_images_enabled( 'mock' ) );
+	}
+
+	/**
+	 * JSON ボディ（管理画面の `apiFetch` が送る形）でも同じに動く。
+	 */
+	public function test_save_export_options_accepts_a_json_body(): void {
+		$this->register_mock_with_image_capability( true );
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$request->set_header( 'Content-Type', 'application/json' );
+		$request->set_body( (string) wp_json_encode( [ 'push_images' => true ] ) );
+
+		$this->assertSame( 200, $this->server->dispatch( $request )->get_status() );
+		$this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
+	}
+
+	/**
+	 * 外部への書込み（画像アップロード）をオンにする設定は真偽値の `true`/`false` だけを受け付ける。`"true"`・`1`・配列・
+	 * 欠損は 400 で、保存済みの値は変わらない（`(bool)` キャストや `rest_sanitize_boolean()` は `"false"` や `1` を
+	 * 黙って解釈してしまう）。
+	 */
+	public function test_save_export_options_rejects_anything_but_a_boolean_and_keeps_the_stored_value(): void {
+		$this->register_mock_with_image_capability( true );
+		ExportOptions::save_push_images( 'mock', true );
+
+		$bad_bodies = [
+			'string true'  => [ 'push_images' => 'true' ],
+			'string false' => [ 'push_images' => 'false' ],
+			'int 1'        => [ 'push_images' => 1 ],
+			'int 0'        => [ 'push_images' => 0 ],
+			'null'         => [ 'push_images' => null ],
+			'empty array'  => [ 'push_images' => [] ],
+			'array'        => [ 'push_images' => [ 'x' ] ],
+			'missing'      => [ 'unrelated' => true ],
+		];
+
+		foreach ( $bad_bodies as $label => $body ) {
+			$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+			$request->set_body_params( $body );
+			$response = $this->server->dispatch( $request );
+
+			$this->assertSame( 400, $response->get_status(), $label );
+			$this->assertSame( 'cbjp_invalid_request', $response->as_error()->get_error_code(), $label );
+			$this->assertTrue( ExportOptions::push_images_enabled( 'mock' ), "{$label}: 保存済みの値を変えない" );
+		}
+
+		// クエリ文字列は常に文字列なので、`?push_images=true` でオンにはできない。
+		$query = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$query->set_query_params( [ 'push_images' => 'false' ] );
+
+		$this->assertSame( 400, $this->server->dispatch( $query )->get_status() );
+		$this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
+	}
+
+	/**
+	 * 能力（`can_push_images`）が無いプラットフォームではオンにできない（先にオンを保存しておくと、後でプランが変わった時に
+	 * 誰も選ばないまま画像が送られ始める）。オフはいつでも保存できる。
+	 */
+	public function test_save_export_options_rejects_enabling_image_upload_on_a_platform_that_cannot_push_images(): void {
+		$this->register_mock_with_image_capability( false );
+
+		$on = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$on->set_body_params( [ 'push_images' => true ] );
+		$response = $this->server->dispatch( $on );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_unsupported_option', $response->as_error()->get_error_code() );
+		$this->assertFalse( ExportOptions::push_images_enabled( 'mock' ) );
+
+		$off = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$off->set_body_params( [ 'push_images' => false ] );
+
+		$this->assertSame( 200, $this->server->dispatch( $off )->get_status() );
+	}
+
+	/**
+	 * 実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる。進行中の run があれば 409。
+	 */
+	public function test_save_export_options_is_rejected_while_a_run_is_active(): void {
+		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
+		$this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$request->set_body_params( [ 'push_images' => true ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assertFalse( ExportOptions::push_images_enabled( 'mock' ) );
+	}
+
+	public function test_export_options_return_404_for_an_unknown_platform(): void {
+		$get = new WP_REST_Request( 'GET', '/cbjp/v1/settings/export-options/not-a-real-platform' );
+		$put = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/not-a-real-platform' );
+		$put->set_body_params( [ 'push_images' => false ] );
+
+		$this->assertSame( 404, $this->server->dispatch( $get )->get_status() );
+		$this->assertSame( 404, $this->server->dispatch( $put )->get_status() );
+		$this->assertFalse( get_option( ExportOptions::option_name( 'not-a-real-platform' ), false ), '不明なプラットフォームのオプションは作らない' );
+	}
+
+	/**
+	 * `platform` はURLパスが名指しするリソース識別子。クエリ・ボディの同名パラメータ（スカラー・配列とも）で
+	 * 別のプラットフォームの設定を読み書きしない（`get_param()` は URL パスよりクエリ/ボディを優先する）。
+	 */
+	public function test_export_options_read_the_platform_from_the_url_path_only(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock']  = new MockPlatformAdapter();
+				$adapters['other'] = new MockPlatformAdapter( platform_id: 'other' );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		ExportOptions::save_push_images( 'other', true );
+
+		$put = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$put->set_body_params(
+			[
+				'platform'    => 'other',
+				'push_images' => false,
+			]
+		);
+		$put->set_query_params( [ 'platform' => 'other' ] );
+
+		$this->assertSame( 200, $this->server->dispatch( $put )->get_status() );
+		$this->assertTrue( ExportOptions::push_images_enabled( 'other' ), '別プラットフォームの設定は変わらない' );
+
+		$get = new WP_REST_Request( 'GET', '/cbjp/v1/settings/export-options/mock' );
+		$get->set_query_params( [ 'platform' => [ 'other' ] ] );
+		$response = $this->server->dispatch( $get );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'push_images' => false ], $response->get_data(), 'クエリのplatformではなくURLパスのmockを読む' );
+	}
+
+	public function test_export_options_require_the_manage_woocommerce_capability(): void {
+		$this->register_mock_with_image_capability( true );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'subscriber' ] ) );
+
+		$put = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
+		$put->set_body_params( [ 'push_images' => true ] );
+
+		$this->assertSame( 403, $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/export-options/mock' ) )->get_status() );
+		$this->assertSame( 403, $this->server->dispatch( $put )->get_status() );
+		$this->assertFalse( ExportOptions::push_images_enabled( 'mock' ) );
 	}
 }

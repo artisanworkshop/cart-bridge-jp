@@ -35,6 +35,11 @@ description: >
    （composer の autoload-dev。`composer install` 済みなら dev サイトから使える）で、オプション `cbjp_verify_seed` から
    顧客・受注を組み立てる。このオプションは **PHP 配列を `update_option()` で保存する**（JSON 文字列ではない。mu-plugin は
    `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
+   `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|null }`）は mock の `push_*()` を有効にし（既定は全て
+   `UnsupportedOperationException`）、`create_failure` は作成 POST が 5xx（結果不明）になる経路を再現する（D21-B）。
+   Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
+   （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
+   （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`）。
    **クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
    autoloader がまだ無い）。`plugins_loaded` のコールバック内で `new` する。
    mock の `id()` は登録キーと同じ値を返す（`platform_id`）。`Importer`/`Exporter`/`JobManager` は mapping・上限・サンプルのキーを
@@ -66,6 +71,18 @@ description: >
 - **mock のキー（例 `mockv`）は `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。管理画面で目視したいときは、接続済みの実 platform（`colorme`）に対象の行を手で挿入し、UI の操作で消す。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
+
+- **`http://localhost:<port>/wp-admin/...` が別ホスト（例: `*.wp.local`）のログイン画面へ飛ぶときは、wp-env ではなく別のローカル環境が応答している**
+  （R3-0j で実際に発生: WordPress Studio の別サイトが `[::1]:8895`〔IPv6〕を掴み、Chrome の `localhost` がそちらへ解決された。wp-env は IPv4/`*` 側なので
+  `curl http://127.0.0.1:<port>/wp-login.php` は 200、`lsof -nP -iTCP:<port> -sTCP:LISTEN` で別プロセスが見える）。相手のサイトを止めるか wp-env のポート
+  （`.wp-env.override.json`）を変える。**ログイン画面が出ても、その別サイトには何も入力しない**
+- **JobManager 経由で「変更なしなら再送しない（checksum）」を確認するときは、専用の商品を作る**。開発サイトの既存商品はカテゴリ未マッピング等の
+  未解決参照を持ち、`fully_resolved` が偽で checksum が保存されない（毎回 `updated` になる）ため、`totals` の skipped/updated では見分けられない。
+  専用商品（`ZZV-` の SKU・既定カテゴリを mock の `category_map` に載せる）を作り、その mapping の `checksum` と `synced_at`（再送されれば進む。1 秒単位なので run の間に
+  `sleep(1)`）を比べる。`add_filter( 'cbjp/limits/product', '__return_null' )` で無料版のサンプル選定を外すと専用商品が確実に対象になる。
+- **UI 確認のために mock を実 platform のキー（`colorme`）で登録したときは、UI で run を始めない**（mapping・上限が実 `colorme` と共有になる）。表示と設定の保存だけを見て、
+  書いたオプション（例: `cbjp_export_options_colorme`）と `cbjp_verify_seed` のキーを撤去する（`cbjp_verify_seed` は共有オプションなので自分のキーだけを外す）。
+  実 platform の cleanup スクリプトは「OAuth トークンがある platform を拒否」するので使えない。専用の撤去スクリプトで自分が書いたキーだけを消す。
 
 ## してはいけないこと
 

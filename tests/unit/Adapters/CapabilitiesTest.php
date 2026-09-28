@@ -32,4 +32,73 @@ final class CapabilitiesTest extends WP_UnitTestCase {
 		$this->assertFalse( $default->to_array()['supports_per_variant_stock_management'] );
 		$this->assertSame( 600, $declared->to_array()['rate_limit_per_minute'], '既存の位置引数の意味が変わっていない' );
 	}
+
+	/**
+	 * D24: `beta_features`の既定は空（ベータ機能なし）。宣言しない外部アダプタ（11個の位置引数）も壊れない。
+	 */
+	public function test_beta_features_default_to_empty_for_legacy_positional_construction(): void {
+		$capabilities = new Capabilities( true, true, true, true, true, true, true, true, true, true, 600 );
+
+		$this->assertSame( [], $capabilities->beta_features );
+		$this->assertSame( [], $capabilities->to_array()['beta_features'] );
+	}
+
+	public function test_beta_features_are_exposed_by_to_array(): void {
+		$capabilities = new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, [ Capabilities::BETA_ORDER_EXPORT, Capabilities::BETA_IMAGE_PUSH ] );
+
+		$this->assertSame( [ 'order_export', 'image_push' ], $capabilities->to_array()['beta_features'] );
+	}
+
+	/**
+	 * 外部アダプタ（`cbjp/adapters/register`）が返す値は型が実行時に強制されない（原則8）。文字列以外・空文字・重複・
+	 * 飛んだキーが混ざっても、UI が受け取る値は重複のない非空文字列の連番配列（JSON配列）になる。
+	 */
+	public function test_to_array_normalizes_beta_features_from_a_misbehaving_adapter(): void {
+		$messy = [
+			5   => 'order_export',
+			7   => null,
+			9   => [ 'image_push' ],
+			11  => 42,
+			13  => '',
+			15  => 'order_export',
+			'k' => 'image_push',
+			17  => new \stdClass(),
+			19  => false,
+		];
+
+		$capabilities = new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, $messy );
+		$normalized   = $capabilities->to_array()['beta_features'];
+
+		$this->assertSame( [ 'order_export', 'image_push' ], $normalized );
+		$this->assertTrue( array_is_list( $normalized ), 'キーが飛ぶとJSONがオブジェクトになりUIの.includes()が落ちる' );
+		$this->assertSame( '["order_export","image_push"]', wp_json_encode( $normalized ) );
+	}
+
+	/**
+	 * issue #75 の完了条件: 外部アダプタが**配列でない**値を `beta_features` に渡しても落ちない（`array` 型にすると
+	 * `new Capabilities()` が TypeError になり、`/connections` ごと落ちる）。`to_array()` は空配列を返す。
+	 *
+	 * @dataProvider provider_non_array_beta_features
+	 *
+	 * @param mixed $value 配列でない `beta_features`。
+	 */
+	public function test_non_array_beta_features_are_accepted_and_normalized_to_an_empty_list( mixed $value ): void {
+		$capabilities = new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, $value );
+
+		$this->assertSame( [], $capabilities->to_array()['beta_features'] );
+		$this->assertSame( '[]', wp_json_encode( $capabilities->to_array()['beta_features'] ) );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function provider_non_array_beta_features(): array {
+		return [
+			'string'   => [ 'order_export' ],
+			'null'     => [ null ],
+			'int'      => [ 1 ],
+			'bool'     => [ true ],
+			'stdClass' => [ new \stdClass() ],
+		];
+	}
 }

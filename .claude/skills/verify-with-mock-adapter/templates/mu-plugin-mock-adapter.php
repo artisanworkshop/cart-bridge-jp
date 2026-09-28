@@ -14,6 +14,11 @@
  *   （作成経路`$remote_id===null`のみに効く。`tests/unit/Fixtures/MockPlatformAdapter`の
  *   `create_push_failure`参照）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
  *   （テンプレートなので）。
+ * - `capabilities`（配列。任意）があれば mock の `capabilities()` を上書きする（D24。Export タブの Beta 表示・
+ *   既定オフ・非プレミアム相当の出し分けの確認用）。形は { can_create_order: bool, can_push_images: bool,
+ *   beta_features: string[] }。省略したキーは mock の既定（`can_*` は true、`beta_features` は空）。
+ *   例: プレミアム相当のベータ機能 → { can_create_order: true, can_push_images: true, beta_features: ['order_export', 'image_push'] } /
+ *   非プレミアム相当 → { can_create_order: false, can_push_images: false, beta_features: ['order_export', 'image_push'] }。
  * - クラス定義をこのファイルのトップレベルに書かない。mu-plugins は通常プラグインより先に読み込まれ、
  *   composer の autoloader がまだ無い。`plugins_loaded` のコールバック内で `new` すればよい。
  * - `CartBridgeJP\Tests\Fixtures\MockPlatformAdapter` は composer の autoload-dev（tests/unit/）。
@@ -99,6 +104,33 @@ add_action(
 					? new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 )
 					: null;
 
+				// D24 検証用: `capabilities` が配列のときだけ上書きする（配列でなければ既定の mock。mu-plugin の fatal を
+				// 避ける既存方針）。`can_*` は**キーが無いときだけ**既定の true、キーがあれば厳密な
+				// `true ===` 比較で、真偽値以外（`'true'`・`1`・`null` など）は false（型違いを「できる」と読まない側に倒す。
+				// `?? true` にすると `null` がキー欠損と同じ扱いになり true になる）。
+				$caps_seed      = is_array( $seed ) && is_array( $seed['capabilities'] ?? null ) ? $seed['capabilities'] : null;
+				$caps_override  = null;
+				$caps_bool      = static fn ( string $key ): bool => ! is_array( $caps_seed ) || ! array_key_exists( $key, $caps_seed ) || true === $caps_seed[ $key ];
+				$caps_beta_seed = null !== $caps_seed && is_array( $caps_seed['beta_features'] ?? null ) ? $caps_seed['beta_features'] : [];
+
+				if ( null !== $caps_seed ) {
+					$caps_override = new CartBridgeJP\Adapters\Capabilities(
+						true,                             // can_create_category
+						$caps_bool( 'can_create_order' ),
+						true,                             // can_fetch_customers
+						true,                             // can_update_customer
+						$caps_bool( 'can_push_images' ),
+						true,                             // can_create_coupon
+						true,                             // has_coupons
+						true,                             // has_tags
+						true,                             // has_reviews
+						true,                             // has_variants
+						600,
+						false,                            // supports_per_variant_stock_management
+						$caps_beta_seed
+					);
+				}
+
 				// `platform_id` は登録キーと同じ値にする。Importer/Exporter/JobManager は mapping・上限のキーを登録キーではなく
 				// `$adapter->id()` から決める（既定の 'mock' のままだと、別キーで登録しても mapping が 'mock' 名前空間へ書かれる）。
 				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter(
@@ -107,6 +139,7 @@ add_action(
 					push_products_supported: $push_enabled,
 					push_others_supported: $push_enabled,
 					create_push_failure: $create_push_fail,
+					capabilities_override: $caps_override,
 					platform_id: '__PLATFORM_KEY__'
 				);
 

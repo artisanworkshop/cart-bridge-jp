@@ -20,6 +20,7 @@ import type {
 	Capabilities,
 	Connection,
 	EntityType,
+	ExportOptions,
 	Job,
 	Limits,
 	MappingCandidate,
@@ -68,6 +69,42 @@ function availableExportEntities( capabilities: Capabilities ): EntityType[] {
 	} );
 }
 
+/**
+ * D24: エクスポートがベータ扱い（`Capabilities::$beta_features`）になるエンティティ。ベータの受注は接続先に
+ * 受注（売上）を作るため、Beta 表示にして既定では選択しない。
+ */
+const BETA_FEATURE_BY_ENTITY: Partial< Record< EntityType, string > > = {
+	order: 'order_export',
+};
+
+/**
+ * D24: 商品画像のアップロード（`Capabilities::BETA_IMAGE_PUSH`）。
+ */
+const BETA_IMAGE_PUSH = 'image_push';
+
+function isBetaFeature( capabilities: Capabilities, feature: string ): boolean {
+	return ( capabilities.beta_features ?? [] ).includes( feature );
+}
+
+function isBetaEntity(
+	capabilities: Capabilities,
+	entity: EntityType
+): boolean {
+	const feature = BETA_FEATURE_BY_ENTITY[ entity ];
+
+	return undefined !== feature && isBetaFeature( capabilities, feature );
+}
+
+/**
+ * 実行対象の既定の選択。ベータ機能のエンティティは、店舗が明示的に選んだときだけ動かすため既定では外す（D24）。
+ * @param capabilities
+ */
+function defaultExportEntities( capabilities: Capabilities ): EntityType[] {
+	return availableExportEntities( capabilities ).filter(
+		( entity ) => ! isBetaEntity( capabilities, entity )
+	);
+}
+
 function exportRunStorageKey( platform: string, type: RunType ): string {
 	return `cbjp_run_${ type }_${ platform }`;
 }
@@ -114,6 +151,66 @@ function clearStoredExportRunId( platform: string, type: RunType ): void {
 	} catch {
 		// 何もしない（保存できていないなら消す必要もない）。
 	}
+}
+
+/**
+ * 翻訳済みの文を 2 つ連結する。半角スペースを直に挟むと日本語訳で「。 」のように不自然な空白が入るため、
+ * 区切りは翻訳者が決められるよう 1 つの文字列（`%1$s %2$s`）にする。
+ * @param first
+ * @param second
+ */
+function joinSentences( first: string, second: string ): string {
+	return sprintf(
+		/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
+		__( '%1$s %2$s', 'cart-bridge-jp' ),
+		first,
+		second
+	);
+}
+
+/**
+ * ベータ機能に共通の注意書き（D24）。プレミアムプラン限定の API に依存し、テストショップが無く実店舗で
+ * 検証できていないことを伝える。
+ */
+function betaNote(): string {
+	return __(
+		'Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it.',
+		'cart-bridge-jp'
+	);
+}
+
+function betaEntityHelp( entity: EntityType ): string {
+	if ( 'order' === entity ) {
+		return joinSentences(
+			__(
+				'Creates orders (sales) in the connected shop.',
+				'cart-bridge-jp'
+			),
+			betaNote()
+		);
+	}
+
+	return betaNote();
+}
+
+/**
+ * 画像アップロードの説明。オンにすると export 済みの商品が更新として再送され、ColorMe の
+ * `POST /products/{id}/images` は同じ position の既存画像を**上書き**する（swagger）ため、
+ * 管理画面で手作業で登録した画像が置き換わりうることを先に伝える。
+ * @param beta
+ */
+function pushImagesHelp( beta: boolean ): string {
+	const off = __(
+		'Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting.',
+		'cart-bridge-jp'
+	);
+	const on = __(
+		'Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images.',
+		'cart-bridge-jp'
+	);
+	const base = joinSentences( off, on );
+
+	return beta ? joinSentences( base, betaNote() ) : base;
 }
 
 interface ExportRunSectionState {
@@ -349,6 +446,14 @@ export default function ExportTab() {
 		Record< EntityType, number >
 	> | null >( null );
 	const [ limits, setLimits ] = useState< Limits | null >( null );
+	// D24: プラットフォーム単位のエクスポート設定（画像アップロードのオン/オフ）。`null`は取得前または取得失敗。
+	// 取得・保存とも、マッピングと同じ`platformGenerationRef`で古い応答を捨てる（下のeffectと`setPushImages()`）。
+	const [ exportOptions, setExportOptions ] =
+		useState< ExportOptions | null >( null );
+	const [ exportOptionsError, setExportOptionsError ] = useState<
+		string | null
+	>( null );
+	const [ exportOptionsSaving, setExportOptionsSaving ] = useState( false );
 	// `startRun()`/`limits`取得effectが応答を受け取った時点でまだ同じプラットフォーム選択かを
 	// 判定するために、マッピング取得effectと同じ`platformGenerationRef`を共有する（frontend.md:
 	// 「同じ状態を更新しうる複数の非同期処理は同じ世代カウンタを共有する必要がある」の対象を
@@ -425,6 +530,41 @@ export default function ExportTab() {
 			} );
 	}, [ platform ] );
 
+	// D24: エクスポート設定（画像アップロード）の取得。**マッピング取得effectより後ろに置くこと**: あちらが
+	// `platformGenerationRef`を進めるので、ここで読む`requestId`は今回のプラットフォーム選択の世代になる
+	// （このeffect自身は世代を進めない）。
+	useEffect( () => {
+		if ( null === platform ) {
+			return;
+		}
+
+		const requestId = platformGenerationRef.current;
+
+		setExportOptions( null );
+		setExportOptionsError( null );
+		setExportOptionsSaving( false );
+
+		apiFetch< ExportOptions >( {
+			path: `/cbjp/v1/settings/export-options/${ encodeURIComponent(
+				platform
+			) }`,
+		} )
+			.then( ( data ) => {
+				if ( platformGenerationRef.current !== requestId ) {
+					return;
+				}
+
+				setExportOptions( data );
+			} )
+			.catch( ( err: unknown ) => {
+				if ( platformGenerationRef.current !== requestId ) {
+					return;
+				}
+
+				setExportOptionsError( errorMessage( err ) );
+			} );
+	}, [ platform ] );
+
 	// プラットフォームが変わったら、実行フロー側の状態（エンティティ選択・直前のrun_id・
 	// 警告チェックボックス等）も読み込み直す。マッピング取得effectとは独立した状態を扱うため
 	// 別effectにするが、判定に使う`platformGenerationRef`は共有する。
@@ -434,7 +574,7 @@ export default function ExportTab() {
 		}
 
 		setSelectedExportEntities(
-			new Set( availableExportEntities( currentConnection.capabilities ) )
+			new Set( defaultExportEntities( currentConnection.capabilities ) )
 		);
 		setAcknowledgeProductionWrite( false );
 		setRunStartError( null );
@@ -557,6 +697,13 @@ export default function ExportTab() {
 		exportActive ||
 		exportState.starting ||
 		null !== exportState.retryingJobId;
+	// 画像アップロードの設定を持つ（能力がある）プラットフォームで、設定をまだ取得できていない間（取得前・取得失敗）。
+	// チェックボックスは未チェックに見えるがサーバー側は true かもしれず、そのまま本番の export を始めると、
+	// 画像を（同じ位置の既存画像の上書きを含めて）送りかねない。設定を取得できるまで本番の export を始めさせない
+	// （フェイルクローズ。dry-run は何も書かないので止めない）。
+	const exportOptionsPending =
+		true === currentConnection?.capabilities.can_push_images &&
+		null === exportOptions;
 
 	function toggleExportEntity( entity: EntityType, checked: boolean ) {
 		setSelectedExportEntities( ( prev ) => {
@@ -572,12 +719,59 @@ export default function ExportTab() {
 		} );
 	}
 
+	/**
+	 * 「商品画像をアップロードする」を保存する（変更のたびに即保存）。サーバーは真偽値だけを受け付け、実行中の
+	 * runがあれば409で拒否する（`RestController::save_export_options()`）。
+	 * @param checked
+	 */
+	async function setPushImages( checked: boolean ) {
+		if ( null === platform || null === exportOptions ) {
+			return;
+		}
+
+		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める（`save()`と同じ理由）。
+		const requestId = platformGenerationRef.current;
+
+		setExportOptionsSaving( true );
+		setExportOptionsError( null );
+
+		try {
+			const data = await apiFetch< ExportOptions >( {
+				path: `/cbjp/v1/settings/export-options/${ encodeURIComponent(
+					platform
+				) }`,
+				method: 'PUT',
+				data: { push_images: checked },
+			} );
+
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			setExportOptions( data );
+		} catch ( err ) {
+			if ( platformGenerationRef.current !== requestId ) {
+				return;
+			}
+
+			setExportOptionsError( errorMessage( err ) );
+		} finally {
+			if ( platformGenerationRef.current === requestId ) {
+				setExportOptionsSaving( false );
+			}
+		}
+	}
+
 	async function startExportRun( type: 'dry_run_export' | 'export' ) {
 		if ( null === platform || 0 === selectedExportEntities.size ) {
 			return;
 		}
 
 		if ( 'export' === type && ! acknowledgeProductionWrite ) {
+			return;
+		}
+
+		if ( 'export' === type && exportOptionsPending ) {
 			return;
 		}
 
@@ -999,20 +1193,112 @@ export default function ExportTab() {
 						{ currentConnection &&
 							availableExportEntities(
 								currentConnection.capabilities
-							).map( ( entity ) => (
-								<CheckboxControl
-									key={ entity }
-									label={ ENTITY_LABELS[ entity ] }
-									checked={ selectedExportEntities.has(
-										entity
-									) }
-									disabled={ dryRunExportBusy || exportBusy }
-									onChange={ ( checked ) =>
-										toggleExportEntity( entity, checked )
-									}
-								/>
-							) ) }
+							).map( ( entity ) => {
+								const beta = isBetaEntity(
+									currentConnection.capabilities,
+									entity
+								);
+
+								return (
+									<CheckboxControl
+										key={ entity }
+										label={
+											beta
+												? sprintf(
+														/* translators: %s: entity name, e.g. "Orders" */
+														__(
+															'%s (Beta)',
+															'cart-bridge-jp'
+														),
+														ENTITY_LABELS[ entity ]
+												  )
+												: ENTITY_LABELS[ entity ]
+										}
+										help={
+											beta
+												? betaEntityHelp( entity )
+												: undefined
+										}
+										checked={ selectedExportEntities.has(
+											entity
+										) }
+										disabled={
+											dryRunExportBusy || exportBusy
+										}
+										onChange={ ( checked ) =>
+											toggleExportEntity(
+												entity,
+												checked
+											)
+										}
+									/>
+								);
+							} ) }
 					</div>
+
+					{ currentConnection?.capabilities.can_push_images && (
+						<div className="cbjp-export__options">
+							<p>
+								<strong>
+									{ __( 'Options', 'cart-bridge-jp' ) }
+								</strong>
+							</p>
+							<CheckboxControl
+								label={
+									isBetaFeature(
+										currentConnection.capabilities,
+										BETA_IMAGE_PUSH
+									)
+										? __(
+												'Upload product images (Beta)',
+												'cart-bridge-jp'
+										  )
+										: __(
+												'Upload product images',
+												'cart-bridge-jp'
+										  )
+								}
+								help={ pushImagesHelp(
+									isBetaFeature(
+										currentConnection.capabilities,
+										BETA_IMAGE_PUSH
+									)
+								) }
+								checked={ exportOptions?.push_images ?? false }
+								// 取得前・保存中・実行中は操作させない（実行の途中で設定が変わると、同じrunの中で
+								// 商品ごとに画像の扱いが割れる。サーバーも実行中は409で拒否する）。
+								disabled={
+									null === exportOptions ||
+									exportOptionsSaving ||
+									dryRunExportBusy ||
+									exportBusy
+								}
+								onChange={ setPushImages }
+							/>
+							{ exportOptionsError && (
+								// 取得に失敗した（`exportOptions`が`null`のまま）ときは破棄しても再取得の手段が
+								// 無く、チェックボックスが無効のまま何も表示されない状態になる。破棄できるのは
+								// 保存失敗（設定は取得済みで、もう一度操作できる）のときだけにする。
+								<Notice
+									status="error"
+									isDismissible={ null !== exportOptions }
+									onRemove={ () =>
+										setExportOptionsError( null )
+									}
+								>
+									{ null === exportOptions
+										? joinSentences(
+												exportOptionsError,
+												__(
+													'Running an export is disabled until this setting loads. Reload the page to try again.',
+													'cart-bridge-jp'
+												)
+										  )
+										: exportOptionsError }
+								</Notice>
+							) }
+						</div>
+					) }
 
 					<Notice status="warning" isDismissible={ false }>
 						{ __(
@@ -1047,6 +1333,7 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								exportOptionsSaving ||
 								0 === selectedExportEntities.size
 							}
 							onClick={ () => startExportRun( 'dry_run_export' ) }
@@ -1062,6 +1349,8 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								exportOptionsSaving ||
+								exportOptionsPending ||
 								0 === selectedExportEntities.size ||
 								! acknowledgeProductionWrite
 							}

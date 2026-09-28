@@ -14,6 +14,7 @@ use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Reader\ReadItem;
@@ -51,6 +52,13 @@ final class Exporter {
 	 * テストが期待値を組み立てられるようpublicにする。
 	 */
 	public const CHECKSUM_NAMESPACE = 'cbjp-export:';
+
+	/**
+	 * 商品画像のアップロードがオンのとき、商品の`export_checksum()`へ`CHECKSUM_NAMESPACE`の直後に混ぜる印
+	 * （D24。`checksum_salt()`参照）。`canonical_json()`は必ず`{`で始まるため、印との境界は曖昧にならない。
+	 * テストが期待値を組み立てられるようpublicにする。
+	 */
+	public const CHECKSUM_SALT_IMAGES = 'images:';
 
 	/**
 	 * `PlatformWriter::write()`がディスパッチする`push_*()`のうち、作成/更新を`?string $remote_id`で
@@ -124,6 +132,10 @@ final class Exporter {
 
 		$dry_run_rows = [];
 		$platform     = $adapter->id();
+
+		// D24: 画像アップロードがオンの間だけ商品のchecksumが変わる（`checksum_salt()`）。実行中は設定を変えられない
+		// （`RestController::save_export_options()`が進行中のrunを409で拒否する）ため、ページ内で使い回してよい。
+		$checksum_salt = $this->checksum_salt( $adapter, $entity );
 
 		// ページ内アイテムの既存mapping（remote_id/checksum）を一括プリロードする
 		// （`Importer::process_items()`の逆方向、同じ理由）。
@@ -222,7 +234,7 @@ final class Exporter {
 				continue;
 			}
 
-			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item ) === $row['checksum'] ) {
+			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item, $checksum_salt ) === $row['checksum'] ) {
 				++$totals['skipped'];
 
 				// Copilot指摘（PR #40）: checksum一致でスキップしても`$read_item->warnings`
@@ -454,7 +466,7 @@ final class Exporter {
 
 				// `Importer`と同じ理由: 未解決参照（category_map欠落等）が残る場合はchecksumを
 				// キャッシュせず、解決可能になった時点で再試行させる。
-				$checksum = $fully_resolved ? self::export_checksum( $item ) : null;
+				$checksum = $fully_resolved ? self::export_checksum( $item, $checksum_salt ) : null;
 
 				// Codex指摘（PR #40, G3）: アダプタが既存remote_idと異なる新しいremote_idを
 				// 返す場合がある（例: リモート側で削除された実体をupdate時に再作成した）。
@@ -595,8 +607,30 @@ final class Exporter {
 	 * `CanonicalModel::checksum()`（生のsha256）とは異なる64文字のsha256 hex digestになる
 	 * （クラスdocblock参照）。テストが期待値を組み立てられるようpublic staticにする。
 	 */
-	public static function export_checksum( CanonicalModel $item ): string {
-		return hash( 'sha256', self::CHECKSUM_NAMESPACE . $item->canonical_json() );
+	public static function export_checksum( CanonicalModel $item, string $salt = '' ): string {
+		return hash( 'sha256', self::CHECKSUM_NAMESPACE . $salt . $item->canonical_json() );
+	}
+
+	/**
+	 * `export_checksum()`へ混ぜる印（D24）。画像アップロード（`Support\ExportOptions::push_images_enabled()`）が
+	 * オンで、かつアダプタが能力（`can_push_images`）を持つときの**商品**だけ`CHECKSUM_SALT_IMAGES`、それ以外は
+	 * 空文字（＝従来と同一のchecksum。既存のmappingは影響を受けない）。
+	 *
+	 * 画像をオフのままexportした商品はchecksumがキャッシュされるため、印が無いと、後で画像をオンにしても
+	 * 商品に変更が無い限り`push_product()`が呼ばれず画像は永久に送られない。オンにすると商品のchecksumが変わり
+	 * 次のexportで（dry-runの判定も含めて）更新として再送される。オフに戻すと再び印が外れて別のchecksumになる
+	 * ため、画像付きでexport済みの商品は一度だけ画像なしの更新として再送される（オンの間の状態に追従する側の挙動）。
+	 * 画像に無関係なエンティティ（顧客・受注・在庫等）には混ぜない。
+	 */
+	private function checksum_salt( PlatformAdapter $adapter, string $entity ): string {
+		if ( 'product' !== $entity ) {
+			return '';
+		}
+
+		// 設定（get_option。キャッシュ済み）を先に見て、オフのときはアダプタの`capabilities()`を呼ばない。
+		$pushes_images = ExportOptions::push_images_enabled( $adapter->id() ) && $adapter->capabilities()->can_push_images;
+
+		return $pushes_images ? self::CHECKSUM_SALT_IMAGES : '';
 	}
 
 	/**

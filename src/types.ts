@@ -11,6 +11,12 @@ export interface Capabilities {
 	has_variants: boolean;
 	rate_limit_per_minute: number;
 	supports_per_variant_stock_management: boolean;
+	/**
+	 * 実店舗で未検証のベータ機能の識別子（`Adapters\Capabilities::BETA_*`。D24）。UI は「Beta」表示と、既定で
+	 * 選択しない扱いにだけ使う（可否そのものは`can_create_order`/`can_push_images`が決める）。
+	 * サーバーが文字列だけの配列へ正規化して返す。
+	 */
+	beta_features: string[];
 }
 
 export interface ConnectionField {
@@ -290,4 +296,12 @@ export interface SettingsMappingValues {
 export interface SettingsMappings extends SettingsMappingValues {
 	asp_candidates: Record< MappingKey, MappingCandidate[] >;
 	woo_candidates: Record< MappingKey, MappingCandidate[] >;
+}
+
+/**
+ * `GET/PUT /settings/export-options/{platform}`（D24）。プラットフォーム単位のエクスポート設定。
+ * `push_images`は「商品画像をアップロードする」（既定オフ。プレミアムプラン限定でベータ版）。
+ */
+export interface ExportOptions {
+	push_images: boolean;
 }

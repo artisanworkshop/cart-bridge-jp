@@ -17,6 +17,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
+use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Exporter;
 use CartBridgeJP\Sync\DryRunItemRepository;
@@ -1214,6 +1215,102 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
 		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 102 ) );
 		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 103 ), '実使用数が既に上限を超えているため103は作成されない' );
+	}
+
+	/**
+	 * D24: 画像アップロードをオフのままexport済みの商品は、そのままだとchecksumが一致して`push_product()`が
+	 * 呼ばれず、後でオンにしても画像が永久に送られない。オンの間だけ商品のchecksumに印を混ぜ、次のexportで
+	 * 更新として再送させる。再送後は印つきのchecksumがキャッシュされ、続けて回しても再送されない。
+	 */
+	public function test_enabling_image_upload_re_sends_a_product_that_was_exported_while_it_was_off(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+		ExportOptions::save_push_images( 'mock', true );
+
+		$writer = new InMemoryPlatformWriter();
+		$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 1, $result['totals']['updated'] );
+		$this->assertSame( Exporter::export_checksum( $product, Exporter::CHECKSUM_SALT_IMAGES ), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
+		$this->assertNotSame( Exporter::export_checksum( $product ), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
+
+		$second_writer = new InMemoryPlatformWriter();
+		$second        = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $second_writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $second_writer->writes, '印つきのchecksumが一致するため再送しない' );
+		$this->assertSame( 1, $second['totals']['skipped'] );
+	}
+
+	/**
+	 * オフ（既定）のchecksumは従来と同一で、既存のmappingは影響を受けない（設定を一度も触っていない店舗が
+	 * アップデート後に全商品を再送されない）。
+	 */
+	public function test_image_upload_off_keeps_the_existing_product_checksum(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+
+		foreach ( [ null, false ] as $setting ) {
+			if ( null !== $setting ) {
+				ExportOptions::save_push_images( 'mock', $setting );
+			}
+
+			$writer = new InMemoryPlatformWriter();
+			$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
+
+			$this->assertSame( [], $writer->writes );
+			$this->assertSame( 1, $result['totals']['skipped'] );
+		}
+	}
+
+	/**
+	 * 画像アップロードの能力（`can_push_images`）が無いアダプタでは、設定が残っていてもchecksumを変えない
+	 * （送らない機能のために全商品を再送しない）。
+	 */
+	public function test_image_upload_marker_is_not_applied_when_the_adapter_cannot_push_images(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+		ExportOptions::save_push_images( 'mock', true );
+
+		$adapter = new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, false, true, true, true, true, true, 600 ) );
+		$writer  = new InMemoryPlatformWriter();
+		$result  = ( new Exporter( $this->mappings ) )->run_page( $adapter, $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+	}
+
+	/**
+	 * 画像に関係するのは商品だけ。在庫等の他のエンティティのchecksumには印を混ぜない。
+	 */
+	public function test_image_upload_marker_is_not_applied_to_other_entities(): void {
+		$stock = new CanonicalStock( 'p-1', 'v-1', 'SKU-1', 5, true );
+		$this->mappings->upsert( 'mock', 'stock', 'remote-s1', 201, Exporter::export_checksum( $stock ) );
+		ExportOptions::save_push_images( 'mock', true );
+
+		$writer = new InMemoryPlatformWriter();
+		$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 201, $stock ) ] ), 'stock', Cursor::start(), false );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+	}
+
+	/**
+	 * dry-run も同じ判定を使う（オンにした直後のプレビューが「変更なし」と偽らず、実際の export と同じく更新として出る）。
+	 */
+	public function test_dry_run_reports_a_product_as_an_update_once_image_upload_is_enabled(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+		ExportOptions::save_push_images( 'mock', true );
+
+		$writer = new InMemoryPlatformWriter();
+		$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), true, null, null, 9401, 'run-9401' );
+
+		$this->assertSame( 0, $result['totals']['skipped'], '「変更なし」とせず、実際のexportと同じく更新として扱う' );
+
+		$rows = ( new DryRunItemRepository() )->list_after( 'run-9401', 0, 10 );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( PushResult::OPERATION_UPDATED, $rows[0]['operation'] );
 	}
 
 	/**
