@@ -4,9 +4,10 @@
 // 続けて: mock-adapter.sh uninstall → mock-adapter.sh inspect（検証前と同じか確認）。`inspect` は logs・jobs・intents を数えないので、
 //         この出力の「left」の行（0 であること）も見る。
 //
-// 対象は下の $platform（install に渡したキーと同じ）の行だけ。**実 platform は拒否する**: OAuth トークンを持つ platform、または
-// mock 以外のアダプタが登録されている platform（切断済みの実 platform はトークンを持たないので、トークンだけでは見分けられない）。
-// mapping・job・印を消すので、`colorme` のような実 platform に向けると実データを壊す。前回が途中で止まったときの掃除にも使える。
+// 対象は下の $platform（install に渡したキーと同じ）の行だけ。**mock アダプタが登録されているときだけ実行する**（許可する側で判定する）:
+// OAuth トークンを持つ platform、mock 以外のアダプタが登録されている platform（切断済みの実 platform はトークンを持たない）、
+// アダプタが未登録の platform（mock を uninstall した後など、mock かどうか確かめられない）はすべて拒否する。
+// mapping・job・印を消すので、`colorme` のような実 platform に向けると実データを壊す。前回が途中で止まった掃除は、`install` し直してから流す。
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 
@@ -15,8 +16,8 @@ global $wpdb;
 $platform = 'mockv';
 $adapter  = AdapterRegistry::get( $platform );
 
-if ( false !== get_option( 'cbjp_token_' . $platform, false ) || ( null !== $adapter && ! $adapter instanceof MockPlatformAdapter ) ) {
-	echo "REFUSED: '{$platform}' looks like a real platform (a stored token or a non-mock adapter). Nothing was deleted.\n";
+if ( false !== get_option( 'cbjp_token_' . $platform, false ) || ! $adapter instanceof MockPlatformAdapter ) {
+	echo "REFUSED: '{$platform}' is not a registered mock adapter (a stored token, a non-mock adapter, or no adapter at all). Nothing was deleted. If the mock is uninstalled, run: mock-adapter.sh install {$platform} — then cleanup.php, then uninstall.\n";
 	exit( 2 );
 }
 

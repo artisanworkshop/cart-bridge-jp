@@ -142,11 +142,13 @@ if ( ! is_array( get_option( 'cbjp_verify_seed', [] ) ) ) {
 
 global $wpdb;
 $repo     = new PushIntentRepository();
+// cleanup.php は `$platform` の intent・mapping・job・ログをすべて消すので、始める前にそれらが残っていたら（別の検証の残りを巻き込まないよう）先に止める。
 $leftover = count( $repo->find_unresolved( $platform ) )
-	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", $platform ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s", $platform ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 if ( $leftover > 0 ) {
-	$abort( "'{$platform}' already has intents or mappings ({$leftover}) — run cleanup.php first, then retry", 2 );
+	$abort( "'{$platform}' already has intents, mappings or jobs ({$leftover}) — if they are leftovers of this example, run cleanup.php first, then retry", 2 );
 }
 
 // ---- 1) push 無効: 送信されず、印も残らない ----
