@@ -387,8 +387,8 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * （03 §9 #14）、`HISTORY_FLOOR`を明示して全履歴を対象にする。
 	 */
 	public function fetch_orders( Cursor $cursor ): Page {
-		$offset    = (int) $cursor->get( 'offset', 0 );
-		$body      = $this->client()->get(
+		$offset = (int) $cursor->get( 'offset', 0 );
+		$body   = $this->client()->get(
 			'sales.json',
 			[
 				'after'  => self::HISTORY_FLOOR,
@@ -396,9 +396,12 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 				'offset' => $offset,
 			]
 		);
-		$raw       = $this->list_from( $body, 'sales' );
-		$items     = $this->transform_rows( $raw, fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
-		$row_total = $this->total_from_meta( $body );
+		$raw    = $this->list_from( $body, 'sales' );
+		// `order_transformer()`（初回呼び出し時にpayments.json/deliveries.jsonを叩く）を
+		// 行単位のtry節の外で解決する。理由は`fetch_order_by_remote_id()`と同じ。
+		$transformer = $this->order_transformer();
+		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ), 'order' );
+		$row_total   = $this->total_from_meta( $body );
 
 		// customer同様、`OrderTransformer`が変換失敗行（id/make_date/total_price欠損）を除外した
 		// 後の`items`件数は`meta.total`（生の受注件数）と一致しうるとは限らない。
@@ -462,8 +465,13 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * @return array<int,CanonicalOrder>
 	 */
 	public function fetch_latest_orders( int $limit ): array {
+		// `order_transformer()`をループの外・行単位のtry節の外で一度だけ解決する
+		// （`fetch_order_by_remote_id()`と同じ理由）。インスタンス単位でメモ化されるため
+		// ループ内で毎回呼んでも実際のI/Oは初回のみだが、失敗時は毎回再試行を繰り返し
+		// 行の変換失敗として握りつぶされてしまう。
+		$transformer   = $this->order_transformer();
 		$request_limit = $limit;
-		$orders        = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $request_limit ] ), fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ), 'order' );
+		$orders        = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $request_limit ] ), static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ), 'order' );
 		$orders_count  = count( $orders );
 		$window_days   = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
 
@@ -482,7 +490,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 						'after' => $after,
 					]
 				),
-				fn ( array $item ): CanonicalOrder => $this->order_transformer()->transform( $item ),
+				static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ),
 				'order'
 			);
 			$orders_count  = count( $orders );
