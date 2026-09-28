@@ -104,8 +104,9 @@ add_action(
 					? new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 )
 					: null;
 
-				// D24 検証用: `capabilities` があれば上書きする。配列でない・真偽値でない値は既定（true）ではなく
-				// 「読み飛ばして既定の mock」に倒す（mu-plugin の fatal を避ける既存方針）。
+				// D24 検証用: `capabilities` が配列のときだけ上書きする（配列でなければ既定の mock。mu-plugin の fatal を
+				// 避ける既存方針）。`can_*` はキー欠損なら既定の true、**真偽値以外の値（`'true'` など）は false**
+				// （厳密な `true ===` 比較。外部アダプタの型違いを「できる」と読まない側に倒す）。
 				$caps_seed      = is_array( $seed ) && is_array( $seed['capabilities'] ?? null ) ? $seed['capabilities'] : null;
 				$caps_override  = null;
 				$caps_bool      = static fn ( string $key ): bool => true === ( $caps_seed[ $key ] ?? true );
