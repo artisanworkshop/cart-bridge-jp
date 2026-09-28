@@ -23,7 +23,14 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   （`$seed['k'] ?? null` だけでは `$seed` が stdClass のとき Error。PR #80 G3-2 で Copilot が High として指摘）
 - **bot レビュー本文の整形（`gate-bodies.sh`）は、本文の形式が変わっても指摘を握りつぶさない側に倒す**。Copilot の本文は旧形式（`Suppressed comments`）と新形式（`ccr-overview-v2`: `Open`/`Previously missed`/`What changed in this PR` の `<details>`）が混在し、`Previously missed` はスレッドの無い新規指摘なのに旧版は整形出力に出さず、`--raw` で読まなければ見落とすところだった（PR #61 G2）。未知の `<details>` 節は出す側に倒し、ノイズと分かっている節（ファイル要約の表）だけ明示的に除外する。整形ロジックの回帰テストは `scripts/test-gate-bodies.sh`（`--format` に fixtures の本文を流す。ネットワーク不要。`quality.sh` と CI の `dev-tooling` ジョブで実行される）
 - スクリプトは手元の macOS（bash 3.2・BSD awk）と CI の `dev-tooling` ジョブ（Ubuntu の bash 5・mawk）の**両方で動く**書き方にする。`test-gate-bodies.sh`・`test-gate-turn.sh`・`test-gate-record.sh` は `quality.sh` の末尾と CI で実行される（PR #64・#66・#68）。他の補助スクリプトにテストを足すときも同ジョブに追加する。手元で Ubuntu の挙動を確かめるには `docker run --rm -v "$PWD":/repo:ro -w /repo ubuntu:24.04 bash -c '…'`（`jq perl git` を入れ、`git config --global --add safe.directory /repo`）
-- **bash のダブルクォート内で `$変数` の直後に全角文字（`（` など）を置かない**（`$RC（期待…）` は `unbound variable` で `set -u` 下のスクリプトを FAIL も出さずに異常終了させる。`${RC}` と書く）。テスト自身のメッセージで起きやすく、`test-gate-turn.sh` とフックのテストで実際に踏んだ。ミューテーションで「FAIL が明示的に報告されること」まで確かめると気付ける
+- **bash のダブルクォート内で `$変数` の直後に全角文字（`（` など）を置かない**（`$RC（期待…）` は `unbound variable` で `set -u` 下のスクリプトを FAIL も出さずに異常終了させる。`${RC}` と書く）。テスト自身のメッセージで起きやすく、`test-gate-turn.sh` とフックのテストで実際に踏んだ。ミューテーションで「FAIL が明示的に報告されること」まで確かめると気付ける。
+  **さらに、`set -e` と `trap … EXIT` の両方を持つテストスクリプトは、macOS の bash 3.2 だとこの異常終了が終了コード 0 になる**（`set -euo pipefail` +
+  トラップ〔中身は `:` でも `rm -rf` でも〕=0、トラップ無し=1、`set -uo pipefail`〔`-e` なし〕+ トラップ=1 を実測。`rc=$?` を保存する書き方でも 0）。
+  `quality.sh` も `mutate-check.sh` も終了コードだけを見るので、テストが途中で止まっても「成功」「通った」と判定される
+  （`test-gate-record.sh` の承認テストで、変異が「NOT CAUGHT: tests passed」と出て発覚）。テストの最後で `DONE=1` を立て、トラップは `DONE` が 1 でなければ
+  明示的に `exit 1` する（`test-gate-record.sh`・`test-gate-turn.sh` 参照）。新しい `set -e` + EXIT トラップ付きテストにも同じ完了マーカーを付ける。
+  ミューテーションで `ok()` に `$WORK）` のような展開を仕込み、完了マーカーが異常終了を非ゼロにすることまで確かめる。
+  **限界**: 終了コードを消費する形のコマンド置換（`out=$(f) || RC=$?`・`if out=$(f)`。`run_gr` がこの形）の中で起きた致命的エラーは、サブシェルが落ちるだけで本体は続くため、完了マーカーでは検出できない（アサーションで出力を検査する。`set -e` 下で単独の代入文として書いた `out=$(f)` なら本体が止まり、完了マーカーが検出する）
 - **数値オプションは `^[0-9]+$` の検証だけでは足りない**。先頭が 0 の値（`0600`）は後続の `$(( ))` と子スクリプトで 8 進数として解釈される（`0600` は 384、`0900` は `value too great for base` で算術エラー）。検証後に `n=$((10#$n))` で基数 10 に正規化してから計算・子スクリプトへ渡す（`gate-turn.sh` は対応済み。`bot-wait.sh`/`ci-wait.sh` を直接呼ぶ場合は未対応で backlog、PR #66 G2-2）
 - **空になりうる変数でパスを組み立てない**。`TMP=$(mktemp -d)` が失敗したまま進むと `$TMP/ci.out` が `/ci.out`（ルート直下）になる。`set -e` を使わないスクリプトは `if ! TMP=$(mktemp -d) || [ -z "$TMP" ]; then …; exit 3; fi` で止める（PR #66 G1）。macOS の `mktemp -d` は `TMPDIR` を見ないので、テストでは PATH 上のスタブで失敗させる
 - **`bot-wait.sh` は応答を提出時刻（`submitted_at > T`）だけで判定し、`commit_id` を照合しない**。T を CI 待ちより前に取る呼び出し（`gate-turn.sh --first`）は、待つ間に PR の HEAD が動くと旧 HEAD への自動レビューを応答と誤認する。CI 待ちの前後で HEAD を比べ、動いていたら待たずに終える（HEAD は T より先に読む。PR #66 G2-1）
