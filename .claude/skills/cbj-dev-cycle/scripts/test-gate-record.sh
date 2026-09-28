@@ -568,13 +568,45 @@ assert_rc "--auto-commit は approve 専用: 2" 2
 # 読めない時刻をフェイルオープンにしない（全角数字・0000 年・0126 年〔timegm が 2026 に世紀補正する〕・末尾の余り・範囲外の世紀）。
 for spec in "fullwidth|- 承認: ２０２６-06-01T00:00:00Z" "year0|- 承認: 0000-06-01T00:00:00Z" "year126|- 承認: 0126-06-01T00:00:00Z" \
   "junk|- 承認: 2026-06-01T00:00:00Zjunk" "century|- 承認: 2126-06-01T00:00:00Z" \
-  "autoX|- 承認: auto-commitX" "autodash|- 承認: auto-commit-x"; do
+  "autoX|- 承認: auto-commitX" "autodash|- 承認: auto-commit-x" \
+  "dashjunk|- 承認: 2026-06-01T00:00:00Z-junk" "bang|- 承認: 2026-06-01T00:00:00Z!not-approved" "autobang|- 承認: auto-commit!"; do
   pname=${spec%%|*}
   mkrec_sha "ap-p-${pname}" "$SHA_NEW" "${spec#*|}"
   run_check_ap "ap-p-${pname}"
   assert_rc "承認: 読めない時刻（${pname}）は 1（世紀補正・全角数字・末尾の余りを通さない）" 1
   assert_err "承認: 読めない時刻（${pname}）は書式を案内する" "承認 must be"
 done
+
+# 承認の直後に許すのは行末・空白・括弧（approve が書く補足）だけ。
+for spec in "paren|- 承認: 2026-06-01T00:00:00Z（確認ゲートを通した時刻）" "halfparen|- 承認: 2026-06-01T00:00:00Z (note)" "space|- 承認: 2026-06-01T00:00:00Z 補足"; do
+  pname=${spec%%|*}
+  mkrec_sha "ap-v-${pname}" "$SHA_NEW" "${spec#*|}"
+  run_check_ap "ap-v-${pname}"
+  assert_rc "承認: 時刻の直後の補足（${pname}）は許す: 0" 0
+done
+
+# ヘッダに承認行・PR 行が 2 行以上ある記録は曖昧なので止める（先頭の古い auto-commit 行が後ろの時刻承認を隠さない）。
+mkrec_sha ap-s "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z"
+perl -0pi -e 's/(- PR:[^\n]*\n)/$1- 承認: auto-commit\n/' "$WORK/rec-ap-s.md"
+run_check_ap ap-s
+assert_rc "承認: 先頭に古い auto-commit 行、後ろに時刻承認（順序違反）の記録は 1（先頭だけ読んで通さない）" 1
+assert_err "承認: 承認行が複数あると分かる" 'has 2 "- 承認:" lines'
+mkrec_sha ap-s2 "$SHA_OLD" "- 承認: auto-commit"
+perl -0pi -e 's/(- 承認: auto-commit\n)/$1- 承認: 2026-06-01T00:00:00Z\n/' "$WORK/rec-ap-s2.md"
+run_check_ap ap-s2
+assert_rc "承認: 逆の並び（auto-commit の後ろに時刻承認）も 1" 1
+cp "$WORK/rec-ap-s.md" "$WORK/rec-ap-s3.md"
+run_gr -- approve 66 9 --file="$WORK/rec-ap-s3.md" --force
+assert_rc "approve --force: 承認行が複数ある記録には書かない（1 行しか置き換えられない）: 1" 1
+assert_err "approve: 手で 1 行にするよう案内する" "remove the extra ones by hand"
+if cmp -s "$WORK/rec-ap-s.md" "$WORK/rec-ap-s3.md"; then ok "approve: 拒否したとき記録を書き換えない"; else fail "approve: 拒否したのに記録が書き換えられた"; fi
+mkrec_sha ap-t "$SHA_NEW" "- 承認: 2026-06-01T00:00:00Z"
+perl -0pi -e 's/(- PR:[^\n]*\n)/$1- PR: #66 \/ 対象 HEAD: abc1234\n/' "$WORK/rec-ap-t.md"
+run_check_ap ap-t
+assert_rc "承認: ヘッダに「- PR:」が 2 行ある記録は 1" 1
+assert_err "承認: PR 行が複数あると分かる" 'has 2 "- PR:" lines'
+run_gr -- approve 66 9 --file="$WORK/rec-ap-t.md" --force
+assert_rc "approve: 「- PR:」が 2 行ある記録には書かない: 1" 1
 
 # 過去のラウンドで直した指摘を bot が再指摘した場合: 対象 HEAD の祖先の commit は承認より前でも検査しない。祖先でなければ検査する。
 mkrec_sha ap-m "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_NEW:0:7}"

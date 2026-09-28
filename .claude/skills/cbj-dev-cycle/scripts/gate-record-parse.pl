@@ -17,9 +17,11 @@ my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, u
 my ($fchar, $flen) = ('', 0);
 my ($pr_number, $round);
 # ヘッダの `- PR: #<n> / 対象 HEAD: <sha>` の行番号と対象 HEAD、`- 承認: <UTC 時刻 | auto-commit>`（確認ゲートを通した印。
-# `gate-record.sh approve` が書く）の行番号。どちらも最初の 1 行だけを見る。コメント・コードフェンスの中は数えない（$struct）:
+# `gate-record.sh approve` が書く）の行番号。値は最初の 1 行から読み、2 行以上あれば件数（pr_count・approval_count）で知らせる（呼び出し側が
+# 曖昧な記録として拒否する。先頭の古い auto-commit 行が後ろの時刻承認を隠すのを防ぐ）。コメント・コードフェンスの中は数えない（$struct）:
 # approve はこの行番号で挿入・置換するので、パーサと書き手の解釈が食い違うと、コメントの中に承認行を書いてしまう。
 my ($pr_line, $target_head, $approval_raw, $approval_line);
+my ($pr_count, $approval_count) = (0, 0);
 my $has_section = 0;
 my ($no_findings, $no_findings_text) = (0, '');
 # 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
@@ -93,12 +95,16 @@ while (my $l = <$fh>) {
   }
   if ($section eq 'header') {
     push @header, $vis if $vis =~ /\S/;
-    if ($struct && !defined $pr_number && $vis =~ /^- PR: #([0-9]+)/) {
-      ($pr_number, $pr_line) = ($1 + 0, $ln);
-      $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})/;
+    if ($struct && $vis =~ /^- PR: #([0-9]+)/) {
+      $pr_count++;
+      if (!defined $pr_number) {
+        ($pr_number, $pr_line) = ($1 + 0, $ln);
+        $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})/;
+      }
     }
-    if ($struct && !defined $approval_raw && $vis =~ /^- 承認(?::|：)\s*(.*)$/) {
-      ($approval_raw, $approval_line) = (trim($1), $ln);
+    if ($struct && $vis =~ /^- 承認(?::|：)\s*(.*)$/) {
+      $approval_count++;
+      ($approval_raw, $approval_line) = (trim($1), $ln) if !defined $approval_raw;
     }
     next;
   }
@@ -134,10 +140,10 @@ my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
 my ($approval, $approval_epoch) = ('', undef);
 if (defined $approval_raw) {
   # 数字は [0-9]（`use utf8` 下の \d は全角数字にも一致する）、年は 2000〜2099 だけ（timegm は 0〜999 年を世紀補正するので、`0126` が 2026 として
-  # 通ってしまう）、`Z` の直後は英数字を許さない（`…Zjunk` を通さない。後ろに続く日本語の補足は許す）。読めなければ bad に倒す。
-  if ($approval_raw =~ /^auto-commit(?![A-Za-z0-9-])/) {
+  # 通ってしまう）、値の直後は行末・空白・括弧（`approve` が書く補足）だけを許す（`…Zjunk`・`…Z-junk`・`…Z!x` を通さない）。読めなければ bad に倒す。
+  if ($approval_raw =~ /^auto-commit(?=\z|[\s（(])/) {
     $approval = 'auto';
-  } elsif ($approval_raw =~ /^(20[0-9]{2})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z(?![A-Za-z0-9])/) {
+  } elsif ($approval_raw =~ /^(20[0-9]{2})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z(?=\z|[\s（(])/) {
     # timegm は範囲外の値（13 月など）で die するので eval で受けて bad に倒す。
     $approval_epoch = eval { timegm($6 + 0, $5 + 0, $4 + 0, $3 + 0, $2 - 1, $1 + 0) };
     $approval = defined $approval_epoch ? 'time' : 'bad';
@@ -147,7 +153,7 @@ if (defined $approval_raw) {
 }
 print JSON::PP->new->utf8->canonical->encode({
   approval => $approval, approval_raw => defined $approval_raw ? $approval_raw : '', approval_epoch => $approval_epoch,
-  approval_line => $approval_line, pr_line => $pr_line, target_head => defined $target_head ? $target_head : '',
+  approval_line => $approval_line, approval_count => $approval_count, pr_line => $pr_line, pr_count => $pr_count, target_head => defined $target_head ? $target_head : '',
   title => $title, pr_number => $pr_number, round => $round, header => \@header, verify => \@verify, findings => \@findings,
   bad_headings => \@bad, todo_lines => \@todo, unterminated => $unterminated,
   no_findings => $no_findings ? JSON::PP::true : JSON::PP::false, no_findings_text => $no_findings_text,

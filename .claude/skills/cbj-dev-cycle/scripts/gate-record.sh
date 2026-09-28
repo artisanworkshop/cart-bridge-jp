@@ -18,10 +18,14 @@
 # ただし記録の「対象 HEAD」（このラウンドのレビューが対象にした commit）の祖先の commit は検査しない（レビューが届く前からあった commit
 # ＝前のラウンドで直した指摘を bot が再指摘した場合など。祖先と確かめられなければ検査する）。承認行の書式は UTC 時刻（2000〜2099 年）か auto-commit。
 # `approve --force --auto-commit` で時刻承認を auto-commit に置き換えることは拒否する（1 コマンドで違反を合格に変えられるため）。
+# ヘッダに `- 承認:`（`- PR:`）の行が 2 行以上あるのは曖昧な記録として拒否する（先頭の古い auto-commit 行が後ろの時刻承認を隠さないように）。
+# 承認・auto-commit の直後は行末・空白・括弧だけを許す（`…Z-junk` を通さない）。
 # 限界: 検出であって防止ではない。`approve` を人の回答より前に実行する、`- 承認:` 行を手で遡った時刻に書く、`CBJ_GATE_NOW`（テスト用の
 # 時刻の上書き。使うと警告する）を本番で使う、といった偽装までは防げない。`git commit --amend`／rebase は committer 時刻を変えるので、
 # 承認後に作り直した commit は通る。対象 HEAD が修正の commit 自身かその子孫のとき（修正を push した後に init した、記録を手で書き換えた）は、
 # 祖先の除外で検査を飛ばす（除外した commit は note として stderr に出す）。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
+# committer 時刻も承認時刻も 1 秒単位なので、承認と同じ秒の commit は正しい順序として通す（`approve && git commit` の連鎖を誤検出しないため。
+# 逆順でも同じ秒なら通る。実際の手順では回答を待つ間に秒を跨ぐ）。
 # 導入前の記録（承認行の無い過去の G<n>.md）を再検査すると、判定が「修正」のものは承認なしで止まる。
 # init は指摘を取得した直後（修正の前）に実行するのが確実: 修正を push した後だと、修正済みのスレッドは outdated になって行番号が `?` になる。
 # --since を付けるとレビューは「T 以降に提出されたもの」を拾い、対象の commit を併記する（付けなければ現在の HEAD へのレビュー）。
@@ -150,6 +154,8 @@ load_record() {
       elif .pr_number != $pr then "record is for PR #\(.pr_number) but the command says PR #\($pr)" else empty end ),
     ( if .round == null then "record title lacks \"# ゲートラウンド G<n>\" (needed to check the round)"
       elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end ),
+    ( if .pr_count > 1 then "record header has \(.pr_count) \"- PR:\" lines (keep exactly one; the record must belong to one PR)" else empty end ),
+    ( if .approval_count > 1 then "record header has \(.approval_count) \"- 承認:\" lines (keep exactly one: a stale auto-commit line would hide the timed approval)" else empty end ),
     ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 and (.verify | length) == 0 then "検証 needs at least one line (test / lint / mutation results) when a finding is 修正" else empty end ),
     ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 then
         ( if .approval == "" then "承認 is missing: a 修正 needs the confirm gate before the commit. Right after the user approves (before git commit) run: gate-record.sh approve <PR> <n>  (--auto-commit only when the user invoked auto-commit)"
@@ -441,7 +447,9 @@ cmd_approve() {
     ( if .pr_number == null then "record header lacks \"- PR: #<n>\" (needed to put the 承認 line after it, and to check that the record belongs to this PR)"
       elif .pr_number != $pr then "record is for PR #\(.pr_number) but the command says PR #\($pr)" else empty end ),
     ( if .round == null then "record title lacks \"# ゲートラウンド G<n>\" (needed to check the round)"
-      elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end )' <<<"$json"); then
+      elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end ),
+    ( if .pr_count > 1 then "record header has \(.pr_count) \"- PR:\" lines (keep exactly one, then run approve again)" else empty end ),
+    ( if .approval_count > 1 then "record header has \(.approval_count) \"- 承認:\" lines (remove the extra ones by hand: approve --force replaces only one)" else empty end )' <<<"$json"); then
     echo "internal error while checking $REC" >&2
     exit 3
   fi
