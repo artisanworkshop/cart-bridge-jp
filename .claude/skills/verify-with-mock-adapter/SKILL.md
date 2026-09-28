@@ -85,7 +85,9 @@ description: >
   と `link` の失敗系（404）を `rest_do_request()` で通す検証（issue #73 / D21-B。R3-1 の「R3-0a/b の確認をモックで」にも使う）。`verify-rest.php`
   は各ステップを PASS/FAIL で出し、失敗があれば非ゼロで終了する（seed は不要で、`cbjp_verify_seed.push` は自分で切り替える）。**前提**: `install mockv` 済み・
   Woo に export できる商品が 1 件以上・前回の残りが無い（あれば先頭で中止するので `cleanup.php` を流す）。どの商品がサンプルに選ばれるかは
-  `ExportSampleSelector` 次第。`cleanup.php` は `mockv` の intent・mapping・job・ログとオプションだけを消し、**OAuth トークンを持つ platform は拒否する**。
+  `ExportSampleSelector` 次第。`cleanup.php` は `mockv` の intent・mapping・job・ログ（resolve の操作ログは context の platform で特定）と、この example が書く
+  オプションだけを消す（`cbjp_verify_seed` は `push` キーだけを外し、prefecture-repair と共有する他のキーと `cbjp_verify_ids` は残す）。**実 platform は拒否する**
+  （OAuth トークンを持つ、または mock 以外のアダプタが登録されている platform）。終わりに `left:` で 0 件を確認する（`inspect` は logs・jobs・intents を数えない）。
   `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
 
 関連: `docs/03-design-decisions.md` §10.3（ツール）、`.claude/skills/cbj-dev-cycle/SKILL.md`（開発サイクル Step 2 の実機確認）。

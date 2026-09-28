@@ -46,15 +46,22 @@ $call = static function ( string $method, string $route, array $params = [] ): a
 	];
 };
 
+// 一覧の取得が失敗したときに「印が無い」と読み違えて PASS しないよう、200 以外は中止する。
 $intents_now = static function () use ( $call, $platform ): array {
 	$result = $call( 'GET', "/cbjp/v1/push-intents/{$platform}" );
 
-	return is_array( $result['data']['intents'] ?? null ) ? $result['data']['intents'] : [];
+	if ( 200 !== $result['status'] || ! is_array( $result['data']['intents'] ?? null ) ) {
+		echo 'ABORT: GET /push-intents failed: ' . wp_json_encode( $result ) . "\n";
+		exit( 1 );
+	}
+
+	return $result['data']['intents'];
 };
 
 // product の実 export を1回走らせ、その run の product ジョブの totals を返す。
 //   - seed を書き換えたら AdapterRegistry::reset_cache() が必須（`all()` は静的キャッシュで、同一プロセスでは最初に組み立てた mock が残る）
-//   - `cbjp_process_job`（Action Scheduler）は CLI では自走しないので、pending を自分で処理する（無限ループを避けるため回数を打ち切る）
+//   - `cbjp_process_job`（Action Scheduler）は CLI では自走しないので、pending を自分で処理する。**この run のジョブだけ**を job_id で引いて処理する
+//     （サイト全体の pending を流すと、他 platform〔colorme 等〕のジョブを同期実行して実 API を叩きかねない）。20 回で処理し切れなければエラーにする
 $run_export = static function ( array $seed ) use ( $call, $platform ): array {
 	update_option( 'cbjp_verify_seed', $seed );
 	AdapterRegistry::reset_cache();
@@ -75,23 +82,33 @@ $run_export = static function ( array $seed ) use ( $call, $platform ): array {
 		return [ 'error' => 'start_run failed: ' . wp_json_encode( $started ) ];
 	}
 
-	for ( $i = 0; $i < 20; $i++ ) {
-		$pending = as_get_scheduled_actions(
-			[
-				'hook'     => 'cbjp_process_job',
-				'status'   => 'pending',
-				'per_page' => 50,
-			]
-		);
+	$queued  = $call( 'GET', "/cbjp/v1/runs/{$run_id}" );
+	$job_ids = array_map( static fn ( array $job ): int => (int) ( $job['id'] ?? 0 ), $queued['data']['jobs'] ?? [] );
+	$drained = false;
 
-		if ( empty( $pending ) ) {
-			break;
-		}
+	for ( $i = 0; $i < 20 && ! $drained; $i++ ) {
+		$drained = true;
 
-		foreach ( $pending as $action_id => $action ) {
-			do_action_ref_array( $action->get_hook(), $action->get_args() );
-			ActionScheduler_Store::instance()->mark_complete( (string) $action_id );
+		foreach ( $job_ids as $job_id ) {
+			$pending = as_get_scheduled_actions(
+				[
+					'hook'     => 'cbjp_process_job',
+					'args'     => [ 'job_id' => $job_id ],
+					'status'   => 'pending',
+					'per_page' => 10,
+				]
+			);
+
+			foreach ( $pending as $action_id => $action ) {
+				$drained = false;
+				do_action_ref_array( $action->get_hook(), $action->get_args() );
+				ActionScheduler_Store::instance()->mark_complete( (string) $action_id );
+			}
 		}
+	}
+
+	if ( ! $drained ) {
+		return [ 'error' => 'the run still had pending jobs after 20 rounds' ];
 	}
 
 	$run = $call( 'GET', "/cbjp/v1/runs/{$run_id}" );
@@ -149,8 +166,9 @@ if ( [] === $intents ) {
 $initial = count( $intents );
 
 // ---- 3) 印が残る実体は、再送が成功する状況でも送られない ----
+// warned は「ブロックされた」証拠（PUSH_OUTCOME_UNCONFIRMED の警告）。無料版の上限で作成されなかっただけの場合は warned が増えないので、created 0 だけでは区別できない。
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] ); // 5xx を止める。ブロックが無ければここで作成される。
-$check( '3 印が残る実体は再 export でブロックされる（作成 0）', 0 === (int) ( $r['created'] ?? -1 ), wp_json_encode( $r ) );
+$check( '3 印が残る実体は再 export でブロックされる（作成 0、印の数以上の警告）', 0 === (int) ( $r['created'] ?? -1 ) && (int) ( $r['warned'] ?? 0 ) >= $initial, wp_json_encode( $r ) );
 $check( '3 ブロック中は印の数が変わらない', count( $intents_now() ) === $initial );
 
 // ---- 4) not_created で解除 ----
@@ -162,8 +180,8 @@ $check( '4 一覧が1件減る', count( $after ) === $initial - 1, 'before=' . $
 
 // ---- 5) 解除した実体は次の export で作成される ----
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] );
-$check( '5 解除した実体は次の export で作成される', (int) ( $r['created'] ?? 0 ) >= 1, wp_json_encode( $r ) );
-$check( '5 解除していない実体は引き続きブロックされる', count( $intents_now() ) === $initial - 1 );
+$check( '5 解除した1件だけが次の export で作成される', 1 === (int) ( $r['created'] ?? 0 ), wp_json_encode( $r ) );
+$check( '5 解除していない実体は引き続きブロックされる（印の数が変わらず、その数以上の警告）', count( $intents_now() ) === $initial - 1 && (int) ( $r['warned'] ?? 0 ) >= $initial - 1, wp_json_encode( $r ) );
 
 // ---- 6) link: 実在しない remote_id は 404（実在確認）。失敗した link では印が消えない ----
 $remaining = $intents_now();
