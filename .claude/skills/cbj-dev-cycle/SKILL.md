@@ -156,7 +156,7 @@ description: >
 - `final-report.md` を書いたら状態ファイルを「完了」にして commit・push し、ユーザーへ報告して**停止**（マージしない）。
 - マージ後は `/post-merge`。CLAUDE.md への蒸留はそこで行う（PR 中に追加した学びはそのまま残す）。
 - **最終報告後・マージ後の追加作業は、bot への依頼・修正・push の各段階の前に `gh pr view <PR> --json state` で OPEN を確認する**。ユーザーが先にマージしていることがある（PR #81: マージの 1 分後に Copilot へ 4 回目を依頼し、G5 の修正をマージ済みのブランチへ push して main に入らなかった）。マージ済みなら依頼・push をせず、必要な修正は main から新しいブランチを切って cherry-pick するフォローアップ PR で入れる（PR #82）。
-- Copilot は依頼上限（3 回）の後や最終報告の後でも、依頼していないレビューを返すことがある（PR #81 の HEAD `ea081d7`、PR #82 の `e48e032`。原因は未確認）。最終報告の前後に `gate-threads.sh status` で、新しい本文・スレッドが無いか確認する。
+- Copilot は依頼上限（3 回）の後や最終報告の後でも、依頼していないレビューを返すことがある（PR #81 の HEAD `ea081d7`、PR #82 の `e48e032`。原因は未確認）。最終報告の前後に、最終 push の T 以降について `scripts/gate-threads.sh <PR> <T>` と `scripts/gate-bodies.sh <PR> <T>` で、新しい本文・スレッドが無いか確認する（リポジトリ側の `gate-threads.sh` に `status` サブコマンドは無い。`status` はグローバルの fix-copilot-review 版のもの）。
 
 ## 順番実行（`sequential` 指定時）
 

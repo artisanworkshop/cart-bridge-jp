@@ -45,6 +45,8 @@ composer lint                # PHPCS (WordPress Coding Standards)
 composer analyze             # PHPStan (level 6+)
 composer test                # PHPUnit（wp-envコンテナ内で直接実行する場合。ホストからは動かない）
 composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
+# 特定のテストだけ走らせる: `composer test:wpenv -- --filter X` は引数が PHPUnit に渡らず**全件が走る**（実測）。直接呼ぶこと:
+#   npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist --filter 'ClassA|ClassB'"
 npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）。permalink_structure が空（新規 wp-env 等）だと flush だけでは直らず、先に `wp rewrite structure '/%postname%/' --hard` が必要（rest_url() が /wp-json/ ではなく ?rest_route= 形式にフォールバックし、OAuth コールバック URL の登録値と食い違う）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
@@ -67,6 +69,7 @@ npm run build                # 本番ビルド
 - CopilotレビューはJSXの真偽値プロパティ省略記法（`<Component someProp />` は `someProp={true}` と等価）を「未宣言の識別子への参照でReferenceErrorになる」と誤検知することがある（実例: `reportsAvailable`単体の記述、E2-4 PR #53 G3）。`tsc --noEmit`/ビルドが通っていれば構文として正しいため、鵜呑みにせず型チェック結果で検証すること
 - 安全側の判定に使うboolを配列から復元するときは `(bool)` キャストを使わないこと。`(bool) '0'` は `false`、`(bool) 'false'` は `true` になるため、壊れた値・型違いが「安全」の宣言に化けてフェイルクローズを迂回しうる（`CanonicalCoupon::from_array()` の `has_unsupported_restrictions` が実例。issue #15）。`is_bool()` で実boolのみ受け、それ以外は不明（null）へ倒す
 - PHPCS（`WordPress-Extra` + `Universal.Operators.DisallowShortTernary`）は短縮三項演算子 `?:` を**エラー**にする（`?? ` のnull合体とは別物）。フォールバック値には `$a ?? $b` か、複数候補から最初の非空値を選ぶ自前ヘルパー（例: `Cast::first_non_empty()`）を使うこと
+- `composer lint` は **warning でも失敗**する。踏みやすい3種: `Generic.CodeAnalysis.AssignmentInCondition`（`if` の条件式内の代入。`??=` も対象。先に変数へ組み立ててから判定する）、`Squiz.PHP.CommentedOutCode`（バッククォート付きの識別子が多いコメントを「コメントアウトされたコード」と誤検知する。文言を直す）、`WordPress.Arrays.ArrayDeclarationSpacing.AssociativeArrayFound`（1 行に複数キーの連想配列。`vendor/bin/phpcbf` で自動修正できる）
 - テストでJSONフィクスチャを読む際は `file_get_contents()` ではなく `wp_json_file_decode( $path, [ 'associative' => true ] )` を使うこと。`file_get_contents()` はPHPCSの `WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents` warningの対象になり `composer lint` が失敗する
 - `wp_kses_post()` はscript/style以外の禁止タグ（`<iframe>`等中身が無いもの）は要素ごと消えるが、中にテキストを含む禁止タグ（例: `<script>alert(1)</script>`）はタグだけ除去されテキストは残ることがある（実測: WPのkses実装依存）。「HTMLタグを浄化すれば安全」という前提でテストを書く際は実際の出力で検証すること
 - WooCommerceのAPI挙動は「同系クラスだから同じはず」の推測が外れる。判断前に wp-env 内の実ソース（`wp-env run cli -- grep -n -A20 "function xxx" /var/www/html/wp-content/plugins/woocommerce.latest-stable/...`）か `wp eval-file` での実測で確認すること。例: `WC_Coupon::__construct()` は `'shop_coupon' === get_post_type($data)` でpost typeを検証するため、削除済みIDでも例外を投げず新規作成扱いになる（他writerで必要なstale-IDフォールバックはCouponWriterには不要）。レビュー指摘に対してテストを書いたら修正なしで通った場合は、指摘自体が誤りである可能性をまず疑うこと
