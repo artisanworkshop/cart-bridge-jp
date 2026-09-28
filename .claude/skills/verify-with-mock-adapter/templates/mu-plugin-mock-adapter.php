@@ -105,11 +105,12 @@ add_action(
 					: null;
 
 				// D24 検証用: `capabilities` が配列のときだけ上書きする（配列でなければ既定の mock。mu-plugin の fatal を
-				// 避ける既存方針）。`can_*` はキー欠損なら既定の true、**真偽値以外の値（`'true'` など）は false**
-				// （厳密な `true ===` 比較。外部アダプタの型違いを「できる」と読まない側に倒す）。
+				// 避ける既存方針）。`can_*` は**キーが無いときだけ**既定の true、キーがあれば厳密な
+				// `true ===` 比較で、真偽値以外（`'true'`・`1`・`null` など）は false（型違いを「できる」と読まない側に倒す。
+				// `?? true` にすると `null` がキー欠損と同じ扱いになり true になる）。
 				$caps_seed      = is_array( $seed ) && is_array( $seed['capabilities'] ?? null ) ? $seed['capabilities'] : null;
 				$caps_override  = null;
-				$caps_bool      = static fn ( string $key ): bool => true === ( $caps_seed[ $key ] ?? true );
+				$caps_bool      = static fn ( string $key ): bool => ! is_array( $caps_seed ) || ! array_key_exists( $key, $caps_seed ) || true === $caps_seed[ $key ];
 				$caps_beta_seed = null !== $caps_seed && is_array( $caps_seed['beta_features'] ?? null ) ? $caps_seed['beta_features'] : [];
 
 				if ( null !== $caps_seed ) {
