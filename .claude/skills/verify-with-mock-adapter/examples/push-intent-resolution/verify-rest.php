@@ -135,6 +135,11 @@ if ( ! AdapterRegistry::has( $platform ) ) {
 	$abort( "no adapter registered under '{$platform}' — run: mock-adapter.sh install {$platform}", 2 );
 }
 
+// `cbjp_verify_seed` は共有オプション。配列でない壊れた値を上書きして失わないよう、始める前に止める（cleanup.php が壊れた値を消す）。
+if ( ! is_array( get_option( 'cbjp_verify_seed', [] ) ) ) {
+	$abort( 'option cbjp_verify_seed is not an array — run cleanup.php first (it removes the broken value), then retry', 2 );
+}
+
 global $wpdb;
 $repo     = new PushIntentRepository();
 $leftover = count( $repo->find_unresolved( $platform ) )
@@ -181,29 +186,23 @@ $r = $run_export( [ 'push' => [ 'enabled' => true ] ] ); // 5xx を止める。�
 $check( '3 印が残る実体は再 export でブロックされる（作成 0、印の数以上の警告）', 0 === (int) ( $r['created'] ?? -1 ) && (int) ( $r['warned'] ?? 0 ) >= $initial, wp_json_encode( $r ) );
 $check( '3 ブロック中は印の数が変わらない', count( $intents_now() ) === $initial );
 
-// ---- 4) not_created で解除 ----
+// ---- 4) link: 実在しない remote_id は 404（実在確認）。失敗した link では印が消えない ----
+// 解除より前に、残っている印の1件目で確かめる（印が1件しか残らない環境でも、この経路を必ず通すため）。
 $first = $intents[0];
-$res   = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolve", [ 'action' => 'not_created' ] );
-$check( '4 not_created で解除できる', 200 === $res['status'] && true === ( $res['data']['resolved'] ?? false ), wp_json_encode( $res ) );
+$res   = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolve", [ 'action' => 'link', 'remote_id' => 'ZZV-NOT-THERE' ] );
+$check( '4 存在しない remote_id の link は 404 cbjp_remote_entity_not_found', 404 === $res['status'] && 'cbjp_remote_entity_not_found' === ( $res['data']['code'] ?? '' ), wp_json_encode( $res ) );
+$check( '4 失敗した link では印が消えない', count( $intents_now() ) === $initial );
+
+// ---- 5) not_created で解除 ----
+$res = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolve", [ 'action' => 'not_created' ] );
+$check( '5 not_created で解除できる', 200 === $res['status'] && true === ( $res['data']['resolved'] ?? false ), wp_json_encode( $res ) );
 $after = $intents_now();
-$check( '4 一覧が1件減る', count( $after ) === $initial - 1, 'before=' . $initial . ' after=' . count( $after ) );
+$check( '5 一覧が1件減る', count( $after ) === $initial - 1, 'before=' . $initial . ' after=' . count( $after ) );
 
-// ---- 5) 解除した実体は次の export で作成される ----
+// ---- 6) 解除した実体は次の export で作成される ----
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] );
-$check( '5 解除した1件だけが次の export で作成される', 1 === (int) ( $r['created'] ?? 0 ), wp_json_encode( $r ) );
-$check( '5 解除していない実体は引き続きブロックされる（印の数が変わらず、その数以上の警告）', count( $intents_now() ) === $initial - 1 && (int) ( $r['warned'] ?? 0 ) >= $initial - 1, wp_json_encode( $r ) );
-
-// ---- 6) link: 実在しない remote_id は 404（実在確認）。失敗した link では印が消えない ----
-$remaining = $intents_now();
-
-if ( [] === $remaining ) {
-	echo "SKIP 6 link の失敗系: 印が1件しか残らなかったため、解除できる実体がもう無い\n";
-} else {
-	$second = $remaining[0];
-	$res    = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$second['id']}/resolve", [ 'action' => 'link', 'remote_id' => 'ZZV-NOT-THERE' ] );
-	$check( '6 存在しない remote_id の link は 404 cbjp_remote_entity_not_found', 404 === $res['status'] && 'cbjp_remote_entity_not_found' === ( $res['data']['code'] ?? '' ), wp_json_encode( $res ) );
-	$check( '6 失敗した link では印が消えない', count( $intents_now() ) === count( $remaining ) );
-}
+$check( '6 解除した1件だけが次の export で作成される', 1 === (int) ( $r['created'] ?? 0 ), wp_json_encode( $r ) );
+$check( '6 解除していない実体は引き続きブロックされる（印の数が変わらず、その数以上の警告）', count( $intents_now() ) === $initial - 1 && (int) ( $r['warned'] ?? 0 ) >= $initial - 1, wp_json_encode( $r ) );
 
 echo "\n" . ( 0 === $failures ? 'ALL PASS' : "{$failures} FAILED" ) . "\n";
 echo "次: cleanup.php で '{$platform}' の痕跡を撤去し、mock-adapter.sh uninstall → inspect で検証前に戻ったことを確認する\n";
