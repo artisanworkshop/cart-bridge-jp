@@ -17,9 +17,9 @@
 # committer 時刻が承認時刻より前（＝確認前に commit した）なら非ゼロで止める。`- 承認: auto-commit` は時刻の検査を飛ばす。
 # ただし記録の「対象 HEAD」（このラウンドのレビューが対象にした commit）の祖先の commit は検査しない（レビューが届く前からあった commit
 # ＝前のラウンドで直した指摘を bot が再指摘した場合など。祖先と確かめられなければ検査する）。承認行の書式は UTC 時刻（2000〜2099 年）か auto-commit。
-# `approve --force --auto-commit` で時刻承認を auto-commit に置き換えることは拒否する（1 コマンドで違反を合格に変えられるため）。
+# `approve --force --auto-commit` で時刻承認（読めない承認行を含む）を auto-commit に置き換えることは拒否する（1 コマンドで違反を合格に変えられるため）。
 # ヘッダに `- 承認:`（`- PR:`）の行が 2 行以上あるのは曖昧な記録として拒否する（先頭の古い auto-commit 行が後ろの時刻承認を隠さないように）。
-# 承認・auto-commit の直後は行末・空白・括弧だけを許す（`…Z-junk` を通さない）。
+# 承認・auto-commit の直後は行末か、行末で閉じる括弧の補足だけを許す（`…Z-junk`・`…Z (note)TRAIL` を通さない）。
 # 限界: 検出であって防止ではない。`approve` を人の回答より前に実行する、`- 承認:` 行を手で遡った時刻に書く、`CBJ_GATE_NOW`（テスト用の
 # 時刻の上書き。使うと警告する）を本番で使う、といった偽装までは防げない。`git commit --amend`／rebase は committer 時刻を変えるので、
 # 承認後に作り直した commit は通る。対象 HEAD が修正の commit 自身かその子孫のとき（修正を push した後に init した、記録を手で書き換えた）は、
@@ -464,8 +464,8 @@ cmd_approve() {
     echo "$REC already has a 承認 line (use --force to restamp)" >&2
     exit 2
   fi
-  if [ "$AUTO" -eq 1 ] && [ "$approval_kind" = "time" ]; then
-    echo "refusing to replace a timed 承認 with auto-commit: that would turn a commit-before-approval into a pass. Re-run approve --force without --auto-commit, then commit again" >&2
+  if [ "$AUTO" -eq 1 ] && { [ "$approval_kind" = "time" ] || [ "$approval_kind" = "bad" ]; }; then
+    echo "refusing to replace a timed (or unreadable) 承認 with auto-commit: that would turn a commit-before-approval into a pass. Re-run approve --force without --auto-commit, then commit again (or remove the line by hand when the user really invoked auto-commit)" >&2
     exit 2
   fi
   if [ "$AUTO" -eq 1 ]; then

@@ -569,7 +569,8 @@ assert_rc "--auto-commit は approve 専用: 2" 2
 for spec in "fullwidth|- 承認: ２０２６-06-01T00:00:00Z" "year0|- 承認: 0000-06-01T00:00:00Z" "year126|- 承認: 0126-06-01T00:00:00Z" \
   "junk|- 承認: 2026-06-01T00:00:00Zjunk" "century|- 承認: 2126-06-01T00:00:00Z" \
   "autoX|- 承認: auto-commitX" "autodash|- 承認: auto-commit-x" \
-  "dashjunk|- 承認: 2026-06-01T00:00:00Z-junk" "bang|- 承認: 2026-06-01T00:00:00Z!not-approved" "autobang|- 承認: auto-commit!"; do
+  "dashjunk|- 承認: 2026-06-01T00:00:00Z-junk" "bang|- 承認: 2026-06-01T00:00:00Z!not-approved" "autobang|- 承認: auto-commit!" \
+  "space|- 承認: 2026-06-01T00:00:00Z 補足" "trail|- 承認: 2026-06-01T00:00:00Z (note)TRAIL" "autotrail|- 承認: auto-commit（note）TRAIL" "openparen|- 承認: 2026-06-01T00:00:00Z (note"; do
   pname=${spec%%|*}
   mkrec_sha "ap-p-${pname}" "$SHA_NEW" "${spec#*|}"
   run_check_ap "ap-p-${pname}"
@@ -577,8 +578,8 @@ for spec in "fullwidth|- 承認: ２０２６-06-01T00:00:00Z" "year0|- 承認: 
   assert_err "承認: 読めない時刻（${pname}）は書式を案内する" "承認 must be"
 done
 
-# 承認の直後に許すのは行末・空白・括弧（approve が書く補足）だけ。
-for spec in "paren|- 承認: 2026-06-01T00:00:00Z（確認ゲートを通した時刻）" "halfparen|- 承認: 2026-06-01T00:00:00Z (note)" "space|- 承認: 2026-06-01T00:00:00Z 補足"; do
+# 承認の直後に許すのは行末か、行末で閉じる括弧の補足（approve が書く形）だけ。
+for spec in "paren|- 承認: 2026-06-01T00:00:00Z（確認ゲートを通した時刻）" "halfparen|- 承認: 2026-06-01T00:00:00Z (note)" "autoparen|- 承認: auto-commit（確認ゲートを省略）"; do
   pname=${spec%%|*}
   mkrec_sha "ap-v-${pname}" "$SHA_NEW" "${spec#*|}"
   run_check_ap "ap-v-${pname}"
@@ -671,12 +672,19 @@ if grep -q '^- 承認' "$WORK/rec-ap-i.md"; then fail "approve: 拒否したの�
 mkrec_sha ap-j "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z"
 run_gr -- approve 66 9 --file="$WORK/rec-ap-j.md" --force --auto-commit
 assert_rc "approve: 時刻承認を --force --auto-commit で置き換えない: 2" 2
-assert_err "approve: 置き換えを拒否する理由" "refusing to replace a timed 承認 with auto-commit"
+assert_err "approve: 置き換えを拒否する理由" "refusing to replace a timed (or unreadable) 承認 with auto-commit"
 assert_file_has "approve: 拒否したとき時刻承認が残る" "$WORK/rec-ap-j.md" "- 承認: 2026-06-01T00:00:00Z"
 run_check_ap ap-j
 assert_rc "approve: 拒否された記録は引き続き check で 1（承認より前の commit）" 1
-run_gr -- approve 66 9 --file="$WORK/rec-ap-auto.md" --force --auto-commit
+mkrec_sha ap-auto2 "$SHA_OLD" "- 承認: auto-commit"
+run_gr -- approve 66 9 --file="$WORK/rec-ap-auto2.md" --force --auto-commit
 assert_rc "approve: auto-commit の承認は --force --auto-commit で書き直せる（降格ではない）: 0" 0
+# 読めない承認行（`Z-junk`）も auto-commit に置き換えて順序検査を飛ばすことはできない。
+mkrec_sha ap-bd "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z-junk"
+run_gr -- approve 66 9 --file="$WORK/rec-ap-bd.md" --force --auto-commit
+assert_rc "approve: 読めない承認行を --force --auto-commit で置き換えない: 2" 2
+assert_err "approve: 読めない承認行の置き換えを拒否する理由" "refusing to replace a timed (or unreadable) 承認"
+assert_file_has "approve: 拒否したとき元の承認行が残る" "$WORK/rec-ap-bd.md" "- 承認: 2026-06-01T00:00:00Z-junk"
 
 # 書く時刻は TZ に依らず現在の UTC（date -u を date にする変異を検出する。epoch は TZ に依らない）。
 mkrec_sha ap-l "$SHA_NEW" ""

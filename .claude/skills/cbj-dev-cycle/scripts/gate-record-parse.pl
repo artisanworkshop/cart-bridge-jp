@@ -140,10 +140,10 @@ my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
 my ($approval, $approval_epoch) = ('', undef);
 if (defined $approval_raw) {
   # 数字は [0-9]（`use utf8` 下の \d は全角数字にも一致する）、年は 2000〜2099 だけ（timegm は 0〜999 年を世紀補正するので、`0126` が 2026 として
-  # 通ってしまう）、値の直後は行末・空白・括弧（`approve` が書く補足）だけを許す（`…Zjunk`・`…Z-junk`・`…Z!x` を通さない）。読めなければ bad に倒す。
-  if ($approval_raw =~ /^auto-commit(?=\z|[\s（(])/) {
+  # 通ってしまう）、値の直後は行末か、行末で閉じる括弧の補足（`approve` が書く形）だけを許す（`…Zjunk`・`…Z-junk`・`…Z (note)TRAIL` を通さない）。読めなければ bad に倒す。
+  if ($approval_raw =~ /^auto-commit(?=\z|\s*[（(].*[）)]\z)/) {
     $approval = 'auto';
-  } elsif ($approval_raw =~ /^(20[0-9]{2})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z(?=\z|[\s（(])/) {
+  } elsif ($approval_raw =~ /^(20[0-9]{2})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z(?=\z|\s*[（(].*[）)]\z)/) {
     # timegm は範囲外の値（13 月など）で die するので eval で受けて bad に倒す。
     $approval_epoch = eval { timegm($6 + 0, $5 + 0, $4 + 0, $3 + 0, $2 - 1, $1 + 0) };
     $approval = defined $approval_epoch ? 'time' : 'bad';
