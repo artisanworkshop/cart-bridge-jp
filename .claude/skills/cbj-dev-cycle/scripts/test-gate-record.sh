@@ -20,7 +20,11 @@ if ! WORK=$(mktemp -d) || [ -z "$WORK" ]; then
   echo "test-gate-record: could not create a temporary directory (mktemp failed)" >&2
   exit 1
 fi
-trap 'rm -rf "$WORK"' EXIT
+# EXIT トラップがあると、macOS の bash 3.2 は `set -u` の致命的エラー（変数名の直後に全角文字を置いた `$x）` など）で異常終了しても
+# 終了コード 0 を返し、テストが黙って「成功」になる（PR #80 の後続作業で、ミューテーション検証が「通った」と誤判定して発覚）。
+# 最後まで走り切ったことを DONE で確かめ、途中で止まったら明示的に 1 で終わる。
+DONE=0
+trap 'rm -rf "$WORK"; if [ "$DONE" != 1 ]; then echo "test-gate-record: stopped before the end (an unexpected error aborted the script)" >&2; exit 1; fi' EXIT
 GITREPO="$WORK/gitrepo"
 GITC=(-c user.name=test -c user.email=test@example.com -c commit.gpgsign=false)
 if ! git init -q "$GITREPO" || ! git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m one || ! git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m two; then
@@ -503,7 +507,7 @@ LINE2=$(sed -n 2p "$WORK/rec-ap-a.md")
 LINE3=$(sed -n 3p "$WORK/rec-ap-a.md")
 case "$LINE2|$LINE3" in
   "- PR: "*"|- 承認: "*) ok "approve: - PR: 行の直後に挿入する" ;;
-  *) fail "approve: - PR: 行の直後に挿入されていない（2 行目: $LINE2 / 3 行目: $LINE3）" ;;
+  *) fail "approve: - PR: 行の直後に挿入されていない（2 行目: ${LINE2} / 3 行目: ${LINE3}）" ;;
 esac
 run_check_ap ap-a
 assert_rc "approve → check: 承認（2026-09-28）より後の commit（2036）は 0" 0
@@ -566,6 +570,7 @@ assert_rc "--force は init 専用: 2" 2
 run_gr -- check 66 9 --file="$WORK/rec-ok.md" --out="$WORK/x"
 assert_rc "--out は replies 専用: 2" 2
 
+DONE=1
 if [ "$FAILS" -ne 0 ]; then
   echo "test-gate-record: $FAILS 件失敗"
   exit 1
