@@ -1481,8 +1481,8 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
    画像を `ExportOptions::push_images_enabled( $this->id() )` に従って送る契約とした（`Capabilities` と `PlatformAdapter::push_product()` の docblock に明記。従わないアダプタでは、Export タブの
    「既定オフ」の項目が効かず、切替のたびに商品が再送されるだけになる。`ColorMeAdapter::should_push_images()` が参照実装）。**画像をオンにすると、ColorMe の `POST /v1/products/{id}/images` は
    同じ position の既存画像を上書きする**（swagger）うえ、`push_images()` は既存画像を確認せず position 0〜 に POST するため、オフの間に ColorMe 管理画面で手作業で登録した画像も Woo の画像で置き換わる。
-   Export タブの説明文にこの旨を書いた。オンに戻したときは、画像を持たない商品まで一度更新として再送される点と、オフに戻すと画像付きで送った商品が一度だけ再送される点は許容
-   （`docs/review-backlog.md` の `feat-r3-0j/R1-L1`）。
+   Export タブの説明文にこの旨を書いた。オンにした直後は、画像を持たない商品まで一度更新として再送される点と、オフに戻すと画像付きで送った商品が一度だけ再送される点は許容
+   （`docs/review-backlog.md` の `r3-0j-premium-beta-features/R1-L1`）。
 7. **確認結果（mock アダプタ・モック HTTP。実 API は未確認＝D24 の方針どおり）**: PHPUnit（新規・変更 PHP テストを含む全 1282 件）・ミューテーション 15 件すべて検出。`/verify-with-mock-adapter`（`mockv`）で `/connections` の
    `beta_features`・`export-options` の GET/PUT/不正値・非プレミアム相当の 400、`JobManager` 経由の商品 export（専用商品の mapping の `checksum`/`synced_at`）で「オフで 2 回目は再送なし → オンにすると再送 → オンで続けて回すと再送なし →
    オフに戻すと一度だけ再送 → 以後再送なし」、実 `ColorMeAdapter::push_product()` をモック HTTP で直接呼び「プレミアム＋オフ=画像 POST なし＋`PRODUCT_IMAGES_NOT_PUSHED`／プレミアム＋オン=画像 GET＋POST／非プレミアム＋オン=送らない」。

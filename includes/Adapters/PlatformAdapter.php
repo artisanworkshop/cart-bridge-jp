@@ -119,7 +119,7 @@ interface PlatformAdapter {
 	 *
 	 * **画像（D24）**: `Capabilities::$can_push_images`が true のアダプタは、画像を
 	 * `Support\ExportOptions::push_images_enabled( $this->id() )`が true のときだけ送ること
-	 * （既定オフ。オフのときは送らず`WarningCode::PRODUCT_IMAGES_NOT_PUSHED`を積む）。
+	 * （既定オフ。オフのときは送らず、商品に画像があれば`WarningCode::PRODUCT_IMAGES_NOT_PUSHED`を積む）。
 	 * 外部のリモート側画像を上書きしうる操作のため、店舗が明示的に選んだときだけ動かす。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult;

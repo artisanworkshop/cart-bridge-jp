@@ -451,7 +451,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   REST `GET/PUT /settings/export-options/{platform}`（`is_bool()`・能力のある platform だけオン可・進行中 run は 409）・`ColorMeAdapter::should_push_images()`（プレミアム かつ 設定オン）・Export タブの Beta 表示と既定オフ。
   **D24 の当初案から 2 点変えた**（`docs/03` D24 実装参照）: (1) `capabilities()->can_push_images` はプランだけで決まる能力のままにし（設定で変えると UI がオンにする手段を失う）、実際に送るかは別メソッド `should_push_images()`。
   (2) 「画像オフで export 済みの商品が、オンにしても再送されない」制限は、オンの間だけ商品の checksum に印を混ぜて解消した（説明文で案内するだけにはしなかった）。
-  mock アダプタ・モック HTTP で確認（実 API は未確認＝D24 の方針。`docs/03` D24 実装 6.）。`R3-0i` の (3) のプラットフォーム単位ロックは `PUT /settings/export-options` も囲む対象にする。
+  mock アダプタ・モック HTTP で確認（実 API は未確認＝D24 の方針。`docs/03` D24 実装 7.）。`R3-0i` の (3) のプラットフォーム単位ロックは `PUT /settings/export-options` も囲む対象にする。
   `verify-with-mock-adapter` のテンプレートに `cbjp_verify_seed.capabilities` を追加し、SKILL.md に `push`・Studio との IPv6 ポート競合・checksum 検証の落とし穴を追記した。
 - [ ] **R3-0h: Pro 案内の件数を正確にし、Pro への言及を購入 URL の有無で切り替える**（issue #55）: totals に `unchanged` を追加し「移行できるが未移行」と「どの版でも移行できない」を分けて表示。フィルター `cbjp/limits/pro_url`（既定 `''`）を新設し `/limits` の `pro_url` で渡す。空なら Pro に触れない。詳細は `docs/03` §10.3「アップセル表示」
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
