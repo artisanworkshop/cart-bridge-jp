@@ -622,6 +622,10 @@ assert_err "承認: 対象 HEAD 自身の除外も note に出す" "ancestor of 
 mkrec_sha ap-n "$SHA_NEW" "- 承認: 2037-01-01T00:00:00Z" "${SHA_OLD:0:7}"
 run_check_ap ap-n
 assert_rc "承認: 対象 HEAD の祖先ではない commit は、承認より前なら 1（除外は祖先だけ）" 1
+# 対象 HEAD が 40 文字を超える手編集値は、先頭 40 文字に切り詰めて祖先と見なさない（値を読み取れないものとして除外しない）。
+mkrec_sha ap-o2 "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_NEW}a"
+run_check_ap ap-o2
+assert_rc "承認: 対象 HEAD が 41 文字（40 文字に黙って切り詰めない）のときは除外せず検査する: 1" 1
 mkrec_sha ap-o "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "1111111"
 run_check_ap ap-o
 assert_rc "承認: 対象 HEAD が存在しない（祖先と確かめられない）ときは除外せず検査する: 1" 1
