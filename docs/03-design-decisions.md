@@ -1451,12 +1451,36 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
 - **仕組み（プラットフォーム非依存）**: `Capabilities` に `beta_features`（`array<int,string>`、例: `order_export`・`image_push`）を
   **末尾に既定 `[]` で**追加する（D20 の値オブジェクト規則）。UI はこの配列を見て「Beta」表示と既定オフを決める。ColorMe は両方を宣言する
 - **画像アップロードのオン／オフの持ち方**: `push_product()` のシグネチャを変えずに済むよう、プラットフォーム単位の設定
-  （例: `cbjp_export_options_{platform}` の `push_images`）に保存し、`ColorMeAdapter::can_push_images()` を「プレミアムプラン かつ 設定がオン」にする。
+  （`cbjp_export_options_{platform}` の `push_images`）に保存する。**実装で当初案から変えた点（2026-09-29）**: 当初案は
+  「`ColorMeAdapter::can_push_images()` を『プレミアムプラン かつ 設定がオン』にする」だったが、`capabilities()->can_push_images` が同メソッドを
+  呼ぶため、設定オフの間は能力自体が false になり、UI が「この店舗で画像をアップロードできるか（＝プレミアムか）」を判別できず**オンにする手段が
+  無くなる**。そこで能力（`capabilities()->can_push_images` ＝プランだけで決まる）と、実際に送るか（`ColorMeAdapter::should_push_images()` ＝プラン かつ 設定オン）を分けた。
   設定の保存は既存の設定系 REST と同じ規約（`manage_woocommerce`、`platform` は `get_url_params()`、真偽値は `is_bool()` で検証）
-- **既知の制限**: 画像をオフのままエクスポートした商品は checksum がキャッシュされるため、後で画像をオンにしても、商品に変更が無ければ
-  画像は送られない（再送させる手段は実装時に検討し、無理なら説明文で案内する）
+- **既知の制限と、その解消（2026-09-29）**: 画像をオフのままエクスポートした商品は checksum がキャッシュされるため、後で画像をオンにしても、
+  商品に変更が無ければ画像は送られない。**`Sync\Exporter` が、画像アップロードがオンの間だけ商品の checksum に印（`CHECKSUM_SALT_IMAGES`）を混ぜる**ことで
+  解消した（オンにすると checksum が変わり、次の export で更新として再送される）。オフの checksum は従来と同一なので既存の mapping は影響を受けない
+  （`.claude/rules/sync-export-tools.md` の「入力側へ名前空間を混ぜ込む」と同じ方式）
 - **テスト方針**: 実 API の代わりに HTTP モックと `/verify-with-mock-adapter`（`capabilities()` でプレミアム相当を宣言する）で、
   ベータ表示・既定オフ・オンにしたときの送信を確認する。D21-B（#73）・D23（#74）の受注側の変更も同様にモックだけで確認する
+
+**実装（R3-0j、issue #75。2026-09-29）**:
+
+1. **`Capabilities::$beta_features`**（末尾・既定 `[]`。識別子は `BETA_ORDER_EXPORT='order_export'`・`BETA_IMAGE_PUSH='image_push'`）。`to_array()` が非文字列・空文字・重複を落とし
+   `array_values` で詰め直した素の配列にして返す（外部アダプタの契約違反でも UI の `.includes()` が落ちない。原則 8）。`ColorMeAdapter::capabilities()` は両方を**静的に**宣言し、
+   項目を出すかどうかは従来どおり `can_create_order` / `can_push_images`（プラン）が決める（非プレミアムでは受注・画像とも出ない）。
+2. **`Support\ExportOptions`**（オプション `cbjp_export_options_{platform}`、autoload なし）。`push_images_enabled()` は **`true ===` の厳密比較だけ**をオンとする（`'true'`・`1`・配列・`stdClass`・欠損は全てオフ）。
+   `cbjp_settings_{platform}`（マッピング。REST が 4 つのマップキーだけを全置換で書く）とは別オプションにした（同居させるとマッピング保存で本設定が消える）。
+3. **REST `GET/PUT /settings/export-options/{platform}`**: `manage_woocommerce`・`platform` は `get_url_params()`。PUT は `push_images` を **`is_bool()`** で検証（`"true"`・`1`・配列・`null`・欠損は 400 で保存済みの値を変えない）。
+   **オン（true）にできるのは `capabilities()->can_push_images` が true の platform だけ**（能力の無い店舗で先にオンを保存すると、後でプランが変わったときに誰も選ばないまま画像が送られ始める。オフは常に可）。
+   進行中の run があれば 409（実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる。`has_active_job_for_platform()` の非原子性は既知の制限で、`R3-0i`〔issue #57〕のロックで囲む対象に本 PUT も含める）。
+4. **Exporter の checksum の印**: 上記「既知の制限と、その解消」。product エンティティかつ「`ExportOptions::push_images_enabled()` かつ `capabilities()->can_push_images`」のときだけ、`hash('sha256', CHECKSUM_NAMESPACE . 'images:' . canonical_json)`。
+   オフのときの値は従来と同一。オンにすると次の export（dry-run の判定も）で更新として再送され、オフに戻すと印が外れて一度だけ画像なしの更新として再送される。
+5. **Export タブ**: ベータの受注は既定で未選択・ラベル「Orders (Beta)」・説明付き。能力があるときだけ「Options」に「Upload product images (Beta)」（既定オフ。変更のたびに即保存し、取得前・保存中・run 実行中は無効）。
+   取得・保存とも既存の `platformGenerationRef`（世代カウンタ）で古い応答を捨てる。
+6. **確認結果（mock アダプタ・モック HTTP。実 API は未確認＝D24 の方針どおり）**: PHPUnit（新規・変更 PHP テストを含む全 1282 件）・ミューテーション 15 件すべて検出。`/verify-with-mock-adapter`（`mockv`）で `/connections` の
+   `beta_features`・`export-options` の GET/PUT/不正値・非プレミアム相当の 400、`JobManager` 経由の商品 export（専用商品の mapping の `checksum`/`synced_at`）で「オフで 2 回目は再送なし → オンにすると再送 → オンで続けて回すと再送なし →
+   オフに戻すと一度だけ再送 → 以後再送なし」、実 `ColorMeAdapter::push_product()` をモック HTTP で直接呼び「プレミアム＋オフ=画像 POST なし＋`PRODUCT_IMAGES_NOT_PUSHED`／プレミアム＋オン=画像 GET＋POST／非プレミアム＋オン=送らない」。
+   管理画面（ブラウザ）で Beta 表示・受注が既定未選択・画像が既定オフ・オンへ切替→リロードで保持・オフへ戻す・非プレミアム相当の宣言では受注も画像も出ない、コンソールエラーなしを確認。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
