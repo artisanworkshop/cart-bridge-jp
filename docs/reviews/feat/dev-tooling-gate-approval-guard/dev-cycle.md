@@ -3,8 +3,8 @@
 - タスク: dev-tooling — 確認ゲート順序の機械検査（`gate-record.sh approve`/`check`）+ `verify-with-mock-adapter` の push 検証 example + cbj-dev-cycle Step 3 の注記（PR #80 の /post-merge で出した提案3件）
 - 開始: 2026-09-28
 - PR: #81 https://github.com/artisanworkshop/cart-bridge-jp/pull/81
-- 現在のステップ: 完了（最終報告済み。マージ待ち）
-- Copilot: 依頼 3 回（上限）/ G3 の修正は再確認されていない（G1 で 3 件・G2 で 5 件・G3 で 2 件）
+- 現在のステップ: PR #81 は 2026-09-28 09:13:55Z にマージ済み（c36d0bd）。マージ後に入れた G5 の修正は、フォローアップ PR #82 でレビュー中
+- Copilot: 依頼 4 回（3 回の上限 + ユーザー指示の 4 回目。G1 で 3 件・G2 で 5 件・G3 で 2 件・G5 で 1 件）+ 自発的なレビュー 1 回（G4 で 2 件）。G5 の修正は PR #82 で反映
 - Codex: 依頼 2 回 / 収束（G2 で 055758d に指摘なし）
 
 ## ログ
