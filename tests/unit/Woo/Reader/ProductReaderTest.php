@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Tests\Fixtures\VariableProductFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Support\MediaImporter;
@@ -945,5 +946,226 @@ final class ProductReaderTest extends WooTestCase {
 		sort( $all_ids );
 		sort( $ids );
 		$this->assertSame( $ids, $all_ids );
+	}
+
+	/**
+	 * @param array<int,string> $warnings
+	 * @return array<int,string> 警告コード（`:{detail}`を除いたもの）。
+	 */
+	private function warning_codes( array $warnings ): array {
+		return array_map( static fn ( string $warning ): string => WarningCode::split( $warning )[0], $warnings );
+	}
+
+	private function read_variable_item( int $parent_id ): \CartBridgeJP\Woo\Reader\ReadItem {
+		$page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$this->assertCount( 1, $page->items );
+
+		return $page->items[0];
+	}
+
+	/**
+	 * D22: 管理中（数量5）と管理外の在庫あり（`null`）が同じ商品に混在すると、ColorMeの`stock_managed`
+	 * （商品単位）では表現できず管理外側が売り切れ表示になる。`ProductReader`は事実として警告を積む。
+	 * 止めるかどうかはアダプタの能力次第のため、警告そのものは`indicates_export_blocking()`の対象ではない。
+	 */
+	public function test_mixed_variation_stock_management_is_reported(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Mixed stock' );
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_variation_stock_mixed( $read_item->warnings ) );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ), '止めるかどうかはアダプタの能力次第（Exporterが決める）' );
+		$this->assertSame( [ 5, null ], array_column( $read_item->item->variants, 'stock' ), '前提: 整数とnullの混在が実際に読み出されている' );
+	}
+
+	/**
+	 * 管理外の在庫切れ（`StockDerivation`は0＝整数）と管理外の在庫あり（`null`）の混在も混在として扱う。
+	 */
+	public function test_unmanaged_out_of_stock_and_unmanaged_in_stock_are_mixed(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Unmanaged mix' );
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'S' ], [ 'stock_status' => 'outofstock' ] );
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertSame( [ 0, null ], array_column( $read_item->item->variants, 'stock' ) );
+		$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $read_item->warnings );
+	}
+
+	public function test_uniform_variation_stock_management_is_not_reported(): void {
+		$all_managed = VariableProductFactory::create_parent( 'All managed' );
+		VariableProductFactory::add_variation(
+			$all_managed,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		VariableProductFactory::add_variation(
+			$all_managed,
+			[ 'size' => 'M' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 2,
+			]
+		);
+
+		$all_unmanaged = VariableProductFactory::create_parent( 'All unmanaged' );
+		VariableProductFactory::add_variation( $all_unmanaged, [ 'size' => 'S' ] );
+		VariableProductFactory::add_variation( $all_unmanaged, [ 'size' => 'M' ] );
+
+		$this->assertNotContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $this->read_variable_item( $all_managed )->warnings );
+		$this->assertNotContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $this->read_variable_item( $all_unmanaged )->warnings );
+	}
+
+	/**
+	 * 非公開バリエーションは母集団に入らない（ASPへ送られないため）。公開バリエーションが揃っていれば、
+	 * 非公開の管理外バリエーションが混ざっていても混在ではない。
+	 */
+	public function test_unpublished_variation_does_not_count_as_mixed(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Private unmanaged' );
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'M' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 2,
+			]
+		);
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'L' ], [ 'status' => 'private' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertNotContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $read_item->warnings );
+		$this->assertContains( WarningCode::VARIATION_UNPUBLISHED, $this->warning_codes( $read_item->warnings ), '前提: 非公開の1件は除外されている' );
+	}
+
+	/**
+	 * 価格不正で`variants`から外れる公開バリエーションも母集団に数える（`StockReader`は価格を見ないため、
+	 * 商品行と在庫行の判定を揃える）。`variants`には管理中の1件しか残らなくても混在として止める側に倒す。
+	 */
+	public function test_variation_excluded_for_invalid_price_still_counts_as_mixed(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Invalid price mix' );
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ], [ 'price' => '' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertCount( 1, $read_item->item->variants, '前提: 価格不正のバリエーションは除外されている' );
+		$this->assertContains( WarningCode::VARIATION_PRICE_INVALID, $this->warning_codes( $read_item->warnings ) );
+		$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $read_item->warnings );
+	}
+
+	/**
+	 * D23: 軸を「Any」にしたバリエーションを1件でも持つ商品は、`VARIATION_ANY_ATTRIBUTE_UNSUPPORTED`
+	 * （バリエーションIDのdetail付き）を積み、プラットフォーム非依存でexport blockingになる。
+	 */
+	public function test_any_variation_blocks_the_product(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Any product' );
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'S' ] );
+		$any_id = VariableProductFactory::add_variation( $parent_id, [ 'size' => '' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, (string) $any_id ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * Anyが2軸のうち2軸目だけでも検出する。
+	 */
+	public function test_any_on_the_second_axis_blocks_the_product(): void {
+		$parent_id = VariableProductFactory::create_parent(
+			'Any second axis',
+			[
+				'Size'  => [ 'S', 'M' ],
+				'Color' => [ 'Red', 'Blue' ],
+			]
+		);
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'S',
+				'color' => 'Red',
+			]
+		);
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'M',
+				'color' => '',
+			]
+		);
+
+		$this->assertTrue( WarningCode::indicates_export_blocking( $this->read_variable_item( $parent_id )->warnings ) );
+	}
+
+	public function test_product_without_any_variation_is_not_blocked_for_any(): void {
+		$parent_id = VariableProductFactory::create_parent(
+			'Concrete only',
+			[
+				'Size'  => [ 'S', 'M' ],
+				'Color' => [ 'Red', 'Blue' ],
+			]
+		);
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'S',
+				'color' => 'Red',
+			]
+		);
+		VariableProductFactory::add_variation(
+			$parent_id,
+			[
+				'size'  => 'M',
+				'color' => 'Blue',
+			]
+		);
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertNotContains( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, $this->warning_codes( $read_item->warnings ) );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 非公開のAnyバリエーションは送られない（`VARIATION_UNPUBLISHED`で除外）ため数えない。
+	 */
+	public function test_unpublished_any_variation_is_not_counted(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Private any' );
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => 'S' ] );
+		VariableProductFactory::add_variation( $parent_id, [ 'size' => '' ], [ 'status' => 'private' ] );
+
+		$read_item = $this->read_variable_item( $parent_id );
+
+		$this->assertNotContains( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, $this->warning_codes( $read_item->warnings ) );
+		$this->assertContains( WarningCode::VARIATION_UNPUBLISHED, $this->warning_codes( $read_item->warnings ) );
 	}
 }

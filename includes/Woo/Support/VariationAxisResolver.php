@@ -78,6 +78,29 @@ final class VariationAxisResolver {
 	}
 
 	/**
+	 * バリエーションが「Any（すべての）」の軸を持つか（D23）。存在する軸のいずれかで`attribute_value()`が
+	 * `null`（属性値が空文字列＝Any、またはキー自体が無い欠損）なら真。Wooは軸をAnyにしたバリエーションの
+	 * 属性値を空文字列で保存し（実測確認済み。ローカル属性・taxonomy属性とも）、購入時に選ばれた値は
+	 * 受注明細のメタにだけ残る。`Woo\Reader\ProductReader`（商品）と`Woo\Reader\OrderReader`（受注明細）が
+	 * 同じ定義を共有する。軸が1つも無ければ偽。
+	 *
+	 * @param array<int,WC_Product_Attribute> $axis_attributes
+	 */
+	public static function has_any_attribute( WC_Product_Variation $variation, array $axis_attributes ): bool {
+		$raw_attributes = $variation->get_attributes();
+
+		foreach ( [ 0, 1 ] as $index ) {
+			$attribute = $axis_attributes[ $index ] ?? null;
+
+			if ( null !== $attribute && null === self::attribute_value( $attribute, $raw_attributes ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * 指定バリエーションのoption1/2値（軸属性の値ラベル）。軸が1つしか無い場合、2つ目は`null`。
 	 *
 	 * @param array<int,WC_Product_Attribute> $axis_attributes

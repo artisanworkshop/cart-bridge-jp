@@ -143,12 +143,67 @@ final class StockReader implements EntityReader {
 		$product_ref = $this->product_refs[ $product->get_id() ]['remote_id'] ?? null;
 		$items       = [];
 
-		// `get_children()`（**`get_visible_children()`ではない**）を使う: 後者は
-		// `woocommerce_hide_out_of_stock_items`設定次第で在庫切れバリエーションも除外するため、
-		// 在庫がゼロになった瞬間にそのバリエーションが行ごと消え、ASP側へ「在庫切れ」を伝える
-		// 手段が無くなってしまう（`ProductReader::variants()`が`CanonicalProduct::$variants`の
-		// 構築で行っている`publish`ステータスのみの明示チェックと同じ方針に揃える）。
+		// D22: 混在（整数と`null`）の判定は、mapping未解決の行を含む**公開バリエーションすべて**を母集団にするため、
+		// 行を組み立てる前に1パスで集める（`ProductReader::variants()`が同じ母集団・同じ関数で商品行に警告を積む）。
+		$published = $this->published_variations( $product );
+		$is_mixed  = StockDerivation::has_mixed_variation_management(
+			array_map( static fn ( array $entry ): ?int => $entry['derived']['quantity'], $published )
+		);
+
+		foreach ( $published as $variation_id => $entry ) {
+			$variation = $entry['variation'];
+			$derived   = $entry['derived'];
+			$mixed     = $is_mixed ? [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] : [];
+
+			if ( null === $product_ref ) {
+				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $mixed );
+				continue;
+			}
+
+			$variant_ref = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;
+
+			if ( null === $variant_ref ) {
+				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $mixed );
+				continue;
+			}
+
+			$warnings = $mixed;
+
+			if ( $derived['shared_with_parent'] ) {
+				$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
+			}
+
+			$stock = new CanonicalStock(
+				$product_ref,
+				$variant_ref,
+				'' !== $variation->get_sku() ? $variation->get_sku() : null,
+				$derived['quantity'],
+				CanonicalStock::is_in_stock( $derived['quantity'] )
+			);
+
+			$items[] = new ReadItem( $variation_id, $stock, $warnings );
+		}
+
+		return $items;
+	}
+
+	/**
+	 * variable商品の公開バリエーションと、その在庫（`StockDerivation::for_variation()`）。
+	 *
+	 * `get_children()`（**`get_visible_children()`ではない**）を使う: 後者は
+	 * `woocommerce_hide_out_of_stock_items`設定次第で在庫切れバリエーションも除外するため、
+	 * 在庫がゼロになった瞬間にそのバリエーションが行ごと消え、ASP側へ「在庫切れ」を伝える
+	 * 手段が無くなってしまう（`ProductReader::variants()`が`CanonicalProduct::$variants`の
+	 * 構築で行っている`publish`ステータスのみの明示チェックと同じ方針に揃える）。
+	 *
+	 * @return array<int,array{variation:WC_Product_Variation,derived:array{quantity:?int,shared_with_parent:bool}}> バリエーションIDをキーにする。
+	 */
+	private function published_variations( WC_Product_Variable $product ): array {
+		$published = [];
+
 		foreach ( $product->get_children() as $variation_id ) {
+			$variation_id = (int) $variation_id;
+
 			// `instanceof`だけでは削除済みバリエーションを弾けない: `wc_get_product()`は削除済み
 			// variation IDに対して`false`ではなく中身の無い`WC_Product_Variation`を返しうる
 			// （投稿欠損で例外を投げず商品種別キャッシュも残るため。CLAUDE.md参照）。`get_post()`で
@@ -173,46 +228,26 @@ final class StockReader implements EntityReader {
 				continue;
 			}
 
-			if ( null === $product_ref ) {
-				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id );
-				continue;
-			}
-
-			$variant_ref = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;
-
-			if ( null === $variant_ref ) {
-				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id );
-				continue;
-			}
-
-			$warnings = [];
-			$derived  = StockDerivation::for_variation( $variation );
-
-			if ( $derived['shared_with_parent'] ) {
-				$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
-			}
-
-			$stock = new CanonicalStock(
-				$product_ref,
-				$variant_ref,
-				'' !== $variation->get_sku() ? $variation->get_sku() : null,
-				$derived['quantity'],
-				CanonicalStock::is_in_stock( $derived['quantity'] )
-			);
-
-			$items[] = new ReadItem( $variation_id, $stock, $warnings );
+			$published[ $variation_id ] = [
+				'variation' => $variation,
+				'derived'   => StockDerivation::for_variation( $variation ),
+			];
 		}
 
-		return $items;
+		return $published;
 	}
 
-	private function unresolved_item( int $local_id, string $detail ): ReadItem {
+	/**
+	 * @param array<int,string> $extra_warnings `STOCK_PRODUCT_NOT_EXPORTED`に続けて積む警告（D22の
+	 *   `VARIATION_STOCK_MANAGEMENT_MIXED`等。商品より先に在庫行だけを見る店舗にも理由が出る）。
+	 */
+	private function unresolved_item( int $local_id, string $detail, array $extra_warnings = [] ): ReadItem {
 		$stock = new CanonicalStock( '', null, null, null, true );
 
 		return new ReadItem(
 			$local_id,
 			$stock,
-			[ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, $detail ) ],
+			array_merge( [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, $detail ) ], $extra_warnings ),
 			false
 		);
 	}

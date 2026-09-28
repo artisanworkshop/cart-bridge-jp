@@ -195,7 +195,18 @@ final class Exporter {
 			// （variants=[]のvariable商品がsimple商品としてpushされ、remote側の既存
 			// バリエーションが失われる等）。フェイルクローズし、pushせずskipped扱いで
 			// 警告を残す（dry-runレポートにも通常どおり反映される）。
-			if ( WarningCode::indicates_export_blocking( $read_item->warnings ) ) {
+			//
+			// D22: 在庫管理が混在するvariable商品（とその在庫行）は、アダプタがバリエーション単位の在庫管理を
+			// 宣言していない（`supports_per_variant_stock_management`が偽。既定）ときだけ、同じ扱いで止める。
+			// 止めるかどうかはプラットフォームの能力次第のため、`indicates_export_blocking()`（プラット
+			// フォーム非依存）ではなくここで判定する。警告が付いたときだけ`capabilities()`を呼ぶ。
+			if (
+				WarningCode::indicates_export_blocking( $read_item->warnings )
+				|| (
+					WarningCode::indicates_variation_stock_mixed( $read_item->warnings )
+					&& ! $adapter->capabilities()->supports_per_variant_stock_management
+				)
+			) {
 				++$totals['skipped'];
 				++$totals['warned'];
 

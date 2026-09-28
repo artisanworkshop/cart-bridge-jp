@@ -94,4 +94,31 @@ final class StockDerivation {
 			'shared_with_parent' => false,
 		];
 	}
+
+	/**
+	 * variable商品のバリエーション在庫（`for_variation()['quantity']`）に、整数と`null`が両方あるか
+	 * （D22。`WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED`）。`null`は「管理外で在庫あり」、整数は
+	 * 「管理中」または「管理外で在庫切れ（0）」を表すため、在庫切れ（0）と在庫あり（`null`）の管理外同士の
+	 * 混在も混在として扱う。商品単位でしか在庫管理を持たないASPは`null`側を在庫0＝売り切れとして扱うため
+	 * （`ColorMeAdapter`）、「管理外で在庫あり」が1件でも他の数量と混ざると復元できない。
+	 *
+	 * `Woo\Reader\ProductReader`と`Woo\Reader\StockReader`が**同じ母集団**（公開バリエーションすべて）で
+	 * この関数を使うことで、商品行と在庫行の判定が食い違わない。
+	 *
+	 * @param array<int,int|null> $quantities
+	 */
+	public static function has_mixed_variation_management( array $quantities ): bool {
+		$has_quantity  = false;
+		$has_unmanaged = false;
+
+		foreach ( $quantities as $quantity ) {
+			if ( null === $quantity ) {
+				$has_unmanaged = true;
+			} else {
+				$has_quantity = true;
+			}
+		}
+
+		return $has_quantity && $has_unmanaged;
+	}
 }

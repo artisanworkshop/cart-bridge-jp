@@ -370,7 +370,8 @@ final class ProductReader implements EntityReader {
 		// （`VariationWriter::sync()`の逆方向、同じ理由）。
 		$existing_remote_ids = $this->mappings->find_many_by_local_ids( $this->platform, 'variant', $variation_ids );
 
-		$variants = [];
+		$variants             = [];
+		$published_quantities = [];
 
 		foreach ( $variation_ids as $variation_id ) {
 			$variation = wc_get_product( $variation_id );
@@ -387,6 +388,18 @@ final class ProductReader implements EntityReader {
 			if ( 'publish' !== $variation->get_status() ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_UNPUBLISHED, (string) $variation_id );
 				continue;
+			}
+
+			// D22/D23: 以降の判定は「公開バリエーションすべて」を母集団にする。価格不正等で下の検証により
+			// `$variants`から外れるものも数える: `StockReader`は価格を見ないため、両Readerで母集団を揃えて
+			// 商品行と在庫行の判定が食い違わないようにする（安全側でもある）。
+			$derived_stock          = StockDerivation::for_variation( $variation );
+			$published_quantities[] = $derived_stock['quantity'];
+
+			// D23: 「Any（すべての）」の軸を持つバリエーション。`$variants`への追加自体は従来どおり行う
+			// （`Sync\Exporter`が`VARIATION_ANY_ATTRIBUTE_UNSUPPORTED`で商品全体のpushを止める）。
+			if ( VariationAxisResolver::has_any_attribute( $variation, $axis_attributes ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, (string) $variation_id );
 			}
 
 			$remote_id = $existing_remote_ids[ $variation_id ]['remote_id'] ?? null;
@@ -422,7 +435,7 @@ final class ProductReader implements EntityReader {
 				'remote_id' => $remote_id ?? '',
 				'sku'       => '' !== $variation->get_sku() ? $variation->get_sku() : null,
 				'price'     => $inclusive_price,
-				'stock'     => $this->variation_stock( $variation, $warnings ),
+				'stock'     => $this->variation_stock( $derived_stock, $warnings ),
 				'weight'    => WeightUnit::convert_to_grams( (string) $variation->get_weight() ),
 			];
 
@@ -440,15 +453,20 @@ final class ProductReader implements EntityReader {
 			$variant_local_ids[] = $variation_id;
 		}
 
+		// D22: 在庫管理が混在（整数と`null`）する商品。止めるかどうかはアダプタの能力次第
+		// （`Sync\Exporter`）。`StockReader`が同じ関数で各バリエーションの在庫行にも同じ警告を積む。
+		if ( StockDerivation::has_mixed_variation_management( $published_quantities ) ) {
+			$warnings[] = WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED;
+		}
+
 		return $variants;
 	}
 
 	/**
-	 * @param array<int,string> $warnings 呼び出し元と共有する警告配列。
+	 * @param array{quantity:?int,shared_with_parent:bool} $derived `StockDerivation::for_variation()`の結果。
+	 * @param array<int,string>                             $warnings 呼び出し元と共有する警告配列。
 	 */
-	private function variation_stock( WC_Product_Variation $variation, array &$warnings ): ?int {
-		$derived = StockDerivation::for_variation( $variation );
-
+	private function variation_stock( array $derived, array &$warnings ): ?int {
 		if ( $derived['shared_with_parent'] ) {
 			$warnings[] = WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT;
 		}

@@ -103,6 +103,31 @@ final class WarningCode {
 	public const ALL_VARIATIONS_EXCLUDED = 'all_variations_excluded';
 
 	/**
+	 * エクスポート時、軸属性のいずれかを「Any（すべての）」にした公開バリエーションがある
+	 * （`Woo\Reader\ProductReader`。バリエーションIDが`:{variation_id}`のdetailで付く）。Wooはこの場合
+	 * 属性値を空文字列で保存し（ローカル属性・taxonomy属性とも実測確認済み）、購入時に選ばれた値は受注明細の
+	 * メタにだけ残る。`CanonicalProduct::$variants`の`option*_value`は具体的な値しか表現できず、ColorMeにも
+	 * 相当する仕組みが無いため、このまま送ると商品はAnyのバリエーションだけ欠けた状態で作られる（D23）。
+	 * プラットフォーム非依存で`indicates_export_blocking()`の対象にする（`ALL_VARIATIONS_EXCLUDED`と同じ）。
+	 * Anyを具体的な値のバリエーションに分けると移行できる。全組み合わせへの展開はv1.xで要望を見て検討する。
+	 * 受注明細側は既存の`ORDER_LINE_VARIATION_UNRESOLVED`で止まる（`Woo\Reader\OrderReader`）。
+	 */
+	public const VARIATION_ANY_ATTRIBUTE_UNSUPPORTED = 'variation_any_attribute_unsupported';
+
+	/**
+	 * エクスポート時、variable商品の公開バリエーションの在庫管理が混在している（管理中または管理外の在庫切れ＝
+	 * 整数と、管理外の在庫あり＝`null`が両方ある。`Woo\Support\StockDerivation::has_mixed_variation_management()`）。
+	 * `Woo\Reader\ProductReader`は商品に、`Woo\Reader\StockReader`はその商品の各バリエーションの在庫行に積む
+	 * （判定は同じ関数を共有する）。在庫管理を商品単位でしか持たないASP（ColorMe）では表現できず、管理外の
+	 * バリエーションが売り切れ表示のまま戻らなくなる（D22）。Woo側で全バリエーションの在庫管理を有効にする、
+	 * または全バリエーションで無効にすると移行できる。
+	 * 止めるかどうかはプラットフォームの能力（`Adapters\Capabilities::$supports_per_variant_stock_management`）で
+	 * `Sync\Exporter`が決めるため、`indicates_export_blocking()`には**登録しない**（登録すると
+	 * バリエーション単位で在庫管理できるASPでも止まる）。判定は`indicates_variation_stock_mixed()`。
+	 */
+	public const VARIATION_STOCK_MANAGEMENT_MIXED = 'variation_stock_management_mixed';
+
+	/**
 	 * エクスポート時、Wooの`tax_status`が`taxable`以外（`shipping`/`none`）。`CanonicalProduct`は
 	 * `tax_status`を運ぶフィールドを持たず（`tax_class`のみ）、無警告のまま変換先へ渡すと
 	 * 「送料のみ課税」「非課税」の商品が通常課税として扱われうることを警告する
@@ -506,6 +531,10 @@ final class WarningCode {
 	public static function indicates_export_blocking( array $warnings ): bool {
 		$blocking_codes = [
 			self::ALL_VARIATIONS_EXCLUDED,
+			// `Woo\Reader\ProductReader`: 「Any」バリエーションを含む商品。具体的な値を持たないため
+			// `CanonicalProduct::$variants`で表現できず、黙って送るとAnyのバリエーションだけ欠けた商品が
+			// 作られる（D23）。プラットフォーム非依存。
+			self::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED,
 			// `Woo\Reader\CouponReader`: ASP側へ運べないWooネイティブのクーポン制限
 			// （商品/カテゴリ/メールアドレス制限・maximum_amount・fixed_product型）が残っている。
 			// `has_unsupported_restrictions=true`のまま`push_coupon()`（E2-3）へ渡すと、制限が
@@ -597,6 +626,23 @@ final class WarningCode {
 
 		foreach ( $warnings as $warning ) {
 			if ( in_array( self::split( $warning )[0], $blocking_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * `Sync\Exporter::process_items()`用: 在庫管理が混在するvariable商品（またはその在庫行）か
+	 * （D22）。`indicates_export_blocking()`と違い**それだけでは止めない**: アダプタが
+	 * `Capabilities::$supports_per_variant_stock_management`を宣言していないときだけ`Exporter`が止める。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_variation_stock_mixed( array $warnings ): bool {
+		foreach ( $warnings as $warning ) {
+			if ( self::VARIATION_STOCK_MANAGEMENT_MIXED === self::split( $warning )[0] ) {
 				return true;
 			}
 		}

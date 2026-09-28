@@ -110,6 +110,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertFalse( $capabilities->has_reviews );
 		$this->assertTrue( $capabilities->has_variants );
 		$this->assertSame( 100, $capabilities->rate_limit_per_minute );
+		// 在庫管理は商品単位のみでバリエーションに相当する項目が無い（D22）。混在した商品はExporterが止める。
+		$this->assertFalse( $capabilities->supports_per_variant_stock_management );
 	}
 
 	public function test_connection_fields_declares_client_credentials_and_oauth_button(): void {

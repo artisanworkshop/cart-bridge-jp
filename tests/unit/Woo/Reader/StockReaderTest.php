@@ -8,8 +8,11 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Tests\Fixtures\VariableProductFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Reader\StockReader;
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product_Attribute;
 use WC_Product_Simple;
@@ -293,5 +296,240 @@ final class StockReaderTest extends WooTestCase {
 		$page = $this->make_reader()->query( Cursor::start(), [] );
 		$this->assertSame( [], $page->items );
 		$this->assertNull( $page->next_cursor );
+	}
+
+	/**
+	 * @param array<int,string> $warnings
+	 */
+	private function has_mixed_warning( array $warnings ): bool {
+		return WarningCode::indicates_variation_stock_mixed( $warnings );
+	}
+
+	/**
+	 * D22: 在庫管理が混在する商品（管理中5・管理外の在庫あり・管理外の在庫切れ）は、mapping解決済みの
+	 * 全バリエーション行に`VARIATION_STOCK_MANAGEMENT_MIXED`が付く（止めるかどうかは`Exporter`が
+	 * アダプタの能力で決める）。数量そのものは従来どおり。
+	 */
+	public function test_mixed_variation_stock_management_is_reported_on_every_variation_row(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Mixed stock' );
+		$managed   = VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		$unmanaged = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] );
+		$sold_out  = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'L' ], [ 'stock_status' => 'outofstock' ] );
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-s', $managed );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-m', $unmanaged );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-l', $sold_out );
+
+		$page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$this->assertCount( 3, $page->items );
+
+		$quantities = [];
+
+		foreach ( $page->items as $item ) {
+			$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $item->warnings );
+			$this->assertFalse( WarningCode::indicates_export_blocking( $item->warnings ), '止めるかどうかはアダプタの能力次第（Exporterが決める）' );
+			$quantities[ $item->item->variant_ref ] = $item->item->quantity;
+		}
+
+		$this->assertSame(
+			[
+				'v-s' => 5,
+				'v-m' => null,
+				'v-l' => 0,
+			],
+			$quantities
+		);
+	}
+
+	/**
+	 * mapping未解決の行（`STOCK_PRODUCT_NOT_EXPORTED`）にも混在の警告を積む。商品より先に在庫行だけを見る
+	 * 店舗（dry-run）にも理由が分かるようにする。
+	 */
+	public function test_mixed_warning_is_also_reported_on_unresolved_rows(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Mixed unresolved' );
+		$managed   = VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		$unmanaged = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] );
+
+		// 親は未エクスポート（product mappingなし）。
+		$page = $this->make_reader()->query( Cursor::start(), [ $parent_id ] );
+		$this->assertCount( 2, $page->items );
+
+		foreach ( $page->items as $item ) {
+			$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, (string) $item->local_id ), $item->warnings );
+			$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $item->warnings );
+		}
+
+		// 親は解決済みだが、バリエーション（管理外の側）だけ未解決。
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-s', $managed );
+
+		$by_local = [];
+
+		foreach ( $this->make_reader()->query( Cursor::start(), [ $parent_id ] )->items as $item ) {
+			$by_local[ $item->local_id ] = $item;
+		}
+
+		$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $by_local[ $managed ]->warnings );
+		$this->assertContains( WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED, $by_local[ $unmanaged ]->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, (string) $unmanaged ), $by_local[ $unmanaged ]->warnings );
+	}
+
+	public function test_uniform_variation_stock_management_is_not_reported(): void {
+		$parent_id = VariableProductFactory::create_parent( 'Uniform stock' );
+		$a         = VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'S' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+			]
+		);
+		$b         = VariableProductFactory::add_variation(
+			$parent_id,
+			[ 'size' => 'M' ],
+			[
+				'manage_stock'   => true,
+				'stock_quantity' => 2,
+			]
+		);
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-s', $a );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-m', $b );
+
+		foreach ( $this->make_reader()->query( Cursor::start(), [ $parent_id ] )->items as $item ) {
+			$this->assertSame( [], $item->warnings );
+		}
+	}
+
+	/**
+	 * 商品行（`ProductReader`）と在庫行（`StockReader`）は同じ判定・同じ母集団（公開バリエーションすべて）で
+	 * 混在を判定する。層ごとに判定が食い違うと、商品は止まるのに在庫だけ通る（またはその逆）状態になる。
+	 *
+	 * @return array<string,array{0:array<int,array<string,mixed>>,1:bool}>
+	 */
+	public static function agreement_cases(): array {
+		return [
+			'managed + unmanaged in stock'                 => [
+				[
+					[
+						'size' => 'S',
+						'args' => [
+							'manage_stock'   => true,
+							'stock_quantity' => 5,
+						],
+					],
+					[
+						'size' => 'M',
+						'args' => [],
+					],
+				],
+				true,
+			],
+			'unmanaged out of stock + unmanaged in stock'  => [
+				[
+					[
+						'size' => 'S',
+						'args' => [ 'stock_status' => 'outofstock' ],
+					],
+					[
+						'size' => 'M',
+						'args' => [],
+					],
+				],
+				true,
+			],
+			'all managed'                                  => [
+				[
+					[
+						'size' => 'S',
+						'args' => [
+							'manage_stock'   => true,
+							'stock_quantity' => 5,
+						],
+					],
+					[
+						'size' => 'M',
+						'args' => [
+							'manage_stock'   => true,
+							'stock_quantity' => 1,
+						],
+					],
+				],
+				false,
+			],
+			'unmanaged variation is private (not counted)' => [
+				[
+					[
+						'size' => 'S',
+						'args' => [
+							'manage_stock'   => true,
+							'stock_quantity' => 5,
+						],
+					],
+					[
+						'size' => 'M',
+						'args' => [ 'status' => 'private' ],
+					],
+				],
+				false,
+			],
+			'invalid price variation (still counted)'      => [
+				[
+					[
+						'size' => 'S',
+						'args' => [
+							'manage_stock'   => true,
+							'stock_quantity' => 5,
+						],
+					],
+					[
+						'size' => 'M',
+						'args' => [ 'price' => '' ],
+					],
+				],
+				true,
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider agreement_cases
+	 * @param array<int,array<string,mixed>> $variations
+	 */
+	public function test_product_and_stock_readers_agree_on_mixed_management( array $variations, bool $expected_mixed ): void {
+		$parent_id = VariableProductFactory::create_parent( 'Agreement' );
+
+		foreach ( $variations as $spec ) {
+			$variation_id = VariableProductFactory::add_variation( $parent_id, [ 'size' => $spec['size'] ], $spec['args'] );
+			$this->seed_mapping( self::PLATFORM, 'variant', "v-{$spec['size']}", $variation_id );
+		}
+
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+
+		$product_item = ( new ProductReader( self::PLATFORM, new MethodMap( self::PLATFORM ), $this->mappings ) )->query( Cursor::start(), [ $parent_id ] )->items[0];
+		$this->assertSame( $expected_mixed, $this->has_mixed_warning( $product_item->warnings ), 'ProductReader' );
+
+		$stock_items = $this->make_reader()->query( Cursor::start(), [ $parent_id ] )->items;
+		$this->assertNotEmpty( $stock_items );
+
+		foreach ( $stock_items as $item ) {
+			$this->assertSame( $expected_mixed, $this->has_mixed_warning( $item->warnings ), 'StockReader local_id=' . $item->local_id );
+		}
 	}
 }
