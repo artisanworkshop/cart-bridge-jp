@@ -2224,9 +2224,9 @@ final class RestControllerTest extends WP_UnitTestCase {
 	 * D24: 画像アップロード等のプラットフォーム単位のエクスポート設定用に、能力を指定した mock を `mock` キーで登録する。
 	 *
 	 * @param bool              $can_push_images 画像アップロードの能力。
-	 * @param array<int|string,mixed> $beta_features  `Capabilities::$beta_features`（外部アダプタの不正値の再現にも使う）。
+	 * @param mixed $beta_features `Capabilities::$beta_features`（外部アダプタの不正値〔配列でない値を含む〕の再現にも使う）。
 	 */
-	private function register_mock_with_image_capability( bool $can_push_images, array $beta_features = [] ): void {
+	private function register_mock_with_image_capability( bool $can_push_images, mixed $beta_features = [] ): void {
 		add_filter(
 			'cbjp/adapters/register',
 			static function ( array $adapters ) use ( $can_push_images, $beta_features ) {
@@ -2268,6 +2268,22 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( '["order_export"]', wp_json_encode( $features ) );
+	}
+
+	/**
+	 * `beta_features` に配列でない値（文字列・stdClass 等）を渡した外部アダプタがあっても、`/connections` は 200 で
+	 * 空配列を返す（issue #75。以前は `array` 型のため `new Capabilities()` が TypeError になった）。
+	 */
+	public function test_get_connections_survives_a_non_array_beta_features_from_a_misbehaving_adapter(): void {
+		foreach ( [ 'order_export', new \stdClass(), null ] as $bad ) {
+			remove_all_filters( 'cbjp/adapters/register' );
+			$this->register_mock_with_image_capability( true, $bad );
+
+			$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+
+			$this->assertSame( 200, $response->get_status() );
+			$this->assertSame( [], $response->get_data()[0]['capabilities']['beta_features'] );
+		}
 	}
 
 	public function test_get_export_options_defaults_to_image_upload_off(): void {

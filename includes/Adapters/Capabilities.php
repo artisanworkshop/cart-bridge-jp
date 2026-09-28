@@ -41,8 +41,10 @@ final readonly class Capabilities {
 	public const BETA_IMAGE_PUSH = 'image_push';
 
 	/**
-	 * @param array<int,string> $beta_features `BETA_*` 定数の識別子。外部アダプタの戻り値は実行時に型が強制されない
-	 *   ため、`to_array()` が文字列以外・空文字・重複を落として UI に渡す（原則 8）。
+	 * @param mixed $beta_features `BETA_*` 定数の識別子の配列（`array<int,string>`）。外部アダプタ（`cbjp/adapters/register`）
+	 *   が返す値は型が実行時に強制されないため、**配列でない値も受け取り**（`array` 型にすると、非配列を渡した
+	 *   アダプタの `new Capabilities()` が TypeError で `/connections` ごと落ちる）、`to_array()` が非配列を空配列に、
+	 *   配列の中の文字列以外・空文字・重複を落として UI に渡す（原則 8。issue #75）。
 	 */
 	public function __construct(
 		public bool $can_create_category,
@@ -57,7 +59,7 @@ final readonly class Capabilities {
 		public bool $has_variants,
 		public int $rate_limit_per_minute,
 		public bool $supports_per_variant_stock_management = false,
-		public array $beta_features = []
+		public mixed $beta_features = []
 	) {}
 
 	/**
@@ -89,6 +91,10 @@ final readonly class Capabilities {
 	 * @return array<int,string>
 	 */
 	private function normalized_beta_features(): array {
+		if ( ! is_array( $this->beta_features ) ) {
+			return [];
+		}
+
 		$features = [];
 
 		foreach ( $this->beta_features as $feature ) {

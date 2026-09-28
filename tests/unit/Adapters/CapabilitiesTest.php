@@ -73,4 +73,32 @@ final class CapabilitiesTest extends WP_UnitTestCase {
 		$this->assertTrue( array_is_list( $normalized ), 'キーが飛ぶとJSONがオブジェクトになりUIの.includes()が落ちる' );
 		$this->assertSame( '["order_export","image_push"]', wp_json_encode( $normalized ) );
 	}
+
+	/**
+	 * issue #75 の完了条件: 外部アダプタが**配列でない**値を `beta_features` に渡しても落ちない（`array` 型にすると
+	 * `new Capabilities()` が TypeError になり、`/connections` ごと落ちる）。`to_array()` は空配列を返す。
+	 *
+	 * @dataProvider provider_non_array_beta_features
+	 *
+	 * @param mixed $value 配列でない `beta_features`。
+	 */
+	public function test_non_array_beta_features_are_accepted_and_normalized_to_an_empty_list( mixed $value ): void {
+		$capabilities = new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, $value );
+
+		$this->assertSame( [], $capabilities->to_array()['beta_features'] );
+		$this->assertSame( '[]', wp_json_encode( $capabilities->to_array()['beta_features'] ) );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function provider_non_array_beta_features(): array {
+		return [
+			'string'   => [ 'order_export' ],
+			'null'     => [ null ],
+			'int'      => [ 1 ],
+			'bool'     => [ true ],
+			'stdClass' => [ new \stdClass() ],
+		];
+	}
 }
