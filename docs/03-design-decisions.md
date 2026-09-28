@@ -1353,8 +1353,15 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
      無い。全コード共通）。CSV の `note` 列には固有ノートを足していない
   5. **実機確認（mock アダプタ `mockv`・push 有効、`JobManager` 経由。2026-09-28）**: 混在商品（管理中5・管理外の在庫あり・管理外の
      在庫切れ）は product 行が `skipped`＋`variation_stock_management_mixed`（エクスポート済みの商品でも）、在庫 3 行も同様に
-     `skipped`。実 export でも push されず mapping/checksum は変わらない。在庫管理を全バリエーションで有効にすると止まらなくなる。
-     **実 ColorMe API では未確認**（R3-1 のリハーサルで確認する）
+     `skipped`。実 export でも push されず mapping/checksum は変わらない。在庫管理を全バリエーションで有効にすると止まらなくなる
+  6. **実 ColorMe API での確認（テストショップ `ttka3lg60f`・非プレミアム〔regular〕・税抜10%/軽減8%/四捨五入。2026-09-28）**:
+     実アダプタ（`ColorMeAdapter`）＋ `Exporter` で、Woo のテスト商品 3 件（control＝全バリエーション管理中・具体値のみ／mixed＝管理中5＋管理外の在庫あり／
+     any＝S と Any）を確認した。(a) 実アダプタでの dry-run は control が作成対象、mixed が `variation_stock_management_mixed`、any が
+     `variation_any_attribute_unsupported:{id}` で skipped。(b) 実 export は control だけが作成され（ColorMe 側は `stock_managed=true`・在庫 8＝S5＋M3・
+     バリエーションの型番/オプション値/在庫が Woo と一致）、mixed・any は push も mapping 作成もされない。(c) エクスポート済みの control の M を管理外に変えて再 export
+     すると、商品 3 件・在庫 6 行とも skipped で **ColorMe 側は変わらない**（在庫 5/3・商品 3 件のまま）。(d) mixed の M を管理中に、any の Any を具体値 L に直して再 export すると
+     ColorMe に作成された（`stock_managed=true`、mixed は S5/M2、any は S4/L4）。未解決の push intent は 0 件。管理画面（`admin.shop-pro.jp`）の商品一覧でも 5 件を目視確認。
+     **未確認**: 受注の Any 明細（テストショップが非プレミアムで `POST /v1/sales` が使えない。mock まで）、swagger の副作用（全バリエーション未設定の状態で 1 件だけ在庫を送ると他が 0 になる）そのものの実測
 
 #### 「Any（すべての）」バリエーションのエクスポート（D23）
 
@@ -1405,7 +1412,10 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
      `ORDER_LINE_VARIATION_UNRESOLVED:{variation_id}`（blocking）で受注ごと止まる。具体値の明細は従来どおり解決する
   4. **実機確認（mock アダプタ・`JobManager` 経由。2026-09-28）**: Any を含む商品は product 行が `skipped`＋
      `variation_any_attribute_unsupported:{id}`、Any 明細の受注は `skipped`＋`order_line_variation_unresolved:{id}`。実 export でも
-     push されず mapping は作られない。Any を具体値のバリエーションにすると止まらなくなる。**実 ColorMe API では未確認**
+     push されず mapping は作られない。Any を具体値のバリエーションにすると止まらなくなる
+  5. **実 ColorMe API での確認（テストショップ。2026-09-28）**: 商品側は D22 の実 API 確認（上記 6.）と同じ実行で確認した。Any を含む商品は実アダプタの dry-run・実 export とも
+     止まり ColorMe に作成されず（修正前は Any のバリエーションだけ欠けた商品が `created` になっていた）、Any を具体値 L に直すと作成された（S4/L4）。
+     **受注の Any 明細は実 API では未確認**（テストショップが非プレミアムのため。mock まで）
 
 #### プレミアムプラン限定機能のベータ扱い（D24）
 
