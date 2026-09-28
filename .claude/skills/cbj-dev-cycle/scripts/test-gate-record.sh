@@ -567,7 +567,8 @@ assert_rc "--auto-commit は approve 専用: 2" 2
 # ---- 承認: 独立レビュー（R1）で見つかった穴 ----
 # 読めない時刻をフェイルオープンにしない（全角数字・0000 年・0126 年〔timegm が 2026 に世紀補正する〕・末尾の余り・範囲外の世紀）。
 for spec in "fullwidth|- 承認: ２０２６-06-01T00:00:00Z" "year0|- 承認: 0000-06-01T00:00:00Z" "year126|- 承認: 0126-06-01T00:00:00Z" \
-  "junk|- 承認: 2026-06-01T00:00:00Zjunk" "century|- 承認: 2126-06-01T00:00:00Z"; do
+  "junk|- 承認: 2026-06-01T00:00:00Zjunk" "century|- 承認: 2126-06-01T00:00:00Z" \
+  "autoX|- 承認: auto-commitX" "autodash|- 承認: auto-commit-x"; do
   pname=${spec%%|*}
   mkrec_sha "ap-p-${pname}" "$SHA_NEW" "${spec#*|}"
   run_check_ap "ap-p-${pname}"
@@ -579,6 +580,11 @@ done
 mkrec_sha ap-m "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_NEW:0:7}"
 run_check_ap ap-m
 assert_rc "承認: 対象 HEAD の祖先の commit（レビューが届く前からあった commit）は承認より前でも 0" 0
+assert_err "承認: 祖先の除外は note として stderr に出す（目で確かめられるように）" "the approval-order check was skipped for it"
+mkrec_sha ap-m2 "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_OLD:0:7}"
+run_check_ap ap-m2
+assert_rc "承認: 対象 HEAD が修正の commit そのものでも除外される（既知の限界。push 後の init は検出できない）: 0" 0
+assert_err "承認: 対象 HEAD 自身の除外も note に出す" "ancestor of (or equal to) the target HEAD"
 mkrec_sha ap-n "$SHA_NEW" "- 承認: 2037-01-01T00:00:00Z" "${SHA_OLD:0:7}"
 run_check_ap ap-n
 assert_rc "承認: 対象 HEAD の祖先ではない commit は、承認より前なら 1（除外は祖先だけ）" 1

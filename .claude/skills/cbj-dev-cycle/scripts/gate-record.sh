@@ -20,7 +20,8 @@
 # `approve --force --auto-commit` で時刻承認を auto-commit に置き換えることは拒否する（1 コマンドで違反を合格に変えられるため）。
 # 限界: 検出であって防止ではない。`approve` を人の回答より前に実行する、`- 承認:` 行を手で遡った時刻に書く、`CBJ_GATE_NOW`（テスト用の
 # 時刻の上書き。使うと警告する）を本番で使う、といった偽装までは防げない。`git commit --amend`／rebase は committer 時刻を変えるので、
-# 承認後に作り直した commit は通る。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
+# 承認後に作り直した commit は通る。対象 HEAD が修正の commit 自身かその子孫のとき（修正を push した後に init した、記録を手で書き換えた）は、
+# 祖先の除外で検査を飛ばす（除外した commit は note として stderr に出す）。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
 # 導入前の記録（承認行の無い過去の G<n>.md）を再検査すると、判定が「修正」のものは承認なしで止まる。
 # init は指摘を取得した直後（修正の前）に実行するのが確実: 修正を push した後だと、修正済みのスレッドは outdated になって行番号が `?` になる。
 # --since を付けるとレビューは「T 以降に提出されたもの」を拾い、対象の commit を併記する（付けなければ現在の HEAD へのレビュー）。
@@ -199,7 +200,10 @@ load_record() {
     # （保留・対応不要が引用する過去の sha は対象外。承認が auto-commit・行なし・不正のときは上の jq が扱うのでここでは見ない）。
     if [ "$kind" = "fixed" ] && [ "$approval_kind" = "time" ] && [ -n "$approved_epoch" ]; then
       # 対象 HEAD が無い・存在しない・祖先でない（merge-base は 1 か 128 を返す）ときは除外せず、下で検査する。
+      # `--is-ancestor X X` は 0 なので、対象 HEAD が修正の commit そのもの・その子孫のとき（修正を push した後に init した、記録を手で書き換えた）も
+      # 除外される。区別できないので、除外したことを毎回 stderr に出して目で確かめられるようにする。
       if [ -n "$target_head" ] && git merge-base --is-ancestor "$sha^{commit}" "$target_head^{commit}" 2>/dev/null; then
+        echo "$id: note: commit ${sha:0:7} is an ancestor of (or equal to) the target HEAD ${target_head}, so the approval-order check was skipped for it" >&2
         continue
       fi
       if ! ct=$(git show -s --format=%ct "$sha^{commit}") || ! [[ "$ct" =~ ^[0-9]+$ ]]; then
