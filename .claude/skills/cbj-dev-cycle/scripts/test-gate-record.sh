@@ -570,7 +570,8 @@ for spec in "fullwidth|- 承認: ２０２６-06-01T00:00:00Z" "year0|- 承認: 
   "junk|- 承認: 2026-06-01T00:00:00Zjunk" "century|- 承認: 2126-06-01T00:00:00Z" \
   "autoX|- 承認: auto-commitX" "autodash|- 承認: auto-commit-x" \
   "dashjunk|- 承認: 2026-06-01T00:00:00Z-junk" "bang|- 承認: 2026-06-01T00:00:00Z!not-approved" "autobang|- 承認: auto-commit!" \
-  "space|- 承認: 2026-06-01T00:00:00Z 補足" "trail|- 承認: 2026-06-01T00:00:00Z (note)TRAIL" "autotrail|- 承認: auto-commit（note）TRAIL" "openparen|- 承認: 2026-06-01T00:00:00Z (note"; do
+  "space|- 承認: 2026-06-01T00:00:00Z 補足" "trail|- 承認: 2026-06-01T00:00:00Z (note)TRAIL" "autotrail|- 承認: auto-commit（note）TRAIL" "openparen|- 承認: 2026-06-01T00:00:00Z (note" \
+  "mixA|- 承認: 2026-06-01T00:00:00Z (note）" "mixB|- 承認: 2026-06-01T00:00:00Z（note)" "automix|- 承認: auto-commit（note)"; do
   pname=${spec%%|*}
   mkrec_sha "ap-p-${pname}" "$SHA_NEW" "${spec#*|}"
   run_check_ap "ap-p-${pname}"
