@@ -81,5 +81,11 @@ description: >
 - `scripts/mock-adapter.sh` — `inspect` / `install <key>` / `run <php>` / `uninstall`（wp-env のパスは `npx wp-env install-path`）
 - `templates/mu-plugin-mock-adapter.php` — mock アダプタを登録する mu-plugin（キーと seed オプション名を置換して使う）
 - `examples/prefecture-repair/` — 県コード修復ツール（issue #46）の検証一式（`seed.php` / `verify-rest.php` / `cleanup.php`）
+- `examples/push-intent-resolution/` — export の作成結果が不明（5xx）→ 印（push intent）が残る → 再 export はブロック → `not_created` 解除 → 再 export で作成、
+  と `link` の失敗系（404）を `rest_do_request()` で通す検証（issue #73 / D21-B。R3-1 の「R3-0a/b の確認をモックで」にも使う）。`verify-rest.php`
+  は各ステップを PASS/FAIL で出し、失敗があれば非ゼロで終了する（seed は不要で、`cbjp_verify_seed.push` は自分で切り替える）。**前提**: `install mockv` 済み・
+  Woo に export できる商品が 1 件以上・前回の残りが無い（あれば先頭で中止するので `cleanup.php` を流す）。どの商品がサンプルに選ばれるかは
+  `ExportSampleSelector` 次第。`cleanup.php` は `mockv` の intent・mapping・job・ログとオプションだけを消し、**OAuth トークンを持つ platform は拒否する**。
+  `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
 
 関連: `docs/03-design-decisions.md` §10.3（ツール）、`.claude/skills/cbj-dev-cycle/SKILL.md`（開発サイクル Step 2 の実機確認）。
