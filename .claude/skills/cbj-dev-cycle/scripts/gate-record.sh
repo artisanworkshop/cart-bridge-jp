@@ -387,6 +387,7 @@ cmd_init() {
     printf -- '- PR: #%s / 対象 HEAD: %s\n' "$PR" "${head:0:7}"
     printf -- '- レビュー: %s\n' "$revlines"
     printf -- '- 再依頼: TODO(記入)\n'
+    printf -- '<!-- 修正した指摘があるなら、ユーザーの承認の直後・git commit の前に: gate-record.sh approve %s %s（auto-commit 指定時は --auto-commit）。承認前に commit すると check が止まる -->\n' "$PR" "$N"
     printf '\n## 指摘\n'
     if [ -n "$findings" ]; then
       printf '%s\n\n' "$findings"
@@ -400,7 +401,8 @@ cmd_init() {
   } >"$tmp" || { rm -f "$tmp"; exit 3; }
   mv "$tmp" "$REC" || { rm -f "$tmp"; exit 3; }
   echo "wrote $REC"
-  echo "next: fill in every TODO(記入), then run: gate-record.sh check $PR $N"
+  echo "next: fix the findings WITHOUT committing, get the user's approval (AskUserQuestion), run: gate-record.sh approve $PR $N, then git commit"
+  echo "then: fill in every TODO(記入) (コミット: needs the sha) and run, before git push: gate-record.sh check $PR $N"
 }
 
 # 確認ゲート（AskUserQuestion）を通した印を、記録のヘッダ（`- PR:` 行の直後）に書く。ユーザーが承認した**直後・git commit の前**に実行する。

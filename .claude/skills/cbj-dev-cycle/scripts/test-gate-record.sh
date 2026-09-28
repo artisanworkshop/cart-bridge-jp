@@ -158,6 +158,8 @@ run_gr -- init 066 09
 assert_rc "init: 先頭 0 の PR・ラウンド番号も同じファイルとして扱う（上書き拒否: 2）" 2
 run_gr STUB_THREADS_FILE="$FX/init-threads.json" -- init 66 9 --force
 assert_rc "init --force: 上書きできる" 0
+assert_file_has "init: 骨組みに approve の案内コメントを入れる（ラウンド開始時に順序が目に入る）" "$REC" "gate-record.sh approve 66 9"
+assert_out "init: 標準出力の案内は「commit せずに修正 → 承認 → approve → commit」の順" "run: gate-record.sh approve 66 9, then git commit"
 
 run_gr STUB_BRANCH='../evil' -- init 66 10
 assert_rc "init: 危険なブランチ名: 3" 3
@@ -454,6 +456,11 @@ run_check_ap ap-auto
 assert_rc "承認: auto-commit は時刻の検査を飛ばす（古い commit でも 0）" 0
 run_gr -- summary 66 9 --file="$WORK/rec-ok.md"
 assert_out "承認: 承認の行も PR のサマリのヘッダに載る" "- 承認: auto-commit"
+
+mkrec_sha ap-hint "$SHA_NEW" "- 承認: auto-commit"
+perl -0pi -e 's/(- 承認:[^\n]*\n)/$1<!-- 修正した指摘があるなら: gate-record.sh approve 66 9 -->\n/' "$WORK/rec-ap-hint.md"
+run_check_ap ap-hint
+assert_rc "承認: init が入れる案内コメント（HTML コメント）はヘッダの解釈に影響しない: 0" 0
 
 mkrec_sha ap-order "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z"
 run_check_ap ap-order
