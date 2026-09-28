@@ -72,7 +72,13 @@ description: >
   （パス指定ルールがサブエージェントに自動適用されるかはドキュメントに記載が無いため、プロンプトで明示的に読ませる）（R1 では自己レビューが見落とした High を複数検出した実績あり）。
   R2 でも同様に「R1 指摘の解消判定 + 新規混入のみ」を検証させる。
 - ボットの指摘同様、サブエージェントの重大度も鵜呑みにせず、実ソース（`~/.wp-env/<hash>/woocommerce`、
-  `~/.wp-env/<hash>/WordPress`）や `wp eval` の実測で裏取りしてから判定する。
+  `~/.wp-env/<hash>/WordPress`）や `wp eval` の実測で裏取りしてから判定する（PR #80: 独立レビューが「`??` の isset 意味論で
+  `$seed` が非配列でも安全」と断定したが、`stdClass` では Error になり Copilot が正しかった。断定は `php -r` で実測する）。
+- **独立レビューが出した Low のうち、画面の状態遷移・エラー時の表示・非同期の競合に関わるものは、数行で直せるなら R1 で直してよい**
+  （review-loop 本体の「R1 の Low は直さない」の、このリポジトリでの例外）。bot はこの種の Low を再指摘して Medium に格上げする傾向がある
+  （PR #80: R1/R2 で backlog に送った Low 5 件〔404 時の行の扱い・受注日時の表示・ボタンの `isBusy`・文言・再取得失敗時の一覧〕が G1/G2 で
+  Copilot に Medium として再指摘され、ゲートが 3 ラウンドかかった）。直したら R1.md には「Low → 修正済み」と記録する。直すのが大きい Low、
+  画面・非同期に関わらない Low は従来どおり backlog へ送る。
 
 ## Step 4〜7（push / CI / ボットゲート）はスクリプトで行う
 
@@ -88,7 +94,7 @@ description: >
 | レビュー本文の指摘（系統 B） | `scripts/gate-bodies.sh <PR> <T>`（`--raw` で本文そのまま） | 判定見出し・インライン件数・`Findings`（重要度別）・`Open`（既存スレッドの dbid と `· New`）・**`Previously missed`（スレッドの無い新規指摘）**・`Suppressed comments` を抽出。**系統 A と必ず両方見る**（下記）。整形の回帰テストは `scripts/test-gate-bodies.sh`（ネットワーク不要。`quality.sh` と CI の `dev-tooling` ジョブで実行される） |
 | 返信 | `scripts/gate-reply.sh <PR> <dbid> "<本文>"`（本文 `-` で標準入力） | 修正・保留どちらも**日本語**で返信。コミット sha を含める |
 | Resolve | `scripts/gate-resolve.sh <threadId>...` | **修正したスレッドのみ**。保留は返信だけして未解決のまま残す |
-| ラウンド記録の生成 | `scripts/gate-record.sh <init\|check\|summary\|replies> <PR> <n> [--since=T] [--force] [--file=PATH] [--out=DIR]` | `G<n>.md` を**唯一の情報源**にして、同じ内容を記録・スレッド返信・サマリコメントの 3 回書き直さないためのツール。**`init`**: PR・HEAD・レビューへのリンク・スレッドごとの ID/場所/dbid/URL・収束表の件数を埋めた骨組みを `docs/reviews/<branch>/G<n>.md` に作る（判断が要る欄は `TODO(記入)`。`--since` は `gate-threads.sh` の T で、付けるとレビューを T 以降の提出分として拾い対象 commit を併記する。既存の記録は `--force` なしで上書きしない）。**指摘を取得した直後（修正の前）に実行する**のが確実（修正を push した後だと、修正済みスレッドは outdated になって行番号が `?` になる）。**記入**: 各指摘の `要旨:` `判定:`（**修正〈修正済みも可〉／保留／対応不要**のどれかで始める。「修正不要」「保留中」のように漢字・かなが続く語は拒否する）`対応:` `コミット:` を書く（本文指摘は `### [G<n>-B1][Copilot][path:line]` を手で足し、`スレッド: なし（[review <id>](…#pullrequestreview-<id>)）` と書くとサマリの表に元のレビューへのリンクが出る。**指摘が 0 件のラウンド**は、最初の指摘の見出しより前に `指摘なし: <確認した内容>` と書いて明示する。既存の G ファイルの書式 `**対応:**` 等も読める。本文に `TODO(記入)` という文字列そのものは書けない）。**`check`/`summary`/`replies`**: 記入漏れ（`TODO(記入)` の残り・判定なし/不明・対応なし・修正なのに sha なし/存在しない sha・要旨なし・**記録の PR 番号（`- PR: #<n>`）とラウンド（`# ゲートラウンド G<n>`）が引数と違う〈`--file` で別 PR の記録を渡して別 PR へ返信するコマンドを作らないため〉**・修正した指摘があるのに検証欄が空・見出しの崩れ（`####` や `##` など階層違いの指摘マーカーも）・ID や thread の重複・スレッドの欄が無い/壊れている〈`discussion_r<dbid>` のリンクか、本文指摘を示す `なし` で始まる値のどちらかが必須〉・閉じていない HTML コメント／コードフェンス〈フェンスは開きと同じ文字で同じかそれより長い区切りでだけ閉じる〉）を非ゼロで止め（sha はローカルに存在するかだけ確認する）、記入途中のものを PR に投稿させない。**`summary`** は PR のサマリコメント本文（各行にスレッドの `#discussion_r<dbid>` リンク列つき）を標準出力へ（ファイルに書いて `gh pr comment <PR> --body-file`）、**`replies`** はスレッドごとの返信ファイルと `gate-reply.sh`/`gate-resolve.sh` の実行コマンドを表示する（**投稿・Resolve は自動でしない**。対応不要のスレッドの Resolve コマンドは、ユーザー承認を得たうえで判定に固定の印 `【承認済み】` を書き添えたときだけ出す。「未承認」「承認待ち」などの語や HTML コメント内の語では出さない。記録に無い未解決スレッドは stderr に通知する）。回帰テストは `scripts/test-gate-record.sh`（`quality.sh` と CI の `dev-tooling` ジョブで実行される） |
+| ラウンド記録の生成 | `scripts/gate-record.sh <init\|check\|summary\|replies\|approve> <PR> <n> [--since=T] [--force] [--auto-commit] [--file=PATH] [--out=DIR]` | `G<n>.md` を**唯一の情報源**にして、同じ内容を記録・スレッド返信・サマリコメントの 3 回書き直さないためのツール。**`init`**: PR・HEAD・レビューへのリンク・スレッドごとの ID/場所/dbid/URL・収束表の件数を埋めた骨組みを `docs/reviews/<branch>/G<n>.md` に作る（判断が要る欄は `TODO(記入)`。`--since` は `gate-threads.sh` の T で、付けるとレビューを T 以降の提出分として拾い対象 commit を併記する。既存の記録は `--force` なしで上書きしない）。**指摘を取得した直後（修正の前）に実行する**のが確実（修正を push した後だと、修正済みスレッドは outdated になって行番号が `?` になる）。**`approve`**: 確認ゲート（AskUserQuestion）を通した印 `- 承認: <UTC 時刻>` を `- PR:` 行の直後に書く（`--auto-commit` は `- 承認: auto-commit`。既存の承認は `--force` なしで上書きしない）。**ユーザーが承認した直後・`git commit` の前に実行する**。`check`/`summary`/`replies` は、判定が「修正」の指摘があるとき、承認行が無い・読めない、または修正の指摘が挙げた commit の committer 時刻が承認より前だと非ゼロで止める（下の「確認ゲート → commit の順序」）。**記入**: 各指摘の `要旨:` `判定:`（**修正〈修正済みも可〉／保留／対応不要**のどれかで始める。「修正不要」「保留中」のように漢字・かなが続く語は拒否する）`対応:` `コミット:` を書く（本文指摘は `### [G<n>-B1][Copilot][path:line]` を手で足し、`スレッド: なし（[review <id>](…#pullrequestreview-<id>)）` と書くとサマリの表に元のレビューへのリンクが出る。**指摘が 0 件のラウンド**は、最初の指摘の見出しより前に `指摘なし: <確認した内容>` と書いて明示する。既存の G ファイルの書式 `**対応:**` 等も読める。本文に `TODO(記入)` という文字列そのものは書けない）。**`check`/`summary`/`replies`**: 記入漏れ（`TODO(記入)` の残り・判定なし/不明・対応なし・修正なのに sha なし/存在しない sha・要旨なし・**記録の PR 番号（`- PR: #<n>`）とラウンド（`# ゲートラウンド G<n>`）が引数と違う〈`--file` で別 PR の記録を渡して別 PR へ返信するコマンドを作らないため〉**・修正した指摘があるのに検証欄が空・見出しの崩れ（`####` や `##` など階層違いの指摘マーカーも）・ID や thread の重複・スレッドの欄が無い/壊れている〈`discussion_r<dbid>` のリンクか、本文指摘を示す `なし` で始まる値のどちらかが必須〉・閉じていない HTML コメント／コードフェンス〈フェンスは開きと同じ文字で同じかそれより長い区切りでだけ閉じる〉）を非ゼロで止め（sha はローカルに存在するかだけ確認する）、記入途中のものを PR に投稿させない。**`summary`** は PR のサマリコメント本文（各行にスレッドの `#discussion_r<dbid>` リンク列つき）を標準出力へ（ファイルに書いて `gh pr comment <PR> --body-file`）、**`replies`** はスレッドごとの返信ファイルと `gate-reply.sh`/`gate-resolve.sh` の実行コマンドを表示する（**投稿・Resolve は自動でしない**。対応不要のスレッドの Resolve コマンドは、ユーザー承認を得たうえで判定に固定の印 `【承認済み】` を書き添えたときだけ出す。「未承認」「承認待ち」などの語や HTML コメント内の語では出さない。記録に無い未解決スレッドは stderr に通知する）。回帰テストは `scripts/test-gate-record.sh`（`quality.sh` と CI の `dev-tooling` ジョブで実行される） |
 
 - **同時依頼（既定。`sequential` でない）の最初のラウンド G1 の手順**（`gate-turn.sh --first` は Codex 専用で両 bot の同時依頼には使えない。この順序は PR #76 で確認した）:
   1. 初回 push は `~/.claude/skills/dev-cycle/scripts/gate-round.sh push` で行い、出力の `T=`（**PR 作成前**の UTC 時刻）を G1 の `bot-wait.sh` / `gate-threads.sh` / `gate-bodies.sh` / `gate-record.sh init --since` に使う。`bot-request.sh` が返す T（CI 待ちの後）だと、それより前に届いた Codex の自動レビューを応答と数えられず、待ち切るか `@codex review` を余分に投稿することになる
@@ -119,8 +125,19 @@ description: >
   記録が唯一の処理済みマーカーになる（記録が無いと、次のラウンドで同じ指摘を再評価することになる）。
 - ラウンド記録 `docs/reviews/<ブランチ>/G<n>.md` は `dev-cycle` のフォーマット。ラウンドのサマリは `gh pr comment` で投稿する
   （各スレッドの `#discussion_r<dbid>` リンク、本文指摘は `#pullrequestreview-<id>` リンクと `path:line`、sha を含める）。
-  記録・スレッドへの返信・サマリコメントは `scripts/gate-record.sh` で 1 つの記録から作る（`init` で骨組み → `判定:`/`対応:`/`コミット:` を記入 →
-  `check` → `replies` の返信ファイルとコマンドで `gate-reply.sh`/`gate-resolve.sh` → `summary` を `gh pr comment --body-file` で投稿）。
+  記録・スレッドへの返信・サマリコメントは `scripts/gate-record.sh` で 1 つの記録から作る（`init` で骨組み〈指摘を取得した直後・修正の前〉→ 修正（commit しない）→
+  確認ゲート → **`approve`** → `git commit` → `判定:`/`対応:`/`コミット:` を記入 → `check`〈**push の前**〉→ push → `replies` の返信ファイルとコマンドで
+  `gate-reply.sh`/`gate-resolve.sh` → `summary` を `gh pr comment --body-file` で投稿）。
+- **確認ゲート → commit の順序は `gate-record.sh approve` で機械的に検査する**。「commit の前に確認する」は、メモや手順書に書いても PR #79 の G1、PR #80 の G1〜G3 の
+  計 4 回、先に commit された。構造的な原因は、`check` が「修正」の指摘に commit の sha を要求すること（記録を完成させるには先に commit が要る、と手が動く）。
+  順序: ① 修正して品質チェックを green にする（**commit しない**）→ ② 修正内容と仕分けを AskUserQuestion で提示 → ③ ユーザーが承認した**直後**に
+  `gate-record.sh approve <PR> <n>`（`auto-commit` 指定時は `--auto-commit`）→ ④ `git commit` → ⑤ 記録に sha を書く → ⑥ `check` → ⑦ push。
+  記録の記入前に承認が必要な間は、`コミット:` を空のままにしておけばよい（記入は commit の後）。`check` は、修正の指摘が挙げた commit の committer 時刻が
+  承認時刻より前なら `predates the approval` で止まる。**push の前に `check` を通す**ので、順序違反は GitHub への返信・Resolve・サマリより前に見つかる。
+  見つかったら、未 push の commit を `git reset --soft` で戻し、`approve --force` → commit をやり直す。
+  **限界**: これは検出であって防止ではない（`approve` をユーザーの回答より前に実行する偽装までは防げない。失敗の原因は「省略」だったので、明示的な
+  `approve` の実行を強制すれば足りると判断した）。`git commit --amend`・rebase は committer 時刻を変えるので、承認後に作り直した commit は通る。
+  保留・対応不要だけの記録（修正の commit が無いラウンド）は承認行が無くても通る。
 - 指摘の仕分けで迷う項目（設計変更・Sync 層のロック等）は確認ゲートの選択肢として提示し、勝手に決めない。
 - 3 回目の依頼に対する修正は push して CI を待つが、**4 回目の依頼はしない**。
 
@@ -169,6 +186,6 @@ description: >
 - **終了**: 飛ばされずに残るボットがいなくなったら Step 8 へ。片方のボットだけが残った場合は、そのボットが
   CI 待ちを挟みながら続けてターンを取る。最後のターンの修正は push して CI を待つが、再依頼はしない
   （既定と同じ）。
-- **確認ゲート**は既定と同じくターンごとに必ず発生する。`auto-commit` 指定時のみ飛ばせる。
+- **確認ゲート**は既定と同じくターンごとに必ず発生する。`auto-commit` 指定時のみ飛ばせる。順序（確認 → `gate-record.sh approve` → commit → `check` → push）も既定と同じ。
 - **TIMEOUT・Copilot の依頼が登録されない場合**の扱いは既定（Step 4〜7 の表）と同じ。TIMEOUT で「待たずに
   進める」を選んだ時は、そのボットを「未確認」として記録し、依頼回数には数えたまま次のターンへ進む。
