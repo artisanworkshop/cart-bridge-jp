@@ -41,6 +41,7 @@
 | G2 | Codex（2 回目） | 0 | — | — | **収束**（055758d に「大きな問題なし」） |
 | G3 | Copilot（3 回目・上限） | 2 | 2 | 0 | 依頼上限に到達 |
 | G4 | Copilot（**依頼していない自発的なレビュー**。最終 HEAD ea081d7 が対象） | 2（スレッド 1・本文 1） | 2 | 0 | 再依頼しない |
+| G5 | Copilot（**4 回目。ユーザーの指示で上限を超えて依頼**。対象は G3・G4 の 4 コミットを含む 263f0d5） | 1 | 1 | 0 | 再依頼しない |
 
 指摘は 3 ラウンドとも、承認行の文法の厳密化（`Z-junk` → 重複行 → 補足の末尾 → 括弧の対応）と、example のガード（mock 限定・残りの検査）に集中した。検出できる範囲を広げるたびに次の境界が指摘される構造で、G3 の 2 件は最終 HEAD で Copilot の再確認を受けていない。
 
@@ -61,6 +62,7 @@
 | G3-2 | Copilot | Medium | 全角・半角の括弧が食い違う承認行が通る | 45a56b6 |
 | G4-1 | Copilot | High（Low〜Medium 相当） | 41 文字以上の `対象 HEAD` が先頭 40 文字に切り詰められ、祖先の除外に化ける | f1840b8 |
 | G4-B1 | Copilot（本文・スレッド無し） | Medium | verify の開始前チェックがログだけの残りを見ない（cleanup が消す対象と不一致） | 915df30 |
+| G5-1 | Copilot | Medium | `対象 HEAD: <7 文字>!`・`…-note` のように記号が直接続く値でも prefix を読み、祖先の除外に化ける。直後は空白・行末・括弧の開始だけ許可（括弧は既存記録の書式のため許可。括弧の後ろの余りは縛らない設計上の限界） | 2537fe4 |
 
 ### 修正しなかった指摘（PR 上で未解決のまま残してある）
 
@@ -76,14 +78,21 @@
 ## 品質ゲート
 
 - CI: [PR #81](https://github.com/artisanworkshop/cart-bridge-jp/pull/81/checks) 5 ジョブ green（最終の CI 結果は本報告の commit 後に確認して報告する）
-- 品質チェック: `.claude/skills/cbj-dev-cycle/scripts/quality.sh` all green（`composer lint`/`analyze`/`test:wpenv`〔PHPUnit 1200 件〕、`npm run lint`/`build`、`test-gate-record.sh` 400 項目・`test-gate-turn.sh` 86・`test-gate-bodies.sh` 31）。macOS bash 3.2 と Ubuntu 24.04（bash 5.2）の両方で dev-tooling テストが通ることを確認
-- ミューテーション（`review-loop/scripts/mutate-check.sh`）: 実装 13 種 + R1 8 種 + R2 2 種 + G1 8 種 + G2 4 種 + G3 2 種 + G4 1 種 = 38 種をすべて検出。NOT CAUGHT だった冗長なガード 1 つ（`git cat-file` の事前確認）は削除
+- 品質チェック: `.claude/skills/cbj-dev-cycle/scripts/quality.sh` all green（`composer lint`/`analyze`/`test:wpenv`〔PHPUnit 1200 件〕、`npm run lint`/`build`、`test-gate-record.sh` 405 項目・`test-gate-turn.sh` 86・`test-gate-bodies.sh` 31）。macOS bash 3.2 と Ubuntu 24.04（bash 5.2）の両方で dev-tooling テストが通ることを確認
+- ミューテーション（`review-loop/scripts/mutate-check.sh`）: 実装 13 種 + R1 8 種 + R2 2 種 + G1 8 種 + G2 4 種 + G3 2 種 + G4 1 種 + G5 2 種 = 40 種をすべて検出。NOT CAUGHT だった冗長なガード 1 つ（`git cat-file` の事前確認）は削除
 - wp-env 実機確認（`/verify-with-mock-adapter`、platform key `mockv`）: verify-rest.php ALL PASS → cleanup（`left` 全 0）→ uninstall → `inspect` が検証前と一致。共有オプション（`customers` キー）が verify → cleanup の後も残ること、`colorme`・mock 未登録・非配列 seed・残りがある状態の再実行がそれぞれ拒否・ABORT されることを実測
 - **実運用での確認**: この PR 自身の G1〜G3 で、確認ゲート → `approve` → commit → `check` → push の順序を 3 回とも通した（PR #79・#80 で 4 回破られていた順序）。`check` は 3 回とも、承認より後の commit として OK を返した
 
 ## 次にできること（人間の判断）
 
-- **未確認の範囲**: Copilot は 3 回の依頼上限に達した後、最終 HEAD（ea081d7）に自発的なレビューを返し、G4 の 2 件を修正した（f1840b8・915df30）。G4 の修正は Copilot の再確認を受けていない。Codex は 055758d までの確認で、G2〜G4 の修正コミットは未レビュー。G3 までの傾向どおり、ゲートのたびに次の境界（入力検証・cleanup と verify の対象の不一致）が指摘されている。G4 の本文サマリには「critical 1・moderate 3」とあるが、列挙された指摘は 2 件で、残りは特定できなかった
+- **未確認の範囲**: Copilot は 3 回の依頼上限に達した後、最終 HEAD（ea081d7）に自発的なレビューを返し、G4 の 2 件を修正した（f1840b8・915df30）。さらにユーザーの指示で 263f0d5 を 4 回目として依頼し、G5 の 1 件を修正した（2537fe4）。G5 の修正は Copilot の再確認を受けていない。Codex は 055758d までの確認で、G2〜G4 の修正コミットは未レビュー。G3 までの傾向どおり、ゲートのたびに次の境界（入力検証・cleanup と verify の対象の不一致）が指摘されている。G4 の本文サマリには「critical 1・moderate 3」とあるが、列挙された指摘は 2 件で、残りは特定できなかった
 - 保留分の判断: G1-4（同じ秒の commit を通す設計）は据え置いた。等号を違反にしたい場合は指示いただければ追加対応する（`approve && git commit` の連鎖を誤検出する副作用がある）
 - 承認行の文法は 3 ラウンドで厳密化を重ねた。これ以上の厳密化は「検出であって防止ではない」という設計上の限界（手で遡った時刻・`CBJ_GATE_NOW` 等は防げない）に対する効果が小さいので、追加の指摘は限界の明記で足りると考える
 - マージ（GitHub 上で人間が行う）→ マージ後は `/post-merge`（CLAUDE.md・`.claude/rules/`・SKILL.md への知見蒸留を含む）
+
+## PR #81 のマージ後の追記（G5 の反映）
+
+PR #81 は 2026-09-28 09:13:55Z にスカッシュでマージされた（head 263f0d5、main は c36d0bd）。その後にユーザーの指示で Copilot へ 4 回目を依頼し、
+G5 の 1 件（`対象 HEAD` の直後の区切り。2537fe4）を修正したが、依頼と修正の前に PR の状態を確認しておらず、マージ済みのブランチへ push していた。
+そのため G5 の修正と記録（G5.md・この報告の G5 の行）は main に入っておらず、フォローアップ PR（`fix/gate-record-target-head-delimiter`）で同じ内容を反映した
+（コミット sha はスカッシュ前のものを記録として残す。この repo の他の記録と同じ扱い）。

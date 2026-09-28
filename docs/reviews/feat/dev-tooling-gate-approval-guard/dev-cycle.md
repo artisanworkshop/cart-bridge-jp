@@ -3,8 +3,8 @@
 - タスク: dev-tooling — 確認ゲート順序の機械検査（`gate-record.sh approve`/`check`）+ `verify-with-mock-adapter` の push 検証 example + cbj-dev-cycle Step 3 の注記（PR #80 の /post-merge で出した提案3件）
 - 開始: 2026-09-28
 - PR: #81 https://github.com/artisanworkshop/cart-bridge-jp/pull/81
-- 現在のステップ: 完了（最終報告済み。マージ待ち）
-- Copilot: 依頼 3 回（上限）/ G3 の修正は再確認されていない（G1 で 3 件・G2 で 5 件・G3 で 2 件）
+- 現在のステップ: PR #81 は 2026-09-28 09:13:55Z にマージ済み（c36d0bd）。マージ後に入れた G5 の修正は、フォローアップ PR #82 でレビュー中
+- Copilot: 依頼 4 回（3 回の上限 + ユーザー指示の 4 回目。G1 で 3 件・G2 で 5 件・G3 で 2 件・G5 で 1 件）+ 自発的なレビュー 1 回（G4 で 2 件）。G5 の修正は PR #82 で反映
 - Codex: 依頼 2 回 / 収束（G2 で 055758d に指摘なし）
 
 ## ログ
@@ -20,3 +20,4 @@
 | 2026-09-28 | 7 | G3（Copilot 3 回目・上限）: 2 件 → 修正 2（`45a56b6`・`b13f876`）。確認ゲート → `approve` → commit → `check` → push を 3 ラウンドとも通した。ミューテーション 2 種を検出 |
 | 2026-09-28 | 8 | 最終報告（`final-report.md`）。マージは人が行う |
 | 2026-09-28 | 7 | G4: 最終 HEAD に Copilot が自発的にレビュー（依頼していない）→ スレッド 1・本文 1 を修正（`f1840b8`・`915df30`）。確認ゲート → `approve` → commit → `check` → push を 4 ラウンド目も通した。再依頼しない。最終報告に追記 |
+| 2026-09-28 | 7 | G5: ユーザーの指示で Copilot に 4 回目を依頼（G3・G4 の 4 コミットを含む 263f0d5）→ 1 件を修正（`2537fe4`。対象 HEAD の直後の区切り）。確認ゲート → `approve` → commit → `check` → push を 5 ラウンド目も通した。再依頼しない。最終報告に追記 |

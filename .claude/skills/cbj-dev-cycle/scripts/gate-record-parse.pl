@@ -99,7 +99,9 @@ while (my $l = <$fh>) {
       $pr_count++;
       if (!defined $pr_number) {
         ($pr_number, $pr_line) = ($1 + 0, $ln);
-        $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})(?![0-9A-Za-z])/;
+        # 最初の `対象 HEAD:` の直後だけを読む（値が不正なら空にし、行内の後ろにある別の `対象 HEAD:` を拾わない）。
+        my (undef, $after_label) = split /対象 HEAD:/, $vis, 2;
+        $target_head = $1 if defined $after_label && $after_label =~ /^\s*([0-9a-f]{7,40})(?=\s|\z|[（(])/;
       }
     }
     if ($struct && $vis =~ /^- 承認(?::|：)\s*(.*)$/) {
