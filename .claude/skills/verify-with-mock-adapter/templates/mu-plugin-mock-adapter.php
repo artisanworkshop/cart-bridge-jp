@@ -6,8 +6,14 @@
  * 検証が終わったら `mock-adapter.sh uninstall` で削除すること（コミットしない）。
  *
  * - mock の中身（顧客・受注）は、オプション `cbjp_verify_seed`（配列。seed スクリプトが保存する）から組み立てる。
- *   形は { customers: [{remote_id,email,pref}], orders: [{number,billing_pref,shipping_pref}] }。
- *   別の形のデータが要るなら、この関数を検証用に書き換えてよい（テンプレートなので）。
+ *   形は { customers: [{remote_id,email,pref}], orders: [{number,billing_pref,shipping_pref}],
+ *   push: {enabled: bool, create_failure: 'ambiguous_5xx'|null} }。`push.enabled=true` で
+ *   push_product()/push_customer()/push_order()/push_coupon() が成功を返すようになる
+ *   （既定では全て`UnsupportedOperationException`で失敗する）。`push.create_failure='ambiguous_5xx'`は
+ *   D21-B（issue #73）の「作成結果が不明」経路（`cbjp_push_intents`に印が残る）を再現する
+ *   （作成経路`$remote_id===null`のみに効く。`tests/unit/Fixtures/MockPlatformAdapter`の
+ *   `create_push_failure`参照）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
+ *   （テンプレートなので）。
  * - クラス定義をこのファイルのトップレベルに書かない。mu-plugins は通常プラグインより先に読み込まれ、
  *   composer の autoloader がまだ無い。`plugins_loaded` のコールバック内で `new` すればよい。
  * - `CartBridgeJP\Tests\Fixtures\MockPlatformAdapter` は composer の autoload-dev（tests/unit/）。
@@ -84,11 +90,23 @@ add_action(
 					);
 				}
 
+				// D21-B（issue #73）検証用: `push`が配列でない・`enabled`が真偽値でない場合は
+				// 無効（push_*()は全てUnsupportedOperationExceptionのまま）として読み飛ばす
+				// （mu-pluginのfatalを避ける既存方針。`$rows()`と同じ考え方）。
+				$push_seed        = is_array( $seed ) && is_array( $seed['push'] ?? null ) ? $seed['push'] : [];
+				$push_enabled     = true === ( $push_seed['enabled'] ?? false );
+				$create_push_fail = 'ambiguous_5xx' === ( $push_seed['create_failure'] ?? null )
+					? new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 )
+					: null;
+
 				// `platform_id` は登録キーと同じ値にする。Importer/Exporter/JobManager は mapping・上限のキーを登録キーではなく
 				// `$adapter->id()` から決める（既定の 'mock' のままだと、別キーで登録しても mapping が 'mock' 名前空間へ書かれる）。
 				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter(
 					customers: $customers,
 					orders: $orders,
+					push_products_supported: $push_enabled,
+					push_others_supported: $push_enabled,
+					create_push_failure: $create_push_fail,
 					platform_id: '__PLATFORM_KEY__'
 				);
 

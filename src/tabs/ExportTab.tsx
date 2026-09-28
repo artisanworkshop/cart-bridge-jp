@@ -12,6 +12,7 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
+import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
@@ -845,6 +846,14 @@ export default function ExportTab() {
 					) }
 				</CardBody>
 			</Card>
+
+			{ platform && (
+				<PushIntentsPanel
+					key={ platform }
+					platform={ platform }
+					runInProgress={ dryRunExportBusy || exportBusy }
+				/>
+			) }
 
 			{ mappingsError && (
 				// `mappings`/`edited`がnullのまま（取得失敗）のときだけ表示されるため、
