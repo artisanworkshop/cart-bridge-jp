@@ -15,8 +15,13 @@
 #   → `git commit` → 記録に sha を書く → `check`（push の前に実行する）。
 # `check`/`summary`/`replies` は、判定が「修正」の指摘が 1 件でもあるとき、承認行が無い・読めない、または修正の指摘が挙げた commit の
 # committer 時刻が承認時刻より前（＝確認前に commit した）なら非ゼロで止める。`- 承認: auto-commit` は時刻の検査を飛ばす。
-# 限界: 検出であって防止ではない（`approve` を人の回答より前に実行する嘘までは防げない）。`git commit --amend`／rebase は committer 時刻を
-# 変えるので、承認後に作り直した commit は通る。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
+# ただし記録の「対象 HEAD」（このラウンドのレビューが対象にした commit）の祖先の commit は検査しない（レビューが届く前からあった commit
+# ＝前のラウンドで直した指摘を bot が再指摘した場合など。祖先と確かめられなければ検査する）。承認行の書式は UTC 時刻（2000〜2099 年）か auto-commit。
+# `approve --force --auto-commit` で時刻承認を auto-commit に置き換えることは拒否する（1 コマンドで違反を合格に変えられるため）。
+# 限界: 検出であって防止ではない。`approve` を人の回答より前に実行する、`- 承認:` 行を手で遡った時刻に書く、`CBJ_GATE_NOW`（テスト用の
+# 時刻の上書き。使うと警告する）を本番で使う、といった偽装までは防げない。`git commit --amend`／rebase は committer 時刻を変えるので、
+# 承認後に作り直した commit は通る。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
+# 導入前の記録（承認行の無い過去の G<n>.md）を再検査すると、判定が「修正」のものは承認なしで止まる。
 # init は指摘を取得した直後（修正の前）に実行するのが確実: 修正を push した後だと、修正済みのスレッドは outdated になって行番号が `?` になる。
 # --since を付けるとレビューは「T 以降に提出されたもの」を拾い、対象の commit を併記する（付けなければ現在の HEAD へのレビュー）。
 #
@@ -146,7 +151,7 @@ load_record() {
       elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end ),
     ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 and (.verify | length) == 0 then "検証 needs at least one line (test / lint / mutation results) when a finding is 修正" else empty end ),
     ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 then
-        ( if .approval == "" then "承認 is missing: a 修正 needs the confirm gate before the commit. Right after the user approves (before git commit) run: gate-record.sh approve <PR> <n>  (under auto-commit write \"- 承認: auto-commit\" with --auto-commit)"
+        ( if .approval == "" then "承認 is missing: a 修正 needs the confirm gate before the commit. Right after the user approves (before git commit) run: gate-record.sh approve <PR> <n>  (--auto-commit only when the user invoked auto-commit)"
           elif .approval == "bad" then "承認 must be \"- 承認: <UTC time like 2026-09-28T04:12:33Z>\" or \"- 承認: auto-commit\" (got: \(.approval_raw | .[0:40]))"
           else empty end )
       else empty end ),
@@ -173,13 +178,16 @@ load_record() {
     echo "internal error while checking $REC" >&2
     exit 3
   fi
-  local bad=0 id kind sha ct approved_epoch approval_kind
+  local bad=0 id kind sha ct approved_epoch approval_kind target_head
   if [ -n "$errs" ]; then
     printf '%s\n' "$errs" >&2
     bad=1
   fi
   approval_kind=$(jq -r '.approval' <<<"$REC_JSON") || exit 3
   approved_epoch=$(jq -r '.approval_epoch // empty' <<<"$REC_JSON") || exit 3
+  # 「対象 HEAD」（このラウンドのレビューが対象にした commit）。その祖先の commit は、レビューが届く前からあった commit なので、このラウンドの修正ではない
+  # （前のラウンドで直した指摘を bot が再指摘した場合など）。記録できなくなるのを避けるため、順序検査から外す。祖先と確かめられなければ検査する（フェイルクローズ）。
+  target_head=$(jq -r '.target_head' <<<"$REC_JSON") || exit 3
   while IFS=$'\t' read -r id kind sha; do
     [ -n "$sha" ] || continue
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
@@ -190,6 +198,10 @@ load_record() {
     # 確認ゲートは commit より前。判定が「修正」の指摘が挙げた commit の committer 時刻が承認時刻より前なら、確認前に commit している
     # （保留・対応不要が引用する過去の sha は対象外。承認が auto-commit・行なし・不正のときは上の jq が扱うのでここでは見ない）。
     if [ "$kind" = "fixed" ] && [ "$approval_kind" = "time" ] && [ -n "$approved_epoch" ]; then
+      if [ -n "$target_head" ] && git cat-file -e "$target_head^{commit}" 2>/dev/null \
+        && git merge-base --is-ancestor "$sha^{commit}" "$target_head^{commit}" 2>/dev/null; then
+        continue
+      fi
       if ! ct=$(git show -s --format=%ct "$sha^{commit}") || ! [[ "$ct" =~ ^[0-9]+$ ]]; then
         echo "$id: could not read the commit time of $sha" >&2
         bad=1
@@ -407,16 +419,49 @@ cmd_init() {
 
 # 確認ゲート（AskUserQuestion）を通した印を、記録のヘッダ（`- PR:` 行の直後）に書く。ユーザーが承認した**直後・git commit の前**に実行する。
 # 既に承認行があれば --force なしでは上書きしない（黙って時刻を新しくして、先行 commit を承認済みに見せかけないため）。
+# 挿入・置換の位置と、既存の承認の有無は、パーサ（load_record と同じ）が返すヘッダの行番号で決める（コードフェンス・HTML コメントの中の
+# `- PR:`／`- 承認:` を書き手が別の意味に読まない）。記録の PR 番号・ラウンドも引数と照合する（別 PR の記録に承認を書かない）。
+# 時刻承認を --force で auto-commit に置き換えることは拒否する（check の「承認より前の commit」を 1 コマンドで合格に変えられてしまうため）。
 cmd_approve() {
   resolve_file
   if [ ! -f "$REC" ]; then
     echo "record not found: $REC (run: gate-record.sh init $PR $N)" >&2
     exit 3
   fi
-  local now stamp line tmp
+  local json errs now stamp line tmp pr_line approval_line approval_kind
+  if ! json=$(perl "$PARSER" "$REC") || [ -z "$json" ]; then
+    echo "could not parse $REC" >&2
+    exit 3
+  fi
+  if ! errs=$(jq -r --argjson pr "$PR" --argjson round "$N" '
+    ( if .pr_number == null then "record header lacks \"- PR: #<n>\" (needed to put the 承認 line after it, and to check that the record belongs to this PR)"
+      elif .pr_number != $pr then "record is for PR #\(.pr_number) but the command says PR #\($pr)" else empty end ),
+    ( if .round == null then "record title lacks \"# ゲートラウンド G<n>\" (needed to check the round)"
+      elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end )' <<<"$json"); then
+    echo "internal error while checking $REC" >&2
+    exit 3
+  fi
+  if [ -n "$errs" ]; then
+    printf '%s\n' "$errs" >&2
+    exit 1
+  fi
+  pr_line=$(jq -r '.pr_line' <<<"$json") || exit 3
+  approval_line=$(jq -r '.approval_line // 0' <<<"$json") || exit 3
+  approval_kind=$(jq -r '.approval' <<<"$json") || exit 3
+  if [ "$approval_kind" != "" ] && [ "$FORCE" -eq 0 ]; then
+    echo "$REC already has a 承認 line (use --force to restamp)" >&2
+    exit 2
+  fi
+  if [ "$AUTO" -eq 1 ] && [ "$approval_kind" = "time" ]; then
+    echo "refusing to replace a timed 承認 with auto-commit: that would turn a commit-before-approval into a pass. Re-run approve --force without --auto-commit, then commit again" >&2
+    exit 2
+  fi
   if [ "$AUTO" -eq 1 ]; then
     stamp="auto-commit（確認ゲートを省略。commit 時刻の検査はしない）"
   else
+    if [ -n "${CBJ_GATE_NOW:-}" ]; then
+      echo "warning: CBJ_GATE_NOW is set (a test-only override); the 承認 time is not the real time" >&2
+    fi
     now=${CBJ_GATE_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
     if ! [[ "$now" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
       echo "could not get the current UTC time (got: '$now')" >&2
@@ -425,19 +470,11 @@ cmd_approve() {
     stamp="${now}（確認ゲートを通した時刻。これより後の commit だけが有効）"
   fi
   line="- 承認: $stamp"
-  if grep -Eq '^- 承認(:|：)' "$REC" && [ "$FORCE" -eq 0 ]; then
-    echo "$REC already has a 承認 line (use --force to restamp)" >&2
-    exit 2
-  fi
-  if ! grep -q '^- PR: ' "$REC"; then
-    echo "record header lacks a \"- PR: #<n>\" line to put the 承認 line after: $REC" >&2
-    exit 1
-  fi
   tmp="$REC.tmp.$$"
-  awk -v add="$line" '
-    /^- 承認(:|：)/ { next }
+  awk -v add="$line" -v pl="$pr_line" -v al="$approval_line" '
+    NR == al { next }
     { print }
-    /^- PR: / && !done { print add; done = 1 }
+    NR == pl { print add }
   ' "$REC" >"$tmp" || { rm -f "$tmp"; exit 3; }
   mv "$tmp" "$REC" || { rm -f "$tmp"; exit 3; }
   echo "approved: $line"

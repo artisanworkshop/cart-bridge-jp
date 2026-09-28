@@ -133,11 +133,17 @@ description: >
   順序: ① 修正して品質チェックを green にする（**commit しない**）→ ② 修正内容と仕分けを AskUserQuestion で提示 → ③ ユーザーが承認した**直後**に
   `gate-record.sh approve <PR> <n>`（`auto-commit` 指定時は `--auto-commit`）→ ④ `git commit` → ⑤ 記録に sha を書く → ⑥ `check` → ⑦ push。
   記録の記入前に承認が必要な間は、`コミット:` を空のままにしておけばよい（記入は commit の後）。`check` は、修正の指摘が挙げた commit の committer 時刻が
-  承認時刻より前なら `predates the approval` で止まる。**push の前に `check` を通す**ので、順序違反は GitHub への返信・Resolve・サマリより前に見つかる。
-  見つかったら、未 push の commit を `git reset --soft` で戻し、`approve --force` → commit をやり直す。
-  **限界**: これは検出であって防止ではない（`approve` をユーザーの回答より前に実行する偽装までは防げない。失敗の原因は「省略」だったので、明示的な
-  `approve` の実行を強制すれば足りると判断した）。`git commit --amend`・rebase は committer 時刻を変えるので、承認後に作り直した commit は通る。
-  保留・対応不要だけの記録（修正の commit が無いラウンド）は承認行が無くても通る。
+  承認時刻より前なら `predates the approval` で止まる（ただし記録の「対象 HEAD」の祖先の commit は検査しない。レビューが届く前からあった commit ＝
+  前のラウンドで直した指摘を bot が再指摘した場合を、判定を偽らずに記録できるようにするため。祖先と確かめられなければ検査する）。
+  **push の前に `check` を通す**ので、順序違反は GitHub への返信・Resolve・サマリより前に見つかる。
+  見つかったら、未 push の commit を `git reset --soft` で戻し、`approve --force` → commit をやり直す
+  （`approve --force --auto-commit` で時刻の承認を auto-commit に置き換えることは拒否される。1 コマンドで違反が合格に変わってしまうため）。
+  承認行の書式は UTC 時刻（`2026-09-28T04:12:33Z`。2000〜2099 年）か `auto-commit` だけで、読めない値は止まる。
+  **限界**: これは検出であって防止ではない。`approve` をユーザーの回答より前に実行する、`- 承認:` 行を手で遡った時刻に書き換える、`CBJ_GATE_NOW`
+  （テスト用の時刻の上書き。使うと警告する）を本番で使う、といった偽装までは防げない（失敗の原因は「省略」だったので、明示的な `approve` の実行を強制すれば
+  足りると判断した）。`git commit --amend`・rebase は committer 時刻を変えるので、承認後に作り直した commit は通る。
+  保留・対応不要だけの記録（修正の commit が無いラウンド）は承認行が無くても通る。**導入前の記録**（承認行の無い過去の `G<n>.md`）を `--file` などで
+  再検査すると、判定が「修正」のものは承認なしで止まる（open な PR の記録には影響しない）。
 - 指摘の仕分けで迷う項目（設計変更・Sync 層のロック等）は確認ゲートの選択肢として提示し、勝手に決めない。
 - 3 回目の依頼に対する修正は push して CI を待つが、**4 回目の依頼はしない**。
 

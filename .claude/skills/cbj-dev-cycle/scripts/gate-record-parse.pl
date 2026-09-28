@@ -16,8 +16,10 @@ my (@header, @verify, @findings, @bad, @todo);
 my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, undef, 0, 0, 0);
 my ($fchar, $flen) = ('', 0);
 my ($pr_number, $round);
-# ヘッダの `- 承認: <UTC 時刻 | auto-commit>`（確認ゲートを通した印。`gate-record.sh approve` が書く）。最初の 1 行だけを見る。
-my $approval_raw;
+# ヘッダの `- PR: #<n> / 対象 HEAD: <sha>` の行番号と対象 HEAD、`- 承認: <UTC 時刻 | auto-commit>`（確認ゲートを通した印。
+# `gate-record.sh approve` が書く）の行番号。どちらも最初の 1 行だけを見る。コメント・コードフェンスの中は数えない（$struct）:
+# approve はこの行番号で挿入・置換するので、パーサと書き手の解釈が食い違うと、コメントの中に承認行を書いてしまう。
+my ($pr_line, $target_head, $approval_raw, $approval_line);
 my $has_section = 0;
 my ($no_findings, $no_findings_text) = (0, '');
 # 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
@@ -91,8 +93,13 @@ while (my $l = <$fh>) {
   }
   if ($section eq 'header') {
     push @header, $vis if $vis =~ /\S/;
-    $pr_number = $1 + 0 if !defined $pr_number && $vis =~ /^- PR: #(\d+)/;
-    $approval_raw = trim($1) if !defined $approval_raw && $vis =~ /^- 承認(?::|：)\s*(.*)$/;
+    if ($struct && !defined $pr_number && $vis =~ /^- PR: #([0-9]+)/) {
+      ($pr_number, $pr_line) = ($1 + 0, $ln);
+      $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})/;
+    }
+    if ($struct && !defined $approval_raw && $vis =~ /^- 承認(?::|：)\s*(.*)$/) {
+      ($approval_raw, $approval_line) = (trim($1), $ln);
+    }
     next;
   }
   if ($section eq 'verify') { push @verify, $vis if $vis =~ /\S/; next }
@@ -126,9 +133,11 @@ my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
 # 承認の種別: '' = 行なし / 'time' = UTC 時刻（epoch を添える）/ 'auto' = auto-commit / 'bad' = 読めない書式（存在しない日付を含む）。
 my ($approval, $approval_epoch) = ('', undef);
 if (defined $approval_raw) {
-  if ($approval_raw =~ /^auto-commit\b/) {
+  # 数字は [0-9]（`use utf8` 下の \d は全角数字にも一致する）、年は 2000〜2099 だけ（timegm は 0〜999 年を世紀補正するので、`0126` が 2026 として
+  # 通ってしまう）、`Z` の直後は英数字を許さない（`…Zjunk` を通さない。後ろに続く日本語の補足は許す）。読めなければ bad に倒す。
+  if ($approval_raw =~ /^auto-commit(?![A-Za-z0-9-])/) {
     $approval = 'auto';
-  } elsif ($approval_raw =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z/) {
+  } elsif ($approval_raw =~ /^(20[0-9]{2})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z(?![A-Za-z0-9])/) {
     # timegm は範囲外の値（13 月など）で die するので eval で受けて bad に倒す。
     $approval_epoch = eval { timegm($6 + 0, $5 + 0, $4 + 0, $3 + 0, $2 - 1, $1 + 0) };
     $approval = defined $approval_epoch ? 'time' : 'bad';
@@ -138,6 +147,7 @@ if (defined $approval_raw) {
 }
 print JSON::PP->new->utf8->canonical->encode({
   approval => $approval, approval_raw => defined $approval_raw ? $approval_raw : '', approval_epoch => $approval_epoch,
+  approval_line => $approval_line, pr_line => $pr_line, target_head => defined $target_head ? $target_head : '',
   title => $title, pr_number => $pr_number, round => $round, header => \@header, verify => \@verify, findings => \@findings,
   bad_headings => \@bad, todo_lines => \@todo, unterminated => $unterminated,
   no_findings => $no_findings ? JSON::PP::true : JSON::PP::false, no_findings_text => $no_findings_text,

@@ -8,7 +8,7 @@ GT="$HERE/gate-turn.sh"
 FAILS=0
 
 STUBS=$(mktemp -d)
-# EXIT トラップがあると macOS の bash 3.2 は `set -u` の致命的エラー（`$x）` のように変数名の直後に全角文字）で異常終了しても終了コード 0 を返す。
+# `set -e` と EXIT トラップの両方があると macOS の bash 3.2 は `set -u` の致命的エラー（`$x）` のように変数名の直後に全角文字）で異常終了しても終了コード 0 を返す。
 # 最後まで走り切ったことを DONE で確かめ、途中で止まったら明示的に 1 で終わる（test-gate-record.sh と同じ）。
 DONE=0
 trap 'rm -rf "$STUBS"; if [ "$DONE" != 1 ]; then echo "test-gate-turn: stopped before the end (an unexpected error aborted the script)" >&2; exit 1; fi' EXIT
