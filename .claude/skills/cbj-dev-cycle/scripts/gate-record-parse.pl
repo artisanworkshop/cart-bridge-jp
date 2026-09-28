@@ -8,6 +8,7 @@ use strict;
 use warnings;
 use utf8;
 use JSON::PP;
+use Time::Local qw(timegm);
 my $file = shift @ARGV;
 open(my $fh, '<:encoding(UTF-8)', $file) or do { print STDERR "cannot read $file: $!\n"; exit 3 };
 my %label = ('要旨' => 'summary', '判定' => 'verdict', '対応' => 'action', 'コミット' => 'commit', 'スレッド' => 'thread');
@@ -15,6 +16,8 @@ my (@header, @verify, @findings, @bad, @todo);
 my ($title, $section, $cur, $lab, $incomment, $infence, $ln) = ('', '', undef, undef, 0, 0, 0);
 my ($fchar, $flen) = ('', 0);
 my ($pr_number, $round);
+# ヘッダの `- 承認: <UTC 時刻 | auto-commit>`（確認ゲートを通した印。`gate-record.sh approve` が書く）。最初の 1 行だけを見る。
+my $approval_raw;
 my $has_section = 0;
 my ($no_findings, $no_findings_text) = (0, '');
 # 判定語の直後に漢字・かな・長音が続く場合（修正不要・保留中・修正しない）は別の語なので判定語として認めない。句読点（。、）は許す:
@@ -89,6 +92,7 @@ while (my $l = <$fh>) {
   if ($section eq 'header') {
     push @header, $vis if $vis =~ /\S/;
     $pr_number = $1 + 0 if !defined $pr_number && $vis =~ /^- PR: #(\d+)/;
+    $approval_raw = trim($1) if !defined $approval_raw && $vis =~ /^- 承認(?::|：)\s*(.*)$/;
     next;
   }
   if ($section eq 'verify') { push @verify, $vis if $vis =~ /\S/; next }
@@ -119,7 +123,21 @@ while (my $l = <$fh>) {
 }
 flush();
 my $unterminated = $incomment ? 'comment' : $infence ? 'fence' : '';
+# 承認の種別: '' = 行なし / 'time' = UTC 時刻（epoch を添える）/ 'auto' = auto-commit / 'bad' = 読めない書式（存在しない日付を含む）。
+my ($approval, $approval_epoch) = ('', undef);
+if (defined $approval_raw) {
+  if ($approval_raw =~ /^auto-commit\b/) {
+    $approval = 'auto';
+  } elsif ($approval_raw =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z/) {
+    # timegm は範囲外の値（13 月など）で die するので eval で受けて bad に倒す。
+    $approval_epoch = eval { timegm($6 + 0, $5 + 0, $4 + 0, $3 + 0, $2 - 1, $1 + 0) };
+    $approval = defined $approval_epoch ? 'time' : 'bad';
+  } else {
+    $approval = 'bad';
+  }
+}
 print JSON::PP->new->utf8->canonical->encode({
+  approval => $approval, approval_raw => defined $approval_raw ? $approval_raw : '', approval_epoch => $approval_epoch,
   title => $title, pr_number => $pr_number, round => $round, header => \@header, verify => \@verify, findings => \@findings,
   bad_headings => \@bad, todo_lines => \@todo, unterminated => $unterminated,
   no_findings => $no_findings ? JSON::PP::true : JSON::PP::false, no_findings_text => $no_findings_text,

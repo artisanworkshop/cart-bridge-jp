@@ -6,7 +6,17 @@
 #   gate-record.sh check   <PR> <n> [--file=PATH]                        記入漏れを検査する
 #   gate-record.sh summary <PR> <n> [--file=PATH]                        PR のサマリコメント本文を標準出力へ
 #   gate-record.sh replies <PR> <n> [--file=PATH] [--out=DIR]            スレッドごとの返信ファイルと実行コマンドを出す
+#   gate-record.sh approve <PR> <n> [--auto-commit] [--force] [--file=PATH]   確認ゲート（AskUserQuestion）を通した印をヘッダに書く
 # --file を省くと PR の head ブランチから docs/reviews/<branch>/G<n>.md を決める。--since は init だけ（gate-threads.sh の T）。
+#
+# 確認ゲート → commit の順序（メモに書いても PR #79 G1・PR #80 G1〜G3 の計 4 回、確認前に commit した。原因は「修正」の指摘に commit の
+# sha を要求する check が、記録を完成させるための先行 commit を誘うこと）を、記録の `- 承認:` 行で機械的に検査する:
+#   修正 → 品質チェック（commit しない）→ AskUserQuestion → 承認後に `approve`（現在の UTC 時刻を書く。auto-commit 指定時は `--auto-commit`）
+#   → `git commit` → 記録に sha を書く → `check`（push の前に実行する）。
+# `check`/`summary`/`replies` は、判定が「修正」の指摘が 1 件でもあるとき、承認行が無い・読めない、または修正の指摘が挙げた commit の
+# committer 時刻が承認時刻より前（＝確認前に commit した）なら非ゼロで止める。`- 承認: auto-commit` は時刻の検査を飛ばす。
+# 限界: 検出であって防止ではない（`approve` を人の回答より前に実行する嘘までは防げない）。`git commit --amend`／rebase は committer 時刻を
+# 変えるので、承認後に作り直した commit は通る。順序違反が見つかったら、未 push の commit を `git reset --soft` で戻して承認からやり直す。
 # init は指摘を取得した直後（修正の前）に実行するのが確実: 修正を push した後だと、修正済みのスレッドは outdated になって行番号が `?` になる。
 # --since を付けるとレビューは「T 以降に提出されたもの」を拾い、対象の commit を併記する（付けなければ現在の HEAD へのレビュー）。
 #
@@ -32,13 +42,13 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: gate-record.sh <init|check|summary|replies> <pr> <n> [--since=T] [--force] [--file=PATH] [--out=DIR]" >&2
+  echo "usage: gate-record.sh <init|check|summary|replies|approve> <pr> <n> [--since=T] [--force] [--auto-commit] [--file=PATH] [--out=DIR]" >&2
   exit 2
 }
 
 CMD=${1:-}
 case "$CMD" in
-  init | check | summary | replies) ;;
+  init | check | summary | replies | approve) ;;
   *) usage ;;
 esac
 PR=${2:-}
@@ -51,19 +61,29 @@ N=$((10#$N))
 
 SINCE=""
 FORCE=0
+AUTO=0
 FILE=""
 OUT=""
 for arg in "${@:4}"; do
   case "$arg" in
     --since=*) SINCE=${arg#*=} ;;
     --force) FORCE=1 ;;
+    --auto-commit) AUTO=1 ;;
     --file=*) FILE=${arg#*=} ;;
     --out=*) OUT=${arg#*=} ;;
     *) echo "unknown option: $arg" >&2; usage ;;
   esac
 done
-if { [ -n "$SINCE" ] || [ "$FORCE" -eq 1 ]; } && [ "$CMD" != "init" ]; then
-  echo "--since and --force are for init only" >&2
+if [ -n "$SINCE" ] && [ "$CMD" != "init" ]; then
+  echo "--since is for init only" >&2
+  exit 2
+fi
+if [ "$FORCE" -eq 1 ] && [ "$CMD" != "init" ] && [ "$CMD" != "approve" ]; then
+  echo "--force is for init and approve only" >&2
+  exit 2
+fi
+if [ "$AUTO" -eq 1 ] && [ "$CMD" != "approve" ]; then
+  echo "--auto-commit is for approve only" >&2
   exit 2
 fi
 if [ -n "$OUT" ] && [ "$CMD" != "replies" ]; then
@@ -125,6 +145,11 @@ load_record() {
     ( if .round == null then "record title lacks \"# ゲートラウンド G<n>\" (needed to check the round)"
       elif .round != $round then "record is for round G\(.round) but the command says G\($round)" else empty end ),
     ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 and (.verify | length) == 0 then "検証 needs at least one line (test / lint / mutation results) when a finding is 修正" else empty end ),
+    ( if ([.findings[] | select(.kind == "fixed")] | length) > 0 then
+        ( if .approval == "" then "承認 is missing: a 修正 needs the confirm gate before the commit. Right after the user approves (before git commit) run: gate-record.sh approve <PR> <n>  (under auto-commit write \"- 承認: auto-commit\" with --auto-commit)"
+          elif .approval == "bad" then "承認 must be \"- 承認: <UTC time like 2026-09-28T04:12:33Z>\" or \"- 承認: auto-commit\" (got: \(.approval_raw | .[0:40]))"
+          else empty end )
+      else empty end ),
     ( .todo_lines | if length > 0 then "TODO(記入) remains at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .bad_headings | if length > 0 then "malformed finding heading (expected ### [ID][bot][path:line], ID = letters, digits, . _ -) at line(s): " + (map(tostring) | join(", ")) else empty end ),
     ( .unterminated | if . != "" then "unterminated \(.) (an opening <!-- or code fence is never closed; everything after it is ignored)" else empty end ),
@@ -148,18 +173,32 @@ load_record() {
     echo "internal error while checking $REC" >&2
     exit 3
   fi
-  local bad=0 id sha
+  local bad=0 id kind sha ct approved_epoch approval_kind
   if [ -n "$errs" ]; then
     printf '%s\n' "$errs" >&2
     bad=1
   fi
-  while IFS=$'\t' read -r id sha; do
+  approval_kind=$(jq -r '.approval' <<<"$REC_JSON") || exit 3
+  approved_epoch=$(jq -r '.approval_epoch // empty' <<<"$REC_JSON") || exit 3
+  while IFS=$'\t' read -r id kind sha; do
     [ -n "$sha" ] || continue
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
       echo "$id: commit $sha does not exist in this repository" >&2
       bad=1
+      continue
     fi
-  done < <(jq -r '.findings[] | .id as $id | .commits[] | "\($id)\t\(.)"' <<<"$REC_JSON")
+    # 確認ゲートは commit より前。判定が「修正」の指摘が挙げた commit の committer 時刻が承認時刻より前なら、確認前に commit している
+    # （保留・対応不要が引用する過去の sha は対象外。承認が auto-commit・行なし・不正のときは上の jq が扱うのでここでは見ない）。
+    if [ "$kind" = "fixed" ] && [ "$approval_kind" = "time" ] && [ -n "$approved_epoch" ]; then
+      if ! ct=$(git show -s --format=%ct "$sha^{commit}") || ! [[ "$ct" =~ ^[0-9]+$ ]]; then
+        echo "$id: could not read the commit time of $sha" >&2
+        bad=1
+      elif [ "$ct" -lt "$approved_epoch" ]; then
+        echo "$id: commit ${sha:0:7} ($(jq -rn --argjson t "$ct" '$t | todate')) predates the approval ($(jq -rn --argjson t "$approved_epoch" '$t | todate')): the confirm gate must come before the commit (git reset --soft the unpushed commit, run approve, commit again)" >&2
+        bad=1
+      fi
+    fi
+  done < <(jq -r '.findings[] | .id as $id | .kind as $k | .commits[] | "\($id)\t\($k)\t\(.)"' <<<"$REC_JSON")
   if [ "$bad" -ne 0 ]; then
     echo "record is incomplete: $REC" >&2
     return 1
@@ -364,9 +403,49 @@ cmd_init() {
   echo "next: fill in every TODO(記入), then run: gate-record.sh check $PR $N"
 }
 
+# 確認ゲート（AskUserQuestion）を通した印を、記録のヘッダ（`- PR:` 行の直後）に書く。ユーザーが承認した**直後・git commit の前**に実行する。
+# 既に承認行があれば --force なしでは上書きしない（黙って時刻を新しくして、先行 commit を承認済みに見せかけないため）。
+cmd_approve() {
+  resolve_file
+  if [ ! -f "$REC" ]; then
+    echo "record not found: $REC (run: gate-record.sh init $PR $N)" >&2
+    exit 3
+  fi
+  local now stamp line tmp
+  if [ "$AUTO" -eq 1 ]; then
+    stamp="auto-commit（確認ゲートを省略。commit 時刻の検査はしない）"
+  else
+    now=${CBJ_GATE_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+    if ! [[ "$now" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+      echo "could not get the current UTC time (got: '$now')" >&2
+      exit 3
+    fi
+    stamp="${now}（確認ゲートを通した時刻。これより後の commit だけが有効）"
+  fi
+  line="- 承認: $stamp"
+  if grep -Eq '^- 承認(:|：)' "$REC" && [ "$FORCE" -eq 0 ]; then
+    echo "$REC already has a 承認 line (use --force to restamp)" >&2
+    exit 2
+  fi
+  if ! grep -q '^- PR: ' "$REC"; then
+    echo "record header lacks a \"- PR: #<n>\" line to put the 承認 line after: $REC" >&2
+    exit 1
+  fi
+  tmp="$REC.tmp.$$"
+  awk -v add="$line" '
+    /^- 承認(:|：)/ { next }
+    { print }
+    /^- PR: / && !done { print add; done = 1 }
+  ' "$REC" >"$tmp" || { rm -f "$tmp"; exit 3; }
+  mv "$tmp" "$REC" || { rm -f "$tmp"; exit 3; }
+  echo "approved: $line"
+  echo "next: git commit the fixes, write コミット: in $REC, then run (before git push): gate-record.sh check $PR $N"
+}
+
 case "$CMD" in
   init) cmd_init ;;
   check) cmd_check ;;
   summary) cmd_summary ;;
   replies) cmd_replies ;;
+  approve) cmd_approve ;;
 esac

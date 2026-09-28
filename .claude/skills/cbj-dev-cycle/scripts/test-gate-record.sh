@@ -31,6 +31,15 @@ if ! SHA_B=$(git -C "$GITREPO" rev-parse HEAD) || ! SHA_A=$(git -C "$GITREPO" re
   echo "test-gate-record: could not read the scratch repository commits" >&2
   exit 1
 fi
+# 承認の順序検査用に、committer 時刻を固定したコミットを 2 つ足す（SHA_OLD は 2026-01-01、SHA_NEW は 2036-01-01。
+# 承認時刻を 2026-06-01 にすれば、OLD は承認より前、NEW は承認より後になる）。SHA_A/SHA_B は上で読み終えているので影響しない。
+if ! GIT_COMMITTER_DATE="2026-01-01T00:00:00+0000" git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m old \
+  || ! SHA_OLD=$(git -C "$GITREPO" rev-parse HEAD) \
+  || ! GIT_COMMITTER_DATE="2036-01-01T00:00:00+0000" git -C "$GITREPO" "${GITC[@]}" commit -q --allow-empty -m new \
+  || ! SHA_NEW=$(git -C "$GITREPO" rev-parse HEAD) || [ -z "$SHA_OLD" ] || [ -z "$SHA_NEW" ]; then
+  echo "test-gate-record: could not create the dated scratch commits" >&2
+  exit 1
+fi
 STUBS="$WORK/stubs"
 LOG="$WORK/calls.log"
 mkdir -p "$STUBS/bin" "$WORK/root"
@@ -90,6 +99,15 @@ assert_log() { if grep -qxF -- "$2" "$LOG"; then ok "$1"; else fail "$1: 呼び�
 mkrec() {
   sed "s/@SHA@/$SHA/g" "$FX/filled.md" >"$WORK/rec-$1.md"
   if [ -n "${2:-}" ]; then perl -0pi -e "$2" "$WORK/rec-$1.md"; fi
+}
+# mkrec_sha <名前> <sha> <承認行> : filled.md の @SHA@ を <sha> にし、`- 承認:` 行を <承認行> に置き換える（空文字ならその行ごと消す）。
+mkrec_sha() {
+  sed "s/@SHA@/$2/g" "$FX/filled.md" >"$WORK/rec-$1.md"
+  if [ -n "$3" ]; then
+    LINE="$3" perl -0pi -e 's/^- 承認:[^\n]*$/$ENV{LINE}/m' "$WORK/rec-$1.md"
+  else
+    perl -0pi -e 's/^- 承認:[^\n]*\n//m' "$WORK/rec-$1.md"
+  fi
 }
 REC_DIR="$WORK/root/docs/reviews/chore/66-example"
 
@@ -403,6 +421,132 @@ assert_rc "--file なしで PR のブランチから記録を探す（骨組み�
 assert_log "--file なしのとき gh pr view で head ブランチを取る" "gh pr view 66 --json headRefName --jq .headRefName"
 run_gr STUB_RC_GH=1 -- check 66 9
 assert_rc "ブランチを取得できない: 3" 3
+
+# ---- 承認: 確認ゲート → commit の順序 ----
+# 修正の commit を確認より前にした記録（PR #79 G1・PR #80 G1〜G3 で4回起きた）を check/summary/replies が止める。
+# committer 時刻を固定した scratch リポジトリ（GIT_DIR）を使う（SHA_OLD=2026-01-01、SHA_NEW=2036-01-01）。
+run_check_ap() { run_gr GIT_DIR="$GITREPO/.git" -- check 66 9 --file="$WORK/rec-$1.md"; }
+
+mkrec_sha ap-none "$SHA_NEW" ""
+run_check_ap ap-none
+assert_rc "承認: 修正があるのに承認行が無い check は 1（確認前に commit した記録を通さない）" 1
+assert_err "承認: 行が無いときは approve を案内する" "承認 is missing"
+run_gr GIT_DIR="$GITREPO/.git" -- summary 66 9 --file="$WORK/rec-ap-none.md"
+assert_rc "承認: 承認行が無い記録から PR のサマリを作らない: 1" 1
+assert_no_out "承認: 承認行が無いとき summary は何も出さない" "レビュー指摘への対応サマリ"
+run_gr GIT_DIR="$GITREPO/.git" -- replies 66 9 --file="$WORK/rec-ap-none.md"
+assert_rc "承認: 承認行が無い記録から返信コマンドを作らない: 1" 1
+
+mkrec_sha ap-bad1 "$SHA_NEW" "- 承認: yesterday"
+run_check_ap ap-bad1
+assert_rc "承認: 読めない書式は 1" 1
+assert_err "承認: 書式を案内する" "承認 must be"
+mkrec_sha ap-bad2 "$SHA_NEW" "- 承認: 2026-13-45T99:00:00Z"
+run_check_ap ap-bad2
+assert_rc "承認: 存在しない日付は 1（timegm の die を握りつぶして bad に倒す）" 1
+
+mkrec_sha ap-auto "$SHA_OLD" "- 承認: auto-commit"
+run_check_ap ap-auto
+assert_rc "承認: auto-commit は時刻の検査を飛ばす（古い commit でも 0）" 0
+run_gr -- summary 66 9 --file="$WORK/rec-ok.md"
+assert_out "承認: 承認の行も PR のサマリのヘッダに載る" "- 承認: auto-commit"
+
+mkrec_sha ap-order "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z"
+run_check_ap ap-order
+assert_rc "承認: 承認より前の commit（確認前に commit した）は 1" 1
+assert_err "承認: 違反した指摘の commit と、commit・承認の時刻（UTC）を示す" "commit ${SHA_OLD:0:7} (2026-01-01T00:00:00Z) predates the approval (2026-06-01T00:00:00Z)"
+assert_err "承認: 直し方を示す" "git reset --soft"
+mkrec_sha ap-later "$SHA_NEW" "- 承認: 2026-06-01T00:00:00Z"
+run_check_ap ap-later
+assert_rc "承認: 承認より後の commit は 0" 0
+mkrec_sha ap-same "$SHA_OLD" "- 承認: 2026-01-01T00:00:00Z"
+run_check_ap ap-same
+assert_rc "承認: 承認と同じ秒の commit は 0（承認の直後に commit する通常の手順）" 0
+
+# 保留・対応不要が引用する過去の sha は順序の対象外。commit を伴わない記録は承認行が無くても通る。
+cat >"$WORK/rec-held.md" <<EOS
+# ゲートラウンド G9
+- PR: #66 / 対象 HEAD: abc1234
+
+## 指摘
+### [G9-1][Copilot][src/a.sh:1]
+要旨: 保留する指摘。
+判定: 保留
+対応: 過去の修正を参照して据え置く。
+コミット: ${SHA_OLD}
+スレッド: [r1](https://example.com/pull/66#discussion_r1)
+
+### [G9-2][Codex][src/b.sh:2]
+要旨: 対応不要の指摘。
+判定: 対応不要
+対応: 誤検知。
+コミット: —
+スレッド: [r2](https://example.com/pull/66#discussion_r2)
+
+## 検証
+- なし
+EOS
+run_check_ap held
+assert_rc "承認: 保留・対応不要だけの記録は承認行が無くても 0（修正の commit が無いので順序を問わない）" 0
+sed -e "s/^判定: 対応不要/判定: 修正/" -e "s/^コミット: —/コミット: ${SHA_NEW}/" "$WORK/rec-held.md" >"$WORK/rec-mixed.md"
+perl -0pi -e 's/(- PR:[^\n]*\n)/$1- 承認: 2026-06-01T00:00:00Z\n/' "$WORK/rec-mixed.md"
+run_check_ap mixed
+assert_rc "承認: 修正の commit が承認より後なら、保留が引用する承認より前の sha があっても 0（対象は判定が修正の指摘だけ）" 0
+
+# ---- approve ----
+mkrec_sha ap-a "$SHA_NEW" ""
+run_gr CBJ_GATE_NOW=2026-09-28T04:12:33Z -- approve 66 9 --file="$WORK/rec-ap-a.md"
+assert_rc "approve: 承認行が無い記録に書ける: 0" 0
+assert_out "approve: 書いた行を表示する" "approved: - 承認: 2026-09-28T04:12:33Z"
+assert_file_has "approve: 時刻を UTC で書く" "$WORK/rec-ap-a.md" "- 承認: 2026-09-28T04:12:33Z（"
+LINE2=$(sed -n 2p "$WORK/rec-ap-a.md")
+LINE3=$(sed -n 3p "$WORK/rec-ap-a.md")
+case "$LINE2|$LINE3" in
+  "- PR: "*"|- 承認: "*) ok "approve: - PR: 行の直後に挿入する" ;;
+  *) fail "approve: - PR: 行の直後に挿入されていない（2 行目: $LINE2 / 3 行目: $LINE3）" ;;
+esac
+run_check_ap ap-a
+assert_rc "approve → check: 承認（2026-09-28）より後の commit（2036）は 0" 0
+mkrec_sha ap-b "$SHA_OLD" ""
+run_gr CBJ_GATE_NOW=2026-09-28T04:12:33Z -- approve 66 9 --file="$WORK/rec-ap-b.md"
+run_check_ap ap-b
+assert_rc "approve → check: commit してから approve した（承認より前の commit）は 1" 1
+
+run_gr CBJ_GATE_NOW=2026-10-01T00:00:00Z -- approve 66 9 --file="$WORK/rec-ap-a.md"
+assert_rc "approve: 既に承認行がある記録は --force なしで上書きしない: 2" 2
+assert_err "approve: 上書きを拒否する理由" "already has a 承認 line"
+assert_file_has "approve: 拒否したとき元の時刻が残る" "$WORK/rec-ap-a.md" "2026-09-28T04:12:33Z"
+run_gr CBJ_GATE_NOW=2026-10-01T00:00:00Z -- approve 66 9 --file="$WORK/rec-ap-a.md" --force
+assert_rc "approve --force: 承認し直せる: 0" 0
+assert_file_has "approve --force: 新しい時刻に置き換わる" "$WORK/rec-ap-a.md" "- 承認: 2026-10-01T00:00:00Z"
+if [ "$(grep -c '^- 承認' "$WORK/rec-ap-a.md")" -eq 1 ]; then ok "approve --force: 承認行は 1 行だけ"; else fail "approve --force: 承認行が複数ある"; fi
+
+mkrec_sha ap-c "$SHA_OLD" ""
+run_gr -- approve 66 9 --file="$WORK/rec-ap-c.md" --auto-commit
+assert_rc "approve --auto-commit: 0" 0
+assert_file_has "approve --auto-commit: auto-commit と書く" "$WORK/rec-ap-c.md" "- 承認: auto-commit"
+run_check_ap ap-c
+assert_rc "approve --auto-commit → check: 古い commit でも 0" 0
+
+mkrec_sha ap-d "$SHA_NEW" ""
+run_gr -- approve 66 9 --file="$WORK/rec-ap-d.md"
+assert_rc "approve: 現在時刻（CBJ_GATE_NOW なし）でも書ける: 0" 0
+if grep -Eq '^- 承認: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$WORK/rec-ap-d.md"; then ok "approve: 現在の UTC 時刻を ISO 8601（Z）で書く"; else fail "approve: 現在時刻の書式が違う"; fi
+
+run_gr -- approve 66 9 --file="$WORK/no-such-record.md"
+assert_rc "approve: 記録が無い: 3" 3
+mkrec_sha ap-e "$SHA_NEW" ""
+perl -0pi -e 's/^- PR:[^\n]*\n//m' "$WORK/rec-ap-e.md"
+run_gr -- approve 66 9 --file="$WORK/rec-ap-e.md"
+assert_rc "approve: - PR: 行が無い記録には書けない: 1" 1
+mkrec_sha ap-f "$SHA_NEW" ""
+run_gr CBJ_GATE_NOW=garbage -- approve 66 9 --file="$WORK/rec-ap-f.md"
+assert_rc "approve: 時刻を取得できない（形式不正）: 3" 3
+if grep -q '^- 承認' "$WORK/rec-ap-f.md"; then fail "approve: 失敗したのに承認行が書かれている"; else ok "approve: 失敗したときは記録を書き換えない"; fi
+run_gr -- approve 66 9 --file="$WORK/rec-ap-f.md" --since=2026-09-25T00:00:00Z
+assert_rc "approve: --since は init 専用: 2" 2
+run_gr -- check 66 9 --file="$WORK/rec-ok.md" --auto-commit
+assert_rc "--auto-commit は approve 専用: 2" 2
 
 # ---- 引数 ----
 run_gr -- ""

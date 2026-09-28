@@ -1,5 +1,6 @@
 # ゲートラウンド G9（テスト用の記録）
 - PR: #66 / 対象 HEAD: abc1234
+- 承認: auto-commit（テスト用。順序の検査は専用のテストで行う）
 - レビュー: [Codex #1](https://example.com/pull/64#pullrequestreview-1) / [Copilot #2](https://example.com/pull/64#pullrequestreview-2)（🟡 Changes recommended）
 - 再依頼: していない
 
