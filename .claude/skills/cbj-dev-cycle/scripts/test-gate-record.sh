@@ -593,6 +593,19 @@ run_check_ap ap-k
 assert_rc "承認: HTML コメントの中の「- 承認:」は読まない（承認なしとして 1）" 1
 assert_err "承認: コメント内の承認行は無いものとして案内する" "承認 is missing"
 
+# コードフェンスの中の承認行・PR 行も読まない（ヘッダに例として書いた行が、実際の行より先にあっても）。
+mkrec_sha ap-q "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z"
+perl -0pi -e 's/(^# [^\n]*\n)/$1```\n- 承認: auto-commit\n```\n/' "$WORK/rec-ap-q.md"
+run_check_ap ap-q
+assert_rc "承認: コードフェンス内の「- 承認: auto-commit」ではなく、実際の承認行（時刻）で検査する: 1" 1
+assert_err "承認: フェンス内の auto-commit に降格されず、順序違反を報告する" "predates the approval"
+mkrec_sha ap-r "$SHA_NEW" ""
+perl -0pi -e 's/(^# [^\n]*\n)/$1```\n- PR: #99 \/ 対象 HEAD: abc1234\n```\n/' "$WORK/rec-ap-r.md"
+run_gr CBJ_GATE_NOW=2026-09-28T04:12:33Z -- approve 66 9 --file="$WORK/rec-ap-r.md"
+assert_rc "承認: コードフェンス内の「- PR: #99」ではなく、実際の PR 行を読んで approve できる: 0" 0
+run_check_ap ap-r
+assert_rc "承認: フェンス内の「- PR:」に惑わされず、書いた承認を check が読める: 0" 0
+
 # approve は、パーサと同じ構造（コメント・コードフェンスを除く）で位置と既存の承認を決める。
 mkrec_sha ap-g "$SHA_NEW" ""
 perl -0pi -e 's/(## 検証\n)/$1```\n- 承認: 2026-01-01T00:00:00Z（例）\n```\n/' "$WORK/rec-ap-g.md"

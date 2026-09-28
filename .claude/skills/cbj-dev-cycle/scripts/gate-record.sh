@@ -198,8 +198,8 @@ load_record() {
     # 確認ゲートは commit より前。判定が「修正」の指摘が挙げた commit の committer 時刻が承認時刻より前なら、確認前に commit している
     # （保留・対応不要が引用する過去の sha は対象外。承認が auto-commit・行なし・不正のときは上の jq が扱うのでここでは見ない）。
     if [ "$kind" = "fixed" ] && [ "$approval_kind" = "time" ] && [ -n "$approved_epoch" ]; then
-      if [ -n "$target_head" ] && git cat-file -e "$target_head^{commit}" 2>/dev/null \
-        && git merge-base --is-ancestor "$sha^{commit}" "$target_head^{commit}" 2>/dev/null; then
+      # 対象 HEAD が無い・存在しない・祖先でない（merge-base は 1 か 128 を返す）ときは除外せず、下で検査する。
+      if [ -n "$target_head" ] && git merge-base --is-ancestor "$sha^{commit}" "$target_head^{commit}" 2>/dev/null; then
         continue
       fi
       if ! ct=$(git show -s --format=%ct "$sha^{commit}") || ! [[ "$ct" =~ ^[0-9]+$ ]]; then
