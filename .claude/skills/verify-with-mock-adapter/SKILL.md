@@ -58,6 +58,15 @@ description: >
    `examples/prefecture-repair/cleanup.php`）→ `$S/scripts/mock-adapter.sh uninstall`（mu-plugin を削除）→ `inspect` で
    手順 1 の状態に戻ったことを確認 → リポジトリ内の一時ファイルを削除。**一時ファイルはコミットしない**（`git status` で確認）。
 
+## 落とし穴（PR #80 の Export タブ UI 検証で実際に踏んだもの）
+
+- **`mock-adapter.sh run` に渡す PHP はリポジトリ内に置く**（`wp eval-file` はコンテナ内で実行されるため、`/tmp` やスクラッチパッドはコンテナから見えない）。コミット前に削除する。
+- **`AdapterRegistry::all()` は静的キャッシュ**。同一 PHP プロセス内で `cbjp_verify_seed` を書き換えて再検証するなら、書き換えの直後に `CartBridgeJP\Adapters\AdapterRegistry::reset_cache()` を呼ぶ（呼ばないと最初に組み立てた mock がそのまま使われ、seed の変更が効かない）。
+- **`cbjp_process_job`（Action Scheduler）は CLI では自走しない**。`start_run` の後、検証スクリプト内で pending を処理する（`as_get_scheduled_actions( [ 'hook' => 'cbjp_process_job', 'status' => 'pending' ] )` → `do_action_ref_array( $action->get_hook(), $action->get_args() )` → `ActionScheduler_Store::instance()->mark_complete()`）。
+- **mock のキー（例 `mockv`）は `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。管理画面で目視したいときは、接続済みの実 platform（`colorme`）に対象の行を手で挿入し、UI の操作で消す。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
+- **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
+- **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
+
 ## してはいけないこと
 
 - **実アダプタ（`ColorMeAdapter` 等）を偽のキーで登録して `JobManager`/`Exporter` を通さない**: mapping・サンプルキャッシュのキーは登録キーではなく

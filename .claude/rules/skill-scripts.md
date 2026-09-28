@@ -18,7 +18,9 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   （`mock-adapter.sh` の `wp()` 参照）。新しく書く**テストスクリプトにも同じ規約を適用する**（`test-gate-bodies.sh` の `load` ヘルパー参照。PR #64 で、この規約を追加したばかりの PR のテスト自身が違反し、Codex に P1 で指摘された）
 - **mu-plugin テンプレートは致命的エラーを出さない**。mu-plugin の fatal は開発サイトの全リクエストと、WP を起動する
   `mock-adapter.sh run`/`inspect`（＝ seed の cleanup）を落とす（`uninstall` はホスト側の `rm` なので効く）。
-  オプション等から読む値は型を確認し、想定外の値は読み飛ばす（`templates/mu-plugin-mock-adapter.php` の `$rows()` 参照）
+  オプション等から読む値は型を確認し、想定外の値は読み飛ばす（`templates/mu-plugin-mock-adapter.php` の `$rows()` 参照）。
+  新しい読み取りを `$rows()` の外へ足すときも `is_array( $seed ) && is_array( $seed['k'] ?? null )` の二段階にする
+  （`$seed['k'] ?? null` だけでは `$seed` が stdClass のとき Error。PR #80 G3-2 で Copilot が High として指摘）
 - **bot レビュー本文の整形（`gate-bodies.sh`）は、本文の形式が変わっても指摘を握りつぶさない側に倒す**。Copilot の本文は旧形式（`Suppressed comments`）と新形式（`ccr-overview-v2`: `Open`/`Previously missed`/`What changed in this PR` の `<details>`）が混在し、`Previously missed` はスレッドの無い新規指摘なのに旧版は整形出力に出さず、`--raw` で読まなければ見落とすところだった（PR #61 G2）。未知の `<details>` 節は出す側に倒し、ノイズと分かっている節（ファイル要約の表）だけ明示的に除外する。整形ロジックの回帰テストは `scripts/test-gate-bodies.sh`（`--format` に fixtures の本文を流す。ネットワーク不要。`quality.sh` と CI の `dev-tooling` ジョブで実行される）
 - スクリプトは手元の macOS（bash 3.2・BSD awk）と CI の `dev-tooling` ジョブ（Ubuntu の bash 5・mawk）の**両方で動く**書き方にする。`test-gate-bodies.sh`・`test-gate-turn.sh`・`test-gate-record.sh` は `quality.sh` の末尾と CI で実行される（PR #64・#66・#68）。他の補助スクリプトにテストを足すときも同ジョブに追加する。手元で Ubuntu の挙動を確かめるには `docker run --rm -v "$PWD":/repo:ro -w /repo ubuntu:24.04 bash -c '…'`（`jq perl git` を入れ、`git config --global --add safe.directory /repo`）
 - **bash のダブルクォート内で `$変数` の直後に全角文字（`（` など）を置かない**（`$RC（期待…）` は `unbound variable` で `set -u` 下のスクリプトを FAIL も出さずに異常終了させる。`${RC}` と書く）。テスト自身のメッセージで起きやすく、`test-gate-turn.sh` とフックのテストで実際に踏んだ。ミューテーションで「FAIL が明示的に報告されること」まで確かめると気付ける
