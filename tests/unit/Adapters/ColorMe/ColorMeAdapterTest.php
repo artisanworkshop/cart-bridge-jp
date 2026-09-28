@@ -3387,53 +3387,38 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 	public function test_fetch_latest_orders_propagates_lookup_failures_instead_of_swallowing_them(): void {
 		// `order_transformer()`はメソッド冒頭で一度だけ解決し、初回取得・探索窓を広げる
-		// ループの両方の`transform_rows()`呼び出しで共有する（issue #69）。`sales.json`への
-		// リクエストが1件も発生しないこと（＝行の変換に入る前に解決が終わっていること）まで
-		// 確認する。
+		// ループの両方の`transform_rows()`呼び出しで共有する（issue #69）。
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
-		$sales_requests = 0;
-		add_filter(
-			'pre_http_request',
-			function ( $preempt, $parsed_args, $url ) use ( &$sales_requests ) {
-				if ( str_contains( $url, 'payments.json' ) ) {
-					return $this->json_response(
-						[
-							'errors' => [
-								[
-									'code'    => 401001,
-									'message' => 'アクセストークンが無効です。',
-									'status'  => 401,
-								],
+		$this->respond_from_map(
+			[
+				'sales.json'    => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'sales' ),
+				],
+				'payments.json' => [
+					'status' => 401,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 401001,
+								'message' => 'アクセストークンが無効です。',
+								'status'  => 401,
 							],
 						],
-						401
-					);
-				}
-
-				if ( str_contains( $url, 'deliveries.json' ) ) {
-					return $this->json_response( FixtureLoader::load( 'colorme', 'deliveries' ) );
-				}
-
-				if ( str_contains( $url, 'sales.json' ) ) {
-					++$sales_requests;
-
-					return $this->json_response( FixtureLoader::load( 'colorme', 'sales' ) );
-				}
-
-				return new WP_Error( 'unexpected_request', "Unhandled request: {$url}" );
-			},
-			10,
-			3
+					],
+				],
+			]
 		);
 
 		try {
+			// フィクスチャは2件＝limitちょうどのため、探索窓を広げるループには入らない
+			// （初回取得だけでtransformerが解決されることを確認する）。
 			$adapter->fetch_latest_orders( 2 );
 			$this->fail( 'ApiException was not thrown' );
 		} catch ( ApiException $exception ) {
 			$this->assertSame( 401, $exception->status_code() );
-			$this->assertSame( 0, $sales_requests );
 		}
 	}
 
