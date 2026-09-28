@@ -14,6 +14,7 @@
 // 「見つからない」になる。そちらは PushIntentResolverTest／RestControllerTest（単体）の担当。
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Sync\PushIntentRepository;
+use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 
 wp_set_current_user( 1 );
 
@@ -131,8 +132,10 @@ $abort = static function ( string $message, int $code ): void {
 };
 
 // ---- 0) 前提 ----
-if ( ! AdapterRegistry::has( $platform ) ) {
-	$abort( "no adapter registered under '{$platform}' — run: mock-adapter.sh install {$platform}", 2 );
+// `acknowledge_production_write=true` の実 export を走らせるので、mock アダプタが登録され、かつ OAuth トークンが無い platform だけを許す
+// （実アダプタに差し替わっている・トークンが残っている platform では、実店舗へ書き込みうるため run を始める前に拒否する。cleanup.php と同じ判定）。
+if ( false !== get_option( 'cbjp_token_' . $platform, false ) || ! AdapterRegistry::get( $platform ) instanceof MockPlatformAdapter ) {
+	$abort( "'{$platform}' is not a registered mock adapter without a stored token — run: mock-adapter.sh install {$platform} (use a key that no real platform uses)", 2 );
 }
 
 // `cbjp_verify_seed` は共有オプション。配列でない壊れた値を上書きして失わないよう、始める前に止める（cleanup.php が壊れた値を消す）。
