@@ -120,7 +120,8 @@ final class WarningCode {
 	 * `Woo\Reader\ProductReader`は商品に、`Woo\Reader\StockReader`はその商品の各バリエーションの在庫行に積む
 	 * （判定は同じ関数を共有する）。在庫管理を商品単位でしか持たないASP（ColorMe）では表現できず、管理外の
 	 * バリエーションが売り切れ表示のまま戻らなくなる（D22）。Woo側で全バリエーションの在庫管理を有効にする、
-	 * または全バリエーションで無効にすると移行できる。
+	 * または全バリエーションで無効にしたうえで在庫状況（在庫あり／在庫切れ）も揃えると移行できる
+	 * （管理外の在庫切れは`0`、在庫ありは`null`のため、全て管理外でも両者が混ざっていれば混在のまま止まる）。
 	 * 止めるかどうかはプラットフォームの能力（`Adapters\Capabilities::$supports_per_variant_stock_management`）で
 	 * `Sync\Exporter`が決めるため、`indicates_export_blocking()`には**登録しない**（登録すると
 	 * バリエーション単位で在庫管理できるASPでも止まる）。判定は`indicates_variation_stock_mixed()`。
@@ -311,11 +312,14 @@ final class WarningCode {
 	/**
 	 * エクスポート時、バリエーション明細の親商品自体は解決できたが、バリエーションの識別に
 	 * 失敗した（`Woo\Reader\OrderReader::remote_product_id()`/`variation_option_values()`）。
-	 * 3パターンある: (1) `get_variation_id()`が既定値`0`にリセットされている＝バリエーション
+	 * 4パターンある: (1) `get_variation_id()`が既定値`0`にリセットされている＝バリエーション
 	 * 自体が削除済み（`get_product_id()`と同じ「`WC_Order_Item_Product::set_variation_id()`の
 	 * 投稿タイプ検証失敗→`WC_Data_Exception`→`set_props()`がプロパティ毎にcatch」パターン。
 	 * 生のorder-item-meta（`_variation_id`）で判別する。実測確認済み）、(2) `get_variation_id()`は
-	 * 非0だが対応する`WC_Product_Variation`自体が取得できない、(3) 親商品の軸属性が3つ以上
+	 * 非0だが対応する`WC_Product_Variation`自体が取得できない、(3) バリエーションが「Any（すべての）」の軸を持つ
+	 * （D23。属性値が空文字列で保存され、購入時に選ばれた値は明細メタにだけ残るため、どの値の注文か特定できない。
+	 * Anyを具体的な値のバリエーションに分けると移行できる。`Woo\Support\VariationAxisResolver::has_any_attribute()`）、
+	 * (4) 親商品の軸属性が3つ以上
 	 * （`Woo\Support\VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_EXCEEDED`
 	 * を積む。`CanonicalProduct::$variants`のoption1/2規約は2軸までのため3軸目以降を切り捨てる）。
 	 * `Woo\Reader\ProductReader`はこの(3)を無警告（切り捨てるだけ）で扱うが、受注明細では3軸目の
@@ -572,8 +576,8 @@ final class WarningCode {
 			// docblock参照）。
 			self::ORDER_LINE_PRODUCT_MISSING,
 			// `Woo\Reader\OrderReader`: バリエーション明細の親商品は解決できたが、バリエーション
-			// 自体の識別に失敗した（削除済み、または軸3つ以上でoption1/2だけでは区別不能。詳細は
-			// 定数のdocblock参照）。
+			// 自体の識別に失敗した（削除済み、「Any」の軸を持つ〔D23〕、または軸3つ以上でoption1/2だけ
+			// では区別不能。詳細は定数のdocblock参照）。
 			self::ORDER_LINE_VARIATION_UNRESOLVED,
 			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
 			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。

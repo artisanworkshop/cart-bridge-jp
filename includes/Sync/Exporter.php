@@ -133,6 +133,10 @@ final class Exporter {
 		// 残枠はページ開始時に一度だけ解決する（`Importer`と同じ理由）。
 		$remaining = ( null !== $limit_policy ) ? $limit_policy->remaining( $platform, $entity ) : null;
 
+		// D22: `Capabilities::$supports_per_variant_stock_management`は在庫管理が混在する警告が最初に付いた
+		// アイテムで1回だけ解決し、ページ内で使い回す（警告が無いページでは`capabilities()`を呼ばない）。
+		$supports_per_variant_stock = null;
+
 		foreach ( $items as $read_item ) {
 			++$totals['processed'];
 
@@ -200,13 +204,14 @@ final class Exporter {
 			// 宣言していない（`supports_per_variant_stock_management`が偽。既定）ときだけ、同じ扱いで止める。
 			// 止めるかどうかはプラットフォームの能力次第のため、`indicates_export_blocking()`（プラット
 			// フォーム非依存）ではなくここで判定する。警告が付いたときだけ`capabilities()`を呼ぶ。
-			if (
-				WarningCode::indicates_export_blocking( $read_item->warnings )
-				|| (
-					WarningCode::indicates_variation_stock_mixed( $read_item->warnings )
-					&& ! $adapter->capabilities()->supports_per_variant_stock_management
-				)
-			) {
+			$is_blocked = WarningCode::indicates_export_blocking( $read_item->warnings );
+
+			if ( ! $is_blocked && WarningCode::indicates_variation_stock_mixed( $read_item->warnings ) ) {
+				$supports_per_variant_stock ??= $adapter->capabilities()->supports_per_variant_stock_management;
+				$is_blocked                   = ! $supports_per_variant_stock;
+			}
+
+			if ( $is_blocked ) {
 				++$totals['skipped'];
 				++$totals['warned'];
 

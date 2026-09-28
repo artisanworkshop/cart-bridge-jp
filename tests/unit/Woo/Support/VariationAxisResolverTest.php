@@ -133,8 +133,9 @@ final class VariationAxisResolverTest extends WP_UnitTestCase {
 			$this->assertTrue( VariationAxisResolver::has_any_attribute( $this->variation( $any_id ), $axes ) );
 			$this->assertFalse( VariationAxisResolver::has_any_attribute( $this->variation( $concrete_id ), $axes ) );
 		} finally {
-			unregister_taxonomy( $taxonomy );
+			// 属性を先に消す。taxonomyが登録されている間でないとターム削除が行われないため。
 			wc_delete_attribute( $attribute_id );
+			unregister_taxonomy( $taxonomy );
 		}
 	}
 

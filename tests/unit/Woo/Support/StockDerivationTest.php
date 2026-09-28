@@ -48,7 +48,7 @@ final class StockDerivationTest extends WP_UnitTestCase {
 	public function test_for_variation_quantities_feed_the_mixed_judgement_as_documented(): void {
 		$parent_id = VariableProductFactory::create_parent( 'Stock shapes', [ 'Size' => [ 'S', 'M', 'L' ] ] );
 
-		$managed          = wc_get_product(
+		$managed                = wc_get_product(
 			VariableProductFactory::add_variation(
 				$parent_id,
 				[ 'size' => 'S' ],
@@ -58,11 +58,11 @@ final class StockDerivationTest extends WP_UnitTestCase {
 				]
 			)
 		);
-		$unmanaged        = wc_get_product( VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] ) );
-		$unmanaged_no_qty = wc_get_product( VariableProductFactory::add_variation( $parent_id, [ 'size' => 'L' ], [ 'stock_status' => 'outofstock' ] ) );
+		$unmanaged              = wc_get_product( VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] ) );
+		$unmanaged_out_of_stock = wc_get_product( VariableProductFactory::add_variation( $parent_id, [ 'size' => 'L' ], [ 'stock_status' => 'outofstock' ] ) );
 
 		$this->assertSame( 4, StockDerivation::for_variation( $managed )['quantity'] );
 		$this->assertNull( StockDerivation::for_variation( $unmanaged )['quantity'] );
-		$this->assertSame( 0, StockDerivation::for_variation( $unmanaged_no_qty )['quantity'] );
+		$this->assertSame( 0, StockDerivation::for_variation( $unmanaged_out_of_stock )['quantity'] );
 	}
 }

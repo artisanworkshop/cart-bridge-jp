@@ -407,7 +407,7 @@ final class OrderReader implements EntityReader {
 	 * 経由せず直接読み、区別する。
 	 *
 	 * 商品リンクを一度も持たない行（`ORDER_LINE_PRODUCT_MISSING`）も、バリエーションの識別に
-	 * 失敗した行（`ORDER_LINE_VARIATION_UNRESOLVED`。削除済み、または軸が3つ以上で
+	 * 失敗した行（`ORDER_LINE_VARIATION_UNRESOLVED`。削除済み、「Any」の軸を持つ〔D23〕、または軸が3つ以上で
 	 * option1/2だけでは異なるバリエーションと区別できない場合）も、いずれも
 	 * `indicates_export_blocking()`の対象にする: 対応ASP（ColorMe）の受注作成APIは
 	 * 明細ごとに商品参照を必須とするため、`remote_product_id`が無い行・意図しない
