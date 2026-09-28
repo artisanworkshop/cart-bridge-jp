@@ -18,3 +18,4 @@
 | 2026-09-28 | 6〜7 | G1: Copilot 依頼 1 回（登録確認済み）＋ Codex は自動レビューが来ず review コメントを自動投稿（依頼 1 回）。Copilot: 🔵 Needs a closer look・インライン 0・Findings: None／Codex: major issues なし。**新規指摘 0 件で両 bot 収束**（修正・確認ゲートなし）。サマリ投稿済み |
 | 2026-09-28 | 8 | 最終報告（`final-report.md`）作成・完了。マージは人間が行う |
 | 2026-09-28 | 8 | 最終報告後、テストショップ（`ttka3lg60f`）で実 ColorMe API の確認を実施（dry-run／実 export／混在化→止まる／揃える→通る）。結果を docs/03・10-tasks・final-report に追記（ユーザー指示で commit・push）。bot への再依頼なし |
+| 2026-09-28 | 8 | swagger の副作用をテストショップのプローブ用非公開商品 3 件で実測（全バリエーション未設定で 1 件だけ在庫を送ると他が 0／バリエーション単位の `null` は 422／商品 PUT の `variants[]` は一部だけだと 422・全件なら原子的）。結果を docs/03 D22 実装 7・rules・backlog に追記（ユーザー指示で commit・push）。bot への再依頼なし |
