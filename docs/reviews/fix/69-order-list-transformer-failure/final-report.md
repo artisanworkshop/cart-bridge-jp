@@ -43,7 +43,7 @@ R1では独立サブエージェント（general-purpose, opus）による敵対
 
 ## 品質ゲート
 
-- CI: [run 36493170203](https://github.com/artisanworkshop/cart-bridge-jp/actions/runs/36493170203) すべてpass（PHP quality 8.2/8.3・JS/TS・Dev tooling・PHPUnit(wp-env)）
+- CI: [run 36493170203](https://github.com/artisanworkshop/cart-bridge-jp/actions/runs/36493170203)（ゲート依頼時HEAD `671e44a`）・[run 36494178277](https://github.com/artisanworkshop/cart-bridge-jp/actions/runs/36494178277)（最終HEAD `48c13d1`、記録コミットのみ）とも全ジョブpass（PHP quality 8.2/8.3・JS/TS・Dev tooling・PHPUnit(wp-env)）
 - 品質チェック: green（`composer lint` / `composer analyze` / `composer test:wpenv` 1290件 / `npm run lint` / `npm run build`）
 - ミューテーション確認: `mutate-check.sh`で`fetch_orders()`・`fetch_latest_orders()`それぞれの修正を個別に戻すと、対応する回帰テストがCAUGHTになることを確認済み
 
