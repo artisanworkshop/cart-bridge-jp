@@ -697,6 +697,13 @@ export default function ExportTab() {
 		exportActive ||
 		exportState.starting ||
 		null !== exportState.retryingJobId;
+	// 画像アップロードの設定を持つ（能力がある）プラットフォームで、設定をまだ取得できていない間（取得前・取得失敗）。
+	// チェックボックスは未チェックに見えるがサーバー側は true かもしれず、そのまま本番の export を始めると、
+	// 画像を（同じ位置の既存画像の上書きを含めて）送りかねない。設定を取得できるまで本番の export を始めさせない
+	// （フェイルクローズ。dry-run は何も書かないので止めない）。
+	const exportOptionsPending =
+		true === currentConnection?.capabilities.can_push_images &&
+		null === exportOptions;
 
 	function toggleExportEntity( entity: EntityType, checked: boolean ) {
 		setSelectedExportEntities( ( prev ) => {
@@ -761,6 +768,10 @@ export default function ExportTab() {
 		}
 
 		if ( 'export' === type && ! acknowledgeProductionWrite ) {
+			return;
+		}
+
+		if ( 'export' === type && exportOptionsPending ) {
 			return;
 		}
 
@@ -1275,7 +1286,15 @@ export default function ExportTab() {
 										setExportOptionsError( null )
 									}
 								>
-									{ exportOptionsError }
+									{ null === exportOptions
+										? joinSentences(
+												exportOptionsError,
+												__(
+													'Running an export is disabled until this setting loads. Reload the page to try again.',
+													'cart-bridge-jp'
+												)
+										  )
+										: exportOptionsError }
 								</Notice>
 							) }
 						</div>
@@ -1331,6 +1350,7 @@ export default function ExportTab() {
 								dryRunExportBusy ||
 								exportBusy ||
 								exportOptionsSaving ||
+								exportOptionsPending ||
 								0 === selectedExportEntities.size ||
 								! acknowledgeProductionWrite
 							}
