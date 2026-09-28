@@ -626,6 +626,20 @@ assert_rc "承認: 対象 HEAD の祖先ではない commit は、承認より�
 mkrec_sha ap-o2 "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${SHA_NEW}a"
 run_check_ap ap-o2
 assert_rc "承認: 対象 HEAD が 41 文字（40 文字に黙って切り詰めない）のときは除外せず検査する: 1" 1
+# 対象 HEAD の直後は空白・行末・括弧の開始だけ許す（`!`・`-note` のように記号が直接続く値は、ハッシュの範囲が曖昧なので除外しない）。
+# 括弧の補足（既存の記録に `対象 HEAD: fa7b40b（G1 の対応後の HEAD）` がある）と空白で区切った補足は許す。
+for spec in "bang|${SHA_NEW:0:7}!" "dash|${SHA_NEW:0:7}-note"; do
+  pname=${spec%%|*}
+  mkrec_sha "ap-o-${pname}" "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${spec#*|}"
+  run_check_ap "ap-o-${pname}"
+  assert_rc "承認: 対象 HEAD の直後に記号（${pname}）が続く値は除外せず検査する: 1" 1
+done
+for spec in "space|${SHA_NEW:0:7} メモ" "paren|${SHA_NEW:0:7}（G1 の対応後の HEAD）" "halfparen|${SHA_NEW:0:7}(note)"; do
+  pname=${spec%%|*}
+  mkrec_sha "ap-o-${pname}" "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "${spec#*|}"
+  run_check_ap "ap-o-${pname}"
+  assert_rc "承認: 対象 HEAD の直後が空白・括弧（${pname}）なら補足があっても除外する: 0" 0
+done
 mkrec_sha ap-o "$SHA_OLD" "- 承認: 2026-06-01T00:00:00Z" "1111111"
 run_check_ap ap-o
 assert_rc "承認: 対象 HEAD が存在しない（祖先と確かめられない）ときは除外せず検査する: 1" 1

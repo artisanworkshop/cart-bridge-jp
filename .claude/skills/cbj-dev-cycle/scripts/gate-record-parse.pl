@@ -99,7 +99,7 @@ while (my $l = <$fh>) {
       $pr_count++;
       if (!defined $pr_number) {
         ($pr_number, $pr_line) = ($1 + 0, $ln);
-        $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})(?![0-9A-Za-z])/;
+        $target_head = $1 if $vis =~ /対象 HEAD:\s*([0-9a-f]{7,40})(?=\s|\z|[（(])/;
       }
     }
     if ($struct && $vis =~ /^- 承認(?::|：)\s*(.*)$/) {
