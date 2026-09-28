@@ -3,9 +3,9 @@
 - タスク: dev-tooling — 確認ゲート順序の機械検査（`gate-record.sh approve`/`check`）+ `verify-with-mock-adapter` の push 検証 example + cbj-dev-cycle Step 3 の注記（PR #80 の /post-merge で出した提案3件）
 - 開始: 2026-09-28
 - PR: #81 https://github.com/artisanworkshop/cart-bridge-jp/pull/81
-- 現在のステップ: 7（ゲート G1 完了・G2 の依頼待ち）
-- Copilot: 依頼 1 回 / 未収束（G1 で 3 件）
-- Codex: 依頼 1 回 / 未収束（G1 で 2 件）
+- 現在のステップ: 7（ゲート G2 完了・Copilot の 3 回目の依頼待ち）
+- Copilot: 依頼 2 回 / 未収束（G1 で 3 件・G2 で 5 件）
+- Codex: 依頼 2 回 / 収束（G2 で 055758d に指摘なし）
 
 ## ログ
 
@@ -16,3 +16,4 @@
 | 2026-09-28 | 3 | review-loop R1（独立レビュー: Medium 2・Low 10、自己レビュー: Low 2）→ すべて修正して R1.md。R2（独立レビュー）は APPROVE（新規 Low 4・対象外 2 → 修正 3・限界の明記 1・backlog 2）。`test-gate-record.sh` 364 項目、ミューテーション 23 種を検出、`quality.sh` green、Ubuntu 24.04（bash 5）でも通る |
 | 2026-09-28 | 4〜5 | PR #81 作成、CI green（5 ジョブ）。Copilot 依頼・Codex は自動レビューが来ず再依頼 |
 | 2026-09-28 | 7 | G1: Copilot 3 件・Codex 2 件 → 修正 4（`42cf0aa`・`537fae7`）・保留 1（G1-4 同秒の commit）。確認ゲートを新しい順序（承認 → `approve` → commit → `check` → push）で初めて通した。ミューテーション 8 種を検出、返信・Resolve・サマリ投稿済み |
+| 2026-09-28 | 7 | G2: Codex は指摘なしで収束。Copilot 5 件 → 修正 5（`5ce2478`・`2f001eb`。G2-2 は指摘の前提が誤りだったが暗黙の依存を明示、G2-4 は一部対応）。確認ゲート → `approve` → commit → `check` → push の順序を 2 回目も通した。ミューテーション 4 種を検出 |
