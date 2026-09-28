@@ -129,7 +129,7 @@ npm run build                # 本番ビルド
   着手前に`gh pr view <PR> --json state`でPRがまだOPENか確認すること。squash/rebaseマージ済み
   だとそのfeatureブランチへpushしても本流には反映されない（issue #47 PR #51で実際に発生:
   マージ後の追記コミットをマージ済みfeatureブランチへpushしてしまい、mainへ直接コミットし直す
-  手戻りが発生した）
+  手戻りが発生した。PR #81 でも、ユーザーのマージ直後に Copilot 再依頼と修正 push を続けて5ファイルが main に入らず、フォローアップ PR #82 で入れ直した。bot への依頼・修正・push の各段階の前に確認する）
 - **`/post-merge` の蒸留コミット（`main` 直コミット）は、次の作業ブランチを切る前に push する**。未 push のまま `main` から `/start-task` で切ると、その PR に蒸留コミットの変更が混入する（PR #64 に PR #61 の蒸留〈`CLAUDE.md`・ルール 3 ファイル〉が混入し、スカッシュで `main` に入った）。混入したときは `git pull --rebase` が「patch contents already upstream」でローカルの重複コミットを落とす
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
