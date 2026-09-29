@@ -271,6 +271,13 @@ final class RestController {
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'get_limits' ],
 				'permission_callback' => [ $this, 'check_permission' ],
+				// `?platform[]=x` を REST 層で 400 にする（`sanitize_callback` を付けないので既定の
+				// `rest_parse_request_arg` が型を検証する。CLAUDE.md）。
+				'args'                => [
+					'platform' => [
+						'type' => 'string',
+					],
+				],
 			]
 		);
 
@@ -1310,6 +1317,7 @@ final class RestController {
 	/**
 	 * 無料版上限・使用状況・Pro解除状態（アップセル表示用、D15/§10.2）。
 	 * `platform` は任意: 指定時は使用状況（mappings累積カウント）と残数を含める。
+	 * `pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。`LimitPolicy::pro_url()`、§10.3）。
 	 */
 	public function get_limits( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = (string) ( $request->get_param( 'platform' ) ?? '' );
@@ -1341,6 +1349,7 @@ final class RestController {
 			[
 				'unlocked' => $all_unlocked,
 				'entities' => $entities,
+				'pro_url'  => $limits->pro_url(),
 			]
 		);
 	}

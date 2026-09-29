@@ -31,7 +31,71 @@ final class LimitPolicyTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/limits/product' );
 		remove_all_filters( 'cbjp/limits/category' );
+		remove_all_filters( 'cbjp/limits/pro_url' );
 		parent::tear_down();
+	}
+
+	/**
+	 * issue #55: 既定では Pro 版の案内先が無く、管理画面は Pro 版に触れない。
+	 */
+	public function test_pro_url_is_empty_by_default(): void {
+		$this->assertSame( '', $this->limits->pro_url() );
+	}
+
+	/**
+	 * @dataProvider valid_pro_urls
+	 */
+	public function test_pro_url_returns_a_valid_http_or_https_url( string $url, string $expected ): void {
+		add_filter( 'cbjp/limits/pro_url', static fn () => $url );
+
+		$this->assertSame( $expected, $this->limits->pro_url() );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function valid_pro_urls(): array {
+		return [
+			'https with a query string' => [ 'https://example.com/pro?utm_source=a&utm_medium=b', 'https://example.com/pro?utm_source=a&utm_medium=b' ],
+			'http'                      => [ 'http://example.com/pro', 'http://example.com/pro' ],
+			// `esc_url_raw()` は scheme を小文字にする（実測）。
+			'upper-case scheme'         => [ 'HTTPS://EXAMPLE.COM/pro', 'https://EXAMPLE.COM/pro' ],
+			'surrounding whitespace'    => [ "  https://example.com/pro\n", 'https://example.com/pro' ],
+		];
+	}
+
+	/**
+	 * フィルターの戻り値は外部コード由来の信頼境界（原則8）: http/https で host のある URL 以外は `''` に倒す。
+	 *
+	 * @dataProvider invalid_pro_urls
+	 */
+	public function test_pro_url_falls_back_to_empty_for_an_invalid_filter_value( mixed $value ): void {
+		add_filter( 'cbjp/limits/pro_url', static fn () => $value );
+
+		$this->assertSame( '', $this->limits->pro_url() );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function invalid_pro_urls(): array {
+		return [
+			'javascript scheme' => [ 'javascript:alert(1)' ],
+			'data scheme'       => [ 'data:text/html,<script>alert(1)</script>' ],
+			'ftp scheme'        => [ 'ftp://example.com/pro' ],
+			'protocol-relative' => [ '//example.com/pro' ],
+			// `esc_url_raw()` は scheme の無い値に `http://` を補って通してしまう。
+			'no scheme'         => [ 'example.com/pro' ],
+			'no host'           => [ 'https://' ],
+			// scheme はあるが host が無い（`wp_parse_url()` は host を返さず、`esc_url_raw()` はそのまま通す。実測）。
+			'scheme without //' => [ 'https:example.com/pro' ],
+			'scheme with one /' => [ 'https:/example.com/pro' ],
+			'whitespace only'   => [ '   ' ],
+			'array'             => [ [ 'https://example.com/pro' ] ],
+			'integer'           => [ 1 ],
+			'null'              => [ null ],
+			'object'            => [ new \stdClass() ],
+		];
 	}
 
 	public function test_default_limits_match_the_design_doc_table(): void {
