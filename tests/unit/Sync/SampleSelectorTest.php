@@ -55,6 +55,26 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_a_malformed_or_empty_numbered_order_from_the_adapter_does_not_abort_sample_selection(): void {
+		// review指摘（PR #86 G3, Copilot「Previously missed」）: `fetch_latest_orders()`の要素型は
+		// ドキュメント上の契約でしかない（`top_up_with_first_page()`の`instanceof`チェックと同じ
+		// 信頼境界）。非`CanonicalOrder`要素や`number`が空の要素を検証せずに`->number`へ
+		// アクセスすると、サンプル選定全体（product/customerの抽出も含む）が例外で落ちる。
+		$orders = [
+			'not-an-order', // 契約違反: CanonicalOrder以外の要素。
+			CanonicalFactory::order( '', null, [ 'p-empty' ] ), // number が空文字列。
+			CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ),
+		];
+
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ '1001' ], $sample->order_remote_ids );
+		$this->assertSame( [ 'p1' ], $sample->product_remote_ids );
+		$this->assertSame( [ 'cust-1' ], $sample->customer_refs );
+	}
+
 	public function test_an_order_excluded_by_the_limit_does_not_contribute_products_or_customers(): void {
 		// review指摘（PR #86, Copilot）: 上限適用前の生の$ordersから商品・顧客を抽出すると、
 		// 受注サンプル自体からは除外される11件目（契約違反アダプタが返した超過分）の明細・購入者が
@@ -167,6 +187,27 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
 			$sample->order_remote_ids
 		);
+	}
+
+	public function test_load_filters_out_empty_order_ids_from_a_corrupted_persisted_sample(): void {
+		// review指摘（PR #86 G3, Copilot）: `SampleSet::from_array()`は保存されていた`null`を
+		// `strval(null) === ''`で空文字列に変換しうる。空文字列を正規化前に除去しないと
+		// `fetch_order_by_remote_id('')`という無駄なAPI呼び出しが発生するうえ、10件の枠を
+		// 無効なIDに使ってしまい有効なIDが1件はみ出す。
+		update_option(
+			SampleSelector::option_name_for( 'mock' ),
+			[
+				'order_remote_ids'   => [ '', '1001', '1002', '', '1003' ],
+				'product_remote_ids' => [],
+				'customer_refs'      => [],
+				'used_fallback'      => false,
+			],
+			false
+		);
+
+		$sample = ( new SampleSelector( new MockPlatformAdapter() ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ '1001', '1002', '1003' ], $sample->order_remote_ids );
 	}
 
 	public function test_clear_allows_reselection(): void {

@@ -59,9 +59,14 @@ final class SampleSelector {
 		// または契約違反アダプタが過去に保存したサンプルを`load()`でそのまま返すとこの正規化を
 		// バイパスする（issue #38 G2、Copilot指摘）。ここで読込み時にも同じ上限・重複排除を適用する
 		// （§10.2 #7「クリーンアップ→再選定」の原則に従い、保存済みoptionへは書き戻さずメモリ上でのみ
-		// 補正する）。
+		// 補正する）。壊れた・古い保存データは`SampleSet::from_array()`が`null`を`''`に変換しうる
+		// （issue #38 G3、Copilot指摘）ため、空文字列は重複排除・上限より前に取り除く。空文字列を
+		// 残すと`fetch_order_by_remote_id('')`という無駄なAPI呼び出しが発生するだけでなく、
+		// 10件の枠を無効なIDに使ってしまい有効なIDが1件はみ出す。
+		$order_ids = array_values( array_filter( $sample->order_remote_ids, static fn( string $id ): bool => '' !== $id ) );
+
 		return new SampleSet(
-			array_slice( array_values( array_unique( $sample->order_remote_ids ) ), 0, self::SAMPLE_ORDER_LIMIT ),
+			array_slice( array_values( array_unique( $order_ids ) ), 0, self::SAMPLE_ORDER_LIMIT ),
 			$sample->product_remote_ids,
 			$sample->customer_refs,
 			$sample->used_fallback
@@ -147,7 +152,8 @@ final class SampleSelector {
 	 * 商品・顧客の抽出や`$used_fallback`の判定より前に必ずこれを通すことで、契約違反のアダプタが
 	 * 返した重複・超過分がそれらの計算に紛れ込むのを防ぐ。
 	 *
-	 * @param array<int,CanonicalOrder> $orders
+	 * @param array<int,mixed> $orders `CanonicalOrder`の配列という型宣言はドキュメント上の契約でしか
+	 *   ないため、実引数は`mixed`要素を許容し内部で検証する（アーキテクチャ原則8）。
 	 * @return array<int,CanonicalOrder>
 	 */
 	private function unique_orders( array $orders ): array {
@@ -157,6 +163,15 @@ final class SampleSelector {
 		foreach ( $orders as $order ) {
 			if ( count( $unique ) >= self::SAMPLE_ORDER_LIMIT ) {
 				break;
+			}
+
+			// アダプタ拡張点の信頼境界（原則8）: `fetch_latest_orders()`の要素型はドキュメント上の
+			// 契約でしかない（`top_up_with_first_page()`の`instanceof`チェックと同じ理由。issue #38
+			// G3、Copilot指摘）。非`CanonicalOrder`要素や空の`number`で`->number`にアクセス・
+			// mapping一意キーへ採用すると、例外でサンプル選定全体（product/customerの抽出も含む）が
+			// 落ちる、または空文字列がサンプルへ紛れ込む。
+			if ( ! $order instanceof CanonicalOrder || '' === $order->number ) {
+				continue;
 			}
 
 			if ( isset( $seen[ $order->number ] ) ) {
