@@ -1342,6 +1342,57 @@ final class RestControllerTest extends WP_UnitTestCase {
 		AdapterRegistry::reset_cache();
 	}
 
+	/**
+	 * issue #55: `/limits` は Pro 版の案内先 `pro_url` を返す。既定は `''`（管理画面は Pro 版に触れない）。
+	 */
+	public function test_get_limits_returns_an_empty_pro_url_by_default(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/limits' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( '', $response->get_data()['pro_url'] );
+	}
+
+	public function test_get_limits_returns_the_filtered_pro_url(): void {
+		add_filter( 'cbjp/limits/pro_url', static fn () => 'https://example.com/pro' );
+
+		try {
+			$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/limits' ) );
+
+			$this->assertSame( 200, $response->get_status() );
+			$this->assertSame( 'https://example.com/pro', $response->get_data()['pro_url'] );
+		} finally {
+			remove_all_filters( 'cbjp/limits/pro_url' );
+		}
+	}
+
+	public function test_get_limits_does_not_pass_through_an_unsafe_pro_url(): void {
+		add_filter( 'cbjp/limits/pro_url', static fn () => 'javascript:alert(1)' );
+
+		try {
+			$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/limits' ) );
+
+			$this->assertSame( '', $response->get_data()['pro_url'] );
+		} finally {
+			remove_all_filters( 'cbjp/limits/pro_url' );
+		}
+	}
+
+	public function test_get_limits_rejects_an_array_valued_platform(): void {
+		// `args` スキーマ（type=string）で REST 層に配列を弾かせる（CLAUDE.md）。以前は `(string)` キャストで
+		// "Array to string conversion" の警告を出していた。
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/limits' );
+		$request->set_query_params( [ 'platform' => [ 'mock' ] ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+	}
+
 	public function test_preview_sample_cleanup_returns_404_for_unknown_platform(): void {
 		$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
 		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );

@@ -641,4 +641,56 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( $existing_local_id, (int) $rows[0]['existing_local_id'] );
 		$this->assertSame( [], json_decode( (string) $rows[0]['warnings_json'], true ) );
 	}
+
+	/**
+	 * issue #55: `unchanged`（`skipped`の内訳）はchecksum一致スキップだけを数える。dry-runの
+	 * `created + updated + unchanged` を「移行できる件数」とするため（Pro 案内）、検証で見送った
+	 * （writerがskippedを返した）アイテムまで数えると「どの版でも移行できない」件数が消える。
+	 */
+	public function test_unchanged_counts_only_checksum_matched_skips(): void {
+		$importer = new Importer( $this->mappings );
+
+		// c1だけを先に実インポートし、checksumをキャッシュさせる。
+		$importer->run_page( new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] ), new InMemoryWriter(), 'category', Cursor::start(), false );
+
+		$adapter = new MockPlatformAdapter(
+			categories: [
+				CanonicalFactory::category( 'c1', 'Category 1' ),
+				CanonicalFactory::category( 'c2', 'Category 2' ),
+				CanonicalFactory::category( 'c3', 'Category 3' ),
+			]
+		);
+		$writer  = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				// `Woo\DryRunRepository`と同じ契約（dry-runはlocal_id=0）。c2は検証で見送る。
+				return 'c2' === $item->remote_id()
+					? new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ 'product_price_invalid' ] )
+					: new WriteResult( 0, WriteResult::OPERATION_CREATED, [] );
+			}
+		};
+
+		$result = $importer->run_page( $adapter, $writer, 'category', Cursor::start(), true );
+
+		$this->assertSame( 3, $result['totals']['processed'] );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 2, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['unchanged'] );
+	}
+
+	/**
+	 * issue #55: 無料版の上限で見送った新規アイテムは「変更なし」ではない（`unchanged`に数えない）。
+	 */
+	public function test_unchanged_does_not_count_items_skipped_by_the_free_limit(): void {
+		add_filter( 'cbjp/limits/product', static fn (): int => 0 );
+
+		try {
+			$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+			$result  = ( new Importer( $this->mappings ) )->run_page( $adapter, new InMemoryWriter(), 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+
+			$this->assertSame( 1, $result['totals']['skipped'] );
+			$this->assertSame( 0, $result['totals']['unchanged'] );
+		} finally {
+			remove_all_filters( 'cbjp/limits/product' );
+		}
+	}
 }

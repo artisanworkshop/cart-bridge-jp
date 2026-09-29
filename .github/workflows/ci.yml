@@ -86,6 +86,9 @@ jobs:
       - name: Lint (ESLint + tsc)
         run: npm run lint
 
+      - name: Unit tests (Jest)
+        run: npm run test:js
+
       - name: Build
         run: npm run build
 

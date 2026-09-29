@@ -563,6 +563,38 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$second_job = $this->jobs->find_by_run( $second_run )[0];
 		$totals     = json_decode( (string) $second_job['totals_json'], true );
 		$this->assertSame( 2, $totals['skipped'] );
+		$this->assertSame( 2, $totals['unchanged'] );
+	}
+
+	/**
+	 * issue #55: `unchanged`はページをまたいで累積され、ジョブの`totals_json`に載る（Pro 案内が
+	 * dry-runの`created + updated + unchanged`を「移行できる件数」として読む）。
+	 */
+	public function test_unchanged_accumulates_across_pages_in_a_dry_run(): void {
+		// MockPlatformAdapterのページサイズは2件。5件で3ページに跨がせる。
+		$products = [
+			CanonicalFactory::product( 'p1', 'SKU-1' ),
+			CanonicalFactory::product( 'p2', 'SKU-2' ),
+			CanonicalFactory::product( 'p3', 'SKU-3' ),
+			CanonicalFactory::product( 'p4', 'SKU-4' ),
+			CanonicalFactory::product( 'p5', 'SKU-5' ),
+		];
+		$this->register_adapter( products: $products );
+
+		// Pro相当（上限解除）で先に全件を実インポートし、checksumをキャッシュさせる。
+		add_filter( 'cbjp/limits/product', static fn() => null );
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+		$manager->run_to_completion( $manager->start_run( 'import', 'mock', [ 'product' ] ) );
+
+		$dry_run = $manager->start_run( 'dry_run', 'mock', [ 'product' ] );
+		$manager->run_to_completion( $dry_run );
+
+		$totals = json_decode( (string) $this->jobs->find_by_run( $dry_run )[0]['totals_json'], true );
+		$this->assertSame( 5, $totals['processed'] );
+		$this->assertSame( 5, $totals['unchanged'] );
+		$this->assertSame( 5, $totals['skipped'] );
 	}
 
 	public function test_retry_requeues_a_failed_job(): void {

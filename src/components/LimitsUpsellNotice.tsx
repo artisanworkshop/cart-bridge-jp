@@ -1,93 +1,86 @@
-import { __, sprintf } from '@wordpress/i18n';
-import { Notice } from '@wordpress/components';
+import { __, _n, sprintf } from '@wordpress/i18n';
+import { ExternalLink, Notice } from '@wordpress/components';
 import type { EntityType, Job, Limits } from '../types';
+import {
+	buildUpsellLineData,
+	sanitizeProUrl,
+	type DryRunTotals,
+	type UpsellLineData,
+} from './upsell-breakdown';
 
 interface Props {
 	jobs: Job[];
 	limits: Limits;
 	entityLabels: Record< EntityType, string >;
 	/**
-	 * 直前に実行したdry-run（サンプリングを行わない全量走査）の
-	 * `processed`件数。総数が判明している場合のみ渡す（D15/§10.3の
-	 * 「対象◯件のうち」の分母。CLAUDE.mdの通り一部エンティティは
-	 * アダプタが総数を保証できず判明しないことがある）。
+	 * 直前に実行したdry-run（サンプリングを行わない全量走査）の件数。判明している
+	 * エンティティのみ（D15/§10.3の「対象◯件のうち」の分母。CLAUDE.mdの通り一部
+	 * エンティティはアダプタが総数を保証できず判明しないことがある）。
 	 */
-	dryRunTotals: Partial< Record< EntityType, number > > | null;
-}
-
-interface UpsellLine {
-	entity: EntityType;
-	message: string;
+	dryRunTotals: DryRunTotals | null;
 }
 
 /**
- * stock/reviewは`LimitPolicy`の数値上限が常にnull（`unlocked`も常にtrue）だが、
- * これは「無制限」ではなく「サンプル商品への紐付けで間接的に制限される」ため
- * （D15/§10.2「stock/reviewはサンプル商品分のみ」）。実際に free/Pro のどちらの
- * 状態かは、紐付け先である商品（product）の`unlocked`が示す。これを見ずに
- * 自身の`unlocked`（常にtrue）だけで判定すると、無料版でも stock/review の
- * アップセルが一切出せなくなる（Codexレビュー指摘）。
- * @param entity
- * @param limits
+ * 各行は `pro_url` の有無によらず同じ中立の文言にし、Pro 版への言及は見出しだけに置く
+ * （issue #55。`docs/03` §10.3「アップセル表示」）。
+ * @param line
+ * @param label
  */
-function isEntityRestricted( entity: EntityType, limits: Limits ): boolean {
-	if ( 'stock' === entity || 'review' === entity ) {
-		return false === ( limits.entities.product?.unlocked ?? true );
-	}
+function lineMessage( line: UpsellLineData, label: string ): string {
+	switch ( line.kind ) {
+		case 'breakdown':
+			// 文の区切り・語順を翻訳者が決められるよう、「移行できない」の有無ごとに 1 つの文字列にする（R1-2）。
+			// 案内先に Logs タブも挙げる: remote_id 欠損のように dry-run の CSV に行を作れない項目は Logs にだけ残る（PR #87 G1-3）。
+			if ( 0 === line.blocked ) {
+				return sprintf(
+					/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet */
+					__(
+						'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet.',
+						'cart-bridge-jp'
+					),
+					label,
+					line.found,
+					line.migrated,
+					line.notMigrated
+				);
+			}
 
-	const info = limits.entities[ entity ];
-
-	return ! ( info?.unlocked ?? true ) && null !== ( info?.limit ?? null );
-}
-
-function buildUpsellLine(
-	entity: EntityType,
-	label: string,
-	limits: Limits,
-	dryRunTotals: Partial< Record< EntityType, number > > | null
-): UpsellLine | null {
-	const info = limits.entities[ entity ];
-
-	if ( ! info || ! isEntityRestricted( entity, limits ) ) {
-		return null;
-	}
-
-	const used = info.used ?? 0;
-	const total = dryRunTotals?.[ entity ];
-
-	if ( 'number' === typeof total && total > used ) {
-		return {
-			entity,
-			message: sprintf(
-				/* translators: 1: entity label, 2: total item count found by the preview, 3: count already migrated in the free version, 4: remaining count that needs the Pro version */
-				__(
-					'%1$s: %2$d found, %3$d migrated in the free version. The remaining %4$d require the Pro version.',
+			return sprintf(
+				/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price) */
+				_n(
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reason.',
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reasons.',
+					line.blocked,
 					'cart-bridge-jp'
 				),
 				label,
-				total,
-				used,
-				total - used
-			),
-		};
-	}
-
-	if ( null !== info.limit && used >= info.limit ) {
-		return {
-			entity,
-			message: sprintf(
+				line.found,
+				line.migrated,
+				line.notMigrated,
+				line.blocked
+			);
+		case 'dependent':
+			return sprintf(
+				/* translators: 1: entity label (stock or reviews), 2: item count found by the preview (dry run), 3: count already migrated */
+				__(
+					'%1$s: %2$d found by the preview, %3$d migrated. The free version migrates these only for the sample products.',
+					'cart-bridge-jp'
+				),
+				label,
+				line.found,
+				line.migrated
+			);
+		case 'limit_reached':
+			return sprintf(
 				/* translators: 1: entity label, 2: free version limit */
 				__(
 					'%1$s: reached the free version limit (%2$d). Run a dry-run preview to see the exact remaining count.',
 					'cart-bridge-jp'
 				),
 				label,
-				info.limit
-			),
-		};
+				line.limit
+			);
 	}
-
-	return null;
 }
 
 export default function LimitsUpsellNotice( {
@@ -104,30 +97,47 @@ export default function LimitsUpsellNotice( {
 	const lines = jobs
 		.filter( ( job ) => 'completed' === job.status )
 		.map( ( job ) =>
-			buildUpsellLine(
-				job.entity,
-				entityLabels[ job.entity ],
-				limits,
-				dryRunTotals
-			)
+			buildUpsellLineData( job.entity, limits, dryRunTotals )
 		)
-		.filter( ( line ): line is UpsellLine => null !== line );
+		.filter( ( line ): line is UpsellLineData => null !== line );
 
 	if ( 0 === lines.length ) {
 		return null;
 	}
 
+	// 有効な購入 URL があるときだけ Pro 版に触れる（v1.0 と同時に Pro 版を販売するかの判断を後回しにできる）。
+	const proUrl = sanitizeProUrl( limits.pro_url );
+
 	return (
 		<Notice status="info" isDismissible={ false }>
 			<p>
-				{ __(
-					'This is the free version of Cart Bridge JP. The Pro version removes the sample limits below.',
-					'cart-bridge-jp'
+				{ '' !== proUrl ? (
+					<>
+						{ __(
+							'The free version of Cart Bridge JP migrates a sample of your data. The Pro version also migrates the items not migrated yet.',
+							'cart-bridge-jp'
+						) }{ ' ' }
+						{ /* `rel` は明示する: WP 7.1 コア同梱の `ExternalLink`（実行時に使われる `wp-components`）は
+						npm 版と違い `rel` を付けない（実測）。 */ }
+						<ExternalLink href={ proUrl } rel="noopener noreferrer">
+							{ __(
+								'Learn about the Pro version',
+								'cart-bridge-jp'
+							) }
+						</ExternalLink>
+					</>
+				) : (
+					__(
+						'The free version of Cart Bridge JP migrates a sample of your data.',
+						'cart-bridge-jp'
+					)
 				) }
 			</p>
 			<ul>
 				{ lines.map( ( line ) => (
-					<li key={ line.entity }>{ line.message }</li>
+					<li key={ line.entity }>
+						{ lineMessage( line, entityLabels[ line.entity ] ) }
+					</li>
 				) ) }
 			</ul>
 		</Notice>

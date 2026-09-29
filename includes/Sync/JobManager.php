@@ -481,7 +481,7 @@ final class JobManager {
 	}
 
 	/**
-	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,warned:int,failed:int,remote_amount:int}
+	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,unchanged:int,warned:int,failed:int,remote_amount:int}
 	 */
 	private function decode_totals( ?string $totals_json ): array {
 		$decoded = null !== $totals_json ? json_decode( $totals_json, true ) : null;

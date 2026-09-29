@@ -87,6 +87,12 @@ export interface JobTotals {
 	created: number;
 	updated: number;
 	skipped: number;
+	/**
+	 * `skipped` の内訳: checksum 一致（変更なし）で書かなかった件数（issue #55）。dry-run の
+	 * `created + updated + unchanged` が「移行できる件数」になる（`upsell-breakdown.ts`）。
+	 * 導入前に完了したジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。
+	 */
+	unchanged?: number;
 	warned: number;
 	failed: number;
 	/**
@@ -124,6 +130,11 @@ export interface LimitEntity {
 export interface Limits {
 	unlocked: boolean;
 	entities: Record< EntityType, LimitEntity >;
+	/**
+	 * Pro 版の案内先（`Sync\LimitPolicy::pro_url()` が検証した http/https URL か `''`）。
+	 * 空なら Pro 版に触れない（`docs/03` §10.3「アップセル表示」、issue #55）。
+	 */
+	pro_url: string;
 }
 
 /**

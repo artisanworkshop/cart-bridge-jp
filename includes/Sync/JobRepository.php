@@ -220,7 +220,13 @@ final class JobRepository {
 	 * （1/100単位の整数。`Support\Money`）。移行後検証レポート（D17。`VerificationReport`）が
 	 * Woo 側の受注合計と突合するために `Importer::process_items()` が累積する。
 	 *
-	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,warned:int,failed:int,remote_amount:int}
+	 * `unchanged` は `skipped` の内訳: checksum 一致（変更なし）で書かなかった件数（issue #55）。
+	 * dry-run の `created + updated + unchanged` が「移行できる件数」になり、Pro 案内
+	 * （`LimitsUpsellNotice`）が「移行できるが未移行」と「どの版でも移行できない」を分けるのに使う。
+	 * 導入前に完了したジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。導入をまたいで続いた
+	 * ジョブは、`JobManager::decode_totals()` がこの既定値をマージするため、導入前のページ分が 0 のまま載る（既知の制限）。
+	 *
+	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,unchanged:int,warned:int,failed:int,remote_amount:int}
 	 */
 	public function empty_totals(): array {
 		return [
@@ -229,6 +235,7 @@ final class JobRepository {
 			'created'       => 0,
 			'updated'       => 0,
 			'skipped'       => 0,
+			'unchanged'     => 0,
 			'warned'        => 0,
 			'failed'        => 0,
 			'remote_amount' => 0,

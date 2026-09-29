@@ -12,6 +12,11 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
+import {
+	dryRunEntityTotals,
+	withoutDryRunTotals,
+	type DryRunTotals,
+} from '../components/upsell-breakdown';
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
@@ -442,9 +447,9 @@ export default function ExportTab() {
 	const [ exportState, setExportState ] = useState< ExportRunSectionState >(
 		initialExportRunSectionState()
 	);
-	const [ dryRunTotals, setDryRunTotals ] = useState< Partial<
-		Record< EntityType, number >
-	> | null >( null );
+	const [ dryRunTotals, setDryRunTotals ] = useState< DryRunTotals | null >(
+		null
+	);
 	const [ limits, setLimits ] = useState< Limits | null >( null );
 	// D24: プラットフォーム単位のエクスポート設定（画像アップロードのオン/オフ）。`null`は取得前または取得失敗。
 	// 取得・保存とも、マッピングと同じ`platformGenerationRef`で古い応答を捨てる（下のeffectと`setPushImages()`）。
@@ -601,19 +606,19 @@ export default function ExportTab() {
 	const exportTerminal =
 		null !== exportPolling.run && isRunTerminal( exportPolling.run );
 
-	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」をキャッシュする
+	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」と「移行できる件数」をキャッシュする
 	// （`ImportTab.tsx`と同じロジック。サンプリングを行わない全量走査なのでprocessedが
-	// そのまま総数になる）。
+	// そのまま総数になる。内訳は`dryRunEntityTotals()`。issue #55）。
 	useEffect( () => {
 		if ( ! dryRunExportPolling.run || ! dryRunExportTerminal ) {
 			return;
 		}
 
-		const totals: Partial< Record< EntityType, number > > = {};
+		const totals: DryRunTotals = {};
 
 		for ( const job of dryRunExportPolling.run.jobs ) {
 			if ( 'completed' === job.status ) {
-				totals[ job.entity ] = job.totals.processed;
+				totals[ job.entity ] = dryRunEntityTotals( job.totals );
 			}
 		}
 
@@ -779,6 +784,7 @@ export default function ExportTab() {
 			'dry_run_export' === type ? setDryRunExportState : setExportState;
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
+		const requestedEntities = Array.from( selectedExportEntities );
 
 		setRunStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -790,7 +796,7 @@ export default function ExportTab() {
 				data: {
 					type,
 					platform: requestedPlatform,
-					entities: Array.from( selectedExportEntities ),
+					entities: requestedEntities,
 					...( 'export' === type
 						? { acknowledge_production_write: true }
 						: {} ),
@@ -809,6 +815,14 @@ export default function ExportTab() {
 				// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
 				// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
 				setAcknowledgeProductionWrite( false );
+			}
+
+			// 新しいdry-runの対象エンティティは前回の件数を捨てる（`ImportTab.tsx`と同じ。
+			// `withoutDryRunTotals()`参照。PR #87 G1-1）。
+			if ( 'dry_run_export' === type ) {
+				setDryRunTotals( ( prev ) =>
+					withoutDryRunTotals( prev, requestedEntities )
+				);
 			}
 
 			setState( ( prev ) => ( {

@@ -126,6 +126,7 @@ final class Exporter {
 			'created'       => 0,
 			'updated'       => 0,
 			'skipped'       => 0,
+			'unchanged'     => 0,
 			'warned'        => 0,
 			'remote_amount' => 0,
 		];
@@ -236,6 +237,9 @@ final class Exporter {
 
 			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item, $checksum_salt ) === $row['checksum'] ) {
 				++$totals['skipped'];
+				// `skipped`の内訳（`JobRepository::empty_totals()`）。dry-runでは「移行できる件数」に数える（issue #55）。
+				// 止める実体（上の`$is_blocked`）はこの判定より前に抜けるため、ここには来ない。
+				++$totals['unchanged'];
 
 				// Copilot指摘（PR #40）: checksum一致でスキップしても`$read_item->warnings`
 				// （`VARIATION_STOCK_SHARED_WITH_PARENT`等、warningsはchecksum対象外のため

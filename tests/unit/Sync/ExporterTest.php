@@ -30,6 +30,7 @@ use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\InMemoryPlatformWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
+use CartBridgeJP\Woo\Export\DryRunPlatformWriter;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -1426,5 +1427,49 @@ final class ExporterTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $writer->writes );
 		$this->assertSame( 1, $result['totals']['created'] );
+	}
+
+	/**
+	 * issue #55: `unchanged`（`skipped`の内訳）はchecksum一致スキップだけを数える。dry-runの
+	 * `created + updated + unchanged` を「移行できる件数」とするため（Pro 案内）、止めた実体
+	 * （export-blocking警告）まで数えると「どの版でも移行できない」件数が消える。
+	 */
+	public function test_unchanged_counts_only_checksum_matched_skips_in_a_dry_run(): void {
+		$unchanged = $this->product( 'Unchanged' );
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $unchanged ) );
+
+		$reader   = new FixedWooReader(
+			[
+				new ReadItem( 101, $unchanged ),
+				new ReadItem( 102, $this->product( 'Blocked' ), [ WarningCode::ALL_VARIATIONS_EXCLUDED ] ),
+				new ReadItem( 103, $this->product( 'New' ) ),
+			],
+			3
+		);
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true );
+
+		$this->assertSame( 3, $result['totals']['processed'] );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertSame( 2, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['unchanged'] );
+	}
+
+	/**
+	 * issue #55: 移行済みの実体が後から止まる状態になった（checksumは一致したまま）場合も、
+	 * blocking判定がchecksum一致より先なので「変更なし（移行できる）」には数えない。
+	 */
+	public function test_a_blocked_item_is_not_counted_as_unchanged_even_when_its_checksum_matches(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $product, [ WarningCode::ALL_VARIATIONS_EXCLUDED ] ) ] );
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['unchanged'] );
 	}
 }

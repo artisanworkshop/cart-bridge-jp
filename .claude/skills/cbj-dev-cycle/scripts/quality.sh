@@ -7,6 +7,7 @@ composer lint
 composer analyze
 composer test:wpenv
 npm run lint
+npm run test:js
 npm run build
 # 開発補助スクリプト（bot レビュー本文の整形・ゲート 1 ターンのオーケストレーター・ラウンド記録の生成）の回帰テスト。ネットワーク不要
 .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh

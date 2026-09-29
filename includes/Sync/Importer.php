@@ -225,6 +225,7 @@ final class Importer {
 			'created'       => 0,
 			'updated'       => 0,
 			'skipped'       => 0,
+			'unchanged'     => 0,
 			'warned'        => 0,
 			'remote_amount' => 0,
 		];
@@ -288,6 +289,8 @@ final class Importer {
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性）。
 			if ( null !== $row && null !== $row['checksum'] && $row['checksum'] === $item->checksum() ) {
 				++$totals['skipped'];
+				// `skipped`の内訳（`JobRepository::empty_totals()`）。dry-runでは「移行できる件数」に数える（issue #55）。
+				++$totals['unchanged'];
 
 				// dry-runはCSVレポートを「全量出力」する契約（03 §10.4）のため、この分岐で
 				// `continue`するとCSVに当該アイテムの行が一切現れず、再実行（差分なし）の
