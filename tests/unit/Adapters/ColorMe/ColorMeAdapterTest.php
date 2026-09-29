@@ -3349,6 +3349,79 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertNull( $page->total );
 	}
 
+	public function test_fetch_orders_propagates_lookup_failures_instead_of_swallowing_them(): void {
+		// `payments.json`の取得失敗（認証切れ等の基盤障害）を、行単位の変換失敗と同じ扱いで
+		// 握り潰すと、ページ全体が0件のまま「成功」として完了し受注が黙って取り込まれない
+		// （`fetch_order_by_remote_id()`と同じ理由。issue #69）。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'sales.json'    => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'sales' ),
+				],
+				'payments.json' => [
+					'status' => 401,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 401001,
+								'message' => 'アクセストークンが無効です。',
+								'status'  => 401,
+							],
+						],
+					],
+				],
+			]
+		);
+
+		try {
+			$adapter->fetch_orders( Cursor::start() );
+			$this->fail( 'ApiException was not thrown' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 401, $exception->status_code() );
+		}
+	}
+
+	public function test_fetch_latest_orders_propagates_lookup_failures_instead_of_swallowing_them(): void {
+		// `order_transformer()`はメソッド冒頭で一度だけ解決し、初回取得・探索窓を広げる
+		// ループの両方の`transform_rows()`呼び出しで共有する（issue #69）。
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$this->respond_from_map(
+			[
+				'sales.json'    => [
+					'status' => 200,
+					'body'   => FixtureLoader::load( 'colorme', 'sales' ),
+				],
+				'payments.json' => [
+					'status' => 401,
+					'body'   => [
+						'errors' => [
+							[
+								'code'    => 401001,
+								'message' => 'アクセストークンが無効です。',
+								'status'  => 401,
+							],
+						],
+					],
+				],
+			]
+		);
+
+		try {
+			// フィクスチャは2件＝limitちょうどのため、探索窓を広げるループには入らない
+			// （初回取得だけでtransformerが解決されることを確認する）。
+			$adapter->fetch_latest_orders( 2 );
+			$this->fail( 'ApiException was not thrown' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 401, $exception->status_code() );
+		}
+	}
+
 	public function test_fetch_stocks_derives_from_products_and_flattens_variants(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
