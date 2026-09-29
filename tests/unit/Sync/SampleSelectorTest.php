@@ -33,6 +33,28 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'cust-1', 'cust-2' ], $sample->customer_refs );
 	}
 
+	public function test_order_sample_is_capped_and_deduplicated_even_if_the_adapter_violates_the_limit_contract(): void {
+		// アーキテクチャ原則8（信頼境界）: `fetch_latest_orders( $limit )` の「最新$limit件」は
+		// ドキュメント上の契約でしかない。product/customerは連想配列（重複排除）+ array_slice
+		// （上限）で守られているが、issue #38まで`order_remote_ids`は誰にも読まれておらず
+		// この防御が抜けていた。契約に反して$limitを超えて重複ありで返すアダプタがいても、
+		// サンプルは上限件数のユニークなIDに収まること。
+		$orders = [ CanonicalFactory::order( '1001', null, [] ) ]; // 後段の1001と重複させる。
+		for ( $i = 1; $i <= 11; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		}
+
+		// 契約違反: fetch_latest_orders( $limit=10 ) が $limit を無視して12件（重複あり）返す。
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+	}
+
 	public function test_falls_back_when_the_shop_has_no_orders(): void {
 		$adapter = new MockPlatformAdapter( orders: [] );
 

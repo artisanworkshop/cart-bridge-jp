@@ -66,7 +66,7 @@ final class SampleSelector {
 		$customer_refs      = [];
 
 		foreach ( $orders as $order ) {
-			$order_remote_ids[] = $order->number;
+			$order_remote_ids[ $order->number ] = true;
 
 			foreach ( $order->line_items as $line_item ) {
 				// アダプタ実装がline_itemsの各要素を配列以外で返す可能性への防御（型宣言はドキュメント上の契約でしかないため）。
@@ -88,6 +88,13 @@ final class SampleSelector {
 		// 明示的にstring化する（strict_types下のアダプタIFへ int が渡るのを防ぐ）。
 		$product_ids  = array_slice( array_map( 'strval', array_keys( $product_remote_ids ) ), 0, self::PRODUCT_HARD_CAP );
 		$customer_ids = array_slice( array_map( 'strval', array_keys( $customer_refs ) ), 0, self::CUSTOMER_CAP );
+		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_latest_orders( $limit )` の
+		// 「最新$limit件」はドキュメント上の契約でしかなく、外部アダプタが$limit件を超えて返す・
+		// 同じ受注を重複して返す可能性を排除できない。product/customerと同じ形（連想配列で重複排除
+		// ＋`array_slice`で上限）にしないと、issue #38でこのフィールドが実際に消費されるように
+		// なった今、契約違反のアダプタ1件がサンプルの前提件数を超えたID指定取得（レート制限の浪費）を
+		// 引き起こしうる。
+		$order_ids = array_slice( array_map( 'strval', array_keys( $order_remote_ids ) ), 0, self::SAMPLE_ORDER_LIMIT );
 
 		if ( $used_fallback ) {
 			// §10.2 #5後半: 受注（0件・10件未満いずれも）だけでは各エンティティ10件に満たない場合、
@@ -97,7 +104,7 @@ final class SampleSelector {
 		}
 
 		$sample = new SampleSet(
-			array_map( 'strval', $order_remote_ids ),
+			$order_ids,
 			$product_ids,
 			$customer_ids,
 			$used_fallback
