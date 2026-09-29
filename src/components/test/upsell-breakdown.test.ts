@@ -216,6 +216,25 @@ describe( 'buildUpsellLineData', () => {
 		).toBeNull();
 	} );
 
+	// 導入前に完了した dry-run（`unchanged` が無い）が復元されたときなど、商品の内訳が分からないなら在庫の行は出す（R2-1）。
+	it( 'shows stock when the product breakdown is unknown', () => {
+		expect(
+			buildUpsellLineData(
+				'stock',
+				makeLimits( { product: { used: 4 }, stock: { used: 4 } } ),
+				{
+					product: { processed: 9, migratable: null },
+					stock: { processed: 9, migratable: 0 },
+				}
+			)
+		).toEqual( {
+			entity: 'stock',
+			kind: 'dependent',
+			found: 9,
+			migrated: 4,
+		} );
+	} );
+
 	it( 'shows nothing for stock once every previewed item is migrated', () => {
 		expect(
 			buildUpsellLineData(

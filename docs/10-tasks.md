@@ -466,7 +466,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   「未移行」0 件なら行を出さない。JS 単体テスト基盤（`@jest/globals`・`npm run test:js`・CI／`quality.sh`）を追加した。
   WP 7.1 コアの `ExternalLink` が `rel` を付けないため明示した。実機確認（mock・Export タブ）と差分の詳細は `docs/03` §10.3「アップセル表示」の「実装（R3-0h）」。
   検証: PHPUnit 追加 27 件（`ImporterTest` 2・`ExporterTest` 2・`JobManagerTest` 1＋既存 1 件に assert 追加・`LimitPolicyTest` 18〔データセット込み〕・`RestControllerTest` 4）、
-  Jest 29 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 8 種がすべて CAUGHT。
+  Jest 30 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 9 種がすべて CAUGHT。
   review-loop R1（独立レビュー）の Medium 1 件（商品を移行し終えた後も在庫の行が出る）を修正
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
