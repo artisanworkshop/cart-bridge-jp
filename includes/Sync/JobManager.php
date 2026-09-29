@@ -44,7 +44,7 @@ final class JobManager {
 	/**
 	 * サンプルID指定取得で取り込むエンティティ（D15 §10.2 #4）。
 	 */
-	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
+	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer', 'order' ];
 
 	/**
 	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-B: product/customer/order/stock/coupon）。
@@ -289,8 +289,12 @@ final class JobManager {
 
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
+			$remote_ids = match ( $entity ) {
+				'product'  => $sample->product_remote_ids,
+				'customer' => $sample->customer_refs,
+				'order'    => $sample->order_remote_ids,
+			};
+			$result = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
 
 			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
 			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];

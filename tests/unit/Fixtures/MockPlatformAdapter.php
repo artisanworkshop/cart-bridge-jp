@@ -37,6 +37,12 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
+	 * `fetch_orders()`（受注のカーソル走査）の呼び出し回数。無料版サンプル実行時にこの
+	 * カーソル走査が呼ばれないことの検証に使う（issue #38）。
+	 */
+	public int $fetch_orders_calls = 0;
+
+	/**
 	 * `fetch_customer_by_remote_id()`/`fetch_order_by_remote_id()`の呼び出し履歴（`[entity, remote_id]`）。
 	 *
 	 * @var array<int,array{0:string,1:string}>
@@ -195,6 +201,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_orders( Cursor $cursor ): Page {
+		++$this->fetch_orders_calls;
+
 		return $this->paginate( $this->orders, $cursor );
 	}
 

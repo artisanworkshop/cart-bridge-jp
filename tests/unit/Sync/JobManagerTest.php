@@ -279,7 +279,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 		for ( $i = 1; $i <= 15; $i++ ) {
 			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
 		}
-		$this->register_adapter( orders: $orders );
+		$adapter = $this->register_adapter( orders: $orders );
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );
@@ -289,6 +289,20 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 		// order のデフォルト上限は10件（D15/§10.2）。
 		$this->assertSame( 10, $this->mappings->count( 'mock', 'order' ) );
+
+		// issue #38: サンプル実行は受注のカーソル全量走査（fetch_orders）を一切呼ばず、
+		// SampleSelectorが選んだ10件をfetch_order_by_remote_id()で個別取得すること。
+		// カーソル走査に戻ると、実店舗の全受注履歴を走査してからサンプル外を捨てる
+		// （F1-8実測: processed 1230 / created 10 / skipped 1220）という無料版のコンセプトに
+		// 反する退行が再発する。
+		$this->assertSame( 0, $adapter->fetch_orders_calls );
+
+		$order_fetches = array_values( array_filter( $adapter->fetched_by_id, static fn( array $call ): bool => 'order' === $call[0] ) );
+		$this->assertCount( 10, $order_fetches );
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			array_column( $order_fetches, 1 )
+		);
 	}
 
 	public function test_pro_filter_removes_the_order_limit(): void {

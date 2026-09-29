@@ -28,7 +28,7 @@ use Throwable;
  * リモートIDは `CanonicalModel::remote_id()` から取得する（Product/Customer/Coupon/Review は
  * アダプタが `extras['remote_id']` に格納する契約。null の場合はアダプタ実装バグとして例外）。
  *
- * 無料版サンプル選定（D15）: product/customer はID指定取得（`run_sample_page`）、
+ * 無料版サンプル選定（D15）: product/customer/order はID指定取得（`run_sample_page`）、
  * stock はサンプル商品のID指定取得結果から導出（`run_sample_stock_page`、§10.2 #4）、
  * review はカーソル走査＋サンプル商品メンバーシップで絞り込む（`run_page` の $sample）。
  */
@@ -69,7 +69,7 @@ final class Importer {
 	}
 
 	/**
-	 * サンプルID指定取得エンティティ（product/customer）をまとめて処理する（D15 #4）。
+	 * サンプルID指定取得エンティティ（product/customer/order）をまとめて処理する（D15 #4）。
 	 * ページングは不要（サンプル件数は上限で有界）。
 	 *
 	 * `$limit_policy`は`SampleSelector`のサンプル件数上限（50/10件）とは別に必要: サンプル上限は
@@ -88,6 +88,7 @@ final class Importer {
 			$item = match ( $entity ) {
 				'product'  => $adapter->fetch_product_by_remote_id( (string) $remote_id ),
 				'customer' => $adapter->fetch_customer_by_remote_id( (string) $remote_id ),
+				'order'    => $adapter->fetch_order_by_remote_id( (string) $remote_id ),
 				default    => throw new RuntimeException( "Entity \"{$entity}\" does not support sample ID fetch." ),
 			};
 
