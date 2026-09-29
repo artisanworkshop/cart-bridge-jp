@@ -15,8 +15,10 @@
 // `cbjp_verify_seed` の `push`/`limits`/`pro_url` キー、mockv の偽トークン（`cbjp_token_mockv`。値は下の $token）、状態オプション `cbjp_verify_upsell`。
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\WarningCode;
 
 wp_set_current_user( 1 );
 
@@ -146,6 +148,23 @@ $run = static function ( string $type ) use ( $call, $platform, $remember ): arr
 	];
 };
 
+// この example の商品（SKU が接頭辞で始まるもの）。`wc_get_products()` の `sku` は部分一致（`WC_Product_Data_Store_CPT` が
+// `compare => 'LIKE'` で組み立てる）なので、接頭辞かどうかは自分で確かめる。
+$own_products = static function () use ( $sku_prefix ): array {
+	return array_values(
+		array_filter(
+			wc_get_products(
+				[
+					'sku'    => $sku_prefix,
+					'limit'  => -1,
+					'status' => 'any',
+				]
+			),
+			static fn ( $product ): bool => $product instanceof WC_Product && str_starts_with( (string) $product->get_sku(), $sku_prefix )
+		)
+	);
+};
+
 $limits_now = static function () use ( $call, $platform, $abort ): array {
 	$result = $call( 'GET', '/cbjp/v1/limits', [ 'platform' => $platform ] );
 
@@ -167,7 +186,8 @@ if ( ! is_array( get_option( 'cbjp_verify_seed', [] ) ) ) {
 	$abort( 'option cbjp_verify_seed is not an array — run cleanup.php first (it removes the broken value), then retry', 2 );
 }
 
-// cleanup.php が消す範囲（intent・mapping・job・ログ・この example の商品と状態）と同じ範囲を数え、残っていたら始めない。
+// cleanup.php が消す範囲（intent・mapping・job・ログ・この example の商品と状態・seed のキー・mockv のサンプル/レート制限のオプション）と
+// 同じ範囲を数え、残っていたら始めない（別の検証の途中の状態を上書き・削除しないため。push-intent-resolution も `push` キーを使う）。
 global $wpdb;
 $log_like = '%' . $wpdb->esc_like( '"platform":"' . $platform . '"' ) . '%';
 // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
@@ -175,12 +195,14 @@ $leftover = count( ( new PushIntentRepository() )->find_unresolved( $platform ) 
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", $platform ) )
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s", $platform ) )
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", $log_like ) )
-	+ count( wc_get_products( [ 'sku' => $sku_prefix, 'limit' => -1, 'return' => 'ids', 'status' => 'any' ] ) )
-	+ ( false !== get_option( $state_name, false ) ? 1 : 0 );
+	+ count( $own_products() )
+	+ ( false !== get_option( $state_name, false ) ? 1 : 0 )
+	+ count( array_intersect( [ 'push', 'limits', 'pro_url' ], array_keys( get_option( 'cbjp_verify_seed', [] ) ) ) )
+	+ count( array_filter( [ 'cbjp_export_sample_' . $platform, 'cbjp_sample_' . $platform, 'cbjp_rate_limit_' . $platform ], static fn ( string $option ): bool => false !== get_option( $option, false ) ) );
 // phpcs:enable
 
 if ( $leftover > 0 ) {
-	$abort( "'{$platform}' already has intents, mappings, jobs, logs, {$sku_prefix}* products or {$state_name} ({$leftover}) — run cleanup.php first, then retry", 2 );
+	$abort( "'{$platform}' already has intents, mappings, jobs, logs, {$sku_prefix}* products, {$state_name}, cbjp_verify_seed push/limits/pro_url or its sample/rate-limit options ({$leftover}) — run cleanup.php first, then retry", 2 );
 }
 
 update_option( $state_name, [], false );
@@ -213,8 +235,32 @@ $blocked    = (int) ( $t['processed'] ?? 0 ) - $migratable;
 // unchanged はここでは 0 のまま: 作った商品は mockv の mapping を持たず、export 後も既定カテゴリが未マッピングで checksum が保存されない
 // （`verify-with-mock-adapter` の落とし穴）。値の意味は ExporterTest/ImporterTest が担当し、ここでは REST の totals に載ることだけを見る。
 $check( '2 dry-run の totals に unchanged が載る（整数）', is_int( $t['unchanged'] ?? null ), wp_json_encode( $t ) );
-$check( '2 移行できる件数に作った 3 件が入る（dev サイトの既存商品の分だけ増える）', $migratable >= 3, "migratable={$migratable}" );
-$check( '2 価格の無い商品は「止まる」に数えられる（移行できる件数に入らない）', $blocked >= 1, "blocked={$blocked}" );
+$check( '2 止まる件数（processed − 移行できる件数）が 1 件以上', $blocked >= 1, "migratable={$migratable} blocked={$blocked}" );
+
+// 集計だけでは dev サイトの既存商品が結果を隠しうる（既存の止まる商品があれば NOPRICE が移行できるに変わっても通る）。作った商品ごとに
+// dry-run の明細（export 方向は `existing_local_id` に Woo の商品 ID が入る）を確かめる。
+$state = get_option( $state_name, [] );
+$ids   = is_array( $state ) && is_array( $state['product_ids'] ?? null ) ? array_map( 'intval', $state['product_ids'] ) : [];
+$rows  = [];
+
+foreach ( ( new DryRunItemRepository() )->list_after( $dry['run_id'], 0, 1000, 'product' ) as $row ) {
+	$rows[ (int) $row['existing_local_id'] ] = $row;
+}
+
+$check( '2 作った商品 4 件が記録されている', 4 === count( $ids ), wp_json_encode( $ids ) );
+
+foreach ( $ids as $id ) {
+	$product = wc_get_product( $id );
+	$sku     = $product ? (string) $product->get_sku() : "#{$id}";
+	$row     = $rows[ $id ] ?? null;
+
+	if ( str_ends_with( $sku, 'NOPRICE' ) ) {
+		$check( "2 {$sku} は止まる（skipped・" . WarningCode::PRODUCT_PRICE_INVALID . '）', null !== $row && 'skipped' === $row['operation'] && str_contains( (string) $row['warnings_json'], WarningCode::PRODUCT_PRICE_INVALID ), wp_json_encode( $row ) );
+	} else {
+		$check( "2 {$sku} は移行できる（created）", null !== $row && 'created' === $row['operation'], wp_json_encode( $row ) );
+	}
+}
+
 $check( '2 unchanged は skipped の内訳（skipped 以下）', (int) ( $t['unchanged'] ?? 0 ) <= (int) ( $t['skipped'] ?? 0 ), wp_json_encode( $t ) );
 
 // ---- 3) export: 上限 2 で止まり、「未移行」が残る ----

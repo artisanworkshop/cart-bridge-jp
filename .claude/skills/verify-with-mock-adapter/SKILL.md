@@ -113,10 +113,13 @@ description: >
   `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
 - `examples/upsell-notice/` — 無料版の Pro 案内（`LimitsUpsellNotice`。issue #55 / R3-0h）の元になる値を `rest_do_request()` で確かめる検証。`verify-rest.php` は
   Woo に `ZZV-UPSELL-*` の商品 4 件（うち 1 件は価格なし＝export で止まる）を作り、`cbjp_verify_seed.limits.product=2` で dry-run と export を走らせて、
-  totals の `unchanged`・「移行できる件数」と「止まる件数」の分かれ方・上限で「未移行」が残ること・`/limits` の `pro_url`（既定は空、有効な URL はそのまま、
+  totals の `unchanged`・作った商品ごとの dry-run の明細（`VALID-*` は created、`NOPRICE` は skipped＋`product_price_invalid`。集計だけだと dev サイトの
+  既存商品が結果を隠すため）・上限で「未移行」が残ること・`/limits` の `pro_url`（既定は空、有効な URL はそのまま、
   不正な値は空）を PASS/FAIL で出す。最後に偽トークンで `mockv` を connected にし、Export タブで通知を目視する手順（localStorage に入れる run_id と、
-  `pro_url` を切り替える `wp eval`）を出す。**前提**: `install mockv` 済み・前回の残りが無い（トークン・商品・状態オプションも数え、あれば先頭で中止）。
-  `cleanup.php` は偽トークン（値がこの example のものと一致するときだけ。復号できないトークンがあれば拒否）・作った商品・`mockv` の行・この example が書く
+  `pro_url` を切り替える `wp eval`）を出す。**前提**: `install mockv` 済み・前回の残りが無い（トークン・商品・状態オプションに加え、seed の `push`/`limits`/`pro_url` と
+  mockv のサンプル・レート制限のオプションも数え、あれば先頭で中止。push-intent-resolution も `push` を使うため）。
+  `cleanup.php` は偽トークン（値がこの example のものと一致するときだけ。復号できないトークンがあれば拒否）・作った商品（記録した ID と、SKU の接頭辞で見つかる取り残し。
+  `wc_get_products()` の `sku` は部分一致なので接頭辞は自分で確かめる）・`mockv` の行・この example が書く
   seed のキー（`push`/`limits`/`pro_url`）とオプションだけを消し、`left:` で 0 件を確認する
 
 関連: `docs/03-design-decisions.md` §10.3（ツール）、`.claude/skills/cbj-dev-cycle/SKILL.md`（開発サイクル Step 2 の実機確認）。

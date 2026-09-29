@@ -34,15 +34,41 @@ $deleted = [];
 // 偽トークン（あればこの example の値と確認済み）。
 $deleted['token'] = delete_option( 'cbjp_token_' . $platform ) ? 1 : 0;
 
-// 商品: 状態オプションに記録した ID のうち、SKU がこの example の接頭辞のものだけ。
-$state               = get_option( $state_name, [] );
-$product_ids         = is_array( $state ) && is_array( $state['product_ids'] ?? null ) ? $state['product_ids'] : [];
-$deleted['products'] = 0;
+// この example の商品（SKU が接頭辞で始まるもの）。`wc_get_products()` の `sku` は部分一致（`WC_Product_Data_Store_CPT` が
+// `compare => 'LIKE'` で組み立てる）なので、接頭辞かどうかは自分で確かめる。
+$own_products = static function () use ( $sku_prefix ): array {
+	return array_values(
+		array_filter(
+			wc_get_products(
+				[
+					'sku'    => $sku_prefix,
+					'limit'  => -1,
+					'status' => 'any',
+				]
+			),
+			static fn ( $product ): bool => $product instanceof WC_Product && str_starts_with( (string) $product->get_sku(), $sku_prefix )
+		)
+	);
+};
+
+// 商品: 状態オプションに記録した ID と、SKU の接頭辞で見つかるもの（保存の後・記録の前に止まった場合の取り残し。PR #88 G1-3）の両方。
+// どちらも SKU がこの example の接頭辞で始まるものだけを消す。
+$state       = get_option( $state_name, [] );
+$product_ids = is_array( $state ) && is_array( $state['product_ids'] ?? null ) ? array_filter( $state['product_ids'], 'is_int' ) : [];
+$targets     = [];
 
 foreach ( $product_ids as $id ) {
-	$product = is_int( $id ) ? wc_get_product( $id ) : null;
+	$targets[ $id ] = wc_get_product( $id );
+}
 
-	if ( $product && str_starts_with( (string) $product->get_sku(), $sku_prefix ) ) {
+foreach ( $own_products() as $product ) {
+	$targets[ $product->get_id() ] = $product;
+}
+
+$deleted['products'] = 0;
+
+foreach ( $targets as $product ) {
+	if ( $product instanceof WC_Product && str_starts_with( (string) $product->get_sku(), $sku_prefix ) ) {
 		$product->delete( true );
 		++$deleted['products'];
 	}
@@ -91,7 +117,7 @@ $seed_after = get_option( 'cbjp_verify_seed', [] );
 // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
 $left = [
 	'token'     => false !== get_option( 'cbjp_token_' . $platform, false ) ? 1 : 0,
-	'products'  => count( wc_get_products( [ 'sku' => $sku_prefix, 'limit' => -1, 'return' => 'ids', 'status' => 'any' ] ) ),
+	'products'  => count( $own_products() ),
 	'intents'   => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_push_intents WHERE platform = %s", $platform ) ),
 	'mappings'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_mappings WHERE platform = %s", $platform ) ),
 	'jobs'      => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ),
