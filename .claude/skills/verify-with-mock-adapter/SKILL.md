@@ -68,7 +68,9 @@ description: >
 - **`mock-adapter.sh run` に渡す PHP はリポジトリ内に置く**（`wp eval-file` はコンテナ内で実行されるため、`/tmp` やスクラッチパッドはコンテナから見えない）。コミット前に削除する。
 - **`AdapterRegistry::all()` は静的キャッシュ**。同一 PHP プロセス内で `cbjp_verify_seed` を書き換えて再検証するなら、書き換えの直後に `CartBridgeJP\Adapters\AdapterRegistry::reset_cache()` を呼ぶ（呼ばないと最初に組み立てた mock がそのまま使われ、seed の変更が効かない）。
 - **`cbjp_process_job`（Action Scheduler）は CLI では自走しない**。`start_run` の後、検証スクリプト内で pending を処理する（`as_get_scheduled_actions( [ 'hook' => 'cbjp_process_job', 'status' => 'pending' ] )` → `do_action_ref_array( $action->get_hook(), $action->get_args() )` → `ActionScheduler_Store::instance()->mark_complete()`）。
-- **mock のキー（例 `mockv`）は `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。管理画面で目視したいときは、接続済みの実 platform（`colorme`）に対象の行を手で挿入し、UI の操作で消す。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
+- **mock のキー（例 `mockv`）は既定では `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。タブに出すには、検証スクリプトで偽のトークンを保存して connected にする: `( new CartBridgeJP\Support\TokenStore( 'mockv' ) )->save( [ 'access_token' => 'verify-<作業名>' ] )`（実 `colorme` を汚さない。R3-0h）。撤去時は値を確かめてから `cbjp_token_mockv` を消す（`push-intent-resolution/cleanup.php` はトークンが残っていると拒否する）。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
+- **REST（`rest_do_request()`）で走らせた run を管理画面に出すには、localStorage の `cbjp_run_{type}_{platform}`**（type は `dry_run`／`import`／`dry_run_export`／`export`）にrun_id を入れて `cmd+r` する（タブは直前の run_id をここから復元してポーリングする）。確認後はキーを消す。
+- **検証中だけ効かせたいフィルター**（`cbjp/limits/product` で上限を下げる、`cbjp/limits/pro_url` など）は、別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す（ブラウザからの REST にも効かせるため。CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
 
