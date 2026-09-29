@@ -78,18 +78,20 @@ foreach ( $targets as $product ) {
 $prefix = $wpdb->prefix;
 $like   = '%' . $wpdb->esc_like( '"platform":"' . $platform . '"' ) . '%';
 // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-$job_ids             = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ) );
+$job_ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ) );
+$job_in  = [] !== $job_ids ? implode( ',', $job_ids ) : ''; // IN の中身は上で int 化した ID だけ。
+
+// ジョブに紐づくログ・dry-run 明細を、ジョブより先に消す。ジョブを先に消すと、その間で止まったとき次の実行がジョブ ID から
+// 辿れず、明細が取り残される（PR #88 G3-1）。
+if ( '' !== $job_in ) {
+	$deleted['job_logs']      = (int) $wpdb->query( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IN ({$job_in})" );
+	$deleted['dry_run_items'] = (int) $wpdb->query( "DELETE FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$job_in})" );
+}
+
 $deleted['intents']  = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_push_intents WHERE platform = %s", $platform ) );
 $deleted['mappings'] = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_mappings WHERE platform = %s", $platform ) );
 $deleted['jobs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) );
 $deleted['logs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", $like ) );
-
-if ( [] !== $job_ids ) {
-	// ジョブに紐づくログ・dry-run 明細（IN の中身は上で int 化した ID だけ）。
-	$in                       = implode( ',', $job_ids );
-	$deleted['job_logs']      = (int) $wpdb->query( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IN ({$in})" );
-	$deleted['dry_run_items'] = (int) $wpdb->query( "DELETE FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$in})" );
-}
 // phpcs:enable
 
 // `cbjp_verify_seed` は他の example と共有するので、この example が書くキーだけを外す。
@@ -122,6 +124,7 @@ $left = [
 	'mappings'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_mappings WHERE platform = %s", $platform ) ),
 	'jobs'      => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ),
 	'logs'      => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_logs WHERE context_json LIKE %s", $like ) ),
+	'dry_run_items' => '' !== $job_in ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$job_in})" ) : 0,
 	'seed_keys' => is_array( $seed_after ) ? count( array_intersect( [ 'push', 'limits', 'pro_url' ], array_keys( $seed_after ) ) ) : 0,
 	'state'     => false !== get_option( $state_name, false ) ? 1 : 0,
 	// 上で消したサンプル・レート制限のオプション（`delete_option()` の失敗を見逃さない。PR #88 G2-2）。
