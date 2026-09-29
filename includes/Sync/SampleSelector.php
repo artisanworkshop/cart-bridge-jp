@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use Throwable;
@@ -59,14 +60,22 @@ final class SampleSelector {
 	}
 
 	private function select_and_persist( string $platform ): SampleSet {
-		$orders = $this->adapter->fetch_latest_orders( self::SAMPLE_ORDER_LIMIT );
+		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_latest_orders( $limit )` の
+		// 「最新$limit件」はドキュメント上の契約でしかなく、外部アダプタが$limit件を超えて返す・
+		// 同じ受注を重複して返す可能性を排除できない。ここで最初に重複排除＋上限適用をすませて
+		// おかないと、下の商品・顧客抽出や`$used_fallback`の判定が生の（超過・重複ありうる）
+		// リストを見てしまう。例えば重複1件を含む10件は実際には9件のユニークな受注だが、
+		// `count($orders)`だけを見ると10件と誤認して受注不足時の補完（§10.2 #5後半）が働かない。
+		// 逆に11件目（本来は受注サンプルから除外されるべき）の明細・購入者が商品・顧客サンプルに
+		// 混入することも防ぐ。
+		$orders = $this->unique_orders( $this->adapter->fetch_latest_orders( self::SAMPLE_ORDER_LIMIT ) );
 
 		$order_remote_ids   = [];
 		$product_remote_ids = [];
 		$customer_refs      = [];
 
 		foreach ( $orders as $order ) {
-			$order_remote_ids[ $order->number ] = true;
+			$order_remote_ids[] = $order->number;
 
 			foreach ( $order->line_items as $line_item ) {
 				// アダプタ実装がline_itemsの各要素を配列以外で返す可能性への防御（型宣言はドキュメント上の契約でしかないため）。
@@ -88,13 +97,6 @@ final class SampleSelector {
 		// 明示的にstring化する（strict_types下のアダプタIFへ int が渡るのを防ぐ）。
 		$product_ids  = array_slice( array_map( 'strval', array_keys( $product_remote_ids ) ), 0, self::PRODUCT_HARD_CAP );
 		$customer_ids = array_slice( array_map( 'strval', array_keys( $customer_refs ) ), 0, self::CUSTOMER_CAP );
-		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_latest_orders( $limit )` の
-		// 「最新$limit件」はドキュメント上の契約でしかなく、外部アダプタが$limit件を超えて返す・
-		// 同じ受注を重複して返す可能性を排除できない。product/customerと同じ形（連想配列で重複排除
-		// ＋`array_slice`で上限）にしないと、issue #38でこのフィールドが実際に消費されるように
-		// なった今、契約違反のアダプタ1件がサンプルの前提件数を超えたID指定取得（レート制限の浪費）を
-		// 引き起こしうる。
-		$order_ids = array_slice( array_map( 'strval', array_keys( $order_remote_ids ) ), 0, self::SAMPLE_ORDER_LIMIT );
 
 		if ( $used_fallback ) {
 			// §10.2 #5後半: 受注（0件・10件未満いずれも）だけでは各エンティティ10件に満たない場合、
@@ -104,7 +106,7 @@ final class SampleSelector {
 		}
 
 		$sample = new SampleSet(
-			$order_ids,
+			array_map( 'strval', $order_remote_ids ),
 			$product_ids,
 			$customer_ids,
 			$used_fallback
@@ -120,6 +122,35 @@ final class SampleSelector {
 		$this->persist( $platform, $sample );
 
 		return $sample;
+	}
+
+	/**
+	 * `fetch_latest_orders( $limit )` の戻り値を、`number`（受注remote_id）でユニークな先頭
+	 * `SAMPLE_ORDER_LIMIT`件に正規化する（アーキテクチャ原則8）。呼び出し側（`select_and_persist()`）が
+	 * 商品・顧客の抽出や`$used_fallback`の判定より前に必ずこれを通すことで、契約違反のアダプタが
+	 * 返した重複・超過分がそれらの計算に紛れ込むのを防ぐ。
+	 *
+	 * @param array<int,CanonicalOrder> $orders
+	 * @return array<int,CanonicalOrder>
+	 */
+	private function unique_orders( array $orders ): array {
+		$seen   = [];
+		$unique = [];
+
+		foreach ( $orders as $order ) {
+			if ( count( $unique ) >= self::SAMPLE_ORDER_LIMIT ) {
+				break;
+			}
+
+			if ( isset( $seen[ $order->number ] ) ) {
+				continue;
+			}
+
+			$seen[ $order->number ] = true;
+			$unique[]               = $order;
+		}
+
+		return $unique;
 	}
 
 	/**

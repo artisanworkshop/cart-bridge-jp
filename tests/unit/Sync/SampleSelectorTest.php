@@ -55,6 +55,46 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_an_order_excluded_by_the_limit_does_not_contribute_products_or_customers(): void {
+		// review指摘（PR #86, Copilot）: 上限適用前の生の$ordersから商品・顧客を抽出すると、
+		// 受注サンプル自体からは除外される11件目（契約違反アダプタが返した超過分）の明細・購入者が
+		// 商品・顧客サンプルへ混入してしまう。正規化（重複排除＋上限）を商品・顧客抽出より前に行うこと。
+		$orders = [];
+		for ( $i = 1; $i <= 11; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), "cust-{$i}", [ "p{$i}" ] );
+		}
+
+		// 契約違反: fetch_latest_orders( $limit=10 ) が $limit を超えて11件返す。
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+		$this->assertNotContains( 'p11', $sample->product_remote_ids );
+		$this->assertNotContains( 'cust-11', $sample->customer_refs );
+	}
+
+	public function test_used_fallback_is_based_on_the_unique_order_count_not_the_raw_adapter_count(): void {
+		// review指摘（PR #86, Copilot）: $used_fallback を生の$orders件数（重複を含みうる）で
+		// 判定すると、重複込みで10件返す契約違反アダプタは「10件揃っている」と誤判定し、
+		// 実際はユニークな受注が9件しかないのに商品・顧客の補完（§10.2 #5後半）が働かない。
+		$orders = [ CanonicalFactory::order( '1001', null, [] ) ]; // 後段の1001と重複させる。
+		for ( $i = 1; $i <= 9; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		}
+		$this->assertCount( 10, $orders ); // 生のカウントは10件（重複1件を含む）。
+
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertCount( 9, $sample->order_remote_ids ); // ユニークな受注は9件。
+		$this->assertTrue( $sample->used_fallback );
+	}
+
 	public function test_falls_back_when_the_shop_has_no_orders(): void {
 		$adapter = new MockPlatformAdapter( orders: [] );
 
