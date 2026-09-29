@@ -199,7 +199,7 @@ CREATE TABLE {$prefix}cbjp_jobs (
   entity VARCHAR(20) NOT NULL,              -- 'product'|'category'|'tag'|'customer'|'order'|'stock'|'coupon'|'review'
   status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- 下記ステートマシン参照
   cursor_json TEXT NULL,
-  totals_json TEXT NULL,                    -- {total,processed,created,updated,skipped,warned,failed}
+  totals_json TEXT NULL,                    -- {total,processed,created,updated,skipped,unchanged,warned,failed,remote_amount}（unchanged は skipped の内訳。§10.3「アップセル表示」）
   error_json TEXT NULL,                     -- 失敗時の最終エラー {code,message}（個人情報禁止）
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
@@ -291,7 +291,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - 1回のASアクション = 1ページ処理（fetch → 変換 → Woo書き込み → mappings upsert → cursor更新）。処理後に自分を再エンキュー（`as_enqueue_async_action`）。終端で次エンティティのジョブを起動
 - ページサイズ初期値50（アダプタが上書き可）。1アクションはPHPのmax_execution_time内に収まる粒度を保つ
 - **dry-run**: 同一パイプラインで Woo書き込みだけを `DryRunReporter` に差し替え。件数・警告（未マッピング決済方法、SKU重複等）を totals_json に集計し、UIでプレビュー表示
-- 冪等性: mappings の UNIQUE キーで upsert。checksum 一致ならスキップ（totals.skipped++）
+- 冪等性: mappings の UNIQUE キーで upsert。checksum 一致ならスキップ（totals.skipped++。内訳として totals.unchanged++。issue #55）
 - 同時実行: 同一 platform で running のジョブがある場合は新規開始を拒否（レート制限保護）。
   `retry()`（失敗ジョブの再開）も同様に、対象ジョブとは異なる run が同一 platform で進行中なら拒否する
   （issue #54）。ただし判定は `run_id` を除外して行い、対象ジョブと同一 run 内でまだ未処理な
@@ -332,7 +332,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する |
-| GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す |
+| GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」） |
 | GET | `/tools/sample-cleanup?platform=` | サンプルクリーンアップの削除件数プレビュー（D16/§10.3） |
 | POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3） |
 | POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3） |
@@ -1519,6 +1519,30 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
     空なら Pro に触れず「無料版はサンプルを移行します。N 件は未移行です」とだけ示す（v1.0 と同時に Pro 版を販売するかの判断を後回しにできる）。
     フィルターの戻り値は外部コード由来の信頼境界（原則8）のため、文字列かつ `http`/`https` の URL だけを `esc_url_raw()` して `/limits` の
     `pro_url` に載せ、それ以外は `''` として扱う。フロントは `target="_blank" rel="noopener noreferrer"` で開く
+  - **実装（R3-0h、issue #55）**: 上の決定からの差と実装の要点。
+    1. `unchanged` は `skipped` の内訳（`skipped` の意味は変えない）。`Importer`/`Exporter` の checksum 一致スキップの分岐だけで数える。
+       `Exporter` は blocking 判定が checksum 一致より先なので、移行済みの実体が後から止まる状態になっても「移行できる」には入らない。
+       導入前のジョブの `totals_json` には無く（`GET /runs/{id}` は生の JSON を返す）、フロントは内訳不明として扱う。
+    2. **在庫・レビューは内訳を出さない**（計画時に決定）: dry-run は対象商品が未移行だと在庫を全件スキップする
+       （`STOCK_PRODUCT_UNRESOLVED`／`STOCK_PRODUCT_NOT_EXPORTED`）ため、式どおりだと商品を移行すれば移行できる在庫まで「移行できない」と
+       表示してしまう。「プレビューで N 件、移行済み M 件。サンプル商品の分だけ移行します」とだけ示す（dry-run の件数が移行済み数を上回るとき）。
+    3. **「未移行」が 0 件なら行を出さない**（計画時に決定）。「移行できない」件数は未移行がある行に併記する（dry-run の結果・CSV には既に出ている）。
+    4. Pro への言及は見出しだけに置き、各行は `pro_url` の有無によらず同じ中立文言にする。見出しは `pro_url` 有効時「無料版はサンプルを移行します。
+       未移行の分も Pro 版で移行できます」＋リンク、空なら「無料版はサンプルを移行します」だけ。
+    5. 内訳が分からない（dry-run が無い・`unchanged` の無い導入前のジョブ）ときは従来の「上限に到達。dry-run で残りを確認」文言に
+       フォールバックする（上限に達しているときだけ）。
+    6. 近似: `used`（mappings＋未解決 push intent）は後から止まる状態になった移行済み実体や ASP 側で削除された実体も含むため、
+       「未移行」＝`migratable − used` は過小になりうる（0 で下限）。export の dry-run はアダプタの送信時スキップ（必須項目欠落の顧客等）を
+       反映しないため「未移行」が過大になりうる。
+    7. `LimitPolicy::pro_url()` は `esc_url_raw()` の前に scheme（http/https）と host の有無を確かめる（scheme の無い `example.com/pro` には
+       `esc_url_raw()` が `http://` を補い、`https:example.com/pro` は host が無いまま通すため。実測）。フロントも `sanitizeProUrl()` で多重に確かめる。
+       `/limits` ルートには `platform` の `args`（`type: string`）を追加し、`?platform[]=x` を 400 にした（以前は `(string)` キャストで警告）。
+    8. リンクは `ExternalLink` に `rel="noopener noreferrer"` を明示する。WP 7.1 コア同梱の `wp-components`（実行時に使われる）の `ExternalLink` は
+       npm 版（28.x）と違って `rel` を付けない（実測）。
+    9. 計算は純粋関数 `src/components/upsell-breakdown.ts` に置き、wp-scripts 同梱の Jest（`npm run test:js`。CI・`quality.sh` にも追加）で単体テストする。
+    実機確認（mock アダプタ `mockv`、Export タブ）: dry-run 9 件（移行できる 4・止まる 5）→ 上限 2 の export で 2 件作成、の状態で
+    「Products: 9 found by the preview, 2 migrated, 2 not migrated yet. 5 cannot be migrated as is. …」と表示（修正前なら「残り 7 件は Pro 版が必要」）。
+    `pro_url` 空では Pro に触れず、設定時は見出しにリンク（`target="_blank" rel="noopener noreferrer"`）が付くことを確認した。
 
 #### ツールの実装詳細（F1-7）
 

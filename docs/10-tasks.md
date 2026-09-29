@@ -458,7 +458,15 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   (2) 「画像オフで export 済みの商品が、オンにしても再送されない」制限は、オンの間だけ商品の checksum に印を混ぜて解消した（説明文で案内するだけにはしなかった）。
   mock アダプタ・モック HTTP で確認（実 API は未確認＝D24 の方針。`docs/03` D24 実装 7.）。`R3-0i` の (3) のプラットフォーム単位ロックは `PUT /settings/export-options` も囲む対象にする。
   `verify-with-mock-adapter` のテンプレートに `cbjp_verify_seed.capabilities` を追加し、SKILL.md に `push`・Studio との IPv6 ポート競合・checksum 検証の落とし穴を追記した。
-- [ ] **R3-0h: Pro 案内の件数を正確にし、Pro への言及を購入 URL の有無で切り替える**（issue #55）: totals に `unchanged` を追加し「移行できるが未移行」と「どの版でも移行できない」を分けて表示。フィルター `cbjp/limits/pro_url`（既定 `''`）を新設し `/limits` の `pro_url` で渡す。空なら Pro に触れない。詳細は `docs/03` §10.3「アップセル表示」
+- [x] **R3-0h: Pro 案内の件数を正確にし、Pro への言及を購入 URL の有無で切り替える**（issue #55）: totals に `unchanged` を追加し「移行できるが未移行」と「どの版でも移行できない」を分けて表示。フィルター `cbjp/limits/pro_url`（既定 `''`）を新設し `/limits` の `pro_url` で渡す。空なら Pro に触れない。詳細は `docs/03` §10.3「アップセル表示」
+  **実装サマリ（2026-09-29）**: `JobRepository::empty_totals()`・`Importer`/`Exporter` に `unchanged`（`skipped` の内訳。checksum 一致スキップだけ）、
+  `LimitPolicy::pro_url()`（http/https かつ host のある URL だけ `esc_url_raw()`、他は `''`）と `/limits` の `pro_url`・`platform` の `args` スキーマ。
+  フロントは計算を純粋関数 `src/components/upsell-breakdown.ts` に切り出し（`dryRunEntityTotals()`/`buildUpsellLineData()`/`sanitizeProUrl()`）、
+  `LimitsUpsellNotice` は見出しだけで Pro に触れる。**計画時の決定**: 在庫・レビューは内訳を出さない（dry-run が商品未移行の在庫を全件スキップするため）、
+  「未移行」0 件なら行を出さない。JS 単体テスト基盤（`@jest/globals`・`npm run test:js`・CI／`quality.sh`）を追加した。
+  WP 7.1 コアの `ExternalLink` が `rel` を付けないため明示した。実機確認（mock・Export タブ）と差分の詳細は `docs/03` §10.3「アップセル表示」の「実装（R3-0h）」。
+  検証: PHPUnit 追加 27 件（`ImporterTest` 2・`ExporterTest` 2・`JobManagerTest` 1＋既存 1 件に assert 追加・`LimitPolicyTest` 18〔データセット込み〕・`RestControllerTest` 4）、
+  Jest 25 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 5 種がすべて CAUGHT
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
