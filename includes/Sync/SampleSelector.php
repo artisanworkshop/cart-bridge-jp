@@ -48,7 +48,24 @@ final class SampleSelector {
 	public function load( string $platform ): ?SampleSet {
 		$stored = get_option( self::option_name_for( $platform ) );
 
-		return is_array( $stored ) ? SampleSet::from_array( $stored ) : null;
+		if ( ! is_array( $stored ) ) {
+			return null;
+		}
+
+		$sample = SampleSet::from_array( $stored );
+
+		// アダプタ拡張点の信頼境界（原則8）: `order_remote_ids`の重複排除・上限適用は
+		// `select_and_persist()`（新規選定時）の`unique_orders()`にしか無い。本PR以前に保存された、
+		// または契約違反アダプタが過去に保存したサンプルを`load()`でそのまま返すとこの正規化を
+		// バイパスする（issue #38 G2、Copilot指摘）。ここで読込み時にも同じ上限・重複排除を適用する
+		// （§10.2 #7「クリーンアップ→再選定」の原則に従い、保存済みoptionへは書き戻さずメモリ上でのみ
+		// 補正する）。
+		return new SampleSet(
+			array_slice( array_values( array_unique( $sample->order_remote_ids ) ), 0, self::SAMPLE_ORDER_LIMIT ),
+			$sample->product_remote_ids,
+			$sample->customer_refs,
+			$sample->used_fallback
+		);
 	}
 
 	/**

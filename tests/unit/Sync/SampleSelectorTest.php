@@ -146,6 +146,29 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$this->assertEquals( $first, $second );
 	}
 
+	public function test_load_normalizes_a_legacy_persisted_sample_with_an_over_limit_or_duplicate_order_list(): void {
+		// review指摘（PR #86 G2, Copilot）: 重複排除・上限（`unique_orders()`）は`select_and_persist()`
+		// （新規選定時）にしかなく、本PR以前に保存された、または契約違反アダプタが過去に保存した
+		// 永続サンプルを`load()`でそのまま返すとこの正規化をバイパスする。
+		update_option(
+			SampleSelector::option_name_for( 'mock' ),
+			[
+				'order_remote_ids'   => [ '1001', '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010', '1011' ],
+				'product_remote_ids' => [],
+				'customer_refs'      => [],
+				'used_fallback'      => false,
+			],
+			false
+		);
+
+		$sample = ( new SampleSelector( new MockPlatformAdapter() ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+	}
+
 	public function test_clear_allows_reselection(): void {
 		$adapter  = new MockPlatformAdapter( orders: [ CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ) ] );
 		$selector = new SampleSelector( $adapter );
