@@ -114,7 +114,8 @@ description: >
 - `examples/upsell-notice/` — 無料版の Pro 案内（`LimitsUpsellNotice`。issue #55 / R3-0h）の元になる値を `rest_do_request()` で確かめる検証。`verify-rest.php` は
   Woo に `ZZV-UPSELL-*` の商品 4 件（うち 1 件は価格なし＝export で止まる）を作り、`cbjp_verify_seed.limits.product=2` で dry-run と export を走らせて、
   totals の `unchanged`・作った商品ごとの dry-run の明細（`VALID-*` は created、`NOPRICE` は skipped＋`product_price_invalid`。集計だけだと dev サイトの
-  既存商品が結果を隠すため）・上限で「未移行」が残ること・`/limits` の `pro_url`（既定は空、有効な URL はそのまま、
+  既存商品が結果を隠すため）・上限で「未移行」が残ること（export のサンプル `cbjp_export_sample_mockv` を作った 4 件に固定する。受注が 10 件以上ある
+  dev サイトでは受注の商品だけでサンプルが決まるため）・`/limits` の `pro_url`（既定は空、有効な URL はそのまま、
   不正な値は空）を PASS/FAIL で出す。最後に偽トークンで `mockv` を connected にし、Export タブで通知を目視する手順（localStorage に入れる run_id と、
   `pro_url` を切り替える `wp eval`）を出す。**前提**: `install mockv` 済み・前回の残りが無い（トークン・商品・状態オプションに加え、seed の `push`/`limits`/`pro_url` と
   mockv のサンプル・レート制限のオプションも数え、あれば先頭で中止。push-intent-resolution も `push` を使うため）。

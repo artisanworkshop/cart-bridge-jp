@@ -124,6 +124,8 @@ $left = [
 	'logs'      => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_logs WHERE context_json LIKE %s", $like ) ),
 	'seed_keys' => is_array( $seed_after ) ? count( array_intersect( [ 'push', 'limits', 'pro_url' ], array_keys( $seed_after ) ) ) : 0,
 	'state'     => false !== get_option( $state_name, false ) ? 1 : 0,
+	// 上で消したサンプル・レート制限のオプション（`delete_option()` の失敗を見逃さない。PR #88 G2-2）。
+	'options'   => count( array_filter( [ 'cbjp_export_sample_' . $platform, 'cbjp_sample_' . $platform, 'cbjp_rate_limit_' . $platform ], static fn ( string $option ): bool => false !== get_option( $option, false ) ) ),
 ];
 // phpcs:enable
 echo 'left: ' . wp_json_encode( $left ) . "\n";

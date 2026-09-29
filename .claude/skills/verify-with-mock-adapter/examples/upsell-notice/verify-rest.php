@@ -16,6 +16,8 @@
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
+use CartBridgeJP\Sync\ExportSampleSelector;
+use CartBridgeJP\Sync\ExportSampleSet;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\WarningCode;
@@ -264,6 +266,11 @@ foreach ( $ids as $id ) {
 $check( '2 unchanged は skipped の内訳（skipped 以下）', (int) ( $t['unchanged'] ?? 0 ) <= (int) ( $t['skipped'] ?? 0 ), wp_json_encode( $t ) );
 
 // ---- 3) export: 上限 2 で止まり、「未移行」が残る ----
+// 無料版の export は `ExportSampleSelector` のサンプルだけを対象にする。受注が 10 件以上ある dev サイトでは受注の商品だけで決まり、作った商品が
+// 入る保証が無い（別の商品が止まっていれば used が 0 になり、正しい挙動でも落ちる）。サンプルを作った 4 件に固定する（PR #88 G2-1）。
+// 開始前の残り検査がこのオプションの不在を確かめており、cleanup.php が消す。
+update_option( ExportSampleSelector::option_name_for( $platform ), ( new ExportSampleSet( [], $ids, [], false ) )->to_array(), false );
+
 $exp = $run( 'export' );
 
 if ( isset( $exp['error'] ) ) {
@@ -275,7 +282,9 @@ $product_limit = $limits['entities']['product'];
 $used          = (int) ( $product_limit['used'] ?? 0 );
 $not_migrated  = max( 0, $migratable - $used );
 $check( '3 /limits の product は seed の上限 2 を返す（無料版のまま）', 2 === ( $product_limit['limit'] ?? null ) && false === ( $product_limit['unlocked'] ?? null ), wp_json_encode( $product_limit ) );
-$check( '3 export は上限を超えて作らない（used は 1〜2）', $used >= 1 && $used <= 2, "used={$used} export=" . wp_json_encode( $exp['totals'] ) );
+$e = $exp['totals'];
+$check( '3 export はサンプルの 4 件だけを処理する', 4 === (int) ( $e['processed'] ?? -1 ), wp_json_encode( $e ) );
+$check( '3 export は上限 2 で止まる（作成 2、used 2）', 2 === (int) ( $e['created'] ?? -1 ) && 2 === $used, "used={$used} export=" . wp_json_encode( $e ) );
 $check( '3 「未移行」（移行できる件数 − used）が 1 件以上残る＝通知の行が出る', $not_migrated >= 1, "migratable={$migratable} used={$used}" );
 
 // ---- 4) pro_url: 既定は ''、有効な URL はそのまま、不正な値は '' ----
