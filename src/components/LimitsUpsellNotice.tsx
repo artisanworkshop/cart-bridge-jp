@@ -28,34 +28,36 @@ interface Props {
  */
 function lineMessage( line: UpsellLineData, label: string ): string {
 	switch ( line.kind ) {
-		case 'breakdown': {
-			const summary = sprintf(
-				/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet */
-				__(
-					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet.',
+		case 'breakdown':
+			// 文の区切り・語順を翻訳者が決められるよう、「移行できない」の有無ごとに 1 つの文字列にする（R1-2）。
+			if ( 0 === line.blocked ) {
+				return sprintf(
+					/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet */
+					__(
+						'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet.',
+						'cart-bridge-jp'
+					),
+					label,
+					line.found,
+					line.migrated,
+					line.notMigrated
+				);
+			}
+
+			return sprintf(
+				/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price) */
+				_n(
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report for the reason.',
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report for the reasons.',
+					line.blocked,
 					'cart-bridge-jp'
 				),
 				label,
 				line.found,
 				line.migrated,
-				line.notMigrated
-			);
-
-			if ( 0 === line.blocked ) {
-				return summary;
-			}
-
-			return `${ summary } ${ sprintf(
-				/* translators: %d: count of items that cannot be migrated in any version (for example, a missing price) */
-				_n(
-					'%d cannot be migrated as is. See the preview (dry-run) report for the reason.',
-					'%d cannot be migrated as is. See the preview (dry-run) report for the reasons.',
-					line.blocked,
-					'cart-bridge-jp'
-				),
+				line.notMigrated,
 				line.blocked
-			) }`;
-		}
+			);
 		case 'dependent':
 			return sprintf(
 				/* translators: 1: entity label (stock or reviews), 2: item count found by the preview (dry run), 3: count already migrated */

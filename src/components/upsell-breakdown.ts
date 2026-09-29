@@ -81,13 +81,34 @@ function isEntityRestricted( entity: EntityType, limits: Limits ): boolean {
 }
 
 /**
+ * 紐付け先の商品に「移行できるが未移行」が残っているか。商品の内訳が分からない（dry-run が無い・
+ * 導入前のジョブ）ときは判断できないため true（在庫・レビューの行を出す）に倒す。
+ * @param limits
+ * @param dryRunTotals
+ */
+function productsMayRemain(
+	limits: Limits,
+	dryRunTotals: DryRunTotals | null
+): boolean {
+	const product = dryRunTotals?.product;
+
+	if ( ! product || null === product.migratable ) {
+		return true;
+	}
+
+	return product.migratable - ( limits.entities.product?.used ?? 0 ) > 0;
+}
+
+/**
  * 1 エンティティ分の案内行。出さない場合は `null`。
  *
  * - 数値上限のあるエンティティで内訳が分かる: 「移行できるが未移行」（`migratable − used`）が
  *   1 件以上のときだけ、「どの版でも移行できない」（`processed − migratable`）を併記して出す。
  *   未移行が 0 件なら出さない（移行できない件数は dry-run の結果・CSV に出ている）。
  * - 内訳が分からない（dry-run が無い・導入前のジョブ）: 上限に達しているときだけ出す。
- * - 在庫・レビュー: 内訳を出さず、dry-run の件数が移行済み数を上回るときだけ出す。
+ * - 在庫・レビュー: 内訳を出さず、dry-run の件数が移行済み数を上回り、かつ紐付け先の商品に
+ *   未移行が残っている（または商品の内訳が分からない）ときだけ出す。商品を移行し終えた後に残る在庫は
+ *   止まる商品（価格未設定など）の分で、どの版でも移行できないため（R1-1。#55 と同じ誤表示を在庫で防ぐ）。
  *
  * `used`（mappings＋未解決の push intent の累積。`LimitPolicy::used()`）は、後から止まる状態に
  * なった移行済みの実体なども含むため、差は近似で 0 を下限にする。
@@ -110,7 +131,9 @@ export function buildUpsellLineData(
 	const totals = dryRunTotals?.[ entity ];
 
 	if ( DEPENDENT_ENTITIES.includes( entity ) ) {
-		return totals && totals.processed > used
+		return totals &&
+			totals.processed > used &&
+			productsMayRemain( limits, dryRunTotals )
 			? {
 					entity,
 					kind: 'dependent',
@@ -147,10 +170,12 @@ export function buildUpsellLineData(
 /**
  * Pro 版の案内先の多重防御（サーバー側の `LimitPolicy::pro_url()` が検証済み）。http/https で
  * host のある URL だけを正規化した形で返し、それ以外は `''`（Pro 版に触れない）。
+ * サーバーと同じく `https:example.com` のような `//` の無い形は拒否する（`URL` は `https://example.com/`
+ * に補って通すため。R1-4）。
  * @param value
  */
 export function sanitizeProUrl( value: unknown ): string {
-	if ( 'string' !== typeof value || '' === value.trim() ) {
+	if ( 'string' !== typeof value || ! /^https?:\/\//i.test( value.trim() ) ) {
 		return '';
 	}
 

@@ -223,7 +223,8 @@ final class JobRepository {
 	 * `unchanged` は `skipped` の内訳: checksum 一致（変更なし）で書かなかった件数（issue #55）。
 	 * dry-run の `created + updated + unchanged` が「移行できる件数」になり、Pro 案内
 	 * （`LimitsUpsellNotice`）が「移行できるが未移行」と「どの版でも移行できない」を分けるのに使う。
-	 * 導入前に作られたジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。
+	 * 導入前に完了したジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。導入をまたいで続いた
+	 * ジョブは、`JobManager::decode_totals()` がこの既定値をマージするため、導入前のページ分が 0 のまま載る（既知の制限）。
 	 *
 	 * @return array{total:int,processed:int,created:int,updated:int,skipped:int,unchanged:int,warned:int,failed:int,remote_amount:int}
 	 */

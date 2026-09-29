@@ -90,7 +90,7 @@ export interface JobTotals {
 	/**
 	 * `skipped` の内訳: checksum 一致（変更なし）で書かなかった件数（issue #55）。dry-run の
 	 * `created + updated + unchanged` が「移行できる件数」になる（`upsell-breakdown.ts`）。
-	 * 導入前に作られたジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。
+	 * 導入前に完了したジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。
 	 */
 	unchanged?: number;
 	warned: number;

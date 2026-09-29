@@ -184,6 +184,38 @@ describe( 'buildUpsellLineData', () => {
 		} );
 	} );
 
+	it( 'shows stock while products that can be migrated remain', () => {
+		expect(
+			buildUpsellLineData(
+				'stock',
+				makeLimits( { product: { used: 2 }, stock: { used: 2 } } ),
+				{
+					product: { processed: 9, migratable: 4 },
+					stock: { processed: 9, migratable: 2 },
+				}
+			)
+		).toEqual( {
+			entity: 'stock',
+			kind: 'dependent',
+			found: 9,
+			migrated: 2,
+		} );
+	} );
+
+	// R1-1: 商品を移行し終えた後に残る在庫は止まる商品の分で、どの版でも移行できない。
+	it( 'shows nothing for stock once every product that can be migrated is migrated', () => {
+		expect(
+			buildUpsellLineData(
+				'stock',
+				makeLimits( { product: { used: 4 }, stock: { used: 4 } } ),
+				{
+					product: { processed: 9, migratable: 4 },
+					stock: { processed: 9, migratable: 4 },
+				}
+			)
+		).toBeNull();
+	} );
+
 	it( 'shows nothing for stock once every previewed item is migrated', () => {
 		expect(
 			buildUpsellLineData(
@@ -237,6 +269,9 @@ describe( 'sanitizeProUrl', () => {
 		[ 'ftp://example.com/pro' ],
 		[ '//example.com/pro' ],
 		[ 'example.com/pro' ],
+		// サーバーの `LimitPolicy::pro_url()` と同じく `//` の無い形は拒否する（`URL` は補って通す。R1-4）。
+		[ 'https:example.com/pro' ],
+		[ 'https:/example.com/pro' ],
 		[ null ],
 		[ undefined ],
 		[ 1 ],
