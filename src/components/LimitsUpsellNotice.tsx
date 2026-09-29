@@ -30,6 +30,7 @@ function lineMessage( line: UpsellLineData, label: string ): string {
 	switch ( line.kind ) {
 		case 'breakdown':
 			// 文の区切り・語順を翻訳者が決められるよう、「移行できない」の有無ごとに 1 つの文字列にする（R1-2）。
+			// 案内先に Logs タブも挙げる: remote_id 欠損のように dry-run の CSV に行を作れない項目は Logs にだけ残る（PR #87 G1-3）。
 			if ( 0 === line.blocked ) {
 				return sprintf(
 					/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet */
@@ -47,8 +48,8 @@ function lineMessage( line: UpsellLineData, label: string ): string {
 			return sprintf(
 				/* translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price) */
 				_n(
-					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report for the reason.',
-					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report for the reasons.',
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reason.',
+					'%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reasons.',
 					line.blocked,
 					'cart-bridge-jp'
 				),

@@ -4,6 +4,7 @@ import {
 	buildUpsellLineData,
 	dryRunEntityTotals,
 	sanitizeProUrl,
+	withoutDryRunTotals,
 	type DryRunTotals,
 } from '../upsell-breakdown';
 
@@ -266,6 +267,37 @@ describe( 'buildUpsellLineData', () => {
 				category: { processed: 40, migratable: 10 },
 			} )
 		).toBeNull();
+	} );
+} );
+
+// PR #87 G1-1/G1-2: 新しい dry-run の一部のジョブが失敗しても、前回の件数が今回のものとして残らない。
+describe( 'withoutDryRunTotals', () => {
+	it( 'drops only the entities of the new preview and keeps the others', () => {
+		expect(
+			withoutDryRunTotals(
+				{
+					product: { processed: 9, migratable: 4 },
+					customer: { processed: 5, migratable: 5 },
+				},
+				[ 'product' ]
+			)
+		).toEqual( { customer: { processed: 5, migratable: 5 } } );
+	} );
+
+	it( 'keeps an unknown cache unknown', () => {
+		expect( withoutDryRunTotals( null, [ 'product' ] ) ).toBeNull();
+	} );
+
+	it( 'does not change the previous object', () => {
+		const previous: DryRunTotals = {
+			product: { processed: 9, migratable: 4 },
+		};
+
+		withoutDryRunTotals( previous, [ 'product' ] );
+
+		expect( previous ).toEqual( {
+			product: { processed: 9, migratable: 4 },
+		} );
 	} );
 } );
 

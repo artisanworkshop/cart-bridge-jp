@@ -36,6 +36,32 @@ export type UpsellLineData =
 	  };
 
 /**
+ * 新しい dry-run を始めたときに、その対象エンティティの前回の件数を捨てる（PR #87 G1-1/G1-2）。
+ * タブは dry-run の結果を前回値へマージして保持する（対象を絞った再 dry-run の後も、他エンティティの
+ * 件数を残すため）。そのまま、新しい dry-run の一部のジョブが失敗・キャンセルすると、そのエンティティには
+ * 前回の件数が残り、後の実行結果と組み合わさって古い内訳を今回のものとして表示してしまう。
+ * 開始時に捨てておけば、完了したジョブの分だけが入り直し、それ以外は内訳不明（フォールバック）になる。
+ * @param totals
+ * @param entities
+ */
+export function withoutDryRunTotals(
+	totals: DryRunTotals | null,
+	entities: Iterable< EntityType >
+): DryRunTotals | null {
+	if ( null === totals ) {
+		return null;
+	}
+
+	const next: DryRunTotals = { ...totals };
+
+	for ( const entity of entities ) {
+		delete next[ entity ];
+	}
+
+	return next;
+}
+
+/**
  * 在庫・レビューは数値上限を持たず、サンプル商品への紐付けで間接的に制限される
  * （D15/§10.2）。dry-run は対象商品が未移行だと在庫を全件スキップする
  * （`STOCK_PRODUCT_UNRESOLVED`/`STOCK_PRODUCT_NOT_EXPORTED`）ため、

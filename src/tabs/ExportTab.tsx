@@ -14,6 +14,7 @@ import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import {
 	dryRunEntityTotals,
+	withoutDryRunTotals,
 	type DryRunTotals,
 } from '../components/upsell-breakdown';
 import PushIntentsPanel from '../components/PushIntentsPanel';
@@ -783,6 +784,7 @@ export default function ExportTab() {
 			'dry_run_export' === type ? setDryRunExportState : setExportState;
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
+		const requestedEntities = Array.from( selectedExportEntities );
 
 		setRunStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -794,7 +796,7 @@ export default function ExportTab() {
 				data: {
 					type,
 					platform: requestedPlatform,
-					entities: Array.from( selectedExportEntities ),
+					entities: requestedEntities,
 					...( 'export' === type
 						? { acknowledge_production_write: true }
 						: {} ),
@@ -813,6 +815,14 @@ export default function ExportTab() {
 				// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
 				// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
 				setAcknowledgeProductionWrite( false );
+			}
+
+			// 新しいdry-runの対象エンティティは前回の件数を捨てる（`ImportTab.tsx`と同じ。
+			// `withoutDryRunTotals()`参照。PR #87 G1-1）。
+			if ( 'dry_run_export' === type ) {
+				setDryRunTotals( ( prev ) =>
+					withoutDryRunTotals( prev, requestedEntities )
+				);
 			}
 
 			setState( ( prev ) => ( {

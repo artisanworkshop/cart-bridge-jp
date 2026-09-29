@@ -14,6 +14,7 @@ import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import {
 	dryRunEntityTotals,
+	withoutDryRunTotals,
 	type DryRunTotals,
 } from '../components/upsell-breakdown';
 import RunProgress from '../components/RunProgress';
@@ -347,6 +348,7 @@ export default function ImportTab() {
 		// 旧プラットフォームのrun_idを紛れ込ませない（localStorageへは引き続き
 		// 旧プラットフォームのキーで保存し、後で切り戻したときに発見できるようにする）。
 		const requestedPlatform = platform;
+		const requestedEntities = Array.from( selectedEntities );
 
 		setStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -358,7 +360,7 @@ export default function ImportTab() {
 				data: {
 					type,
 					platform: requestedPlatform,
-					entities: Array.from( selectedEntities ),
+					entities: requestedEntities,
 				},
 			} );
 
@@ -373,6 +375,14 @@ export default function ImportTab() {
 			// なるまで`limits`を自然に取り直さないため、明示的にリセットが必要）。
 			if ( 'import' === type ) {
 				setLimits( null );
+			}
+
+			// 新しいdry-runの対象エンティティは前回の件数を捨てる（一部のジョブが失敗・キャンセルしたとき、
+			// 前回の内訳が今回のものとして残らないように。`withoutDryRunTotals()`参照。PR #87 G1-2）。
+			if ( 'dry_run' === type ) {
+				setDryRunTotals( ( prev ) =>
+					withoutDryRunTotals( prev, requestedEntities )
+				);
 			}
 
 			setState( ( prev ) => ( {
