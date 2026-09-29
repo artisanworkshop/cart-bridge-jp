@@ -1545,6 +1545,10 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
        npm 版（28.x）と違って `rel` を付けない（実測）。
     9. 計算は純粋関数 `src/components/upsell-breakdown.ts` に置き、wp-scripts 同梱の Jest（`npm run test:js`。CI・`quality.sh` にも追加）で単体テストする。
        フロントの `sanitizeProUrl()` もサーバーと同じく `https:example.com` のような `//` の無い形を拒否する（`URL` は補って通すため。R1-4）。
+    10. タブは dry-run の件数を前回値へマージして保持する（対象を絞った再 dry-run の後も他エンティティの件数を残すため）。新しい dry-run を始めたら、
+        その対象エンティティの前回の件数を捨てる（`withoutDryRunTotals()`）。一部のジョブが失敗・キャンセルしたとき、前回の内訳が今回のものとして
+        残らないようにするため（PR #87 G1-1/G1-2）。「移行できない」の案内先は dry-run レポートと Logs タブ（remote_id 欠損のように CSV に行を
+        作れない項目は Logs にだけ残る。G1-3）。
     実機確認（mock アダプタ `mockv`、Export タブ）: dry-run 9 件（移行できる 4・止まる 5）→ 上限 2 の export で 2 件作成、の状態で
     「Products: 9 found by the preview, 2 migrated, 2 not migrated yet. 5 cannot be migrated as is. …」と表示（修正前なら「残り 7 件は Pro 版が必要」）。
     `pro_url` 空では Pro に触れず、設定時は見出しにリンク（`target="_blank" rel="noopener noreferrer"`）が付くことを確認した。
