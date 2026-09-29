@@ -463,8 +463,17 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
    0件の店舗で7回の`sales.json`呼び出し・1.7秒で下限に到達し全受注を取得した）
 2. 明細から商品 remote_id、購入者（email / remote_id）を抽出し重複排除（ゲスト購入は顧客枠にカウントしない）
 3. サンプルセットをオプション `cbjp_sample_{platform}`（autoload無効）に保存。再実行は同一セットの upsert
-4. 商品・顧客は **ID指定取得**（`fetchProductByRemoteId` / `fetchCustomerByRemoteId`）で取り込む
-   （全量カーソル走査してスキップする方式はレート制限を浪費するため不採用）。
+4. 商品・顧客・受注は **ID指定取得**（`fetchProductByRemoteId` / `fetchCustomerByRemoteId` /
+   `fetchOrderByRemoteId`）で取り込む（全量カーソル走査してスキップする方式はレート制限を浪費するため
+   不採用。受注はissue #38でこのリストから漏れていたことが判明し是正した。`fetchOrderByRemoteId`は
+   `after`/`before`省略時の直近7日制限〔要検証#14〕を受けない単一取得のため、要検証#18〔`ids`一括
+   取得の日付窓〕とは無関係に採用できる）。
+   **例外（受注のみ）**: `fetchOrderByRemoteId`はインターフェース契約上、未対応ASPが
+   `UnsupportedOperationException`を投げることを許容する（商品・顧客のID指定取得には無い許容）。
+   受注は`fetchOrders`（カーソル走査）自体が全アダプタ必須で代替経路が無いため、単一ID取得が
+   未対応のアダプタでは`JobManager`が通常のカーソル走査（`LimitPolicy`で上限は掛かる）へ
+   フォールバックする。商品・顧客はこの許容が無く、フォールバックも実装しない（issue #38 G2、
+   Copilot指摘）。
    カテゴリ/タグ/クーポンは通常のカーソル走査。
    **在庫はサンプル商品のID指定取得の結果（CanonicalProduct.stock）から書き込み**、`fetchStocks` の全量走査は無料版では使わない
 5. **フォールバック**: 受注0件のショップ・受注エンティティ未選択時は「各エンティティ10件」。

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriterFactory;
@@ -44,7 +45,7 @@ final class JobManager {
 	/**
 	 * サンプルID指定取得で取り込むエンティティ（D15 §10.2 #4）。
 	 */
-	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer' ];
+	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer', 'order' ];
 
 	/**
 	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-B: product/customer/order/stock/coupon）。
@@ -289,11 +290,32 @@ final class JobManager {
 
 		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
 			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$remote_ids = 'product' === $entity ? $sample->product_remote_ids : $sample->customer_refs;
-			$result     = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
+			$remote_ids = match ( $entity ) {
+				'product'  => $sample->product_remote_ids,
+				'customer' => $sample->customer_refs,
+				'order'    => $sample->order_remote_ids,
+			};
 
-			// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
-			return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
+			try {
+				$result = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
+
+				// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
+				return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
+			} catch ( UnsupportedOperationException $exception ) {
+				// `PlatformAdapter::fetch_order_by_remote_id()`の契約（docblock）は、未対応ASPが
+				// UnsupportedOperationExceptionを投げることを明示的に許容している（product/customerの
+				// ID指定取得には無い許容）。product/customerでこの経路に来ている時点で
+				// （customerは`can_fetch_customers=false`のアダプタが`filter_and_order_entities()`で
+				// 除外済みのため）ID指定取得は必須の前提であり、投げられた場合はアダプタの契約違反
+				// として下のThrowableのままジョブを失敗させる。
+				// orderだけは`fetch_orders()`自体は全アダプタ必須（他に代替経路が無い）で、単一ID
+				// 取得のみ任意というのが契約上の非対称のため、orderに限り下の通常カーソル走査
+				// （無料版でもLimitPolicyで上限は掛かる。ID指定取得が使えるアダプタより無駄な
+				// API呼び出しが増えるだけで安全側）へフォールバックする。
+				if ( 'order' !== $entity ) {
+					throw $exception;
+				}
+			}
 		}
 
 		if ( 'stock' === $entity && $sampling_active ) {

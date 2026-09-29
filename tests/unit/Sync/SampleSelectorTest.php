@@ -33,6 +33,88 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'cust-1', 'cust-2' ], $sample->customer_refs );
 	}
 
+	public function test_order_sample_is_capped_and_deduplicated_even_if_the_adapter_violates_the_limit_contract(): void {
+		// アーキテクチャ原則8（信頼境界）: `fetch_latest_orders( $limit )` の「最新$limit件」は
+		// ドキュメント上の契約でしかない。product/customerは連想配列（重複排除）+ array_slice
+		// （上限）で守られているが、issue #38まで`order_remote_ids`は誰にも読まれておらず
+		// この防御が抜けていた。契約に反して$limitを超えて重複ありで返すアダプタがいても、
+		// サンプルは上限件数のユニークなIDに収まること。
+		$orders = [ CanonicalFactory::order( '1001', null, [] ) ]; // 後段の1001と重複させる。
+		for ( $i = 1; $i <= 11; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		}
+
+		// 契約違反: fetch_latest_orders( $limit=10 ) が $limit を無視して12件（重複あり）返す。
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+	}
+
+	public function test_a_malformed_or_empty_numbered_order_from_the_adapter_does_not_abort_sample_selection(): void {
+		// review指摘（PR #86 G3, Copilot「Previously missed」）: `fetch_latest_orders()`の要素型は
+		// ドキュメント上の契約でしかない（`top_up_with_first_page()`の`instanceof`チェックと同じ
+		// 信頼境界）。非`CanonicalOrder`要素や`number`が空の要素を検証せずに`->number`へ
+		// アクセスすると、サンプル選定全体（product/customerの抽出も含む）が例外で落ちる。
+		$orders = [
+			'not-an-order', // 契約違反: CanonicalOrder以外の要素。
+			CanonicalFactory::order( '', null, [ 'p-empty' ] ), // number が空文字列。
+			CanonicalFactory::order( '1001', 'cust-1', [ 'p1' ] ),
+		];
+
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ '1001' ], $sample->order_remote_ids );
+		$this->assertSame( [ 'p1' ], $sample->product_remote_ids );
+		$this->assertSame( [ 'cust-1' ], $sample->customer_refs );
+	}
+
+	public function test_an_order_excluded_by_the_limit_does_not_contribute_products_or_customers(): void {
+		// review指摘（PR #86, Copilot）: 上限適用前の生の$ordersから商品・顧客を抽出すると、
+		// 受注サンプル自体からは除外される11件目（契約違反アダプタが返した超過分）の明細・購入者が
+		// 商品・顧客サンプルへ混入してしまう。正規化（重複排除＋上限）を商品・顧客抽出より前に行うこと。
+		$orders = [];
+		for ( $i = 1; $i <= 11; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), "cust-{$i}", [ "p{$i}" ] );
+		}
+
+		// 契約違反: fetch_latest_orders( $limit=10 ) が $limit を超えて11件返す。
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+		$this->assertNotContains( 'p11', $sample->product_remote_ids );
+		$this->assertNotContains( 'cust-11', $sample->customer_refs );
+	}
+
+	public function test_used_fallback_is_based_on_the_unique_order_count_not_the_raw_adapter_count(): void {
+		// review指摘（PR #86, Copilot）: $used_fallback を生の$orders件数（重複を含みうる）で
+		// 判定すると、重複込みで10件返す契約違反アダプタは「10件揃っている」と誤判定し、
+		// 実際はユニークな受注が9件しかないのに商品・顧客の補完（§10.2 #5後半）が働かない。
+		$orders = [ CanonicalFactory::order( '1001', null, [] ) ]; // 後段の1001と重複させる。
+		for ( $i = 1; $i <= 9; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		}
+		$this->assertCount( 10, $orders ); // 生のカウントは10件（重複1件を含む）。
+
+		$adapter = new MockPlatformAdapter( latest_orders_override: $orders );
+
+		$sample = ( new SampleSelector( $adapter ) )->select_or_load( 'mock' );
+
+		$this->assertCount( 9, $sample->order_remote_ids ); // ユニークな受注は9件。
+		$this->assertTrue( $sample->used_fallback );
+	}
+
 	public function test_falls_back_when_the_shop_has_no_orders(): void {
 		$adapter = new MockPlatformAdapter( orders: [] );
 
@@ -82,6 +164,50 @@ final class SampleSelectorTest extends WP_UnitTestCase {
 		$second = $selector->select_or_load( 'mock' );
 
 		$this->assertEquals( $first, $second );
+	}
+
+	public function test_load_normalizes_a_legacy_persisted_sample_with_an_over_limit_or_duplicate_order_list(): void {
+		// review指摘（PR #86 G2, Copilot）: 重複排除・上限（`unique_orders()`）は`select_and_persist()`
+		// （新規選定時）にしかなく、本PR以前に保存された、または契約違反アダプタが過去に保存した
+		// 永続サンプルを`load()`でそのまま返すとこの正規化をバイパスする。
+		update_option(
+			SampleSelector::option_name_for( 'mock' ),
+			[
+				'order_remote_ids'   => [ '1001', '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010', '1011' ],
+				'product_remote_ids' => [],
+				'customer_refs'      => [],
+				'used_fallback'      => false,
+			],
+			false
+		);
+
+		$sample = ( new SampleSelector( new MockPlatformAdapter() ) )->select_or_load( 'mock' );
+
+		$this->assertSame(
+			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
+			$sample->order_remote_ids
+		);
+	}
+
+	public function test_load_filters_out_empty_order_ids_from_a_corrupted_persisted_sample(): void {
+		// review指摘（PR #86 G3, Copilot）: `SampleSet::from_array()`は保存されていた`null`を
+		// `strval(null) === ''`で空文字列に変換しうる。空文字列を正規化前に除去しないと
+		// `fetch_order_by_remote_id('')`という無駄なAPI呼び出しが発生するうえ、10件の枠を
+		// 無効なIDに使ってしまい有効なIDが1件はみ出す。
+		update_option(
+			SampleSelector::option_name_for( 'mock' ),
+			[
+				'order_remote_ids'   => [ '', '1001', '1002', '', '1003' ],
+				'product_remote_ids' => [],
+				'customer_refs'      => [],
+				'used_fallback'      => false,
+			],
+			false
+		);
+
+		$sample = ( new SampleSelector( new MockPlatformAdapter() ) )->select_or_load( 'mock' );
+
+		$this->assertSame( [ '1001', '1002', '1003' ], $sample->order_remote_ids );
 	}
 
 	public function test_clear_allows_reselection(): void {

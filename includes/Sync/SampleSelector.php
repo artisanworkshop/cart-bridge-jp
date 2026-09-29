@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use Throwable;
@@ -47,7 +48,29 @@ final class SampleSelector {
 	public function load( string $platform ): ?SampleSet {
 		$stored = get_option( self::option_name_for( $platform ) );
 
-		return is_array( $stored ) ? SampleSet::from_array( $stored ) : null;
+		if ( ! is_array( $stored ) ) {
+			return null;
+		}
+
+		$sample = SampleSet::from_array( $stored );
+
+		// アダプタ拡張点の信頼境界（原則8）: `order_remote_ids`の重複排除・上限適用は
+		// `select_and_persist()`（新規選定時）の`unique_orders()`にしか無い。本PR以前に保存された、
+		// または契約違反アダプタが過去に保存したサンプルを`load()`でそのまま返すとこの正規化を
+		// バイパスする（issue #38 G2、Copilot指摘）。ここで読込み時にも同じ上限・重複排除を適用する
+		// （§10.2 #7「クリーンアップ→再選定」の原則に従い、保存済みoptionへは書き戻さずメモリ上でのみ
+		// 補正する）。壊れた・古い保存データは`SampleSet::from_array()`が`null`を`''`に変換しうる
+		// （issue #38 G3、Copilot指摘）ため、空文字列は重複排除・上限より前に取り除く。空文字列を
+		// 残すと`fetch_order_by_remote_id('')`という無駄なAPI呼び出しが発生するだけでなく、
+		// 10件の枠を無効なIDに使ってしまい有効なIDが1件はみ出す。
+		$order_ids = array_values( array_filter( $sample->order_remote_ids, static fn( string $id ): bool => '' !== $id ) );
+
+		return new SampleSet(
+			array_slice( array_values( array_unique( $order_ids ) ), 0, self::SAMPLE_ORDER_LIMIT ),
+			$sample->product_remote_ids,
+			$sample->customer_refs,
+			$sample->used_fallback
+		);
 	}
 
 	/**
@@ -59,7 +82,15 @@ final class SampleSelector {
 	}
 
 	private function select_and_persist( string $platform ): SampleSet {
-		$orders = $this->adapter->fetch_latest_orders( self::SAMPLE_ORDER_LIMIT );
+		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_latest_orders( $limit )` の
+		// 「最新$limit件」はドキュメント上の契約でしかなく、外部アダプタが$limit件を超えて返す・
+		// 同じ受注を重複して返す可能性を排除できない。ここで最初に重複排除＋上限適用をすませて
+		// おかないと、下の商品・顧客抽出や`$used_fallback`の判定が生の（超過・重複ありうる）
+		// リストを見てしまう。例えば重複1件を含む10件は実際には9件のユニークな受注だが、
+		// `count($orders)`だけを見ると10件と誤認して受注不足時の補完（§10.2 #5後半）が働かない。
+		// 逆に11件目（本来は受注サンプルから除外されるべき）の明細・購入者が商品・顧客サンプルに
+		// 混入することも防ぐ。
+		$orders = $this->unique_orders( $this->adapter->fetch_latest_orders( self::SAMPLE_ORDER_LIMIT ) );
 
 		$order_remote_ids   = [];
 		$product_remote_ids = [];
@@ -113,6 +144,45 @@ final class SampleSelector {
 		$this->persist( $platform, $sample );
 
 		return $sample;
+	}
+
+	/**
+	 * `fetch_latest_orders( $limit )` の戻り値を、`number`（受注remote_id）でユニークな先頭
+	 * `SAMPLE_ORDER_LIMIT`件に正規化する（アーキテクチャ原則8）。呼び出し側（`select_and_persist()`）が
+	 * 商品・顧客の抽出や`$used_fallback`の判定より前に必ずこれを通すことで、契約違反のアダプタが
+	 * 返した重複・超過分がそれらの計算に紛れ込むのを防ぐ。
+	 *
+	 * @param array<int,mixed> $orders `CanonicalOrder`の配列という型宣言はドキュメント上の契約でしか
+	 *   ないため、実引数は`mixed`要素を許容し内部で検証する（アーキテクチャ原則8）。
+	 * @return array<int,CanonicalOrder>
+	 */
+	private function unique_orders( array $orders ): array {
+		$seen   = [];
+		$unique = [];
+
+		foreach ( $orders as $order ) {
+			if ( count( $unique ) >= self::SAMPLE_ORDER_LIMIT ) {
+				break;
+			}
+
+			// アダプタ拡張点の信頼境界（原則8）: `fetch_latest_orders()`の要素型はドキュメント上の
+			// 契約でしかない（`top_up_with_first_page()`の`instanceof`チェックと同じ理由。issue #38
+			// G3、Copilot指摘）。非`CanonicalOrder`要素や空の`number`で`->number`にアクセス・
+			// mapping一意キーへ採用すると、例外でサンプル選定全体（product/customerの抽出も含む）が
+			// 落ちる、または空文字列がサンプルへ紛れ込む。
+			if ( ! $order instanceof CanonicalOrder || '' === $order->number ) {
+				continue;
+			}
+
+			if ( isset( $seen[ $order->number ] ) ) {
+				continue;
+			}
+
+			$seen[ $order->number ] = true;
+			$unique[]               = $order;
+		}
+
+		return $unique;
 	}
 
 	/**

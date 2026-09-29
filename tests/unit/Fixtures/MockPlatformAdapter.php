@@ -37,6 +37,12 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
+	 * `fetch_orders()`（受注のカーソル走査）の呼び出し回数。無料版サンプル実行時にこの
+	 * カーソル走査が呼ばれないことの検証に使う（issue #38）。
+	 */
+	public int $fetch_orders_calls = 0;
+
+	/**
 	 * `fetch_customer_by_remote_id()`/`fetch_order_by_remote_id()`の呼び出し履歴（`[entity, remote_id]`）。
 	 *
 	 * @var array<int,array{0:string,1:string}>
@@ -122,6 +128,9 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 * @param string                          $platform_id id() が返す値（既定 'mock'）。`Importer`/`Exporter`/`JobManager` は
 	 *   mapping・上限・サンプルのキーを登録キーではなく `$adapter->id()` から決めるため、`cbjp/adapters/register` に
 	 *   別のキー（例: `colorme`）で登録する手動検証（`verify-with-mock-adapter` スキル）では、そのキーと同じ値を渡す。
+	 * @param array<int,CanonicalOrder>|null   $latest_orders_override 指定すると fetch_latest_orders() が
+	 *   要求された `$limit` を無視してこの配列をそのまま返す（`$limit` 件を超えて返す・重複を返す等、
+	 *   契約違反アダプタのシナリオのテスト用。`SampleSelector`が防御的に上限・重複排除しているかの検証に使う）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -139,7 +148,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		private readonly ?CanonicalCustomer $customer_by_remote_id_override = null,
 		private readonly ?CanonicalOrder $order_by_remote_id_override = null,
 		private readonly ?\Throwable $create_push_failure = null,
-		private readonly string $platform_id = 'mock'
+		private readonly string $platform_id = 'mock',
+		private readonly ?array $latest_orders_override = null
 	) {}
 
 	public function id(): string {
@@ -195,6 +205,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_orders( Cursor $cursor ): Page {
+		++$this->fetch_orders_calls;
+
 		return $this->paginate( $this->orders, $cursor );
 	}
 
@@ -225,6 +237,10 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 * 新しい順（配列の先頭から）$limit 件を返す。
 	 */
 	public function fetch_latest_orders( int $limit ): array {
+		if ( null !== $this->latest_orders_override ) {
+			return $this->latest_orders_override;
+		}
+
 		return array_slice( $this->orders, 0, $limit );
 	}
 
