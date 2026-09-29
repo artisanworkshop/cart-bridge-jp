@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
@@ -303,6 +304,45 @@ final class JobManagerTest extends WP_UnitTestCase {
 			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
 			array_column( $order_fetches, 1 )
 		);
+	}
+
+	public function test_order_sample_falls_back_to_cursor_walk_when_the_adapter_cannot_fetch_a_single_order(): void {
+		// Codex/Copilot指摘（PR #86 review）: `PlatformAdapter::fetch_order_by_remote_id()`の契約
+		// （docblock）は未対応ASPが `UnsupportedOperationException` を投げることを明示的に許容している
+		// （product/customerのID指定取得には無い許容）。orderは`fetch_orders()`自体は全アダプタ必須で
+		// 代替経路が無いため、単一ID取得だけが使えないアダプタでも受注インポート自体は通常のカーソル
+		// 走査で継続できなければならない（product/customerと違い、entity自体を除外してはいけない）。
+		$orders = [];
+		for ( $i = 1; $i <= 15; $i++ ) {
+			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		}
+
+		$adapter = new MockPlatformAdapter(
+			orders: $orders,
+			fetch_by_id_failure: new UnsupportedOperationException( 'mock', 'fetch_order_by_remote_id' )
+		);
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) use ( $adapter ) {
+				$adapters[ $adapter->id() ] = $adapter;
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$writer  = new InMemoryWriter();
+		$manager = $this->make_manager( $writer );
+
+		$run_id = $manager->start_run( 'import', 'mock', [ 'order' ] );
+		$manager->run_to_completion( $run_id );
+
+		$job = $this->jobs->find_by_run( $run_id )[0];
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
+		// order のデフォルト上限は10件（D15/§10.2）。ID指定取得が使えず通常のカーソル走査
+		// （LimitPolicyが上限をかける）にフォールバックしても、結果は同じ10件になる。
+		$this->assertSame( 10, $this->mappings->count( 'mock', 'order' ) );
+		$this->assertGreaterThan( 0, $adapter->fetch_orders_calls );
 	}
 
 	public function test_pro_filter_removes_the_order_limit(): void {
