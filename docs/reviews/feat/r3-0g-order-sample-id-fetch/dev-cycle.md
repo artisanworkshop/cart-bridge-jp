@@ -2,7 +2,7 @@
 - タスク: R3-0g 受注のサンプルインポートを ID 指定取得にする（issue #38）
 - 開始: 2026-09-29
 - PR: #86 https://github.com/artisanworkshop/cart-bridge-jp/pull/86
-- 現在のステップ: 8（最終報告作成へ。Copilot依頼上限3回到達、Codex収束済み。以後どちらにも依頼しない）
+- 現在のステップ: 完了（final-report.md 作成済み）
 - Copilot: 依頼 3 回（上限） / G3-1・G3-2 修正済み
 - Codex: 依頼 2 回 / 収束（G2で新規指摘0件）
 
