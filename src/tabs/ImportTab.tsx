@@ -12,6 +12,10 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
+import {
+	dryRunEntityTotals,
+	type DryRunTotals,
+} from '../components/upsell-breakdown';
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
 import { ENTITY_LABELS } from '../entity-labels';
@@ -117,9 +121,9 @@ export default function ImportTab() {
 	const [ importState, setImportState ] = useState< RunSectionState >(
 		initialRunSectionState()
 	);
-	const [ dryRunTotals, setDryRunTotals ] = useState< Partial<
-		Record< EntityType, number >
-	> | null >( null );
+	const [ dryRunTotals, setDryRunTotals ] = useState< DryRunTotals | null >(
+		null
+	);
 	const [ limits, setLimits ] = useState< Limits | null >( null );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
@@ -194,18 +198,18 @@ export default function ImportTab() {
 	const importTerminal =
 		null !== importPolling.run && isRunTerminal( importPolling.run );
 
-	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」をキャッシュする。
-	// サンプリングを行わない全量走査なので processed がそのまま総数になる。
+	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」と「移行できる件数」をキャッシュする。
+	// サンプリングを行わない全量走査なので processed がそのまま総数になる（内訳は`dryRunEntityTotals()`。issue #55）。
 	useEffect( () => {
 		if ( ! dryRunPolling.run || ! dryRunTerminal ) {
 			return;
 		}
 
-		const totals: Partial< Record< EntityType, number > > = {};
+		const totals: DryRunTotals = {};
 
 		for ( const job of dryRunPolling.run.jobs ) {
 			if ( 'completed' === job.status ) {
-				totals[ job.entity ] = job.totals.processed;
+				totals[ job.entity ] = dryRunEntityTotals( job.totals );
 			}
 		}
 
