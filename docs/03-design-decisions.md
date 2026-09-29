@@ -1522,10 +1522,14 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
   - **実装（R3-0h、issue #55）**: 上の決定からの差と実装の要点。
     1. `unchanged` は `skipped` の内訳（`skipped` の意味は変えない）。`Importer`/`Exporter` の checksum 一致スキップの分岐だけで数える。
        `Exporter` は blocking 判定が checksum 一致より先なので、移行済みの実体が後から止まる状態になっても「移行できる」には入らない。
-       導入前のジョブの `totals_json` には無く（`GET /runs/{id}` は生の JSON を返す）、フロントは内訳不明として扱う。
+       導入前に完了したジョブの `totals_json` には無く（`GET /runs/{id}` は生の JSON を返す）、フロントは内訳不明として扱う。
+       導入（プラグイン更新）をまたいで続いたジョブは、`JobManager::decode_totals()` が `empty_totals()` をマージするため導入前のページ分が 0 のまま
+       `unchanged` が載り、「移行できない」が過大になる（既知の制限。更新と長い dry-run が重なったときだけ。R1-3）。
     2. **在庫・レビューは内訳を出さない**（計画時に決定）: dry-run は対象商品が未移行だと在庫を全件スキップする
        （`STOCK_PRODUCT_UNRESOLVED`／`STOCK_PRODUCT_NOT_EXPORTED`）ため、式どおりだと商品を移行すれば移行できる在庫まで「移行できない」と
-       表示してしまう。「プレビューで N 件、移行済み M 件。サンプル商品の分だけ移行します」とだけ示す（dry-run の件数が移行済み数を上回るとき）。
+       表示してしまう。「プレビューで N 件、移行済み M 件。サンプル商品の分だけ移行します」とだけ示す（dry-run の件数が移行済み数を上回り、
+       かつ商品に「移行できるが未移行」が残っている〔商品の内訳が不明なときも出す〕とき。商品を移行し終えた後に残る在庫は止まる商品の分で、
+       どの版でも移行できないため。R1-1 で追加）。
     3. **「未移行」が 0 件なら行を出さない**（計画時に決定）。「移行できない」件数は未移行がある行に併記する（dry-run の結果・CSV には既に出ている）。
     4. Pro への言及は見出しだけに置き、各行は `pro_url` の有無によらず同じ中立文言にする。見出しは `pro_url` 有効時「無料版はサンプルを移行します。
        未移行の分も Pro 版で移行できます」＋リンク、空なら「無料版はサンプルを移行します」だけ。
@@ -1540,6 +1544,7 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
     8. リンクは `ExternalLink` に `rel="noopener noreferrer"` を明示する。WP 7.1 コア同梱の `wp-components`（実行時に使われる）の `ExternalLink` は
        npm 版（28.x）と違って `rel` を付けない（実測）。
     9. 計算は純粋関数 `src/components/upsell-breakdown.ts` に置き、wp-scripts 同梱の Jest（`npm run test:js`。CI・`quality.sh` にも追加）で単体テストする。
+       フロントの `sanitizeProUrl()` もサーバーと同じく `https:example.com` のような `//` の無い形を拒否する（`URL` は補って通すため。R1-4）。
     実機確認（mock アダプタ `mockv`、Export タブ）: dry-run 9 件（移行できる 4・止まる 5）→ 上限 2 の export で 2 件作成、の状態で
     「Products: 9 found by the preview, 2 migrated, 2 not migrated yet. 5 cannot be migrated as is. …」と表示（修正前なら「残り 7 件は Pro 版が必要」）。
     `pro_url` 空では Pro に触れず、設定時は見出しにリンク（`target="_blank" rel="noopener noreferrer"`）が付くことを確認した。
