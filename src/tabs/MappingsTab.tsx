@@ -84,12 +84,23 @@ export default function MappingsTab() {
 	}
 
 	if ( 0 === connectedPlatforms.length ) {
+		// 保存済みのトークンを復号できない「要再接続」は `connected` が false になるため、未接続と区別して案内する
+		// （CLAUDE.md: `connected` と `needs_reconnect` を組み合わせて見る）。
+		const needsReconnect = ( connections ?? [] ).some(
+			( c ) => c.needs_reconnect
+		);
+
 		return (
 			<p>
-				{ __(
-					'Connect a platform on the Connections tab before setting up mappings.',
-					'cart-bridge-jp'
-				) }
+				{ needsReconnect
+					? __(
+							'Reconnect the platform on the Connections tab before setting up mappings.',
+							'cart-bridge-jp'
+					  )
+					: __(
+							'Connect a platform on the Connections tab before setting up mappings.',
+							'cart-bridge-jp'
+					  ) }
 			</p>
 		);
 	}
@@ -103,7 +114,7 @@ export default function MappingsTab() {
 				<CardBody>
 					<p>
 						{ __(
-							'Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report.',
+							'Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set them up before importing orders. Orders imported while a method was unmapped are updated the next time they are imported.',
 							'cart-bridge-jp'
 						) }
 					</p>

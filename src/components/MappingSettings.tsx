@@ -223,7 +223,9 @@ function MappingSection( {
 
 										return (
 											<tr key={ source.id }>
-												<td>{ source.name }</td>
+												<th scope="row">
+													{ source.name }
+												</th>
 												<td>
 													<SelectControl
 														// 行の見出し（左の列）と同じ名前を読み上げ用のラベルにする

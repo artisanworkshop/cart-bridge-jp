@@ -117,7 +117,7 @@ export default function OrderMappingNotice( {
 			</ul>
 			<p>
 				{ __(
-					'Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report.',
+					'Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report. Set up the mappings before importing. Orders imported while a method was unmapped are updated the next time they are imported.',
 					'cart-bridge-jp'
 				) }
 			</p>

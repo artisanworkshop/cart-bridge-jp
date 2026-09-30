@@ -67,6 +67,9 @@ function ownMappedValue( map: unknown, key: string ): string | null {
  * 現在の WooCommerce 側の候補に存在するときだけ。候補に無い値（無効化・削除されたゲートウェイや
  * 配送方法インスタンス）は、インポート時に `Woo\Writer\OrderWriter` が実在チェックで未マッピング扱いに
  * 倒すため、ここでも未マッピングとして数える（フェイルクローズ）。
+ * 例外として、配送の値が方式だけの ID（例: `flat_rate`。REST へ直接 PUT したときだけ保存されうる）は、
+ * `MethodMap::shipping_method_exists()` は方式が登録されていれば使える値として受け付けるが、Woo 側の候補は
+ * `method:instance` 形式しか無いのでここでは未マッピングと数える（案内が出る側の食い違いで、安全側）。
  * @param sources ASP 側の候補
  * @param targets WooCommerce 側の候補
  * @param map     保存済みのマップ（ASP 側 ID → WooCommerce 側 ID）

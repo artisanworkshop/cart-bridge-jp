@@ -163,17 +163,20 @@
 	width: 100%;
 }
 
-.cbjp-mappings__table th {
+.cbjp-mappings__table thead th {
 	padding: 0 0.5em 0.5em 0;
 	text-align: start;
 }
 
+.cbjp-mappings__table tbody th,
 .cbjp-mappings__table td {
 	padding: 0.5em 0.5em 0.5em 0;
 	vertical-align: middle;
 }
 
-.cbjp-mappings__table td:first-child {
+.cbjp-mappings__table tbody th {
+	font-weight: 400;
+	text-align: start;
 	white-space: nowrap;
 }
 
