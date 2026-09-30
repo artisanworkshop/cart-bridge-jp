@@ -263,8 +263,9 @@ final class OrderWriterTest extends WooTestCase {
 
 	/**
 	 * R3-0n: `ORDER_LINE_VARIATION_UNMATCHED`は「mapping先が実在するvariable商品」のときだけ。mapping はあるが
-	 * 取り込んだ商品が Woo 側で削除された明細は、先にインポートし直せば解決しうるので従来どおり
-	 * `ORDER_LINE_PRODUCT_UNRESOLVED`（`ProductResolver::maps_to_variable_product()`の否定側）。
+	 * 取り込んだ商品が Woo 側で完全に削除された明細は、先にインポートし直せば解決しうるので従来どおり
+	 * `ORDER_LINE_PRODUCT_UNRESOLVED`（`ProductResolver::maps_to_variable_product()`の否定側。ゴミ箱の商品は
+	 * `wc_get_product()`が返すので実在する側に入る）。
 	 */
 	public function test_line_item_whose_mapped_variable_product_was_deleted_is_product_unresolved(): void {
 		$parent = new WC_Product_Variable();

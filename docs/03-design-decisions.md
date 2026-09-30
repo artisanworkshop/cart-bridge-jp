@@ -303,8 +303,9 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 1. 明細のSKU（無ければ remote product id → mappings）でWoo商品を解決
 2. 解決できた明細: 商品リンク付き line item（ただし価格・商品名は**注文時の値**を使用）
 3. 解決できない明細: 商品リンクなしのカスタム line item（注文時商品名・単価・数量）+ メタ `_cbjp_remote_product_id`。
-   警告は、mappings に無い（未取込み・ASP側で削除済み）か mapping 先の商品が Woo 側で削除済みなら `order_line_product_unresolved`、
-   実在する variable 商品でオプション値から variation を1件に特定できないなら `order_line_variation_unmatched`
+   警告は、mappings に無い（未取込み・ASP側で削除済み）か mapping 先の商品が Woo 側で完全に削除済みなら `order_line_product_unresolved`、
+   実在する variable 商品でオプション値から variation を1件に特定できないなら `order_line_variation_unmatched`（ゴミ箱の商品は `wc_get_product()` が
+   返すので「実在する」側に入る）
    （R3-0n。実店舗では受注後に商品のオプションの軸が増えていた）
 4. 合計・送料・手数料・割引はASP側の値をそのまま設定（Wooに再計算させない）
 5. 注文メタ: `_cbjp_platform`, `_cbjp_remote_order_number`, 未マッピングの決済/配送は `_cbjp_original_payment_method` 等に元名称を保存
