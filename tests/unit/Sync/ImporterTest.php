@@ -21,6 +21,7 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\InMemoryWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\WooRepositoryFactory;
 use WP_UnitTestCase;
 
 final class ImporterTest extends WP_UnitTestCase {
@@ -53,6 +54,59 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $writer->writes, 'checksum一致の1件は書き込まれない' );
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 350050, $result['totals']['remote_amount'], '1500.50 + 2000.00 を 1/100 単位で累積' );
+	}
+
+	/**
+	 * R3-0m: 決済方法が未マッピングのまま本取込みした受注は checksum を保存しない。そのため Mappings タブで設定した後の
+	 * dry-run は checksum 一致で検証を飛ばさずに検証し直し（警告だけが消えて直ったように見える、を防ぐ）、次回の本取込みで
+	 * 決済方法が付き直る。実 Writer（`WooRepositoryFactory`）で通して確かめる。
+	 */
+	public function test_order_imported_with_an_unmapped_payment_method_is_fixed_by_the_next_import(): void {
+		$order    = new CanonicalOrder(
+			'2001',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => 'Bank transfer',
+			],
+			[
+				'total'        => '1000',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			'2026-07-01T00:00:00+00:00',
+			null
+		);
+		$adapter  = new MockPlatformAdapter( orders: [ $order ] );
+		$factory  = new WooRepositoryFactory();
+		$importer = new Importer( $this->mappings );
+
+		$first = $importer->run_page( $adapter, $factory->for_platform( $adapter->id() ), 'order', Cursor::start(), false );
+
+		$this->assertSame( 1, $first['totals']['created'] );
+		$this->assertNull( $this->mappings->find_checksum( $adapter->id(), 'order', '2001' ), '未マッピングの受注は checksum を保存しない' );
+		$local_id = $this->mappings->find_local_id( $adapter->id(), 'order', '2001' );
+		$this->assertIsInt( $local_id );
+		$this->assertSame( '', wc_get_order( $local_id )->get_payment_method() );
+
+		update_option( 'cbjp_settings_' . $adapter->id(), [ 'payment_map' => [ 'pay-1' => 'bacs' ] ] );
+
+		$dry_run = $importer->run_page( $adapter, $factory->for_dry_run( $adapter->id() ), 'order', Cursor::start(), true );
+
+		$this->assertSame( 0, $dry_run['totals']['skipped'], '設定後の dry-run は checksum 一致で飛ばさず検証し直す' );
+		$this->assertSame( 1, $dry_run['totals']['updated'] );
+
+		$second = $importer->run_page( $adapter, $factory->for_platform( $adapter->id() ), 'order', Cursor::start(), false );
+
+		$this->assertSame( 1, $second['totals']['updated'] );
+		$this->assertSame( 'bacs', wc_get_order( $local_id )->get_payment_method() );
+		$this->assertNotNull( $this->mappings->find_checksum( $adapter->id(), 'order', '2001' ), '設定後は checksum を保存する' );
+
+		delete_option( 'cbjp_settings_' . $adapter->id() );
 	}
 
 	public function test_remote_amount_stays_zero_for_non_order_entities(): void {

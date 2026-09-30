@@ -659,7 +659,8 @@ final class WarningCode {
 	 * `Sync\Importer::process_items()`がchecksumをキャッシュしてよいか（`WriteResult::$fully_resolved`）
 	 * の判定に使う。ここに列挙するのは「参照先が後から解決可能になりうる」警告のみ:
 	 * category/tag/親カテゴリ・顧客参照・注文明細の商品参照が未解決のまま実体自体は保存された
-	 * ケース。`CUSTOMER_ACCOUNT_PROTECTED`（管理者アカウントとの衝突）のように解決される見込みが
+	 * ケースと、決済/配送方法のマッピングが後から設定されうるケース（R3-0m）。
+	 * `CUSTOMER_ACCOUNT_PROTECTED`（管理者アカウントとの衝突）のように解決される見込みが
 	 * ない終端状態はここに含めない（含めると、解決される可能性が無いのに毎回無駄に再処理される）。
 	 *
 	 * @param array<int,string> $warnings
@@ -681,6 +682,12 @@ final class WarningCode {
 			self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
 			// 作成が確定した後に処理が止まった場合の警告（Exporterが部分完了の例外から組み立てる）。
 			self::PUSH_INTERRUPTED_AFTER_CREATE,
+			// R3-0m: 決済/配送方法が未マッピングのまま取り込んだ受注。checksum をキャッシュすると、後から
+			// マッピングを設定しても checksum 一致で飛ばされ、受注は空の決済/配送方法のまま直らない（再 dry-run も
+			// 検証を飛ばして警告だけが消える）。キャッシュせず、次回のインポートで付け直させる。エクスポート方向では
+			// 未マッピングの受注は送信されない（`ColorMeAdapter::order_skip_warnings()`）ため、この判定に届かない。
+			self::PAYMENT_METHOD_UNMAPPED,
+			self::SHIPPING_METHOD_UNMAPPED,
 		];
 
 		foreach ( $warnings as $warning ) {
@@ -740,12 +747,14 @@ final class WarningCode {
 	 *   「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
 	 *   （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
 	 *   なため専用の判定を分ける。
-	 * - `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`は`payment_map`/`shipping_map`の未設定
-	 *   （または設定先のWoo決済/配送方法が実在しない）で付く。detail はインポート方向
-	 *   （`Woo\Writer\OrderWriter`）ではASP側のID、エクスポート方向（`ColorMeAdapter::push_order()`）では
-	 *   Woo側のIDだが、どちらも同じマップを設定すれば消えるため同じ注記にする（R3-0m）。
-	 *   両コードは`indicates_unresolved_reference()`の対象外なので、ここに加えても checksum キャッシュの
-	 *   判定は変わらない。
+	 * - `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`（R3-0m）: インポート方向（`Woo\Writer\OrderWriter`。
+	 *   detail はASP側のID）では`payment_map`/`shipping_map`の未設定、または設定先のWoo決済/配送方法が実在しない
+	 *   ときに付き、マップを設定すれば消える。dry-run の CSV に現れるのはこの方向だけ。エクスポート方向
+	 *   （`ColorMeAdapter::push_order()`。detail はWoo側のID）では、Woo受注に決済/配送方法そのものが無い（detail が空）
+	 *   ときや、逆引きが曖昧（複数のASP側IDが同じWoo側IDを指す）なときにも付き、マップを足すだけでは消えないことがある。
+	 *   ただしエクスポートの dry-run は警告を返さず、実エクスポートは dry-run 明細を書かないため、その注記が CSV に出る経路は無い。
+	 *   両コードは`indicates_unresolved_reference()`の対象でもあるが（checksum をキャッシュしない）、`note`は
+	 *   `indicates_pending_import()`より先にこちらで決まる。
 	 */
 	public static function indicates_mapping_required( string $warning ): bool {
 		$codes = [

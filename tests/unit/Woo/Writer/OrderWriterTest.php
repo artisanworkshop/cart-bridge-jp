@@ -1316,6 +1316,84 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( '銀行振込', $wc_order->get_payment_method_title() );
 	}
 
+	/**
+	 * R3-0m: 決済/配送方法が未マッピングのまま取り込んだ受注は checksum をキャッシュさせない（`fully_resolved`=false）。
+	 * キャッシュすると、後から Mappings タブで設定しても `Importer` の checksum 一致で飛ばされ、空の決済/配送方法のまま
+	 * 直らない（再 dry-run も検証を飛ばして警告だけが消える）。設定後に同じ受注を書き直すと付け直され、解決済みになる。
+	 */
+	public function test_unmapped_methods_are_not_fully_resolved_and_are_fixed_on_the_next_write(): void {
+		$zone = new WC_Shipping_Zone();
+		$zone->set_zone_name( 'R3-0m Zone' );
+		$zone->save();
+		$instance_id = $zone->add_shipping_method( 'flat_rate' );
+
+		$order = $this->make_order(
+			'1016',
+			'processing',
+			null,
+			[],
+			[
+				'method_id'   => 'ship-1',
+				'method_name' => '宅急便',
+			],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => '銀行振込',
+			]
+		);
+
+		$first = $this->make_writer()->write( $order, null );
+
+		$this->assertFalse( $first->fully_resolved );
+		$this->assertSame( '', wc_get_order( $first->local_id )->get_payment_method() );
+
+		update_option(
+			'cbjp_settings_colorme',
+			[
+				'payment_map'  => [ 'pay-1' => 'bacs' ],
+				'shipping_map' => [ 'ship-1' => "flat_rate:{$instance_id}" ],
+			]
+		);
+
+		$second   = $this->make_writer()->write( $order, $first->local_id );
+		$wc_order = wc_get_order( $second->local_id );
+
+		$this->assertSame( $first->local_id, $second->local_id );
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $second->operation );
+		$this->assertTrue( $second->fully_resolved, wp_json_encode( $second->warnings ) );
+		$this->assertSame( 'bacs', $wc_order->get_payment_method() );
+		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
+		$this->assertCount( 1, $shipping_items );
+		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
+
+		delete_option( 'cbjp_settings_colorme' );
+	}
+
+	/**
+	 * 決済だけ未マッピングでも checksum をキャッシュしない（配送だけの場合も同じ判定。`WarningCode::indicates_unresolved_reference()`）。
+	 */
+	public function test_payment_unmapped_alone_is_not_fully_resolved(): void {
+		$order = $this->make_order(
+			'1017',
+			'processing',
+			null,
+			[],
+			[],
+			[
+				'method_id'   => 'pay-1',
+				'method_name' => '銀行振込',
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+		$this->assertEmpty(
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+		);
+		$this->assertFalse( $result->fully_resolved );
+	}
+
 	public function test_mapped_payment_method_sets_woo_gateway_id_not_the_asp_raw_id(): void {
 		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ 'pay-1' => 'bacs' ] ] );
 

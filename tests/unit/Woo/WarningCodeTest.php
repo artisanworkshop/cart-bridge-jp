@@ -136,15 +136,16 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * R3-0m: 決済/配送の未マッピングを `indicates_mapping_required()` に加えても、checksum キャッシュの判定
-	 * （`indicates_unresolved_reference()`）とエクスポートの停止判定は変わらないことを固定する
-	 * （マッピングを後から設定しても、受注の再取込みは checksum ではなくマッピング変更後の dry-run で確かめる設計のまま）。
+	 * R3-0m: 決済/配送の未マッピングは checksum をキャッシュさせない（`indicates_unresolved_reference()` の対象）。
+	 * キャッシュすると、後からマッピングを設定しても checksum 一致で飛ばされ、取込み済みの受注が空の決済/配送方法の
+	 * まま直らない。エクスポートの停止判定とエクスポート方向の注記は変えない。
 	 */
-	public function test_payment_and_shipping_unmapped_do_not_change_checksum_or_export_blocking(): void {
+	public function test_payment_and_shipping_unmapped_are_unresolved_but_not_export_blocking(): void {
 		foreach ( [ WarningCode::PAYMENT_METHOD_UNMAPPED, WarningCode::SHIPPING_METHOD_UNMAPPED ] as $code ) {
 			$warning = WarningCode::with_detail( $code, 'pay-1' );
 
-			$this->assertFalse( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
+			$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
+			$this->assertTrue( WarningCode::indicates_unresolved_reference( [ 'sku_duplicate:X', $warning ] ), $code );
 			$this->assertFalse( WarningCode::indicates_pending_export( $warning ), $code );
 			$this->assertFalse( WarningCode::indicates_export_blocking( [ $warning ] ), $code );
 		}
