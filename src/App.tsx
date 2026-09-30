@@ -1,6 +1,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import ConnectionsTab from './tabs/ConnectionsTab';
+import MappingsTab from './tabs/MappingsTab';
 import ImportTab from './tabs/ImportTab';
 import ExportTab from './tabs/ExportTab';
 import LogsTab from './tabs/LogsTab';
@@ -11,6 +12,11 @@ const TABS = [
 		id: 'connections',
 		label: __( 'Connections', 'cart-bridge-jp' ),
 		Component: ConnectionsTab,
+	},
+	{
+		id: 'mappings',
+		label: __( 'Mappings', 'cart-bridge-jp' ),
+		Component: MappingsTab,
 	},
 	{
 		id: 'import',

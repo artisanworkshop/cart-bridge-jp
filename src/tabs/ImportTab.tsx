@@ -12,6 +12,7 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
+import OrderMappingNotice from '../components/OrderMappingNotice';
 import {
 	dryRunEntityTotals,
 	withoutDryRunTotals,
@@ -528,6 +529,14 @@ export default function ImportTab() {
 								/>
 							) ) }
 					</div>
+
+					{ platform && (
+						// 受注を選んでいるとき、未設定の決済/配送マッピングを案内する（R3-0m。案内だけで実行は止めない）。
+						<OrderMappingNotice
+							platform={ platform }
+							active={ selectedEntities.has( 'order' ) }
+						/>
+					) }
 
 					{ startError && (
 						<Notice

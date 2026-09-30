@@ -57,6 +57,15 @@
 	margin-top: 0.5em;
 }
 
+.cbjp-import__mapping-notice {
+	margin: 1em 0 0;
+}
+
+.cbjp-import__mapping-notice ul {
+	list-style: disc;
+	margin-left: 1.5em;
+}
+
 .cbjp-run-progress__toolbar {
 	align-items: center;
 	display: flex;
@@ -137,25 +146,39 @@
 	white-space: nowrap;
 }
 
-.cbjp-export__mapping-card + .cbjp-export__mapping-card {
+.cbjp-mappings__settings {
 	margin-top: 1.5em;
 }
 
-.cbjp-export__mapping-scroll {
+.cbjp-mappings__card + .cbjp-mappings__card {
+	margin-top: 1.5em;
+}
+
+.cbjp-mappings__scroll {
 	overflow-x: auto;
 }
 
-.cbjp-export__mapping-table {
+.cbjp-mappings__table {
+	border-collapse: collapse;
 	width: 100%;
 }
 
-.cbjp-export__mapping-table td {
+.cbjp-mappings__table th {
+	padding: 0 0.5em 0.5em 0;
+	text-align: start;
+}
+
+.cbjp-mappings__table td {
 	padding: 0.5em 0.5em 0.5em 0;
 	vertical-align: middle;
 }
 
-.cbjp-export__mapping-table td:first-child {
+.cbjp-mappings__table td:first-child {
 	white-space: nowrap;
+}
+
+.cbjp-mappings__actions {
+	margin-top: 1.5em;
 }
 
 .cbjp-export__actions {
