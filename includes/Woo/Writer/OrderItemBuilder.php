@@ -33,8 +33,8 @@ final class OrderItemBuilder {
 		$warnings          = [];
 		$sku               = Value::string( $line_item['sku'] ?? null );
 		$remote_product_id = Value::string( $line_item['remote_product_id'] ?? null );
-		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（注文時点の
-		// 値ではない）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
+		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（swagger の記述。実店舗の
+		// 古い受注では受注時点の値が返った例がある。R3-0n）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
 		// 購入だったかを一意に特定するための唯一の手がかりになる（`ProductResolver`参照）。
 		$option1_value = Value::string( $line_item['option1_value_current'] ?? null );
 		$option2_value = Value::string( $line_item['option2_value_current'] ?? null );
@@ -129,11 +129,16 @@ final class OrderItemBuilder {
 	}
 
 	/**
-	 * 数値として厳密に0か（`0`・`0.0`・`'0'`・`'0.00'`など）。欠損・非数値・`0.5`のような小数は偽。
+	 * 数値として厳密に0か（`0`・`0.0`・`'0'`・`'0.00'`・`'-0'`など）。欠損・非数値・`0.5`のような小数は偽。
+	 * 文字列は float へ変換せず書式で判定する: `'1e-400'`は`(float)`で`0.0`にアンダーフローし、0でない値が
+	 * 数量0・金額0の明細に化けて警告が消える（PR #90 G1）。指数表記・前後の空白も受けない（従来の数量1＋警告へ倒す）。
 	 */
 	private static function is_exact_zero( mixed $value ): bool {
-		return ( is_int( $value ) || is_float( $value ) || ( is_string( $value ) && is_numeric( $value ) ) )
-			&& 0.0 === (float) $value;
+		if ( is_int( $value ) || is_float( $value ) ) {
+			return 0.0 === (float) $value;
+		}
+
+		return is_string( $value ) && 1 === preg_match( '/\A[+-]?(?:0+(?:\.0*)?|\.0+)\z/', $value );
 	}
 
 	/**

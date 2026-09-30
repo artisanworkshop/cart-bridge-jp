@@ -199,6 +199,64 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		( new OrderTransformer() )->transform( $raw );
 	}
 
+	/**
+	 * PR #90 G1: 整数でない数量（swagger は integer）を切り捨てると、`0.4`が数量0に化けて`OrderItemBuilder`の
+	 * 「数量0・金額0の明細」（警告なし）に乗ってしまう。欠損・非数値と同じく注文全体を弾く。
+	 *
+	 * @dataProvider non_integer_quantity_provider
+	 */
+	public function test_non_integer_line_item_quantity_throws_instead_of_being_truncated( mixed $product_num ): void {
+		$raw                              = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['product_num'] = $product_num;
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function non_integer_quantity_provider(): array {
+		return [
+			'fraction below one' => [ 0.4 ],
+			'fraction as string' => [ '1.5' ],
+			'exponent as string' => [ '1e3' ],
+			'underflow to zero'  => [ '1e-400' ],
+		];
+	}
+
+	/**
+	 * PR #90 G1: `subtotal_price`の欠損・非数値を`'0'`に丸めない（`OrderItemBuilder`が明細合計0で「数量0・金額0の
+	 * 明細」を見分けるため）。null のまま運び、`OrderItemBuilder`が単価×数量で補う。
+	 *
+	 * @dataProvider unreadable_subtotal_provider
+	 */
+	public function test_unreadable_line_subtotal_is_null_not_zero( mixed $subtotal_price, bool $remove ): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		if ( $remove ) {
+			unset( $raw['details'][0]['subtotal_price'] );
+		} else {
+			$raw['details'][0]['subtotal_price'] = $subtotal_price;
+		}
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->line_items[0]['subtotal'] );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:bool}>
+	 */
+	public static function unreadable_subtotal_provider(): array {
+		return [
+			'missing'     => [ null, true ],
+			'null'        => [ null, false ],
+			'non-numeric' => [ 'abc', false ],
+		];
+	}
+
 	public function test_missing_line_item_unit_price_throws_instead_of_yielding_zero(): void {
 		// Cast::money()は欠損・非数値を無言で'0'に丸めるため、区別なく通すと小計・注文合計は
 		// 非ゼロなのに明細単価だけ0円という不整合な注文になり、返金・履歴レポートを壊す。

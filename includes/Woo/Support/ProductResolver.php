@@ -38,7 +38,9 @@ final class ProductResolver {
 	 *
 	 * `$option1_value`/`$option2_value`はASP側APIの「最新の商品情報」であり注文時点の値では
 	 * ない（オプション名変更後の受注では一致しないことがある）ため、一致しない場合も
-	 * フェイルクローズで未解決のままにする（捏造した一致を返さない）。
+	 * フェイルクローズで未解決のままにする（捏造した一致を返さない）。ただし実店舗の受注（R3-0n）では、
+	 * 受注後にオプションの軸が増えた商品の古い受注で受注時点の値（2軸目が null）が返った。どちらでも
+	 * 軸の数や値が合わなければ未解決になる（`OrderItemBuilder`は`ORDER_LINE_VARIATION_UNMATCHED`を付ける）。
 	 */
 	public function resolve_by_sku_or_remote_id( ?string $sku, ?string $remote_id, ?string $option1_value = null, ?string $option2_value = null ): ?WC_Product {
 		if ( null !== $sku ) {

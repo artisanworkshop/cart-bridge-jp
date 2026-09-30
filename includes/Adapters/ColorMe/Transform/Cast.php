@@ -62,6 +62,27 @@ final class Cast {
 	}
 
 	/**
+	 * `to_int_or_null()`と異なり、整数でない値（`0.4`・`'1.5'`・`'1e3'`）を切り捨てず`null`を返す。
+	 * 切り捨てると`product_num=0.4`が数量0に化け、`Woo\Writer\OrderItemBuilder`が数量0・金額0の
+	 * 明細として警告なしで残す経路に乗ってしまう（R3-0n。PR #90 G1）。
+	 */
+	public static function to_exact_int_or_null( mixed $value ): ?int {
+		if ( is_int( $value ) ) {
+			return $value;
+		}
+
+		if ( is_string( $value ) && 1 === preg_match( '/\A[+-]?\d{1,15}\z/', $value ) ) {
+			return (int) $value;
+		}
+
+		if ( is_float( $value ) && is_finite( $value ) && abs( $value ) < 1e15 && floor( $value ) === $value ) {
+			return (int) $value;
+		}
+
+		return null;
+	}
+
+	/**
 	 * `null` は `null` のまま返す（`(bool) null === false` にしてしまうと
 	 * 「未回答」と「いいえ」の区別がつかなくなる）。
 	 */

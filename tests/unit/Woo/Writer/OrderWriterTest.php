@@ -463,8 +463,8 @@ final class OrderWriterTest extends WooTestCase {
 	}
 
 	public function test_line_item_option_value_not_matching_any_variation_remains_unresolved(): void {
-		// `option1_value_current`はASP側APIの「最新の商品情報」であり注文時点の値ではない
-		// （オプション名変更後の受注では一致しないことがある）。捏造した一致を返さず、
+		// `option1_value_current`はASP側APIの「最新の商品情報」（swagger の記述。実店舗の古い受注では受注時点の
+		// 値だった例もある。R3-0n）で、オプション名変更後の受注では一致しないことがある。捏造した一致を返さず、
 		// 従来どおり未解決としてフェイルクローズすることを確認する。
 		$this->make_variable_product(
 			'vp-nomatch',
@@ -899,7 +899,28 @@ final class OrderWriterTest extends WooTestCase {
 			'zero with a non-numeric total' => [ 0, 'abc' ],
 			'fraction truncated to zero'    => [ 0.5, '0' ],
 			'string fraction'               => [ '0.4', '0' ],
+			// PR #90 G1: float へ変換すると 0 にアンダーフローする値・指数表記・空白付きは数量0として受けない。
+			'quantity underflowing to zero' => [ '1e-400', '0' ],
+			'subtotal underflowing to zero' => [ 0, '1e-400' ],
+			'zero in exponent notation'     => [ '0e0', '0' ],
+			'zero with surrounding space'   => [ 0, ' 0' ],
 		];
+	}
+
+	/**
+	 * PR #90 G1: ColorMe の`subtotal_price`が欠損した`product_num=0`の明細は、変換層が小計を`'0'`に丸めなくなった
+	 * ので「数量0・金額0の明細」にはならず、従来どおり数量1＋`ORDER_LINE_QUANTITY_INVALID`になる（変換層→writer）。
+	 */
+	public function test_colorme_zero_quantity_line_without_a_subtotal_is_not_a_zero_line(): void {
+		$raw_sale = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+		unset( $raw_sale['details'][0]['subtotal_price'] );
+
+		$result   = $this->make_writer()->write( ( new OrderTransformer() )->transform( $raw_sale ), null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 1, $items[0]->get_quantity() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, '900000051' ), $result->warnings );
 	}
 
 	public function test_reduced_rate_tax_class_not_configured_falls_back_to_standard(): void {

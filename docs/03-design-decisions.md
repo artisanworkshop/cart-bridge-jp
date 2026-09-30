@@ -314,9 +314,10 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 **数量0の明細（R3-0n、2026-09-30 決定）**: ColorMe はキャンセルした受注の全明細と、一部を外した明細を `product_num=0`・`subtotal_price=0` にする
 （単価は残る）。解決できた明細・できない明細のどちらでも、Woo 層（`Woo\Writer\OrderItemBuilder`）が受け取る数量と明細合計が数値として厳密に0なら、
 数量0・金額0のまま警告なしで残す（以前は数量1に倒して `order_line_quantity_invalid` と、その副作用の `order_line_tax_inconsistent` が付いていた）。
-欠損・負数・小数・「数量0だが金額あり」は従来どおり数量1＋`order_line_quantity_invalid`。ただし ColorMe の変換層は `subtotal_price` の欠損・非数値を
-`Cast::money()` で `'0'` に、小数の `product_num` を整数に丸めるので、ColorMe の受注では「`product_num=0` で小計が欠損」も数量0の明細になる
-（swagger 上、小計は販売価格×点数の整数なので実害は無い）。エクスポート方向（`Woo\Reader\OrderReader`）は変えず、数量0の明細は引き続き
+欠損・負数・小数・「数量0だが金額あり」は従来どおり数量1＋`order_line_quantity_invalid`。文字列の0は float へ変換せず書式で判定する
+（`'1e-400'` のようにアンダーフローで0になる値・指数表記・空白付きは受けない）。この判定を変換層で崩さないよう、ColorMe の変換層は
+`subtotal_price` の欠損・非数値を `'0'` に丸めず null のまま運び（`Cast::money_or_null()`。Woo 層が単価×数量で補う）、整数でない `product_num` は
+欠損と同じく受注ごと弾く（`Cast::to_exact_int_or_null()`。PR #90 G1）。エクスポート方向（`Woo\Reader\OrderReader`）は変えず、数量0の明細は引き続き
 `order_line_quantity_invalid`（blocking）で止める。取り込んだ受注は元々 `order_update_not_supported` で送られないので送信内容は変わらないが、
 エクスポートの dry-run では、従来 `updated`（移行できる件数）に数えていた該当受注が `skipped`（警告付き）になる
 

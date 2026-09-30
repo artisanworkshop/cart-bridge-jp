@@ -523,13 +523,15 @@ final class OrderTransformer {
 				throw new RuntimeException( 'ColorMe sale detail is not a valid array; cannot determine line items.' );
 			}
 
-			$quantity = Cast::to_int_or_null( $detail['product_num'] ?? null );
+			// 整数でない数量（swagger は integer）を切り捨てると、`0.4`が数量0に化けて
+			// `OrderItemBuilder`の「数量0・金額0の明細」として警告なしで取り込まれる（R3-0n。PR #90 G1）。
+			$quantity = Cast::to_exact_int_or_null( $detail['product_num'] ?? null );
 
 			if ( null === $quantity ) {
-				// 欠損・非数値の数量を1個として捏造すると、実際の購入数と食い違う出荷指示になり
+				// 欠損・非数値・非整数の数量を1個として捏造すると、実際の購入数と食い違う出荷指示になり
 				// うる。他にこの明細の数量を復元できる情報源が無いため、注文全体を弾く
 				// （id/make_date/total_priceの欠損時と同じ扱い）。
-				throw new RuntimeException( 'ColorMe sale detail is missing product_num; cannot determine line item quantity.' );
+				throw new RuntimeException( 'ColorMe sale detail is missing product_num or it is not an integer; cannot determine line item quantity.' );
 			}
 
 			if ( null === Cast::to_int_or_null( $detail['price_with_tax'] ?? null ) ) {
@@ -559,12 +561,17 @@ final class OrderTransformer {
 				// 数量の単位（箱・セット・重量単位等）。欠けると梱包・出荷資料側で数量ラベルを
 				// 復元できない。
 				'unit'                    => Cast::to_string_or_null( $detail['unit'] ?? null ),
-				'subtotal'                => Cast::money( $detail['subtotal_price'] ?? null ),
+				// `Cast::money()`は欠損・非数値を`'0'`に丸めるため使わない: `OrderItemBuilder`は明細合計が0か
+				// どうかで「数量0・金額0の明細」を見分ける（R3-0n。PR #90 G1）ので、復元できない小計を0円に
+				// 化けさせない。nullなら`OrderItemBuilder`が単価×数量で補う（従来の欠損時の扱い）。
+				'subtotal'                => Cast::money_or_null( $detail['subtotal_price'] ?? null ),
 				// 注文時点の商品原価。商品マスタの原価は後から変わり得るため、履歴上の原価計算には
 				// この明細レベルの値を使う必要がある。
 				'cost'                    => Cast::to_int_or_null( $detail['product_cost'] ?? null ),
 				// swagger: option1_value/option2_valueは「最新の商品情報」であり注文時点の値ではない
-				// （オプション名変更後は購入時の選択と食い違いうる）。注文時点の選択を表すのは
+				// （オプション名変更後は購入時の選択と食い違いうる）。ただし実店舗の受注（R3-0n）では、受注後に
+				// オプションの軸が増えた商品の古い受注で受注時点の値（2軸目が null）が返った。どちらでも一致しなければ
+				// 未解決にする（`ProductResolver`）。注文時点の選択を表すのは
 				// `name`（pristine_product_full_name）のみのため、これらは変位判定用の参考値として
 				// current_ prefixを付けて明示的に区別する（D10: 明細は注文時の値を使う原則）。
 				'option1_value_current'   => Cast::to_string_or_null( $detail['option1_value'] ?? null ),
