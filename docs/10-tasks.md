@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-26
+最終更新: 2026-09-30
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -468,6 +468,58 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   検証: PHPUnit 追加 27 件（`ImporterTest` 2・`ExporterTest` 2・`JobManagerTest` 1＋既存 1 件に assert 追加・`LimitPolicyTest` 18〔データセット込み〕・`RestControllerTest` 4）、
   Jest 33 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 11 種がすべて CAUGHT。
   review-loop R1（独立レビュー）の Medium 1 件（商品を移行し終えた後も在庫の行が出る）を修正。PR #87 の G1 で、新しい dry-run の一部のジョブが失敗・キャンセルしたときに前回の件数が残る問題（Copilot）を修正（`withoutDryRunTotals()`）
+- [ ] **R3-0m: 受注インポートの決済/配送マッピングを Import 側で設定・確認できるようにする（プレビュー警告の解消）**（2026-09-30 決定。**最優先: R3-0i / R3-0k より先に着手する**。issue は未起票）
+  **経緯**: 実店舗（F1-8 の岡虎様）の受注 1,237 件を main（2abb1db）のビルドで dry-run したところ、**全件**に `payment_method_unmapped`（決済 5 種）と `shipping_method_unmapped`（配送 2 種）が付いた
+  （`dist/cart-bridge-jp-dry-run-a3ef31b3-….csv`。`dist/` は未コミット）。残りの警告（数量 0 明細 44・税合計不完全 45・商品/顧客の未解決参照 24・管理者アカウント 2）は R3-0n で扱う。
+  **原因**: 設定ストア `cbjp_settings_{platform}`（`payment_map`/`shipping_map`/`status_map`）はインポート（`Woo\Writer\OrderWriter` → `Woo\Support\MethodMap`）と
+  エクスポート（`ColorMeAdapter::push_order()`）で既に共有されており、F1-8 では REST 直 PUT で設定すると警告 0 件になることを確認済み。しかし設定 UI（E2-1「Mapping settings」）は
+  **Export タブにしか無く**、Import タブには案内も事前チェックも無い。dry-run CSV の `note` 列も空（`WarningCode::indicates_mapping_required()` が `CATEGORY_MAP_UNRESOLVED` しか対象に
+  していない）ため、店舗オーナーは「マッピング未設定」という原因にも設定場所にも辿り着けない（F1-8 持ち越し (4) の未解消分）。未マッピングでも受注自体は作成される
+  （決済は `payment_method=''` で ASP 側名称をタイトルに保持、配送行は `method_id=''` で ASP 側名称をタイトルに保持）が、Woo 側の決済/配送データが欠けたまま全件が警告になる。
+  **方針（既存の REST `GET/PUT /settings/mappings/{platform}` と E2-1 の UI を再利用する。バックエンドの追加は 3. のみ）**:
+  1. `ExportTab.tsx` の `MappingSection` と取得/編集/保存ロジック（GET と PUT が同じ `platformGenerationRef` の世代カウンタを共有する形。`.claude/rules/frontend.md`）を
+     共有コンポーネント `src/components/MappingSettings.tsx` へ切り出し、`platform`・表示するマップ種別・`disabled` を props で受ける。**新設の Mappings タブ**
+     （`src/tabs/MappingsTab.tsx`、`#/mappings`。タブ順は Connections / Mappings / Import / Export / Logs / Tools）がこれを使って 4 種
+     （category は `can_create_category=false` のときだけ）を表示し、Export タブの「Mapping settings」カードは Mappings タブへ移す（Export タブには Mappings タブへの
+     リンク付きの短い案内だけ残す。CSS クラスは `cbjp-export__mapping-*` → `cbjp-mappings__*` に改名）。Mappings タブは run の進行状態を持たないため、run 中の保存を
+     無効化する Export タブの挙動は引き継がない（マッピングは `MethodMap` が参照のたびに読むので変更は次ページの処理から効き、未マッピング側＝フェイルクローズに倒れるだけで
+     危険はない。R3-0i (2) の `GET /runs?platform=` が入ったら無効化を足す）
+  2. **事前チェック**: Import タブで `order` が選択されているとき、`GET /settings/mappings/{platform}` を 1 回呼び（保存 UI は持たない。ColorMe 側は
+     `categories.json`/`payments.json`/`deliveries.json` の 3 コール。絞り込みパラメータは足さない）、候補と保存済みマップから「未マッピングの決済方法 n/m・配送方法 n/m」を
+     計算して `Notice`（warning）で「受注は取り込まれるが決済/配送方法が空のまま作成され警告になる」と案内し、**Mappings タブへのリンク（`#/mappings`）**を付ける。
+     **Preview / Run import は止めない**（案内のみ。未マッピングでも取り込める現行設計を維持し、フェイルクローズは書込み側で担保済み）。計算は純粋関数
+     （`src/components/mapping-status.ts`）に切り出して Jest でテストする。候補取得に失敗したとき（未接続・レート制限）は誤警告を出さない。`status_map` は未設定でも
+     canonical の既定に落ちて警告にならないため件数に含めない
+  3. `WarningCode::indicates_mapping_required()` に `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED` を追加し、CSV の `note` を `mapping_required` にする
+     （`indicates_pending_import()` は `! indicates_mapping_required()` で除外するので副作用なし。両コードは `indicates_unresolved_reference()` の対象外のため
+     checksum キャッシュも不変）。R3-0k のカタログ文言（対処＝Import/Export タブのマッピング設定）と揃える
+  4. 文言・ドキュメント: `MethodMap` のクラス docblock（「現状は未実装のため常に空配列」。backlog `e2-1-mapping-ui/R1-X1`）と Export タブの説明文を実態に合わせる。
+     `docs/00` §5 の UI 構成に「マッピング」タブを追加（2〈インポート〉/ 3〈エクスポート〉の記述も更新）し、`docs/03` §6「React アプリ」のタブ一覧を
+     Connections / Mappings / Import / Export / Logs / Tools に更新する。`verify-with-mock-adapter` の SKILL.md にある Export タブでの設定手順も Mappings タブに読み替える
+  **決定（2026-09-30、ユーザー確認済み）**: (1) 今回の dry-run を実行したサイトでは Export タブのマッピングが未設定だった（＝バグではなく導線の欠落）。
+  (a) 配置は共有コンポーネントを使った**専用の Mappings タブ**（当初案の「Import/Export 両タブに表示」ではない）。(b) 事前チェックは**案内のみ**（Run import は止めない）。
+  **要検証**: ColorMe の `payments.json`/`deliveries.json` に廃止（無効化）済みの決済/配送方法が含まれるか。含まれない場合、旧受注が参照する廃止 ID は候補に無く UI から
+  マッピングできない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。その場合は直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して
+  行を足す REST を v1.0 に入れるかを判断する（今回の店舗は 5+2 種すべてが現行の候補にあり F1-8 で全件解消できたため、結果次第で v1.0 では見送り可）。
+  **自動マッピング（名称からの推定）は行わない**（楽観的既定はアーキテクチャ原則 9 に反する。候補として提案表示する案は v1.1 以降）
+  **検証**: PHPUnit（`WarningCodeTest`/`DryRunReportCsvTest`）・Jest（`mapping-status`）・`tsc`/`npm run build`。`verify-with-mock-adapter` で Mappings タブの表示・保存の永続化
+  （`cbjp_settings_{platform}`）、Import タブの事前チェックの件数表示とリンク、Export タブからカードが消えて案内だけ残ることを確認（mock の `mapping_candidates()` がテンプレートに無ければ足す）。実 API（テストショップ `ttka3lg60f`）で
+  候補の描画と、受注 dry-run の当該 2 警告が設定後に 0 件になることを確認する。実店舗 1,237 件の再 dry-run は店舗側で実施する
+  **完了条件**: Mappings タブで決済/配送マッピングを設定でき、Import タブの案内から辿り着ける。設定後の dry-run で当該 2 警告が消える。CSV の `note` が `mapping_required` になる。
+  `composer lint && composer analyze && composer test:wpenv` と `npm run lint && npm run build && npm run test:js` が通る
+- [ ] **R3-0n: 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い**（R3-0m の後。issue は未起票）: R3-0m と同じ CSV の残り。
+  いずれも ColorMe 側の実データに起因するため、実データの確認（要検証）を先に行い、フィクスチャは匿名化して追加する。実データ（岡虎様の該当受注）の取得は
+  ユーザー承認済み（2026-09-30）。取得環境（dry-run を実行したサイトの WP-CLI で生 JSON を取るか、wp-env を同じ店舗に接続するか）は着手時に決める。
+  1. `order_line_quantity_invalid` 44 件と `order_line_tax_inconsistent` 44 件は 1:1 で対（受注約 25 件）。`sale.details[].product_num` が 0（または負）の明細を
+     `Woo\Writer\OrderItemBuilder` が数量 1 に倒し、`subtotal`（0 円）＜ 税抜単価 × 1 で税額が負になって 2 つ目の警告が付く（**2 つ目は 1 つ目のフォールバックの副作用**）。
+     該当受注の生 JSON を取得して明細の正体（ColorMe 管理画面で数量 0 に編集された行か）を確認する。方針案: `product_num=0` かつ `subtotal_price=0` の明細は数量 0・金額 0 の
+     まま取り込み、情報警告に落とす（`WC_Order_Item_Product::set_quantity(0)` の可否は wp-env で実測する。D10 #3「明細を消さない」は維持）
+  2. `order_tax_total_incomplete` 45 件: `sale.totals`（nullable）が欠損し `sale.tax`（商品分のみ）へフォールバックした受注。欠損する条件（古い受注か）を実データで確認する。
+     情報警告のまま、R3-0k のカタログで「送料分の税が含まれない可能性」と説明する
+  3. `order_line_product_unresolved` 19 件（商品 3 種）/ `order_customer_unresolved` 5 件（顧客 2 名）: 該当 ID が ColorMe 側で削除済みか、インポートの除外条件
+     （顧客は `mail` 欠損で除外）に該当するかを確認する。恒久的に解決しないなら `note` の `reference_pending_import`（先にインポートすれば消える）が誤案内になるため、
+     削除済みを区別する扱いを検討する
+  4. `customer_account_protected` 2 件: 管理者・スタッフのアカウントと同じメールのため仕様どおりゲスト受注にする。対応なし（R3-0k で文言）
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
