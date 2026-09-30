@@ -63,6 +63,7 @@ description: >
 - 管理画面（React）の目視確認が必要なときは、**ログインをユーザーに依頼する**（アシスタントはパスワードを入力できない）。
   ビルドし直した後は **cmd+r でリロードする**（ハッシュだけが違う URL への `navigate` は SPA を再読込せず、古いバンドルが残る）。
 - コミットは「backend（tests 込み）/ frontend / docs」程度の論理単位に分ける。
+- **状態ファイル（`dev-cycle.md` のログ）・R/G の記録に書く時刻は推測で書かない**。`TZ=Asia/Tokyo date '+%H:%M'` か、該当コミットの時刻（`git log -1 --format=%cd --date=format-local:%H:%M <sha>`）を使う。見込みの時刻を書くとレビューより後の時刻が残り、Copilot に「記録が不正確」と指摘される（PR #89 G1-B1）
 
 ## Step 3（review-loop）の追加事項
 
@@ -115,6 +116,7 @@ description: >
   `Open` は既存スレッドの再掲で、新規 1 件が `Previously missed` にだけあった。旧版の `gate-bodies.sh` は整形出力に
   出さず、`--raw` で読まなければ見落とすところだった）。整形出力の `Previously missed` の各項目は、系統 B の新規指摘として
   `G<n>-<k>` を振って仕分ける。
+- **判定が「🟡 Changes recommended」で `Findings: None`・インライン 0 件でも、見出し直下の一文がそのまま指摘のことがある**（PR #89 G1: 「状態ファイルの時刻がレビュー時刻より後」という一文だけだった）。`gate-bodies.sh` の整形出力はこの一文を出さないので、判定が 🟡/🔵 のときは `--raw` で見出しの直下を読み、指摘なら `G<n>-B<k>` として仕分ける。
 - **Copilot の最終ラウンドは、過去に返信済み・未解決のスレッドを本文の「Open」に再掲する**ことがある
   （PR #48 の G3: 判定 🔵 Needs a closer look・インライン 0 件で、Open の 2 件は G1-1/G2-1 の重複だった）。
   `gate-bodies.sh` の Open の各項目（`#discussion_r<dbid>`。`· New` の付いた項目は今回の新規スレッドで

@@ -79,6 +79,7 @@ description: >
 - **REST（`rest_do_request()`）で走らせた run を管理画面に出すには、localStorage の `cbjp_run_{type}_{platform}`**（type は `dry_run`／`import`／`dry_run_export`／`export`）にrun_id を入れて `cmd+r` する（タブは直前の run_id をここから復元してポーリングする）。確認後はキーを消す。
 - **検証中だけ効かせたいフィルター**は、ブラウザからの REST にも効かせる必要があるなら mu-plugin に置く（CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。上限（`cbjp/limits/{entity}`）と `cbjp/limits/pro_url` はテンプレートが `cbjp_verify_seed.limits`/`pro_url` で差し替えられるので、それ以外のフィルターだけを別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
+- **dev サイトには配送ゾーンが無く、Woo 側の配送候補（`MappingCandidates::shipping_methods()`）が 0 件**（R3-0m）。配送マッピングの解消まで確かめるなら、名前に `ZZV` を含む一時ゾーンに `flat_rate` を足し（`WC_Shipping_Zone` → `add_shipping_method()`）、撤去時にゾーン名を確かめてから `delete()` する。候補 0 件の表示（「先に WooCommerce 側で設定を」）を見たいならゾーンを作る前に確認する
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
 
 - **`http://localhost:<port>/wp-admin/...` が別ホスト（例: `*.wp.local`）のログイン画面へ飛ぶときは、wp-env ではなく別のローカル環境が応答している**
