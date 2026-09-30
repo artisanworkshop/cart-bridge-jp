@@ -3,9 +3,9 @@
 - タスク: R3-0m — 受注インポートの決済/配送マッピングを Import 側で設定・確認できるようにする（Mappings タブ新設・Import の事前チェック・CSV の `note`）
 - 開始: 2026-09-30
 - PR: #89 https://github.com/artisanworkshop/cart-bridge-jp/pull/89
-- 現在のステップ: 7（G1 記録済み → G2 の依頼へ）
-- Copilot: 依頼 1 回 / 未収束
-- Codex: 依頼 1 回 / 未収束
+- 現在のステップ: 8（完了。final-report.md 記録済み）
+- Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし。🟢 Approval recommended）
+- Codex: 依頼 2 回 / 収束（G2 で新規指摘なし）
 
 ## ログ
 
@@ -17,3 +17,5 @@
 | 2026-09-30 15:37 | 3 | review-loop R2（独立サブエージェントで検証）: **APPROVE**（R1-1 はミューテーション 3 種で解消を確認。新規 Low 2 件は修正済み） |
 | 2026-09-30 15:37 | 4〜6 | PR #89 作成（T=06:37:37Z）→ CI green → Copilot 依頼 1 回目（登録確認済み）・Codex は自動レビュー |
 | 2026-09-30 16:03 | 7 | G1: Codex P2 1 件（Mappings タブへのリンクで platform の選択が引き継がれない）と Copilot 本文 1 件（状態ファイルの時刻）を修正（`55065ac`・`eddb149`）。確認ゲート承認後に commit |
+| 2026-09-30 16:14 | 7 | G2: CI green → 両 bot へ再依頼 → Copilot・Codex とも新規指摘なし（収束） |
+| 2026-09-30 16:15 | 8 | 最終報告（`final-report.md`）作成・完了。マージは人間が行う |
