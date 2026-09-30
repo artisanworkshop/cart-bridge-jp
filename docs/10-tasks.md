@@ -526,7 +526,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   「決済 1/2・配送 1/1」→ 一時的な配送ゾーンを作り残りを設定 → 再 dry-run で 2 警告が 0 件・案内が消えることを確認し、撤去して検証前の状態に戻した。
   実 API（テストショップ）では候補の取得と描画（決済 1・配送 1・カテゴリ 1）と Import の案内「決済 1/1・配送 1/1」を確認した。**テストショップは受注 0 件**
   （非プレミアムのため API で受注も作れない）で、実 API の dry-run で警告が消えることは確かめられていない。実店舗 1,237 件の再 dry-run は店舗側で実施する
-- [ ] **R3-0n: 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い**（R3-0m の後。issue は未起票）: R3-0m と同じ CSV の残り。
+- [x] **R3-0n: 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い**（R3-0m の後。issue は未起票。ブランチ `feat/r3-0n-order-dry-run-warnings`）: R3-0m と同じ CSV の残り。
   いずれも ColorMe 側の実データに起因するため、実データの確認（要検証）を先に行い、フィクスチャは匿名化して追加する。実データ（岡虎様の該当受注）の取得は
   ユーザー承認済み（2026-09-30）。取得環境（dry-run を実行したサイトの WP-CLI で生 JSON を取るか、wp-env を同じ店舗に接続するか）は着手時に決める。
   1. `order_line_quantity_invalid` 44 件と `order_line_tax_inconsistent` 44 件は 1:1 で対（受注約 25 件）。`sale.details[].product_num` が 0（または負）の明細を
@@ -539,6 +539,28 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
      （顧客は `mail` 欠損で除外）に該当するかを確認する。恒久的に解決しないなら `note` の `reference_pending_import`（先にインポートすれば消える）が誤案内になるため、
      削除済みを区別する扱いを検討する
   4. `customer_account_protected` 2 件: 管理者・スタッフのアカウントと同じメールのため仕様どおりゲスト受注にする。対応なし（R3-0k で文言）
+
+  **原因の確定（2026-09-30、実データ）**: dry-run したサイトで読取専用の取得スクリプト（GET のみ・トークンを出さない・個人情報は取得時に伏せ字。
+  `dist/` に置いた未コミットのもの）を SSH＋WP-CLI で実行し、受注 67・商品 6・顧客 3 件を取得した（ホスティングの管理画面のコマンド実行は出力を返さず、
+  `ABSPATH` は読み取り専用だったので、出力先を引数でホームへ向けた）。1. 数量 0 の 44 行はすべて `product_num=0`・`subtotal_price=0`（単価は残る）で、27 受注のうち 18 件はキャンセル受注
+  （ColorMe はキャンセルで全明細を数量 0・受注合計 0 にする）、9 件は一部の明細を外した受注。2. `totals` は 2019-09-09 以前の受注で null（2019-09-12 以降は全件にある）。
+  該当受注はすべて送料があり、`sale.tax` は商品分のみなので警告は正しい。3. 未解決の商品 16 行（1 種）と顧客 2 名は ColorMe で削除済み（404）。残る商品 2 種（3 行、2018 年の受注）は
+  ColorMe にもローカルにも実在する variable 商品で、受注後にオプションの軸が 1 → 2 に増えたため軸の数が合わず特定できない。24 件すべてが「先にインポートすれば消える」ではなかった。
+  4. `customer_account_protected` の顧客（1 名）はスタッフのアカウントと同じメールで、2 件ともキャンセル済みのテスト受注。要検証#18（`sales.json?ids=` が直近 7 日の制限を上書きするか）も同時に測り、上書きしないことを確認した
+  （`docs/03` 要検証#18・#20〜#22）。
+  **実装サマリ（ユーザー決定 2026-09-30）**: (1) `Woo\Writer\OrderItemBuilder` は数量と明細合計がどちらも数値として厳密に 0 の明細を、数量 0・金額 0 のまま**警告なし**で
+  残す（税の分割もしない）。欠損・負数・小数・「数量 0 だが金額あり」は従来どおり数量 1＋`order_line_quantity_invalid`。wp-env で `set_quantity(0)` が保存・再読込で 0 のまま、
+  受注合計・税も崩れないことを実測。エクスポート方向は変えない（数量 0 は引き続き blocking。`docs/03` D10「数量0の明細」）。(2) 新コード `order_line_variation_unmatched`（取込み済みの
+  variable 商品で variation を特定できない。`ProductResolver::maps_to_variable_product()` で `order_line_product_unresolved` と分ける。エクスポート方向の既存
+  `order_line_variation_unresolved` とは別名にした）。checksum はキャッシュしない（variation が後から入れば解決しうる）が、CSV の注記は付けない。
+  (3) dry-run CSV の `note` に `reference_unresolved`（未インポート、またはASP側で削除済み・対象外）を加え、`order_line_product_unresolved`/`order_customer_unresolved` に付ける
+  （`WarningCode::indicates_order_reference_unresolved()`。`reference_pending_import` から外した。checksum の扱いは変えない）。(4) 税合計の不完全はコード変更なし（送料 0 の受注が無く、
+  絞り込みは効かない）。ASP へ実在確認して削除済みを別コードにする案は見送り（アダプタ・Canonical の拡張と API 呼び出しの増加。backlog `r3-0n/idea-remote-existence-check`）。
+  **検証**: PHPUnit 追加 20 件（`OrderWriterTest` 14〈データセット 11 件込み〉・`OrderTransformerTest` 2・`WarningCodeTest` 3・`DryRunReportCsvTest` 1。既存 3 件の期待値を新コードへ更新）、
+  匿名化した実受注のフィクスチャ 2 件（`sale_zero_quantity_line_detail.json`・`sale_without_totals_detail.json`）。`mutate-check.sh` で 12 種（数量 0 判定の両条件・小数の除外・
+  税の分割の省略・コードの出し分け・`maps_to_variable_product()` の両側・note の分岐・retry 判定）がすべて CAUGHT。mock（`mockv`。設置したコピーだけ実受注 JSON を本物の
+  `OrderTransformer` に通すよう書き換え）で受注の dry-run を回し、数量 0 の明細に警告が無いこと・商品/顧客の未解決が `reference_unresolved`・variation の不一致が新コード（注記なし）・
+  `reference_pending_import` が 1 行も無いことを CSV の行で確認し、撤去して検証前の状態に戻した。実店舗の再 dry-run は店舗側で実施する（R3-0m と合わせて）
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
