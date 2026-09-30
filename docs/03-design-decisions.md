@@ -363,7 +363,11 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   （未設定、または設定先が現在の Woo 側の候補に無い。`OrderWriter` の実在チェックと同じ扱い）を `Notice`（warning）で案内し、Mappings タブへリンクする。
   **案内のみで Preview / Run import は止めない**（未マッピングでも受注は作成され、決済/配送方法が空のまま警告になる現行設計を維持）。
   計算は純粋関数 `src/components/mapping-status.ts`。候補の取得に失敗したとき（未接続・レート制限。REST は空の候補を返す）は何も出さない。
-  `status_map` は未設定でも既定のステータスに落ちて警告にならないため数えない。**要検証（v1.0 では見送り、2026-09-30 決定）**: ColorMe の
+  `status_map` は未設定でも既定のステータスに落ちて警告にならないため数えない。
+  **未マッピングの受注は checksum を保存しない**（`PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED` は `WarningCode::indicates_unresolved_reference()` の対象）:
+  保存すると、後から Mappings タブで設定しても `Sync\Importer` の checksum 一致で飛ばされて空の決済/配送方法のまま直らず、再 dry-run も検証を飛ばして
+  警告だけが消える。未マッピングのまま運用すると該当受注は毎回再処理される（ほかの未解決参照と同じ扱い）。エクスポートは未マッピングの受注を送らない
+  （`ColorMeAdapter::order_skip_warnings()`）ため影響しない。**要検証（v1.0 では見送り、2026-09-30 決定）**: ColorMe の
   `payments.json`/`deliveries.json` に削除済みの方法が含まれるか。非表示（`display=false`/`display_state`）の方法は応答に含まれ候補にも出る
   （`ColorMeAdapter::id_name_map()` は表示状態で絞らない）が、削除済みの方法を参照する旧受注があると、その ID は候補に無いため UI からマッピングできず、
   事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は 5+2 種すべてが現行の候補にあった。

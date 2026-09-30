@@ -492,7 +492,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
      canonical の既定に落ちて警告にならないため件数に含めない
   3. `WarningCode::indicates_mapping_required()` に `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED` を追加し、CSV の `note` を `mapping_required` にする
      （`indicates_pending_import()` は `! indicates_mapping_required()` で除外するので副作用なし。両コードは `indicates_unresolved_reference()` の対象外のため
-     checksum キャッシュも不変）。R3-0k のカタログ文言（対処＝Import/Export タブのマッピング設定）と揃える
+     checksum キャッシュも不変）。R3-0k のカタログ文言（対処＝Mappings タブのマッピング設定）と揃える。
+     **R1 で変更（2026-09-30、ユーザー承認）**: 両コードを `indicates_unresolved_reference()` にも加え、未マッピングの受注は checksum を保存しないようにした
+     （下の実装サマリ）
   4. 文言・ドキュメント: `MethodMap` のクラス docblock（「現状は未実装のため常に空配列」。backlog `e2-1-mapping-ui/R1-X1`）と Export タブの説明文を実態に合わせる。
      `docs/00` §5 の UI 構成に「マッピング」タブを追加（2〈インポート〉/ 3〈エクスポート〉の記述も更新）し、`docs/03` §6「React アプリ」のタブ一覧を
      Connections / Mappings / Import / Export / Logs / Tools に更新する。`verify-with-mock-adapter` の SKILL.md にある Export タブでの設定手順も Mappings タブに読み替える
@@ -512,8 +514,13 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `src/components/mapping-status.ts`（設定先が現在の Woo 候補に無い値も未マッピングに数える）。Export タブは案内とリンクだけにし、世代カウンタを
   進める役を画像設定の取得 effect へ移した（消したマッピング取得 effect が唯一の進め役だった）。台帳に無い小さな追加として、行の読み上げラベルと
   `<thead>`（backlog `e2-1-mapping-ui/R1-L5`）と、対応先の候補が 0 件のときの案内を入れた。backlog `e2-1-mapping-ui/R1-X1`・`R2-L4` も解消。
+  **checksum の扱い（review-loop R1 で変更、ユーザー承認）**: 未マッピングのまま本取込みした受注は、参照が解決済みなら checksum が保存され、
+  後から設定しても checksum 一致で飛ばされて直らず、再 dry-run では警告だけが消えていた（独立レビューの指摘）。`PAYMENT_METHOD_UNMAPPED`/
+  `SHIPPING_METHOD_UNMAPPED` を `indicates_unresolved_reference()` に加え、該当受注は checksum を保存せず次回の取込みで付け直す（代償: 未マッピングのまま
+  運用すると該当受注は毎回再処理される。エクスポートは未マッピングの受注を送らないので影響しない）。この変更より前に取り込んで checksum が保存済みの
+  受注は直らない（Tools のサンプル削除→再取込み）。案内文と Mappings タブの説明に「インポート前に設定する。未マッピングで取り込んだ受注は次の取込みで更新される」を足した。
   **要検証の扱い（2026-09-30 決定）**: 削除済みの決済/配送方法が候補 API に出るかは未実測のまま `docs/03` §6 に記録し、v1.0 では見送り。
-  **検証**: PHPUnit 追加 6 件（`WarningCodeTest` 5〈データセット 3 件込み〉・`DryRunReportCsvTest` 1）、Jest 15 件。`mutate-check.sh` で PHP 2 種（2 コードの追加）と
+  **検証**: PHPUnit 追加 9 件（`WarningCodeTest` 5〈データセット 3 件込み〉・`DryRunReportCsvTest` 1・`OrderWriterTest` 2・`ImporterTest` 1〈実 Writer で取込み→設定→再取込み〉）、Jest 15 件。`mutate-check.sh` で PHP 4 種（2 コードそれぞれを `indicates_mapping_required()` と `indicates_unresolved_reference()` から外す）と
   JS 4 種（Woo 候補の実在判定・自前キー判定・重複 ID・配送だけの未マッピング）がすべて CAUGHT（自前キー判定は最初 NOT CAUGHT で、継承した文字列値のテストを足した）。
   mock（`mockv`）で、未マッピングの dry-run に 2 警告と `mapping_required` → 管理画面で決済を 1 件保存（`cbjp_settings_mockv` に永続化）→ Import の案内が
   「決済 1/2・配送 1/1」→ 一時的な配送ゾーンを作り残りを設定 → 再 dry-run で 2 警告が 0 件・案内が消えることを確認し、撤去して検証前の状態に戻した。
