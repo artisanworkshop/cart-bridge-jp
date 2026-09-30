@@ -560,7 +560,10 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   匿名化した実受注のフィクスチャ 2 件（`sale_zero_quantity_line_detail.json`・`sale_without_totals_detail.json`）。`mutate-check.sh` で 12 種（数量 0 判定の両条件・小数の除外・
   税の分割の省略・コードの出し分け・`maps_to_variable_product()` の両側・note の分岐・retry 判定）がすべて CAUGHT。mock（`mockv`。設置したコピーだけ実受注 JSON を本物の
   `OrderTransformer` に通すよう書き換え）で受注の dry-run を回し、数量 0 の明細に警告が無いこと・商品/顧客の未解決が `reference_unresolved`・variation の不一致が新コード（注記なし）・
-  `reference_pending_import` が 1 行も無いことを CSV の行で確認し、撤去して検証前の状態に戻した。実店舗の再 dry-run は店舗側で実施する（R3-0m と合わせて）
+  `reference_pending_import` が 1 行も無いことを CSV の行で確認し、撤去して検証前の状態に戻した。実店舗の再 dry-run は店舗側で実施する（R3-0m と合わせて）。
+  **PR #90 G1**: ColorMe の変換層が `product_num` の小数を切り捨て、欠損した `subtotal_price` を `'0'` にしていたため、数量0の判定より前に不正が失われていた
+  （Copilot）。小計は `Cast::money_or_null()` で null のまま運び、整数でない `product_num` は受注ごと弾く（`Cast::to_exact_int_or_null()`）。文字列の0判定は float へ変換
+  しない（`'1e-400'` のアンダーフロー。Codex）。テスト 12 件（データセット込み）を追加し、ミューテーション 3 種が CAUGHT
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、

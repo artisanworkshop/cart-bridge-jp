@@ -2,10 +2,10 @@
 
 - タスク: R3-0n — 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い
 - 開始: 2026-09-30
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
-- Copilot: 依頼 0 回
-- Codex: 依頼 0 回
+- PR: #90 https://github.com/artisanworkshop/cart-bridge-jp/pull/90
+- 現在のステップ: 7（G1 修正済み・G2 の依頼前）
+- Copilot: 依頼 1 回 / 未収束（G1 で 2 件）
+- Codex: 依頼 1 回 / 未収束（G1 で 1 件）
 
 ## ログ
 
@@ -16,3 +16,5 @@
 | 2026-09-30 19:21 | 2 | 実装コミット（backend＋テスト＋匿名化した実受注フィクスチャ 2 件／dry-run のテスト追加／docs）。品質チェック green（PHPUnit 1352 件・Jest 55 件）。ミューテーション 11 種すべて CAUGHT。mock（`mockv`、設置したコピーだけ実受注 JSON を `OrderTransformer` に通す）で受注の dry-run → CSV を確認し撤去済み。新コード名は既存のエクスポート方向 `order_line_variation_unresolved` と衝突するため `order_line_variation_unmatched` にした |
 | 2026-09-30 19:37 | 3 | review-loop R1（自己レビュー＋独立サブエージェント）: Medium 2 件（テスト・docs に実店舗の顧客 ID 等が残っていた〔独立レビューは High。店舗名・ドメインは main に既出のため Medium〕／`maps_to_variable_product()` の否定側のテスト欠落）を修正、Low 4 件を修正（件数 24→21 の訂正・コメント・D10 の記述）、Low 1 件は対応不要（`memo` キーは元の応答に無い）、対象外 1 件は backlog。実 ID を含むコミットを push しないよう、main からコミットを作り直した（push 前）。quality green（PHPUnit 1353・Jest 55）、ミューテーション 12 種 CAUGHT |
 | 2026-09-30 19:43 | 3 | review-loop R2（独立サブエージェントで検証）: **APPROVE**（R1-1・R1-2 解消。R1-2 はミューテーションで実測）。新規 Low 2 件（ゴミ箱の商品の扱いの文言・`OrderReader` のコメントの ColorMe 限定）は文言だけなので修正 |
+| 2026-09-30 19:45 | 4〜6 | 初回 push（T=10:45:20Z）→ PR #90 作成 → CI green → Copilot 依頼 1 回目（19:49、timeline で登録確認）。Codex は自動レビューが 5 分で来ず、`--codex-nudge` が review コメントを自動投稿（依頼 1 回目） |
+| 2026-09-30 20:08 | 7 | G1: Copilot 2 件（変換層の丸めで数量0の判定より前に不正が失われる〔Copilot は High。Medium と判定〕・オプション値のコメントの矛盾）と Codex 1 件（`'1e-400'` のアンダーフロー）をすべて修正（`e15c424`）。確認ゲート承認後に commit |
