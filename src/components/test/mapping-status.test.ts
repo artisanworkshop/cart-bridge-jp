@@ -112,6 +112,18 @@ describe( 'mappingCoverage', () => {
 		).toEqual( { total: 1, unmapped: 0 } );
 	} );
 
+	it( 'ignores string values inherited through the prototype chain', () => {
+		// 型チェックだけでは、プロトタイプから継承した文字列（汚染された Object.prototype など）を設定済みと読んでしまう。
+		const inherited = Object.create( { a: 'x' } ) as Record<
+			string,
+			string
+		>;
+
+		expect(
+			mappingCoverage( candidates( 'a' ), candidates( 'x' ), inherited )
+		).toEqual( { total: 1, unmapped: 1 } );
+	} );
+
 	it( 'does not treat an inherited target id as an existing option', () => {
 		expect(
 			mappingCoverage( candidates( 'a' ), candidates( 'x' ), {
