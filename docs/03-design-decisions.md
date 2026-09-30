@@ -357,7 +357,9 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
   `src/components/MappingSettings.tsx` に切り出して移した（GET と PUT は同じ世代カウンタを共有する）。決済方法・配送方法・注文ステータスを常に、
   カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は止めない（`Woo\Support\MethodMap` は参照のたびにオプションを読むので、
   run の途中で保存した設定は次のアイテムから効き、未設定側は未マッピング＝警告に倒れるだけ。R3-0i の `GET /runs?platform=` が入ったら無効化を足す）。
-  Export タブには Mappings タブへの案内とリンクだけを残した（platform の選択は Export タブ先頭のカードへ移し、世代カウンタは画像設定の取得 effect が進める）
+  Export タブには Mappings タブへの案内とリンクだけを残した（platform の選択は Export タブ先頭のカードへ移し、世代カウンタは画像設定の取得 effect が進める）。
+  Import/Export の案内のリンクは `#/mappings?platform=<platform>` で選択中の platform を引き継ぎ、Mappings タブは接続済みの platform に一致するときだけ
+  それを初期選択にする（`src/hash-route.ts`。ハッシュは任意の文字列を含みうるため。PR #89 G1-1）
 - **Import タブの事前チェック（R3-0m）**: 受注が選ばれているとき、`GET /settings/mappings/{platform}` を platform ごとに 1 回だけ呼び
   （ColorMe は `categories.json`/`payments.json`/`deliveries.json` の 3 コール）、ASP 側の決済・配送方法のうち使える設定の無い数
   （未設定、または設定先が現在の Woo 側の候補に無い。`OrderWriter` の実在チェックと同じ扱い）を `Notice`（warning）で案内し、Mappings タブへリンクする。
