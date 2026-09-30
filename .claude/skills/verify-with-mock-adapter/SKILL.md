@@ -40,6 +40,9 @@ description: >
    Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
    （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
    （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`）。
+   無料版の上限と Pro 版の案内先は `cbjp_verify_seed.limits`（`{ entity: int|null }`。null は Pro 相当の解除）と `cbjp_verify_seed.pro_url`
+   （`cbjp/limits/pro_url` にそのまま渡り、`LimitPolicy::pro_url()` が検証する）で差し替えられる。**サイト全体に効き**、フィルターが呼ばれた時点で
+   読むので同じプロセス内で seed を書き換えても効く。使い終わったらキーを外す（R3-0h）。
    **クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
    autoloader がまだ無い）。`plugins_loaded` のコールバック内で `new` する。
    mock の `id()` は登録キーと同じ値を返す（`platform_id`）。`Importer`/`Exporter`/`JobManager` は mapping・上限・サンプルのキーを
@@ -70,7 +73,7 @@ description: >
 - **`cbjp_process_job`（Action Scheduler）は CLI では自走しない**。`start_run` の後、検証スクリプト内で pending を処理する（`as_get_scheduled_actions( [ 'hook' => 'cbjp_process_job', 'status' => 'pending' ] )` → `do_action_ref_array( $action->get_hook(), $action->get_args() )` → `ActionScheduler_Store::instance()->mark_complete()`）。
 - **mock のキー（例 `mockv`）は既定では `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。タブに出すには、検証スクリプトで偽のトークンを保存して connected にする: `( new CartBridgeJP\Support\TokenStore( 'mockv' ) )->save( [ 'access_token' => 'verify-<作業名>' ] )`（実 `colorme` を汚さない。R3-0h）。撤去時は値を確かめてから `cbjp_token_mockv` を消す（`push-intent-resolution/cleanup.php` はトークンが残っていると拒否する）。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
 - **REST（`rest_do_request()`）で走らせた run を管理画面に出すには、localStorage の `cbjp_run_{type}_{platform}`**（type は `dry_run`／`import`／`dry_run_export`／`export`）にrun_id を入れて `cmd+r` する（タブは直前の run_id をここから復元してポーリングする）。確認後はキーを消す。
-- **検証中だけ効かせたいフィルター**（`cbjp/limits/product` で上限を下げる、`cbjp/limits/pro_url` など）は、別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す（ブラウザからの REST にも効かせるため。CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
+- **検証中だけ効かせたいフィルター**は、ブラウザからの REST にも効かせる必要があるなら mu-plugin に置く（CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。上限（`cbjp/limits/{entity}`）と `cbjp/limits/pro_url` はテンプレートが `cbjp_verify_seed.limits`/`pro_url` で差し替えられるので、それ以外のフィルターだけを別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
 
@@ -108,5 +111,16 @@ description: >
   オプションだけを消す（`cbjp_verify_seed` は `push` キーだけを外し、prefecture-repair と共有する他のキーと `cbjp_verify_ids` は残す）。**mock アダプタが登録されているときだけ実行する**
   （OAuth トークンを持つ・mock 以外のアダプタが登録されている・アダプタが未登録〔uninstall 後など〕の platform は拒否。uninstall 後の掃除は `install` し直してから）。終わりに `left:` で 0 件を確認する（`inspect` は logs・jobs・intents を数えない）。
   `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
+- `examples/upsell-notice/` — 無料版の Pro 案内（`LimitsUpsellNotice`。issue #55 / R3-0h）の元になる値を `rest_do_request()` で確かめる検証。`verify-rest.php` は
+  Woo に `ZZV-UPSELL-*` の商品 4 件（うち 1 件は価格なし＝export で止まる）を作り、`cbjp_verify_seed.limits.product=2` で dry-run と export を走らせて、
+  totals の `unchanged`・作った商品ごとの dry-run の明細（`VALID-*` は created、`NOPRICE` は skipped＋`product_price_invalid`。集計だけだと dev サイトの
+  既存商品が結果を隠すため）・上限で「未移行」が残ること（export のサンプル `cbjp_export_sample_mockv` を作った 4 件に固定する。受注が 10 件以上ある
+  dev サイトでは受注の商品だけでサンプルが決まるため）・`/limits` の `pro_url`（既定は空、有効な URL はそのまま、
+  不正な値は空）を PASS/FAIL で出す。最後に偽トークンで `mockv` を connected にし、Export タブで通知を目視する手順（localStorage に入れる run_id と、
+  `pro_url` を切り替える `wp eval`）を出す。**前提**: `install mockv` 済み・前回の残りが無い（トークン・商品・状態オプションに加え、seed の `push`/`limits`/`pro_url` と
+  mockv のサンプル・レート制限のオプションも数え、あれば先頭で中止。push-intent-resolution も `push` を使うため）。
+  `cleanup.php` は偽トークン（値がこの example のものと一致するときだけ。復号できないトークンがあれば拒否）・作った商品（記録した ID と、SKU の接頭辞で見つかる取り残し。
+  `wc_get_products()` の `sku` は部分一致なので接頭辞は自分で確かめる）・`mockv` の行・この example が書く
+  seed のキー（`push`/`limits`/`pro_url`）とオプションだけを消し、`left:` で 0 件を確認する
 
 関連: `docs/03-design-decisions.md` §10.3（ツール）、`.claude/skills/cbj-dev-cycle/SKILL.md`（開発サイクル Step 2 の実機確認）。
