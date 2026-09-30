@@ -3,7 +3,7 @@
 - タスク: R3-0n — 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い
 - 開始: 2026-09-30
 - PR: #90 https://github.com/artisanworkshop/cart-bridge-jp/pull/90
-- 現在のステップ: 7（G3 修正済み・最終報告の前）
+- 現在のステップ: 8（完了。final-report.md 記録済み）
 - Copilot: 依頼 3 回（上限） / 未収束（G1 で 2 件・G2 で 1 件・G3 で 1 件。すべて修正）
 - Codex: 依頼 3 回 / 収束（G3 で新規指摘なし）
 
@@ -20,3 +20,4 @@
 | 2026-09-30 20:08 | 7 | G1: Copilot 2 件（変換層の丸めで数量0の判定より前に不正が失われる〔Copilot は High。Medium と判定〕・オプション値のコメントの矛盾）と Codex 1 件（`'1e-400'` のアンダーフロー）をすべて修正（`e15c424`）。確認ゲート承認後に commit |
 | 2026-09-30 20:25 | 7 | G2: CI green → 両 bot へ再依頼（各 2 回目）→ Copilot・Codex が同じ 1 件（G1 で小計に使った `money_or_null()` も小数を切り捨てる）を指摘 → `Cast::exact_money_or_null()` で修正（`8a42a38`）。確認ゲート承認後に commit |
 | 2026-09-30 22:31 | 7 | G3（両 bot とも 3 回目）: Codex は新規指摘なし（収束）。Copilot 1 件（JSON の `1e-400` が `json_decode()` で float(0) になり厳密な整数変換を通る）を修正（`ce3f513`）。確認ゲート承認後に commit。4 回目は依頼しない |
+| 2026-09-30 22:36 | 8 | 最終 HEAD `1cd5cbb` の CI green。遅れて届いた bot のレビューなし。final-report.md を記録して停止（マージしない） |
