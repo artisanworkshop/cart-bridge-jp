@@ -938,6 +938,8 @@ final class OrderWriterTest extends WooTestCase {
 			'missing'           => [ null, true ],
 			'fraction'          => [ 0.4, false ],
 			'underflow to zero' => [ '1e-400', false ],
+			// PR #90 G3: JSON の `1e-400` は json_decode で float(0) になる。
+			'float zero'        => [ 0.0, false ],
 		];
 	}
 

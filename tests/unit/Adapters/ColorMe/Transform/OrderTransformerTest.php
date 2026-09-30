@@ -223,7 +223,31 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			'fraction as string' => [ '1.5' ],
 			'exponent as string' => [ '1e3' ],
 			'underflow to zero'  => [ '1e-400' ],
+			// PR #90 G3: swagger は integer。JSON の小数・指数表記のリテラルは float になるので、整数に見えても受けない。
+			'integral float'     => [ 2.0 ],
+			'float zero'         => [ 0.0 ],
 		];
+	}
+
+	/**
+	 * PR #90 G3: JSON の数値リテラル `1e-400` は `json_decode()` の時点で `float(0)` にアンダーフローする。数量と小計が
+	 * どちらもこの形でも「数量0・金額0の明細」（警告なし）にせず、float の数量として受注ごと弾く。
+	 */
+	public function test_json_exponent_literals_underflowing_to_zero_are_rejected(): void {
+		$sale = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+		$json = str_replace(
+			[ '"product_num":0,', '"subtotal_price":0,' ],
+			[ '"product_num":1e-400,', '"subtotal_price":1e-400,' ],
+			(string) wp_json_encode( $sale ),
+			$replaced
+		);
+		$raw  = json_decode( $json, true );
+
+		$this->assertSame( 2, $replaced );
+		$this->assertSame( 0.0, $raw['details'][0]['product_num'] );
+		$this->expectException( RuntimeException::class );
+
+		$this->make_transformer()->transform( $raw );
 	}
 
 	/**
@@ -258,6 +282,8 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			'fraction'           => [ 0.4, false ],
 			'fraction as string' => [ '1.5', false ],
 			'underflow to zero'  => [ '1e-400', false ],
+			// PR #90 G3: JSON の `1e-400`・`0.0` は float(0) になる。
+			'float zero'         => [ 0.0, false ],
 		];
 	}
 

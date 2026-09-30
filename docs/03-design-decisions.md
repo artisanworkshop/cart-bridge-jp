@@ -317,7 +317,8 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 欠損・負数・小数・「数量0だが金額あり」は従来どおり数量1＋`order_line_quantity_invalid`。文字列の0は float へ変換せず書式で判定する
 （`'1e-400'` のようにアンダーフローで0になる値・指数表記・空白付きは受けない）。この判定を変換層で崩さないよう、ColorMe の変換層は
 `subtotal_price` の欠損・非数値・非整数を `'0'` に丸めず null のまま運び（`Cast::exact_money_or_null()`。Woo 層が単価×数量で補う。
-`money_or_null()` は小数を切り捨てるので使わない）、整数でない `product_num` は欠損と同じく受注ごと弾く（`Cast::to_exact_int_or_null()`。PR #90 G1/G2）。エクスポート方向（`Woo\Reader\OrderReader`）は変えず、数量0の明細は引き続き
+`money_or_null()` は小数を切り捨てるので使わない）、整数でない `product_num` は欠損と同じく受注ごと弾く（`Cast::to_exact_int_or_null()`。PR #90 G1/G2）。swagger が integer とするこの2フィールドは
+float も受けない（JSON の `1e-400` は `json_decode()` の時点で `float(0)` にアンダーフローし、0と見分けられないため。G3）。エクスポート方向（`Woo\Reader\OrderReader`）は変えず、数量0の明細は引き続き
 `order_line_quantity_invalid`（blocking）で止める。取り込んだ受注は元々 `order_update_not_supported` で送られないので送信内容は変わらないが、
 エクスポートの dry-run では、従来 `updated`（移行できる件数）に数えていた該当受注が `skipped`（警告付き）になる
 
