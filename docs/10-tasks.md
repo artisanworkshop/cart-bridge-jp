@@ -565,7 +565,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   （Copilot）。小計は `Cast::money_or_null()` で null のまま運び、整数でない `product_num` は受注ごと弾く（`Cast::to_exact_int_or_null()`）。文字列の0判定は float へ変換
   しない（`'1e-400'` のアンダーフロー。Codex）。テスト 12 件（データセット込み）を追加し、ミューテーション 3 種が CAUGHT。
   **G2**: G1 で小計に使った `Cast::money_or_null()` も小数・指数表記を切り捨てていた（両 bot が同じ指摘）ので、整数でない値を null にする
-  `Cast::exact_money_or_null()` に替えた（テスト 5 件追加）
+  `Cast::exact_money_or_null()` に替えた（テスト 5 件追加）。**G3**: JSON の `1e-400` は `json_decode()` で `float(0)` になるため、この2フィールドは float を
+  受けない（Copilot。JSON 文字列を実際に復号して通すテストを含め 5 件追加）。Codex は G3 で収束、Copilot は依頼上限の 3 回
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
