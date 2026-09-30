@@ -313,7 +313,7 @@ echo "\n" . ( 0 === $failures ? 'ALL PASS' : "{$failures} FAILED" ) . "\n\n";
 echo "管理画面で通知を目視する（任意）:\n";
 echo "  1. http://localhost:<port>/wp-admin/admin.php?page=cart-bridge-jp#/export を開き、ブラウザのコンソールで次を実行してから cmd+r:\n";
 echo "     localStorage.setItem('cbjp_run_dry_run_export_{$platform}', '{$dry['run_id']}'); localStorage.setItem('cbjp_run_export_{$platform}', '{$exp['run_id']}');\n";
-echo "  2. Mapping settings の PLATFORM で「Mock Platform」を選ぶ → Export results に「Products: … not migrated yet. … cannot be migrated as is. …」\n";
+echo "  2. Export タブ先頭のカードの PLATFORM で「Mock Platform」を選ぶ → Export results に「Products: … not migrated yet. … cannot be migrated as is. …」\n";
 echo "     （pro_url が空なので見出しは Pro 版に触れない）\n";
 echo "  3. Pro 版の案内を見るには pro_url を入れて cmd+r（外すと元に戻る）:\n";
 echo "     npx wp-env run cli wp eval '\$s = get_option( \"cbjp_verify_seed\" ); \$s[\"pro_url\"] = \"https://example.com/pro\"; update_option( \"cbjp_verify_seed\", \$s );'\n";

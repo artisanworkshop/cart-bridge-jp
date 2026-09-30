@@ -352,7 +352,28 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 ### React アプリ（src/）
 
 - `@wordpress/scripts` ビルド、TypeScript strict、`@wordpress/components` + `@wordpress/api-fetch`
-- ルーティングは単一管理ページ内のタブ切替（Connections / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16）/ 県コード修復（issue #46）（`/tools/*` ルート）を配置
+- ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16）/ 県コード修復（issue #46）（`/tools/*` ルート）を配置
+- **Mappings タブ（`#/mappings`、R3-0m）**: `GET/PUT /settings/mappings/{platform}` の編集 UI。E2-1 で Export タブに作ったものを共有コンポーネント
+  `src/components/MappingSettings.tsx` に切り出して移した（GET と PUT は同じ世代カウンタを共有する）。決済方法・配送方法・注文ステータスを常に、
+  カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は止めない（`Woo\Support\MethodMap` は参照のたびにオプションを読むので、
+  run の途中で保存した設定は次のアイテムから効き、未設定側は未マッピング＝警告に倒れるだけ。R3-0i の `GET /runs?platform=` が入ったら無効化を足す）。
+  Export タブには Mappings タブへの案内とリンクだけを残した（platform の選択は Export タブ先頭のカードへ移し、世代カウンタは画像設定の取得 effect が進める）。
+  Import/Export の案内のリンクは `#/mappings?platform=<platform>` で選択中の platform を引き継ぎ、Mappings タブは接続済みの platform に一致するときだけ
+  それを初期選択にする（`src/hash-route.ts`。ハッシュは任意の文字列を含みうるため。PR #89 G1-1）
+- **Import タブの事前チェック（R3-0m）**: 受注が選ばれているとき、`GET /settings/mappings/{platform}` を platform ごとに 1 回だけ呼び
+  （ColorMe は `categories.json`/`payments.json`/`deliveries.json` の 3 コール）、ASP 側の決済・配送方法のうち使える設定の無い数
+  （未設定、または設定先が現在の Woo 側の候補に無い。`OrderWriter` の実在チェックと同じ扱い）を `Notice`（warning）で案内し、Mappings タブへリンクする。
+  **案内のみで Preview / Run import は止めない**（未マッピングでも受注は作成され、決済/配送方法が空のまま警告になる現行設計を維持）。
+  計算は純粋関数 `src/components/mapping-status.ts`。候補の取得に失敗したとき（未接続・レート制限。REST は空の候補を返す）は何も出さない。
+  `status_map` は未設定でも既定のステータスに落ちて警告にならないため数えない。
+  **未マッピングの受注は checksum を保存しない**（`PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED` は `WarningCode::indicates_unresolved_reference()` の対象）:
+  保存すると、後から Mappings タブで設定しても `Sync\Importer` の checksum 一致で飛ばされて空の決済/配送方法のまま直らず、再 dry-run も検証を飛ばして
+  警告だけが消える。未マッピングのまま運用すると該当受注は毎回再処理される（ほかの未解決参照と同じ扱い）。エクスポートは未マッピングの受注を送らない
+  （`ColorMeAdapter::order_skip_warnings()`）ため影響しない。**要検証（v1.0 では見送り、2026-09-30 決定）**: ColorMe の
+  `payments.json`/`deliveries.json` に削除済みの方法が含まれるか。非表示（`display=false`/`display_state`）の方法は応答に含まれ候補にも出る
+  （`ColorMeAdapter::id_name_map()` は表示状態で絞らない）が、削除済みの方法を参照する旧受注があると、その ID は候補に無いため UI からマッピングできず、
+  事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は 5+2 種すべてが現行の候補にあった。
+  必要になったら、直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して行を足す REST を検討する
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
 - UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）
 
@@ -1651,7 +1672,7 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   → `Sync\Importer::process_items()`がページ単位で`Sync\DryRunItemRepository`へバッチ記録
   → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
 - **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
-- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
 

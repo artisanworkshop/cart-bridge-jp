@@ -40,6 +40,10 @@ description: >
    Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
    （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
    （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`）。
+   Mappings タブと Import タブの事前チェック（R3-0m）を見るときは、`cbjp_verify_seed.mapping_candidates`（`{ payment: [{id,name}], shipping: [...] }`。
+   mock の `mapping_candidates()` がそのまま返す）と、受注ごとの `payment_method_id`/`payment_method_name`/`shipping_method_id`/`shipping_method_name`
+   （canonical の `payment`/`shipping` の `method_id`/`method_name`）を入れる。マッピングの設定（`cbjp_settings_{platform}`）は Mappings タブ
+   （`#/mappings`）か `PUT /settings/mappings/{platform}` で行い、撤去時はそのオプションも消す。
    無料版の上限と Pro 版の案内先は `cbjp_verify_seed.limits`（`{ entity: int|null }`。null は Pro 相当の解除）と `cbjp_verify_seed.pro_url`
    （`cbjp/limits/pro_url` にそのまま渡り、`LimitPolicy::pro_url()` が検証する）で差し替えられる。**サイト全体に効き**、フィルターが呼ばれた時点で
    読むので同じプロセス内で seed を書き換えても効く。使い終わったらキーを外す（R3-0h）。

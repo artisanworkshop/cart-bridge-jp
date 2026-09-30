@@ -468,7 +468,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   検証: PHPUnit 追加 27 件（`ImporterTest` 2・`ExporterTest` 2・`JobManagerTest` 1＋既存 1 件に assert 追加・`LimitPolicyTest` 18〔データセット込み〕・`RestControllerTest` 4）、
   Jest 33 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 11 種がすべて CAUGHT。
   review-loop R1（独立レビュー）の Medium 1 件（商品を移行し終えた後も在庫の行が出る）を修正。PR #87 の G1 で、新しい dry-run の一部のジョブが失敗・キャンセルしたときに前回の件数が残る問題（Copilot）を修正（`withoutDryRunTotals()`）
-- [ ] **R3-0m: 受注インポートの決済/配送マッピングを Import 側で設定・確認できるようにする（プレビュー警告の解消）**（2026-09-30 決定。**最優先: R3-0i / R3-0k より先に着手する**。issue は未起票）
+- [x] **R3-0m: 受注インポートの決済/配送マッピングを Import 側で設定・確認できるようにする（プレビュー警告の解消）**（2026-09-30 決定。**最優先: R3-0i / R3-0k より先に着手する**。issue は未起票。ブランチ `feat/r3-0m-mappings-tab`）
   **経緯**: 実店舗（F1-8 の岡虎様）の受注 1,237 件を main（2abb1db）のビルドで dry-run したところ、**全件**に `payment_method_unmapped`（決済 5 種）と `shipping_method_unmapped`（配送 2 種）が付いた
   （`dist/cart-bridge-jp-dry-run-a3ef31b3-….csv`。`dist/` は未コミット）。残りの警告（数量 0 明細 44・税合計不完全 45・商品/顧客の未解決参照 24・管理者アカウント 2）は R3-0n で扱う。
   **原因**: 設定ストア `cbjp_settings_{platform}`（`payment_map`/`shipping_map`/`status_map`）はインポート（`Woo\Writer\OrderWriter` → `Woo\Support\MethodMap`）と
@@ -492,7 +492,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
      canonical の既定に落ちて警告にならないため件数に含めない
   3. `WarningCode::indicates_mapping_required()` に `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED` を追加し、CSV の `note` を `mapping_required` にする
      （`indicates_pending_import()` は `! indicates_mapping_required()` で除外するので副作用なし。両コードは `indicates_unresolved_reference()` の対象外のため
-     checksum キャッシュも不変）。R3-0k のカタログ文言（対処＝Import/Export タブのマッピング設定）と揃える
+     checksum キャッシュも不変）。R3-0k のカタログ文言（対処＝Mappings タブのマッピング設定）と揃える。
+     **R1 で変更（2026-09-30、ユーザー承認）**: 両コードを `indicates_unresolved_reference()` にも加え、未マッピングの受注は checksum を保存しないようにした
+     （下の実装サマリ）
   4. 文言・ドキュメント: `MethodMap` のクラス docblock（「現状は未実装のため常に空配列」。backlog `e2-1-mapping-ui/R1-X1`）と Export タブの説明文を実態に合わせる。
      `docs/00` §5 の UI 構成に「マッピング」タブを追加（2〈インポート〉/ 3〈エクスポート〉の記述も更新）し、`docs/03` §6「React アプリ」のタブ一覧を
      Connections / Mappings / Import / Export / Logs / Tools に更新する。`verify-with-mock-adapter` の SKILL.md にある Export タブでの設定手順も Mappings タブに読み替える
@@ -507,6 +509,23 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   候補の描画と、受注 dry-run の当該 2 警告が設定後に 0 件になることを確認する。実店舗 1,237 件の再 dry-run は店舗側で実施する
   **完了条件**: Mappings タブで決済/配送マッピングを設定でき、Import タブの案内から辿り着ける。設定後の dry-run で当該 2 警告が消える。CSV の `note` が `mapping_required` になる。
   `composer lint && composer analyze && composer test:wpenv` と `npm run lint && npm run build && npm run test:js` が通る
+  **実装サマリ（2026-09-30）**: 方針 1〜4 を計画どおり実装。共有コンポーネント `src/components/MappingSettings.tsx`（GET/PUT で世代カウンタを共有）・
+  `src/tabs/MappingsTab.tsx`・Import の `src/components/OrderMappingNotice.tsx`（受注選択中に platform ごと 1 回だけ取得。案内のみ）・純粋関数
+  `src/components/mapping-status.ts`（設定先が現在の Woo 候補に無い値も未マッピングに数える）。Export タブは案内とリンクだけにし、世代カウンタを
+  進める役を画像設定の取得 effect へ移した（消したマッピング取得 effect が唯一の進め役だった）。台帳に無い小さな追加として、行の読み上げラベルと
+  `<thead>`（backlog `e2-1-mapping-ui/R1-L5`）と、対応先の候補が 0 件のときの案内を入れた。backlog `e2-1-mapping-ui/R1-X1`・`R2-L4` も解消。
+  **checksum の扱い（review-loop R1 で変更、ユーザー承認）**: 未マッピングのまま本取込みした受注は、参照が解決済みなら checksum が保存され、
+  後から設定しても checksum 一致で飛ばされて直らず、再 dry-run では警告だけが消えていた（独立レビューの指摘）。`PAYMENT_METHOD_UNMAPPED`/
+  `SHIPPING_METHOD_UNMAPPED` を `indicates_unresolved_reference()` に加え、該当受注は checksum を保存せず次回の取込みで付け直す（代償: 未マッピングのまま
+  運用すると該当受注は毎回再処理される。エクスポートは未マッピングの受注を送らないので影響しない）。この変更より前に取り込んで checksum が保存済みの
+  受注は直らない（Tools のサンプル削除→再取込み）。案内文と Mappings タブの説明に「インポート前に設定する。未マッピングで取り込んだ受注は次の取込みで更新される」を足した。
+  **要検証の扱い（2026-09-30 決定）**: 削除済みの決済/配送方法が候補 API に出るかは未実測のまま `docs/03` §6 に記録し、v1.0 では見送り。
+  **検証**: PHPUnit 追加 9 件（`WarningCodeTest` 5〈データセット 3 件込み〉・`DryRunReportCsvTest` 1・`OrderWriterTest` 2・`ImporterTest` 1〈実 Writer で取込み→設定→再取込み〉）、Jest 15 件。`mutate-check.sh` で PHP 4 種（2 コードそれぞれを `indicates_mapping_required()` と `indicates_unresolved_reference()` から外す）と
+  JS 4 種（Woo 候補の実在判定・自前キー判定・重複 ID・配送だけの未マッピング）がすべて CAUGHT（自前キー判定は最初 NOT CAUGHT で、継承した文字列値のテストを足した）。
+  mock（`mockv`）で、未マッピングの dry-run に 2 警告と `mapping_required` → 管理画面で決済を 1 件保存（`cbjp_settings_mockv` に永続化）→ Import の案内が
+  「決済 1/2・配送 1/1」→ 一時的な配送ゾーンを作り残りを設定 → 再 dry-run で 2 警告が 0 件・案内が消えることを確認し、撤去して検証前の状態に戻した。
+  実 API（テストショップ）では候補の取得と描画（決済 1・配送 1・カテゴリ 1）と Import の案内「決済 1/1・配送 1/1」を確認した。**テストショップは受注 0 件**
+  （非プレミアムのため API で受注も作れない）で、実 API の dry-run で警告が消えることは確かめられていない。実店舗 1,237 件の再 dry-run は店舗側で実施する
 - [ ] **R3-0n: 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い**（R3-0m の後。issue は未起票）: R3-0m と同じ CSV の残り。
   いずれも ColorMe 側の実データに起因するため、実データの確認（要検証）を先に行い、フィクスチャは匿名化して追加する。実データ（岡虎様の該当受注）の取得は
   ユーザー承認済み（2026-09-30）。取得環境（dry-run を実行したサイトの WP-CLI で生 JSON を取るか、wp-env を同じ店舗に接続するか）は着手時に決める。
