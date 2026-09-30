@@ -251,9 +251,13 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 	 */
 	public static function unreadable_subtotal_provider(): array {
 		return [
-			'missing'     => [ null, true ],
-			'null'        => [ null, false ],
-			'non-numeric' => [ 'abc', false ],
+			'missing'            => [ null, true ],
+			'null'               => [ null, false ],
+			'non-numeric'        => [ 'abc', false ],
+			// PR #90 G2: `money_or_null()` は小数・指数表記を切り捨てて `'0'` にしていた。
+			'fraction'           => [ 0.4, false ],
+			'fraction as string' => [ '1.5', false ],
+			'underflow to zero'  => [ '1e-400', false ],
 		];
 	}
 

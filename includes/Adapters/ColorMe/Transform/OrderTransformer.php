@@ -561,10 +561,10 @@ final class OrderTransformer {
 				// 数量の単位（箱・セット・重量単位等）。欠けると梱包・出荷資料側で数量ラベルを
 				// 復元できない。
 				'unit'                    => Cast::to_string_or_null( $detail['unit'] ?? null ),
-				// `Cast::money()`は欠損・非数値を`'0'`に丸めるため使わない: `OrderItemBuilder`は明細合計が0か
-				// どうかで「数量0・金額0の明細」を見分ける（R3-0n。PR #90 G1）ので、復元できない小計を0円に
-				// 化けさせない。nullなら`OrderItemBuilder`が単価×数量で補う（従来の欠損時の扱い）。
-				'subtotal'                => Cast::money_or_null( $detail['subtotal_price'] ?? null ),
+				// `Cast::money()`（欠損・非数値を`'0'`）も`money_or_null()`（小数・指数表記を切り捨て）も使わない:
+				// `OrderItemBuilder`は明細合計が0かどうかで「数量0・金額0の明細」を見分ける（R3-0n。PR #90 G1/G2）ので、
+				// 復元できない小計を0円に化けさせない。nullなら`OrderItemBuilder`が単価×数量で補う（従来の欠損時の扱い）。
+				'subtotal'                => Cast::exact_money_or_null( $detail['subtotal_price'] ?? null ),
 				// 注文時点の商品原価。商品マスタの原価は後から変わり得るため、履歴上の原価計算には
 				// この明細レベルの値を使う必要がある。
 				'cost'                    => Cast::to_int_or_null( $detail['product_cost'] ?? null ),

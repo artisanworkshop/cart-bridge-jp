@@ -908,12 +908,19 @@ final class OrderWriterTest extends WooTestCase {
 	}
 
 	/**
-	 * PR #90 G1: ColorMe の`subtotal_price`が欠損した`product_num=0`の明細は、変換層が小計を`'0'`に丸めなくなった
-	 * ので「数量0・金額0の明細」にはならず、従来どおり数量1＋`ORDER_LINE_QUANTITY_INVALID`になる（変換層→writer）。
+	 * PR #90 G1/G2: ColorMe の`subtotal_price`が欠損・小数・指数表記の`product_num=0`の明細は、変換層が小計を`'0'`に
+	 * 丸めなくなったので「数量0・金額0の明細」にはならず、従来どおり数量1＋`ORDER_LINE_QUANTITY_INVALID`になる（変換層→writer）。
+	 *
+	 * @dataProvider unreadable_colorme_subtotal_provider
 	 */
-	public function test_colorme_zero_quantity_line_without_a_subtotal_is_not_a_zero_line(): void {
+	public function test_colorme_zero_quantity_line_without_a_readable_subtotal_is_not_a_zero_line( mixed $subtotal_price, bool $remove ): void {
 		$raw_sale = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
-		unset( $raw_sale['details'][0]['subtotal_price'] );
+
+		if ( $remove ) {
+			unset( $raw_sale['details'][0]['subtotal_price'] );
+		} else {
+			$raw_sale['details'][0]['subtotal_price'] = $subtotal_price;
+		}
 
 		$result   = $this->make_writer()->write( ( new OrderTransformer() )->transform( $raw_sale ), null );
 		$wc_order = wc_get_order( $result->local_id );
@@ -921,6 +928,17 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 1, $items[0]->get_quantity() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, '900000051' ), $result->warnings );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:bool}>
+	 */
+	public static function unreadable_colorme_subtotal_provider(): array {
+		return [
+			'missing'           => [ null, true ],
+			'fraction'          => [ 0.4, false ],
+			'underflow to zero' => [ '1e-400', false ],
+		];
 	}
 
 	public function test_reduced_rate_tax_class_not_configured_falls_back_to_standard(): void {

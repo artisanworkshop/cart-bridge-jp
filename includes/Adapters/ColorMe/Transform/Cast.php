@@ -102,9 +102,22 @@ final class Cast {
 	 * `money()`と異なり、欠損・非数値を`0`へ丸めず`null`のまま透過する。呼び出し先が
 	 * 「金額が0円」と「金額を復元できない」を区別してフェイルクローズ処理を分岐する場合に使う
 	 * （例: `OrderItemBuilder::split_line_amount()`の`ORDER_TAX_SPLIT_UNAVAILABLE`経路）。
+	 * 小数（`0.4`）・指数表記（`'1e-400'`）は`to_int_or_null()`で切り捨てる（`'0'`になりうる）ので、
+	 * 金額が0かどうかで分岐する値には`exact_money_or_null()`を使う。
 	 */
 	public static function money_or_null( mixed $value ): ?string {
 		$int = self::to_int_or_null( $value );
+
+		return null === $int ? null : (string) $int;
+	}
+
+	/**
+	 * `money_or_null()`と異なり、整数でない値（`0.4`・`'1.5'`・`'1e-400'`）も切り捨てず`null`にする。
+	 * `OrderItemBuilder`は明細の小計が厳密に0かどうかで「数量0・金額0の明細」を見分けるため、0でない不正な
+	 * 小計を`'0'`に化けさせない（R3-0n。PR #90 G2）。
+	 */
+	public static function exact_money_or_null( mixed $value ): ?string {
+		$int = self::to_exact_int_or_null( $value );
 
 		return null === $int ? null : (string) $int;
 	}
