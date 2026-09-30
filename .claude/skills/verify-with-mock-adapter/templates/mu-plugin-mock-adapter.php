@@ -19,6 +19,11 @@
  *   beta_features: string[] }。省略したキーは mock の既定（`can_*` は true、`beta_features` は空）。
  *   例: プレミアム相当のベータ機能 → { can_create_order: true, can_push_images: true, beta_features: ['order_export', 'image_push'] } /
  *   非プレミアム相当 → { can_create_order: false, can_push_images: false, beta_features: ['order_export', 'image_push'] }。
+ * - `mapping_candidates`（配列。任意）は mock の `mapping_candidates()` がそのまま返す ASP 側の候補（R3-0m の Mappings タブ・
+ *   Import タブの事前チェックの確認用）。形は { payment: [{id,name}], shipping: [{id,name}], category: [...], status: [...] }
+ *   （省略したキーは空。`RestController` が正規化する）。受注の `payment_method_id`/`payment_method_name`/`shipping_method_id`/
+ *   `shipping_method_name`（任意）は canonical の `payment`/`shipping` の `method_id`/`method_name` になり、`payment_map`/`shipping_map`
+ *   が未設定なら dry-run で `payment_method_unmapped`/`shipping_method_unmapped` が付く。
  * - `limits`（配列。任意）は無料版の上限（`cbjp/limits/{entity}`）を差し替える。形は { entity: int|null }（null は Pro 相当の解除）。
  *   `pro_url`（任意）は `cbjp/limits/pro_url` の戻り値にそのまま渡す（`LimitPolicy::pro_url()` が検証する）。どちらも**サイト全体に効く**
  *   ので、使い終わったらキーを外す（R3-0h の Pro 案内の検証用。`examples/upsell-notice/`）。
@@ -75,14 +80,26 @@ add_action(
 					);
 				}
 
+				// 受注の決済/配送方法（任意。R3-0m）。文字列以外は読み飛ばす（mu-plugin の fatal を避ける既存方針）。
+				$method = static fn ( array $o, string $key ): ?string => is_string( $o[ $key ] ?? null ) ? $o[ $key ] : null;
+
 				foreach ( $rows( 'orders' ) as $o ) {
 					$orders[] = new CartBridgeJP\Canonical\CanonicalOrder(
 						$o['number'],
 						'processing',
 						null,
 						[],
-						$address( (int) $o['shipping_pref'], '1000001', 'Verify 1-1-1' ),
-						[],
+						array_merge(
+							$address( (int) $o['shipping_pref'], '1000001', 'Verify 1-1-1' ),
+							[
+								'method_id'   => $method( $o, 'shipping_method_id' ),
+								'method_name' => $method( $o, 'shipping_method_name' ),
+							]
+						),
+						[
+							'method_id'   => $method( $o, 'payment_method_id' ),
+							'method_name' => $method( $o, 'payment_method_name' ),
+						],
 						[
 							'total'        => '1000',
 							'tax'          => '0',
@@ -134,6 +151,9 @@ add_action(
 					);
 				}
 
+				// R3-0m 検証用: `mapping_candidates` が配列のときだけ mock の `mapping_candidates()` に渡す（配列でなければ既定の空）。
+				$candidates_seed = is_array( $seed ) && is_array( $seed['mapping_candidates'] ?? null ) ? $seed['mapping_candidates'] : null;
+
 				// `platform_id` は登録キーと同じ値にする。Importer/Exporter/JobManager は mapping・上限のキーを登録キーではなく
 				// `$adapter->id()` から決める（既定の 'mock' のままだと、別キーで登録しても mapping が 'mock' 名前空間へ書かれる）。
 				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter(
@@ -143,6 +163,7 @@ add_action(
 					push_others_supported: $push_enabled,
 					create_push_failure: $create_push_fail,
 					capabilities_override: $caps_override,
+					mapping_candidates_override: $candidates_seed,
 					platform_id: '__PLATFORM_KEY__'
 				);
 
