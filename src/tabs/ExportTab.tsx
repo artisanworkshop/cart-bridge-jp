@@ -20,6 +20,7 @@ import {
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
+import { tabHref } from '../hash-route';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
 import type {
 	Capabilities,
@@ -790,7 +791,7 @@ export default function ExportTab() {
 							  ) }
 					</p>
 					<p>
-						<a href="#/mappings">
+						<a href={ tabHref( 'mappings', platform ) }>
 							{ __( 'Open the Mappings tab', 'cart-bridge-jp' ) }
 						</a>
 					</p>

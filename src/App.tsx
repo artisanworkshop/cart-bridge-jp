@@ -6,6 +6,7 @@ import ImportTab from './tabs/ImportTab';
 import ExportTab from './tabs/ExportTab';
 import LogsTab from './tabs/LogsTab';
 import ToolsTab from './tabs/ToolsTab';
+import { parseHash } from './hash-route';
 
 const TABS = [
 	{
@@ -39,7 +40,8 @@ const TABS = [
 type TabId = ( typeof TABS )[ number ][ 'id' ];
 
 function currentTabFromHash(): TabId {
-	const hash = window.location.hash.replace( /^#\//, '' );
+	// `#/mappings?platform=colorme` の `?` 以降は各タブが読む（`hash-route.ts`）。
+	const hash = parseHash( window.location.hash ).tab;
 
 	return ( TABS.find( ( tab ) => tab.id === hash )?.id ??
 		TABS[ 0 ].id ) as TabId;

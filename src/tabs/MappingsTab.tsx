@@ -10,6 +10,7 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import MappingSettings, { type MapKey } from '../components/MappingSettings';
+import { parseHash } from '../hash-route';
 import type { Capabilities, Connection } from '../types';
 
 function errorMessage( err: unknown ): string {
@@ -62,7 +63,14 @@ export default function MappingsTab() {
 			return;
 		}
 
-		setPlatform( connectedPlatforms[ 0 ].platform );
+		// Import/Export タブの案内から来たときは、そちらで選んでいたプラットフォームを開く（`#/mappings?platform=`）。
+		// ハッシュは任意の文字列を含みうるので、接続済みのプラットフォームに一致するときだけ使う。
+		const requested = parseHash( window.location.hash ).platform;
+
+		setPlatform(
+			connectedPlatforms.find( ( c ) => c.platform === requested )
+				?.platform ?? connectedPlatforms[ 0 ].platform
+		);
 	}, [ connectedPlatforms, platform ] );
 
 	const currentConnection = useMemo(

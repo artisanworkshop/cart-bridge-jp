@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Notice } from '@wordpress/components';
 import apiFetch from '../api';
+import { tabHref } from '../hash-route';
 import type { SettingsMappings } from '../types';
 import {
 	hasOrderMappingGaps,
@@ -122,7 +123,7 @@ export default function OrderMappingNotice( {
 				) }
 			</p>
 			<p>
-				<a href="#/mappings">
+				<a href={ tabHref( 'mappings', platform ) }>
 					{ __(
 						'Set up the mappings on the Mappings tab',
 						'cart-bridge-jp'
