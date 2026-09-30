@@ -78,6 +78,23 @@ final class ProductResolver {
 		return null;
 	}
 
+	/**
+	 * `resolve_by_sku_or_remote_id()`が未解決（null）を返した明細について、その原因が「remote_idは
+	 * 取り込み済みのvariable商品に解決したが、オプション値からvariationを1件に特定できなかった」ことか
+	 * （`OrderItemBuilder`が`ORDER_LINE_VARIATION_UNMATCHED`と`ORDER_LINE_PRODUCT_UNRESOLVED`を分けるのに使う）。
+	 * remote_idの経路は親のvariable商品に解決したときvariationかnullしか返さないため、null の後にこれが真なら
+	 * 原因はvariationの特定に限られる。
+	 */
+	public function maps_to_variable_product( ?string $remote_id ): bool {
+		if ( null === $remote_id ) {
+			return false;
+		}
+
+		$local_id = $this->mappings->find_local_id( $this->platform, 'product', $remote_id );
+
+		return null !== $local_id && $this->as_product( $local_id ) instanceof WC_Product_Variable;
+	}
+
 	private function as_orderable_product( int $id ): ?WC_Product {
 		$product = $this->as_product( $id );
 

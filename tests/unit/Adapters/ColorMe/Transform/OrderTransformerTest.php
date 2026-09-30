@@ -116,6 +116,46 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'processing', $transformer->transform( $paid )->status );
 	}
 
+	/**
+	 * R3-0n: 実店舗の受注（匿名化）。ColorMe は明細を外す（またはキャンセルする）と、単価を残したまま
+	 * `product_num=0`・`subtotal_price=0` にする。変換層は数量0をそのまま運び、商品合計はその行を含まない。
+	 */
+	public function test_zero_quantity_line_from_a_real_order_is_passed_through(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertCount( 2, $order->line_items );
+		$this->assertSame( 0, $order->line_items[0]['quantity'] );
+		$this->assertSame( '0', $order->line_items[0]['subtotal'] );
+		$this->assertSame( '2283', $order->line_items[0]['price'] );
+		$this->assertSame( 1, $order->line_items[1]['quantity'] );
+		$this->assertSame( '2283', $order->line_items[1]['subtotal'] );
+		$this->assertSame( '2283', $order->totals['subtotal'] );
+		$this->assertSame( 'sale.totals', $order->totals['tax_source'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
+	/**
+	 * R3-0n: 2019-09-09 以前の受注は `sale.totals` が null（実店舗の受注で実測。2019-09-12 以降は全件にある）。
+	 * `sale.tax`（商品分のみ）へフォールバックし、`tax_source` で送料分の税を含まないことを示す。
+	 */
+	public function test_old_order_without_totals_falls_back_to_the_product_tax(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_without_totals_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $raw['totals'] );
+		$this->assertSame( 'sale.tax_incomplete_excludes_shipping_tax', $order->totals['tax_source'] );
+		$this->assertSame( '314', $order->totals['tax'] );
+		$this->assertSame( '1200', $order->totals['shipping_fee'] );
+		$this->assertSame( '5440', $order->totals['total'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+		// 受注時点のオプション（1軸）。現在の商品は2軸（R3-0n の実店舗データ）。
+		$this->assertSame( '白２本・赤２本', $order->line_items[0]['option1_value_current'] );
+		$this->assertNull( $order->line_items[0]['option2_value_current'] );
+	}
+
 	public function test_missing_make_date_throws(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		unset( $raw['make_date'] );

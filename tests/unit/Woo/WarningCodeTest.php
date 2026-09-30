@@ -157,4 +157,46 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		$this->assertFalse( WarningCode::indicates_mapping_required( 'payment_method_unmapped_extra:1' ) );
 		$this->assertFalse( WarningCode::indicates_mapping_required( '' ) );
 	}
+
+	/**
+	 * R3-0n: 受注の商品・顧客の未解決は、未インポートなのかASP側で削除済みなのかを区別できない（実店舗の受注では
+	 * この 2 コードの 21 件すべてが ColorMe 側で削除済みだった）。`reference_pending_import` から外して中立の注記にするが、
+	 * 未インポートなら後から解決しうるので checksum はキャッシュしない（`indicates_unresolved_reference()`）ままにする。
+	 */
+	public function test_order_product_and_customer_refs_are_unresolved_but_not_pending_import(): void {
+		foreach ( [ WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, WarningCode::ORDER_CUSTOMER_UNRESOLVED ] as $code ) {
+			$warning = WarningCode::with_detail( $code, 'gone-1' );
+
+			$this->assertTrue( WarningCode::indicates_order_reference_unresolved( $warning ), $code );
+			$this->assertFalse( WarningCode::indicates_pending_import( $warning ), $code );
+			$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
+		}
+	}
+
+	/**
+	 * R3-0n: 取り込み済みの variable 商品でバリエーションを特定できない明細。商品は取り込み済みなので
+	 * 「先にインポートすれば消える」でも「未インポートか削除済み」でもない。variation が後から取り込まれれば
+	 * 解決しうるので checksum はキャッシュしない。インポート方向の警告なのでエクスポートは止めない
+	 * （エクスポート方向の`ORDER_LINE_VARIATION_UNRESOLVED`とは別コード）。
+	 */
+	public function test_variation_unmatched_is_retry_worthy_without_a_pending_note(): void {
+		$warning = WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-axes' );
+
+		$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ) );
+		$this->assertFalse( WarningCode::indicates_pending_import( $warning ) );
+		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( $warning ) );
+		$this->assertFalse( WarningCode::indicates_export_blocking( [ $warning ] ) );
+		$this->assertNotSame( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, WarningCode::ORDER_LINE_VARIATION_UNMATCHED );
+	}
+
+	/**
+	 * R3-0n で受注の2コードを外した後も、他の参照未解決（カテゴリ・在庫の親商品）は従来どおり
+	 * `reference_pending_import` の対象（初回 dry-run の「未インポート起因」の注記）。
+	 */
+	public function test_other_unresolved_references_are_still_pending_import(): void {
+		$this->assertTrue( WarningCode::indicates_pending_import( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
+		$this->assertTrue( WarningCode::indicates_pending_import( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, '1' ) ) );
+		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
+		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( 'order_line_product_unresolved_extra:1' ) );
+	}
 }
