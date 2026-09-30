@@ -11,9 +11,10 @@ use WC_Shipping_Method;
 use WC_Shipping_Zones;
 
 /**
- * `cbjp_settings_{platform}` オプション（F1-6の `/settings/mappings/{platform}` REST が書く。
- * 現状は未実装のため常に空配列＝全て「未マッピング」経路に倒れる）から決済/配送/受注ステータスの
- * ユーザー設定マッピングを読む。
+ * `cbjp_settings_{platform}` オプション（`/settings/mappings/{platform}` REST が書く。UI は管理画面の
+ * Mappings タブ。R3-0m）から決済/配送/受注ステータス/カテゴリのユーザー設定マッピングを読む。
+ * 未設定のキーは「未マッピング」経路（`PAYMENT_METHOD_UNMAPPED` 等の警告）に倒れる。
+ * 呼び出しのたびにオプションを読むため、run の途中で保存された設定は次のアイテムから効く。
  *
  * `payment_map`/`shipping_map` の値は表示タイトルではなく**Wooの決済ゲートウェイID/配送方法ID**
  * （`docs/01-plan-colorme.md` の例: 「銀行振込 → bacs」の `bacs` 相当）。表示タイトルは

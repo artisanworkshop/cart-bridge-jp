@@ -108,4 +108,52 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		$this->assertFalse( WarningCode::indicates_variation_stock_mixed( [ WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT ] ) );
 		$this->assertFalse( WarningCode::indicates_variation_stock_mixed( [] ) );
 	}
+
+	/**
+	 * R3-0m: 決済/配送の未マッピングは、カテゴリの未マッピングと同じく「マッピング設定（Mappings タブ）を
+	 * 追加すれば消える」警告として dry-run CSV の `note` に `mapping_required` を付ける。detail の有無
+	 * （インポート方向は ASP 側 ID、エクスポート方向は Woo 側 ID）に関わらず判定できる。
+	 *
+	 * @return array<string,array{0:string}>
+	 */
+	public static function mapping_required_codes(): array {
+		return [
+			'category_map_unresolved'  => [ WarningCode::CATEGORY_MAP_UNRESOLVED ],
+			'payment_method_unmapped'  => [ WarningCode::PAYMENT_METHOD_UNMAPPED ],
+			'shipping_method_unmapped' => [ WarningCode::SHIPPING_METHOD_UNMAPPED ],
+		];
+	}
+
+	/**
+	 * @dataProvider mapping_required_codes
+	 */
+	public function test_unmapped_codes_indicate_mapping_required( string $code ): void {
+		$this->assertTrue( WarningCode::indicates_mapping_required( $code ) );
+		$this->assertTrue( WarningCode::indicates_mapping_required( WarningCode::with_detail( $code, '1094475' ) ) );
+		$this->assertTrue( WarningCode::indicates_mapping_required( WarningCode::with_detail( $code, 'flat_rate:6' ) ) );
+		// 「参照先を先にインポートする」案内とは排他（`indicates_pending_import()` は mapping_required を除外する）。
+		$this->assertFalse( WarningCode::indicates_pending_import( WarningCode::with_detail( $code, '1094475' ) ) );
+	}
+
+	/**
+	 * R3-0m: 決済/配送の未マッピングを `indicates_mapping_required()` に加えても、checksum キャッシュの判定
+	 * （`indicates_unresolved_reference()`）とエクスポートの停止判定は変わらないことを固定する
+	 * （マッピングを後から設定しても、受注の再取込みは checksum ではなくマッピング変更後の dry-run で確かめる設計のまま）。
+	 */
+	public function test_payment_and_shipping_unmapped_do_not_change_checksum_or_export_blocking(): void {
+		foreach ( [ WarningCode::PAYMENT_METHOD_UNMAPPED, WarningCode::SHIPPING_METHOD_UNMAPPED ] as $code ) {
+			$warning = WarningCode::with_detail( $code, 'pay-1' );
+
+			$this->assertFalse( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
+			$this->assertFalse( WarningCode::indicates_pending_export( $warning ), $code );
+			$this->assertFalse( WarningCode::indicates_export_blocking( [ $warning ] ), $code );
+		}
+	}
+
+	public function test_other_warnings_do_not_indicate_mapping_required(): void {
+		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'x' ) ) );
+		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, '1' ) ) );
+		$this->assertFalse( WarningCode::indicates_mapping_required( 'payment_method_unmapped_extra:1' ) );
+		$this->assertFalse( WarningCode::indicates_mapping_required( '' ) );
+	}
 }

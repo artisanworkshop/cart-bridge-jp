@@ -138,6 +138,39 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertSame( 'reference_pending_export', $rows[0][7] );
 	}
 
+	/**
+	 * R3-0m: 決済/配送/カテゴリの未マッピングは「マッピング設定（Mappings タブ）を追加すれば消える」警告として
+	 * `mapping_required` を付ける。実店舗の受注 dry-run で全件に付いた 2 警告の `note` が空で、店舗オーナーが
+	 * 原因（マッピング未設定）に辿り着けなかった。
+	 */
+	public function test_unmapped_method_and_category_warnings_are_flagged_as_mapping_required(): void {
+		$this->items->insert_many(
+			'run-5d',
+			1,
+			[
+				$this->row(
+					[
+						'entity'   => 'order',
+						'warnings' => [ 'payment_method_unmapped:1094475', 'shipping_method_unmapped:640580' ],
+					]
+				),
+				$this->row(
+					[
+						'remote_id' => 'p2',
+						'warnings'  => [ 'category_map_unresolved:15' ],
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-5d', null, false );
+
+		$this->assertCount( 3, $rows );
+		$this->assertSame( [ 'payment_method_unmapped', '1094475', 'mapping_required' ], [ $rows[0][5], $rows[0][6], $rows[0][7] ] );
+		$this->assertSame( [ 'shipping_method_unmapped', '640580', 'mapping_required' ], [ $rows[1][5], $rows[1][6], $rows[1][7] ] );
+		$this->assertSame( [ 'category_map_unresolved', '15', 'mapping_required' ], [ $rows[2][5], $rows[2][6], $rows[2][7] ] );
+	}
+
 	public function test_unrelated_warning_leaves_the_note_column_empty(): void {
 		$this->items->insert_many( 'run-6', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
 

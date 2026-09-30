@@ -732,14 +732,28 @@ final class WarningCode {
 
 	/**
 	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列）用: この警告が「ASP側に対応する実体を
-	 * 先にインポートすれば消える」のではなく「マッピング設定（`/settings/mappings/{platform}`）を
-	 * 追加すれば消える」ものか。`CATEGORY_MAP_UNRESOLVED`（エクスポート方向、`category_map`未設定）は
-	 * `indicates_unresolved_reference()`（checksumキャッシュ判定）の対象ではあるが、
-	 * 「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
-	 * （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
-	 * なため専用の判定を分ける。
+	 * 先にインポートすれば消える」のではなく「マッピング設定（`/settings/mappings/{platform}`。
+	 * 管理画面の Mappings タブ）を追加すれば消える」ものか。
+	 *
+	 * - `CATEGORY_MAP_UNRESOLVED`（エクスポート方向、`category_map`未設定）は
+	 *   `indicates_unresolved_reference()`（checksumキャッシュ判定）の対象ではあるが、
+	 *   「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
+	 *   （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
+	 *   なため専用の判定を分ける。
+	 * - `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`は`payment_map`/`shipping_map`の未設定
+	 *   （または設定先のWoo決済/配送方法が実在しない）で付く。detail はインポート方向
+	 *   （`Woo\Writer\OrderWriter`）ではASP側のID、エクスポート方向（`ColorMeAdapter::push_order()`）では
+	 *   Woo側のIDだが、どちらも同じマップを設定すれば消えるため同じ注記にする（R3-0m）。
+	 *   両コードは`indicates_unresolved_reference()`の対象外なので、ここに加えても checksum キャッシュの
+	 *   判定は変わらない。
 	 */
 	public static function indicates_mapping_required( string $warning ): bool {
-		return self::CATEGORY_MAP_UNRESOLVED === self::split( $warning )[0];
+		$codes = [
+			self::CATEGORY_MAP_UNRESOLVED,
+			self::PAYMENT_METHOD_UNMAPPED,
+			self::SHIPPING_METHOD_UNMAPPED,
+		];
+
+		return in_array( self::split( $warning )[0], $codes, true );
 	}
 }
