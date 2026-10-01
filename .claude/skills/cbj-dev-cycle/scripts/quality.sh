@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# このリポジトリの品質チェック一式。wp-env のポートは .wp-env.override.json で固定する
-# （8888 が別プロジェクトに使われている環境向け。無ければ既定の 8888/8889）。
+# このリポジトリの品質チェック一式。wp-env のポートは .wp-env.json で固定している
+# （dev 10010 / tests 10011。dev-env スキルの台帳のスロット 01）。
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 composer lint

@@ -28,20 +28,15 @@ description: >
 | 絶対ルール | `CLAUDE.md` の「コーディング規約」「アーキテクチャ原則」全項目に加え、触るファイルに対応する `.claude/rules/*.md`（カラーミー固有・WooCommerce API 固有・Sync/Export・フロントエンドの落とし穴。パス指定で読み込まれる。索引は CLAUDE.md 末尾）。レビューでは第一級項目として扱う |
 | レビュー基準 | `docs/review-criteria.md` は無い → `review-loop` の重大度定義。`docs/review-baseline.md` / `docs/review-backlog.md` を必ず読む |
 | PR 本文 | 「対応フェーズ / 変更概要 / テスト内容 / 設計ドキュメントからの逸脱 / review-loop サマリ」（日本語）+ システムプロンプト指定の署名 |
-| ローカル環境 | wp-env。**ポートは `.wp-env.override.json`（gitignored）で固定する**（下記） |
+| ローカル環境 | wp-env。**ポートは `.wp-env.json` で固定（dev 10010 / tests 10011。dev-env スキルの台帳のスロット 01）**（下記） |
 | 状態ファイル | `docs/reviews/<ブランチ>/dev-cycle.md`、各ラウンドは `R<n>.md` / `G<n>.md` / `final-report.md`。**ブランチ名のスラッシュはディレクトリ階層としてそのまま使う**（`fix/15-foo` → `docs/reviews/fix/15-foo/`。ハイフンに潰すとラウンド自動判定が既存記録を見つけられない） |
 
 ## Step 0 の追加事項（環境）
 
 - `npx wp-env`（グローバルの `wp-env` は使わない）。`docker ps --format '{{.Names}}\t{{.Ports}}'` で
-  このリポジトリのインスタンスが起動しているか確認する。8888/8889 が別プロジェクトに使われている場合、
-  `.wp-env.override.json` に空きポートを書いてから `npx wp-env start` する:
-
-  ```json
-  { "port": 8895, "testsPort": 8896 }
-  ```
-
-  これで `composer test:wpenv` / `npx wp-env run ...` に `WP_ENV_PORT=` を前置する必要が無くなる。
+  このリポジトリのインスタンス（10010/10011）が起動しているか確認する。ポートは `.wp-env.json` で固定済みなので、
+  `WP_ENV_PORT=` の前置も `.wp-env.override.json` も使わない。起動が `port is already allocated` で失敗したら、
+  dev-env スキルの `ports.js check` で誰がそのポートを持っているかを確かめる（別プロジェクトのコンテナは止めない）。
 - `.nvmrc`（Node 20）と `node -v` の一致を確認する。
 
 ## Step 1（計画）の追加事項
