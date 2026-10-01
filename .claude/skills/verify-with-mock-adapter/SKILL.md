@@ -24,7 +24,8 @@ description: >
 ## 手順
 
 `S=.claude/skills/verify-with-mock-adapter`（リポジトリルートから実行）。wp-env は起動済みであること（`npx wp-env start`。ポートは
-`.wp-env.json` で固定。dev は 10010）。
+`.wp-env.json` で固定。dev は 10010。旧手順の `.wp-env.override.json` が残っていると旧ポートで起動するので、
+`cbj-dev-cycle` の Step 0 に従って先に消す）。
 
 1. **開発サイトの既存データを確認する**（実データを汚さないため。最初に必ず）:
    `$S/scripts/mock-adapter.sh inspect` — `cbjp_mappings` の platform 別件数・`cbjp_*` オプション・ユーザー数・受注数を出す。

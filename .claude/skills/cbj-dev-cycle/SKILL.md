@@ -37,6 +37,17 @@ description: >
   このリポジトリのインスタンス（10010/10011）が起動しているか確認する。ポートは `.wp-env.json` で固定済みなので、
   `WP_ENV_PORT=` の前置も `.wp-env.override.json` も使わない。起動が `port is already allocated` で失敗したら、
   dev-env スキルの `ports.js check` で誰がそのポートを持っているかを確かめる（別プロジェクトのコンテナは止めない）。
+- **旧手順の `.wp-env.override.json` が残っていないか確認する**（2026-10-01 以前のクローン）。以前はこのファイル
+  （gitignored）に `{ "port": 8895, "testsPort": 8896 }` 等を書いていた。wp-env は override を `.wp-env.json` より
+  優先するため、残っていると旧ポートのまま起動する:
+
+  ```bash
+  [ -f .wp-env.override.json ] && cat .wp-env.override.json
+  ```
+
+  中身が `port` / `testsPort` だけならファイルごと消す。ほかの設定もあれば `port` / `testsPort` のキーだけ消す。
+  旧ポートで起動中なら `npx wp-env stop` → `npx wp-env start` で切り替え、`docker ps` で `*-wordpress-1` が
+  10010、`*-tests-wordpress-1` が 10011 になったことを確かめる。
 - `.nvmrc`（Node 20）と `node -v` の一致を確認する。
 
 ## Step 1（計画）の追加事項
