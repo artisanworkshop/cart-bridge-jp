@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Writer;
 
+use Automattic\WooCommerce\Caches\OrderCountCache;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\MappingRepository;
@@ -22,11 +23,10 @@ use Throwable;
 use WC_Order;
 use WC_Order_Item;
 use WC_Order_Item_Product;
-use WP_Error;
 
 /**
  * `CanonicalOrder` をWooの受注として書き込む（`docs/03-design-decisions.md` §5 D10）。
- * HPOS対応のためWC_Order CRUD（`wc_create_order()`/`wc_get_order()`）のみを使い、
+ * HPOS対応のためWC_Order CRUD（`new WC_Order()`/`wc_get_order()`）のみを使い、
  * `wp_posts`直接操作は行わない。合計はASP側の値をそのまま設定し、`calculate_totals()`等の
  * Woo再計算は一切呼ばない。
  */
@@ -67,22 +67,23 @@ final class OrderWriter implements EntityWriter {
 			// フォールバックする（TermWriter/CustomerWriter/ProductWriterの同種のstale-ID対応と
 			// 同じ方針）。フォールバックしないと`WriteResult`のlocal_id=0はmappingsへ永続化
 			// されない契約（`Importer`参照）のため、この注文は毎回skippedのまま永久に復旧しない。
+			//
+			// `wc_create_order()`で支払い待ちの受注を先に作ってからASPのステータスへ`set_status()`
+			// すると、保存時にWooCommerceが「支払い待ち→完了」等の状態変化として
+			// `woocommerce_order_status_*`を発火し、他プラグインの完了時処理（請求書のPDF・メール、
+			// 決済の売上確定など）が移行する過去の受注で動く。実店舗では請求書プラグインが商品の無い
+			// 明細で例外を投げ、その受注は毎回作っては消されていた（issue #91）。未保存の受注を
+			// 組み立て、最終ステータスで1回だけ保存する（`apply_status()`参照）。`wc_create_order()`が
+			// 記録していた顧客IP・ユーザーエージェント（インポートを実行した環境の値）も残さない。
 			$existing_local_id = null;
-			$order             = wc_create_order( [ 'status' => 'pending' ] );
+			$order             = new WC_Order();
 		}
 
-		if ( ! $order instanceof WC_Order ) {
-			// wc_create_order()がWP_Error（DB障害・データストア誤設定等）を返した場合。無警告で
-			// 握りつぶすと結果レポートから受注が丸ごと欠落した理由が分からなくなるため警告を積む。
-			$detail = $order instanceof WP_Error ? $order->get_error_code() : '';
-
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::ORDER_CREATE_FAILED, $detail ) ] );
-		}
-
-		$operation = null === $existing_local_id ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
+		$is_new_order = null === $existing_local_id;
+		$operation    = $is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED;
 
 		try {
-			$prepared = $this->prepare( $order, $item, WriteResult::OPERATION_CREATED === $operation );
+			$prepared = $this->prepare( $order, $item, $is_new_order );
 			$warnings = $prepared->warnings;
 
 			// 再実行時は明細を作り直す（冪等）。ここまでで組み立て・各種設定が全て成功した後、
@@ -93,34 +94,54 @@ final class OrderWriter implements EntityWriter {
 			// 既存の明細が失われないよう、失敗しうる処理を全て終えてから削除・追加・保存を行う。
 			$order->remove_order_items();
 
-			foreach ( array_merge( $prepared->line_items, $prepared->shipping_items ) as $order_item ) {
+			$added_items = array_merge( $prepared->line_items, $prepared->shipping_items );
+
+			foreach ( $added_items as $order_item ) {
 				$order->add_item( $order_item );
 			}
 
 			$order_id = $order->save();
 
 			if ( 0 === $order_id ) {
-				// `wc_create_order()`は内部で`$order->save()`を呼ぶが戻り値そのものは検証しない。
-				// HPOS（本プラグインが要求する構成）の`OrdersTableDataStore::persist_order_to_db()`は
-				// create失敗時に必ず`\Exception`を投げるため実測上この分岐は基本的に到達しないが、
-				// 将来のWC実装変更で「例外を投げず0を返す」経路に変わった場合の保険として、
-				// ProductWriter/CouponWriter/TermWriterと同じ0チェックの慣習をここにも揃え、
-				// 下のcatchへ合流させて孤立注文（新規作成時）の削除を確実に共通化する
-				// （以前はこのチェックがtry/catchの外にあり、新規作成でここに到達すると
-				// 孤立した`WC_Order`がDBに残ったまま`WriteResult(0, SKIPPED, ...)`を返していた）。
-				throw new RuntimeException( 'OrderWriter: $order->save() returned 0.' );
+				// `WC_Abstract_Order::save()`は保存前のフック（他プラグインの`woocommerce_before_order_object_save`）や
+				// 作成で出た`Exception`を握りつぶしてWooCommerceのログに残し、受注を作れなければIDの0を返す
+				// （既存受注の更新では0にならない）。何も作られていないので、例外ではなく作成失敗の警告で見送る。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::ORDER_CREATE_FAILED ] );
+			}
+
+			if ( $is_new_order && ! self::all_items_saved( $added_items ) ) {
+				// 作成（行の作成→`woocommerce_new_order`→明細の保存）の途中、他プラグインの`woocommerce_new_order`等が
+				// `Exception`を投げると、`save()`はそれを握りつぶして0でないIDを返すが、明細は保存されていない（PR #92 G2）。
+				// 以前の作り方は2回目の保存が明細を保存していたので、同じくもう1回だけ保存する（更新なので
+				// `woocommerce_new_order`も状態変化も起きない）。中断された`woocommerce_new_order`の処理には件数キャッシュの
+				// 加算（優先度10）も含まれうるので、件数キャッシュは捨てて数え直させる。それでも明細が保存できなければ、
+				// 下のcatchで受注を消して例外を伝え、次回に再試行させる（明細の欠けた受注をmappingごと確定させない）。
+				self::flush_order_count_cache();
+				$order->save();
+
+				if ( ! self::all_items_saved( $added_items ) ) {
+					throw new RuntimeException( 'OrderWriter: the created order could not save its items.' );
+				}
 			}
 		} catch ( Throwable $exception ) {
-			// `wc_create_order()`は呼び出し直後にDBへ永続化するため、ここで例外が伝播すると
-			// 呼び出し元Importerはmappingsを書けない（書込成功時にしかupsertしないため）。
-			// 再試行時は`existing_local_id`が依然nullのまま`wc_create_order()`が再度呼ばれ、
-			// 同一ASP受注に対して重複した孤立注文を作ってしまう。新規作成だった場合はここで
-			// 削除してから例外を再送出し、次回は クリーンな状態からやり直せるようにする。
-			if ( null === $existing_local_id ) {
+			// 保存の途中（受注の行を作った後の明細の保存・他プラグインのフック等）で例外が伝播すると、
+			// 呼び出し元Importerはmappingsを書けない（書込成功時にしかupsertしないため）。行が残ると
+			// 再試行のたびに同一ASP受注の孤立注文が増えるため、新規作成で行ができていれば削除してから
+			// 例外を再送出する。最終ステータスで保存しているので、`OrderCountCacheService`
+			// （受注件数キャッシュ。作成時の`woocommerce_new_order`で加算し、削除時点のステータスで減算する）
+			// も加算と同じステータスで減算される（issue #91 以前は支払い待ちで作り、メモリ上で完了等にした受注を
+			// 消していたため「支払い待ち+1・完了-1」にずれていた）。加算より前に失敗した場合のずれは
+			// `flush_order_count_cache()`で直す。
+			if ( $is_new_order && 0 !== $order->get_id() ) {
 				$order->delete( true );
+				self::flush_order_count_cache();
 			}
 
 			throw $exception;
+		}
+
+		if ( $is_new_order ) {
+			$this->after_creating( $order, $order_id );
 		}
 
 		return new WriteResult( $order_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
@@ -140,11 +161,8 @@ final class OrderWriter implements EntityWriter {
 		// `wc_get_order()`は読み取りのみ。stale-IDの場合は`write()`と同じくフォールバックする。
 		$existing_order = null !== $existing_local_id ? wc_get_order( $existing_local_id ) : false;
 		$is_new_order   = ! $existing_order instanceof WC_Order;
-		// `wc_create_order()`（write専用。呼んだ瞬間にDBへ注文行を作る）は使わず、未保存の
-		// `WC_Order`インスタンスへ組み立てる。`set_*()`/`update_meta_data()`は全てメモリ上の
-		// 操作で`save()`まで永続化されないため、破棄しても何も残らない
-		// （`Woo\WarningCode`のdocblockの「試みないと判定できない警告」とは別の理由で
-		// `ORDER_CREATE_FAILED`はここでは判定できない=dry-run除外）。
+		// `write()`と同じく、保存していない受注オブジェクトへ組み立てる。setterやメタの更新は
+		// 保存するまでメモリ上の操作なので、破棄しても何も残らない。
 		$order = $is_new_order ? new WC_Order() : $existing_order;
 
 		$prepared = $this->prepare( $order, $item, $is_new_order );
@@ -153,6 +171,79 @@ final class OrderWriter implements EntityWriter {
 			$is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED,
 			$prepared->warnings
 		);
+	}
+
+	/**
+	 * 追加した明細がすべてDBに保存されたか（保存された明細にはIDが付く）。読み直さないのは、WooCommerceの受注キャッシュが
+	 * 保存していないメモリ上の明細を返しうるため。
+	 *
+	 * @param array<int,WC_Order_Item> $items
+	 */
+	private static function all_items_saved( array $items ): bool {
+		foreach ( $items as $item ) {
+			if ( 0 === $item->get_id() ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * 作っては消した受注の分、WooCommerceの受注件数キャッシュを捨ててDBから数え直させる。`OrderCountCacheService`は
+	 * 作成時の`woocommerce_new_order`（優先度10）で加算し、削除時は無条件に減算するため、それより前（優先度10未満の
+	 * `woocommerce_new_order`の処理など）で失敗した受注を消すと、加算されないまま減算されて1件少なくなる
+	 * （永続オブジェクトキャッシュのある本番では残り続ける。PR #92 G1）。失敗時だけの処理なので、加算済みかどうかを
+	 * 見分けずに捨てる。内部向けの`OrderCountCacheService`ではなく公開クラスの`OrderCountCache::flush()`を使い、
+	 * クラスの無い古いWooCommerceでは件数キャッシュも無いので何もしない。
+	 */
+	private static function flush_order_count_cache(): void {
+		if ( class_exists( OrderCountCache::class ) ) {
+			( new OrderCountCache() )->flush( 'shop_order' );
+		}
+	}
+
+	/**
+	 * 新規作成を状態変化なしで1回だけ保存したため（issue #91）、WooCommerceが以前の作り方（作成→更新・状態変化）で
+	 * 起こしていた処理のうち、必要なものだけを明示的に呼ぶ。受注はもう作成済みなので、ここでの失敗は受注を消さず
+	 * （消すとmappingが書かれないまま次回に重複作成される）、WooCommerceのログに残して続ける
+	 * （`WC_Abstract_Order::save()`が保存中の例外を握りつぶしてログに残すのと同じ扱い）。
+	 */
+	private function after_creating( WC_Order $order, int $order_id ): void {
+		$steps = [
+			// Analytics: 即時取込みモード（`woocommerce_analytics_scheduled_import`が`yes`でない。WooCommerce 10.5 より前から
+			// 使っている店舗の既定）では、`OrdersScheduler`は`woocommerce_update_order`か`woocommerce_schedule_import`でしか
+			// 取込みを予約しない。以前は`wc_create_order()`の後の2回目の保存（更新）が予約していたので、明示的に予約する
+			// （予約取込みモードではこのフックに何も登録されておらず、定期処理が拾う）。
+			'schedule_analytics_import' => static function () use ( $order_id ): void {
+				do_action( 'woocommerce_schedule_import', $order_id ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
+			},
+			// WooCommerce本体の完了時処理のうち、顧客に購入実績の印を付けるもの。在庫・売上件数・クーポン利用数・
+			// ダウンロード権限・メールは`apply_status()`のフラグと`SideEffectGuard`で従来から何もしていない。状態変化を
+			// 起こさないことで動かなくなる他の本体処理（on-holdの売上件数・refundedの全額返金レコード・フルフィルメントの
+			// 自動作成など）は`docs/03`「受注の新規作成と状態変化フック」に挙げた。
+			'mark_paying_customer'      => static function () use ( $order, $order_id ): void {
+				if ( $order->has_status( 'completed' ) ) {
+					wc_paying_customer( $order_id );
+				}
+			},
+		];
+
+		foreach ( $steps as $step => $run ) {
+			try {
+				$run();
+			} catch ( Throwable $exception ) {
+				wc_get_logger()->error(
+					'Cart Bridge JP: a follow-up step after creating an imported order failed.',
+					[
+						'source'    => 'cart-bridge-jp',
+						'step'      => $step,
+						'order_id'  => $order_id,
+						'exception' => $exception::class,
+					]
+				);
+			}
+		}
 	}
 
 	/**
@@ -171,7 +262,7 @@ final class OrderWriter implements EntityWriter {
 
 		$this->apply_totals( $order, $item->totals );
 		$this->apply_currency_and_tax_settings( $order, $warnings );
-		$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status ) );
+		$warnings = array_merge( $warnings, $this->apply_status( $order, $item->status, $is_new_order ) );
 		$warnings = array_merge( $warnings, $this->apply_customer( $order, $item->customer_ref ) );
 		$this->apply_addresses( $order, $item );
 		$warnings = array_merge( $warnings, $this->apply_payment_method( $order, $item->payment ) );
@@ -317,7 +408,7 @@ final class OrderWriter implements EntityWriter {
 	/**
 	 * @return array<int,string>
 	 */
-	private function apply_status( WC_Order $order, string $canonical_status ): array {
+	private function apply_status( WC_Order $order, string $canonical_status, bool $is_new_order ): array {
 		$warnings = [];
 		$mapped   = $this->methods->order_status( $canonical_status );
 		// `ltrim($status, 'wc-')` は文字クラスとして扱われ 'completed' の先頭 'c' まで
@@ -342,7 +433,27 @@ final class OrderWriter implements EntityWriter {
 			$status     = 'on-hold';
 		}
 
-		$order->set_status( $status );
+		if ( $is_new_order ) {
+			// 新規の受注は最初から最終ステータスで作る（issue #91）。`new WC_Order()`の既定ステータスは
+			// `woocommerce_default_order_status`（既定 pending）で、そこから`set_status()`すると状態変化
+			// （pending→completed等）が記録され、保存時に`woocommerce_order_status_*`が発火して他プラグインの
+			// 完了時処理が動く。`set_status()`の間だけ既定値を最終ステータスにすると、変化前＝変化後になり
+			// 状態変化は記録されない（wp-envで実測。状態変化のフックは発火せず、保存の前後・`woocommerce_new_order`・
+			// 明細の作成だけになる）。
+			$starts_in = static fn (): string => $status;
+
+			add_filter( 'woocommerce_default_order_status', $starts_in, PHP_INT_MAX );
+
+			try {
+				$order->set_status( $status );
+			} finally {
+				remove_filter( 'woocommerce_default_order_status', $starts_in, PHP_INT_MAX );
+			}
+		} else {
+			// 既存受注の更新でステータスが変わる場合は、従来どおり状態変化として保存される
+			// （他プラグインのフックも動く。メールは`SideEffectGuard`で止まる）。backlog `fix-91/update-status-hooks`。
+			$order->set_status( $status );
+		}
 
 		// D10 #6: ASP側で既に確定済みの受注に対してWoo標準の在庫増減・売上集計・ダウンロード
 		// 権限付与を再度走らせない（SideEffectGuardのフィルターに加え、履歴として正しい
@@ -473,11 +584,12 @@ final class OrderWriter implements EntityWriter {
 	private function apply_dates( WC_Order $order, CanonicalOrder $item, bool $is_new_order ): void {
 		$order->set_date_created( $item->placed_at );
 
-		// `apply_status()`（この直前に呼ばれる）の`set_status()`は、ステータス遷移時に
+		// `apply_status()`（この直前に呼ばれる）の`set_status()`は、既存受注のステータス遷移時に
 		// `WC_Order::maybe_set_date_paid()`/`maybe_set_date_completed()`を発火させ、
 		// `date_paid`/`date_completed`へ移行実行時刻（`time()`）を自動的に焼き込む
 		// （WooCommerce本体の仕様）。ASP側の実際の日時（`placed_at`）で明示的に上書きしないと、
 		// 過去に確定済みの注文が軒並み「移行実行日」に支払い・完了したことになってしまう。
+		// 新規作成は状態変化を起こさない（issue #91）ので打刻されないが、同じく明示的に設定する。
 		$paid = Value::bool( $item->extras['paid'] ?? null );
 
 		if ( null === $paid ) {
