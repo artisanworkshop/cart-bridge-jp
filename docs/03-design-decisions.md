@@ -312,6 +312,42 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 カラーミー・MakeShop・BASEとも価格は税込（BASEは `item_tax_type` で軽減税率商品を判別可能。extrasに保存）。インポート開始前に Woo の
 `woocommerce_prices_include_tax` が `no` の場合は dry-run 警告に含める（自動変更はしない）。
 
+### 受注の新規作成と状態変化フック（issue #91）
+
+インポートで**新しく作る受注は、最初から最終ステータスで 1 回だけ保存**し、WooCommerce の状態変化（`woocommerce_order_status_*`・
+`woocommerce_order_status_changed`）を発火させない。移行する過去の受注で、店舗の自動処理（請求書の PDF・メール、決済の売上確定、外部連携）が
+動かないようにするため（D10 #6「副作用は全て抑止」の実装の一部）。
+
+- 方法: `new WC_Order()` を組み立て、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにする（新しい受注の
+  「変化前」のステータスはこのフィルターの値で決まるため、変化前＝変化後になり状態変化が記録されない。wp-env で実測）。保存で発火するのは
+  保存の前後（`woocommerce_before/after_order_object_save`）・`woocommerce_new_order`・明細の作成（`woocommerce_new_order_item`）で、
+  WooCommerce の受注件数キャッシュは最終ステータスに加算される。他プラグインの `woocommerce_new_order` の処理は最初から最終ステータスの受注を受け取る
+  （以前は支払い待ちで受け取り、その後の状態変化で完了時処理が動いていた。抑止ではなく経路が移るだけ）。
+- `wc_create_order()` は使わない（支払い待ちで先に作るため状態変化になる。顧客 IP・ユーザーエージェントにインポート実行環境の値も残す）。
+  D10 #6 の「`wc_create_order` 後に直接プロパティ設定」はこれで置き換えた。
+- 作成後の後処理（`OrderWriter::after_creating()`）: (1) Analytics の取込み予約（`woocommerce_schedule_import`）。即時取込みモード
+  （`woocommerce_analytics_scheduled_import` が `yes` でない。WooCommerce 10.5 より前から使っている店舗の既定）では `woocommerce_update_order` か
+  このフックでしか予約されず、1 回だけの保存（作成）では売上レポートから抜けるため（独立レビュー R1-S1）。(2) WooCommerce 本体の完了時処理のうち、
+  `apply_status()` のフラグと `SideEffectGuard` で no-op にならない `wc_paying_customer()`（顧客の購入実績）を新規の completed で呼ぶ。後処理の失敗は
+  受注を消さず WooCommerce のログ（source `cart-bridge-jp`）に残す（消すと mapping が書かれず次回に重複作成される）。mapping と checksum は保存されるので、
+  失敗した後処理は再試行されず、結果レポートも普通の作成に見える（Analytics は WooCommerce の「Import historical data」で取り戻せる）。
+- 状態変化を起こさないことで、本体の次の処理も新規作成では動かなくなる（D10 #6 の意図どおり）: 保留中（on-hold）の受注の売上件数の加算
+  （`wc_update_total_sales_counts`。以前は on-hold への状態変化で加算されていた）、返金済み（refunded）へのマッピングでの全額返金レコードの作成
+  （`wc_order_fully_refunded`。ステータスは refunded だが返金行が無いので、Analytics は売上として数える。backlog `fix-91/refunded-without-refund`）、
+  フルフィルメントの自動作成、顧客の最終アクティブ日時の更新。
+- 新規作成では、追加した明細がすべて保存されたか（ID が付いたか）を確かめる。作成の途中（行の作成→`woocommerce_new_order`→明細の保存）で
+  他プラグインが `Exception` を投げると、`save()` は握りつぶして ID を返すが明細は保存されていないため（PR #92 G2。以前は 2 回目の保存が保存していた）。
+  欠けていれば件数キャッシュを捨ててもう 1 回だけ保存し（更新なので `woocommerce_new_order` も状態変化も起きない）、それでも欠ければ例外にして下の後始末へ進む。
+- 保存の途中で `Error` が出たら、作られた行を削除して再送出する（Importer は mapping を書かず次回やり直す）。`WC_Abstract_Order::save()` は
+  `Exception` を握りつぶしてログに残すので、外へ出るのは `Error` などだけ。行ができる前に握りつぶされて ID が 0 なら、例外ではなく
+  `ORDER_CREATE_FAILED` で見送る（mapping は書かれず次回に再試行。本番の実行では項目ごとの警告を保存しないため、どの受注かは
+  WooCommerce のログの日時から追う。例外のときの `cbjp_logs` の「Writer threw」は remote_id 付き）。削除の後は WooCommerce の受注件数キャッシュを捨てて DB から数え直させる（公開クラスの `OrderCountCache::flush()`）。
+  最終ステータスで消すので通常はずれないが、行ができた後、件数キャッシュの加算〈`woocommerce_new_order` の優先度 10〉より前で `Error` が
+  出ると、加算されないまま減算だけが走って 1 件少なくなるため（PR #92 G1。永続キャッシュのある本番では残り続ける）。
+- **既存受注の更新でステータスが変わる場合は対象外**（従来どおり状態変化として保存され、他プラグインのフックも動く。メールは `SideEffectGuard` で止まる）。
+  WooCommerce の CRUD には既存受注の状態変化を記録せずに保存する手段が無く、他プラグインのコールバックを一時的に外す案は Jetpack などの正当な連携も止めて
+  壊れやすいため見送った（ユーザー判断 2026-10-01。backlog `fix-91/update-status-hooks`）。
+
 ## 6. 管理画面・REST API 設計
 
 ### REST ルート（namespace: `cbjp/v1`、permission: 特記なき限り `manage_woocommerce` + nonce）
