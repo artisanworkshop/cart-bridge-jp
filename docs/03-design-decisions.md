@@ -338,8 +338,9 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - 保存の途中で `Error` が出たら、作られた行を削除して再送出する（Importer は mapping を書かず次回やり直す）。`WC_Abstract_Order::save()` は
   `Exception` を握りつぶしてログに残すので、外へ出るのは `Error` などだけ。行ができる前に握りつぶされて ID が 0 なら、例外ではなく
   `ORDER_CREATE_FAILED` で見送る（mapping は書かれず次回に再試行。本番の実行では項目ごとの警告を保存しないため、どの受注かは
-  WooCommerce のログの日時から追う。例外のときの `cbjp_logs` の「Writer threw」は remote_id 付き）。削除は最終ステータスのまま行うので、件数キャッシュは通常ずれない（ただし行ができた後、件数キャッシュの加算
-  〈`woocommerce_new_order` の優先度 10〉より前で `Error` が出た場合は 1 件少なくなりうる）。
+  WooCommerce のログの日時から追う。例外のときの `cbjp_logs` の「Writer threw」は remote_id 付き）。削除の後は WooCommerce の受注件数キャッシュを捨てて DB から数え直させる（公開クラスの `OrderCountCache::flush()`）。
+  最終ステータスで消すので通常はずれないが、行ができた後、件数キャッシュの加算〈`woocommerce_new_order` の優先度 10〉より前で `Error` が
+  出ると、加算されないまま減算だけが走って 1 件少なくなるため（PR #92 G1。永続キャッシュのある本番では残り続ける）。
 - **既存受注の更新でステータスが変わる場合は対象外**（従来どおり状態変化として保存され、他プラグインのフックも動く。メールは `SideEffectGuard` で止まる）。
   WooCommerce の CRUD には既存受注の状態変化を記録せずに保存する手段が無く、他プラグインのコールバックを一時的に外す案は Jetpack などの正当な連携も止めて
   壊れやすいため見送った（ユーザー判断 2026-10-01。backlog `fix-91/update-status-hooks`）。

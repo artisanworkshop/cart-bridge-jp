@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Writer;
 
+use Automattic\WooCommerce\Caches\OrderCountCache;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Sync\MappingRepository;
@@ -111,10 +112,12 @@ final class OrderWriter implements EntityWriter {
 			// 再試行のたびに同一ASP受注の孤立注文が増えるため、新規作成で行ができていれば削除してから
 			// 例外を再送出する。最終ステータスで保存しているので、`OrderCountCacheService`
 			// （受注件数キャッシュ。作成時の`woocommerce_new_order`で加算し、削除時点のステータスで減算する）
-			// も加算と同じステータスで減算され、一覧の件数がずれない（issue #91 以前は支払い待ちで作り、
-			// メモリ上で完了等にした受注を消していたため「支払い待ち+1・完了-1」にずれていた）。
+			// も加算と同じステータスで減算される（issue #91 以前は支払い待ちで作り、メモリ上で完了等にした受注を
+			// 消していたため「支払い待ち+1・完了-1」にずれていた）。加算より前に失敗した場合のずれは
+			// `flush_order_count_cache()`で直す。
 			if ( $is_new_order && 0 !== $order->get_id() ) {
 				$order->delete( true );
+				self::flush_order_count_cache();
 			}
 
 			throw $exception;
@@ -151,6 +154,20 @@ final class OrderWriter implements EntityWriter {
 			$is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED,
 			$prepared->warnings
 		);
+	}
+
+	/**
+	 * 作っては消した受注の分、WooCommerceの受注件数キャッシュを捨ててDBから数え直させる。`OrderCountCacheService`は
+	 * 作成時の`woocommerce_new_order`（優先度10）で加算し、削除時は無条件に減算するため、それより前（優先度10未満の
+	 * `woocommerce_new_order`の処理など）で失敗した受注を消すと、加算されないまま減算されて1件少なくなる
+	 * （永続オブジェクトキャッシュのある本番では残り続ける。PR #92 G1）。失敗時だけの処理なので、加算済みかどうかを
+	 * 見分けずに捨てる。内部向けの`OrderCountCacheService`ではなく公開クラスの`OrderCountCache::flush()`を使い、
+	 * クラスの無い古いWooCommerceでは件数キャッシュも無いので何もしない。
+	 */
+	private static function flush_order_count_cache(): void {
+		if ( class_exists( OrderCountCache::class ) ) {
+			( new OrderCountCache() )->flush( 'shop_order' );
+		}
 	}
 
 	/**

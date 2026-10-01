@@ -2078,4 +2078,38 @@ final class OrderWriterTest extends WooTestCase {
 			)
 		);
 	}
+
+	/**
+	 * PR #92 G1: 件数キャッシュの加算（`woocommerce_new_order` の優先度 10）より前の処理が `Error` を投げても、受注を消した後の
+	 * 件数は DB と一致する。加算されないまま削除の減算だけが走ると 1 件少なくなるため、失敗時はキャッシュを捨てて数え直させる。
+	 * 減算が効くよう、先に完了の受注を 1 件作っておく（0 件のままでは減らないので、ずれを検出できない）。
+	 */
+	public function test_failure_before_the_count_cache_increment_keeps_the_order_counts(): void {
+		$this->make_writer()->write( $this->make_order( '9110', 'completed' ), null );
+
+		$counts        = static fn (): array => [
+			'pending'   => wc_orders_count( 'pending' ),
+			'completed' => wc_orders_count( 'completed' ),
+		];
+		wc_get_container()->get( OrderCountCacheService::class )->refresh_cache( 'shop_order' );
+		$before_counts = $counts();
+
+		add_action(
+			'woocommerce_new_order',
+			static function (): void {
+				throw new \Error( 'simulated early third-party failure' );
+			},
+			5
+		);
+
+		try {
+			$this->make_writer()->write( $this->make_order( '9111', 'completed' ), null );
+			$this->fail( 'write() should rethrow the third-party failure.' );
+		} catch ( \Error $error ) {
+			$this->assertSame( 'simulated early third-party failure', $error->getMessage() );
+		}
+
+		$this->assertSame( 1, $before_counts['completed'] );
+		$this->assertSame( $before_counts, $counts() );
+	}
 }
