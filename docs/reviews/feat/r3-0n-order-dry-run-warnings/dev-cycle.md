@@ -21,3 +21,4 @@
 | 2026-09-30 20:25 | 7 | G2: CI green → 両 bot へ再依頼（各 2 回目）→ Copilot・Codex が同じ 1 件（G1 で小計に使った `money_or_null()` も小数を切り捨てる）を指摘 → `Cast::exact_money_or_null()` で修正（`8a42a38`）。確認ゲート承認後に commit |
 | 2026-09-30 22:31 | 7 | G3（両 bot とも 3 回目）: Codex は新規指摘なし（収束）。Copilot 1 件（JSON の `1e-400` が `json_decode()` で float(0) になり厳密な整数変換を通る）を修正（`ce3f513`）。確認ゲート承認後に commit。4 回目は依頼しない |
 | 2026-09-30 22:36 | 8 | 最終 HEAD `1cd5cbb` の CI green。遅れて届いた bot のレビューなし。final-report.md を記録して停止（マージしない） |
+| 2026-10-01 15:41 | 8 | 完了後: PR #92（issue #91）が先に main へマージされ、`docs/review-backlog.md`（両方が末尾に追記）で衝突したため、main をこのブランチへマージして解消（両方の行を日付順に残す。push 済みの履歴は書き換えない）。マージ後の全体で quality green（PHPUnit 1391）。bot への再依頼はしない（取り込んだのは #92 でレビュー済みの変更のみ） |
