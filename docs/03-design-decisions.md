@@ -312,6 +312,24 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 カラーミー・MakeShop・BASEとも価格は税込（BASEは `item_tax_type` で軽減税率商品を判別可能。extrasに保存）。インポート開始前に Woo の
 `woocommerce_prices_include_tax` が `no` の場合は dry-run 警告に含める（自動変更はしない）。
 
+### 受注の新規作成と状態変化フック（issue #91）
+
+インポートで**新しく作る受注は、最初から最終ステータスで 1 回だけ保存**し、WooCommerce の状態変化（`woocommerce_order_status_*`・
+`woocommerce_order_status_changed`）を発火させない。移行する過去の受注で、店舗の自動処理（請求書の PDF・メール、決済の売上確定、外部連携）が
+動かないようにするため（D10 #6「副作用は全て抑止」の実装の一部）。
+
+- 方法: `new WC_Order()` を組み立て、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにする（新しい受注の
+  「変化前」のステータスはこのフィルターの値で決まるため、変化前＝変化後になり状態変化が記録されない。wp-env で実測）。保存で発火するのは
+  `woocommerce_new_order` と明細の作成（`woocommerce_new_order_item`）だけで、WooCommerce の受注件数キャッシュは最終ステータスに加算される。
+- `wc_create_order()` は使わない（支払い待ちで先に作るため状態変化になる。顧客 IP・ユーザーエージェントにインポート実行環境の値も残す）。
+- WooCommerce 本体の完了時処理のうち、`apply_status()` のフラグと `SideEffectGuard` で no-op にならない `wc_paying_customer()`（顧客の購入実績）だけを、
+  新規の completed で明示的に呼ぶ（在庫・売上件数・クーポン利用数・ダウンロード権限・メールは従来から止めている）。
+- 保存の途中で例外が出たら、作られた行を削除して例外を再送出する（Importer は mapping を書かず次回やり直す）。削除は最終ステータスのまま行うので
+  件数キャッシュがずれない。`WC_Abstract_Order::save()` は `Exception` を握りつぶすので、外へ出るのは `Error` などだけ。
+- **既存受注の更新でステータスが変わる場合は対象外**（従来どおり状態変化として保存され、他プラグインのフックも動く。メールは `SideEffectGuard` で止まる）。
+  WooCommerce の CRUD には既存受注の状態変化を記録せずに保存する手段が無く、他プラグインのコールバックを一時的に外す案は Jetpack などの正当な連携も止めて
+  壊れやすいため見送った（ユーザー判断 2026-10-01。backlog `fix-91/update-status-hooks`）。
+
 ## 6. 管理画面・REST API 設計
 
 ### REST ルート（namespace: `cbjp/v1`、permission: 特記なき限り `manage_woocommerce` + nonce）

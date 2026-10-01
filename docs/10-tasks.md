@@ -540,6 +540,19 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
      削除済みを区別する扱いを検討する
   4. `customer_account_protected` 2 件: 管理者・スタッフのアカウントと同じメールのため仕様どおりゲスト受注にする。対応なし（R3-0k で文言）
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
+- [x] **R3-0o: 受注のインポートで新規作成を最終ステータスで保存し、状態変化フックを発火させない**（issue #91。2026-10-01。ブランチ `fix/91-import-order-final-status`）
+  **経緯**: R3-0n の版で実店舗の受注をインポートしたところ、プレビューは「作成 19」なのに本番は「作成 0・警告 24」で、WooCommerce の受注一覧は「支払い待ち (19)」なのに一覧が空だった。
+  読み取り専用の診断スクリプト（SSH＋WP-CLI。`dist/`、未コミット）で原因を確定した: `OrderWriter::write()` が `wc_create_order( pending )` で作ってから ColorMe のステータスへ `set_status()` していたため、
+  保存時に「支払い待ち→完了」等の状態変化として `woocommerce_order_status_*` が発火し、他プラグインの完了時処理が取り込んだ全受注で動いていた（請求書プラグインの PDF 作成とメール送信〈メールは `SideEffectGuard` の
+  `pre_wp_mail` で止まり未送信。ただし `wp_mail` フィルターで記録するメールログには残る〉、決済プラグインの売上確定）。請求書プラグインが商品の無い明細で `Error` を投げるため、ColorMe で削除済みの商品などの明細を持つ
+  19 受注は作っては削除され、削除時にメモリ上の「完了」で件数キャッシュ（`OrderCountCacheService`）を減らしたため「支払い待ち +19・完了 −19」の表示になっていた（DB の件数は正しく、支払い待ちは 0）。
+  **実装サマリ**: 新規は `new WC_Order()` を組み立てて 1 回だけ保存し、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにして状態変化を記録させない（発火するのは `woocommerce_new_order` と明細の作成だけ。
+  件数キャッシュは最終ステータスに加算）。保存の途中の失敗では作られた行を同じステータスのまま削除する。WooCommerce 本体の完了時処理のうち、既存のフラグ・ガードで no-op にならない `wc_paying_customer()` だけを新規の completed で明示的に呼ぶ。
+  `wc_create_order()` が記録していた顧客 IP・ユーザーエージェント（インポート実行環境の値）は残らなくなった。**既存受注の更新で状態が変わる場合は従来どおり**（ユーザー判断。backlog `fix-91/update-status-hooks`）。
+  **検証**: PHPUnit 追加 9 件（データセット込み。新規作成で状態変化フックが 0 回〈completed/processing/cancelled/pending〉・完了時に例外を投げるプラグインがあっても商品の無い明細の受注が作成される・
+  明細の保存で `Error` が出たら受注を残さず件数キャッシュが DB と一致・`paying_customer` は completed のときだけ・更新は従来どおり状態変化）。`mutate-check.sh` で 5 種（フィルター・`wc_create_order()` への差し戻し・
+  `wc_paying_customer()`・その条件・失敗時の削除）がすべて CAUGHT。mock（`mockv`）で他プラグイン役のフックを足して**本番インポート**を回し、商品の無い明細を持つ完了の受注が作成され、状態変化フックが 0 回、件数キャッシュが
+  DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、19 件が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
   dry-run の CSV（`Admin\DryRunReportCsv`）の**末尾**に `message`・`action` 列を足す（既存の列・`note` は変えない）。テスト（リフレクション）で「`WarningCode` の全定数にカタログがある」ことを強制し、文言の無い警告コードが出荷されないようにする。
