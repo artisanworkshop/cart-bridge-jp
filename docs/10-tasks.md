@@ -546,8 +546,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   保存時に「支払い待ち→完了」等の状態変化として `woocommerce_order_status_*` が発火し、他プラグインの完了時処理が取り込んだ全受注で動いていた（請求書プラグインの PDF 作成とメール送信〈メールは `SideEffectGuard` の
   `pre_wp_mail` で止まり未送信。ただし `wp_mail` フィルターで記録するメールログには残る〉、決済プラグインの売上確定）。請求書プラグインが商品の無い明細で `Error` を投げるため、ColorMe で削除済みの商品などの明細を持つ
   19 受注は作っては削除され、削除時にメモリ上の「完了」で件数キャッシュ（`OrderCountCacheService`）を減らしたため「支払い待ち +19・完了 −19」の表示になっていた（DB の件数は正しく、支払い待ちは 0）。
-  **実装サマリ**: 新規は `new WC_Order()` を組み立てて 1 回だけ保存し、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにして状態変化を記録させない（発火するのは `woocommerce_new_order` と明細の作成だけ。
-  件数キャッシュは最終ステータスに加算）。保存の途中の失敗では作られた行を同じステータスのまま削除する。WooCommerce 本体の完了時処理のうち、既存のフラグ・ガードで no-op にならない `wc_paying_customer()` だけを新規の completed で明示的に呼ぶ。
+  **実装サマリ**: 新規は `new WC_Order()` を組み立てて 1 回だけ保存し、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにして状態変化を記録させない（状態変化のフックは発火せず、保存の前後・`woocommerce_new_order`・明細の作成だけ。
+  件数キャッシュは最終ステータスに加算）。保存の途中の失敗では作られた行を同じステータスのまま削除する。新規の completed では `wc_paying_customer()`（顧客の購入実績）を明示的に呼ぶ
+  （状態変化を起こさないことで動かなくなる本体の他の処理は `docs/03`「受注の新規作成と状態変化フック」に列挙）。
   `wc_create_order()` が記録していた顧客 IP・ユーザーエージェント（インポート実行環境の値）は残らなくなった。**既存受注の更新で状態が変わる場合は従来どおり**（ユーザー判断。backlog `fix-91/update-status-hooks`）。
   review-loop R1（独立レビュー）で追加: 1 回だけの保存は `woocommerce_update_order` を起こさず、即時取込みモードの店舗では Analytics から抜けるため `woocommerce_schedule_import` で予約する／
   作成後の後処理（Analytics の予約・購入実績）の失敗では受注を消さずログに残す（消すと mapping が無いまま次回に重複作成）／`save()` が例外を握りつぶして ID 0 を返したら `ORDER_CREATE_FAILED` で見送る。

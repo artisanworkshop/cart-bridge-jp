@@ -168,8 +168,10 @@ final class OrderWriter implements EntityWriter {
 			'schedule_analytics_import' => static function () use ( $order_id ): void {
 				do_action( 'woocommerce_schedule_import', $order_id ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
 			},
-			// WooCommerce本体の完了時処理のうち、`apply_status()`のフラグと`SideEffectGuard`で元々止めていない
-			// もの（顧客に購入実績の印を付ける）。在庫・売上件数・クーポン利用数・ダウンロード権限・メールは従来から何もしていない。
+			// WooCommerce本体の完了時処理のうち、顧客に購入実績の印を付けるもの。在庫・売上件数・クーポン利用数・
+			// ダウンロード権限・メールは`apply_status()`のフラグと`SideEffectGuard`で従来から何もしていない。状態変化を
+			// 起こさないことで動かなくなる他の本体処理（on-holdの売上件数・refundedの全額返金レコード・フルフィルメントの
+			// 自動作成など）は`docs/03`「受注の新規作成と状態変化フック」に挙げた。
 			'mark_paying_customer'      => static function () use ( $order, $order_id ): void {
 				if ( $order->has_status( 'completed' ) ) {
 					wc_paying_customer( $order_id );
@@ -386,7 +388,8 @@ final class OrderWriter implements EntityWriter {
 			// `woocommerce_default_order_status`（既定 pending）で、そこから`set_status()`すると状態変化
 			// （pending→completed等）が記録され、保存時に`woocommerce_order_status_*`が発火して他プラグインの
 			// 完了時処理が動く。`set_status()`の間だけ既定値を最終ステータスにすると、変化前＝変化後になり
-			// 状態変化は記録されない（wp-envで実測。保存で発火するのは`woocommerce_new_order`と明細の作成だけ）。
+			// 状態変化は記録されない（wp-envで実測。状態変化のフックは発火せず、保存の前後・`woocommerce_new_order`・
+			// 明細の作成だけになる）。
 			$starts_in = static fn (): string => $status;
 
 			add_filter( 'woocommerce_default_order_status', $starts_in, PHP_INT_MAX );

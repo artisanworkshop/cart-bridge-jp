@@ -329,14 +329,16 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
   （`woocommerce_analytics_scheduled_import` が `yes` でない。WooCommerce 10.5 より前から使っている店舗の既定）では `woocommerce_update_order` か
   このフックでしか予約されず、1 回だけの保存（作成）では売上レポートから抜けるため（独立レビュー R1-S1）。(2) WooCommerce 本体の完了時処理のうち、
   `apply_status()` のフラグと `SideEffectGuard` で no-op にならない `wc_paying_customer()`（顧客の購入実績）を新規の completed で呼ぶ。後処理の失敗は
-  受注を消さず WooCommerce のログに残す（消すと mapping が書かれず次回に重複作成される）。
+  受注を消さず WooCommerce のログ（source `cart-bridge-jp`）に残す（消すと mapping が書かれず次回に重複作成される）。mapping と checksum は保存されるので、
+  失敗した後処理は再試行されず、結果レポートも普通の作成に見える（Analytics は WooCommerce の「Import historical data」で取り戻せる）。
 - 状態変化を起こさないことで、本体の次の処理も新規作成では動かなくなる（D10 #6 の意図どおり）: 保留中（on-hold）の受注の売上件数の加算
   （`wc_update_total_sales_counts`。以前は on-hold への状態変化で加算されていた）、返金済み（refunded）へのマッピングでの全額返金レコードの作成
   （`wc_order_fully_refunded`。ステータスは refunded だが返金行が無いので、Analytics は売上として数える。backlog `fix-91/refunded-without-refund`）、
   フルフィルメントの自動作成、顧客の最終アクティブ日時の更新。
 - 保存の途中で `Error` が出たら、作られた行を削除して再送出する（Importer は mapping を書かず次回やり直す）。`WC_Abstract_Order::save()` は
   `Exception` を握りつぶしてログに残すので、外へ出るのは `Error` などだけ。行ができる前に握りつぶされて ID が 0 なら、例外ではなく
-  `ORDER_CREATE_FAILED` で見送る。削除は最終ステータスのまま行うので、件数キャッシュは通常ずれない（ただし行ができた後、件数キャッシュの加算
+  `ORDER_CREATE_FAILED` で見送る（mapping は書かれず次回に再試行。本番の実行では項目ごとの警告を保存しないため、どの受注かは
+  WooCommerce のログの日時から追う。例外のときの `cbjp_logs` の「Writer threw」は remote_id 付き）。削除は最終ステータスのまま行うので、件数キャッシュは通常ずれない（ただし行ができた後、件数キャッシュの加算
   〈`woocommerce_new_order` の優先度 10〉より前で `Error` が出た場合は 1 件少なくなりうる）。
 - **既存受注の更新でステータスが変わる場合は対象外**（従来どおり状態変化として保存され、他プラグインのフックも動く。メールは `SideEffectGuard` で止まる）。
   WooCommerce の CRUD には既存受注の状態変化を記録せずに保存する手段が無く、他プラグインのコールバックを一時的に外す案は Jetpack などの正当な連携も止めて
