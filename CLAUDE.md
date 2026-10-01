@@ -38,7 +38,7 @@
 ## コマンド
 
 ```bash
-wp-env start                 # 開発環境起動 (http://localhost:8888, admin/password)
+wp-env start                 # 開発環境起動 (http://localhost:10010, admin/password。tests は 10011。ポートは dev-env スキルの台帳でスロット 01 に固定)
 wp-env run cli wp ...        # WP-CLI実行
 composer install             # PHP依存
 composer lint                # PHPCS (WordPress Coding Standards)

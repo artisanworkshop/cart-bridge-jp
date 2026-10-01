@@ -1,6 +1,8 @@
 {
   "core": null,
   "phpVersion": "8.2",
+  "port": 10010,
+  "testsPort": 10011,
   "plugins": [
     "https://downloads.wordpress.org/plugin/woocommerce.zip",
     "https://downloads.wordpress.org/plugin/wp-mail-logging.zip",

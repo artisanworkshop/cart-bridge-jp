@@ -24,7 +24,8 @@ description: >
 ## 手順
 
 `S=.claude/skills/verify-with-mock-adapter`（リポジトリルートから実行）。wp-env は起動済みであること（`npx wp-env start`。ポートは
-`.wp-env.override.json` で固定）。
+`.wp-env.json` で固定。dev は 10010。旧手順の `.wp-env.override.json` が残っていると旧ポートで起動するので、
+`cbj-dev-cycle` の Step 0 に従って先に消す）。
 
 1. **開発サイトの既存データを確認する**（実データを汚さないため。最初に必ず）:
    `$S/scripts/mock-adapter.sh inspect` — `cbjp_mappings` の platform 別件数・`cbjp_*` オプション・ユーザー数・受注数を出す。
@@ -84,8 +85,8 @@ description: >
 
 - **`http://localhost:<port>/wp-admin/...` が別ホスト（例: `*.wp.local`）のログイン画面へ飛ぶときは、wp-env ではなく別のローカル環境が応答している**
   （R3-0j で実際に発生: WordPress Studio の別サイトが `[::1]:8895`〔IPv6〕を掴み、Chrome の `localhost` がそちらへ解決された。wp-env は IPv4/`*` 側なので
-  `curl http://127.0.0.1:<port>/wp-login.php` は 200、`lsof -nP -iTCP:<port> -sTCP:LISTEN` で別プロセスが見える）。相手のサイトを止めるか wp-env のポート
-  （`.wp-env.override.json`）を変える。**ログイン画面が出ても、その別サイトには何も入力しない**
+  `curl http://127.0.0.1:<port>/wp-login.php` は 200、`lsof -nP -iTCP:<port> -sTCP:LISTEN` で別プロセスが見える）。相手のサイトを止める（2026-10-01 に wp-env のポートを
+  Studio の帯域 8881〜8999 の外〔10010〕へ移したので、通常は起きない。dev-env スキルの `ports.js check` で確認できる）。**ログイン画面が出ても、その別サイトには何も入力しない**
 - **JobManager 経由で「変更なしなら再送しない（checksum）」を確認するときは、専用の商品を作る**。開発サイトの既存商品はカテゴリ未マッピング等の
   未解決参照を持ち、`fully_resolved` が偽で checksum が保存されない（毎回 `updated` になる）ため、`totals` の skipped/updated では見分けられない。
   専用商品（`ZZV-` の SKU・既定カテゴリを mock の `category_map` に載せる）を作り、その mapping の `checksum` と `synced_at`（再送されれば進む。1 秒単位なので run の間に
