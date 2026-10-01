@@ -3,9 +3,9 @@
 - タスク: R3-0o（issue #91）— 受注の新規作成で状態変化フックを発火させない（他プラグインの完了時処理・商品の無い明細の受注が取り込めない・件数キャッシュのずれ）
 - 開始: 2026-10-01
 - PR: #92 https://github.com/artisanworkshop/cart-bridge-jp/pull/92
-- 現在のステップ: 7（G1 修正済み・G2 の依頼前）
-- Copilot: 依頼 1 回 / 未収束（G1 で 1 件）
-- Codex: 依頼 1 回 / 未収束（G1 で 1 件。Copilot と同じ）
+- 現在のステップ: 7（G2 修正済み・G3 の依頼前）
+- Copilot: 依頼 2 回 / 未収束（G1 で 1 件・G2 で Low 1 件。G2 の判定は 🟢）
+- Codex: 依頼 2 回 / 未収束（G1 で 1 件・G2 で P1 1 件）
 
 ## ログ
 
@@ -18,3 +18,4 @@
 | 2026-10-01 12:57 | 3 | push 前に、途中のコミット（旧 6fbb295）に入っていた実店舗の受注件数の内訳（R1-L5 で本文からは削除済み）を `git filter-branch` で履歴からも取り除いた（最終的なファイルは不変）。記録のコミット SHA を新しいものに更新 |
 | 2026-10-01 12:58 | 4〜6 | 初回 push（T=03:57:42Z）→ PR #92 作成 → CI green → Copilot 依頼 1 回目（timeline で登録確認）。Codex は自動レビューが 5 分で来ず、`--codex-nudge` が review コメントを自動投稿 |
 | 2026-10-01 15:02 | 7 | G1: 両 bot が同じ 1 件（加算前の失敗で件数キャッシュが 1 件少なくなる）→ `OrderCountCache::flush()` で修正（`4430e3a`）。確認ゲート承認後に commit |
+| 2026-10-01 15:17 | 7 | G2: CI green → 両 bot へ再依頼（各 2 回目）→ Codex P1（`woocommerce_new_order` の `Exception` で明細が保存されないまま CREATED）と Copilot Low（台帳の件数）を修正（`b45be30`）。確認ゲート承認後に commit |

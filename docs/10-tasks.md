@@ -553,9 +553,12 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   review-loop R1（独立レビュー）で追加: 1 回だけの保存は `woocommerce_update_order` を起こさず、即時取込みモードの店舗では Analytics から抜けるため `woocommerce_schedule_import` で予約する／
   作成後の後処理（Analytics の予約・購入実績）の失敗では受注を消さずログに残す（消すと mapping が無いまま次回に重複作成）／`save()` が例外を握りつぶして ID 0 を返したら `ORDER_CREATE_FAILED` で見送る。
   PR #92 G1（両 bot）: 件数キャッシュの加算（優先度 10）より前の `Error` で受注を消すと 1 件少なくなるため、後始末の削除の後に公開クラスの `OrderCountCache::flush()` で数え直させる。
-  **検証**: PHPUnit 追加 13 件（データセット込み。Analytics の予約・後処理の失敗で受注が残る・stale ID からの作り直しでも状態変化なし・ID 0 で `ORDER_CREATE_FAILED`、新規作成で状態変化フックが 0 回〈completed/processing/cancelled/pending〉・完了時に例外を投げるプラグインがあっても商品の無い明細の受注が作成される・
-  明細の保存で `Error` が出たら受注を残さず件数キャッシュが DB と一致・`paying_customer` は completed のときだけ・更新は従来どおり状態変化）。`mutate-check.sh` で 8 種（フィルター・`wc_create_order()` への差し戻し・
-  `wc_paying_customer()`・その条件・失敗時の削除・Analytics の予約・後処理の失敗の握りつぶし・ID 0 の見送り）がすべて CAUGHT。mock（`mockv`）で他プラグイン役のフックを足して**本番インポート**を回し、商品の無い明細を持つ完了の受注が作成され、状態変化フックが 0 回、件数キャッシュが
+  PR #92 G2（Codex）: 他プラグインの `woocommerce_new_order` が `Exception` を投げると `save()` は握りつぶして ID を返すが明細は保存されない（以前は 2 回目の保存が保存していた）。
+  新規作成では追加した明細に ID が付いたかを確かめ、欠けていれば件数キャッシュを捨ててもう 1 回保存し、それでも欠ければ受注を消して例外にする（明細の欠けた受注を mapping ごと確定させない）。
+  **検証**: PHPUnit 追加 16 件（データセット込み。加算前の失敗で件数キャッシュが一致・`woocommerce_new_order` の `Exception` でも明細が残る・明細を保存できない受注は消して例外、Analytics の予約・後処理の失敗で受注が残る・stale ID からの作り直しでも状態変化なし・ID 0 で `ORDER_CREATE_FAILED`、新規作成で状態変化フックが 0 回〈completed/processing/cancelled/pending〉・完了時に例外を投げるプラグインがあっても商品の無い明細の受注が作成される・
+  明細の保存で `Error` が出たら受注を残さず件数キャッシュが DB と一致・`paying_customer` は completed のときだけ・更新は従来どおり状態変化）。`mutate-check.sh` で 13 種（フィルター・`wc_create_order()` への差し戻し・
+  `wc_paying_customer()`・その条件・失敗時の削除・Analytics の予約・後処理の失敗の握りつぶし・ID 0 の見送り・失敗時の件数キャッシュの破棄・
+  明細の確認・2 回目の保存・その後の件数キャッシュの破棄・再確認）がすべて CAUGHT。mock（`mockv`）で他プラグイン役のフックを足して**本番インポート**を回し、商品の無い明細を持つ完了の受注が作成され、状態変化フックが 0 回、件数キャッシュが
   DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、19 件が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
