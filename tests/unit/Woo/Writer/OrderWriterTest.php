@@ -259,7 +259,46 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp1' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+	}
+
+	/**
+	 * R3-0n: `ORDER_LINE_VARIATION_UNMATCHED`は「mapping先が実在するvariable商品」のときだけ。mapping はあるが
+	 * 取り込んだ商品が Woo 側で完全に削除された明細は、先にインポートし直せば解決しうるので従来どおり
+	 * `ORDER_LINE_PRODUCT_UNRESOLVED`（`ProductResolver::maps_to_variable_product()`の否定側。ゴミ箱の商品は
+	 * `wc_get_product()`が返すので実在する側に入る）。
+	 */
+	public function test_line_item_whose_mapped_variable_product_was_deleted_is_product_unresolved(): void {
+		$parent = new WC_Product_Variable();
+		$parent->set_name( 'Deleted variable parent' );
+		$parent_id = $parent->save();
+		$this->seed_mapping( 'colorme', 'product', 'vp-deleted', $parent_id );
+		$parent->delete( true );
+
+		$order = $this->make_order(
+			'3006',
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => 'vp-deleted',
+					'name'                  => 'Deleted variable parent（カラー：赤）',
+					'price'                 => '500',
+					'unit_price_excl_tax'   => '500',
+					'subtotal'              => '500',
+					'quantity'              => 1,
+					'option1_value_current' => '赤',
+				],
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-deleted' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-deleted' ), $result->warnings );
 	}
 
 	public function test_line_item_resolves_to_variation_by_single_axis_option_value(): void {
@@ -427,8 +466,8 @@ final class OrderWriterTest extends WooTestCase {
 	}
 
 	public function test_line_item_option_value_not_matching_any_variation_remains_unresolved(): void {
-		// `option1_value_current`はASP側APIの「最新の商品情報」であり注文時点の値ではない
-		// （オプション名変更後の受注では一致しないことがある）。捏造した一致を返さず、
+		// `option1_value_current`はASP側APIの「最新の商品情報」（swagger の記述。実店舗の古い受注では受注時点の
+		// 値だった例もある。R3-0n）で、オプション名変更後の受注では一致しないことがある。捏造した一致を返さず、
 		// 従来どおり未解決としてフェイルクローズすることを確認する。
 		$this->make_variable_product(
 			'vp-nomatch',
@@ -467,7 +506,9 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
+		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-nomatch' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
 	}
 
 	public function test_line_item_ambiguous_variation_match_remains_unresolved(): void {
@@ -521,7 +562,9 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
+		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-dup' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
 	}
 
 	public function test_real_colorme_variation_purchase_resolves_through_transformer_and_writer(): void {
@@ -562,8 +605,99 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( $product_result->local_id, $items[0]->get_product_id() );
 		$this->assertSame( $expected_variation_id, $items[0]->get_variation_id() );
 		$this->assertEmpty(
-			array_filter( $order_result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+			array_filter(
+				$order_result->warnings,
+				static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) || str_starts_with( $w, WarningCode::ORDER_LINE_VARIATION_UNMATCHED )
+			)
 		);
+	}
+
+	/**
+	 * R3-0n: 実店舗の2018年の受注（匿名化）。受注時の商品はオプションが1軸だったが、後から2軸目（手提紙袋）が
+	 * 追加され、現在の商品のバリエーションとは軸の数が合わない。商品は取り込み済みなので、先に商品をインポート
+	 * しても消えない`ORDER_LINE_VARIATION_UNMATCHED`になり、明細は商品リンクの無いカスタム行で残る。
+	 * 同じ受注は`sale.totals`が null（2019-09-09 以前）で、税合計の不完全も付く。
+	 */
+	public function test_real_order_whose_product_gained_an_option_axis_is_variation_unmatched(): void {
+		$axes = static fn ( string $content, string $bag, string $remote_id ): array => [
+			'remote_id'     => $remote_id,
+			'sku'           => null,
+			'option1_name'  => '内容',
+			'option1_value' => $content,
+			'option2_name'  => '手提紙袋',
+			'option2_value' => $bag,
+			'price'         => '2120',
+			'stock'         => 5,
+		];
+		$this->make_variable_product(
+			'900000052',
+			[
+				$axes( '白２本・赤２本', '必要', 'v-a' ),
+				$axes( '白２本・赤２本', '不要', 'v-b' ),
+			]
+		);
+
+		$raw_sale        = FixtureLoader::load( 'colorme', 'sale_without_totals_detail' )['sale'];
+		$canonical_order = ( new OrderTransformer() )->transform( $raw_sale );
+
+		// dry-run（`validate()`）も`write()`と同じ`prepare()`を通るので、同じ警告になる。
+		$dry_run = $this->make_writer()->validate( $canonical_order, null );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $dry_run->warnings );
+
+		$result   = $this->make_writer()->write( $canonical_order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertCount( 1, $items );
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertSame( 2, $items[0]->get_quantity() );
+		$this->assertSame( '900000052', $items[0]->get_meta( '_cbjp_remote_product_id' ) );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, '900000052' ), $result->warnings );
+		$this->assertContains( WarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
+	}
+
+	/**
+	 * R3-0n: 実店舗の受注（匿名化）で、一部の明細を外した行（`product_num=0`・`subtotal_price=0`。単価は残る）。
+	 * 変換層→writer を通して、数量0・金額0の明細がそのまま残り、数量の捏造（数量1）とその副作用の税の不整合
+	 * （`subtotal`0円＜税抜単価×1）が起きないことを確かめる。もう一方の明細は通常どおり解決・計算される。
+	 */
+	public function test_real_order_with_a_removed_line_keeps_it_as_zero_quantity(): void {
+		$bag = static fn ( string $value, string $remote_id ): array => [
+			'remote_id'     => $remote_id,
+			'sku'           => null,
+			'option1_name'  => '手提紙袋',
+			'option1_value' => $value,
+			'price'         => '2283',
+			'stock'         => 5,
+		];
+		$this->make_variable_product( '900000051', [ $bag( '必要', 'v-need' ), $bag( '不要', 'v-none' ) ] );
+
+		$raw_sale        = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+		$canonical_order = ( new OrderTransformer() )->transform( $raw_sale );
+		$line_warnings   = static fn ( array $warnings ): array => array_values( array_filter( $warnings, static fn ( string $w ): bool => str_starts_with( $w, 'order_line_' ) ) );
+
+		// dry-run（`validate()`）も`write()`と同じ`prepare()`を通るので、同じく明細の警告が付かない。
+		$this->assertSame( [], $line_warnings( $this->make_writer()->validate( $canonical_order, null )->warnings ) );
+
+		$result   = $this->make_writer()->write( $canonical_order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertCount( 2, $items );
+		$this->assertSame( $this->mappings->find_local_id( 'colorme', 'variant', 'v-need' ), $items[0]->get_variation_id() );
+		$this->assertSame( 0, $items[0]->get_quantity() );
+		$this->assertSame( '0', $items[0]->get_subtotal() );
+		$this->assertSame( '0', $items[0]->get_total() );
+		$this->assertSame( '0', $items[0]->get_total_tax() );
+
+		$this->assertSame( $this->mappings->find_local_id( 'colorme', 'variant', 'v-none' ), $items[1]->get_variation_id() );
+		$this->assertSame( 1, $items[1]->get_quantity() );
+		$this->assertSame( '2114', $items[1]->get_total() );
+		$this->assertSame( '169', $items[1]->get_total_tax() );
+
+		$this->assertSame( '3303.00', $wc_order->get_total() );
+		$this->assertSame( [], $line_warnings( $result->warnings ) );
 	}
 
 	public function test_missing_line_item_quantity_falls_back_to_one_with_warning(): void {
@@ -652,6 +786,164 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 1, (int) $items[0]->get_quantity() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'negative-qty' ), $result->warnings );
+	}
+
+	/**
+	 * R3-0n: 数量0かつ明細合計0の行（ColorMe はキャンセルした受注の全明細と、一部を外した明細をこの形にする）は、
+	 * 数量0・金額0のまま警告なしで取り込む。単価（`price`/`unit_price_excl_tax`）は残っていても使わないので、
+	 * 税抜単価が無い（他ASP）・単価が読めない場合も税の分割や金額の警告を出さない。
+	 *
+	 * @dataProvider zero_line_provider
+	 */
+	public function test_zero_quantity_line_with_zero_subtotal_is_kept_without_warnings( mixed $quantity, mixed $subtotal, string $price, ?string $unit_price_excl_tax ): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Removed item' );
+		$product->set_sku( 'REMOVED-1' );
+		$product->update_meta_data( '_cbjp_platform', 'colorme' );
+		$product->save();
+
+		$order = $this->make_order(
+			'3030',
+			'cancelled',
+			null,
+			[
+				[
+					'sku'                 => 'REMOVED-1',
+					'remote_product_id'   => 'removed',
+					'name'                => 'Removed item',
+					'price'               => $price,
+					'unit_price_excl_tax' => $unit_price_excl_tax,
+					'subtotal'            => $subtotal,
+					'quantity'            => $quantity,
+				],
+			],
+			[],
+			[],
+			[
+				'total'        => '0',
+				'tax'          => '0',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_quantity() );
+		$this->assertSame( '0', $items[0]->get_subtotal() );
+		$this->assertSame( '0', $items[0]->get_total() );
+		$this->assertSame( '0', $items[0]->get_total_tax() );
+		$this->assertSame(
+			[],
+			array_values(
+				array_filter(
+					$result->warnings,
+					static fn ( string $w ): bool => str_starts_with( $w, 'order_line_' ) || str_starts_with( $w, WarningCode::ORDER_TAX_SPLIT_UNAVAILABLE )
+				)
+			)
+		);
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:mixed,2:string,3:?string}>
+	 */
+	public static function zero_line_provider(): array {
+		return [
+			'int zero'                       => [ 0, '0', '3602', '3335' ],
+			'string zero'                    => [ '0', '0', '3602', '3335' ],
+			'float zero'                     => [ 0.0, '0.00', '3602', '3335' ],
+			'int zero subtotal'              => [ '0', 0, '3602', '3335' ],
+			'no excl-tax unit price'         => [ 0, '0', '3602', null ],
+			'unreadable unit price (unused)' => [ 0, '0', '1,200', '3335' ],
+		];
+	}
+
+	/**
+	 * 数量0でも「明細合計0」と確かめられない行、数量が0に切り捨てられただけの小数は、従来どおり数量1に
+	 * フェイルクローズして警告する（R3-0n の数量0の扱いを広げすぎない）。
+	 *
+	 * @dataProvider not_a_zero_line_provider
+	 */
+	public function test_zero_quantity_without_a_zero_subtotal_still_falls_back_to_one( mixed $quantity, mixed $subtotal ): void {
+		$order = $this->make_order(
+			'3031',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'odd-qty',
+					'name'                => 'Odd quantity',
+					'price'               => '100',
+					'unit_price_excl_tax' => '100',
+					'subtotal'            => $subtotal,
+					'quantity'            => $quantity,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 1, (int) $items[0]->get_quantity() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'odd-qty' ), $result->warnings );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:mixed}>
+	 */
+	public static function not_a_zero_line_provider(): array {
+		return [
+			'zero with an amount'           => [ 0, '100' ],
+			'zero without a subtotal'       => [ 0, null ],
+			'zero with a non-numeric total' => [ 0, 'abc' ],
+			'fraction truncated to zero'    => [ 0.5, '0' ],
+			'string fraction'               => [ '0.4', '0' ],
+			// PR #90 G1: float へ変換すると 0 にアンダーフローする値・指数表記・空白付きは数量0として受けない。
+			'quantity underflowing to zero' => [ '1e-400', '0' ],
+			'subtotal underflowing to zero' => [ 0, '1e-400' ],
+			'zero in exponent notation'     => [ '0e0', '0' ],
+			'zero with surrounding space'   => [ 0, ' 0' ],
+		];
+	}
+
+	/**
+	 * PR #90 G1/G2: ColorMe の`subtotal_price`が欠損・小数・指数表記の`product_num=0`の明細は、変換層が小計を`'0'`に
+	 * 丸めなくなったので「数量0・金額0の明細」にはならず、従来どおり数量1＋`ORDER_LINE_QUANTITY_INVALID`になる（変換層→writer）。
+	 *
+	 * @dataProvider unreadable_colorme_subtotal_provider
+	 */
+	public function test_colorme_zero_quantity_line_without_a_readable_subtotal_is_not_a_zero_line( mixed $subtotal_price, bool $remove ): void {
+		$raw_sale = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+
+		if ( $remove ) {
+			unset( $raw_sale['details'][0]['subtotal_price'] );
+		} else {
+			$raw_sale['details'][0]['subtotal_price'] = $subtotal_price;
+		}
+
+		$result   = $this->make_writer()->write( ( new OrderTransformer() )->transform( $raw_sale ), null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( 1, $items[0]->get_quantity() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, '900000051' ), $result->warnings );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:bool}>
+	 */
+	public static function unreadable_colorme_subtotal_provider(): array {
+		return [
+			'missing'           => [ null, true ],
+			'fraction'          => [ 0.4, false ],
+			'underflow to zero' => [ '1e-400', false ],
+			// PR #90 G3: JSON の `1e-400` は json_decode で float(0) になる。
+			'float zero'        => [ 0.0, false ],
+		];
 	}
 
 	public function test_reduced_rate_tax_class_not_configured_falls_back_to_standard(): void {

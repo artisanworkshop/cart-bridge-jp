@@ -116,6 +116,46 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'processing', $transformer->transform( $paid )->status );
 	}
 
+	/**
+	 * R3-0n: 実店舗の受注（匿名化）。ColorMe は明細を外す（またはキャンセルする）と、単価を残したまま
+	 * `product_num=0`・`subtotal_price=0` にする。変換層は数量0をそのまま運び、商品合計はその行を含まない。
+	 */
+	public function test_zero_quantity_line_from_a_real_order_is_passed_through(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertCount( 2, $order->line_items );
+		$this->assertSame( 0, $order->line_items[0]['quantity'] );
+		$this->assertSame( '0', $order->line_items[0]['subtotal'] );
+		$this->assertSame( '2283', $order->line_items[0]['price'] );
+		$this->assertSame( 1, $order->line_items[1]['quantity'] );
+		$this->assertSame( '2283', $order->line_items[1]['subtotal'] );
+		$this->assertSame( '2283', $order->totals['subtotal'] );
+		$this->assertSame( 'sale.totals', $order->totals['tax_source'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+	}
+
+	/**
+	 * R3-0n: 2019-09-09 以前の受注は `sale.totals` が null（実店舗の受注で実測。2019-09-12 以降は全件にある）。
+	 * `sale.tax`（商品分のみ）へフォールバックし、`tax_source` で送料分の税を含まないことを示す。
+	 */
+	public function test_old_order_without_totals_falls_back_to_the_product_tax(): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_without_totals_detail' )['sale'];
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $raw['totals'] );
+		$this->assertSame( 'sale.tax_incomplete_excludes_shipping_tax', $order->totals['tax_source'] );
+		$this->assertSame( '314', $order->totals['tax'] );
+		$this->assertSame( '1200', $order->totals['shipping_fee'] );
+		$this->assertSame( '5440', $order->totals['total'] );
+		$this->assertArrayNotHasKey( 'residual', $order->totals );
+		// 受注時点のオプション（1軸）。現在の商品は2軸（R3-0n の実店舗データ）。
+		$this->assertSame( '白２本・赤２本', $order->line_items[0]['option1_value_current'] );
+		$this->assertNull( $order->line_items[0]['option2_value_current'] );
+	}
+
 	public function test_missing_make_date_throws(): void {
 		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		unset( $raw['make_date'] );
@@ -157,6 +197,94 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->expectException( RuntimeException::class );
 
 		( new OrderTransformer() )->transform( $raw );
+	}
+
+	/**
+	 * PR #90 G1: 整数でない数量（swagger は integer）を切り捨てると、`0.4`が数量0に化けて`OrderItemBuilder`の
+	 * 「数量0・金額0の明細」（警告なし）に乗ってしまう。欠損・非数値と同じく注文全体を弾く。
+	 *
+	 * @dataProvider non_integer_quantity_provider
+	 */
+	public function test_non_integer_line_item_quantity_throws_instead_of_being_truncated( mixed $product_num ): void {
+		$raw                              = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+		$raw['details'][0]['product_num'] = $product_num;
+
+		$this->expectException( RuntimeException::class );
+
+		( new OrderTransformer() )->transform( $raw );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function non_integer_quantity_provider(): array {
+		return [
+			'fraction below one' => [ 0.4 ],
+			'fraction as string' => [ '1.5' ],
+			'exponent as string' => [ '1e3' ],
+			'underflow to zero'  => [ '1e-400' ],
+			// PR #90 G3: swagger は integer。JSON の小数・指数表記のリテラルは float になるので、整数に見えても受けない。
+			'integral float'     => [ 2.0 ],
+			'float zero'         => [ 0.0 ],
+		];
+	}
+
+	/**
+	 * PR #90 G3: JSON の数値リテラル `1e-400` は `json_decode()` の時点で `float(0)` にアンダーフローする。数量と小計が
+	 * どちらもこの形でも「数量0・金額0の明細」（警告なし）にせず、float の数量として受注ごと弾く。
+	 */
+	public function test_json_exponent_literals_underflowing_to_zero_are_rejected(): void {
+		$sale = FixtureLoader::load( 'colorme', 'sale_zero_quantity_line_detail' )['sale'];
+		$json = str_replace(
+			[ '"product_num":0,', '"subtotal_price":0,' ],
+			[ '"product_num":1e-400,', '"subtotal_price":1e-400,' ],
+			(string) wp_json_encode( $sale ),
+			$replaced
+		);
+		$raw  = json_decode( $json, true );
+
+		$this->assertSame( 2, $replaced );
+		$this->assertSame( 0.0, $raw['details'][0]['product_num'] );
+		$this->expectException( RuntimeException::class );
+
+		$this->make_transformer()->transform( $raw );
+	}
+
+	/**
+	 * PR #90 G1: `subtotal_price`の欠損・非数値を`'0'`に丸めない（`OrderItemBuilder`が明細合計0で「数量0・金額0の
+	 * 明細」を見分けるため）。null のまま運び、`OrderItemBuilder`が単価×数量で補う。
+	 *
+	 * @dataProvider unreadable_subtotal_provider
+	 */
+	public function test_unreadable_line_subtotal_is_null_not_zero( mixed $subtotal_price, bool $remove ): void {
+		$raw = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
+
+		if ( $remove ) {
+			unset( $raw['details'][0]['subtotal_price'] );
+		} else {
+			$raw['details'][0]['subtotal_price'] = $subtotal_price;
+		}
+
+		$order = $this->make_transformer()->transform( $raw );
+
+		$this->assertNull( $order->line_items[0]['subtotal'] );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed,1:bool}>
+	 */
+	public static function unreadable_subtotal_provider(): array {
+		return [
+			'missing'            => [ null, true ],
+			'null'               => [ null, false ],
+			'non-numeric'        => [ 'abc', false ],
+			// PR #90 G2: `money_or_null()` は小数・指数表記を切り捨てて `'0'` にしていた。
+			'fraction'           => [ 0.4, false ],
+			'fraction as string' => [ '1.5', false ],
+			'underflow to zero'  => [ '1e-400', false ],
+			// PR #90 G3: JSON の `1e-400`・`0.0` は float(0) になる。
+			'float zero'         => [ 0.0, false ],
+		];
 	}
 
 	public function test_missing_line_item_unit_price_throws_instead_of_yielding_zero(): void {

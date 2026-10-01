@@ -137,6 +137,7 @@ final class DryRunReportCsv {
 			$note              = match ( true ) {
 				WarningCode::indicates_mapping_required( $warning ) => 'mapping_required',
 				WarningCode::indicates_pending_export( $warning ) => 'reference_pending_export',
+				WarningCode::indicates_order_reference_unresolved( $warning ) => 'reference_unresolved',
 				WarningCode::indicates_pending_import( $warning ) => 'reference_pending_import',
 				default => '',
 			};

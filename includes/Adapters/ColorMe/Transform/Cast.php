@@ -62,6 +62,27 @@ final class Cast {
 	}
 
 	/**
+	 * `to_int_or_null()`と異なり、整数でない値（`0.4`・`'1.5'`・`'1e3'`）を切り捨てず`null`を返す。
+	 * 切り捨てると`product_num=0.4`が数量0に化け、`Woo\Writer\OrderItemBuilder`が数量0・金額0の
+	 * 明細として警告なしで残す経路に乗ってしまう（R3-0n。PR #90 G1）。
+	 *
+	 * float は整数に見えても受けない: swagger が integer とするフィールドの JSON の整数リテラルは
+	 * `json_decode()` で int になる。float になるのは小数・指数表記のリテラルで、`1e-400` は`json_decode()`の
+	 * 時点で`0.0`にアンダーフローし、元の表記を失ったまま0と見分けがつかなくなる（PR #90 G3）。
+	 */
+	public static function to_exact_int_or_null( mixed $value ): ?int {
+		if ( is_int( $value ) ) {
+			return $value;
+		}
+
+		if ( is_string( $value ) && 1 === preg_match( '/\A[+-]?\d{1,15}\z/', $value ) ) {
+			return (int) $value;
+		}
+
+		return null;
+	}
+
+	/**
 	 * `null` は `null` のまま返す（`(bool) null === false` にしてしまうと
 	 * 「未回答」と「いいえ」の区別がつかなくなる）。
 	 */
@@ -81,9 +102,22 @@ final class Cast {
 	 * `money()`と異なり、欠損・非数値を`0`へ丸めず`null`のまま透過する。呼び出し先が
 	 * 「金額が0円」と「金額を復元できない」を区別してフェイルクローズ処理を分岐する場合に使う
 	 * （例: `OrderItemBuilder::split_line_amount()`の`ORDER_TAX_SPLIT_UNAVAILABLE`経路）。
+	 * 小数（`0.4`）・指数表記（`'1e-400'`）は`to_int_or_null()`で切り捨てる（`'0'`になりうる）ので、
+	 * 金額が0かどうかで分岐する値には`exact_money_or_null()`を使う。
 	 */
 	public static function money_or_null( mixed $value ): ?string {
 		$int = self::to_int_or_null( $value );
+
+		return null === $int ? null : (string) $int;
+	}
+
+	/**
+	 * `money_or_null()`と異なり、整数でない値（`0.4`・`'1.5'`・`'1e-400'`）も切り捨てず`null`にする。
+	 * `OrderItemBuilder`は明細の小計が厳密に0かどうかで「数量0・金額0の明細」を見分けるため、0でない不正な
+	 * 小計を`'0'`に化けさせない（R3-0n。PR #90 G2）。
+	 */
+	public static function exact_money_or_null( mixed $value ): ?string {
+		$int = self::to_exact_int_or_null( $value );
 
 		return null === $int ? null : (string) $int;
 	}

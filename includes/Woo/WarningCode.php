@@ -257,6 +257,18 @@ final class WarningCode {
 	public const ORDER_LINE_AMOUNT_INVALID     = 'order_line_amount_invalid';
 
 	/**
+	 * インポート時、受注明細の商品は取り込み済みのvariable商品に解決したが、明細のオプション値から
+	 * variationを1件に特定できない（`Woo\Writer\OrderItemBuilder`。detailはremote_product_id）。
+	 * 明細は`ORDER_LINE_PRODUCT_UNRESOLVED`と同じく商品リンクの無いカスタム行になる。
+	 * 実店舗の受注（R3-0n）では、受注後に商品のオプションの軸が増えたため（受注時は1軸、現在は2軸）
+	 * 軸の数が合わずに特定できなかった。商品は取り込み済みなので「参照先を先にインポートすれば消える」
+	 * （`indicates_pending_import()`）ではないが、variationが後から取り込まれれば解決しうるため
+	 * `indicates_unresolved_reference()`の対象に含める（checksumをキャッシュしない）。
+	 * エクスポート方向の`ORDER_LINE_VARIATION_UNRESOLVED`（Woo受注明細のvariationを読めない。blocking）とは別物。
+	 */
+	public const ORDER_LINE_VARIATION_UNMATCHED = 'order_line_variation_unmatched';
+
+	/**
 	 * エクスポート時、受注明細の商品がまだASP側へエクスポートされておらず（`cbjp_mappings`に
 	 * product/variantのremote_idが無い）remote_product_idを特定できない（`Woo\Reader\OrderReader`）。
 	 * 商品を先にエクスポートすれば解決しうるため`indicates_unresolved_reference()`の対象に含める。
@@ -672,6 +684,7 @@ final class WarningCode {
 			self::TAG_REF_UNRESOLVED,
 			self::ORDER_CUSTOMER_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_UNRESOLVED,
+			self::ORDER_LINE_VARIATION_UNMATCHED,
 			self::CATEGORY_MAP_UNRESOLVED,
 			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
 			self::ORDER_CUSTOMER_NOT_EXPORTED,
@@ -709,12 +722,33 @@ final class WarningCode {
 	 * 未インポート起因の未解決」であり、他の参照未解決と同じ注記で区別されるべき
 	 * （テストショップの実機dry-runでは在庫全件がこの警告になり、注記無しだと実際の不整合と
 	 * 見分けが付かなかった）。
+	 *
+	 * R3-0n: 受注の商品・顧客の参照（{@see indicates_order_reference_unresolved()}）と
+	 * `ORDER_LINE_VARIATION_UNMATCHED`（商品は取り込み済み）は除く。実店舗の受注では、商品・顧客の未解決 24 件のうち
+	 * 21 件がASP側で削除済み、3 件がバリエーションの不一致で、どれも先にインポートしても消えなかった。
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
 		return ! self::indicates_mapping_required( $warning )
 			&& ! self::indicates_pending_export( $warning )
+			&& ! self::indicates_order_reference_unresolved( $warning )
+			&& self::ORDER_LINE_VARIATION_UNMATCHED !== self::split( $warning )[0]
 			&& ( self::indicates_unresolved_reference( [ $warning ] )
 				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列。値は`reference_unresolved`）用: インポートした受注の
+	 * 商品・顧客の参照がローカルに見つからない警告か（`ORDER_LINE_PRODUCT_UNRESOLVED`/`ORDER_CUSTOMER_UNRESOLVED`）。
+	 *
+	 * 参照先がまだインポートされていないだけなのか、ASP側で削除済み・インポート対象外なのかは、Woo側の
+	 * mappingsだけでは区別できない。実店舗の受注 1,237 件の dry-run（R3-0n）では、この 2 コードの 21 件（商品 16 行・
+	 * 顧客 5 受注）すべてが ColorMe 側で削除済み（`GET /products/{id}.json`・`/customers/{id}.json` が 404）で、先にインポートしても
+	 * 消えないのに`reference_pending_import`（「先にインポートすれば消える」）が付いていた。そのため
+	 * `indicates_pending_import()`から外し、両方の可能性を含む中立の注記にする。checksumキャッシュの判定
+	 * （{@see indicates_unresolved_reference()}）は変えない（未インポートなら後から解決しうるため）。
+	 */
+	public static function indicates_order_reference_unresolved( string $warning ): bool {
+		return in_array( self::split( $warning )[0], [ self::ORDER_LINE_PRODUCT_UNRESOLVED, self::ORDER_CUSTOMER_UNRESOLVED ], true );
 	}
 
 	/**

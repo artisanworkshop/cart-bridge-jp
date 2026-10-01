@@ -33,8 +33,8 @@ final class OrderItemBuilder {
 		$warnings          = [];
 		$sku               = Value::string( $line_item['sku'] ?? null );
 		$remote_product_id = Value::string( $line_item['remote_product_id'] ?? null );
-		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（注文時点の
-		// 値ではない）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
+		// `option1_value_current`/`option2_value_current`はASP側の「最新の商品情報」（swagger の記述。実店舗の
+		// 古い受注では受注時点の値が返った例がある。R3-0n）だが、remote_product_idが親のvariable商品に解決した場合に、どのvariationの
 		// 購入だったかを一意に特定するための唯一の手がかりになる（`ProductResolver`参照）。
 		$option1_value = Value::string( $line_item['option1_value_current'] ?? null );
 		$option2_value = Value::string( $line_item['option2_value_current'] ?? null );
@@ -53,8 +53,12 @@ final class OrderItemBuilder {
 			}
 		} else {
 			// 商品リンクを張らないカスタム行として作成する（D10 #3）。削除済み商品・突合不能な
-			// 明細でも注文履歴の欠落を防ぐ。
-			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, $remote_product_id ?? '' );
+			// 明細でも注文履歴の欠落を防ぐ。商品は取り込み済みでvariationだけ特定できない場合は
+			// 別の警告にする（先に商品をインポートしても消えないため。R3-0n）。
+			$code       = $this->resolver->maps_to_variable_product( $remote_product_id )
+				? WarningCode::ORDER_LINE_VARIATION_UNMATCHED
+				: WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED;
+			$warnings[] = WarningCode::with_detail( $code, $remote_product_id ?? '' );
 			$item->add_meta_data( '_cbjp_remote_product_id', $remote_product_id ?? '', true );
 
 			$image_url = Value::string( $line_item['image_url'] ?? null );
@@ -65,22 +69,34 @@ final class OrderItemBuilder {
 		}
 
 		$quantity = Value::int( $line_item['quantity'] ?? null );
+		// 数量0かつ明細合計0の行は、ASP側で数量を0にした行（ColorMeはキャンセルした受注の全明細を
+		// `product_num=0`・`subtotal_price=0`にし、一部の明細を外した受注でもその行だけ同じ形になる。
+		// 実店舗の受注で実測。R3-0n）。金額が0で数量も曖昧さが無いため、捏造せず数量0・金額0のまま残す
+		// （警告も付けない）。小数の数量が`Value::int()`で0に切り捨てられた値を拾わないよう、両方とも
+		// 数値として厳密に0であることを確かめる。
+		$is_zero_line = self::is_exact_zero( $line_item['quantity'] ?? null ) && self::is_exact_zero( $line_item['subtotal'] ?? null );
 
-		if ( null === $quantity || $quantity <= 0 ) {
+		if ( $is_zero_line ) {
+			$quantity = 0;
+		} elseif ( null === $quantity || $quantity <= 0 ) {
 			// 数量が欠損・非数値・0以下の場合、1個として捏造すると実際の購入数と食い違う出荷指示に
 			// なりうる（CLAUDE.md参照）。ColorMeの`OrderTransformer`は同じ理由で`product_num`
 			// 欠損時に注文全体を弾いているが、Woo層は他ASPアダプタの出力も信頼境界として
 			// 扱うため、ここでも黙って1個扱いにはしない。ただし明細自体を消すと注文履歴・
 			// 返金記録が欠落する（D10 #3）ため、行は残しつつ数量が不確かである旨を警告する。
 			// 0以下の値をそのまま`set_quantity()`に渡すと負/ゼロ数量の明細行になり、
-			// 注文の集計・返金計算が破綻しうるため、欠損時と同じフェイルクローズ扱いにする。
+			// 注文の集計・返金計算が破綻しうるため、欠損時と同じフェイルクローズ扱いにする
+			// （数量0かつ明細合計0の行だけは上の分岐で数量0のまま残す。金額が0なので集計は崩れない）。
 			$quantity   = 1;
 			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
 		}
 
 		$item->set_quantity( $quantity );
 
-		[ $excl_tax, $tax, $tax_warning ] = $this->split_line_amount( $line_item, $quantity, $remote_product_id ?? '' );
+		// 数量0の行は税抜/税込を分ける金額が無い（単価は使わない）。
+		[ $excl_tax, $tax, $tax_warning ] = $is_zero_line
+			? [ '0', '0', null ]
+			: $this->split_line_amount( $line_item, $quantity, $remote_product_id ?? '' );
 		$item->set_subtotal( $excl_tax );
 		$item->set_total( $excl_tax );
 		// `set_subtotal_tax()`/`set_total_tax()`単体では次回読込時に値が失われる: WooCommerceは
@@ -110,6 +126,19 @@ final class OrderItemBuilder {
 			'item'     => $item,
 			'warnings' => $warnings,
 		];
+	}
+
+	/**
+	 * 数値として厳密に0か（`0`・`0.0`・`'0'`・`'0.00'`・`'-0'`など）。欠損・非数値・`0.5`のような小数は偽。
+	 * 文字列は float へ変換せず書式で判定する: `'1e-400'`は`(float)`で`0.0`にアンダーフローし、0でない値が
+	 * 数量0・金額0の明細に化けて警告が消える（PR #90 G1）。指数表記・前後の空白も受けない（従来の数量1＋警告へ倒す）。
+	 */
+	private static function is_exact_zero( mixed $value ): bool {
+		if ( is_int( $value ) || is_float( $value ) ) {
+			return 0.0 === (float) $value;
+		}
+
+		return is_string( $value ) && 1 === preg_match( '/\A[+-]?(?:0+(?:\.0*)?|\.0+)\z/', $value );
 	}
 
 	/**

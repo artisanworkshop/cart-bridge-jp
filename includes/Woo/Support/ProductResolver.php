@@ -38,7 +38,9 @@ final class ProductResolver {
 	 *
 	 * `$option1_value`/`$option2_value`はASP側APIの「最新の商品情報」であり注文時点の値では
 	 * ない（オプション名変更後の受注では一致しないことがある）ため、一致しない場合も
-	 * フェイルクローズで未解決のままにする（捏造した一致を返さない）。
+	 * フェイルクローズで未解決のままにする（捏造した一致を返さない）。ただし実店舗の受注（R3-0n）では、
+	 * 受注後にオプションの軸が増えた商品の古い受注で受注時点の値（2軸目が null）が返った。どちらでも
+	 * 軸の数や値が合わなければ未解決になる（`OrderItemBuilder`は`ORDER_LINE_VARIATION_UNMATCHED`を付ける）。
 	 */
 	public function resolve_by_sku_or_remote_id( ?string $sku, ?string $remote_id, ?string $option1_value = null, ?string $option2_value = null ): ?WC_Product {
 		if ( null !== $sku ) {
@@ -76,6 +78,23 @@ final class ProductResolver {
 		}
 
 		return null;
+	}
+
+	/**
+	 * `resolve_by_sku_or_remote_id()`が未解決（null）を返した明細について、その原因が「remote_idは
+	 * 取り込み済みのvariable商品に解決したが、オプション値からvariationを1件に特定できなかった」ことか
+	 * （`OrderItemBuilder`が`ORDER_LINE_VARIATION_UNMATCHED`と`ORDER_LINE_PRODUCT_UNRESOLVED`を分けるのに使う）。
+	 * remote_idの経路は親のvariable商品に解決したときvariationかnullしか返さないため、null の後にこれが真なら
+	 * 原因はvariationの特定に限られる。
+	 */
+	public function maps_to_variable_product( ?string $remote_id ): bool {
+		if ( null === $remote_id ) {
+			return false;
+		}
+
+		$local_id = $this->mappings->find_local_id( $this->platform, 'product', $remote_id );
+
+		return null !== $local_id && $this->as_product( $local_id ) instanceof WC_Product_Variable;
 	}
 
 	private function as_orderable_product( int $id ): ?WC_Product {

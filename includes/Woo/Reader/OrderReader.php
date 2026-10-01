@@ -265,7 +265,9 @@ final class OrderReader implements EntityReader {
 
 			// `OrderItemBuilder`（インポート方向）と同じ基準: 数量が欠損・0以下の場合、1個として
 			// 捏造すると実際の購入数と食い違う出荷指示になりうる。明細自体は残しつつ
-			// `ORDER_LINE_QUANTITY_INVALID`で不確かである旨を警告する。
+			// `ORDER_LINE_QUANTITY_INVALID`で不確かである旨を警告する。ただしインポート方向が数量0・金額0の
+			// 明細をそのまま取り込むようになった後も（R3-0n）、ここでは数量0を止める（ASPへ数量0の明細を
+			// 送った場合の扱いは未確認。ColorMe では、取り込んだ受注は元々`ORDER_UPDATE_NOT_SUPPORTED`で送られない）。
 			//
 			// `WC_Order_Item_Product::get_quantity()`は内部で`wc_stock_amount()`
 			// （`woocommerce_stock_amount`フィルター経由で量り売り等の小数量拡張が介入しうる。

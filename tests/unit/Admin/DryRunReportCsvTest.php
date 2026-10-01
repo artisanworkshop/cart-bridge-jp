@@ -171,6 +171,33 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'category_map_unresolved', '15', 'mapping_required' ], [ $rows[2][5], $rows[2][6], $rows[2][7] ] );
 	}
 
+	/**
+	 * R3-0n: 受注の商品・顧客の未解決は「未インポート、またはASP側で削除済み」を含む `reference_unresolved`。
+	 * 実店舗の受注 dry-run では、この 2 コードの 21 件すべてが削除済みで、`reference_pending_import`（先にインポートすれば
+	 * 消える）は誤った案内だった。商品は取り込み済みでバリエーションだけ特定できない明細には注記を付けない。
+	 */
+	public function test_order_reference_warnings_get_a_neutral_note(): void {
+		$this->items->insert_many(
+			'run-5e',
+			1,
+			[
+				$this->row(
+					[
+						'entity'   => 'order',
+						'warnings' => [ 'order_line_product_unresolved:p-gone', 'order_customer_unresolved:c-gone', 'order_line_variation_unmatched:vp-axes' ],
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-5e', null, false );
+
+		$this->assertCount( 3, $rows );
+		$this->assertSame( [ 'order_line_product_unresolved', 'p-gone', 'reference_unresolved' ], [ $rows[0][5], $rows[0][6], $rows[0][7] ] );
+		$this->assertSame( [ 'order_customer_unresolved', 'c-gone', 'reference_unresolved' ], [ $rows[1][5], $rows[1][6], $rows[1][7] ] );
+		$this->assertSame( [ 'order_line_variation_unmatched', 'vp-axes', '' ], [ $rows[2][5], $rows[2][6], $rows[2][7] ] );
+	}
+
 	public function test_unrelated_warning_leaves_the_note_column_empty(): void {
 		$this->items->insert_many( 'run-6', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
 
