@@ -1968,4 +1968,114 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 1, $fired );
 		$this->assertSame( 'completed', wc_get_order( $first->local_id )->get_status() );
 	}
+
+	/**
+	 * PR R1-S1: 即時取込みモードの Analytics は `woocommerce_update_order` か `woocommerce_schedule_import` でしか取込みを
+	 * 予約しない。新規作成は1回だけの保存（作成）で`woocommerce_update_order`を起こさないので、明示的に予約する。
+	 */
+	public function test_new_order_schedules_the_analytics_import(): void {
+		$scheduled = [];
+
+		add_action(
+			'woocommerce_schedule_import',
+			static function ( $order_id ) use ( &$scheduled ): void {
+				$scheduled[] = $order_id;
+			}
+		);
+
+		$result = $this->make_writer()->write( $this->make_order( '9106', 'completed' ), null );
+
+		$this->assertSame( [ $result->local_id ], $scheduled );
+	}
+
+	/**
+	 * PR R1-S2: 作成後の後処理（購入実績の印＝顧客の保存）で他プラグインが失敗しても、受注は作成済みのまま返す。
+	 * 消すと mapping が書かれず、次回に同じ受注を重複作成する（無料版の上限にも数えられない）。
+	 */
+	public function test_a_failing_follow_up_step_keeps_the_created_order(): void {
+		$user_id = wp_insert_user(
+			[
+				'user_login' => 'paying-fails',
+				'user_email' => 'paying-fails@example.com',
+				'user_pass'  => 'x',
+			]
+		);
+		$this->seed_mapping( 'colorme', 'customer', 'c-paying-fails', $user_id );
+
+		add_action(
+			'woocommerce_update_customer',
+			static function (): void {
+				throw new \Error( 'simulated third-party failure on customer save' );
+			}
+		);
+
+		$result = $this->make_writer()->write( $this->make_order( '9107', 'completed', 'c-paying-fails' ), null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( 0, $result->local_id );
+		$this->assertInstanceOf( \WC_Order::class, wc_get_order( $result->local_id ) );
+	}
+
+	/**
+	 * PR R1-S6: mapping が削除済みの受注を指す（stale ID）ときも、新規作成として状態変化なしで作り直す。
+	 */
+	public function test_stale_mapping_is_recreated_without_status_transition_hooks(): void {
+		$first = $this->make_writer()->write( $this->make_order( '9108', 'completed' ), null );
+		wc_get_order( $first->local_id )->delete( true );
+		$fired = [];
+
+		foreach ( [ 'woocommerce_order_status_completed', 'woocommerce_order_status_changed' ] as $hook ) {
+			add_action(
+				$hook,
+				static function () use ( $hook, &$fired ): void {
+					$fired[] = $hook;
+				}
+			);
+		}
+
+		$result = $this->make_writer()->write( $this->make_order( '9108', 'completed' ), $first->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertNotSame( $first->local_id, $result->local_id );
+		$this->assertSame( [], $fired );
+	}
+
+	/**
+	 * PR R1-S5: `WC_Abstract_Order::save()` は保存前のフックの `Exception` を握りつぶし、受注を作れなければ 0 を返す。
+	 * 何も作られていないので、例外ではなく `ORDER_CREATE_FAILED` で見送る。
+	 */
+	public function test_order_that_woocommerce_could_not_create_is_skipped_with_a_warning(): void {
+		$before_ids = wc_get_orders(
+			[
+				'return' => 'ids',
+				'limit'  => -1,
+				'status' => 'any',
+			]
+		);
+
+		add_action(
+			'woocommerce_before_order_object_save',
+			static function ( $order ): void {
+				if ( 0 === $order->get_id() ) {
+					throw new \Exception( 'simulated third-party rejection' );
+				}
+			}
+		);
+
+		$result = $this->make_writer()->write( $this->make_order( '9109', 'completed' ), null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( [ WarningCode::ORDER_CREATE_FAILED ], $result->warnings );
+		$this->assertSame(
+			$before_ids,
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+					'status' => 'any',
+				]
+			)
+		);
+	}
 }

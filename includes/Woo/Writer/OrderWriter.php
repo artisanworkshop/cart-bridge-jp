@@ -100,12 +100,10 @@ final class OrderWriter implements EntityWriter {
 			$order_id = $order->save();
 
 			if ( 0 === $order_id ) {
-				// HPOS（本プラグインが要求する構成）の`OrdersTableDataStore::persist_order_to_db()`は
-				// create失敗時に必ず`\Exception`を投げるため実測上この分岐は基本的に到達しないが、
-				// 将来のWC実装変更で「例外を投げず0を返す」経路に変わった場合の保険として、
-				// ProductWriter/CouponWriter/TermWriterと同じ0チェックの慣習をここにも揃え、
-				// 下のcatchへ合流させる。
-				throw new RuntimeException( 'OrderWriter: $order->save() returned 0.' );
+				// `WC_Abstract_Order::save()`は保存前のフック（他プラグインの`woocommerce_before_order_object_save`）や
+				// 作成で出た`Exception`を握りつぶしてWooCommerceのログに残し、受注を作れなければIDの0を返す
+				// （既存受注の更新では0にならない）。何も作られていないので、例外ではなく作成失敗の警告で見送る。
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::ORDER_CREATE_FAILED ] );
 			}
 		} catch ( Throwable $exception ) {
 			// 保存の途中（受注の行を作った後の明細の保存・他プラグインのフック等）で例外が伝播すると、
@@ -122,12 +120,8 @@ final class OrderWriter implements EntityWriter {
 			throw $exception;
 		}
 
-		if ( $is_new_order && $order->has_status( 'completed' ) ) {
-			// 状態変化を起こさずに保存したため、WooCommerce本体が完了時に呼ぶ処理のうち、本プラグインの
-			// フラグ・`SideEffectGuard`で元々止めていないもの（顧客に購入実績の印を付ける）だけを明示的に呼ぶ。
-			// 在庫・売上件数・クーポン利用数・ダウンロード権限は`apply_status()`のフラグで、メールはガードで、
-			// 従来から何もしていなかった（issue #91）。
-			wc_paying_customer( $order_id );
+		if ( $is_new_order ) {
+			$this->after_creating( $order, $order_id );
 		}
 
 		return new WriteResult( $order_id, $operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
@@ -157,6 +151,47 @@ final class OrderWriter implements EntityWriter {
 			$is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED,
 			$prepared->warnings
 		);
+	}
+
+	/**
+	 * 新規作成を状態変化なしで1回だけ保存したため（issue #91）、WooCommerceが以前の作り方（作成→更新・状態変化）で
+	 * 起こしていた処理のうち、必要なものだけを明示的に呼ぶ。受注はもう作成済みなので、ここでの失敗は受注を消さず
+	 * （消すとmappingが書かれないまま次回に重複作成される）、WooCommerceのログに残して続ける
+	 * （`WC_Abstract_Order::save()`が保存中の例外を握りつぶしてログに残すのと同じ扱い）。
+	 */
+	private function after_creating( WC_Order $order, int $order_id ): void {
+		$steps = [
+			// Analytics: 即時取込みモード（`woocommerce_analytics_scheduled_import`が`yes`でない。WooCommerce 10.5 より前から
+			// 使っている店舗の既定）では、`OrdersScheduler`は`woocommerce_update_order`か`woocommerce_schedule_import`でしか
+			// 取込みを予約しない。以前は`wc_create_order()`の後の2回目の保存（更新）が予約していたので、明示的に予約する
+			// （予約取込みモードではこのフックに何も登録されておらず、定期処理が拾う）。
+			'schedule_analytics_import' => static function () use ( $order_id ): void {
+				do_action( 'woocommerce_schedule_import', $order_id ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
+			},
+			// WooCommerce本体の完了時処理のうち、`apply_status()`のフラグと`SideEffectGuard`で元々止めていない
+			// もの（顧客に購入実績の印を付ける）。在庫・売上件数・クーポン利用数・ダウンロード権限・メールは従来から何もしていない。
+			'mark_paying_customer'      => static function () use ( $order, $order_id ): void {
+				if ( $order->has_status( 'completed' ) ) {
+					wc_paying_customer( $order_id );
+				}
+			},
+		];
+
+		foreach ( $steps as $step => $run ) {
+			try {
+				$run();
+			} catch ( Throwable $exception ) {
+				wc_get_logger()->error(
+					'Cart Bridge JP: a follow-up step after creating an imported order failed.',
+					[
+						'source'    => 'cart-bridge-jp',
+						'step'      => $step,
+						'order_id'  => $order_id,
+						'exception' => $exception::class,
+					]
+				);
+			}
+		}
 	}
 
 	/**
