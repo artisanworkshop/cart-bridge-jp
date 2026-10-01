@@ -320,12 +320,24 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 
 - 方法: `new WC_Order()` を組み立て、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにする（新しい受注の
   「変化前」のステータスはこのフィルターの値で決まるため、変化前＝変化後になり状態変化が記録されない。wp-env で実測）。保存で発火するのは
-  `woocommerce_new_order` と明細の作成（`woocommerce_new_order_item`）だけで、WooCommerce の受注件数キャッシュは最終ステータスに加算される。
+  保存の前後（`woocommerce_before/after_order_object_save`）・`woocommerce_new_order`・明細の作成（`woocommerce_new_order_item`）で、
+  WooCommerce の受注件数キャッシュは最終ステータスに加算される。他プラグインの `woocommerce_new_order` の処理は最初から最終ステータスの受注を受け取る
+  （以前は支払い待ちで受け取り、その後の状態変化で完了時処理が動いていた。抑止ではなく経路が移るだけ）。
 - `wc_create_order()` は使わない（支払い待ちで先に作るため状態変化になる。顧客 IP・ユーザーエージェントにインポート実行環境の値も残す）。
-- WooCommerce 本体の完了時処理のうち、`apply_status()` のフラグと `SideEffectGuard` で no-op にならない `wc_paying_customer()`（顧客の購入実績）だけを、
-  新規の completed で明示的に呼ぶ（在庫・売上件数・クーポン利用数・ダウンロード権限・メールは従来から止めている）。
-- 保存の途中で例外が出たら、作られた行を削除して例外を再送出する（Importer は mapping を書かず次回やり直す）。削除は最終ステータスのまま行うので
-  件数キャッシュがずれない。`WC_Abstract_Order::save()` は `Exception` を握りつぶすので、外へ出るのは `Error` などだけ。
+  D10 #6 の「`wc_create_order` 後に直接プロパティ設定」はこれで置き換えた。
+- 作成後の後処理（`OrderWriter::after_creating()`）: (1) Analytics の取込み予約（`woocommerce_schedule_import`）。即時取込みモード
+  （`woocommerce_analytics_scheduled_import` が `yes` でない。WooCommerce 10.5 より前から使っている店舗の既定）では `woocommerce_update_order` か
+  このフックでしか予約されず、1 回だけの保存（作成）では売上レポートから抜けるため（独立レビュー R1-S1）。(2) WooCommerce 本体の完了時処理のうち、
+  `apply_status()` のフラグと `SideEffectGuard` で no-op にならない `wc_paying_customer()`（顧客の購入実績）を新規の completed で呼ぶ。後処理の失敗は
+  受注を消さず WooCommerce のログに残す（消すと mapping が書かれず次回に重複作成される）。
+- 状態変化を起こさないことで、本体の次の処理も新規作成では動かなくなる（D10 #6 の意図どおり）: 保留中（on-hold）の受注の売上件数の加算
+  （`wc_update_total_sales_counts`。以前は on-hold への状態変化で加算されていた）、返金済み（refunded）へのマッピングでの全額返金レコードの作成
+  （`wc_order_fully_refunded`。ステータスは refunded だが返金行が無いので、Analytics は売上として数える。backlog `fix-91/refunded-without-refund`）、
+  フルフィルメントの自動作成、顧客の最終アクティブ日時の更新。
+- 保存の途中で `Error` が出たら、作られた行を削除して再送出する（Importer は mapping を書かず次回やり直す）。`WC_Abstract_Order::save()` は
+  `Exception` を握りつぶしてログに残すので、外へ出るのは `Error` などだけ。行ができる前に握りつぶされて ID が 0 なら、例外ではなく
+  `ORDER_CREATE_FAILED` で見送る。削除は最終ステータスのまま行うので、件数キャッシュは通常ずれない（ただし行ができた後、件数キャッシュの加算
+  〈`woocommerce_new_order` の優先度 10〉より前で `Error` が出た場合は 1 件少なくなりうる）。
 - **既存受注の更新でステータスが変わる場合は対象外**（従来どおり状態変化として保存され、他プラグインのフックも動く。メールは `SideEffectGuard` で止まる）。
   WooCommerce の CRUD には既存受注の状態変化を記録せずに保存する手段が無く、他プラグインのコールバックを一時的に外す案は Jetpack などの正当な連携も止めて
   壊れやすいため見送った（ユーザー判断 2026-10-01。backlog `fix-91/update-status-hooks`）。
