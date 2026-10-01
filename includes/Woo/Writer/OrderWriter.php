@@ -94,7 +94,9 @@ final class OrderWriter implements EntityWriter {
 			// 既存の明細が失われないよう、失敗しうる処理を全て終えてから削除・追加・保存を行う。
 			$order->remove_order_items();
 
-			foreach ( array_merge( $prepared->line_items, $prepared->shipping_items ) as $order_item ) {
+			$added_items = array_merge( $prepared->line_items, $prepared->shipping_items );
+
+			foreach ( $added_items as $order_item ) {
 				$order->add_item( $order_item );
 			}
 
@@ -105,6 +107,21 @@ final class OrderWriter implements EntityWriter {
 				// 作成で出た`Exception`を握りつぶしてWooCommerceのログに残し、受注を作れなければIDの0を返す
 				// （既存受注の更新では0にならない）。何も作られていないので、例外ではなく作成失敗の警告で見送る。
 				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::ORDER_CREATE_FAILED ] );
+			}
+
+			if ( $is_new_order && ! self::all_items_saved( $added_items ) ) {
+				// 作成（行の作成→`woocommerce_new_order`→明細の保存）の途中、他プラグインの`woocommerce_new_order`等が
+				// `Exception`を投げると、`save()`はそれを握りつぶして0でないIDを返すが、明細は保存されていない（PR #92 G2）。
+				// 以前の作り方は2回目の保存が明細を保存していたので、同じくもう1回だけ保存する（更新なので
+				// `woocommerce_new_order`も状態変化も起きない）。中断された`woocommerce_new_order`の処理には件数キャッシュの
+				// 加算（優先度10）も含まれうるので、件数キャッシュは捨てて数え直させる。それでも明細が保存できなければ、
+				// 下のcatchで受注を消して例外を伝え、次回に再試行させる（明細の欠けた受注をmappingごと確定させない）。
+				self::flush_order_count_cache();
+				$order->save();
+
+				if ( ! self::all_items_saved( $added_items ) ) {
+					throw new RuntimeException( 'OrderWriter: the created order could not save its items.' );
+				}
 			}
 		} catch ( Throwable $exception ) {
 			// 保存の途中（受注の行を作った後の明細の保存・他プラグインのフック等）で例外が伝播すると、
@@ -154,6 +171,22 @@ final class OrderWriter implements EntityWriter {
 			$is_new_order ? WriteResult::OPERATION_CREATED : WriteResult::OPERATION_UPDATED,
 			$prepared->warnings
 		);
+	}
+
+	/**
+	 * 追加した明細がすべてDBに保存されたか（保存された明細にはIDが付く）。読み直さないのは、WooCommerceの受注キャッシュが
+	 * 保存していないメモリ上の明細を返しうるため。
+	 *
+	 * @param array<int,WC_Order_Item> $items
+	 */
+	private static function all_items_saved( array $items ): bool {
+		foreach ( $items as $item ) {
+			if ( 0 === $item->get_id() ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**

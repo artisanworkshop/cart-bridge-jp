@@ -2112,4 +2112,121 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 1, $before_counts['completed'] );
 		$this->assertSame( $before_counts, $counts() );
 	}
+
+	/**
+	 * PR #92 G2: 他プラグインの `woocommerce_new_order` が `Exception` を投げると、`save()` はそれを握りつぶして ID を返すが、
+	 * 明細は保存されていない（作成→`woocommerce_new_order`→明細の保存の途中で止まる）。もう1回保存して明細を残し、
+	 * 件数キャッシュ（加算も中断されうる）も DB と一致させる。
+	 */
+	public function test_new_order_keeps_its_items_when_a_new_order_hook_throws_an_exception(): void {
+		global $wpdb;
+
+		$this->make_writer()->write( $this->make_order( '9112', 'completed' ), null );
+		$counts = static fn (): array => [
+			'pending'   => wc_orders_count( 'pending' ),
+			'completed' => wc_orders_count( 'completed' ),
+		];
+		wc_get_container()->get( OrderCountCacheService::class )->refresh_cache( 'shop_order' );
+
+		add_action(
+			'woocommerce_new_order',
+			static function (): void {
+				throw new \Exception( 'simulated third-party exception on new order' );
+			},
+			5
+		);
+
+		$result = $this->make_writer()->write(
+			$this->make_order(
+				'9113',
+				'completed',
+				null,
+				[
+					[
+						'sku'                 => null,
+						'remote_product_id'   => 'p-g2',
+						'name'                => 'Item',
+						'price'               => '500',
+						'unit_price_excl_tax' => '500',
+						'subtotal'            => '500',
+						'quantity'            => 1,
+					],
+				]
+			),
+			null
+		);
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		// 明細（商品 1・配送 1）が DB に保存されている（WooCommerce の受注キャッシュを介さずに数える）。
+		$this->assertSame(
+			2,
+			(int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_order_items WHERE order_id = %d", $result->local_id ) )
+		);
+		$this->assertSame(
+			[
+				'pending'   => 0,
+				'completed' => 2,
+			],
+			$counts()
+		);
+	}
+
+	/**
+	 * PR #92 G2: もう1回保存しても明細を保存できない（明細の保存前のフックが毎回 `Exception` を投げる）なら、明細の欠けた受注を
+	 * mapping ごと確定させず、受注を消して例外を伝える（Importer は mapping を書かず次回に再試行する）。
+	 */
+	public function test_new_order_that_cannot_save_its_items_is_discarded(): void {
+		$before_ids = wc_get_orders(
+			[
+				'return' => 'ids',
+				'limit'  => -1,
+				'status' => 'any',
+			]
+		);
+
+		add_action(
+			'woocommerce_before_order_item_object_save',
+			static function ( $order_item ): void {
+				if ( $order_item instanceof WC_Order_Item_Product && 0 === $order_item->get_id() ) {
+					throw new \Exception( 'simulated third-party exception on item save' );
+				}
+			}
+		);
+
+		try {
+			$this->make_writer()->write(
+				$this->make_order(
+					'9114',
+					'completed',
+					null,
+					[
+						[
+							'sku'                 => null,
+							'remote_product_id'   => 'p-g2',
+							'name'                => 'Item',
+							'price'               => '500',
+							'unit_price_excl_tax' => '500',
+							'subtotal'            => '500',
+							'quantity'            => 1,
+						],
+					]
+				),
+				null
+			);
+			$this->fail( 'write() should fail when the items cannot be saved.' );
+		} catch ( \RuntimeException $exception ) {
+			$this->assertSame( 'OrderWriter: the created order could not save its items.', $exception->getMessage() );
+		}
+
+		$this->assertSame(
+			$before_ids,
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+					'status' => 'any',
+				]
+			)
+		);
+	}
 }

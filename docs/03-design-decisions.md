@@ -335,6 +335,9 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
   （`wc_update_total_sales_counts`。以前は on-hold への状態変化で加算されていた）、返金済み（refunded）へのマッピングでの全額返金レコードの作成
   （`wc_order_fully_refunded`。ステータスは refunded だが返金行が無いので、Analytics は売上として数える。backlog `fix-91/refunded-without-refund`）、
   フルフィルメントの自動作成、顧客の最終アクティブ日時の更新。
+- 新規作成では、追加した明細がすべて保存されたか（ID が付いたか）を確かめる。作成の途中（行の作成→`woocommerce_new_order`→明細の保存）で
+  他プラグインが `Exception` を投げると、`save()` は握りつぶして ID を返すが明細は保存されていないため（PR #92 G2。以前は 2 回目の保存が保存していた）。
+  欠けていれば件数キャッシュを捨ててもう 1 回だけ保存し（更新なので `woocommerce_new_order` も状態変化も起きない）、それでも欠ければ例外にして下の後始末へ進む。
 - 保存の途中で `Error` が出たら、作られた行を削除して再送出する（Importer は mapping を書かず次回やり直す）。`WC_Abstract_Order::save()` は
   `Exception` を握りつぶしてログに残すので、外へ出るのは `Error` などだけ。行ができる前に握りつぶされて ID が 0 なら、例外ではなく
   `ORDER_CREATE_FAILED` で見送る（mapping は書かれず次回に再試行。本番の実行では項目ごとの警告を保存しないため、どの受注かは
