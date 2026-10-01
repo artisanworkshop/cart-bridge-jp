@@ -130,6 +130,7 @@ description: >
   記録・スレッドへの返信・サマリコメントは `scripts/gate-record.sh` で 1 つの記録から作る（`init` で骨組み〈指摘を取得した直後・修正の前〉→ 修正（commit しない）→
   確認ゲート → **`approve`** → `git commit` → `判定:`/`対応:`/`コミット:` を記入 → `check`〈**push の前**〉→ push → `replies` の返信ファイルとコマンドで
   `gate-reply.sh`/`gate-resolve.sh` → `summary` を `gh pr comment --body-file` で投稿）。
+- コード変更の無い指摘（PR 本文の更新など）を「修正」で記録するときは、`コミット:` にレビュー対象の HEAD を挙げる（`check` は対象 HEAD の祖先について承認の順序を検査しないので通る。PR #92 G3）。
 - **確認ゲート → commit の順序は `gate-record.sh approve` で機械的に検査する**。「commit の前に確認する」は、メモや手順書に書いても PR #79 の G1、PR #80 の G1〜G3 の
   計 4 回、先に commit された。構造的な原因は、`check` が「修正」の指摘に commit の sha を要求すること（記録を完成させるには先に commit が要る、と手が動く）。
   順序: ① 修正して品質チェックを green にする（**commit しない**）→ ② 修正内容と仕分けを AskUserQuestion で提示 → ③ ユーザーが承認した**直後**に
@@ -157,6 +158,7 @@ description: >
 
 - `final-report.md` を書いたら状態ファイルを「完了」にして commit・push し、ユーザーへ報告して**停止**（マージしない）。
 - マージ後は `/post-merge`。CLAUDE.md への蒸留はそこで行う（PR 中に追加した学びはそのまま残す）。
+- 並行する PR が同じファイル（`docs/review-backlog.md` の末尾、`docs/10` など）に追記していると、先にマージされた側のせいで後の PR が CONFLICTING になる。後の PR のブランチに `main` を**マージ**して両方を残す（rebase・force push はしない）。取り込むのがレビュー済みの変更だけなら bot へは再依頼しない（PR #90／#92）。
 - **最終報告後・マージ後の追加作業は、bot への依頼・修正・push の各段階の前に `gh pr view <PR> --json state` で OPEN を確認する**。ユーザーが先にマージしていることがある（PR #81: マージの 1 分後に Copilot へ 4 回目を依頼し、G5 の修正をマージ済みのブランチへ push して main に入らなかった）。マージ済みなら依頼・push をせず、必要な修正は main から新しいブランチを切って cherry-pick するフォローアップ PR で入れる（PR #82）。
 - Copilot は依頼上限（3 回）の後や最終報告の後でも、依頼していないレビューを返すことがある（PR #81 の HEAD `ea081d7`、PR #82 の `e48e032`。原因は未確認）。最終報告の前後に、最終 push の T 以降について `scripts/gate-threads.sh <PR> <T>` と `scripts/gate-bodies.sh <PR> <T>` で、新しい本文・スレッドが無いか確認する（リポジトリ側の `gate-threads.sh` に `status` サブコマンドは無い。`status` はグローバルの fix-copilot-review 版のもの）。
 
