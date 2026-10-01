@@ -22,6 +22,9 @@ use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
 use CartBridgeJP\Woo\Writer\ProductWriter;
 use CartBridgeJP\Woo\Writer\VariationWriter;
+use Automattic\WooCommerce\Caches\OrderCountCacheService;
+use WC_Customer;
+use WC_Order_Item_Product;
 use WC_Product_Simple;
 use WC_Product_Variable;
 use WC_Product_Variation;
@@ -1765,5 +1768,204 @@ final class OrderWriterTest extends WooTestCase {
 
 		// 何も永続化していない（ステータスは元のままprocessing）。
 		$this->assertSame( 'processing', wc_get_order( $first->local_id )->get_status() );
+	}
+
+	/**
+	 * issue #91: 新規の受注は最終ステータスで1回だけ保存し、状態変化（`woocommerce_order_status_*`）を発火させない。
+	 * 実店舗では、支払い待ちで作ってから完了等へ変えていたため、請求書プラグイン（PDF・メール）や決済プラグインの
+	 * 完了時処理が、移行した過去の受注のすべてで動いていた。
+	 *
+	 * @dataProvider final_status_provider
+	 */
+	public function test_new_order_is_created_in_its_final_status_without_status_transition_hooks( string $status ): void {
+		$fired = [];
+
+		foreach ( [ "woocommerce_order_status_{$status}", "woocommerce_order_status_pending_to_{$status}", 'woocommerce_order_status_pending', 'woocommerce_order_status_changed', 'woocommerce_new_order' ] as $hook ) {
+			add_action(
+				$hook,
+				static function () use ( $hook, &$fired ): void {
+					$fired[] = $hook;
+				}
+			);
+		}
+
+		$result = $this->make_writer()->write( $this->make_order( '9101', $status ), null );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( $status, wc_get_order( $result->local_id )->get_status() );
+		$this->assertSame( [ 'woocommerce_new_order' ], $fired );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function final_status_provider(): array {
+		return [
+			'completed'  => [ 'completed' ],
+			'processing' => [ 'processing' ],
+			'cancelled'  => [ 'cancelled' ],
+			'pending'    => [ 'pending' ],
+		];
+	}
+
+	/**
+	 * issue #91: 完了時の処理で商品の無い明細に例外を投げるプラグイン（実店舗の PDF Invoice Japan は
+	 * `wc_get_product()` の `false` に `get_tax_status()` を呼んでいた）があっても、状態変化を起こさないので、
+	 * ColorMe で削除済みの商品の明細を持つ受注を取り込める。
+	 */
+	public function test_order_with_a_product_less_line_is_imported_despite_a_throwing_completed_hook(): void {
+		add_action(
+			'woocommerce_order_status_completed',
+			static function ( $order_id ): void {
+				foreach ( wc_get_order( $order_id )->get_items() as $order_item ) {
+					if ( $order_item instanceof WC_Order_Item_Product && 0 === $order_item->get_product_id() ) {
+						throw new \Error( 'Call to a member function get_tax_status() on bool' );
+					}
+				}
+			}
+		);
+
+		$order = $this->make_order(
+			'9102',
+			'completed',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'gone-91',
+					'name'                => 'Deleted product',
+					'price'               => '500',
+					'unit_price_excl_tax' => '500',
+					'subtotal'            => '500',
+					'quantity'            => 1,
+				],
+			]
+		);
+
+		$result = $this->make_writer()->write( $order, null );
+		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
+
+		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( 0, $items[0]->get_product_id() );
+		$this->assertSame( 'completed', wc_get_order( $result->local_id )->get_status() );
+	}
+
+	/**
+	 * issue #91: 保存の途中で他プラグインが `Error` を投げたときは受注を残さず、WooCommerce の受注件数キャッシュ
+	 * （`OrderCountCacheService`）も DB の件数と一致したまま。`WC_Abstract_Order::save()` は `Exception` を握りつぶして
+	 * ログに残すだけなので、外へ出るのは実店舗と同じ `Error`（`Throwable` だが `Exception` ではない）だけ。以前は支払い待ちで作った受注をメモリ上で完了に
+	 * 変えてから削除していたため、件数が「支払い待ち +1・完了 -1」にずれ、一覧の「支払い待ち」が空なのに件数だけ出ていた。
+	 */
+	public function test_failed_new_order_leaves_no_order_and_keeps_the_order_counts(): void {
+		$counts      = static fn (): array => [
+			'pending'   => wc_orders_count( 'pending' ),
+			'completed' => wc_orders_count( 'completed' ),
+		];
+		$count_cache = wc_get_container()->get( OrderCountCacheService::class );
+		$count_cache->refresh_cache( 'shop_order' );
+		$before_counts = $counts();
+		$before_ids    = wc_get_orders(
+			[
+				'return' => 'ids',
+				'limit'  => -1,
+				'status' => 'any',
+			]
+		);
+
+		add_action(
+			'woocommerce_new_order_item',
+			static function (): void {
+				throw new \Error( 'simulated third-party failure' );
+			}
+		);
+
+		try {
+			$this->make_writer()->write(
+				$this->make_order(
+					'9103',
+					'completed',
+					null,
+					[
+						[
+							'sku'                 => null,
+							'remote_product_id'   => 'p-91',
+							'name'                => 'Item',
+							'price'               => '500',
+							'unit_price_excl_tax' => '500',
+							'subtotal'            => '500',
+							'quantity'            => 1,
+						],
+					]
+				),
+				null
+			);
+			$this->fail( 'write() should rethrow the third-party failure.' );
+		} catch ( \Error $error ) {
+			$this->assertSame( 'simulated third-party failure', $error->getMessage() );
+		}
+
+		$this->assertSame(
+			$before_ids,
+			wc_get_orders(
+				[
+					'return' => 'ids',
+					'limit'  => -1,
+					'status' => 'any',
+				]
+			)
+		);
+		$this->assertSame( $before_counts, $counts() );
+	}
+
+	/**
+	 * issue #91: 状態変化を起こさないため、WooCommerce 本体が完了時に呼んでいた `wc_paying_customer()`
+	 * （顧客に購入実績の印）を新規の completed の受注でだけ明示的に呼ぶ（他の本体の完了時処理はフラグで元々 no-op）。
+	 *
+	 * @dataProvider paying_customer_provider
+	 */
+	public function test_new_order_marks_the_customer_as_paying_only_when_completed( string $status, bool $expected ): void {
+		$user_id = wp_insert_user(
+			[
+				'user_login' => "paying-{$status}",
+				'user_email' => "paying-{$status}@example.com",
+				'user_pass'  => 'x',
+			]
+		);
+		$this->seed_mapping( 'colorme', 'customer', "c-paying-{$status}", $user_id );
+
+		$this->make_writer()->write( $this->make_order( '9104', $status, "c-paying-{$status}" ), null );
+
+		$this->assertSame( $expected, ( new WC_Customer( $user_id ) )->get_is_paying_customer() );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:bool}>
+	 */
+	public static function paying_customer_provider(): array {
+		return [
+			'completed'  => [ 'completed', true ],
+			'processing' => [ 'processing', false ],
+		];
+	}
+
+	/**
+	 * issue #91 の範囲外（ユーザー判断）: 既存受注の更新でステータスが変わる場合は、従来どおり状態変化として
+	 * 保存される（他プラグインのフックも動く）。backlog `fix-91/update-status-hooks`。
+	 */
+	public function test_updating_an_existing_order_to_a_new_status_still_records_the_transition(): void {
+		$first = $this->make_writer()->write( $this->make_order( '9105', 'processing' ), null );
+		$fired = 0;
+
+		add_action(
+			'woocommerce_order_status_processing_to_completed',
+			static function () use ( &$fired ): void {
+				++$fired;
+			}
+		);
+
+		$this->make_writer()->write( $this->make_order( '9105', 'completed' ), $first->local_id );
+
+		$this->assertSame( 1, $fired );
+		$this->assertSame( 'completed', wc_get_order( $first->local_id )->get_status() );
 	}
 }
