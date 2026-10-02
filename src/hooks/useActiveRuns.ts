@@ -9,6 +9,9 @@ import type { ActiveRun } from '../types';
 
 const POLL_INTERVAL_MS = 5000;
 
+/** 4xx（権限が無い・プラットフォームが登録されていない等）の後の再試行間隔。すぐには直らないので間を空ける。 */
+const CLIENT_ERROR_RETRY_MS = 60000;
+
 /** 一覧が無いときに返す値（描画のたびに新しい配列を作り、利用側の effect を毎回走らせないため）。 */
 const NO_RUNS: ActiveRun[] = [];
 
@@ -53,7 +56,7 @@ export interface ActiveRunsResult {
  * - 一覧は取得したプラットフォームと組で持ち、選択中のプラットフォームと違う一覧は返さない
  *   （切り替え直後の 1 回の描画で前のプラットフォームの run を取り込まないため）。
  * - 5 秒ごとの照会は、呼び出し側が追跡していない run があるときだけ行う（追跡中の run は
- *   `useRunPolling` が 2 秒ごとに見ている）。取得に失敗したら直前の一覧を残したまま再試行する。
+ *   `useRunPolling` が 2 秒ごとに見ている）。取得に失敗したら直前の一覧を残したまま再試行する（4xx は 60 秒後）。
  *
  * @param platform      選択中のプラットフォーム
  * @param trackedRunIds 呼び出し側のセクションが表示中の run_id
@@ -148,23 +151,17 @@ export function useActiveRuns(
 					return;
 				}
 
-				// 4xx（権限が無い・プラットフォームが登録されていない等）は再試行しても変わらないので、5 秒ごとに
-				// 叩き続けない（次の `refresh()` で取り直す）。
+				// 一時的な失敗で一覧（＝止めているボタン・案内）を消さない。古いままの印を残して再試行する。
+				// 4xx（権限が無い・プラットフォームが登録されていない等）はすぐには直らないので、5 秒ごとに叩かず
+				// 間隔を空ける（止めてしまうと stale のまま固まり、取り込みも案内の更新も止まる。R2-3）。
 				const status = ( err as { data?: { status?: unknown } } )?.data
 					?.status;
+				const clientError =
+					'number' === typeof status && status >= 400 && status < 500;
 
-				if (
-					'number' === typeof status &&
-					status >= 400 &&
-					status < 500
-				) {
-					return;
-				}
-
-				// 一時的な失敗で一覧（＝止めているボタン・案内）を消さない。古いままの印を残して再試行する。
 				timerRef.current = window.setTimeout(
 					() => fetchRuns(),
-					POLL_INTERVAL_MS
+					clientError ? CLIENT_ERROR_RETRY_MS : POLL_INTERVAL_MS
 				);
 			} );
 	}, [] );

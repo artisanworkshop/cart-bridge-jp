@@ -701,6 +701,8 @@ export default function ExportTab() {
 			}
 
 			beginTrackingExportRun( type, response.run_id, requestedEntities );
+			// 一覧に残っている前の run を、新しい run を始めたことで案内・取り込みし直さないよう取り直す（R2-2）。
+			activeRuns.refresh();
 		} catch ( err ) {
 			if ( platformGenerationRef.current !== requestId ) {
 				return;

@@ -465,6 +465,9 @@ export default function ImportTab() {
 			}
 
 			beginTrackingRun( type, response.run_id, requestedEntities );
+			// 一覧に残っている前の run（取り込んだあと終わったが、追跡中なので照会し直していない）を、新しい run を
+			// 始めたことで「追跡していない run」として案内・取り込みし直さないよう、取り直す（R2-2）。
+			activeRuns.refresh();
 		} catch ( err ) {
 			if ( platformRef.current !== requestedPlatform ) {
 				return;

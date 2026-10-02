@@ -306,12 +306,14 @@ export default function ToolsTab() {
 		}
 	}
 
-	// プレビューを表示している間に進行中の run を見たら、そのプレビューは古いものとして扱う。
+	// プレビューを表示している間に進行中の run を見たら、そのプレビューは古いものとして扱う。一覧の取り直し中
+	// （プレビューのたびに取り直す）は判定しない: 直前に終わった run が古い一覧に残っていると、run の後に取った
+	// 新しいプレビューまで古いと誤判定するため（R2-4。取り直した一覧に run が残っていれば、その時点で印を付ける）。
 	useEffect( () => {
-		if ( runInProgress && null !== preview ) {
+		if ( runInProgress && ! activeRuns.stale && null !== preview ) {
 			setPreviewOutdated( true );
 		}
-	}, [ runInProgress, preview ] );
+	}, [ runInProgress, activeRuns.stale, preview ] );
 
 	async function loadPreview() {
 		if ( null === platform ) {
@@ -321,7 +323,6 @@ export default function ToolsTab() {
 		const requested = platform;
 		const generation = platformGenerationRef.current;
 		setPreviewing( true );
-		setPreviewOutdated( false );
 		setCleanupError( null );
 		setCleanupDone( false );
 		setCleanupProgress( null );
@@ -337,6 +338,9 @@ export default function ToolsTab() {
 
 			if ( platformGenerationRef.current === generation ) {
 				setPreview( data );
+				// 「古い」の印は取り直せたときだけ下ろす。失敗したら前のプレビュー（古いかもしれない）が残るので、
+				// 印もそのまま残して削除を止め続ける（R2-1）。
+				setPreviewOutdated( false );
 			}
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
