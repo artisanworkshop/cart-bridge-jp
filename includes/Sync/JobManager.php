@@ -153,9 +153,13 @@ final class JobManager {
 
 		$first_job_id = $job_ids[0];
 
-		// 作成した直後に（`GET /runs` で見つけた別のタブから）キャンセルされていれば始めない。
+		// 作成した直後に（`GET /runs` で見つけた別のタブから）キャンセルされていれば始めない。キャンセルが
+		// ジョブの作成の途中に届くと、その後に作ったジョブは pending のまま残り、進まない run がプラットフォームを
+		// 塞ぐので、run の残りもキャンセルする（遷移の失敗が DB エラーだった場合も、始められない run を残さない）。
 		if ( $this->jobs->transition( $first_job_id, [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) ) {
 			$this->enqueue( $first_job_id );
+		} else {
+			$this->jobs->cancel_run( $run_id );
 		}
 
 		return $run_id;

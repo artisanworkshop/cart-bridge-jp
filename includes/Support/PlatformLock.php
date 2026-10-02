@@ -41,6 +41,13 @@ final class PlatformLock {
 	 */
 	public const TTL_LONG = 900;
 
+	/**
+	 * 「期限が最長の TTL より先なら壊れた値」と判定するときの余裕。判定する側の `time()` は保持する側より
+	 * 遅れうる（INSERT の前に読んだ時刻が秒境界をまたぐ・Web ノード間の時計のずれ）ため、余裕が無いと
+	 * 取得したばかりの `TTL_LONG` のロックを壊れた値とみなして奪ってしまう。
+	 */
+	private const CLOCK_SKEW_SECONDS = 300;
+
 	private const OPTION_PREFIX = 'cbjp_platform_lock_';
 
 	/**
@@ -110,10 +117,10 @@ final class PlatformLock {
 		$current    = (string) $row['option_value'];
 		$expires_at = self::expires_at( $current );
 
-		// 読めない値と、期限が最長の TTL より先の値（壊れた値・時計の巻き戻り）は期限切れとして回収する。
-		// このクラスは常にその範囲の値を書くため、保持中とみなすと、壊れた行が誰にも解放されず
-		// プラットフォームを長期間（永久に）塞ぐ。
-		if ( null !== $expires_at && $expires_at > $now && $expires_at <= $now + self::TTL_LONG ) {
+		// 読めない値と、期限が最長の TTL（＋時計のずれの余裕）より先の値（壊れた値・時計の巻き戻り）は
+		// 期限切れとして回収する。このクラスは常にその範囲の値を書くため、保持中とみなすと、壊れた行が
+		// 誰にも解放されずプラットフォームを長期間（永久に）塞ぐ。
+		if ( null !== $expires_at && $expires_at > $now && $expires_at <= $now + self::TTL_LONG + self::CLOCK_SKEW_SECONDS ) {
 			return null;
 		}
 

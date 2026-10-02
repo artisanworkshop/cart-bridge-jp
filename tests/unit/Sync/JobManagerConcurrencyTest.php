@@ -192,6 +192,36 @@ final class JobManagerConcurrencyTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $this->queued_actions_for( (int) $job['id'] ) );
 	}
 
+	/**
+	 * キャンセルがジョブの作成の途中に届いた（その後に作ったジョブは pending のまま）場合も、run の残りを止めて
+	 * 進まない run にプラットフォームを塞がせない。
+	 */
+	public function test_a_run_cancelled_while_its_jobs_are_created_is_cancelled_entirely(): void {
+		global $wpdb;
+
+		$inserts = 0;
+		add_filter(
+			'query',
+			function ( string $query ) use ( &$inserts, $wpdb ): string {
+				if ( str_starts_with( $query, "INSERT INTO `{$wpdb->prefix}cbjp_jobs`" ) && 2 === ++$inserts ) {
+					$run_id = (string) $wpdb->get_var( "SELECT run_id FROM {$wpdb->prefix}cbjp_jobs ORDER BY id DESC LIMIT 1" );
+					$this->jobs->cancel_run( $run_id );
+				}
+
+				return $query;
+			}
+		);
+
+		$run_id = $this->make_manager()->start_run( 'import', 'mock', [ 'category', 'tag' ] );
+
+		$this->assertSame( 2, $inserts );
+		$this->assertSame(
+			[ JobRepository::STATUS_CANCELLED, JobRepository::STATUS_CANCELLED ],
+			array_column( $this->jobs->find_by_run( $run_id ), 'status' )
+		);
+		$this->assertSame( [], $this->jobs->find_active_runs_for_platform( 'mock' ) );
+	}
+
 	public function test_retry_is_refused_while_the_platform_lock_is_held(): void {
 		$manager = $this->make_manager();
 		$job_id  = $this->fail_first_job( $manager, $manager->start_run( 'import', 'mock', [ 'category' ] ) );

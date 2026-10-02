@@ -177,8 +177,8 @@ final class JobRepository {
 	 * Action Scheduler でこのプラットフォームのジョブのページを処理中（`in-progress`）のアクションがあるか
 	 * （issue #57）。ジョブの状態は問わない: キャンセルしたジョブは `cancelled` になった後も、処理中のページを
 	 * 最後まで書き続ける（`process_job()` は割り込めない）ため、その間は同時実行の判定で「進行中」に数える。
-	 * Action Scheduler は一定時間（既定 5 分）を超えた `in-progress` を失敗扱いにするので、異常終了した
-	 * アクションが判定を塞ぎ続けることはない。
+	 * 異常終了したアクションの `in-progress` は、Action Scheduler のキューランナーが次に動いたときに一定時間
+	 * （既定 5 分。`action_scheduler_failure_period`）を超えたものから失敗扱いになり、判定から外れる。
 	 */
 	public function has_in_flight_job_for_platform( string $platform ): bool {
 		global $wpdb;

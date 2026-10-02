@@ -115,7 +115,7 @@ final class PlatformLockTest extends WP_UnitTestCase {
 			// 整数の上限を超えた値（PHP_INT_MAX に飽和する）。
 			'overflowing expiry'             => [ static fn (): string => '99999999999999999999|x' ],
 			// 最長の TTL より先の期限は、このクラスが書かない値（壊れた値・時計の巻き戻り）。
-			'expiry beyond the longest lock' => [ static fn (): string => ( time() + PlatformLock::TTL_LONG + 120 ) . '|x' ],
+			'expiry beyond the longest lock' => [ static fn (): string => ( time() + PlatformLock::TTL_LONG + 3600 ) . '|x' ],
 			'expiry without the separator'   => [ static fn (): string => (string) ( time() + 30 ) ],
 		];
 	}
@@ -183,6 +183,18 @@ final class PlatformLockTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $handle );
 		$this->assertSame( $handle, $this->stored_value( 'colorme' ) );
+	}
+
+	/**
+	 * 判定する側の時計が保持する側より遅れていても（秒境界をまたいだ・ノード間の時計のずれ）、取得したばかりの
+	 * 最長のロックを壊れた値とみなして奪わない。
+	 */
+	public function test_a_fresh_long_lock_from_a_slightly_faster_clock_is_not_taken(): void {
+		$value = ( time() + PlatformLock::TTL_LONG + 1 ) . '|clock-ahead';
+		$this->hold_elsewhere( 'colorme', $value );
+
+		$this->assertNull( $this->lock->acquire( 'colorme', PlatformLock::TTL_SHORT ) );
+		$this->assertSame( $value, $this->stored_value( 'colorme' ) );
 	}
 
 	public function test_run_returns_the_callback_value_and_releases_the_lock(): void {

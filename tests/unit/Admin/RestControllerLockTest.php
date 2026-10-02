@@ -17,6 +17,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
+use WC_Product_Simple;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -173,15 +174,57 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 要求が状態を変えたら観測できる前提を作り、変わっていないことを確かめる関数を返す（409 になった要求が、
+	 * 判定の前・ロックの外で処理を済ませていないことを確かめるため）。
+	 *
+	 * @return callable():void
+	 */
+	private function untouched_probe( string $name ): callable {
+		$mappings = new MappingRepository();
+
+		switch ( $name ) {
+			case 'start run':
+				return fn () => $this->assertSame( [], $this->jobs->find_active_runs_for_platform( 'mock' ) );
+			case 'retry job':
+				$job_id = $this->jobs->find_by_run( 'run-failed' )[0]['id'] ?? 0;
+
+				return fn () => $this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( (int) $job_id )['status'] );
+			case 'sample cleanup':
+				$mappings->upsert( 'mock', 'product', 'p1', 999999, null );
+
+				return fn () => $this->assertSame( 1, $mappings->count( 'mock', 'product' ) );
+			case 'rebuild mappings':
+				$product = new WC_Product_Simple();
+				$product->set_name( 'Owned' );
+				$product->update_meta_data( '_cbjp_platform', 'mock' );
+				$product->update_meta_data( '_cbjp_remote_id', 'p1' );
+				$product->save();
+
+				return fn () => $this->assertSame( 0, $mappings->count( 'mock', 'product' ) );
+			case 'export options':
+				ExportOptions::save_push_images( 'mock', true );
+
+				return fn () => $this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
+			case 'push intent resolve':
+				return fn () => $this->assertCount( 1, ( new PushIntentRepository() )->find_unresolved( 'mock' ) );
+		}
+
+		// 県コード修復の Scan は読むだけ、Run は Scan と同じ判定・ロックの経路（`repair_states()`）を通る。
+		return static function (): void {};
+	}
+
+	/**
 	 * 別の操作が判定〜状態変更の区間を実行中（ロックを保持中）なら、どの要求も 409 で何もしない。
 	 *
 	 * @dataProvider guarded_requests
 	 */
 	public function test_a_guarded_request_is_refused_while_another_operation_holds_the_lock( string $name, string $platform ): void {
-		$request = $this->guarded_request( $name );
-		$held    = ( new PlatformLock() )->acquire( $platform, PlatformLock::TTL_SHORT );
+		$request   = $this->guarded_request( $name );
+		$untouched = $this->untouched_probe( $name );
+		$held      = ( new PlatformLock() )->acquire( $platform, PlatformLock::TTL_SHORT );
 
 		$this->assert_busy( $this->server->dispatch( $request ) );
+		$untouched();
 		// 他者のロックを消していない。
 		$this->assertSame( $held, $this->lock_value( $platform ) );
 	}
@@ -253,17 +296,6 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'A run is already in progress for this platform.', $error->get_error_message() );
 		$this->assertSame( [ $start->get_data()['run_id'] ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
-	}
-
-	public function test_a_refused_export_options_save_does_not_change_the_setting(): void {
-		( new PlatformLock() )->acquire( 'mock', PlatformLock::TTL_SHORT );
-
-		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
-		$request->set_body_params( [ 'push_images' => false ] );
-		ExportOptions::save_push_images( 'mock', true );
-
-		$this->assertSame( 409, $this->server->dispatch( $request )->get_status() );
-		$this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
 	}
 
 	public function test_the_cleanup_preview_reports_a_cancelled_run_still_writing_a_page(): void {
