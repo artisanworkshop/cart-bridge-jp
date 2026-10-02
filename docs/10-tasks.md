@@ -583,6 +583,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   フロントエンドの変更なし。詳細は `docs/03` §5「同時実行のロックと条件付きの状態遷移」。
   **検証**: PHPUnit 追加 77 件（データセット込み。`PlatformLockTest`・`JobManagerConcurrencyTest`・`RestControllerLockTest`・`JobRepositoryTest` の追加分。割り込みは `query` フィルターで UPDATE の直前に
   別の要求の操作を差し込んで作る）。`mutate-check.sh` で 37 種（ロックの取得・CAS・比較付き解放・finally・shutdown、各遷移の条件、処理中のアクションの判定、各 REST の囲み・catch・文言・副作用の有無。review-loop の修正分 4 を含む）がすべて CAUGHT。review-loop R1 で、取得直後の `TTL_LONG` のロックを時計のずれで奪える欠陥（High）を時計のずれの余裕 300 秒で、ジョブの作成途中のキャンセルで run が pending のまま残る欠陥を run の残りのキャンセルで直した。
+  PR #96 G1（Copilot）: 県コード修復の 1 バッチがロックの期限を超えうる（照会の待ちが積み重なる）ため、120 秒を過ぎたら新しい行に取りかからず cursor を返す（`PrefStateRepair::TIME_BUDGET_SECONDS`）。
+  G2（Copilot）: 受注の照会は HTTP が最大 3 本（HTTP 1 本は最悪約 540 秒）で 1 行でも 900 秒を超えうるため、`TTL_LONG` を 3,600 秒（core の upgrader と同じ）にし、見積もりの前提を不変条件テストで固定。Codex は G1 で収束、Copilot は 3 回目で新規指摘なし
   wp-env の dev サイト（mock `mockv`）で `wp eval-file` を 2 プロセス同時に走らせ、ロックを持って止まった `start_run` の間にもう一方の `start_run`・`POST /runs`・クリーンアップが 409 になり run が 1 本だけ
   できること、ページの処理中（アクションを in-progress にして止めた）にキャンセルすると処理後もジョブが `cancelled` のままで、その間の `POST /runs`・再構築は 409、処理後は開始できることを確認して撤去した
 - [x] **R3-0o: 受注のインポートで新規作成を最終ステータスで保存し、状態変化フックを発火させない**（issue #91。2026-10-01。ブランチ `fix/91-import-order-final-status`）
