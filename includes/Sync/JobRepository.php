@@ -23,6 +23,15 @@ namespace CartBridgeJP\Sync;
  *     created_at:string,
  *     updated_at:string
  * }
+ * @phpstan-type ActiveRun array{
+ *     run_id:string,
+ *     type:string,
+ *     status:string,
+ *     entities:list<string>,
+ *     has_failed_job:bool,
+ *     created_at:string,
+ *     updated_at:string
+ * }
  */
 final class JobRepository {
 
@@ -160,6 +169,84 @@ final class JobRepository {
 		);
 
 		return $count > 0;
+	}
+
+	/**
+	 * 進行中（未終了のジョブ = pending/running/paused を1件以上持つ）の run をプラットフォーム単位で返す（issue #70）。
+	 * run_id がブラウザに届かなかった run を UI が見つけ、進捗確認・キャンセルへ誘導するために使う。
+	 *
+	 * 同時実行ガードは「1プラットフォーム1 run」を保つ前提だが、判定が原子的でない（issue #57）間は
+	 * 複数ありうるため一覧で返す（古い順）。run 単位の値は全ジョブ（終了済みを含む）から集約する:
+	 * - `status`: running > paused > pending の優先で、未終了のジョブの状態を代表させる。
+	 * - `entities`: 全ジョブのエンティティ（id 昇順）。失敗したジョブのエンティティも含める
+	 *   （取り込む UI が前回の dry-run 件数を捨てる対象を決めるため）。
+	 * - `has_failed_job`: 失敗したジョブがあるか（最初のジョブが失敗し、兄弟ジョブが pending のまま
+	 *   止まった run を「実行中」と区別して表示するため）。
+	 *
+	 * @param string|null $exclude_run_id 判定から除外する run（`retry()`の対象ジョブ自身の run）。
+	 * @return list<ActiveRun>
+	 */
+	public function find_active_runs_for_platform( string $platform, ?string $exclude_run_id = null ): array {
+		global $wpdb;
+
+		$run_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"SELECT run_id FROM {$this->table()} WHERE platform = %s AND run_id != %s AND status IN (%s, %s, %s) GROUP BY run_id ORDER BY MIN(id) ASC",
+				$platform,
+				// run_id は UUID で空文字列にならないため、除外が無いときは何も除外しない値になる。
+				$exclude_run_id ?? '',
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED
+			)
+		);
+
+		$runs = [];
+
+		foreach ( $run_ids as $run_id ) {
+			$run = $this->summarize_active_run( (string) $run_id, $this->find_by_run( (string) $run_id ) );
+
+			if ( null !== $run ) {
+				$runs[] = $run;
+			}
+		}
+
+		return $runs;
+	}
+
+	/**
+	 * @param array<int,JobRow> $jobs
+	 * @return ActiveRun|null 未終了のジョブが無い（上の SELECT から読み直すまでの間に終わった）run は null。
+	 */
+	private function summarize_active_run( string $run_id, array $jobs ): ?array {
+		$statuses = array_column( $jobs, 'status' );
+		$status   = null;
+
+		foreach ( [ self::STATUS_RUNNING, self::STATUS_PAUSED, self::STATUS_PENDING ] as $candidate ) {
+			if ( in_array( $candidate, $statuses, true ) ) {
+				$status = $candidate;
+				break;
+			}
+		}
+
+		if ( null === $status ) {
+			return null;
+		}
+
+		$created_at = array_column( $jobs, 'created_at' );
+		$updated_at = array_column( $jobs, 'updated_at' );
+
+		return [
+			'run_id'         => $run_id,
+			'type'           => (string) $jobs[0]['type'],
+			'status'         => $status,
+			'entities'       => array_values( array_map( 'strval', array_column( $jobs, 'entity' ) ) ),
+			'has_failed_job' => in_array( self::STATUS_FAILED, $statuses, true ),
+			// MySQL の DATETIME 文字列（`Y-m-d H:i:s`）は辞書順＝時刻順のため文字列のまま比較できる。
+			'created_at'     => (string) min( $created_at ),
+			'updated_at'     => (string) max( $updated_at ),
+		];
 	}
 
 	public function update_status( int $id, string $status ): void {

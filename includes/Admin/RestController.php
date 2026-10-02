@@ -44,6 +44,7 @@ use WP_REST_Response;
  * REST API（namespace: `cbjp/v1`）。`docs/03-design-decisions.md` §6 のルート定義。
  *
  * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
+ * `GET /runs?platform=` は進行中 run の発見（R3-0i・issue #70。409 `cbjp_run_in_progress` の `active_runs` も同じ形）。
  * ツール系（sample-cleanup/rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
  * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。
  */
@@ -131,13 +132,48 @@ final class RestController {
 			]
 		);
 
+		// ツール系と `GET /runs` の `platform` はパスではなくクエリ/ボディ由来のため、`args` スキーマ（type検証）で
+		// 配列混入を REST 層に弾かせる（CLAUDE.md）。`sanitize_callback` を明示すると WP は既定の
+		// `rest_parse_request_arg`（検証＋サニタイズ）を適用しなくなるため、`validate_callback` も明示する。
+		$platform_arg = [
+			'platform' => [
+				'type'              => 'string',
+				'required'          => true,
+				'validate_callback' => 'rest_validate_request_arg',
+				'sanitize_callback' => 'sanitize_text_field',
+			],
+		];
+
 		register_rest_route(
 			self::NAMESPACE,
 			'/runs',
 			[
-				'methods'             => 'POST',
-				'callback'            => [ $this, 'start_run' ],
-				'permission_callback' => [ $this, 'check_permission' ],
+				// 進行中 run の発見（issue #70）。`args` はこのエンドポイントにだけ付ける: route レベルに書くと
+				// POST（`start_run`）にも合流し、`args` を持たない前提の既存の検証（配列の `platform` を
+				// 「未登録」として 404 にする）が 400 に変わってしまう。
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'list_runs' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+					'args'                => array_merge(
+						$platform_arg,
+						[
+							// いまは進行中だけを返す。値を固定しておき、将来ほかの絞り込みを足せるようにする。
+							// `sanitize_callback` を付けないので既定の `rest_parse_request_arg` が enum を検証する。
+							'status' => [
+								'type'     => 'string',
+								'enum'     => [ 'active' ],
+								'default'  => 'active',
+								'required' => false,
+							],
+						]
+					),
+				],
+				[
+					'methods'             => 'POST',
+					'callback'            => [ $this, 'start_run' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+				],
 			]
 		);
 
@@ -280,18 +316,6 @@ final class RestController {
 				],
 			]
 		);
-
-		// ツール系の `platform` はパスではなくクエリ/ボディ由来のため、`args` スキーマ（type検証）で
-		// 配列混入を REST 層に弾かせる（CLAUDE.md）。`sanitize_callback` を明示すると WP は既定の
-		// `rest_parse_request_arg`（検証＋サニタイズ）を適用しなくなるため、`validate_callback` も明示する。
-		$platform_arg = [
-			'platform' => [
-				'type'              => 'string',
-				'required'          => true,
-				'validate_callback' => 'rest_validate_request_arg',
-				'sanitize_callback' => 'sanitize_text_field',
-			],
-		];
 
 		register_rest_route(
 			self::NAMESPACE,
@@ -683,7 +707,7 @@ final class RestController {
 		}
 
 		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		}
 
 		ExportOptions::save_push_images( $platform, $push_images );
@@ -1115,7 +1139,7 @@ final class RestController {
 		try {
 			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
 		} catch ( RunAlreadyInProgressException ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		} catch ( Throwable $exception ) {
 			return new WP_Error(
 				'cbjp_invalid_run',
@@ -1128,6 +1152,27 @@ final class RestController {
 		}
 
 		return rest_ensure_response( [ 'run_id' => $run_id ] );
+	}
+
+	/**
+	 * `GET /runs?platform=&status=active`: プラットフォームで進行中の run の一覧（issue #70）。
+	 * `POST /runs` の応答（run_id）がブラウザに届かなかった run、別ブラウザで開始された run、
+	 * 最初のジョブが失敗して兄弟ジョブが pending のまま止まった run を、管理画面が見つけて
+	 * 進捗表示・キャンセルできるようにする（`JobRepository::find_active_runs_for_platform()`）。
+	 */
+	public function list_runs( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$platform = $this->tool_platform( $request );
+
+		if ( $platform instanceof WP_Error ) {
+			return $platform;
+		}
+
+		return rest_ensure_response(
+			[
+				'platform' => $platform,
+				'runs'     => ( new JobRepository() )->find_active_runs_for_platform( $platform ),
+			]
+		);
 	}
 
 	public function get_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
@@ -1253,7 +1298,9 @@ final class RestController {
 		try {
 			$retried = JobManager::create()->retry( $id );
 		} catch ( RunAlreadyInProgressException ) {
-			return $this->run_in_progress_error();
+			// `retry()` は対象ジョブ自身の run を判定から除くため（同一 run の兄弟ジョブは進行中扱いしない）、
+			// 一覧からも同じ run を除く。
+			return $this->run_in_progress_error( (string) $job['platform'], (string) $job['run_id'] );
 		}
 
 		if ( ! $retried ) {
@@ -1413,7 +1460,7 @@ final class RestController {
 		// 実行中の import と同時に削除すると、mappings を消した直後に Importer が同じ remote_id を
 		// 「未作成」とみなして作り直す等の競合が起きるため、進行中のジョブがある間は拒否する。
 		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		}
 
 		try {
@@ -1440,7 +1487,7 @@ final class RestController {
 		}
 
 		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		}
 
 		$cursor = $request->get_param( 'cursor' );
@@ -1479,7 +1526,7 @@ final class RestController {
 		// 進行中のジョブとは ASP のレート制限（プラットフォーム単位で共有）を奪い合い、import が同じ
 		// 実体を書いている最中に補正すると競合しうるため、Scan（読取専用）も含めて拒否する。
 		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		}
 
 		$adapter = AdapterRegistry::get( $platform );
@@ -1616,7 +1663,7 @@ final class RestController {
 
 		// 進行中のexport/importとmappings/intentsを奪い合わないよう、他の`/tools/*`と同じく拒否する。
 		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error();
+			return $this->run_in_progress_error( $platform );
 		}
 
 		$id      = $this->push_intent_id_param( $request );
@@ -1754,11 +1801,21 @@ final class RestController {
 		return $platform;
 	}
 
-	private function run_in_progress_error(): WP_Error {
+	/**
+	 * 同一プラットフォームで run が進行中のときの 409。`active_runs` に進行中の run（`GET /runs` と同じ形）を
+	 * 載せ、run_id を控えていない UI でもその run の進捗表示・キャンセルへ切り替えられるようにする（issue #70）。
+	 * 判定から応答までの間に run が終わっていれば空配列になりうる（UI は `GET /runs` で照会し直す）。
+	 *
+	 * @param string|null $exclude_run_id 一覧から除く run（`retry_job()`の対象ジョブ自身の run。判定と同じ除外）。
+	 */
+	private function run_in_progress_error( string $platform, ?string $exclude_run_id = null ): WP_Error {
 		return new WP_Error(
 			'cbjp_run_in_progress',
 			__( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
-			[ 'status' => 409 ]
+			[
+				'status'      => 409,
+				'active_runs' => ( new JobRepository() )->find_active_runs_for_platform( $platform, $exclude_run_id ),
+			]
 		);
 	}
 
