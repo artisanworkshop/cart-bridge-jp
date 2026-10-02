@@ -292,7 +292,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 - ページサイズ初期値50（アダプタが上書き可）。1アクションはPHPのmax_execution_time内に収まる粒度を保つ
 - **dry-run**: 同一パイプラインで Woo書き込みだけを `DryRunReporter` に差し替え。件数・警告（未マッピング決済方法、SKU重複等）を totals_json に集計し、UIでプレビュー表示
 - 冪等性: mappings の UNIQUE キーで upsert。checksum 一致ならスキップ（totals.skipped++。内訳として totals.unchanged++。issue #55）
-- 同時実行: 同一 platform で running のジョブがある場合は新規開始を拒否（レート制限保護）。
+- 同時実行: 同一 platform で進行中（pending/running/paused）のジョブ、またはページを処理中の Action Scheduler アクションがある場合は新規開始を拒否（レート制限保護。判定とロックは下の「同時実行のロックと条件付きの状態遷移」）。
   `retry()`（失敗ジョブの再開）も同様に、対象ジョブとは異なる run が同一 platform で進行中なら拒否する
   （issue #54）。ただし判定は `run_id` を除外して行い、対象ジョブと同一 run 内でまだ未処理な
   兄弟ジョブ（`start_run()` は run 開始時に全エンティティのジョブを先に `pending` で作るため、
@@ -310,15 +310,19 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 **判定**（`JobRepository::is_platform_busy( $platform, ?$exclude_run_id )`）: 進行中（pending/running/paused）のジョブ（除外 run つき）**または**、そのプラットフォームのジョブの
 ページを処理中（`in-progress`）の AS アクション（`has_in_flight_job_for_platform()`。hook `cbjp_process_job`・group `cart-bridge-jp`、ジョブの状態は問わない）。
 キャンセルしたジョブも処理中のページは最後まで書く（`process_job()` は割り込めない）ため、`cancelled` になった瞬間に判定を素通りすると、書き終わるまでの間に新しい run・
-ツールが重なる（2026-10-03 決定で判定に含めた）。AS は既定 5 分を超えた `in-progress` を失敗扱いにするので、異常終了したアクションが判定を塞ぎ続けることはない。
-処理中のアクションの判定には run の除外を適用しない。
+ツールが重なる（2026-10-03 決定で判定に含めた）。処理中のアクションの判定には run の除外を適用しない。
+異常終了したアクションの `in-progress` は、AS のキューランナー（WP-Cron・管理画面の非同期リクエスト・WP-CLI）が次に動いたときに、既定 5 分
+（`10 × action_scheduler_queue_runner_time_limit`。`action_scheduler_failure_period` で変わり、負の値なら無効）を超えたものから失敗扱いになって判定から外れる。
+したがって、キャンセルの後にワーカーが強制終了されると、`active_runs` が空のまま「少し待って再試行」の 409 が少なくとも 5 分続く（キャンセルでは解けない）。
+逆に 1 ページの処理がその時間を超えると、書いている途中で AS が失敗扱いにして判定から外れる（ページはその時間に収まる粒度の前提。§5 冒頭）。
 
 **ロック**（`Support\PlatformLock`）: core の `WP_Upgrader::create_lock()` と同じ「options への一意な `INSERT IGNORE`」（`GET_LOCK()` は Galera・一部の DB プロキシで
 期待どおり動かないため不採用。2026-09-26 決定）。option 名 `cbjp_platform_lock_` . md5( platform )（アダプタのキーは外部コードが決めるため長さを保証できない）、
 値 `"{期限の UNIX 時刻}|{UUID}"`、autoload `no`。core との違い:
 - 取得時の値そのものをハンドルにし、解放は値の一致で消す（期限切れで他者が取り直したロックを、遅れて終わった元の保持者が消さない）。
 - 期限切れの回収は値を比べて上書きする CAS（`TokenStore::acquire_refresh_lock()` と同じ。core の無条件 delete は同時に回収した 2 者が両方取得しうる）。
-  読めない値・期限が最長 TTL より先の値（壊れた値・時計の巻き戻り）も回収する（保持中とみなすと誰にも解放されずプラットフォームを塞ぐ）。
+  読めない値・期限が「最長 TTL＋時計のずれの余裕（300 秒）」より先の値（壊れた値・時計の巻き戻り）も回収する（保持中とみなすと誰にも解放されずプラットフォームを塞ぐ）。
+  余裕が無いと、判定する側の `time()` が保持する側より遅れたとき（秒境界をまたぐ・Web ノード間の時計のずれ）に、取得したばかりの `TTL_LONG` のロックを壊れた値とみなして奪う（R1-1）。
 - 値は object cache を通さずに読む。`wpdb::get_var()` は空文字列を null に変えて「行が無い」と区別できないため `get_row()` で読む。
 - 期限は区間ごと: run の開始・Retry・エクスポート設定の保存は `TTL_SHORT`（60 秒）、ツールの 1 バッチ・push intent の解除は `TTL_LONG`（900 秒。県コード修復の 1 バッチは
   ASP への照会が最大 20 件）。保持中のリクエストが致命的エラー・実行時間切れ・接続断で終わった場合も shutdown（`release_all()`）で解放する（`finally` はこれらで走らない）。
@@ -332,7 +336,8 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 
 **条件付きの状態遷移**: 状態は `JobRepository::transition( $id, $from, $to )`（今の状態が `$from` のどれかのときだけ 1 行を更新し、その成否を返す。`$to ∈ $from` は拒否:
 `MYSQL_CLIENT_FLAGS` で CLIENT_FOUND_ROWS が立つと「一致」と「変更」の行数が食い違うため）で変える。`mark_failed()` は未終了のときだけ、`cancel_run()` は未終了のジョブを 1 文で。
-- `start_run()` の先頭 `pending→running` が失敗したら（作成直後に一覧から見つけてキャンセルされた）エンキューしない。
+- `start_run()` の先頭 `pending→running` が失敗したら（作成直後に一覧から見つけてキャンセルされた）エンキューせず、run の残りもキャンセルする（キャンセルがジョブの作成の途中に届くと、
+  その後に作ったジョブが pending のまま残って進まない run がプラットフォームを塞ぐ。R1-2）。
 - `retry()` の `failed→pending` に負けたら（同じジョブへの Retry がほぼ同時に 2 回）false を返しエンキューしない。
 - `process_job()` 冒頭の `pending/paused→running`、レート制限の `running→paused`（成功したときだけ遅延エンキュー）、`complete_job_and_advance()` の `running→completed`
   （失敗＝キャンセル済みなら次へ進まない）と次のジョブの `pending→running`（既に running/paused なら二重にエンキューしない）。
