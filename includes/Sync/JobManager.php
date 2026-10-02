@@ -12,6 +12,8 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\PlatformBusyException;
+use CartBridgeJP\Support\PlatformLock;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriterFactory;
 use CartBridgeJP\Woo\WooReaderRepositoryFactory;
@@ -26,6 +28,11 @@ use Throwable;
 final class JobManager {
 
 	public const ACTION_HOOK = 'cbjp_process_job';
+
+	/**
+	 * `process_job()` のアクションの Action Scheduler グループ（`JobRepository::has_in_flight_job_for_platform()` が照会する）。
+	 */
+	public const ACTION_GROUP = 'cart-bridge-jp';
 
 	public const TYPE_DRY_RUN        = 'dry_run';
 	public const TYPE_IMPORT         = 'import';
@@ -68,7 +75,8 @@ final class JobManager {
 		private readonly LimitPolicy $limits,
 		private readonly Importer $importer,
 		private readonly WooWriterFactory $writer_factory,
-		private readonly Logger $logger = new Logger()
+		private readonly Logger $logger = new Logger(),
+		private readonly PlatformLock $lock = new PlatformLock()
 	) {}
 
 	/**
@@ -89,9 +97,14 @@ final class JobManager {
 	}
 
 	/**
+	 * 同時実行の判定からジョブの作成・先頭ジョブの開始までを、プラットフォーム単位のロックで囲む（issue #57。
+	 * ほぼ同時に届いた 2 つの開始が、互いの作成前の状態を見て両方とも判定を通らないように）。
+	 *
 	 * @param array<int,string> $entities
 	 *
-	 * @throws RunAlreadyInProgressException 同一プラットフォームで進行中（pending/running/paused）のジョブがある場合。
+	 * @throws RunAlreadyInProgressException 同一プラットフォームで進行中（pending/running/paused）のジョブ、または
+	 *   ページを処理中のアクション（キャンセル直後の run を含む）がある場合。
+	 * @throws PlatformBusyException 同一プラットフォームで別の操作が判定〜状態変更の区間を実行中の場合。
 	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
@@ -101,7 +114,18 @@ final class JobManager {
 			throw new RuntimeException( "Unknown run type: {$type}" );
 		}
 
-		if ( $this->jobs->has_active_job_for_platform( $platform ) ) {
+		return $this->lock->run(
+			$platform,
+			PlatformLock::TTL_SHORT,
+			fn (): string => $this->start_run_locked( $type, $platform, $entities )
+		);
+	}
+
+	/**
+	 * @param array<int,string> $entities
+	 */
+	private function start_run_locked( string $type, string $platform, array $entities ): string {
+		if ( $this->jobs->is_platform_busy( $platform ) ) {
 			throw new RunAlreadyInProgressException( $platform );
 		}
 
@@ -128,20 +152,26 @@ final class JobManager {
 		}
 
 		$first_job_id = $job_ids[0];
-		$this->jobs->update_status( $first_job_id, JobRepository::STATUS_RUNNING );
-		$this->enqueue( $first_job_id );
+
+		// 作成した直後に（`GET /runs` で見つけた別のタブから）キャンセルされていれば始めない。
+		if ( $this->jobs->transition( $first_job_id, [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) ) {
+			$this->enqueue( $first_job_id );
+		}
 
 		return $run_id;
 	}
 
 	/**
-	 * 失敗ジョブを pending に戻し、Action Scheduler に再エンキューする。
+	 * 失敗ジョブを pending に戻し、Action Scheduler に再エンキューする。判定から状態変更までは
+	 * `start_run()` と同じロックで囲む（issue #57）。
 	 *
-	 * @return bool 対象ジョブが存在し、failed だった場合のみ true。
+	 * @return bool 対象ジョブが存在し、failed だった場合のみ true。同じジョブへの Retry がほぼ同時に
+	 *   2 回届いた場合、`failed → pending` の遷移に勝った 1 回だけが true になる（二重にエンキューしない）。
 	 * @throws RunAlreadyInProgressException 対象ジョブとは異なる run が同一プラットフォームで
-	 *   進行中（pending/running/paused）の場合。`start_run()`と同じ例外・同じ理由（レート制限保護・
-	 *   二重書き込み防止）だが、対象ジョブ自身のrunは判定から除外する（同一run内の未処理な兄弟
-	 *   ジョブまで「進行中」と誤検知して正当なRetryをブロックしないため）。
+	 *   進行中（pending/running/paused）の場合、またはページを処理中のアクションがある場合。`start_run()`と
+	 *   同じ例外・同じ理由（レート制限保護・二重書き込み防止）だが、進行中のジョブの判定からは対象ジョブ自身の
+	 *   runを除外する（同一run内の未処理な兄弟ジョブまで「進行中」と誤検知して正当なRetryをブロックしないため）。
+	 * @throws PlatformBusyException 同一プラットフォームで別の操作が判定〜状態変更の区間を実行中の場合。
 	 */
 	public function retry( int $job_id ): bool {
 		$job = $this->jobs->find( $job_id );
@@ -150,14 +180,27 @@ final class JobManager {
 			return false;
 		}
 
-		if ( $this->jobs->has_active_job_for_platform_excluding_run( $job['platform'], $job['run_id'] ) ) {
-			throw new RunAlreadyInProgressException( $job['platform'] );
-		}
+		// platform・run_id はジョブの作成後に変わらないため、ロックの外で読んだ値を使ってよい。
+		$platform = (string) $job['platform'];
+		$run_id   = (string) $job['run_id'];
 
-		$this->jobs->update_status( $job_id, JobRepository::STATUS_PENDING );
-		$this->enqueue( $job_id );
+		return $this->lock->run(
+			$platform,
+			PlatformLock::TTL_SHORT,
+			function () use ( $job_id, $platform, $run_id ): bool {
+				if ( $this->jobs->is_platform_busy( $platform, $run_id ) ) {
+					throw new RunAlreadyInProgressException( $platform );
+				}
 
-		return true;
+				if ( ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_FAILED ], JobRepository::STATUS_PENDING ) ) {
+					return false;
+				}
+
+				$this->enqueue( $job_id );
+
+				return true;
+			}
+		);
 	}
 
 	/**
@@ -174,8 +217,11 @@ final class JobManager {
 			return;
 		}
 
-		if ( in_array( $job['status'], [ JobRepository::STATUS_PENDING, JobRepository::STATUS_PAUSED ], true ) ) {
-			$this->jobs->update_status( $job_id, JobRepository::STATUS_RUNNING );
+		// 読んでから遷移するまでの間にキャンセルされていれば何もしない（`cancelled` を `running` で上書きしない）。
+		// pending/paused のジョブへのアクションが重複していても、遷移に勝った 1 本だけが処理する。
+		if ( in_array( $job['status'], [ JobRepository::STATUS_PENDING, JobRepository::STATUS_PAUSED ], true )
+			&& ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_PENDING, JobRepository::STATUS_PAUSED ], JobRepository::STATUS_RUNNING ) ) {
+			return;
 		}
 
 		$adapter = AdapterRegistry::get( $job['platform'] );
@@ -219,7 +265,11 @@ final class JobManager {
 			}
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
-			$this->jobs->update_status( $job_id, JobRepository::STATUS_PAUSED );
+			// ページの処理中にキャンセルされていれば、`paused` で上書きせず再開もしない。
+			if ( ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_RUNNING ], JobRepository::STATUS_PAUSED ) ) {
+				return;
+			}
+
 			$this->logger->warning(
 				'Job paused: rate limit exhausted.',
 				[
@@ -345,8 +395,15 @@ final class JobManager {
 		return [ $totals, $result['next_cursor'] ];
 	}
 
+	/**
+	 * ページの処理中にキャンセルされた（`running` でなくなった）ジョブは `completed` で上書きせず、次のジョブも
+	 * 始めない（issue #57。キャンセルした run が復活しないように）。次のジョブは `pending` のときだけ始める
+	 * （既に `running`/`paused` なら、別のアクションが扱っているので二重にエンキューしない）。
+	 */
 	private function complete_job_and_advance( int $job_id, string $run_id ): void {
-		$this->jobs->update_status( $job_id, JobRepository::STATUS_COMPLETED );
+		if ( ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_RUNNING ], JobRepository::STATUS_COMPLETED ) ) {
+			return;
+		}
 
 		$next_job = $this->jobs->find_next_incomplete_for_run( $run_id );
 
@@ -354,8 +411,9 @@ final class JobManager {
 			return;
 		}
 
-		$this->jobs->update_status( (int) $next_job['id'], JobRepository::STATUS_RUNNING );
-		$this->enqueue( (int) $next_job['id'] );
+		if ( $this->jobs->transition( (int) $next_job['id'], [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) ) {
+			$this->enqueue( (int) $next_job['id'] );
+		}
 	}
 
 	/**
@@ -511,13 +569,13 @@ final class JobManager {
 
 	private function enqueue( int $job_id ): void {
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
-			as_enqueue_async_action( self::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' );
+			as_enqueue_async_action( self::ACTION_HOOK, [ 'job_id' => $job_id ], self::ACTION_GROUP );
 		}
 	}
 
 	private function enqueue_delayed( int $job_id, int $delay_seconds ): void {
 		if ( function_exists( 'as_schedule_single_action' ) ) {
-			as_schedule_single_action( time() + $delay_seconds, self::ACTION_HOOK, [ 'job_id' => $job_id ], 'cart-bridge-jp' );
+			as_schedule_single_action( time() + $delay_seconds, self::ACTION_HOOK, [ 'job_id' => $job_id ], self::ACTION_GROUP );
 		}
 	}
 }

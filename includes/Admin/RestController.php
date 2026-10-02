@@ -14,6 +14,8 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
+use CartBridgeJP\Support\PlatformBusyException;
+use CartBridgeJP\Support\PlatformLock;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
@@ -45,6 +47,7 @@ use WP_REST_Response;
  *
  * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
  * `GET /runs?platform=` は進行中 run の発見（R3-0i・issue #70。409 `cbjp_run_in_progress` の `active_runs` も同じ形）。
+ * 同時実行の判定とその後の状態変更は、プラットフォーム単位のロック（`Support\PlatformLock`。issue #57）で囲む。
  * ツール系（sample-cleanup/rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
  * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。
  */
@@ -706,13 +709,15 @@ final class RestController {
 			);
 		}
 
-		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error( $platform );
-		}
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_SHORT,
+			function () use ( $platform, $push_images ): WP_REST_Response {
+				ExportOptions::save_push_images( $platform, $push_images );
 
-		ExportOptions::save_push_images( $platform, $push_images );
-
-		return rest_ensure_response( $this->export_options_response( $platform ) );
+				return rest_ensure_response( $this->export_options_response( $platform ) );
+			}
+		);
 	}
 
 	/**
@@ -1138,7 +1143,7 @@ final class RestController {
 
 		try {
 			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
-		} catch ( RunAlreadyInProgressException ) {
+		} catch ( RunAlreadyInProgressException | PlatformBusyException ) {
 			return $this->run_in_progress_error( $platform );
 		} catch ( Throwable $exception ) {
 			return new WP_Error(
@@ -1266,22 +1271,21 @@ final class RestController {
 		return $response;
 	}
 
+	/**
+	 * run の未終了のジョブを 1 文の条件付き UPDATE でキャンセルする（`JobRepository::cancel_run()`）。プラットフォームの
+	 * ロックは取らない（ツールのバッチの実行中でも止められるように。キャンセルは進行中を減らすだけで、判定を
+	 * すり抜ける状態変更ではない）。処理中のページはそのまま書き終わるが、その後 `process_job()` は `cancelled` を
+	 * 上書きせず、書き終わるまでは同時実行の判定が「処理中のアクション」として新しい run・ツールを止める（issue #57）。
+	 */
 	public function cancel_run( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$run_id     = $this->run_id_param( $request );
 		$repository = new JobRepository();
-		$jobs       = $repository->find_by_run( $run_id );
 
-		if ( [] === $jobs ) {
+		if ( [] === $repository->find_by_run( $run_id ) ) {
 			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
 		}
 
-		$terminal = [ JobRepository::STATUS_COMPLETED, JobRepository::STATUS_FAILED, JobRepository::STATUS_CANCELLED ];
-
-		foreach ( $jobs as $job ) {
-			if ( ! in_array( $job['status'], $terminal, true ) ) {
-				$repository->update_status( (int) $job['id'], JobRepository::STATUS_CANCELLED );
-			}
-		}
+		$repository->cancel_run( $run_id );
 
 		return rest_ensure_response( [ 'cancelled' => true ] );
 	}
@@ -1297,7 +1301,7 @@ final class RestController {
 
 		try {
 			$retried = JobManager::create()->retry( $id );
-		} catch ( RunAlreadyInProgressException ) {
+		} catch ( RunAlreadyInProgressException | PlatformBusyException ) {
 			// `retry()` は対象ジョブ自身の run を判定から除くため（同一 run の兄弟ジョブは進行中扱いしない）、
 			// 一覧からも同じ run を除く。
 			return $this->run_in_progress_error( (string) $job['platform'], (string) $job['run_id'] );
@@ -1436,11 +1440,12 @@ final class RestController {
 
 		$preview = ( new SampleCleanup( new MappingRepository() ) )->preview( $platform );
 
+		// 読むだけなのでロックは取らない（実行の `run_sample_cleanup()` がロックの中で判定し直す）。
 		return rest_ensure_response(
 			array_merge(
 				[
 					'platform'        => $platform,
-					'run_in_progress' => ( new JobRepository() )->has_active_job_for_platform( $platform ),
+					'run_in_progress' => ( new JobRepository() )->is_platform_busy( $platform ),
 				],
 				$preview
 			)
@@ -1459,21 +1464,24 @@ final class RestController {
 
 		// 実行中の import と同時に削除すると、mappings を消した直後に Importer が同じ remote_id を
 		// 「未作成」とみなして作り直す等の競合が起きるため、進行中のジョブがある間は拒否する。
-		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error( $platform );
-		}
+		// このバッチの間はロックを持ち、判定の後に run が始まらないようにする。
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_LONG,
+			static function () use ( $platform ): WP_REST_Response|WP_Error {
+				try {
+					$result = ( new SampleCleanup( new MappingRepository() ) )->run( $platform );
+				} catch ( CleanupNotPermittedException ) {
+					return new WP_Error(
+						'cbjp_cleanup_forbidden',
+						__( 'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.', 'cart-bridge-jp' ),
+						[ 'status' => 403 ]
+					);
+				}
 
-		try {
-			$result = ( new SampleCleanup( new MappingRepository() ) )->run( $platform );
-		} catch ( CleanupNotPermittedException ) {
-			return new WP_Error(
-				'cbjp_cleanup_forbidden',
-				__( 'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.', 'cart-bridge-jp' ),
-				[ 'status' => 403 ]
-			);
-		}
-
-		return rest_ensure_response( $result );
+				return rest_ensure_response( $result );
+			}
+		);
 	}
 
 	/**
@@ -1486,19 +1494,21 @@ final class RestController {
 			return $platform;
 		}
 
-		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error( $platform );
-		}
-
 		$cursor = $request->get_param( 'cursor' );
 
-		try {
-			$result = ( new MappingRebuilder( new MappingRepository() ) )->run( $platform, is_string( $cursor ) ? $cursor : null );
-		} catch ( InvalidArgumentException ) {
-			return new WP_Error( 'cbjp_invalid_cursor', __( 'The rebuild cursor is invalid.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
-		}
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_LONG,
+			static function () use ( $platform, $cursor ): WP_REST_Response|WP_Error {
+				try {
+					$result = ( new MappingRebuilder( new MappingRepository() ) )->run( $platform, is_string( $cursor ) ? $cursor : null );
+				} catch ( InvalidArgumentException ) {
+					return new WP_Error( 'cbjp_invalid_cursor', __( 'The rebuild cursor is invalid.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
+				}
 
-		return rest_ensure_response( $result );
+				return rest_ensure_response( $result );
+			}
+		);
 	}
 
 	/**
@@ -1525,10 +1535,15 @@ final class RestController {
 
 		// 進行中のジョブとは ASP のレート制限（プラットフォーム単位で共有）を奪い合い、import が同じ
 		// 実体を書いている最中に補正すると競合しうるため、Scan（読取専用）も含めて拒否する。
-		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error( $platform );
-		}
+		// このバッチの間はロックを持ち、判定の後に run が始まらないようにする。
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_LONG,
+			fn (): WP_REST_Response|WP_Error => $this->repair_states_batch( $request, $platform, $apply )
+		);
+	}
 
+	private function repair_states_batch( WP_REST_Request $request, string $platform, bool $apply ): WP_REST_Response|WP_Error {
 		$adapter = AdapterRegistry::get( $platform );
 
 		if ( null === $adapter ) {
@@ -1661,11 +1676,16 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		// 進行中のexport/importとmappings/intentsを奪い合わないよう、他の`/tools/*`と同じく拒否する。
-		if ( ( new JobRepository() )->has_active_job_for_platform( $platform ) ) {
-			return $this->run_in_progress_error( $platform );
-		}
+		// 進行中のexport/importとmappings/intentsを奪い合わないよう、他の`/tools/*`と同じく拒否し、
+		// 解除の間はロックを持つ（`link` は ASP へ照会する）。
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_LONG,
+			fn (): WP_REST_Response|WP_Error => $this->resolve_push_intent_exclusively( $request, $platform )
+		);
+	}
 
+	private function resolve_push_intent_exclusively( WP_REST_Request $request, string $platform ): WP_REST_Response|WP_Error {
 		$id      = $this->push_intent_id_param( $request );
 		$action  = (string) $request->get_param( 'action' );
 		$intents = new PushIntentRepository();
@@ -1802,19 +1822,52 @@ final class RestController {
 	}
 
 	/**
+	 * 同時実行の判定（`JobRepository::is_platform_busy()`）とその後の処理を、プラットフォーム単位のロックで囲む
+	 * （issue #57。判定を通った直後に別のタブの run が始まり、処理と重ならないように）。進行中なら、または
+	 * ロックを取れなければ（別の操作が判定〜状態変更の区間を実行中）409。
+	 *
+	 * @param callable():(WP_REST_Response|WP_Error) $callback 判定を通った後の処理。
+	 */
+	private function run_exclusively( string $platform, int $ttl_seconds, callable $callback ): WP_REST_Response|WP_Error {
+		try {
+			return ( new PlatformLock() )->run(
+				$platform,
+				$ttl_seconds,
+				function () use ( $platform, $callback ): WP_REST_Response|WP_Error {
+					if ( ( new JobRepository() )->is_platform_busy( $platform ) ) {
+						return $this->run_in_progress_error( $platform );
+					}
+
+					return $callback();
+				}
+			);
+		} catch ( PlatformBusyException ) {
+			return $this->run_in_progress_error( $platform );
+		}
+	}
+
+	/**
 	 * 同一プラットフォームで run が進行中のときの 409。`active_runs` に進行中の run（`GET /runs` と同じ形）を
 	 * 載せ、run_id を控えていない UI でもその run の進捗表示・キャンセルへ切り替えられるようにする（issue #70）。
 	 * 判定から応答までの間に run が終わっていれば空配列になりうる（UI は `GET /runs` で照会し直す）。
 	 *
+	 * ロックを取れなかったとき（別の操作が判定〜状態変更の区間を実行中）と、キャンセルした run が処理中のページを
+	 * 書き終えていないときも同じコードで返す（issue #57。UI が一覧の取り直しに同じ経路を使えるように）。そのとき
+	 * 一覧に run が無い（ツールのバッチ・キャンセル済みの run）ことが多いので、一覧が空なら「少し待って再試行」の文言にする。
+	 *
 	 * @param string|null $exclude_run_id 一覧から除く run（`retry_job()`の対象ジョブ自身の run。判定と同じ除外）。
 	 */
 	private function run_in_progress_error( string $platform, ?string $exclude_run_id = null ): WP_Error {
+		$active_runs = ( new JobRepository() )->find_active_runs_for_platform( $platform, $exclude_run_id );
+
 		return new WP_Error(
 			'cbjp_run_in_progress',
-			__( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
+			[] === $active_runs
+				? __( 'Another operation is still in progress for this platform. Try again in a moment.', 'cart-bridge-jp' )
+				: __( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
 			[
 				'status'      => 409,
-				'active_runs' => ( new JobRepository() )->find_active_runs_for_platform( $platform, $exclude_run_id ),
+				'active_runs' => $active_runs,
 			]
 		);
 	}
