@@ -35,8 +35,10 @@ final class PlatformLock {
 	public const TTL_SHORT = 60;
 
 	/**
-	 * ASP を呼びうる区間（ツールの 1 バッチ・push intent の解除）。県コード修復の 1 バッチは ASP への照会が
-	 * 最大 20 件で、照会に失敗すると中断して返すため、ここまで掛かるのは遅いが成功する照会が続く場合だけ。
+	 * ASP を呼びうる区間（ツールの 1 バッチ・push intent の解除）。ASP への照会は 1 件で最悪約 540 秒かかりうる
+	 * （`HttpClient` の再試行と `Retry-After`・レート制限の待ち）ため、区間はこれより十分短く区切ること: 県コード修復は
+	 * 120 秒を過ぎたら新しい行に取りかからず cursor を返し（`PrefStateRepair::TIME_BUDGET_SECONDS`。120＋540 秒）、
+	 * push intent の解除は照会 1 件だけ。
 	 * 取得できる期限の上限でもある（これに時計のずれの余裕 `CLOCK_SKEW_SECONDS` を足したより先の期限を持つ行は、
 	 * 壊れた値として回収する）。
 	 */

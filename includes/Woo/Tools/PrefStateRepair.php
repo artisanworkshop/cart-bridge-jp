@@ -66,6 +66,15 @@ final class PrefStateRepair {
 	public const MAX_ROWS_PER_CALL = 300;
 
 	/**
+	 * 1回の `run()` が新しい行に取りかかってよい経過秒数（R3-0i・PR #96 G1-1）。超えたらその位置を cursor として返す。
+	 * REST はこのバッチをプラットフォーム単位のロック（`Support\PlatformLock::TTL_LONG`＝900 秒）の中で実行するが、
+	 * ASP への照会は 1 件で最悪約 540 秒かかりうる（`HttpClient` の試行 4 回 × レート制限の待ち 60 秒＋タイムアウト 30 秒、
+	 * `Retry-After` の待ち 60 秒 × 3）。照会回数の上限（`DEFAULT_BUDGET`）だけでは 20 件の待ちが積み重なってロックの期限を
+	 * 超え、修復の書込みの途中で別の要求がロックを回収しうるため、時間でも区切る（120＋540 秒が TTL に収まる）。
+	 */
+	public const TIME_BUDGET_SECONDS = 120;
+
+	/**
 	 * 走査順。
 	 *
 	 * @var array<int,string>
@@ -105,10 +114,14 @@ final class PrefStateRepair {
 	 */
 	private array $affected_states = [];
 
+	/**
+	 * @param \Closure():float|null $clock 経過時間の計測に使う時刻（秒）。null なら `microtime( true )`（テストで差し替える）。
+	 */
 	public function __construct(
 		private readonly MappingRepository $mappings,
 		private readonly PlatformAdapter $adapter,
-		private readonly Logger $logger = new Logger()
+		private readonly Logger $logger = new Logger(),
+		private readonly ?\Closure $clock = null
 	) {}
 
 	/**
@@ -144,6 +157,7 @@ final class PrefStateRepair {
 		$rows_seen    = 0;
 		$interruption = null;
 		$sources      = count( self::SOURCES );
+		$started      = $this->now();
 
 		while ( $index < $sources ) {
 			$entity     = self::SOURCES[ $index ];
@@ -152,7 +166,10 @@ final class PrefStateRepair {
 			$remote_ids = $this->mappings->find_many_by_local_ids( $platform, $entity, array_slice( $local_ids, $offset, self::MAX_ROWS_PER_CALL ) );
 
 			while ( $offset < $total ) {
-				if ( $fetches >= $budget || $rows_seen >= self::MAX_ROWS_PER_CALL ) {
+				// 時間の区切りは 1 行以上進めてから（進まない呼び出しを繰り返さない）。
+				$out_of_time = $rows_seen > 0 && $this->now() - $started >= self::TIME_BUDGET_SECONDS;
+
+				if ( $fetches >= $budget || $rows_seen >= self::MAX_ROWS_PER_CALL || $out_of_time ) {
 					break 2;
 				}
 
@@ -706,5 +723,9 @@ final class PrefStateRepair {
 				'offset' => $offset,
 			]
 		);
+	}
+
+	private function now(): float {
+		return null === $this->clock ? microtime( true ) : ( $this->clock )();
 	}
 }
