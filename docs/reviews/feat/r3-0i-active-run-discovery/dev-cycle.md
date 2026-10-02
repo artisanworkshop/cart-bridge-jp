@@ -3,9 +3,9 @@
 - タスク: R3-0i (1)(2) — 進行中 run の発見（`GET /runs?platform=`・409 の `active_runs`・4 タブでの発見と取り込み）。closes #70。(3)(4)（#57: ロックと条件付き UPDATE）は次の PR
 - 開始: 2026-10-02
 - PR: #95 https://github.com/artisanworkshop/cart-bridge-jp/pull/95
-- 現在のステップ: 7（G1 修正済み → G2 依頼待ち）
-- Copilot: 依頼 1 回 / 未収束
-- Codex: 依頼 1 回 / 未収束
+- 現在のステップ: 7（G2 修正済み → G3 は Copilot だけ）
+- Copilot: 依頼 2 回 / 未収束
+- Codex: 依頼 2 回 / 収束（G2 で新規指摘なし）
 
 ## ログ
 
@@ -17,3 +17,4 @@
 | 2026-10-02 16:35 | 3 | review-loop R2（独立サブエージェントで検証）: **APPROVE**（R1 の High/Medium すべて解消。ミューテーション 9 種 CAUGHT）。新規 Medium 1（取り直し失敗で削除ガードが外れる）・Low 3 を修正（`952da64`） |
 | 2026-10-02 16:41 | 4〜6 | PR #95 作成（T=07:35:45Z）→ CI green → Copilot 依頼 1 回目（登録確認済み）・Codex は自動レビューが 5 分来ず review コメントを自動投稿（1 回目） |
 | 2026-10-02 18:26 | 7 | G1: Copilot 4・Codex 1（P1）。409 の一覧の照合をプラットフォーム名から選択の番号へ（G1-1/3）、一覧の版を単調増加（G1-2）、空でも 30 秒ごとに照会＋Mappings は初回取得まで保存停止（G1-4/5。ユーザー決定）。確認ゲート承認後に commit（`c9c010d`） |
+| 2026-10-02 18:38 | 7 | G2: CI green → 両 bot へ再依頼 → Codex 収束（指摘なし）、Copilot 🟢・Low 1（backlog R1-X2 の記述が 30 秒の照会と食い違う）を修正（`407f96a`）。確認ゲート承認後に commit |
