@@ -11,6 +11,8 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
+import ActiveRunNotice from '../components/ActiveRunNotice';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import {
 	dryRunEntityTotals,
@@ -20,16 +22,19 @@ import {
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
-import { tabHref } from '../hash-route';
+import { parseHash, tabHref } from '../hash-route';
+import { useActiveRuns } from '../hooks/useActiveRuns';
+import { useRunAdoption } from '../hooks/useRunAdoption';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
+import { clearStoredRunId, loadStoredRunId, storeRunId } from '../run-storage';
 import type {
+	ActiveRun,
 	Capabilities,
 	Connection,
 	EntityType,
 	ExportOptions,
 	Job,
 	Limits,
-	RunType,
 } from '../types';
 
 function errorMessage( err: unknown ): string {
@@ -104,54 +109,6 @@ function defaultExportEntities( capabilities: Capabilities ): EntityType[] {
 	return availableExportEntities( capabilities ).filter(
 		( entity ) => ! isBetaEntity( capabilities, entity )
 	);
-}
-
-function exportRunStorageKey( platform: string, type: RunType ): string {
-	return `cbjp_run_${ type }_${ platform }`;
-}
-
-/**
- * `ImportTab.tsx`の同名ヘルパーと同じ役割（実行中のrunはAction Scheduler側で進むため、
- * 管理画面をリロードしても直前のrun_idからポーリングを再開できるようにlocalStorageへ
- * 控えておく）。localStorageキーの命名規則を共有するため、Import側の`dry_run`/`import`と
- * 衝突しないよう`type`（`dry_run_export`/`export`）を含める。
- * @param platform
- * @param type
- */
-function loadStoredExportRunId(
-	platform: string,
-	type: RunType
-): string | null {
-	try {
-		return window.localStorage.getItem(
-			exportRunStorageKey( platform, type )
-		);
-	} catch {
-		return null;
-	}
-}
-
-function storeExportRunId(
-	platform: string,
-	type: RunType,
-	runId: string
-): void {
-	try {
-		window.localStorage.setItem(
-			exportRunStorageKey( platform, type ),
-			runId
-		);
-	} catch {
-		// プライベートブラウジング等でlocalStorageが使えなくても実行自体は継続できる。
-	}
-}
-
-function clearStoredExportRunId( platform: string, type: RunType ): void {
-	try {
-		window.localStorage.removeItem( exportRunStorageKey( platform, type ) );
-	} catch {
-		// 何もしない（保存できていないなら消す必要もない）。
-	}
 }
 
 /**
@@ -338,7 +295,14 @@ export default function ExportTab() {
 			return;
 		}
 
-		setPlatform( connectedPlatforms[ 0 ].platform );
+		// 他のタブの案内（`ActiveRunNotice`）から来たときは、そちらで選んでいたプラットフォームを開く
+		// （`#/export?platform=`）。ハッシュは任意の文字列を含みうるので、接続済みのものに一致するときだけ使う。
+		const requested = parseHash( window.location.hash ).platform;
+
+		setPlatform(
+			connectedPlatforms.find( ( c ) => c.platform === requested )
+				?.platform ?? connectedPlatforms[ 0 ].platform
+		);
 	}, [ connectedPlatforms, platform ] );
 
 	const currentConnection = useMemo(
@@ -400,11 +364,11 @@ export default function ExportTab() {
 		setLimits( null );
 		setDryRunExportState( {
 			...initialExportRunSectionState(),
-			runId: loadStoredExportRunId( platform, 'dry_run_export' ),
+			runId: loadStoredRunId( platform, 'dry_run_export' ),
 		} );
 		setExportState( {
 			...initialExportRunSectionState(),
-			runId: loadStoredExportRunId( platform, 'export' ),
+			runId: loadStoredRunId( platform, 'export' ),
 		} );
 		// currentConnectionはplatformから導出される値なので、platform変更時のみ発火させる。
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -515,6 +479,59 @@ export default function ExportTab() {
 		exportActive ||
 		exportState.starting ||
 		null !== exportState.retryingJobId;
+
+	// 進行中の run の発見（R3-0i・issue #70。`ImportTab.tsx`と同じ）。run_id を控えていない run を見つけ、
+	// このタブの種別ならセクションに取り込み、別タブの種別なら案内する。
+	const activeRuns = useActiveRuns( platform, [
+		dryRunExportState.runId,
+		exportState.runId,
+	] );
+	const otherActiveRuns = untrackedRuns( activeRuns.runs, [
+		dryRunExportState.runId,
+		exportState.runId,
+	] );
+	// 追跡していない run があるうちは開始・Retry・設定の変更を止める（サーバーも 409 で拒否する）。
+	const blockedByOtherRun = otherActiveRuns.length > 0;
+	// 案内する run（`ImportTab.tsx`と同じ）: 別タブの run と、取り込めない同じ種別の run。
+	const dryRunExportShowsActiveRun =
+		null !== dryRunExportPolling.run &&
+		dryRunExportPolling.run.run_id === dryRunExportState.runId &&
+		! dryRunExportTerminal;
+	const exportShowsActiveRun =
+		null !== exportPolling.run &&
+		exportPolling.run.run_id === exportState.runId &&
+		! exportTerminal;
+	const announcedRuns = runsToAnnounce(
+		otherActiveRuns,
+		'export',
+		( type ) =>
+			'dry_run_export' === type
+				? dryRunExportShowsActiveRun
+				: exportShowsActiveRun
+	);
+
+	useRunAdoption( {
+		type: 'dry_run_export',
+		runId: dryRunExportState.runId,
+		busy:
+			dryRunExportState.starting ||
+			null !== dryRunExportState.retryingJobId ||
+			dryRunExportState.cancelling,
+		polling: dryRunExportPolling,
+		activeRuns,
+		onAdopt: ( run ) => adoptExportRun( 'dry_run_export', run ),
+	} );
+	useRunAdoption( {
+		type: 'export',
+		runId: exportState.runId,
+		busy:
+			exportState.starting ||
+			null !== exportState.retryingJobId ||
+			exportState.cancelling,
+		polling: exportPolling,
+		activeRuns,
+		onAdopt: ( run ) => adoptExportRun( 'export', run ),
+	} );
 	// 画像アップロードの設定を持つ（能力がある）プラットフォームで、設定をまだ取得できていない間（取得前・取得失敗）。
 	// チェックボックスは未チェックに見えるがサーバー側は true かもしれず、そのまま本番の export を始めると、
 	// 画像を（同じ位置の既存画像の上書きを含めて）送りかねない。設定を取得できるまで本番の export を始めさせない
@@ -549,6 +566,7 @@ export default function ExportTab() {
 
 		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める（`save()`と同じ理由）。
 		const requestId = platformGenerationRef.current;
+		const selection = activeRuns.selectionRef.current;
 
 		setExportOptionsSaving( true );
 		setExportOptionsError( null );
@@ -573,11 +591,72 @@ export default function ExportTab() {
 			}
 
 			setExportOptionsError( errorMessage( err ) );
+
+			const seed = activeRunsSeed( selection, err );
+
+			// 別の run が進行中（409）なら、その run を案内する。
+			if ( undefined !== seed ) {
+				activeRuns.refresh( seed );
+			}
 		} finally {
 			if ( platformGenerationRef.current === requestId ) {
 				setExportOptionsSaving( false );
 			}
 		}
+	}
+
+	/**
+	 * セクションで run の表示を始める（開始が成功したとき・進行中の run を見つけて取り込んだときの共通処理）。
+	 * @param type
+	 * @param runId
+	 * @param entities この run のエンティティ（前回の dry-run 件数を捨てる対象）
+	 */
+	function beginTrackingExportRun(
+		type: 'dry_run_export' | 'export',
+		runId: string,
+		entities: EntityType[]
+	) {
+		if ( 'export' === type ) {
+			setLimits( null );
+			// 実行のたびに再確認させる（`ImportTab.tsx`の`window.confirm()`は
+			// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
+			// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
+			// 見つけた export run を取り込んだときも、その run の前に付けた確認を次の実行へ持ち越さない。
+			setAcknowledgeProductionWrite( false );
+		}
+
+		// 新しいdry-runの対象エンティティは前回の件数を捨てる（`ImportTab.tsx`と同じ。
+		// `withoutDryRunTotals()`参照。PR #87 G1-1）。
+		if ( 'dry_run_export' === type ) {
+			setDryRunTotals( ( prev ) =>
+				withoutDryRunTotals( prev, entities )
+			);
+		}
+
+		( 'dry_run_export' === type ? setDryRunExportState : setExportState )(
+			( prev ) => ( {
+				...prev,
+				runId,
+				starting: false,
+			} )
+		);
+	}
+
+	/**
+	 * 進行中の run を見つけたとき、このセクションに取り込む（`useRunAdoption`）。
+	 * @param type
+	 * @param run
+	 */
+	function adoptExportRun(
+		type: 'dry_run_export' | 'export',
+		run: ActiveRun
+	) {
+		if ( null === platform ) {
+			return;
+		}
+
+		storeRunId( platform, type, run.run_id );
+		beginTrackingExportRun( type, run.run_id, run.entities );
 	}
 
 	async function startExportRun( type: 'dry_run_export' | 'export' ) {
@@ -598,6 +677,7 @@ export default function ExportTab() {
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
 		const requestedEntities = Array.from( selectedExportEntities );
+		const selection = activeRuns.selectionRef.current;
 
 		setRunStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -616,33 +696,15 @@ export default function ExportTab() {
 				},
 			} );
 
-			storeExportRunId( requestedPlatform, type, response.run_id );
+			storeRunId( requestedPlatform, type, response.run_id );
 
 			if ( platformGenerationRef.current !== requestId ) {
 				return;
 			}
 
-			if ( 'export' === type ) {
-				setLimits( null );
-				// 実行のたびに再確認させる（`ImportTab.tsx`の`window.confirm()`は
-				// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
-				// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
-				setAcknowledgeProductionWrite( false );
-			}
-
-			// 新しいdry-runの対象エンティティは前回の件数を捨てる（`ImportTab.tsx`と同じ。
-			// `withoutDryRunTotals()`参照。PR #87 G1-1）。
-			if ( 'dry_run_export' === type ) {
-				setDryRunTotals( ( prev ) =>
-					withoutDryRunTotals( prev, requestedEntities )
-				);
-			}
-
-			setState( ( prev ) => ( {
-				...prev,
-				runId: response.run_id,
-				starting: false,
-			} ) );
+			beginTrackingExportRun( type, response.run_id, requestedEntities );
+			// 一覧に残っている前の run を、新しい run を始めたことで案内・取り込みし直さないよう取り直す（R2-2）。
+			activeRuns.refresh();
 		} catch ( err ) {
 			if ( platformGenerationRef.current !== requestId ) {
 				return;
@@ -650,6 +712,9 @@ export default function ExportTab() {
 
 			setRunStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
+			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
+			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
+			activeRuns.refresh( activeRunsSeed( selection, err ) );
 		}
 	}
 
@@ -672,6 +737,7 @@ export default function ExportTab() {
 		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
 		// 同じ`platformGenerationRef`を使う）。
 		const requestId = platformGenerationRef.current;
+		const selection = activeRuns.selectionRef.current;
 
 		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
 
@@ -694,6 +760,13 @@ export default function ExportTab() {
 
 			setRunStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+
+			const seed = activeRunsSeed( selection, err );
+
+			// 別の run が進行中（409）なら、その run を案内する。
+			if ( undefined !== seed ) {
+				activeRuns.refresh( seed );
+			}
 		}
 	}
 
@@ -722,6 +795,7 @@ export default function ExportTab() {
 			}
 
 			refetch();
+			activeRuns.refresh();
 		} catch ( err ) {
 			if ( platformGenerationRef.current !== requestId ) {
 				return;
@@ -740,10 +814,12 @@ export default function ExportTab() {
 			return;
 		}
 
-		clearStoredExportRunId( platform, type );
+		clearStoredRunId( platform, type );
 		( 'dry_run_export' === type ? setDryRunExportState : setExportState )(
 			initialExportRunSectionState()
 		);
+		// 手放した run を、Clear より前に取得した一覧から取り込み直さない（取り直すまで stale になる）。
+		activeRuns.refresh();
 	}
 
 	const zeroWrittenExportEntities = exportPolling.run
@@ -813,7 +889,10 @@ export default function ExportTab() {
 				<PushIntentsPanel
 					key={ platform }
 					platform={ platform }
-					runInProgress={ dryRunExportBusy || exportBusy }
+					runInProgress={
+						dryRunExportBusy || exportBusy || blockedByOtherRun
+					}
+					activeRuns={ activeRuns }
 				/>
 			) }
 
@@ -862,7 +941,9 @@ export default function ExportTab() {
 											entity
 										) }
 										disabled={
-											dryRunExportBusy || exportBusy
+											dryRunExportBusy ||
+											exportBusy ||
+											blockedByOtherRun
 										}
 										onChange={ ( checked ) =>
 											toggleExportEntity(
@@ -910,7 +991,8 @@ export default function ExportTab() {
 									null === exportOptions ||
 									exportOptionsSaving ||
 									dryRunExportBusy ||
-									exportBusy
+									exportBusy ||
+									blockedByOtherRun
 								}
 								onChange={ setPushImages }
 							/>
@@ -952,9 +1034,19 @@ export default function ExportTab() {
 							'cart-bridge-jp'
 						) }
 						checked={ acknowledgeProductionWrite }
-						disabled={ exportBusy }
+						disabled={ exportBusy || blockedByOtherRun }
 						onChange={ setAcknowledgeProductionWrite }
 					/>
+
+					{ platform && (
+						<ActiveRunNotice
+							key={ platform }
+							platform={ platform }
+							runs={ announcedRuns }
+							currentTab="export"
+							onChanged={ () => activeRuns.refresh() }
+						/>
+					) }
 
 					{ runStartError && (
 						<Notice
@@ -972,6 +1064,7 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								blockedByOtherRun ||
 								exportOptionsSaving ||
 								0 === selectedExportEntities.size
 							}
@@ -988,6 +1081,7 @@ export default function ExportTab() {
 							disabled={
 								dryRunExportBusy ||
 								exportBusy ||
+								blockedByOtherRun ||
 								exportOptionsSaving ||
 								exportOptionsPending ||
 								0 === selectedExportEntities.size ||
@@ -1049,7 +1143,9 @@ export default function ExportTab() {
 								// `start_run()`の同時実行ガードを経由せずrequeueし、
 								// 新旧2つのrunが同時に本番へ書き込みうる（Codexレビュー指摘）。
 								retryDisabled={
-									exportBusy || dryRunExportState.starting
+									exportBusy ||
+									dryRunExportState.starting ||
+									blockedByOtherRun
 								}
 								isTerminal={ dryRunExportTerminal }
 								reportsAvailable
@@ -1136,7 +1232,9 @@ export default function ExportTab() {
 								// `starting`を含める理由は上のdry-run側カードと同じ
 								// （Codexレビュー指摘）。
 								retryDisabled={
-									dryRunExportBusy || exportState.starting
+									dryRunExportBusy ||
+									exportState.starting ||
+									blockedByOtherRun
 								}
 								isTerminal={ exportTerminal }
 								reportsAvailable={ false }

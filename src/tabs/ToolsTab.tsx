@@ -10,7 +10,11 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import { activeRunsSeed } from '../active-runs';
+import ActiveRunNotice from '../components/ActiveRunNotice';
+import { isCleanupBlocked } from '../components/cleanup-gate';
 import { ENTITY_LABELS } from '../entity-labels';
+import { useActiveRuns } from '../hooks/useActiveRuns';
 import type {
 	CleanupPreview,
 	CleanupResult,
@@ -176,6 +180,11 @@ function CountList( {
 	);
 }
 
+/**
+ * Tools タブは run を表示しないため、追跡する run は無い（見つけた run はすべて案内の対象）。
+ */
+const NO_TRACKED_RUNS: Array< string | null > = [];
+
 export default function ToolsTab() {
 	const [ connections, setConnections ] = useState< Connection[] | null >(
 		null
@@ -194,6 +203,9 @@ export default function ToolsTab() {
 	} | null >( null );
 	const [ cleanupDone, setCleanupDone ] = useState( false );
 	const [ cleanupError, setCleanupError ] = useState< string | null >( null );
+	// プレビューを取ったあとに進行中の run を見たか。その run が書いたデータは件数に入っていないので、
+	// 取り直すまで削除させない（`isCleanupBlocked()`。R3-0i R1-1）。
+	const [ previewOutdated, setPreviewOutdated ] = useState( false );
 
 	const [ rebuilding, setRebuilding ] = useState( false );
 	const [ rebuildCounts, setRebuildCounts ] = useState< Counts | null >(
@@ -257,6 +269,7 @@ export default function ToolsTab() {
 		platformGenerationRef.current += 1;
 		setPlatform( value );
 		setPreview( null );
+		setPreviewOutdated( false );
 		setCleanupProgress( null );
 		setCleanupDone( false );
 		setCleanupError( null );
@@ -275,6 +288,32 @@ export default function ToolsTab() {
 		connections?.find( ( c ) => c.platform === platform ) ?? null;
 	const platformLabel = currentConnection?.label ?? platform ?? '';
 	const busy = previewing || cleaning || rebuilding || null !== repairMode;
+	// 進行中の run の発見（R3-0i・issue #70）。どのツールも進行中の run がある間はサーバーが 409 で拒否するため、
+	// 先にボタンを止め、どのタブでその run を確認・キャンセルできるかを案内する。
+	const activeRuns = useActiveRuns( platform, NO_TRACKED_RUNS );
+	const runInProgress = activeRuns.runs.length > 0;
+
+	/**
+	 * ツールの 409（`cbjp_run_in_progress`）なら、応答の `active_runs` で案内を出す。
+	 * @param selection 要求を出したときのプラットフォーム選択の番号（切り替え後の一覧に混ぜないため）
+	 * @param err
+	 */
+	function showActiveRunsFrom( selection: number, err: unknown ) {
+		const seed = activeRunsSeed( selection, err );
+
+		if ( undefined !== seed ) {
+			activeRuns.refresh( seed );
+		}
+	}
+
+	// プレビューを表示している間に進行中の run を見たら、そのプレビューは古いものとして扱う。一覧の取り直し中
+	// （プレビューのたびに取り直す）は判定しない: 直前に終わった run が古い一覧に残っていると、run の後に取った
+	// 新しいプレビューまで古いと誤判定するため（R2-4。取り直した一覧に run が残っていれば、その時点で印を付ける）。
+	useEffect( () => {
+		if ( runInProgress && ! activeRuns.stale && null !== preview ) {
+			setPreviewOutdated( true );
+		}
+	}, [ runInProgress, activeRuns.stale, preview ] );
 
 	async function loadPreview() {
 		if ( null === platform ) {
@@ -287,6 +326,8 @@ export default function ToolsTab() {
 		setCleanupError( null );
 		setCleanupDone( false );
 		setCleanupProgress( null );
+		// プレビューと同じ時点の一覧にそろえる（run が始まっていれば、すぐ上の案内とボタンの停止に反映する）。
+		activeRuns.refresh();
 
 		try {
 			const data = await apiFetch< CleanupPreview >( {
@@ -297,6 +338,9 @@ export default function ToolsTab() {
 
 			if ( platformGenerationRef.current === generation ) {
 				setPreview( data );
+				// 「古い」の印は取り直せたときだけ下ろす。失敗したら前のプレビュー（古いかもしれない）が残るので、
+				// 印もそのまま残して削除を止め続ける（R2-1）。
+				setPreviewOutdated( false );
 			}
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
@@ -333,6 +377,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let deleted: Counts = {};
 		let unlinked: Counts = {};
@@ -375,6 +420,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setCleanupError( errorMessage( err ) );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -389,6 +435,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let counts: Counts = {};
 		let cursor: string | null = rebuildCursor;
@@ -434,6 +481,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setRebuildError( errorMessage( err ) );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -448,6 +496,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		// 中断した同じ種類の実行があれば続きから再開し、そうでなければ先頭から始める。
 		const resume = repairPending?.mode === mode ? repairPending : null;
@@ -544,6 +593,7 @@ export default function ToolsTab() {
 				}
 
 				setRepairError( errorMessage( err ) );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -584,10 +634,11 @@ export default function ToolsTab() {
 	const previewTotal = preview
 		? sumCounts( preview.delete ) + sumCounts( preview.unlink )
 		: 0;
-	const cleanupBlocked =
-		null !== preview &&
-		( preview.run_in_progress ||
-			( preview.requires_delete_users && ! preview.can_delete_users ) );
+	const cleanupBlocked = isCleanupBlocked(
+		preview,
+		runInProgress,
+		previewOutdated
+	);
 	const repairNeedsRepair =
 		null !== scanTotals && repairBucketTotal( scanTotals, 'fixed' ) > 0;
 	const canRepair = repairNeedsRepair || 'repair' === repairPending?.mode;
@@ -617,6 +668,17 @@ export default function ToolsTab() {
 					} ) ) }
 					onChange={ handlePlatformChange }
 					disabled={ busy }
+				/>
+			) }
+
+			{ platform && (
+				<ActiveRunNotice
+					key={ platform }
+					platform={ platform }
+					runs={ activeRuns.runs }
+					// Import/Export タブは接続済みのプラットフォームしか開けない（未接続ならキャンセルだけ出す）。
+					showTabLinks={ true === currentConnection?.connected }
+					onChanged={ () => activeRuns.refresh() }
 				/>
 			) }
 
@@ -666,17 +728,21 @@ export default function ToolsTab() {
 
 					{ preview && (
 						<div className="cbjp-tools__preview">
-							{ preview.run_in_progress && (
-								<Notice
-									status="warning"
-									isDismissible={ false }
-								>
-									{ __(
-										'A run is in progress for this platform. Wait for it to finish (or cancel it on the Import tab) before cleaning up.',
-										'cart-bridge-jp'
-									) }
-								</Notice>
-							) }
+							{ /* 今進行中の run は上の `ActiveRunNotice` が案内する。ここでは、プレビューが run と重なって
+							     件数が古いことだけを知らせる（`isCleanupBlocked()`）。 */ }
+							{ ! runInProgress &&
+								( preview.run_in_progress ||
+									previewOutdated ) && (
+									<Notice
+										status="warning"
+										isDismissible={ false }
+									>
+										{ __(
+											'A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up.',
+											'cart-bridge-jp'
+										) }
+									</Notice>
+								) }
 							{ preview.requires_delete_users &&
 								! preview.can_delete_users && (
 									<Notice
@@ -859,7 +925,7 @@ export default function ToolsTab() {
 						<Button
 							variant="secondary"
 							isBusy={ rebuilding }
-							disabled={ busy }
+							disabled={ busy || runInProgress }
 							onClick={ () => void runRebuild() }
 						>
 							{ __( 'Rebuild links', 'cart-bridge-jp' ) }
@@ -942,7 +1008,9 @@ export default function ToolsTab() {
 							variant="secondary"
 							isBusy={ 'scan' === repairMode }
 							disabled={
-								busy || 'repair' === repairPending?.mode
+								busy ||
+								runInProgress ||
+								'repair' === repairPending?.mode
 							}
 							onClick={ () => void runRepair( 'scan' ) }
 						>
@@ -955,6 +1023,7 @@ export default function ToolsTab() {
 							isBusy={ 'repair' === repairMode }
 							disabled={
 								busy ||
+								runInProgress ||
 								! canRepair ||
 								'scan' === repairPending?.mode
 							}

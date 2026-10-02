@@ -34,6 +34,7 @@ use WC_Order;
 use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
+use WP_REST_Response;
 use WP_REST_Server;
 use WP_UnitTestCase;
 
@@ -1454,7 +1455,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	public function test_run_sample_cleanup_is_rejected_while_a_run_is_active(): void {
 		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
-		$this->start_mock_dry_run();
+		$run_id = $this->start_mock_dry_run();
 
 		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
 		$request->set_body_params( [ 'platform' => 'mock' ] );
@@ -1462,6 +1463,19 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assert_active_runs( [ $run_id ], $response );
+	}
+
+	public function test_rebuild_mappings_is_rejected_while_a_run_is_active(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
+		$request->set_body_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assert_active_runs( [ $run_id ], $response );
 	}
 
 	public function test_run_sample_cleanup_removes_links_and_reports_counts(): void {
@@ -1679,15 +1693,21 @@ final class RestControllerTest extends WP_UnitTestCase {
 				'entities' => [ 'category' ],
 			]
 		);
-		$this->assertSame( 200, $this->server->dispatch( $start )->get_status() );
+		$started = $this->server->dispatch( $start );
+		$this->assertSame( 200, $started->get_status() );
 
 		$scan = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
 		$scan->set_query_params( [ 'platform' => 'colorme' ] );
 		$run = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
 		$run->set_body_params( [ 'platform' => 'colorme' ] );
 
-		$this->assertSame( 409, $this->server->dispatch( $scan )->get_status() );
-		$this->assertSame( 'cbjp_run_in_progress', $this->server->dispatch( $run )->as_error()->get_error_code() );
+		$scan_response = $this->server->dispatch( $scan );
+		$run_response  = $this->server->dispatch( $run );
+
+		$this->assertSame( 409, $scan_response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $run_response->as_error()->get_error_code() );
+		$this->assert_active_runs( [ (string) $started->get_data()['run_id'] ], $scan_response );
+		$this->assert_active_runs( [ (string) $started->get_data()['run_id'] ], $run_response );
 	}
 
 	public function test_state_repair_scan_only_counts_and_post_repairs(): void {
@@ -1864,6 +1884,152 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
 		$this->assertSame( JobRepository::STATUS_FAILED, $jobs->find( $job_a )['status'] );
+		$this->assert_active_runs( [ 'run-b' ], $response );
+	}
+
+	public function test_retry_job_409_lists_the_blocking_run_but_not_the_jobs_own_run(): void {
+		$this->register_mock_adapter();
+		$jobs = new JobRepository();
+
+		// run-a: 最初のジョブが failed で兄弟ジョブが pending（run-a 自身も進行中に数えられる）。
+		$job_a = $jobs->create( 'run-a', 'import', 'mock', 'category' );
+		$jobs->create( 'run-a', 'import', 'mock', 'product' );
+		$jobs->mark_failed(
+			$job_a,
+			[
+				'code'    => 'exception',
+				'message' => 'boom',
+			]
+		);
+
+		$job_b = $jobs->create( 'run-b', 'export', 'mock', 'product' );
+		$jobs->update_status( $job_b, JobRepository::STATUS_RUNNING );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'POST', "/cbjp/v1/jobs/{$job_a}/retry" ) );
+
+		$this->assertSame( 409, $response->get_status() );
+		// `retry()` の判定と同じく対象ジョブ自身の run（run-a）は除き、塞いでいる run だけを返す。
+		$this->assert_active_runs( [ 'run-b' ], $response );
+		$this->assertSame( 'export', $response->as_error()->get_error_data()['active_runs'][0]['type'] );
+	}
+
+	// ---- GET /runs?platform=（進行中 run の発見。R3-0i・issue #70）------------------------------------
+
+	public function test_list_runs_returns_an_empty_list_when_nothing_is_active(): void {
+		$this->register_mock_adapter();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame(
+			[
+				'platform' => 'mock',
+				'runs'     => [],
+			],
+			$response->get_data()
+		);
+	}
+
+	public function test_list_runs_returns_the_active_run_started_without_the_browser_keeping_its_id(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$request->set_query_params(
+			[
+				'platform' => 'mock',
+				'status'   => 'active',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+		$runs     = $response->get_data()['runs'];
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertCount( 1, $runs );
+		$this->assertSame( $run_id, $runs[0]['run_id'] );
+		$this->assertSame( 'dry_run', $runs[0]['type'] );
+		$this->assertSame( JobRepository::STATUS_RUNNING, $runs[0]['status'] );
+		$this->assertSame( [ 'category' ], $runs[0]['entities'] );
+		$this->assertFalse( $runs[0]['has_failed_job'] );
+	}
+
+	public function test_a_stalled_run_is_listed_until_it_is_cancelled(): void {
+		$this->register_mock_adapter();
+		$jobs  = new JobRepository();
+		$first = $jobs->create( 'run-stalled', 'import', 'mock', 'category' );
+		$jobs->create( 'run-stalled', 'import', 'mock', 'product' );
+		$jobs->mark_failed(
+			$first,
+			[
+				'code'    => 'exception',
+				'message' => 'boom',
+			]
+		);
+
+		$list = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$list->set_query_params( [ 'platform' => 'mock' ] );
+		$runs = $this->server->dispatch( $list )->get_data()['runs'];
+
+		$this->assertSame( [ 'run-stalled' ], array_column( $runs, 'run_id' ) );
+		$this->assertTrue( $runs[0]['has_failed_job'] );
+
+		$cancel = $this->server->dispatch( new WP_REST_Request( 'POST', '/cbjp/v1/runs/run-stalled/cancel' ) );
+		$this->assertSame( 200, $cancel->get_status() );
+
+		$this->assertSame( [], $this->server->dispatch( $list )->get_data()['runs'] );
+	}
+
+	public function test_list_runs_validates_its_parameters(): void {
+		$this->register_mock_adapter();
+
+		$missing = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+
+		$array_platform = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$array_platform->set_query_params( [ 'platform' => [ 'mock' ] ] );
+
+		$unknown_platform = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$unknown_platform->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
+
+		$bad_status = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$bad_status->set_query_params(
+			[
+				'platform' => 'mock',
+				'status'   => 'all',
+			]
+		);
+
+		$this->assertSame( 400, $this->server->dispatch( $missing )->get_status() );
+		$this->assertSame( 400, $this->server->dispatch( $array_platform )->get_status() );
+		$this->assertSame( 404, $this->server->dispatch( $unknown_platform )->get_status() );
+		$this->assertSame( 400, $this->server->dispatch( $bad_status )->get_status() );
+	}
+
+	public function test_list_runs_requires_the_manage_woocommerce_capability(): void {
+		$this->register_mock_adapter();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'subscriber' ] ) );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/runs' );
+		$request->set_query_params( [ 'platform' => 'mock' ] );
+
+		$this->assertSame( 403, $this->server->dispatch( $request )->get_status() );
+	}
+
+	public function test_start_run_409_lists_the_run_already_in_progress(): void {
+		$run_id = $this->start_mock_dry_run();
+
+		$request = new WP_REST_Request( 'POST', '/cbjp/v1/runs' );
+		$request->set_body_params(
+			[
+				'type'     => 'dry_run',
+				'platform' => 'mock',
+				'entities' => [ 'category' ],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assert_active_runs( [ $run_id ], $response );
 	}
 
 	public function test_get_run_verification_returns_the_report_for_an_import_run(): void {
@@ -2040,7 +2206,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	public function test_resolve_push_intent_is_rejected_while_a_run_is_active(): void {
 		$this->register_mock_adapter();
-		$this->start_mock_dry_run();
+		$run_id = $this->start_mock_dry_run();
 
 		$intents = new PushIntentRepository();
 		$intents->begin( 'mock', 'product', 101, null, null );
@@ -2052,6 +2218,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assert_active_runs( [ $run_id ], $response );
 	}
 
 	public function test_resolve_push_intent_link_requires_a_remote_id(): void {
@@ -2245,6 +2412,19 @@ final class RestControllerTest extends WP_UnitTestCase {
 			}
 		);
 		AdapterRegistry::reset_cache();
+	}
+
+	/**
+	 * 409 `cbjp_run_in_progress` の `active_runs`（R3-0i・issue #70）が、指定した run だけを順に挙げているか。
+	 *
+	 * @param array<int,string> $expected_run_ids
+	 */
+	private function assert_active_runs( array $expected_run_ids, WP_REST_Response $response ): void {
+		$data = $response->as_error()->get_error_data();
+
+		$this->assertIsArray( $data );
+		$this->assertSame( 409, $data['status'] );
+		$this->assertSame( $expected_run_ids, array_column( $data['active_runs'], 'run_id' ) );
 	}
 
 	private function start_mock_dry_run(): string {
@@ -2443,7 +2623,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 	 */
 	public function test_save_export_options_is_rejected_while_a_run_is_active(): void {
 		// テスト環境では Action Scheduler が実行されないため、開始した run のジョブは running のまま残る。
-		$this->start_mock_dry_run();
+		$run_id = $this->start_mock_dry_run();
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/export-options/mock' );
 		$request->set_body_params( [ 'push_images' => true ] );
@@ -2451,6 +2631,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'cbjp_run_in_progress', $response->as_error()->get_error_code() );
+		$this->assert_active_runs( [ $run_id ], $response );
 		$this->assertFalse( ExportOptions::push_images_enabled( 'mock' ) );
 	}
 

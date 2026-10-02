@@ -11,6 +11,8 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
+import ActiveRunNotice from '../components/ActiveRunNotice';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import OrderMappingNotice from '../components/OrderMappingNotice';
 import {
@@ -21,8 +23,13 @@ import {
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
 import { ENTITY_LABELS } from '../entity-labels';
+import { parseHash } from '../hash-route';
+import { useActiveRuns } from '../hooks/useActiveRuns';
+import { useRunAdoption } from '../hooks/useRunAdoption';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
+import { clearStoredRunId, loadStoredRunId, storeRunId } from '../run-storage';
 import type {
+	ActiveRun,
 	Capabilities,
 	Connection,
 	EntityType,
@@ -50,41 +57,6 @@ function availableEntities( capabilities: Capabilities ): EntityType[] {
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
-}
-
-function runStorageKey( platform: string, type: RunType ): string {
-	return `cbjp_run_${ type }_${ platform }`;
-}
-
-/**
- * 実行中のrunはAction Scheduler側で進むため、管理画面をリロードしても
- * 直前のrun_idからポーリングを再開できるようにlocalStorageへ控えておく
- * （このタブ内だけのUI都合の値で、サーバー側の正としては扱わない）。
- * @param platform
- * @param type
- */
-function loadStoredRunId( platform: string, type: RunType ): string | null {
-	try {
-		return window.localStorage.getItem( runStorageKey( platform, type ) );
-	} catch {
-		return null;
-	}
-}
-
-function storeRunId( platform: string, type: RunType, runId: string ): void {
-	try {
-		window.localStorage.setItem( runStorageKey( platform, type ), runId );
-	} catch {
-		// プライベートブラウジング等でlocalStorageが使えなくても実行自体は継続できる。
-	}
-}
-
-function clearStoredRunId( platform: string, type: RunType ): void {
-	try {
-		window.localStorage.removeItem( runStorageKey( platform, type ) );
-	} catch {
-		// 何もしない（保存できていないなら消す必要もない）。
-	}
 }
 
 interface RunSectionState {
@@ -129,6 +101,11 @@ export default function ImportTab() {
 	const [ limits, setLimits ] = useState< Limits | null >( null );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
+	// limits 取得effectが応答を受け取った時点でまだ同じ import run を指しているかを判定する
+	// （`ExportTab.tsx`の`exportRunIdRef`と同じ役割）。`platformRef`は同一プラットフォーム内で新しい run が
+	// 始まった・見つけた run を取り込んだ場合には変化しないため、そのケースの古い応答を弾けない。
+	const importRunIdRef = useRef< string | null >( null );
+	importRunIdRef.current = importState.runId;
 	// リトライ後、次に成功したポーリング応答が届くまで`retryingJobId`を解除しない
 	// ためのラッチ。`useRunPolling`は失敗時も内部で自動的に再試行し続けるため、
 	// 「リトライ後の確認フェッチ」が一時的な通信エラーで一旦失敗しても
@@ -158,7 +135,14 @@ export default function ImportTab() {
 			return;
 		}
 
-		setPlatform( connectedPlatforms[ 0 ].platform );
+		// 他のタブの案内（`ActiveRunNotice`）から来たときは、そちらで選んでいたプラットフォームを開く
+		// （`#/import?platform=`）。ハッシュは任意の文字列を含みうるので、接続済みのものに一致するときだけ使う。
+		const requested = parseHash( window.location.hash ).platform;
+
+		setPlatform(
+			connectedPlatforms.find( ( c ) => c.platform === requested )
+				?.platform ?? connectedPlatforms[ 0 ].platform
+		);
 	}, [ connectedPlatforms, platform ] );
 
 	const currentConnection = useMemo(
@@ -236,7 +220,9 @@ export default function ImportTab() {
 		// このリクエストを発行した時点のプラットフォームを閉じ込めておく。応答が
 		// 届くまでの間にユーザーが別プラットフォームへ切り替えていた場合、そちらの
 		// `limits`（platform-change時にnullへリセット済み）を古い応答で上書きしない。
+		// 同じプラットフォームで別の run（開始・取り込み）に置き換わった場合も捨てる（`importRunIdRef`）。
 		const requestedPlatform = platform;
+		const requestedRunId = importPolling.run?.run_id ?? null;
 
 		apiFetch< Limits >( {
 			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
@@ -244,14 +230,20 @@ export default function ImportTab() {
 			) }`,
 		} )
 			.then( ( data ) => {
-				if ( platformRef.current !== requestedPlatform ) {
+				if (
+					platformRef.current !== requestedPlatform ||
+					importRunIdRef.current !== requestedRunId
+				) {
 					return;
 				}
 
 				setLimits( data );
 			} )
 			.catch( () => {
-				if ( platformRef.current !== requestedPlatform ) {
+				if (
+					platformRef.current !== requestedPlatform ||
+					importRunIdRef.current !== requestedRunId
+				) {
 					return;
 				}
 
@@ -305,6 +297,58 @@ export default function ImportTab() {
 		importState.starting ||
 		null !== importState.retryingJobId;
 
+	// 進行中の run の発見（R3-0i・issue #70）。run_id を控えていない run（応答がブラウザに届かなかった・
+	// 別ブラウザで始めた・失敗で止まった）を見つけ、このタブの種別ならセクションに取り込み、
+	// 別タブの種別なら案内する。
+	const activeRuns = useActiveRuns( platform, [
+		dryRunState.runId,
+		importState.runId,
+	] );
+	const otherActiveRuns = untrackedRuns( activeRuns.runs, [
+		dryRunState.runId,
+		importState.runId,
+	] );
+	// 追跡していない run があるうちは開始・Retry を止める（サーバーも 409 で拒否する）。
+	const blockedByOtherRun = otherActiveRuns.length > 0;
+	// 案内する run: 別タブの run と、このタブの種別でもセクションが別の進行中の run を表示していて取り込めない run。
+	const dryRunShowsActiveRun =
+		null !== dryRunPolling.run &&
+		dryRunPolling.run.run_id === dryRunState.runId &&
+		! dryRunTerminal;
+	const importShowsActiveRun =
+		null !== importPolling.run &&
+		importPolling.run.run_id === importState.runId &&
+		! importTerminal;
+	const announcedRuns = runsToAnnounce(
+		otherActiveRuns,
+		'import',
+		( type ) =>
+			'dry_run' === type ? dryRunShowsActiveRun : importShowsActiveRun
+	);
+
+	useRunAdoption( {
+		type: 'dry_run',
+		runId: dryRunState.runId,
+		busy:
+			dryRunState.starting ||
+			null !== dryRunState.retryingJobId ||
+			dryRunState.cancelling,
+		polling: dryRunPolling,
+		activeRuns,
+		onAdopt: ( run ) => adoptRun( 'dry_run', run ),
+	} );
+	useRunAdoption( {
+		type: 'import',
+		runId: importState.runId,
+		busy:
+			importState.starting ||
+			null !== importState.retryingJobId ||
+			importState.cancelling,
+		polling: importPolling,
+		activeRuns,
+		onAdopt: ( run ) => adoptRun( 'import', run ),
+	} );
+
 	function toggleEntity( entity: EntityType, checked: boolean ) {
 		setSelectedEntities( ( prev ) => {
 			const next = new Set( prev );
@@ -317,6 +361,55 @@ export default function ImportTab() {
 
 			return next;
 		} );
+	}
+
+	/**
+	 * セクションで run の表示を始める（開始が成功したとき・進行中の run を見つけて取り込んだときの共通処理）。
+	 * @param type
+	 * @param runId
+	 * @param entities この run のエンティティ（前回の dry-run 件数を捨てる対象）
+	 */
+	function beginTrackingRun(
+		type: RunType,
+		runId: string,
+		entities: EntityType[]
+	) {
+		// 前回の実移行の`/limits`スナップショットを、新しいrunのジョブ一覧と
+		// 組み合わせて`LimitsUpsellNotice`に渡さないようにする（新runがterminalに
+		// なるまで`limits`を自然に取り直さないため、明示的にリセットが必要）。
+		if ( 'import' === type ) {
+			setLimits( null );
+		}
+
+		// 新しいdry-runの対象エンティティは前回の件数を捨てる（一部のジョブが失敗・キャンセルしたとき、
+		// 前回の内訳が今回のものとして残らないように。`withoutDryRunTotals()`参照。PR #87 G1-2）。
+		if ( 'dry_run' === type ) {
+			setDryRunTotals( ( prev ) =>
+				withoutDryRunTotals( prev, entities )
+			);
+		}
+
+		( 'dry_run' === type ? setDryRunState : setImportState )(
+			( prev ) => ( {
+				...prev,
+				runId,
+				starting: false,
+			} )
+		);
+	}
+
+	/**
+	 * 進行中の run を見つけたとき、このセクションに取り込む（`useRunAdoption`）。
+	 * @param type
+	 * @param run
+	 */
+	function adoptRun( type: RunType, run: ActiveRun ) {
+		if ( null === platform ) {
+			return;
+		}
+
+		storeRunId( platform, type, run.run_id );
+		beginTrackingRun( type, run.run_id, run.entities );
 	}
 
 	async function startRun( type: RunType ) {
@@ -350,6 +443,8 @@ export default function ImportTab() {
 		// 旧プラットフォームのキーで保存し、後で切り戻したときに発見できるようにする）。
 		const requestedPlatform = platform;
 		const requestedEntities = Array.from( selectedEntities );
+		// 409 の一覧を、応答を待つ間に切り替えた別の選択の一覧として取り込まないため（G1-3）。
+		const selection = activeRuns.selectionRef.current;
 
 		setStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -371,26 +466,10 @@ export default function ImportTab() {
 				return;
 			}
 
-			// 前回の実移行の`/limits`スナップショットを、新しいrunのジョブ一覧と
-			// 組み合わせて`LimitsUpsellNotice`に渡さないようにする（新runがterminalに
-			// なるまで`limits`を自然に取り直さないため、明示的にリセットが必要）。
-			if ( 'import' === type ) {
-				setLimits( null );
-			}
-
-			// 新しいdry-runの対象エンティティは前回の件数を捨てる（一部のジョブが失敗・キャンセルしたとき、
-			// 前回の内訳が今回のものとして残らないように。`withoutDryRunTotals()`参照。PR #87 G1-2）。
-			if ( 'dry_run' === type ) {
-				setDryRunTotals( ( prev ) =>
-					withoutDryRunTotals( prev, requestedEntities )
-				);
-			}
-
-			setState( ( prev ) => ( {
-				...prev,
-				runId: response.run_id,
-				starting: false,
-			} ) );
+			beginTrackingRun( type, response.run_id, requestedEntities );
+			// 一覧に残っている前の run（取り込んだあと終わったが、追跡中なので照会し直していない）を、新しい run を
+			// 始めたことで「追跡していない run」として案内・取り込みし直さないよう、取り直す（R2-2）。
+			activeRuns.refresh();
 		} catch ( err ) {
 			if ( platformRef.current !== requestedPlatform ) {
 				return;
@@ -398,10 +477,15 @@ export default function ImportTab() {
 
 			setStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
+			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
+			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
+			activeRuns.refresh( activeRunsSeed( selection, err ) );
 		}
 	}
 
 	async function retryJob( type: RunType, jobId: number ) {
+		// 409 の一覧を、応答を待つ間に切り替えた別の選択の一覧として取り込まないため（R1-2・G1-3）。
+		const selection = activeRuns.selectionRef.current;
 		const setState = 'dry_run' === type ? setDryRunState : setImportState;
 		const refetch =
 			'dry_run' === type ? dryRunPolling.refetch : importPolling.refetch;
@@ -431,6 +515,13 @@ export default function ImportTab() {
 			// ただちに解除してよい。
 			setStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
+
+			const seed = activeRunsSeed( selection, err );
+
+			// 別の run が進行中（409）なら、その run を案内する。
+			if ( undefined !== seed ) {
+				activeRuns.refresh( seed );
+			}
 		}
 	}
 
@@ -447,6 +538,7 @@ export default function ImportTab() {
 				method: 'POST',
 			} );
 			refetch();
+			activeRuns.refresh();
 		} catch ( err ) {
 			setStartError( errorMessage( err ) );
 		} finally {
@@ -463,6 +555,8 @@ export default function ImportTab() {
 		( 'dry_run' === type ? setDryRunState : setImportState )(
 			initialRunSectionState()
 		);
+		// 手放した run を、Clear より前に取得した一覧から取り込み直さない（取り直すまで stale になる）。
+		activeRuns.refresh();
 	}
 
 	if ( connectionsError ) {
@@ -522,7 +616,11 @@ export default function ImportTab() {
 									key={ entity }
 									label={ ENTITY_LABELS[ entity ] }
 									checked={ selectedEntities.has( entity ) }
-									disabled={ dryRunBusy || importBusy }
+									disabled={
+										dryRunBusy ||
+										importBusy ||
+										blockedByOtherRun
+									}
 									onChange={ ( checked ) =>
 										toggleEntity( entity, checked )
 									}
@@ -535,6 +633,16 @@ export default function ImportTab() {
 						<OrderMappingNotice
 							platform={ platform }
 							active={ selectedEntities.has( 'order' ) }
+						/>
+					) }
+
+					{ platform && (
+						<ActiveRunNotice
+							key={ platform }
+							platform={ platform }
+							runs={ announcedRuns }
+							currentTab="import"
+							onChanged={ () => activeRuns.refresh() }
 						/>
 					) }
 
@@ -554,6 +662,7 @@ export default function ImportTab() {
 							disabled={
 								dryRunBusy ||
 								importBusy ||
+								blockedByOtherRun ||
 								0 === selectedEntities.size
 							}
 							onClick={ () => startRun( 'dry_run' ) }
@@ -569,6 +678,7 @@ export default function ImportTab() {
 							disabled={
 								dryRunBusy ||
 								importBusy ||
+								blockedByOtherRun ||
 								0 === selectedEntities.size
 							}
 							onClick={ () => startRun( 'import' ) }
@@ -625,7 +735,9 @@ export default function ImportTab() {
 								// ユーザーに無用な409エラーを見せないよう先にボタン側で止める
 								// （`ExportTab.tsx`と同型）。
 								retryDisabled={
-									importBusy || dryRunState.starting
+									importBusy ||
+									dryRunState.starting ||
+									blockedByOtherRun
 								}
 								isTerminal={ dryRunTerminal }
 								reportsAvailable
@@ -690,7 +802,9 @@ export default function ImportTab() {
 								cancelling={ importState.cancelling }
 								// `starting`を含める理由は上のdry-run側カードと同じ（issue #54）。
 								retryDisabled={
-									dryRunBusy || importState.starting
+									dryRunBusy ||
+									importState.starting ||
+									blockedByOtherRun
 								}
 								isTerminal={ importTerminal }
 								reportsAvailable={ false }

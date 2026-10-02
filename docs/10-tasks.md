@@ -568,6 +568,12 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `Cast::exact_money_or_null()` に替えた（テスト 5 件追加）。**G3**: JSON の `1e-400` は `json_decode()` で `float(0)` になるため、この2フィールドは float を
   受けない（Copilot。JSON 文字列を実際に復号して通すテストを含め 5 件追加）。Codex は G3 で収束、Copilot は依頼上限の 3 回
 - [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
+  **(1)(2) 実装サマリ（PR 1/2、issue #70。ブランチ `feat/r3-0i-active-run-discovery`）**: `GET /runs?platform=&status=active`（`JobRepository::find_active_runs_for_platform()`。
+  run ごとに全ジョブから `status`〔running > paused > pending〕・`entities`・`has_failed_job`・`created_at`/`updated_at` を集約。`args` は GET 側だけ）と、409 `cbjp_run_in_progress` の
+  `data.active_runs`（呼び出し元 7 箇所すべて。retry は自分の run を除外）。UI は全タブ（Import / Export / Tools / Mappings）が一覧を照会し、Import/Export は自分の種別の run を
+  セクションに取り込み（`decideAdoption()`）、別タブの種別の run は案内（担当タブへのリンク＋キャンセル）してボタンを止める。Mappings の保存の無効化（R3-0m の宿題）も入れた。
+  Import/Export はハッシュの `?platform=` を受け取る。ユーザー決定（2026-10-02）: 4 タブすべて／別タブの run は案内＋リンク（案内にキャンセルも置く）。
+  詳細・実機確認・残る制限は `docs/03` §6「進行中 run の発見」。**(3)(4)（issue #57）は次の PR**（このチェックは (3)(4) の完了時に付ける）
 - [x] **R3-0o: 受注のインポートで新規作成を最終ステータスで保存し、状態変化フックを発火させない**（issue #91。2026-10-01。ブランチ `fix/91-import-order-final-status`）
   **経緯**: R3-0n の版で実店舗の受注をインポートしたところ、プレビューは「作成 19」なのに本番は「作成 0・警告 24」で、WooCommerce の受注一覧は「支払い待ち (19)」なのに一覧が空だった。
   読み取り専用の診断スクリプト（SSH＋WP-CLI。`dist/`、未コミット）で原因を確定した: `OrderWriter::write()` が `wc_create_order( pending )` で作ってから ColorMe のステータスへ `set_status()` していたため、

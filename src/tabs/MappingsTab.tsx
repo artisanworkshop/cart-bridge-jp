@@ -9,8 +9,10 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import ActiveRunNotice from '../components/ActiveRunNotice';
 import MappingSettings, { type MapKey } from '../components/MappingSettings';
 import { parseHash } from '../hash-route';
+import { useActiveRuns } from '../hooks/useActiveRuns';
 import type { Capabilities, Connection } from '../types';
 
 function errorMessage( err: unknown ): string {
@@ -31,6 +33,11 @@ function visibleMapKeys( capabilities: Capabilities ): MapKey[] {
 
 	return keys;
 }
+
+/**
+ * Mappings タブは run を表示しないため、追跡する run は無い（見つけた run はすべて案内の対象）。
+ */
+const NO_TRACKED_RUNS: Array< string | null > = [];
 
 /**
  * マッピング設定のタブ（R3-0m）。以前は Export タブにだけあり、インポートで同じ設定を使うことに
@@ -78,6 +85,11 @@ export default function MappingsTab() {
 			connectedPlatforms.find( ( c ) => c.platform === platform ) ?? null,
 		[ connectedPlatforms, platform ]
 	);
+
+	// 進行中の run がある間は保存させない（R3-0i。マッピングは `MethodMap` が参照のたびに読むため、run の途中で
+	// 変えると同じ run の中でページごとに結果が割れる）。UI 側だけの制限で、サーバーは保存を拒否しないので、
+	// 一覧を最初に取得できるまでも止める（フェイルクローズ。G1-4）。一覧は空でも 30 秒ごとに照会し続ける。
+	const activeRuns = useActiveRuns( platform, NO_TRACKED_RUNS );
 
 	if ( connectionsError ) {
 		return (
@@ -138,10 +150,22 @@ export default function MappingsTab() {
 				</CardBody>
 			</Card>
 
+			{ platform && (
+				<ActiveRunNotice
+					key={ platform }
+					platform={ platform }
+					runs={ activeRuns.runs }
+					onChanged={ () => activeRuns.refresh() }
+				/>
+			) }
+
 			{ platform && currentConnection && (
 				<MappingSettings
 					platform={ platform }
 					mapKeys={ visibleMapKeys( currentConnection.capabilities ) }
+					disabled={
+						! activeRuns.loaded || activeRuns.runs.length > 0
+					}
 				/>
 			) }
 		</div>
