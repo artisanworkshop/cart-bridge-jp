@@ -151,6 +151,7 @@ export default function MappingsTab() {
 
 			{ platform && (
 				<ActiveRunNotice
+					key={ platform }
 					platform={ platform }
 					runs={ activeRuns.runs }
 					onChanged={ () => activeRuns.refresh() }

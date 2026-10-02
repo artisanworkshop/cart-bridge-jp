@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Button, Notice, TextControl } from '@wordpress/components';
 import apiFetch from '../api';
+import { activeRunsSeed, type ActiveRunsSeed } from '../active-runs';
 import { ENTITY_LABELS } from '../entity-labels';
 import { formatIsoTime, formatUtcMysqlTime } from '../format-time';
 import type { PushIntent } from '../types';
@@ -9,12 +10,18 @@ import type { PushIntent } from '../types';
 interface Props {
 	platform: string;
 	/**
-	 * `ExportTab`の`dryRunExportBusy || exportBusy`。実行中の解除は`RestController::resolve_push_intent()`が
+	 * `ExportTab`の`dryRunExportBusy || exportBusy`に、`GET /runs?platform=`で見つけた追跡していない run
+	 * （import を含む。R3-0i）を加えたもの。実行中の解除は`RestController::resolve_push_intent()`が
 	 * `has_active_job_for_platform()`で409（`cbjp_run_in_progress`）を返すため、先回りしてボタンを止め
 	 * 無駄な失敗リクエストを避ける（根本のcheck-then-actは issue #57 に委ねたまま。
 	 * `.claude/rules/sync-export-tools.md`参照）。
 	 */
 	runInProgress: boolean;
+	/**
+	 * 解除が 409（`cbjp_run_in_progress`）で拒否されたとき、応答の`active_runs`を渡す（`ExportTab`が
+	 * 進行中の run の一覧へ反映して案内する。R3-0i）。
+	 */
+	onActiveRuns?: ( seed: ActiveRunsSeed ) => void;
 }
 
 function errorMessage( err: unknown ): string {
@@ -83,8 +90,13 @@ function describeIntent( intent: PushIntent ): string {
  * @param root0
  * @param root0.platform
  * @param root0.runInProgress
+ * @param root0.onActiveRuns
  */
-export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
+export default function PushIntentsPanel( {
+	platform,
+	runInProgress,
+	onActiveRuns,
+}: Props ) {
 	const [ intents, setIntents ] = useState< PushIntent[] | null >( null );
 	const [ listError, setListError ] = useState< string | null >( null );
 	const [ resolvingId, setResolvingId ] = useState< number | null >( null );
@@ -201,6 +213,13 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 					return;
 				}
 
+				const seed = activeRunsSeed( platform, err );
+
+				// 別の run が進行中（409）なら、その run を案内する（R3-0i）。
+				if ( undefined !== seed ) {
+					onActiveRuns?.( seed );
+				}
+
 				setRowErrors( ( prev ) => ( {
 					...prev,
 					[ intent.id ]: errorMessage( err ),
@@ -242,7 +261,7 @@ export default function PushIntentsPanel( { platform, runInProgress }: Props ) {
 			{ runInProgress && (
 				<Notice status="info" isDismissible={ false }>
 					{ __(
-						'An export is currently running for this platform. Wait for it to finish before resolving these items.',
+						'A run is in progress for this platform. Wait for it to finish before resolving these items.',
 						'cart-bridge-jp'
 					) }
 				</Notice>

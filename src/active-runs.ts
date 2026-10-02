@@ -114,6 +114,30 @@ export function activeRunsFromError( err: unknown ): ActiveRun[] | null {
 }
 
 /**
+ * 409 の `active_runs` を、その要求を出したときのプラットフォームと組にしたもの。`useActiveRuns` の
+ * `refresh()` は、選択中のプラットフォームと違う組を捨てる（応答を待つ間に切り替えられたとき、
+ * 別のプラットフォームの run を今のプラットフォームの一覧として取り込まないため）。
+ */
+export interface ActiveRunsSeed {
+	platform: string;
+	runs: ActiveRun[];
+}
+
+/**
+ * @param platform 要求を出したときのプラットフォーム
+ * @param err      apiFetch が投げたエラー
+ * @return run が進行中のエラーでなければ undefined
+ */
+export function activeRunsSeed(
+	platform: string,
+	err: unknown
+): ActiveRunsSeed | undefined {
+	const runs = activeRunsFromError( err );
+
+	return null === runs ? undefined : { platform, runs };
+}
+
+/**
  * このタブ（のセクション）がまだ追跡していない run。開始ボタン等を止める判定に使う。
  * @param runs
  * @param trackedRunIds セクションが表示中の run_id（null は空のセクション）
@@ -126,16 +150,26 @@ export function untrackedRuns(
 }
 
 /**
- * 別のタブの run（種別が不明な run を含む。`runTab( null )` は null で、どのタブとも一致しない）。
- * 案内（`ActiveRunNotice`）で知らせる対象。
- * @param runs
- * @param tab  表示中のタブ（Tools・Mappings のように run を扱わないタブは null で、全 run が対象）
+ * 案内（`ActiveRunNotice`）で知らせる run。別のタブの run（種別が不明な run を含む。`runTab( null )` は null で、
+ * どのタブとも一致しない）に加え、このタブの種別でも、その種別のセクションが別の進行中の run を表示していて
+ * 取り込めない run（同時実行ガードの競合で 2 本目ができた等。issue #57）を含める。取り込める run は、
+ * 取り込まれてセクションに出るので含めない（含めると開始ボタンが説明なく止まるか、一瞬だけ案内が出る）。
+ * @param untracked      セクションが追跡していない run
+ * @param tab            表示中のタブ（Tools・Mappings のように run を扱わないタブは null で、全 run が対象）
+ * @param keepsActiveRun その種別のセクションが、取得済みで進行中の別の run を表示しているか
  */
-export function foreignRuns(
-	runs: ActiveRun[],
-	tab: RunTab | null
+export function runsToAnnounce(
+	untracked: ActiveRun[],
+	tab: RunTab | null,
+	keepsActiveRun: ( type: RunType ) => boolean
 ): ActiveRun[] {
-	return runs.filter( ( run ) => null === tab || runTab( run.type ) !== tab );
+	return untracked.filter(
+		( run ) =>
+			null === tab ||
+			runTab( run.type ) !== tab ||
+			// ここに来る run の種別はこのタブのもの（null ではない）。型を絞るための比較。
+			( null !== run.type && keepsActiveRun( run.type ) )
+	);
 }
 
 /** run を表示するセクション（Import タブの dry-run / import など）の今の状態。 */
@@ -165,7 +199,7 @@ export type AdoptionDecision =
  * - 表示中の run を取得できていないうちは待つ（終了しているか分からないまま置き換えない）。
  * - 表示中の run が進行中なら置き換えない。
  * - 表示中の run を「終了」と見ているのに一覧では進行中なら `reconcile`（別ブラウザからの Retry 等で
- *   再開した run をポーリングが見失っている。または一覧のほうが古い。両方を取り直す）。
+ *   再開した run をポーリングが見失っている。または一覧のほうが古い。`useRunAdoption` はポーリングを取り直す）。
  *
  * @param section
  * @param candidates このセクションと同じ種別の run（一覧の順＝古い順）

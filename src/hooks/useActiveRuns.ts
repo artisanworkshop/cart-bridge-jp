@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import apiFetch from '../api';
-import { parseActiveRuns, untrackedRuns } from '../active-runs';
+import {
+	parseActiveRuns,
+	untrackedRuns,
+	type ActiveRunsSeed,
+} from '../active-runs';
 import type { ActiveRun } from '../types';
 
 const POLL_INTERVAL_MS = 5000;
@@ -33,10 +37,11 @@ export interface ActiveRunsResult {
 	loaded: boolean;
 	generation: number;
 	/**
-	 * 一覧を取り直す。409 の `active_runs` を `seed` に渡すと、応答を待たずにその一覧を表示する。
-	 * 開始・Clear・キャンセル・終了など、一覧が古くなりうる操作のたびに呼ぶ。
+	 * 一覧を取り直す。409 の `active_runs` を `seed`（`activeRunsSeed()`。要求を出したときのプラットフォームと組）に
+	 * 渡すと、応答を待たずにその一覧を表示する。選択中のプラットフォームと違う `seed` は捨てる。
+	 * 開始・Clear・キャンセルなど、一覧が古くなりうる操作のたびに呼ぶ。
 	 */
-	refresh: ( seed?: ActiveRun[] ) => void;
+	refresh: ( seed?: ActiveRunsSeed ) => void;
 }
 
 /**
@@ -77,9 +82,14 @@ export function useActiveRuns(
 		};
 	}, [] );
 
-	const fetchRuns = useCallback( ( seed?: ActiveRun[] ) => {
+	const fetchRuns = useCallback( ( seed?: ActiveRunsSeed ) => {
 		const target = platformRef.current;
 		const requestId = ++generationRef.current;
+		// 要求を出したあとにプラットフォームが切り替わっていたら、その 409 の一覧は今のプラットフォームのものではない。
+		const seedRuns =
+			undefined !== seed && seed.platform === target
+				? seed.runs
+				: undefined;
 
 		if ( null !== timerRef.current ) {
 			window.clearTimeout( timerRef.current );
@@ -99,11 +109,11 @@ export function useActiveRuns(
 					: { ...EMPTY_STATE, platform: target };
 
 			// 409 の一覧はサーバーが今返した値なので、取り込みに使ってよい（stale にしない）。
-			return undefined === seed
+			return undefined === seedRuns
 				? { ...base, stale: true }
 				: {
 						platform: target,
-						runs: seed,
+						runs: seedRuns,
 						stale: false,
 						generation: base.generation + 1,
 				  };
@@ -130,10 +140,23 @@ export function useActiveRuns(
 						( prev.platform === target ? prev.generation : 0 ) + 1,
 				} ) );
 			} )
-			.catch( () => {
+			.catch( ( err: unknown ) => {
 				if (
 					! mountedRef.current ||
 					generationRef.current !== requestId
+				) {
+					return;
+				}
+
+				// 4xx（権限が無い・プラットフォームが登録されていない等）は再試行しても変わらないので、5 秒ごとに
+				// 叩き続けない（次の `refresh()` で取り直す）。
+				const status = ( err as { data?: { status?: unknown } } )?.data
+					?.status;
+
+				if (
+					'number' === typeof status &&
+					status >= 400 &&
+					status < 500
 				) {
 					return;
 				}

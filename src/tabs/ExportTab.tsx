@@ -11,11 +11,7 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
-import {
-	activeRunsFromError,
-	foreignRuns,
-	untrackedRuns,
-} from '../active-runs';
+import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import {
@@ -496,6 +492,23 @@ export default function ExportTab() {
 	] );
 	// 追跡していない run があるうちは開始・Retry・設定の変更を止める（サーバーも 409 で拒否する）。
 	const blockedByOtherRun = otherActiveRuns.length > 0;
+	// 案内する run（`ImportTab.tsx`と同じ）: 別タブの run と、取り込めない同じ種別の run。
+	const dryRunExportShowsActiveRun =
+		null !== dryRunExportPolling.run &&
+		dryRunExportPolling.run.run_id === dryRunExportState.runId &&
+		! dryRunExportTerminal;
+	const exportShowsActiveRun =
+		null !== exportPolling.run &&
+		exportPolling.run.run_id === exportState.runId &&
+		! exportTerminal;
+	const announcedRuns = runsToAnnounce(
+		otherActiveRuns,
+		'export',
+		( type ) =>
+			'dry_run_export' === type
+				? dryRunExportShowsActiveRun
+				: exportShowsActiveRun
+	);
 
 	useRunAdoption( {
 		type: 'dry_run_export',
@@ -577,6 +590,13 @@ export default function ExportTab() {
 			}
 
 			setExportOptionsError( errorMessage( err ) );
+
+			const seed = activeRunsSeed( platform, err );
+
+			// 別の run が進行中（409）なら、その run を案内する。
+			if ( undefined !== seed ) {
+				activeRuns.refresh( seed );
+			}
 		} finally {
 			if ( platformGenerationRef.current === requestId ) {
 				setExportOptionsSaving( false );
@@ -690,7 +710,7 @@ export default function ExportTab() {
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
 			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
 			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
-			activeRuns.refresh( activeRunsFromError( err ) ?? undefined );
+			activeRuns.refresh( activeRunsSeed( requestedPlatform, err ) );
 		}
 	}
 
@@ -713,6 +733,7 @@ export default function ExportTab() {
 		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
 		// 同じ`platformGenerationRef`を使う）。
 		const requestId = platformGenerationRef.current;
+		const requestedPlatform = platform;
 
 		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
 
@@ -736,10 +757,13 @@ export default function ExportTab() {
 			setRunStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 
-			const seed = activeRunsFromError( err );
+			const seed =
+				null === requestedPlatform
+					? undefined
+					: activeRunsSeed( requestedPlatform, err );
 
 			// 別の run が進行中（409）なら、その run を案内する。
-			if ( null !== seed ) {
+			if ( undefined !== seed ) {
 				activeRuns.refresh( seed );
 			}
 		}
@@ -867,6 +891,7 @@ export default function ExportTab() {
 					runInProgress={
 						dryRunExportBusy || exportBusy || blockedByOtherRun
 					}
+					onActiveRuns={ activeRuns.refresh }
 				/>
 			) }
 
@@ -1014,8 +1039,10 @@ export default function ExportTab() {
 
 					{ platform && (
 						<ActiveRunNotice
+							key={ platform }
 							platform={ platform }
-							runs={ foreignRuns( otherActiveRuns, 'export' ) }
+							runs={ announcedRuns }
+							currentTab="export"
 							onChanged={ () => activeRuns.refresh() }
 						/>
 					) }

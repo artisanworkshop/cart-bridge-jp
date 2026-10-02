@@ -11,11 +11,7 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
-import {
-	activeRunsFromError,
-	foreignRuns,
-	untrackedRuns,
-} from '../active-runs';
+import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import OrderMappingNotice from '../components/OrderMappingNotice';
@@ -314,6 +310,21 @@ export default function ImportTab() {
 	] );
 	// 追跡していない run があるうちは開始・Retry を止める（サーバーも 409 で拒否する）。
 	const blockedByOtherRun = otherActiveRuns.length > 0;
+	// 案内する run: 別タブの run と、このタブの種別でもセクションが別の進行中の run を表示していて取り込めない run。
+	const dryRunShowsActiveRun =
+		null !== dryRunPolling.run &&
+		dryRunPolling.run.run_id === dryRunState.runId &&
+		! dryRunTerminal;
+	const importShowsActiveRun =
+		null !== importPolling.run &&
+		importPolling.run.run_id === importState.runId &&
+		! importTerminal;
+	const announcedRuns = runsToAnnounce(
+		otherActiveRuns,
+		'import',
+		( type ) =>
+			'dry_run' === type ? dryRunShowsActiveRun : importShowsActiveRun
+	);
 
 	useRunAdoption( {
 		type: 'dry_run',
@@ -463,11 +474,13 @@ export default function ImportTab() {
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
 			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
 			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
-			activeRuns.refresh( activeRunsFromError( err ) ?? undefined );
+			activeRuns.refresh( activeRunsSeed( requestedPlatform, err ) );
 		}
 	}
 
 	async function retryJob( type: RunType, jobId: number ) {
+		// 409 の一覧を、応答を待つ間に切り替えた別のプラットフォームの一覧として取り込まないため（R1-2）。
+		const requestedPlatform = platform;
 		const setState = 'dry_run' === type ? setDryRunState : setImportState;
 		const refetch =
 			'dry_run' === type ? dryRunPolling.refetch : importPolling.refetch;
@@ -498,10 +511,13 @@ export default function ImportTab() {
 			setStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 
-			const seed = activeRunsFromError( err );
+			const seed =
+				null === requestedPlatform
+					? undefined
+					: activeRunsSeed( requestedPlatform, err );
 
 			// 別の run が進行中（409）なら、その run を案内する。
-			if ( null !== seed ) {
+			if ( undefined !== seed ) {
 				activeRuns.refresh( seed );
 			}
 		}
@@ -620,8 +636,10 @@ export default function ImportTab() {
 
 					{ platform && (
 						<ActiveRunNotice
+							key={ platform }
 							platform={ platform }
-							runs={ foreignRuns( otherActiveRuns, 'import' ) }
+							runs={ announcedRuns }
+							currentTab="import"
 							onChanged={ () => activeRuns.refresh() }
 						/>
 					) }

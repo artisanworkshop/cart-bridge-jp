@@ -28,8 +28,9 @@ interface RunAdoptionOptions {
  * （R3-0i・issue #70。判定は `decideAdoption()`）。
  *
  * セクションが「終了」と見ている run が一覧では進行中のとき（別ブラウザからの Retry で再開した、
- * または一覧のほうが古い）は、ポーリングと一覧の両方を取り直す。食い違いが続いても無限に繰り返さない
- * よう、取り直しは一覧 1 つにつき 1 回にする。
+ * または一覧のほうが古い）は、その run のポーリングだけを取り直す（一覧 1 つにつき 1 回）。一覧は取り直さない:
+ * 一覧を取り直すと世代が進んで再びこの判定に入り、ポーリングが失敗し続ける間は遅延なしで照会を繰り返してしまう
+ * （R1-3）。一覧が古いだけなら、追跡中の run はボタンを止めないので害は無い（Clear・キャンセルで取り直す）。
  *
  * **このフックはセクションの状態をプラットフォームごとに読み込み直す effect より後で呼ぶ**
  * （切り替え直後の描画で、前のプラットフォームのセクションの状態のまま判定しないため）。
@@ -41,8 +42,6 @@ export function useRunAdoption( options: RunAdoptionOptions ): void {
 	onAdoptRef.current = options.onAdopt;
 	const refetchRef = useRef( polling.refetch );
 	refetchRef.current = polling.refetch;
-	const refreshRef = useRef( activeRuns.refresh );
-	refreshRef.current = activeRuns.refresh;
 	const reconciledGenerationRef = useRef< number | null >( null );
 
 	const loaded = null !== polling.run && polling.run.run_id === runId;
@@ -69,7 +68,6 @@ export function useRunAdoption( options: RunAdoptionOptions ): void {
 		) {
 			reconciledGenerationRef.current = activeRuns.generation;
 			refetchRef.current();
-			refreshRef.current();
 		}
 	}, [
 		type,

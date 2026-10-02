@@ -1,10 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
 import {
 	activeRunsFromError,
+	activeRunsSeed,
 	decideAdoption,
-	foreignRuns,
 	parseActiveRuns,
 	runTab,
+	runsToAnnounce,
 	untrackedRuns,
 	type RunSectionSnapshot,
 } from '../active-runs';
@@ -148,12 +149,35 @@ describe( 'runTab', () => {
 	} );
 } );
 
-describe( 'untrackedRuns / foreignRuns', () => {
+describe( 'activeRunsSeed', () => {
+	it( 'pairs the 409 list with the platform the request was sent for', () => {
+		expect(
+			activeRunsSeed( 'colorme', {
+				code: 'cbjp_run_in_progress',
+				data: { active_runs: [ { run_id: 'run-b', type: 'export' } ] },
+			} )
+		).toEqual( {
+			platform: 'colorme',
+			runs: [
+				expect.objectContaining( { run_id: 'run-b', type: 'export' } ),
+			],
+		} );
+	} );
+
+	it( 'returns nothing for other errors', () => {
+		expect(
+			activeRunsSeed( 'colorme', { code: 'cbjp_invalid_run' } )
+		).toBeUndefined();
+	} );
+} );
+
+describe( 'untrackedRuns / runsToAnnounce', () => {
 	const runs = [
 		activeRun( { run_id: 'run-dry', type: 'dry_run' } ),
 		activeRun( { run_id: 'run-export', type: 'export' } ),
 		activeRun( { run_id: 'run-unknown', type: null } ),
 	];
+	const keepsNothing = () => false;
 
 	it( 'leaves out the runs a section already shows', () => {
 		expect(
@@ -161,15 +185,46 @@ describe( 'untrackedRuns / foreignRuns', () => {
 		).toEqual( [ 'run-export', 'run-unknown' ] );
 	} );
 
-	it( 'treats runs of another tab and of an unknown type as foreign', () => {
+	it( 'announces runs of another tab and of an unknown type', () => {
 		expect(
-			foreignRuns( runs, 'import' ).map( ( r ) => r.run_id )
+			runsToAnnounce( runs, 'import', keepsNothing ).map(
+				( r ) => r.run_id
+			)
 		).toEqual( [ 'run-export', 'run-unknown' ] );
 		expect(
-			foreignRuns( runs, 'export' ).map( ( r ) => r.run_id )
+			runsToAnnounce( runs, 'export', keepsNothing ).map(
+				( r ) => r.run_id
+			)
 		).toEqual( [ 'run-dry', 'run-unknown' ] );
+	} );
+
+	it( 'announces every run on a tab that shows no runs', () => {
 		// Tools・Mappings タブは run を表示しないので、すべてが案内の対象。
-		expect( foreignRuns( runs, null ) ).toHaveLength( 3 );
+		expect( runsToAnnounce( runs, null, keepsNothing ) ).toHaveLength( 3 );
+	} );
+
+	it( 'announces a run of this tab only while its section keeps another active run', () => {
+		const second = activeRun( { run_id: 'run-dry-2', type: 'dry_run' } );
+
+		// セクションが空・終了済みなら取り込まれるので案内しない。
+		expect( runsToAnnounce( [ second ], 'import', keepsNothing ) ).toEqual(
+			[]
+		);
+		// 別の進行中の run を表示していて取り込めないなら案内する（開始ボタンが説明なく止まらないように）。
+		expect(
+			runsToAnnounce(
+				[ second ],
+				'import',
+				( type ) => 'dry_run' === type
+			)
+		).toEqual( [ second ] );
+		expect(
+			runsToAnnounce(
+				[ second ],
+				'import',
+				( type ) => 'import' === type
+			)
+		).toEqual( [] );
 	} );
 } );
 

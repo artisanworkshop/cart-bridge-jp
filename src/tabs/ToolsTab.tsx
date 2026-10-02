@@ -10,8 +10,9 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
-import { activeRunsFromError } from '../active-runs';
+import { activeRunsSeed } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
+import { isCleanupBlocked } from '../components/cleanup-gate';
 import { ENTITY_LABELS } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import type {
@@ -202,6 +203,9 @@ export default function ToolsTab() {
 	} | null >( null );
 	const [ cleanupDone, setCleanupDone ] = useState( false );
 	const [ cleanupError, setCleanupError ] = useState< string | null >( null );
+	// プレビューを取ったあとに進行中の run を見たか。その run が書いたデータは件数に入っていないので、
+	// 取り直すまで削除させない（`isCleanupBlocked()`。R3-0i R1-1）。
+	const [ previewOutdated, setPreviewOutdated ] = useState( false );
 
 	const [ rebuilding, setRebuilding ] = useState( false );
 	const [ rebuildCounts, setRebuildCounts ] = useState< Counts | null >(
@@ -265,6 +269,7 @@ export default function ToolsTab() {
 		platformGenerationRef.current += 1;
 		setPlatform( value );
 		setPreview( null );
+		setPreviewOutdated( false );
 		setCleanupProgress( null );
 		setCleanupDone( false );
 		setCleanupError( null );
@@ -290,15 +295,23 @@ export default function ToolsTab() {
 
 	/**
 	 * ツールの 409（`cbjp_run_in_progress`）なら、応答の `active_runs` で案内を出す。
+	 * @param requested 要求を出したときのプラットフォーム（切り替え後の一覧に混ぜないため）
 	 * @param err
 	 */
-	function showActiveRunsFrom( err: unknown ) {
-		const seed = activeRunsFromError( err );
+	function showActiveRunsFrom( requested: string, err: unknown ) {
+		const seed = activeRunsSeed( requested, err );
 
-		if ( null !== seed ) {
+		if ( undefined !== seed ) {
 			activeRuns.refresh( seed );
 		}
 	}
+
+	// プレビューを表示している間に進行中の run を見たら、そのプレビューは古いものとして扱う。
+	useEffect( () => {
+		if ( runInProgress && null !== preview ) {
+			setPreviewOutdated( true );
+		}
+	}, [ runInProgress, preview ] );
 
 	async function loadPreview() {
 		if ( null === platform ) {
@@ -308,9 +321,12 @@ export default function ToolsTab() {
 		const requested = platform;
 		const generation = platformGenerationRef.current;
 		setPreviewing( true );
+		setPreviewOutdated( false );
 		setCleanupError( null );
 		setCleanupDone( false );
 		setCleanupProgress( null );
+		// プレビューと同じ時点の一覧にそろえる（run が始まっていれば、すぐ上の案内とボタンの停止に反映する）。
+		activeRuns.refresh();
 
 		try {
 			const data = await apiFetch< CleanupPreview >( {
@@ -399,7 +415,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setCleanupError( errorMessage( err ) );
-				showActiveRunsFrom( err );
+				showActiveRunsFrom( requested, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -459,7 +475,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setRebuildError( errorMessage( err ) );
-				showActiveRunsFrom( err );
+				showActiveRunsFrom( requested, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -570,7 +586,7 @@ export default function ToolsTab() {
 				}
 
 				setRepairError( errorMessage( err ) );
-				showActiveRunsFrom( err );
+				showActiveRunsFrom( requested, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -611,12 +627,11 @@ export default function ToolsTab() {
 	const previewTotal = preview
 		? sumCounts( preview.delete ) + sumCounts( preview.unlink )
 		: 0;
-	// 進行中の run は、プレビュー時点の値（`preview.run_in_progress`）より、照会し続けている今の一覧を優先する
-	// （一覧をまだ取得できていない間はプレビューの値で止める）。
-	const cleanupBlocked =
-		null !== preview &&
-		( ( activeRuns.loaded ? runInProgress : preview.run_in_progress ) ||
-			( preview.requires_delete_users && ! preview.can_delete_users ) );
+	const cleanupBlocked = isCleanupBlocked(
+		preview,
+		runInProgress,
+		previewOutdated
+	);
 	const repairNeedsRepair =
 		null !== scanTotals && repairBucketTotal( scanTotals, 'fixed' ) > 0;
 	const canRepair = repairNeedsRepair || 'repair' === repairPending?.mode;
@@ -651,8 +666,11 @@ export default function ToolsTab() {
 
 			{ platform && (
 				<ActiveRunNotice
+					key={ platform }
 					platform={ platform }
 					runs={ activeRuns.runs }
+					// Import/Export タブは接続済みのプラットフォームしか開けない（未接続ならキャンセルだけ出す）。
+					showTabLinks={ true === currentConnection?.connected }
 					onChanged={ () => activeRuns.refresh() }
 				/>
 			) }
@@ -703,16 +721,17 @@ export default function ToolsTab() {
 
 					{ preview && (
 						<div className="cbjp-tools__preview">
-							{ /* 進行中の run は上の `ActiveRunNotice` が案内する。一覧をまだ取得できていない間だけ、
-							     プレビュー時点の値で知らせる。 */ }
-							{ ! activeRuns.loaded &&
-								preview.run_in_progress && (
+							{ /* 今進行中の run は上の `ActiveRunNotice` が案内する。ここでは、プレビューが run と重なって
+							     件数が古いことだけを知らせる（`isCleanupBlocked()`）。 */ }
+							{ ! runInProgress &&
+								( preview.run_in_progress ||
+									previewOutdated ) && (
 									<Notice
 										status="warning"
 										isDismissible={ false }
 									>
 										{ __(
-											'A run is in progress for this platform. Wait for it to finish or cancel it before cleaning up.',
+											'A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up.',
 											'cart-bridge-jp'
 										) }
 									</Notice>

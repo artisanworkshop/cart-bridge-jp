@@ -13,6 +13,14 @@ interface ActiveRunNoticeProps {
 	runs: ActiveRun[];
 	/** キャンセルが成功したあとに呼ぶ（一覧を取り直す）。 */
 	onChanged: () => void;
+	/** 表示中のタブ（そのタブへのリンクは出さない）。Tools・Mappings は null。 */
+	currentTab?: RunTab | null;
+	/**
+	 * 担当タブへのリンクを出すか。Import/Export タブは接続済みのプラットフォームしか開けないため、
+	 * Tools タブで未接続・要再接続のプラットフォームを選んでいるときは false にする（リンク先では
+	 * 先頭の別プラットフォームが開いてしまう）。キャンセルは出す。
+	 */
+	showTabLinks?: boolean;
 }
 
 function errorMessage( err: unknown ): string {
@@ -121,7 +129,13 @@ function tabLinkLabel( tab: RunTab ): string {
  * @param props
  */
 export default function ActiveRunNotice( props: ActiveRunNoticeProps ) {
-	const { platform, runs, onChanged } = props;
+	const {
+		platform,
+		runs,
+		onChanged,
+		currentTab = null,
+		showTabLinks = true,
+	} = props;
 	const [ cancellingRunId, setCancellingRunId ] = useState< string | null >(
 		null
 	);
@@ -152,6 +166,10 @@ export default function ActiveRunNotice( props: ActiveRunNoticeProps ) {
 		<div className="cbjp-active-runs">
 			{ runs.map( ( run ) => {
 				const tab = runTab( run.type );
+				const linkTab =
+					showTabLinks && null !== tab && tab !== currentTab
+						? tab
+						: null;
 
 				return (
 					<Notice
@@ -161,9 +179,9 @@ export default function ActiveRunNotice( props: ActiveRunNoticeProps ) {
 					>
 						<p>{ describeRun( run ) }</p>
 						<p className="cbjp-active-runs__actions">
-							{ null !== tab && (
-								<a href={ tabHref( tab, platform ) }>
-									{ tabLinkLabel( tab ) }
+							{ null !== linkTab && (
+								<a href={ tabHref( linkTab, platform ) }>
+									{ tabLinkLabel( linkTab ) }
 								</a>
 							) }{ ' ' }
 							<Button
