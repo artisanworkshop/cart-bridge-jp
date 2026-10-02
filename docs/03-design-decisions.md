@@ -296,7 +296,9 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
   `retry()`（失敗ジョブの再開）も同様に、対象ジョブとは異なる run が同一 platform で進行中なら拒否する
   （issue #54）。ただし判定は `run_id` を除外して行い、対象ジョブと同一 run 内でまだ未処理な
   兄弟ジョブ（`start_run()` は run 開始時に全エンティティのジョブを先に `pending` で作るため、
-  1件が `failed` になっても他は `pending` のまま残りうる）を「進行中の別 run」と誤検知しない
+  1件が `failed` になっても他は `pending` のまま残りうる）を「進行中の別 run」と誤検知しない。
+  拒否の 409 `cbjp_run_in_progress` は進行中の run（`active_runs`）を返し、管理画面はそれを表示・キャンセルできる
+  （R3-0i・issue #70。§6「進行中 run の発見」）。判定から状態変更までが原子的でない問題は issue #57（R3-0i の (3)(4)）
 
 ### 受注インポートの詳細（D10）
 
@@ -377,6 +379,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 | POST | `/connections/{platform}/exchange-code` | OAuthコード手動貼り付けフォールバック（`{code}`。認証済み管理画面からの呼び出しのため通常のnonce+capability保護のみ。F1-2で追加） |
 | GET | `/connect/{platform}/callback` | OAuthコールバック（ASP側に登録する公開URL。**permission例外**: `__return_true` + state検証必須。詳細は下記） |
 | POST | `/runs` | 移行実行の開始 `{type, platform, entities[], acknowledge_production_write?}`（`type=export`は`acknowledge_production_write=true`必須。D17/§10.2「E2-4」） |
+| GET | `/runs?platform=&status=active` | プラットフォームで進行中の run の一覧（`{ platform, runs }`。run_id を控えていない run の発見。R3-0i・issue #70。下の「進行中 run の発見」） |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
 | GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4） |
@@ -392,6 +395,52 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
 
+同一プラットフォームで run が進行中のとき、`POST /runs`・`POST /jobs/{id}/retry`・`/tools/*`（Scan を含む）・`PUT /settings/export-options/{platform}`・
+`POST /push-intents/{platform}/{id}/resolve` は 409 `cbjp_run_in_progress` を返す。エラーの `data.active_runs` に `GET /runs` と同じ形の一覧を載せる
+（retry は対象ジョブ自身の run を除く。判定と応答の間に run が終われば空配列）。
+
+### 進行中 run の発見（R3-0i・issue #70）
+
+**背景**: `POST /runs` はジョブを作って実行を始めてから run_id を返す。管理画面は run_id を localStorage（`cbjp_run_{type}_{platform}`）に控えて進捗を
+ポーリングするが、応答がブラウザに届かない（リロード・通信断）・別のブラウザで始めた・localStorage が使えない、のいずれかでは run を見失う。
+その間も同時実行ガードは開始・Retry・ツールを 409 で拒否し続けるため、利用者には「何も動いていないのに開始できない」状態になり、最初のジョブが失敗して
+兄弟ジョブが `pending` のまま止まった run は無期限にプラットフォームを塞ぐ。
+
+**REST**: `GET /runs?platform=&status=active`（`JobRepository::find_active_runs_for_platform()`）。`args` は GET のエンドポイントにだけ付ける
+（route レベルの `args` は `register_rest_route()` が全エンドポイントへ合流させ、`args` を持たない `POST /runs` の既存の検証〔配列の `platform` を 404〕を 400 に変えてしまう）。
+`platform` はツール系と同じ `$platform_arg`（`validate_callback` 併記）、`status` は `enum: ['active']`・既定 `active`（将来の絞り込みの余地）。
+run ごとの値は全ジョブから集約する: `status` は未終了のジョブの running > paused > pending、`entities` は全ジョブ（失敗したものを含む。取り込む UI が前回の dry-run
+件数を捨てる対象）、`has_failed_job`（止まった run を「実行中」と区別して表示する）、`created_at`（最小）/`updated_at`（最大）。一覧は古い順。
+同時実行ガードは「1 プラットフォーム 1 run」を保つ前提だが、判定が原子的でない間（issue #57）は複数ありうるため一覧で返す。
+
+**UI**（`src/active-runs.ts`〔純粋関数〕・`src/hooks/useActiveRuns.ts`・`src/hooks/useRunAdoption.ts`・`src/components/ActiveRunNotice.tsx`）:
+- 全タブ（Import / Export / Tools / Mappings）が platform ごとに一覧を照会する。一覧を書き換えるのは取得関数だけで、世代カウンタもその中で進める。409 の
+  `active_runs` は `refresh( seed )` で同じ経路から反映する。一覧は取得した platform と組で持ち、選択中の platform と違う一覧は返さない。
+- 5 秒ごとの照会は、タブが追跡していない run があるときだけ（追跡中の run は `useRunPolling` が 2 秒ごとに見る）。取得に失敗しても直前の一覧は消さない。
+- Import/Export タブは自分の種別の run をセクションに取り込む（`decideAdoption()`）: 一覧の取り直し中・セクションの応答待ち（開始・Retry・キャンセル）は何もしない。
+  空のセクション、または表示中の run が終了・404 なら最古の run を取り込み、表示中の run が進行中・未取得なら置き換えない。表示中の run を「終了」と見ているのに
+  一覧では進行中なら、ポーリングと一覧の両方を一覧 1 つにつき 1 回取り直す（別ブラウザからの Retry で再開した run を見失わないため）。
+  取り込みは開始成功時と同じ後処理（run_id の控え・`setLimits(null)`・`withoutDryRunTotals()`・export なら本番書込みの確認を外す）を共有する。
+  Clear・キャンセル成功・開始の**すべての**エラー（409 以外でも、応答が届かなかっただけで run が作られていることがある）で一覧を取り直す。
+- 別タブの種別（種別不明を含む）の run は `ActiveRunNotice` で案内する（状態の説明・担当タブへのリンク `#/<tab>?platform=`・キャンセルボタン）。
+  キャンセルを案内にも置くのは、Tools タブには未接続・要再接続の platform も並び、その run は（接続済みの platform だけを出す）Import/Export タブで開けないため。
+  Import/Export タブはハッシュの `?platform=` を接続済みの platform に一致するときだけ初期選択にする（Mappings タブと同じ）。
+- 追跡していない run がある間は、開始・Retry・エンティティ選択・画像アップロード設定・本番書込みの確認（Export）、`PushIntentsPanel` の解除、Tools の
+  再構築/Scan/Repair（プレビューは可）、Mappings の保存を止める。Tools のクリーンアップは、一覧を取得済みならプレビュー時点の `run_in_progress` より今の一覧を優先する。
+
+**残る制限**:
+- Mappings タブの保存の無効化は UI だけで、サーバーは run 中の保存を拒否しない（R3-0m の判断どおり。設定は次のアイテムから効き、未設定側は警告に倒れる）。
+- キャンセルしたジョブが `paused`/`completed` で上書きされて復活しうる根本原因（`JobManager::process_job()` の無条件の状態更新）と、判定の非原子性は
+  R3-0i の (3)(4)（issue #57）で直す。それまでは、復活した run も一覧に出るので画面から見つけて止められる。
+- 開始ボタンの 409 で出たエラー文（「A run is already in progress…」）は、塞いでいた run が終わった後も閉じるまで残る（ほかのエラーと同じ扱い）。
+
+**実機確認（2026-10-02、wp-env・mock アダプタ `mockv`）**: run_id をブラウザに渡さずにジョブを直接作り（Action Scheduler の action なし＝動かない run）、
+localStorage を消した状態で確認した。Import タブが dry-run を取り込んで Cancel run を出し（一覧の照会は 1 回、以後は run の 2 秒ポーリングだけ）、
+Export / Tools / Mappings タブは案内・リンク・キャンセルを出してボタンを止めた（Export と Tools は一覧を約 5 秒ごとに照会）。案内のリンクから Import タブへ移ると
+mockv が選ばれ（colorme も接続済みの環境）、キャンセル → Clear 後は取り込み直さない。Import タブを開いたまま裏で export run を作って Preview を押すと、409 の
+`active_runs` から再読込なしで案内が出た。失敗で止まった export run は Import タブで「a job failed」の案内、Export タブで Failed・Retry つきで取り込まれた。
+REST は `rest_do_request()` で 200（一覧）/400（platform なし・配列・不正な status）/404（未登録）/409（`active_runs` に該当 run）を確認。コンソールエラーなし。撤去済み。
+
 ### OAuth コールバック（カラーミー・BASE共通）
 
 - コールバックURL: `{site_url}/wp-json/cbjp/v1/connect/{platform}/callback`（ユーザーが各ASPのアプリ登録画面に登録する。設定画面にコピー用で表示）
@@ -406,8 +455,9 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 - ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16）/ 県コード修復（issue #46）（`/tools/*` ルート）を配置
 - **Mappings タブ（`#/mappings`、R3-0m）**: `GET/PUT /settings/mappings/{platform}` の編集 UI。E2-1 で Export タブに作ったものを共有コンポーネント
   `src/components/MappingSettings.tsx` に切り出して移した（GET と PUT は同じ世代カウンタを共有する）。決済方法・配送方法・注文ステータスを常に、
-  カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は止めない（`Woo\Support\MethodMap` は参照のたびにオプションを読むので、
-  run の途中で保存した設定は次のアイテムから効き、未設定側は未マッピング＝警告に倒れるだけ。R3-0i の `GET /runs?platform=` が入ったら無効化を足す）。
+  カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は R3-0i で UI 側だけ止めた（`GET /runs?platform=` で進行中の run を
+  見つけたら保存を無効にして案内する。サーバーは拒否しない: `Woo\Support\MethodMap` は参照のたびにオプションを読むので、run の途中で保存した設定は
+  次のアイテムから効き、未設定側は未マッピング＝警告に倒れるだけ）。
   Export タブには Mappings タブへの案内とリンクだけを残した（platform の選択は Export タブ先頭のカードへ移し、世代カウンタは画像設定の取得 effect が進める）。
   Import/Export の案内のリンクは `#/mappings?platform=<platform>` で選択中の platform を引き継ぎ、Mappings タブは接続済みの platform に一致するときだけ
   それを初期選択にする（`src/hash-route.ts`。ハッシュは任意の文字列を含みうるため。PR #89 G1-1）
