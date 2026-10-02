@@ -395,7 +395,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
 
-同一プラットフォームで run が進行中のとき、`POST /runs`・`POST /jobs/{id}/retry`・`/tools/*`（Scan を含む）・`PUT /settings/export-options/{platform}`・
+同一プラットフォームで run が進行中のとき、`POST /runs`・`POST /jobs/{id}/retry`・`/tools/*` の実行（POST）と県コード修復の Scan（GET。クリーンアップの件数プレビューは 409 にせず `run_in_progress` を返す）・`PUT /settings/export-options/{platform}`・
 `POST /push-intents/{platform}/{id}/resolve` は 409 `cbjp_run_in_progress` を返す。エラーの `data.active_runs` に `GET /runs` と同じ形の一覧を載せる
 （retry は対象ジョブ自身の run を除く。判定と応答の間に run が終われば空配列）。
 
@@ -415,18 +415,28 @@ run ごとの値は全ジョブから集約する: `status` は未終了のジ�
 
 **UI**（`src/active-runs.ts`〔純粋関数〕・`src/hooks/useActiveRuns.ts`・`src/hooks/useRunAdoption.ts`・`src/components/ActiveRunNotice.tsx`）:
 - 全タブ（Import / Export / Tools / Mappings）が platform ごとに一覧を照会する。一覧を書き換えるのは取得関数だけで、世代カウンタもその中で進める。409 の
-  `active_runs` は `refresh( seed )` で同じ経路から反映する。一覧は取得した platform と組で持ち、選択中の platform と違う一覧は返さない。
-- 5 秒ごとの照会は、タブが追跡していない run があるときだけ（追跡中の run は `useRunPolling` が 2 秒ごとに見る）。取得に失敗しても直前の一覧は消さない。
+  `active_runs` は `refresh( seed )` で同じ経路から反映する。seed は要求を出したときの platform と組（`activeRunsSeed()`）で、選択中の platform と違えば捨てる
+  （応答を待つ間に platform を切り替えたとき、別の platform の run を今の platform の一覧として取り込まないため。R1-2）。一覧は取得した platform と組で持ち、
+  選択中の platform と違う一覧は返さない。409 を返す操作（開始・Retry・ツール・画像アップロード設定・push intent の解除）はすべて seed を渡す。
+- 5 秒ごとの照会は、タブが追跡していない run があるときだけ（追跡中の run は `useRunPolling` が 2 秒ごとに見る）。取得に失敗しても直前の一覧は消さない
+  （4xx は再試行しても変わらないので、次の `refresh()` まで照会しない）。
 - Import/Export タブは自分の種別の run をセクションに取り込む（`decideAdoption()`）: 一覧の取り直し中・セクションの応答待ち（開始・Retry・キャンセル）は何もしない。
   空のセクション、または表示中の run が終了・404 なら最古の run を取り込み、表示中の run が進行中・未取得なら置き換えない。表示中の run を「終了」と見ているのに
-  一覧では進行中なら、ポーリングと一覧の両方を一覧 1 つにつき 1 回取り直す（別ブラウザからの Retry で再開した run を見失わないため）。
+  一覧では進行中なら、その run のポーリングだけを一覧 1 つにつき 1 回取り直す（別ブラウザからの Retry で再開した run を見失わないため）。一覧は取り直さない
+  （取り直すと世代が進んで再び同じ判定に入り、ポーリングが失敗し続ける間は遅延なしで照会を繰り返す。R1-3。一覧が古いだけなら、追跡中の run はボタンを止めない）。
   取り込みは開始成功時と同じ後処理（run_id の控え・`setLimits(null)`・`withoutDryRunTotals()`・export なら本番書込みの確認を外す）を共有する。
   Clear・キャンセル成功・開始の**すべての**エラー（409 以外でも、応答が届かなかっただけで run が作られていることがある）で一覧を取り直す。
-- 別タブの種別（種別不明を含む）の run は `ActiveRunNotice` で案内する（状態の説明・担当タブへのリンク `#/<tab>?platform=`・キャンセルボタン）。
-  キャンセルを案内にも置くのは、Tools タブには未接続・要再接続の platform も並び、その run は（接続済みの platform だけを出す）Import/Export タブで開けないため。
+- 別タブの種別（種別不明を含む）の run と、このタブの種別でもセクションが別の進行中の run を表示していて取り込めない run（同時実行ガードの競合で 2 本目が
+  できた等）は `ActiveRunNotice` で案内する（`runsToAnnounce()`。状態の説明・担当タブへのリンク `#/<tab>?platform=`・キャンセルボタン）。
+  キャンセルを案内にも置くのは、Tools タブには未接続・要再接続の platform も並び、その run は（接続済みの platform だけを出す）Import/Export タブで開けないため
+  （その platform ではリンクを出さない。リンク先では先頭の別 platform が開いてしまう）。
   Import/Export タブはハッシュの `?platform=` を接続済みの platform に一致するときだけ初期選択にする（Mappings タブと同じ）。
 - 追跡していない run がある間は、開始・Retry・エンティティ選択・画像アップロード設定・本番書込みの確認（Export）、`PushIntentsPanel` の解除、Tools の
-  再構築/Scan/Repair（プレビューは可）、Mappings の保存を止める。Tools のクリーンアップは、一覧を取得済みならプレビュー時点の `run_in_progress` より今の一覧を優先する。
+  再構築/Scan/Repair（プレビューは可）、Mappings の保存を止める。
+- Tools のクリーンアップ（`isCleanupBlocked()`）は、プレビュー時点で run が進行中だった（`run_in_progress`）・今 run が進行中・プレビューのあとに run を見た、
+  のいずれでも止め、プレビューの取り直しを求める。削除（`SampleCleanup::run()`）はプレビューの件数と関係なくその時点の mapping をすべて対象にするため、
+  run と重なったプレビューの件数で確認させない（件数 0 なら確認ダイアログも出ないまま、run が書いたデータを消してしまう。R1-1。今の一覧だけで判定した最初の実装は、
+  run が終わった時点で古いプレビューのまま削除できる退行だった）。
 
 **残る制限**:
 - Mappings タブの保存の無効化は UI だけで、サーバーは run 中の保存を拒否しない（R3-0m の判断どおり。設定は次のアイテムから効き、未設定側は警告に倒れる）。
@@ -440,6 +450,8 @@ Export / Tools / Mappings タブは案内・リンク・キャンセルを出し
 mockv が選ばれ（colorme も接続済みの環境）、キャンセル → Clear 後は取り込み直さない。Import タブを開いたまま裏で export run を作って Preview を押すと、409 の
 `active_runs` から再読込なしで案内が出た。失敗で止まった export run は Import タブで「a job failed」の案内、Export タブで Failed・Retry つきで取り込まれた。
 REST は `rest_do_request()` で 200（一覧）/400（platform なし・配列・不正な status）/404（未登録）/409（`active_runs` に該当 run）を確認。コンソールエラーなし。撤去済み。
+review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作ると、Import タブは古いほうを取り込み、2 本目をリンクなし・キャンセルつきで案内した。Tools タブで run の最中に
+プレビュー → 裏で run を止めると、約 5 秒で案内が消えてボタンが戻り、プレビューには「取り直して」の警告が出た（`isCleanupBlocked()`）。撤去済み。
 
 ### OAuth コールバック（カラーミー・BASE共通）
 
