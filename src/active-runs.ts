@@ -114,27 +114,28 @@ export function activeRunsFromError( err: unknown ): ActiveRun[] | null {
 }
 
 /**
- * 409 の `active_runs` を、その要求を出したときのプラットフォームと組にしたもの。`useActiveRuns` の
- * `refresh()` は、選択中のプラットフォームと違う組を捨てる（応答を待つ間に切り替えられたとき、
- * 別のプラットフォームの run を今のプラットフォームの一覧として取り込まないため）。
+ * 409 の `active_runs` を、その要求を出したときのプラットフォーム選択の番号（`useActiveRuns` の `selection()`）と
+ * 組にしたもの。`refresh()` は、要求の後に選択が変わっていた組を捨てる（応答を待つ間に切り替えられたとき、別の
+ * 選択の run を今の一覧として取り込まないため。A→B→A と同じプラットフォームへ戻った場合も、値の一致ではなく
+ * 単調増加の番号で見分ける。`.claude/rules/frontend.md`）。
  */
 export interface ActiveRunsSeed {
-	platform: string;
+	selection: number;
 	runs: ActiveRun[];
 }
 
 /**
- * @param platform 要求を出したときのプラットフォーム
- * @param err      apiFetch が投げたエラー
+ * @param selection 要求を出したときのプラットフォーム選択の番号
+ * @param err       apiFetch が投げたエラー
  * @return run が進行中のエラーでなければ undefined
  */
 export function activeRunsSeed(
-	platform: string,
+	selection: number,
 	err: unknown
 ): ActiveRunsSeed | undefined {
 	const runs = activeRunsFromError( err );
 
-	return null === runs ? undefined : { platform, runs };
+	return null === runs ? undefined : { selection, runs };
 }
 
 /**

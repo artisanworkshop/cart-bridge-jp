@@ -566,6 +566,7 @@ export default function ExportTab() {
 
 		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める（`save()`と同じ理由）。
 		const requestId = platformGenerationRef.current;
+		const selection = activeRuns.selectionRef.current;
 
 		setExportOptionsSaving( true );
 		setExportOptionsError( null );
@@ -591,7 +592,7 @@ export default function ExportTab() {
 
 			setExportOptionsError( errorMessage( err ) );
 
-			const seed = activeRunsSeed( platform, err );
+			const seed = activeRunsSeed( selection, err );
 
 			// 別の run が進行中（409）なら、その run を案内する。
 			if ( undefined !== seed ) {
@@ -676,6 +677,7 @@ export default function ExportTab() {
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
 		const requestedEntities = Array.from( selectedExportEntities );
+		const selection = activeRuns.selectionRef.current;
 
 		setRunStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -712,7 +714,7 @@ export default function ExportTab() {
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
 			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
 			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
-			activeRuns.refresh( activeRunsSeed( requestedPlatform, err ) );
+			activeRuns.refresh( activeRunsSeed( selection, err ) );
 		}
 	}
 
@@ -735,7 +737,7 @@ export default function ExportTab() {
 		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
 		// 同じ`platformGenerationRef`を使う）。
 		const requestId = platformGenerationRef.current;
-		const requestedPlatform = platform;
+		const selection = activeRuns.selectionRef.current;
 
 		setState( ( prev ) => ( { ...prev, retryingJobId: jobId } ) );
 
@@ -759,10 +761,7 @@ export default function ExportTab() {
 			setRunStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 
-			const seed =
-				null === requestedPlatform
-					? undefined
-					: activeRunsSeed( requestedPlatform, err );
+			const seed = activeRunsSeed( selection, err );
 
 			// 別の run が進行中（409）なら、その run を案内する。
 			if ( undefined !== seed ) {
@@ -893,7 +892,7 @@ export default function ExportTab() {
 					runInProgress={
 						dryRunExportBusy || exportBusy || blockedByOtherRun
 					}
-					onActiveRuns={ activeRuns.refresh }
+					activeRuns={ activeRuns }
 				/>
 			) }
 

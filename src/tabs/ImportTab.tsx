@@ -443,6 +443,8 @@ export default function ImportTab() {
 		// 旧プラットフォームのキーで保存し、後で切り戻したときに発見できるようにする）。
 		const requestedPlatform = platform;
 		const requestedEntities = Array.from( selectedEntities );
+		// 409 の一覧を、応答を待つ間に切り替えた別の選択の一覧として取り込まないため（G1-3）。
+		const selection = activeRuns.selectionRef.current;
 
 		setStartError( null );
 		setState( ( prev ) => ( { ...prev, starting: true } ) );
@@ -477,13 +479,13 @@ export default function ImportTab() {
 			setState( ( prev ) => ( { ...prev, starting: false } ) );
 			// 409 なら進行中の run を取り込む・案内する（`active_runs`）。409 以外（通信断で応答が届かなかった等）
 			// でも、サーバー側では run が作られていることがあるため一覧を取り直して見つける（issue #70）。
-			activeRuns.refresh( activeRunsSeed( requestedPlatform, err ) );
+			activeRuns.refresh( activeRunsSeed( selection, err ) );
 		}
 	}
 
 	async function retryJob( type: RunType, jobId: number ) {
-		// 409 の一覧を、応答を待つ間に切り替えた別のプラットフォームの一覧として取り込まないため（R1-2）。
-		const requestedPlatform = platform;
+		// 409 の一覧を、応答を待つ間に切り替えた別の選択の一覧として取り込まないため（R1-2・G1-3）。
+		const selection = activeRuns.selectionRef.current;
 		const setState = 'dry_run' === type ? setDryRunState : setImportState;
 		const refetch =
 			'dry_run' === type ? dryRunPolling.refetch : importPolling.refetch;
@@ -514,10 +516,7 @@ export default function ImportTab() {
 			setStartError( errorMessage( err ) );
 			setState( ( prev ) => ( { ...prev, retryingJobId: null } ) );
 
-			const seed =
-				null === requestedPlatform
-					? undefined
-					: activeRunsSeed( requestedPlatform, err );
+			const seed = activeRunsSeed( selection, err );
 
 			// 別の run が進行中（409）なら、その run を案内する。
 			if ( undefined !== seed ) {

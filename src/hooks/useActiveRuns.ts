@@ -7,7 +7,14 @@ import {
 } from '../active-runs';
 import type { ActiveRun } from '../types';
 
+/** 追跡していない run がある間の照会間隔（終わった・キャンセルされたことを早く反映する）。 */
 const POLL_INTERVAL_MS = 5000;
+
+/**
+ * 追跡していない run が無い間の照会間隔。一覧が空でも照会を止めない: 止めると、このタブを開いた後に別のブラウザで
+ * 始まった run を見つけられず、サーバーが拒否しない操作（Mappings の保存）が run の途中ですり抜ける（G1-4/G1-5）。
+ */
+const IDLE_POLL_INTERVAL_MS = 30000;
 
 /** 4xx（権限が無い・プラットフォームが登録されていない等）の後の再試行間隔。すぐには直らないので間を空ける。 */
 const CLIENT_ERROR_RETRY_MS = 60000;
@@ -21,7 +28,10 @@ interface ActiveRunsState {
 	runs: ActiveRun[];
 	/** 取り直しを始めてから応答が届くまで true。古い一覧で run を取り込まないための印。 */
 	stale: boolean;
-	/** 一覧を取得できた回数（取り込み直しの判定を一覧ごとに 1 回へ絞るために使う）。 */
+	/**
+	 * 一覧の版（反映するたびに増える。プラットフォームを切り替えても戻らない単調増加）。取り込み直しの判定を
+	 * 一覧ごとに 1 回へ絞るために使う。0 はこのプラットフォームの一覧をまだ反映していない。
+	 */
 	generation: number;
 }
 
@@ -40,9 +50,14 @@ export interface ActiveRunsResult {
 	loaded: boolean;
 	generation: number;
 	/**
-	 * 一覧を取り直す。409 の `active_runs` を `seed`（`activeRunsSeed()`。要求を出したときのプラットフォームと組）に
-	 * 渡すと、応答を待たずにその一覧を表示する。選択中のプラットフォームと違う `seed` は捨てる。
-	 * 開始・Clear・キャンセルなど、一覧が古くなりうる操作のたびに呼ぶ。
+	 * いまのプラットフォーム選択の番号（選択が変わるたびに増える。読み取り専用）。409 を返しうる要求を出すときに
+	 * `selectionRef.current` を控え、応答の `active_runs` を `activeRunsSeed( selection, err )` で `refresh()` に渡す。
+	 */
+	selectionRef: { readonly current: number };
+	/**
+	 * 一覧を取り直す。409 の `active_runs`（`activeRunsSeed()`）を `seed` に渡すと、応答を待たずにその一覧を表示する。
+	 * 要求を出した後にプラットフォームの選択が変わっていた `seed` は捨てる（A→B→A と戻った場合も。値の一致ではなく
+	 * 選択の番号で比べる。`.claude/rules/frontend.md`）。開始・Clear・キャンセルなど、一覧が古くなりうる操作のたびに呼ぶ。
 	 */
 	refresh: ( seed?: ActiveRunsSeed ) => void;
 }
@@ -55,8 +70,8 @@ export interface ActiveRunsResult {
  *   （`.claude/rules/frontend.md`。409 の一覧も `seed` として同じ経路で反映する）。
  * - 一覧は取得したプラットフォームと組で持ち、選択中のプラットフォームと違う一覧は返さない
  *   （切り替え直後の 1 回の描画で前のプラットフォームの run を取り込まないため）。
- * - 5 秒ごとの照会は、呼び出し側が追跡していない run があるときだけ行う（追跡中の run は
- *   `useRunPolling` が 2 秒ごとに見ている）。取得に失敗したら直前の一覧を残したまま再試行する（4xx は 60 秒後）。
+ * - 照会は続ける: 追跡していない run がある間は 5 秒ごと（追跡中の run は `useRunPolling` が 2 秒ごとに見ている）、
+ *   無い間は 30 秒ごと。取得に失敗したら直前の一覧を残したまま再試行する（4xx は 60 秒後）。
  *
  * @param platform      選択中のプラットフォーム
  * @param trackedRunIds 呼び出し側のセクションが表示中の run_id
@@ -66,7 +81,12 @@ export function useActiveRuns(
 	trackedRunIds: Array< string | null >
 ): ActiveRunsResult {
 	const [ state, setState ] = useState< ActiveRunsState >( EMPTY_STATE );
-	const generationRef = useRef( 0 );
+	// 取得要求の世代（古い応答を捨てる）。
+	const requestRef = useRef( 0 );
+	// 反映した一覧の版（`ActiveRunsState::generation`）。
+	const versionRef = useRef( 0 );
+	// プラットフォームの選択の番号（409 の seed が今の選択のものかを比べる）。
+	const selectionRef = useRef( 0 );
 	const timerRef = useRef< number | null >( null );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
@@ -87,10 +107,10 @@ export function useActiveRuns(
 
 	const fetchRuns = useCallback( ( seed?: ActiveRunsSeed ) => {
 		const target = platformRef.current;
-		const requestId = ++generationRef.current;
-		// 要求を出したあとにプラットフォームが切り替わっていたら、その 409 の一覧は今のプラットフォームのものではない。
+		const requestId = ++requestRef.current;
+		// 要求を出した後にプラットフォームの選択が変わっていたら、その 409 の一覧は今の選択のものではない。
 		const seedRuns =
-			undefined !== seed && seed.platform === target
+			undefined !== seed && seed.selection === selectionRef.current
 				? seed.runs
 				: undefined;
 
@@ -105,6 +125,8 @@ export function useActiveRuns(
 			return;
 		}
 
+		const seedVersion = undefined === seedRuns ? 0 : ++versionRef.current;
+
 		setState( ( prev ) => {
 			const base =
 				prev.platform === target
@@ -118,7 +140,7 @@ export function useActiveRuns(
 						platform: target,
 						runs: seedRuns,
 						stale: false,
-						generation: base.generation + 1,
+						generation: seedVersion,
 				  };
 		} );
 
@@ -130,23 +152,22 @@ export function useActiveRuns(
 			.then( ( data ) => {
 				if (
 					! mountedRef.current ||
-					generationRef.current !== requestId
+					requestRef.current !== requestId
 				) {
 					return;
 				}
 
-				setState( ( prev ) => ( {
+				setState( {
 					platform: target,
 					runs: parseActiveRuns( data?.runs ),
 					stale: false,
-					generation:
-						( prev.platform === target ? prev.generation : 0 ) + 1,
-				} ) );
+					generation: ++versionRef.current,
+				} );
 			} )
 			.catch( ( err: unknown ) => {
 				if (
 					! mountedRef.current ||
-					generationRef.current !== requestId
+					requestRef.current !== requestId
 				) {
 					return;
 				}
@@ -167,6 +188,8 @@ export function useActiveRuns(
 	}, [] );
 
 	useEffect( () => {
+		// 選択が変わった。これより前に出した要求の 409 の一覧は、もう反映しない（`refresh()`）。
+		selectionRef.current += 1;
 		fetchRuns();
 	}, [ platform, fetchRuns ] );
 
@@ -176,13 +199,16 @@ export function useActiveRuns(
 	const trackedKey = trackedRunIds.join( '\n' );
 	const hasUntracked = untrackedRuns( runs, trackedRunIds ).length > 0;
 
-	// 追跡していない run がある間だけ、終わったか（キャンセルされたか）を照会し続ける。
+	// 一覧を取り直し続ける。追跡していない run がある間は、終わった（キャンセルされた）ことを早く反映するため短い間隔で。
 	useEffect( () => {
-		if ( ! current || stale || ! hasUntracked ) {
+		if ( ! current || stale ) {
 			return;
 		}
 
-		const timer = window.setTimeout( () => fetchRuns(), POLL_INTERVAL_MS );
+		const timer = window.setTimeout(
+			() => fetchRuns(),
+			hasUntracked ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
+		);
 
 		return () => window.clearTimeout( timer );
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,6 +219,7 @@ export function useActiveRuns(
 		stale,
 		loaded: current && state.generation > 0,
 		generation: current ? state.generation : 0,
+		selectionRef,
 		refresh: fetchRuns,
 	};
 }

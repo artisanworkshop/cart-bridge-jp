@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Button, Notice, TextControl } from '@wordpress/components';
 import apiFetch from '../api';
-import { activeRunsSeed, type ActiveRunsSeed } from '../active-runs';
+import { activeRunsSeed } from '../active-runs';
+import type { ActiveRunsResult } from '../hooks/useActiveRuns';
 import { ENTITY_LABELS } from '../entity-labels';
 import { formatIsoTime, formatUtcMysqlTime } from '../format-time';
 import type { PushIntent } from '../types';
@@ -18,10 +19,11 @@ interface Props {
 	 */
 	runInProgress: boolean;
 	/**
-	 * 解除が 409（`cbjp_run_in_progress`）で拒否されたとき、応答の`active_runs`を渡す（`ExportTab`が
-	 * 進行中の run の一覧へ反映して案内する。R3-0i）。
+	 * `ExportTab`の進行中の run の一覧（`useActiveRuns`）。解除が 409（`cbjp_run_in_progress`）で拒否されたとき、
+	 * 応答の`active_runs`を、解除を始めたときの選択の番号と組にして反映する（R3-0i。応答を待つ間に
+	 * A→B→A と切り替えて、このパネルが作り直されていても、古い選択の一覧は捨てられる。G1-1）。
 	 */
-	onActiveRuns?: ( seed: ActiveRunsSeed ) => void;
+	activeRuns?: Pick< ActiveRunsResult, 'selectionRef' | 'refresh' >;
 }
 
 function errorMessage( err: unknown ): string {
@@ -90,12 +92,12 @@ function describeIntent( intent: PushIntent ): string {
  * @param root0
  * @param root0.platform
  * @param root0.runInProgress
- * @param root0.onActiveRuns
+ * @param root0.activeRuns
  */
 export default function PushIntentsPanel( {
 	platform,
 	runInProgress,
-	onActiveRuns,
+	activeRuns,
 }: Props ) {
 	const [ intents, setIntents ] = useState< PushIntent[] | null >( null );
 	const [ listError, setListError ] = useState< string | null >( null );
@@ -169,6 +171,8 @@ export default function PushIntentsPanel( {
 		action: 'not_created' | 'link',
 		remoteId?: string
 	) {
+		const selection = activeRuns?.selectionRef.current;
+
 		setResolvingId( intent.id );
 		setResolvingAction( action );
 		setRowErrors( ( prev ) => {
@@ -213,11 +217,14 @@ export default function PushIntentsPanel( {
 					return;
 				}
 
-				const seed = activeRunsSeed( platform, err );
+				const seed =
+					undefined === selection
+						? undefined
+						: activeRunsSeed( selection, err );
 
 				// 別の run が進行中（409）なら、その run を案内する（R3-0i）。
 				if ( undefined !== seed ) {
-					onActiveRuns?.( seed );
+					activeRuns?.refresh( seed );
 				}
 
 				setRowErrors( ( prev ) => ( {

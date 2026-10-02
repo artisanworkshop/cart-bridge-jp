@@ -295,11 +295,11 @@ export default function ToolsTab() {
 
 	/**
 	 * ツールの 409（`cbjp_run_in_progress`）なら、応答の `active_runs` で案内を出す。
-	 * @param requested 要求を出したときのプラットフォーム（切り替え後の一覧に混ぜないため）
+	 * @param selection 要求を出したときのプラットフォーム選択の番号（切り替え後の一覧に混ぜないため）
 	 * @param err
 	 */
-	function showActiveRunsFrom( requested: string, err: unknown ) {
-		const seed = activeRunsSeed( requested, err );
+	function showActiveRunsFrom( selection: number, err: unknown ) {
+		const seed = activeRunsSeed( selection, err );
 
 		if ( undefined !== seed ) {
 			activeRuns.refresh( seed );
@@ -377,6 +377,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let deleted: Counts = {};
 		let unlinked: Counts = {};
@@ -419,7 +420,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setCleanupError( errorMessage( err ) );
-				showActiveRunsFrom( requested, err );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -434,6 +435,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let counts: Counts = {};
 		let cursor: string | null = rebuildCursor;
@@ -479,7 +481,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setRebuildError( errorMessage( err ) );
-				showActiveRunsFrom( requested, err );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -494,6 +496,7 @@ export default function ToolsTab() {
 		}
 
 		const requested = platform;
+		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		// 中断した同じ種類の実行があれば続きから再開し、そうでなければ先頭から始める。
 		const resume = repairPending?.mode === mode ? repairPending : null;
@@ -590,7 +593,7 @@ export default function ToolsTab() {
 				}
 
 				setRepairError( errorMessage( err ) );
-				showActiveRunsFrom( requested, err );
+				showActiveRunsFrom( selection, err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {

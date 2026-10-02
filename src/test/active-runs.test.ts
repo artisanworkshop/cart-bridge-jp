@@ -150,14 +150,14 @@ describe( 'runTab', () => {
 } );
 
 describe( 'activeRunsSeed', () => {
-	it( 'pairs the 409 list with the platform the request was sent for', () => {
+	it( 'pairs the 409 list with the platform selection the request was sent under', () => {
 		expect(
-			activeRunsSeed( 'colorme', {
+			activeRunsSeed( 3, {
 				code: 'cbjp_run_in_progress',
 				data: { active_runs: [ { run_id: 'run-b', type: 'export' } ] },
 			} )
 		).toEqual( {
-			platform: 'colorme',
+			selection: 3,
 			runs: [
 				expect.objectContaining( { run_id: 'run-b', type: 'export' } ),
 			],
@@ -166,7 +166,7 @@ describe( 'activeRunsSeed', () => {
 
 	it( 'returns nothing for other errors', () => {
 		expect(
-			activeRunsSeed( 'colorme', { code: 'cbjp_invalid_run' } )
+			activeRunsSeed( 3, { code: 'cbjp_invalid_run' } )
 		).toBeUndefined();
 	} );
 } );

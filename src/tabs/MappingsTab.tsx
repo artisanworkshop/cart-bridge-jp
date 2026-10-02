@@ -87,7 +87,8 @@ export default function MappingsTab() {
 	);
 
 	// 進行中の run がある間は保存させない（R3-0i。マッピングは `MethodMap` が参照のたびに読むため、run の途中で
-	// 変えると同じ run の中でページごとに結果が割れる）。UI 側だけの制限で、サーバーは保存を拒否しない。
+	// 変えると同じ run の中でページごとに結果が割れる）。UI 側だけの制限で、サーバーは保存を拒否しないので、
+	// 一覧を最初に取得できるまでも止める（フェイルクローズ。G1-4）。一覧は空でも 30 秒ごとに照会し続ける。
 	const activeRuns = useActiveRuns( platform, NO_TRACKED_RUNS );
 
 	if ( connectionsError ) {
@@ -162,7 +163,9 @@ export default function MappingsTab() {
 				<MappingSettings
 					platform={ platform }
 					mapKeys={ visibleMapKeys( currentConnection.capabilities ) }
-					disabled={ activeRuns.runs.length > 0 }
+					disabled={
+						! activeRuns.loaded || activeRuns.runs.length > 0
+					}
 				/>
 			) }
 		</div>
