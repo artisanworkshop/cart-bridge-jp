@@ -35,14 +35,19 @@ final class PlatformLock {
 	public const TTL_SHORT = 60;
 
 	/**
-	 * ASP を呼びうる区間（ツールの 1 バッチ・push intent の解除）。ASP への照会は 1 件で最悪約 540 秒かかりうる
-	 * （`HttpClient` の再試行と `Retry-After`・レート制限の待ち）ため、区間はこれより十分短く区切ること: 県コード修復は
-	 * 120 秒を過ぎたら新しい行に取りかからず cursor を返し（`PrefStateRepair::TIME_BUDGET_SECONDS`。120＋540 秒）、
-	 * push intent の解除は照会 1 件だけ。
+	 * ASP を呼びうる区間（ツールの 1 バッチ・push intent の解除）。期限は区間が最も長引く場合から決める（PR #96 G1-1・G2-1）:
+	 * - HTTP 1 本は最悪約 540 秒（`HttpClient` の試行 4 回 × [レート制限の待ち 60 秒＋タイムアウト 30 秒]＋`Retry-After` の待ち 60 秒 × 3）。
+	 * - 照会 1 件で HTTP は最大 3 本（ColorMe の受注は `sales/{id}` に加え、変換器の初回に `payments.json`・`deliveries.json`。
+	 *   商品は初回に `shop.json` を足して 2 本、顧客は 1 本）＝最悪約 1,620 秒。
+	 * - 県コード修復は 120 秒を過ぎたら新しい行に取りかからない（`PrefStateRepair::TIME_BUDGET_SECONDS`）ので、1 バッチは最長
+	 *   120＋1,620 秒。push intent の解除は照会 1 件。クリーンアップ・再構築は ASP を呼ばない。
+	 * これに余裕を持たせて core の `WP_Upgrader::create_lock()` の既定と同じ 1 時間にする（前提は `PlatformLockTest` が固定する）。
+	 * 照会の遅い外部アダプタはこの見積もりの外。プロセスが強制終了されて残ったロックは、最長この時間プラットフォームを塞ぐ
+	 * （致命的エラー・実行時間切れ・接続断は shutdown で解放する）。
 	 * 取得できる期限の上限でもある（これに時計のずれの余裕 `CLOCK_SKEW_SECONDS` を足したより先の期限を持つ行は、
 	 * 壊れた値として回収する）。
 	 */
-	public const TTL_LONG = 900;
+	public const TTL_LONG = 3600;
 
 	/**
 	 * 「期限が最長の TTL より先なら壊れた値」と判定するときの余裕。判定する側の `time()` は保持する側より

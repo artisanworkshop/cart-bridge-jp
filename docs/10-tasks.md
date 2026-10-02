@@ -575,7 +575,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   Import/Export はハッシュの `?platform=` を受け取る。ユーザー決定（2026-10-02）: 4 タブすべて／別タブの run は案内＋リンク（案内にキャンセルも置く）。
   詳細・実機確認・残る制限は `docs/03` §6「進行中 run の発見」。
   **(3)(4) 実装サマリ（PR 2/2、issue #57。ブランチ `feat/r3-0i-platform-lock`）**: `Support\PlatformLock`（core の `WP_Upgrader::create_lock()` と同じ options への一意 `INSERT IGNORE`。
-  値 `"{期限}|{UUID}"` をハンドルにした比較付きの解放、期限切れ・壊れた値の CAS 回収、区間ごとの TTL〔60 秒／900 秒〕、shutdown での解放）で、`JobManager::start_run()`・`retry()` と
+  値 `"{期限}|{UUID}"` をハンドルにした比較付きの解放、期限切れ・壊れた値の CAS 回収、区間ごとの TTL〔60 秒／3,600 秒〕、shutdown での解放）で、`JobManager::start_run()`・`retry()` と
   REST の `run_sample_cleanup`・`rebuild_mappings`・`repair_states`（Scan 含む）・`save_export_options`・`resolve_push_intent` の「判定 → 状態変更」を囲む（`RestController::run_exclusively()`）。
   判定は `JobRepository::is_platform_busy()`＝進行中のジョブ＋処理中の Action Scheduler アクション（キャンセルした run がページを書き終えるまでも塞ぐ。ユーザー決定 2026-10-03）。
   状態は `JobRepository::transition()`（期待する状態のときだけ）で変え、`mark_failed()` は未終了のときだけ、`cancel_run()` は 1 文の条件付き UPDATE。キャンセル直後の `completed`/`paused`/`failed` の

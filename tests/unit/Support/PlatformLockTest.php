@@ -197,6 +197,27 @@ final class PlatformLockTest extends WP_UnitTestCase {
 		$this->assertSame( $value, $this->stored_value( 'colorme' ) );
 	}
 
+	/**
+	 * `TTL_LONG` は、ロックの中で ASP を呼ぶ区間が最も長引く場合より長い（PR #96 G1-1・G2-1）。`HttpClient` の再試行・待ち、
+	 * `RateLimiter::wait()` の上限、県コード修復の時間予算のどれかを延ばしたら、ここが落ちて期限の見直しを促す。
+	 */
+	public function test_the_long_ttl_outlasts_the_slowest_locked_section(): void {
+		$client_constant = static fn ( string $name ): int => (int) ( new \ReflectionClassConstant( \CartBridgeJP\Support\HttpClient::class, $name ) )->getValue();
+		$rate_limit_wait = (int) ( new \ReflectionMethod( \CartBridgeJP\Support\RateLimiter::class, 'wait' ) )->getParameters()[1]->getDefaultValue();
+
+		$retries  = $client_constant( 'MAX_RETRIES' );
+		$per_http = ( $retries + 1 ) * ( $rate_limit_wait + $client_constant( 'DEFAULT_TIMEOUT_SECONDS' ) )
+			+ $retries * $client_constant( 'MAX_RETRY_AFTER_SECONDS' );
+		// 照会 1 件で HTTP は最大 3 本（ColorMe の受注: `sales/{id}`＋変換器の初回の `payments.json`・`deliveries.json`）。
+		$slowest_lookup = 3 * $per_http;
+
+		$this->assertSame( 540, $per_http, 'HttpClient/RateLimiter の上限が変わった。TTL_LONG の見積もり（docblock）を見直す' );
+		$this->assertGreaterThan(
+			\CartBridgeJP\Woo\Tools\PrefStateRepair::TIME_BUDGET_SECONDS + $slowest_lookup,
+			PlatformLock::TTL_LONG
+		);
+	}
+
 	public function test_run_returns_the_callback_value_and_releases_the_lock(): void {
 		$held_inside = null;
 
