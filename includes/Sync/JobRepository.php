@@ -7,6 +7,8 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Sync;
 
+use InvalidArgumentException;
+
 /**
  * `cbjp_jobs` テーブルへのアクセス。
  *
@@ -172,6 +174,73 @@ final class JobRepository {
 	}
 
 	/**
+	 * Action Scheduler でこのプラットフォームのジョブのページを処理中（`in-progress`）のアクションがあるか
+	 * （issue #57）。ジョブの状態は問わない: キャンセルしたジョブは `cancelled` になった後も、処理中のページを
+	 * 最後まで書き続ける（`process_job()` は割り込めない）ため、その間は同時実行の判定で「進行中」に数える。
+	 * 異常終了したアクションの `in-progress` は、Action Scheduler のキューランナーが次に動いたときに一定時間
+	 * （既定 5 分。`action_scheduler_failure_period`）を超えたものから失敗扱いになり、判定から外れる。
+	 */
+	public function has_in_flight_job_for_platform( string $platform ): bool {
+		global $wpdb;
+
+		if ( ! function_exists( 'as_get_scheduled_actions' ) || ! class_exists( \ActionScheduler_Store::class ) ) {
+			return false;
+		}
+
+		$actions = as_get_scheduled_actions(
+			[
+				'hook'     => JobManager::ACTION_HOOK,
+				'group'    => JobManager::ACTION_GROUP,
+				'status'   => \ActionScheduler_Store::STATUS_RUNNING,
+				'per_page' => -1,
+			]
+		);
+
+		$job_ids = [];
+
+		foreach ( $actions as $action ) {
+			$job_id = is_object( $action ) && method_exists( $action, 'get_args' ) ? ( $action->get_args()['job_id'] ?? null ) : null;
+
+			if ( is_int( $job_id ) && $job_id > 0 ) {
+				$job_ids[] = $job_id;
+			}
+		}
+
+		if ( [] === $job_ids ) {
+			return false;
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $job_ids ), '%d' ) );
+
+		$count = (int) $wpdb->get_var(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $job_ids の要素数分の%dを動的生成しており、置換数はプレースホルダー数と一致する。
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名と%dプレースホルダー列のみの埋め込み。値はプレースホルダー経由。
+				"SELECT COUNT(*) FROM {$this->table()} WHERE platform = %s AND id IN ({$placeholders})",
+				array_merge( [ $platform ], $job_ids )
+			)
+		);
+
+		return $count > 0;
+	}
+
+	/**
+	 * 同時実行の判定（issue #57）: 進行中のジョブ（`$exclude_run_id` の run を除く）があるか、
+	 * キャンセル済みを含むジョブのページを処理中のアクションがあるか。判定から状態変更までは
+	 * `Support\PlatformLock::run()` で囲むこと（判定だけでは同時に届いた要求同士を防げない）。
+	 *
+	 * @param string|null $exclude_run_id 進行中のジョブの判定から除く run（`retry()` の対象ジョブ自身の run。
+	 *   処理中のアクションの判定には除外を適用しない）。
+	 */
+	public function is_platform_busy( string $platform, ?string $exclude_run_id = null ): bool {
+		$active = null === $exclude_run_id
+			? $this->has_active_job_for_platform( $platform )
+			: $this->has_active_job_for_platform_excluding_run( $platform, $exclude_run_id );
+
+		return $active || $this->has_in_flight_job_for_platform( $platform );
+	}
+
+	/**
 	 * 進行中（未終了のジョブ = pending/running/paused を1件以上持つ）の run をプラットフォーム単位で返す（issue #70）。
 	 * run_id がブラウザに届かなかった run を UI が見つけ、進捗確認・キャンセルへ誘導するために使う。
 	 *
@@ -249,6 +318,66 @@ final class JobRepository {
 		];
 	}
 
+	/**
+	 * 状態を、今の状態が `$from` のどれかのときだけ `$to` へ変える（issue #57）。キャンセル（`cancel_run()`）や
+	 * 別の要求が先に状態を変えていれば何もしない。`process_job()` が処理中のページの後で、キャンセル済みの
+	 * ジョブを `completed`/`paused`/`running` で上書きして run を復活させないため、状態遷移は必ずこれを使う。
+	 *
+	 * @param list<string> $from
+	 * @return bool 遷移した（1 行を更新した）ときだけ true。
+	 */
+	public function transition( int $id, array $from, string $to ): bool {
+		global $wpdb;
+
+		// `$to` を `$from` に含めると、MySQL の接続フラグ（CLIENT_FOUND_ROWS）によって「一致した行」と
+		// 「変わった行」の数が食い違い、遷移の成否を判定できなくなる。
+		if ( [] === $from || in_array( $to, $from, true ) ) {
+			throw new InvalidArgumentException( 'A transition needs source states that differ from the target state.' );
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $from ), '%s' ) );
+
+		$updated = $wpdb->query(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $from の要素数分の%sを動的生成しており、置換数はプレースホルダー数と一致する。
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名と%sプレースホルダー列のみの埋め込み。値はプレースホルダー経由。
+				"UPDATE {$this->table()} SET status = %s, updated_at = %s WHERE id = %d AND status IN ({$placeholders})",
+				array_merge( [ $to, current_time( 'mysql', true ), $id ], array_values( $from ) )
+			)
+		);
+
+		return 1 === $updated;
+	}
+
+	/**
+	 * run の未終了のジョブをまとめて `cancelled` にする（1 文の条件付き UPDATE）。読んでから 1 件ずつ更新すると、
+	 * その間に完了したジョブを `cancelled` で上書きしうる。
+	 *
+	 * @return int キャンセルしたジョブの数。
+	 */
+	public function cancel_run( string $run_id ): int {
+		global $wpdb;
+
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"UPDATE {$this->table()} SET status = %s, updated_at = %s WHERE run_id = %s AND status IN (%s, %s, %s)",
+				self::STATUS_CANCELLED,
+				current_time( 'mysql', true ),
+				$run_id,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED
+			)
+		);
+
+		return is_int( $updated ) ? $updated : 0;
+	}
+
+	/**
+	 * 状態を無条件に書き換える。状態遷移の競合を考慮しないため本番コードでは使わず（`transition()` を使う）、
+	 * テストで任意の状態を作るためだけに残す。
+	 */
 	public function update_status( int $id, string $status ): void {
 		global $wpdb;
 
@@ -284,22 +413,30 @@ final class JobRepository {
 	}
 
 	/**
+	 * ジョブが未終了（pending/running/paused）のときだけ `failed` にする。ページの処理中にキャンセルされた
+	 * ジョブを `failed` で上書きしない（issue #57。`transition()` と同じ理由）。
+	 *
 	 * @param array{code:string,message:string} $error
+	 * @return bool 失敗を記録したときだけ true。
 	 */
-	public function mark_failed( int $id, array $error ): void {
+	public function mark_failed( int $id, array $error ): bool {
 		global $wpdb;
 
-		$wpdb->update(
-			$this->table(),
-			[
-				'status'     => self::STATUS_FAILED,
-				'error_json' => wp_json_encode( $error ),
-				'updated_at' => current_time( 'mysql', true ),
-			],
-			[ 'id' => $id ],
-			[ '%s', '%s', '%s' ],
-			[ '%d' ]
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"UPDATE {$this->table()} SET status = %s, error_json = %s, updated_at = %s WHERE id = %d AND status IN (%s, %s, %s)",
+				self::STATUS_FAILED,
+				(string) wp_json_encode( $error ),
+				current_time( 'mysql', true ),
+				$id,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED
+			)
 		);
+
+		return 1 === $updated;
 	}
 
 	/**
