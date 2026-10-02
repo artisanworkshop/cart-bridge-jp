@@ -207,3 +207,22 @@
 .cbjp-tools__repair-table {
 	margin-top: 0.5em;
 }
+
+/*
+ * Runs in progress that this tab can't show (R3-0i, issue #70): one notice per run with
+ * a link to the tab that shows it and a cancel button.
+ */
+.cbjp-active-runs {
+	margin: 1em 0;
+}
+
+.cbjp-active-runs .components-notice + .components-notice {
+	margin-top: 0.5em;
+}
+
+.cbjp-active-runs__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5em 1em;
+}

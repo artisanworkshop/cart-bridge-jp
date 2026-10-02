@@ -120,6 +120,30 @@ export interface Run {
 	jobs: Job[];
 }
 
+/**
+ * 進行中の run の状態。`Sync\JobRepository::find_active_runs_for_platform()` が未終了のジョブから
+ * running > paused > pending の優先で代表させる。解釈できない値は `unknown`（`active-runs.ts`）。
+ */
+export type ActiveRunStatus = 'running' | 'paused' | 'pending' | 'unknown';
+
+/**
+ * プラットフォームで進行中の run（`GET /runs?platform=` と 409 `cbjp_run_in_progress` の
+ * `active_runs`。R3-0i・issue #70）。run_id がブラウザに届かなかった run を見つけるために使う。
+ */
+export interface ActiveRun {
+	run_id: string;
+	/** 解釈できない種別（外部コード等）は null。どのタブにも属さない run として扱う。 */
+	type: RunType | null;
+	status: ActiveRunStatus;
+	/** run の全ジョブのエンティティ（終了済み・失敗したものを含む）。 */
+	entities: EntityType[];
+	/** 失敗したジョブがある（兄弟ジョブが pending のまま止まった run）。 */
+	has_failed_job: boolean;
+	/** UTC の `Y-m-d H:i:s`（`formatUtcMysqlTime()` で表示する）。 */
+	created_at: string;
+	updated_at: string;
+}
+
 export interface LimitEntity {
 	limit: number | null;
 	unlocked: boolean;

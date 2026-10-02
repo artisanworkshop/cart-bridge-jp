@@ -10,7 +10,10 @@ import {
 	Spinner,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import { activeRunsFromError } from '../active-runs';
+import ActiveRunNotice from '../components/ActiveRunNotice';
 import { ENTITY_LABELS } from '../entity-labels';
+import { useActiveRuns } from '../hooks/useActiveRuns';
 import type {
 	CleanupPreview,
 	CleanupResult,
@@ -176,6 +179,11 @@ function CountList( {
 	);
 }
 
+/**
+ * Tools タブは run を表示しないため、追跡する run は無い（見つけた run はすべて案内の対象）。
+ */
+const NO_TRACKED_RUNS: Array< string | null > = [];
+
 export default function ToolsTab() {
 	const [ connections, setConnections ] = useState< Connection[] | null >(
 		null
@@ -275,6 +283,22 @@ export default function ToolsTab() {
 		connections?.find( ( c ) => c.platform === platform ) ?? null;
 	const platformLabel = currentConnection?.label ?? platform ?? '';
 	const busy = previewing || cleaning || rebuilding || null !== repairMode;
+	// 進行中の run の発見（R3-0i・issue #70）。どのツールも進行中の run がある間はサーバーが 409 で拒否するため、
+	// 先にボタンを止め、どのタブでその run を確認・キャンセルできるかを案内する。
+	const activeRuns = useActiveRuns( platform, NO_TRACKED_RUNS );
+	const runInProgress = activeRuns.runs.length > 0;
+
+	/**
+	 * ツールの 409（`cbjp_run_in_progress`）なら、応答の `active_runs` で案内を出す。
+	 * @param err
+	 */
+	function showActiveRunsFrom( err: unknown ) {
+		const seed = activeRunsFromError( err );
+
+		if ( null !== seed ) {
+			activeRuns.refresh( seed );
+		}
+	}
 
 	async function loadPreview() {
 		if ( null === platform ) {
@@ -375,6 +399,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setCleanupError( errorMessage( err ) );
+				showActiveRunsFrom( err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -434,6 +459,7 @@ export default function ToolsTab() {
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
 				setRebuildError( errorMessage( err ) );
+				showActiveRunsFrom( err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -544,6 +570,7 @@ export default function ToolsTab() {
 				}
 
 				setRepairError( errorMessage( err ) );
+				showActiveRunsFrom( err );
 			}
 		} finally {
 			if ( platformGenerationRef.current === generation ) {
@@ -584,9 +611,11 @@ export default function ToolsTab() {
 	const previewTotal = preview
 		? sumCounts( preview.delete ) + sumCounts( preview.unlink )
 		: 0;
+	// 進行中の run は、プレビュー時点の値（`preview.run_in_progress`）より、照会し続けている今の一覧を優先する
+	// （一覧をまだ取得できていない間はプレビューの値で止める）。
 	const cleanupBlocked =
 		null !== preview &&
-		( preview.run_in_progress ||
+		( ( activeRuns.loaded ? runInProgress : preview.run_in_progress ) ||
 			( preview.requires_delete_users && ! preview.can_delete_users ) );
 	const repairNeedsRepair =
 		null !== scanTotals && repairBucketTotal( scanTotals, 'fixed' ) > 0;
@@ -617,6 +646,14 @@ export default function ToolsTab() {
 					} ) ) }
 					onChange={ handlePlatformChange }
 					disabled={ busy }
+				/>
+			) }
+
+			{ platform && (
+				<ActiveRunNotice
+					platform={ platform }
+					runs={ activeRuns.runs }
+					onChanged={ () => activeRuns.refresh() }
 				/>
 			) }
 
@@ -666,17 +703,20 @@ export default function ToolsTab() {
 
 					{ preview && (
 						<div className="cbjp-tools__preview">
-							{ preview.run_in_progress && (
-								<Notice
-									status="warning"
-									isDismissible={ false }
-								>
-									{ __(
-										'A run is in progress for this platform. Wait for it to finish (or cancel it on the Import tab) before cleaning up.',
-										'cart-bridge-jp'
-									) }
-								</Notice>
-							) }
+							{ /* 進行中の run は上の `ActiveRunNotice` が案内する。一覧をまだ取得できていない間だけ、
+							     プレビュー時点の値で知らせる。 */ }
+							{ ! activeRuns.loaded &&
+								preview.run_in_progress && (
+									<Notice
+										status="warning"
+										isDismissible={ false }
+									>
+										{ __(
+											'A run is in progress for this platform. Wait for it to finish or cancel it before cleaning up.',
+											'cart-bridge-jp'
+										) }
+									</Notice>
+								) }
 							{ preview.requires_delete_users &&
 								! preview.can_delete_users && (
 									<Notice
@@ -859,7 +899,7 @@ export default function ToolsTab() {
 						<Button
 							variant="secondary"
 							isBusy={ rebuilding }
-							disabled={ busy }
+							disabled={ busy || runInProgress }
 							onClick={ () => void runRebuild() }
 						>
 							{ __( 'Rebuild links', 'cart-bridge-jp' ) }
@@ -942,7 +982,9 @@ export default function ToolsTab() {
 							variant="secondary"
 							isBusy={ 'scan' === repairMode }
 							disabled={
-								busy || 'repair' === repairPending?.mode
+								busy ||
+								runInProgress ||
+								'repair' === repairPending?.mode
 							}
 							onClick={ () => void runRepair( 'scan' ) }
 						>
@@ -955,6 +997,7 @@ export default function ToolsTab() {
 							isBusy={ 'repair' === repairMode }
 							disabled={
 								busy ||
+								runInProgress ||
 								! canRepair ||
 								'scan' === repairPending?.mode
 							}
