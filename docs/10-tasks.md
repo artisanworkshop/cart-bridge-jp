@@ -567,13 +567,24 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **G2**: G1 で小計に使った `Cast::money_or_null()` も小数・指数表記を切り捨てていた（両 bot が同じ指摘）ので、整数でない値を null にする
   `Cast::exact_money_or_null()` に替えた（テスト 5 件追加）。**G3**: JSON の `1e-400` は `json_decode()` で `float(0)` になるため、この2フィールドは float を
   受けない（Copilot。JSON 文字列を実際に復号して通すテストを含め 5 件追加）。Codex は G3 で収束、Copilot は依頼上限の 3 回
-- [ ] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
+- [x] **R3-0i: 進行中 run の発見と、プラットフォーム単位の同時実行ロック**（issue #70・#57）: (1) 409（`run_in_progress`）の応答に進行中の run_id と種別を含め、UI はその run の進捗・キャンセルへ切り替える。(2) `GET /runs?platform=`（`args` でスキーマ検証。`/runs/active` は既存の `/runs/(?P<run_id>…)` に一致するため不可）でタブ表示時に照会。(3) `start_run`/`retry`/各種ツール（R3-0j の `PUT /settings/export-options` を含む）の「判定→状態変更」を、core の `WP_Upgrader::create_lock()` と同じ options への一意 INSERT による短時間ロックで囲む（`GET_LOCK()` は Galera・一部 DB プロキシで期待どおり動かないため不採用）。(4) ジョブの状態更新を「期待する状態のときだけ」の条件付き UPDATE にし、キャンセル直後の `completed` 上書き（`f1-6-import-ui/R1-X1`）を塞ぐ。v1.0 に含める（2026-09-26 決定）。大きければ (1)(2) と (3)(4) の2 PR に分ける
   **(1)(2) 実装サマリ（PR 1/2、issue #70。ブランチ `feat/r3-0i-active-run-discovery`）**: `GET /runs?platform=&status=active`（`JobRepository::find_active_runs_for_platform()`。
   run ごとに全ジョブから `status`〔running > paused > pending〕・`entities`・`has_failed_job`・`created_at`/`updated_at` を集約。`args` は GET 側だけ）と、409 `cbjp_run_in_progress` の
   `data.active_runs`（呼び出し元 7 箇所すべて。retry は自分の run を除外）。UI は全タブ（Import / Export / Tools / Mappings）が一覧を照会し、Import/Export は自分の種別の run を
   セクションに取り込み（`decideAdoption()`）、別タブの種別の run は案内（担当タブへのリンク＋キャンセル）してボタンを止める。Mappings の保存の無効化（R3-0m の宿題）も入れた。
   Import/Export はハッシュの `?platform=` を受け取る。ユーザー決定（2026-10-02）: 4 タブすべて／別タブの run は案内＋リンク（案内にキャンセルも置く）。
-  詳細・実機確認・残る制限は `docs/03` §6「進行中 run の発見」。**(3)(4)（issue #57）は次の PR**（このチェックは (3)(4) の完了時に付ける）
+  詳細・実機確認・残る制限は `docs/03` §6「進行中 run の発見」。
+  **(3)(4) 実装サマリ（PR 2/2、issue #57。ブランチ `feat/r3-0i-platform-lock`）**: `Support\PlatformLock`（core の `WP_Upgrader::create_lock()` と同じ options への一意 `INSERT IGNORE`。
+  値 `"{期限}|{UUID}"` をハンドルにした比較付きの解放、期限切れ・壊れた値の CAS 回収、区間ごとの TTL〔60 秒／900 秒〕、shutdown での解放）で、`JobManager::start_run()`・`retry()` と
+  REST の `run_sample_cleanup`・`rebuild_mappings`・`repair_states`（Scan 含む）・`save_export_options`・`resolve_push_intent` の「判定 → 状態変更」を囲む（`RestController::run_exclusively()`）。
+  判定は `JobRepository::is_platform_busy()`＝進行中のジョブ＋処理中の Action Scheduler アクション（キャンセルした run がページを書き終えるまでも塞ぐ。ユーザー決定 2026-10-03）。
+  状態は `JobRepository::transition()`（期待する状態のときだけ）で変え、`mark_failed()` は未終了のときだけ、`cancel_run()` は 1 文の条件付き UPDATE。キャンセル直後の `completed`/`paused`/`failed` の
+  上書き・二重 Retry の二重エンキュー・次のジョブの二重起動を塞いだ。ロックを取れない・処理中のアクションがあるときも 409 `cbjp_run_in_progress`（一覧が空なら「少し待って再試行」の文言）。
+  フロントエンドの変更なし。詳細は `docs/03` §5「同時実行のロックと条件付きの状態遷移」。
+  **検証**: PHPUnit 追加 76 件（データセット込み。`PlatformLockTest`・`JobManagerConcurrencyTest`・`RestControllerLockTest`・`JobRepositoryTest` の追加分。割り込みは `query` フィルターで UPDATE の直前に
+  別の要求の操作を差し込んで作る）。`mutate-check.sh` で 33 種（ロックの取得・CAS・比較付き解放・finally・shutdown、各遷移の条件、処理中のアクションの判定、各 REST の囲み・catch・文言）がすべて CAUGHT。
+  wp-env の dev サイト（mock `mockv`）で `wp eval-file` を 2 プロセス同時に走らせ、ロックを持って止まった `start_run` の間にもう一方の `start_run`・`POST /runs`・クリーンアップが 409 になり run が 1 本だけ
+  できること、ページの処理中（アクションを in-progress にして止めた）にキャンセルすると処理後もジョブが `cancelled` のままで、その間の `POST /runs`・再構築は 409、処理後は開始できることを確認して撤去した
 - [x] **R3-0o: 受注のインポートで新規作成を最終ステータスで保存し、状態変化フックを発火させない**（issue #91。2026-10-01。ブランチ `fix/91-import-order-final-status`）
   **経緯**: R3-0n の版で実店舗の受注をインポートしたところ、プレビューは「作成 19」なのに本番は「作成 0・警告 24」で、WooCommerce の受注一覧は「支払い待ち (19)」なのに一覧が空だった。
   読み取り専用の診断スクリプト（SSH＋WP-CLI。`dist/`、未コミット）で原因を確定した: `OrderWriter::write()` が `wc_create_order( pending )` で作ってから ColorMe のステータスへ `set_status()` していたため、

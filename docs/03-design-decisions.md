@@ -298,7 +298,57 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
   兄弟ジョブ（`start_run()` は run 開始時に全エンティティのジョブを先に `pending` で作るため、
   1件が `failed` になっても他は `pending` のまま残りうる）を「進行中の別 run」と誤検知しない。
   拒否の 409 `cbjp_run_in_progress` は進行中の run（`active_runs`）を返し、管理画面はそれを表示・キャンセルできる
-  （R3-0i・issue #70。§6「進行中 run の発見」）。判定から状態変更までが原子的でない問題は issue #57（R3-0i の (3)(4)）
+  （R3-0i・issue #70。§6「進行中 run の発見」）。判定から状態変更までは下の「同時実行のロック」で囲む（R3-0i・issue #57）
+
+### 同時実行のロックと条件付きの状態遷移（R3-0i・issue #57）
+
+**問題**: 同時実行の判定（`has_active_job_for_platform()`）は SELECT で、呼び出し元が別の SQL で状態を変える（check-then-act）。ミリ秒単位で同時に届いた要求同士
+（同じ失敗ジョブへの二重 Retry、`retry(A)` と `start_run(B)`、`start_run` 同士、`start_run` とサンプルクリーンアップ等のツール）は、互いの変更前の状態を見て両方とも判定を
+通る（同一 ASP への重複書込み・重複作成）。また `cancel_run()` で `cancelled` にしたジョブを、Action Scheduler（AS）で処理中の `process_job()` が後から
+`completed`/`paused`/`failed`/`running` で無条件に上書きし、キャンセルした run が復活していた（`f1-6-import-ui/R1-X1`）。
+
+**判定**（`JobRepository::is_platform_busy( $platform, ?$exclude_run_id )`）: 進行中（pending/running/paused）のジョブ（除外 run つき）**または**、そのプラットフォームのジョブの
+ページを処理中（`in-progress`）の AS アクション（`has_in_flight_job_for_platform()`。hook `cbjp_process_job`・group `cart-bridge-jp`、ジョブの状態は問わない）。
+キャンセルしたジョブも処理中のページは最後まで書く（`process_job()` は割り込めない）ため、`cancelled` になった瞬間に判定を素通りすると、書き終わるまでの間に新しい run・
+ツールが重なる（2026-10-03 決定で判定に含めた）。AS は既定 5 分を超えた `in-progress` を失敗扱いにするので、異常終了したアクションが判定を塞ぎ続けることはない。
+処理中のアクションの判定には run の除外を適用しない。
+
+**ロック**（`Support\PlatformLock`）: core の `WP_Upgrader::create_lock()` と同じ「options への一意な `INSERT IGNORE`」（`GET_LOCK()` は Galera・一部の DB プロキシで
+期待どおり動かないため不採用。2026-09-26 決定）。option 名 `cbjp_platform_lock_` . md5( platform )（アダプタのキーは外部コードが決めるため長さを保証できない）、
+値 `"{期限の UNIX 時刻}|{UUID}"`、autoload `no`。core との違い:
+- 取得時の値そのものをハンドルにし、解放は値の一致で消す（期限切れで他者が取り直したロックを、遅れて終わった元の保持者が消さない）。
+- 期限切れの回収は値を比べて上書きする CAS（`TokenStore::acquire_refresh_lock()` と同じ。core の無条件 delete は同時に回収した 2 者が両方取得しうる）。
+  読めない値・期限が最長 TTL より先の値（壊れた値・時計の巻き戻り）も回収する（保持中とみなすと誰にも解放されずプラットフォームを塞ぐ）。
+- 値は object cache を通さずに読む。`wpdb::get_var()` は空文字列を null に変えて「行が無い」と区別できないため `get_row()` で読む。
+- 期限は区間ごと: run の開始・Retry・エクスポート設定の保存は `TTL_SHORT`（60 秒）、ツールの 1 バッチ・push intent の解除は `TTL_LONG`（900 秒。県コード修復の 1 バッチは
+  ASP への照会が最大 20 件）。保持中のリクエストが致命的エラー・実行時間切れ・接続断で終わった場合も shutdown（`release_all()`）で解放する（`finally` はこれらで走らない）。
+  期限はプロセスが強制終了されたときの安全網。再入はできない（同じリクエストで入れ子に取ると内側が取得に失敗する）。
+
+ロックで囲むのは「判定 → 状態変更」の区間だけで、run 全体は囲まない（2026-09-26 決定）: `JobManager::start_run()`（判定〜ジョブ作成〜先頭の開始〜エンキュー）、
+`retry()`（判定〜`failed→pending`〜エンキュー）、REST の `run_sample_cleanup`・`rebuild_mappings`・`repair_states`（Scan を含む。ASP を呼ぶため）・`save_export_options`・
+`resolve_push_intent`（判定〜そのバッチの処理。`RestController::run_exclusively()`）。ロックを取れなければ 409 `cbjp_run_in_progress`（下記）。
+`cancel_run` はロックを取らない（ツールのバッチの実行中でも止められるように。キャンセルは進行中を減らすだけ）。キャンセル済み run の失敗ジョブへの Retry は従来どおり許す
+（利用者の操作として後勝ち）。クリーンアップのプレビュー（`run_in_progress`）は `is_platform_busy()` で判定するが、読むだけなのでロックは取らない。
+
+**条件付きの状態遷移**: 状態は `JobRepository::transition( $id, $from, $to )`（今の状態が `$from` のどれかのときだけ 1 行を更新し、その成否を返す。`$to ∈ $from` は拒否:
+`MYSQL_CLIENT_FLAGS` で CLIENT_FOUND_ROWS が立つと「一致」と「変更」の行数が食い違うため）で変える。`mark_failed()` は未終了のときだけ、`cancel_run()` は未終了のジョブを 1 文で。
+- `start_run()` の先頭 `pending→running` が失敗したら（作成直後に一覧から見つけてキャンセルされた）エンキューしない。
+- `retry()` の `failed→pending` に負けたら（同じジョブへの Retry がほぼ同時に 2 回）false を返しエンキューしない。
+- `process_job()` 冒頭の `pending/paused→running`、レート制限の `running→paused`（成功したときだけ遅延エンキュー）、`complete_job_and_advance()` の `running→completed`
+  （失敗＝キャンセル済みなら次へ進まない）と次のジョブの `pending→running`（既に running/paused なら二重にエンキューしない）。
+- `update_progress()`（cursor・totals）は無条件のまま: キャンセルされたジョブにも、そのページで実際に書いた件数を残す。続きのページのエンキューも変えない（次のアクションは冒頭の
+  終了判定で何もしない）。
+- 無条件の `update_status()` はテストで任意の状態を作るためだけに残す。
+
+**残る制限**: 同じジョブのアクションが重複した場合（AS の管理画面からの手動実行等）、`running` のジョブは冒頭の遷移で弾けず 2 本が同じページを処理しうる（重複の元だった二重 Retry・
+次ジョブの二重起動は上の遷移で塞いだので、cursor の CAS は入れていない）。Mappings の PUT はサーバーで拒否しない（§6「進行中 run の発見」の残る制限のとおり）。
+`DELETE /connections/{platform}` は run 中も拒否しない（範囲外。backlog）。
+
+**実機確認（2026-10-03、wp-env・mock アダプタ `mockv`）**: `wp eval-file` を 2 プロセス同時に走らせた。`query` フィルターで `start_run()` を最初のジョブの INSERT 直前に 8 秒止め
+（ロックを保持したまま）、その間にもう一方のプロセスで `start_run()` が `PlatformBusyException`、`POST /runs`・`POST /tools/sample-cleanup` が 409（一覧は空・待って再試行の文言）になり、
+run は 1 本だけ作られ、終わった後にロックの行は残らなかった。続けて、そのジョブのアクションを in-progress にしてページの処理中（dry-run の行の INSERT 直前）に 8 秒止め、その間に
+`POST /runs/{run}/cancel`（200）→ `POST /runs`・`POST /tools/rebuild-mappings` が 409。処理後もジョブは `cancelled` のまま（以前は `completed` で上書きされた）、アクションの完了後は
+`POST /runs` が 200。期限内のロックの行では 409、期限切れの行は回収されて 200（行は解放で消える）。撤去済み。
 
 ### 受注インポートの詳細（D10）
 
@@ -397,7 +447,9 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 
 同一プラットフォームで run が進行中のとき、`POST /runs`・`POST /jobs/{id}/retry`・`/tools/*` の実行（POST）と県コード修復の Scan（GET。クリーンアップの件数プレビューは 409 にせず `run_in_progress` を返す）・`PUT /settings/export-options/{platform}`・
 `POST /push-intents/{platform}/{id}/resolve` は 409 `cbjp_run_in_progress` を返す。エラーの `data.active_runs` に `GET /runs` と同じ形の一覧を載せる
-（retry は対象ジョブ自身の run を除く。判定と応答の間に run が終われば空配列）。
+（retry は対象ジョブ自身の run を除く。判定と応答の間に run が終われば空配列）。キャンセルした run が処理中のページを書き終えていないとき・別の操作がプラットフォームの
+ロックを持っているとき（§5「同時実行のロックと条件付きの状態遷移」）も同じコードで返す（UI が一覧の取り直しに同じ経路を使えるように）。一覧が空のときだけ、文言を
+「Another operation is still in progress for this platform. Try again in a moment.」にする（一覧に run があるときは従来の「A run is already in progress…」）。
 
 ### 進行中 run の発見（R3-0i・issue #70）
 
@@ -448,7 +500,7 @@ run ごとの値は全ジョブから集約する: `status` は未終了のジ�
 - Mappings タブの保存の無効化は UI だけで、サーバーは run 中の保存を拒否しない（R3-0m の判断どおり。設定は次のアイテムから効き、未設定側は警告に倒れる）。
   別のブラウザで run が始まってから、このタブの次の照会（最大 30 秒）までの間は保存できてしまう（G1-4/G1-5 でサーバー側の 409 は採らなかった。ユーザー決定 2026-10-02）。
 - キャンセルしたジョブが `paused`/`completed` で上書きされて復活しうる根本原因（`JobManager::process_job()` の無条件の状態更新）と、判定の非原子性は
-  R3-0i の (3)(4)（issue #57）で直す。それまでは、復活した run も一覧に出るので画面から見つけて止められる。
+  R3-0i の (3)(4)（issue #57）で直した（§5「同時実行のロックと条件付きの状態遷移」）。
 - 開始ボタンの 409 で出たエラー文（「A run is already in progress…」）は、塞いでいた run が終わった後も閉じるまで残る（ほかのエラーと同じ扱い）。
 
 **実機確認（2026-10-02、wp-env・mock アダプタ `mockv`）**: run_id をブラウザに渡さずにジョブを直接作り（Action Scheduler の action なし＝動かない run）、
@@ -1406,7 +1458,7 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
 - **周辺への影響**: `SampleCleanup` は対応するローカル実体を削除・unlink する際に、その実体の intent も消す
   （残すと、存在しない実体の印が一覧に残り続ける）。intent は自動では期限切れにしない（フェイルクローズ）。
   `JobManager` の同時実行ガードとは独立だが、`UNIQUE KEY` により同じ実体を2つの run が同時に作成することも防ぐ
-  （#57 の部分的な緩和。ガード全体の原子化は引き続き #57）
+  （#57 の部分的な緩和。ガード全体の原子化は R3-0i〔issue #57〕のロックで行った。§5「同時実行のロックと条件付きの状態遷移」）
 - **実装（R3-0b、issue #73）**: バックエンド＋REST を PR #79（PR 1/2、2026-09-27 マージ）、Export タブの解除 UI を
   PR 2/2（本節）で実装した。
   - **D21 の記述からの差**（実装時に判断した点）:
@@ -1625,7 +1677,7 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
    `cbjp_settings_{platform}`（マッピング。REST が 4 つのマップキーだけを全置換で書く）とは別オプションにした（同居させるとマッピング保存で本設定が消える）。
 3. **REST `GET/PUT /settings/export-options/{platform}`**: `manage_woocommerce`・`platform` は `get_url_params()`。PUT は `push_images` を **`is_bool()`** で検証（`"true"`・`1`・配列・`null`・欠損は 400 で保存済みの値を変えない）。
    **オン（true）にできるのは `capabilities()->can_push_images` が true の platform だけ**（能力の無い店舗で先にオンを保存すると、後でプランが変わったときに誰も選ばないまま画像が送られ始める。オフは常に可）。
-   進行中の run があれば 409（実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる。`has_active_job_for_platform()` の非原子性は既知の制限で、`R3-0i`〔issue #57〕のロックで囲む対象に本 PUT も含める）。
+   進行中の run があれば 409（実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる。判定と保存は `R3-0i`〔issue #57〕のプラットフォーム単位のロックで囲む）。
 4. **Exporter の checksum の印**: 上記「既知の制限と、その解消」。product エンティティかつ「`ExportOptions::push_images_enabled()` かつ `capabilities()->can_push_images`」のときだけ、`hash('sha256', CHECKSUM_NAMESPACE . 'images:' . canonical_json)`。
    オフのときの値は従来と同一。オンにすると次の export（dry-run の判定も）で更新として再送され、オフに戻すと印が外れて一度だけ画像なしの更新として再送される。
 5. **Export タブ**: ベータの受注は既定で未選択・ラベル「Orders (Beta)」・説明付き。能力があるときだけ「Options」に「Upload product images (Beta)」（既定オフ。変更のたびに即保存し、取得前・保存中・run 実行中は無効）。
