@@ -114,7 +114,7 @@ final class PlatformLockTest extends WP_UnitTestCase {
 			'empty'                          => [ static fn (): string => '' ],
 			// 整数の上限を超えた値（PHP_INT_MAX に飽和する）。
 			'overflowing expiry'             => [ static fn (): string => '99999999999999999999|x' ],
-			// 最長の TTL より先の期限は、このクラスが書かない値（壊れた値・時計の巻き戻り）。
+			// 最長の TTL＋時計のずれの余裕より先の期限は、このクラスが書かない値（壊れた値・時計の巻き戻り）。
 			'expiry beyond the longest lock' => [ static fn (): string => ( time() + PlatformLock::TTL_LONG + 3600 ) . '|x' ],
 			'expiry without the separator'   => [ static fn (): string => (string) ( time() + 30 ) ],
 		];

@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
+use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\PlatformLock;
@@ -37,16 +38,48 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 	private WP_REST_Server $server;
 	private JobRepository $jobs;
 
+	/**
+	 * `colorme` キーの mock。県コード修復が ASP へ照会したか（`fetched_by_id`）を見るために持つ。
+	 */
+	private MockPlatformAdapter $colorme;
+
 	public function set_up(): void {
 		parent::set_up();
 		Activator::activate();
 
+		// 県コード修復の対象になる顧客（ASP 側は pref_id=4＝秋田）。`untouched_probe()` が旧コードの値（JP04）で取り込んだ
+		// Woo 側の顧客を用意したときだけ照会・補正の対象になる。
+		$this->colorme = new MockPlatformAdapter(
+			customers: [
+				new CanonicalCustomer(
+					'legacy@example.com',
+					'Yamada Taro',
+					null,
+					null,
+					null,
+					[
+						'postal'   => '1000001',
+						'pref_id'  => 4,
+						'address1' => 'Chiyoda 1-1-1',
+						'country'  => 'JP',
+					],
+					'0312345678',
+					null,
+					null,
+					null,
+					[ 'remote_id' => 'C1' ]
+				),
+			],
+			platform_id: 'colorme'
+		);
+
+		$colorme = $this->colorme;
 		remove_all_filters( 'cbjp/adapters/register' );
 		add_filter(
 			'cbjp/adapters/register',
-			static function ( array $adapters ) {
+			static function ( array $adapters ) use ( $colorme ) {
 				$adapters['mock']    = new MockPlatformAdapter();
-				$adapters['colorme'] = new MockPlatformAdapter( platform_id: 'colorme' );
+				$adapters['colorme'] = $colorme;
 
 				return $adapters;
 			}
@@ -207,10 +240,28 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				return fn () => $this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
 			case 'push intent resolve':
 				return fn () => $this->assertCount( 1, ( new PushIntentRepository() )->find_unresolved( 'mock' ) );
+			case 'state repair scan':
+			case 'state repair run':
+				// 旧コードで取り込まれた顧客（pref_id=4＝秋田なのに JP04＝宮城）。Scan は ASP へ照会し、Run は JP05 へ補正する。
+				$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+
+				foreach ( [ 'billing', 'shipping' ] as $side ) {
+					update_user_meta( $user_id, "{$side}_state", 'JP04' );
+					update_user_meta( $user_id, "{$side}_postcode", '1000001' );
+					update_user_meta( $user_id, "{$side}_address_1", 'Chiyoda 1-1-1' );
+					update_user_meta( $user_id, "{$side}_country", 'JP' );
+				}
+
+				update_user_meta( $user_id, '_cbjp_platform', 'colorme' );
+				$mappings->upsert( 'colorme', 'customer', 'C1', $user_id, null );
+
+				return function () use ( $user_id ): void {
+					$this->assertSame( [], $this->colorme->fetched_by_id );
+					$this->assertSame( 'JP04', get_user_meta( $user_id, 'billing_state', true ) );
+				};
 		}
 
-		// 県コード修復の Scan は読むだけ、Run は Scan と同じ判定・ロックの経路（`repair_states()`）を通る。
-		return static function (): void {};
+		$this->fail( "Unknown request: {$name}" );
 	}
 
 	/**
