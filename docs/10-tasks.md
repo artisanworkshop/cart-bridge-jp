@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-09-30
+最終更新: 2026-10-04
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -607,6 +607,20 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `wc_paying_customer()`・その条件・失敗時の削除・Analytics の予約・後処理の失敗の握りつぶし・ID 0 の見送り・失敗時の件数キャッシュの破棄・
   明細の確認・2 回目の保存・その後の件数キャッシュの破棄・再確認）がすべて CAUGHT。mock（`mockv`）で他プラグイン役のフックを足して**本番インポート**を回し、商品の無い明細を持つ完了の受注が作成され、状態変化フックが 0 回、件数キャッシュが
   DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、19 件が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
+- [x] **R3-0p: run の実行中は接続を解除させない**（backlog `r3-0i-platform-lock/plan-X1` の B 案。2026-10-04 ユーザー決定。issue は未起票。ブランチ `feat/r3-0p-guard-disconnect`）
+  **経緯**: `DELETE /connections/{platform}`（Connections タブの Disconnect / Clear saved credentials。確認なしの 1 クリック）は同時実行の判定もプラットフォームのロックも通らず、
+  run の実行中に押すと、export は送信の失敗を 1 件ずつ skipped にして completed になり（何も送っていないのに「完了」）、import は次のリクエストで処理するページから失敗して後続のジョブが
+  pending のままプラットフォームを塞ぎ、別のショップで認可し直すと、止まっていない run（paused 等）や Retry した run の続きがそのショップに対して走っていた（R3-0i (3)(4) の計画時の設計レビューで発見）。
+  **実装サマリ**: `RestController::delete_connection()` の削除を `run_exclusively()`（`is_platform_busy()`＋`PlatformLock`、`TTL_SHORT`）で囲んだ。`run_exclusively()`/`run_in_progress_error()` に
+  省略できる `$run_message` を足し、一覧に run があるときだけ切断用の文言「A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.」にする
+  （一覧が空〈ロックの保持中・キャンセルした run の書き終わり待ち〉は既存の「Try again in a moment.」。コード・`data.active_runs` は他のルートと同じ）。案内先に Tools タブを先に挙げるのは、
+  Import/Export タブが接続済みのプラットフォームしか並べず、要再接続（切断が唯一の復旧手段）で行き止まりになるため（review-loop R1-1）。フロントエンドは無変更
+  （`ConnectionCard` はサーバーの文言をそのまま出す）。再接続側（C 案）と接続先ショップの照合（D 案）は対象外（backlog `r3-0p-guard-disconnect/plan-X1-rest`）。詳細は `docs/03` §5「同時実行のロックと条件付きの状態遷移」・§6。
+  **検証**: PHPUnit 追加 7 件（`RestControllerLockTest` のデータプロバイダに切断を足し、ロックの保持中・キャンセルした run の書き終わり待ちに 409 で資格情報が残ること〈書き終わり待ちのテストは
+  全要求で副作用が無いことも確かめるようにした〉・成功後にロックが残らないこと、専用 4 件〈run の実行中は切断用の文言と `active_runs`・資格情報が残る／キャンセルの後は 200 で消える／
+  要再接続で止まった run があっても同じ 409／ロックを取れなかった側でも切断用の文言〉）。`mutate-check.sh` で 5 種（判定より前に削除する・切断用の文言を渡さない・
+  一覧が空でも切断用の文言にする・ロックを取れなかった側で文言を渡さない・未接続なら判定を飛ばす）がすべて CAUGHT。wp-env の dev サイト（mock `mockv`）で `rest_do_request()` により、run の開始後の切断が 409・切断用の文言・資格情報が残る、
+  キャンセルの後は 200 で資格情報が消えることを確認して撤去した
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
   dry-run の CSV（`Admin\DryRunReportCsv`）の**末尾**に `message`・`action` 列を足す（既存の列・`note` は変えない）。テスト（リフレクション）で「`WarningCode` の全定数にカタログがある」ことを強制し、文言の無い警告コードが出荷されないようにする。

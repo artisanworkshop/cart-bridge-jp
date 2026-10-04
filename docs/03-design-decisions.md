@@ -336,6 +336,17 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 ロックで囲むのは「判定 → 状態変更」の区間だけで、run 全体は囲まない（2026-09-26 決定）: `JobManager::start_run()`（判定〜ジョブ作成〜先頭の開始〜エンキュー）、
 `retry()`（判定〜`failed→pending`〜エンキュー）、REST の `run_sample_cleanup`・`rebuild_mappings`・`repair_states`（Scan を含む。ASP を呼ぶため）・`save_export_options`・
 `resolve_push_intent`（判定〜そのバッチの処理。`RestController::run_exclusively()`）。ロックを取れなければ 409 `cbjp_run_in_progress`（下記）。
+接続の解除（`delete_connection`。`TTL_SHORT`）も同じく囲む（R3-0p、backlog `r3-0i-platform-lock/plan-X1` の B 案。2026-10-04 決定）。run の実行中に
+トークンと client_id/secret を消すと、export は送信の失敗を 1 件ずつ skipped にして run が completed になり（何も送っていないのに「完了」）、import は次のリクエストで
+処理するページの取得から失敗して後続のジョブが pending のまま残り、別のショップで認可し直すと、止まっていない run（paused 等）や Retry した run の続きがそのショップに対して走る
+（cursor・`cbjp_mappings` はショップを区別しない。Action Scheduler が 1 リクエストで続けて処理するページは、メモリ上のトークンで削除の後も進む）。
+Connections タブには run の進捗もキャンセルも無いため、一覧に run があるときの 409 の文言を「先にキャンセルする」案内に替える（§6）。案内先は Tools タブを先に挙げる:
+Import/Export タブは接続済みのプラットフォームしか並べないが、Tools タブは未接続・要再接続でも run を並べてキャンセルできる（`ActiveRunNotice`）。要再接続（トークンを復号できない）では
+資格情報の保存（`PUT /connections`）も認可 URL の取得も失敗し、切断が唯一の復旧手段なので、案内が辿れることが要る（R1-1）。
+残る制限: (1) 再接続側（OAuth のコールバック・コードの貼り付け・資格情報の保存）は囲まない（C 案。コールバックはリダイレクトで、Connections タブへエラーを返す経路が要る）。
+(2) run の開始時の接続先ショップと、ページごとの接続先が同じかは確かめない（D 案）。どちらも backlog `r3-0p-guard-disconnect/plan-X1-rest`。
+(3) 強制終了で残ったロック（最長 1 時間）・処理中のアクション（5 分以上）の間は切断も 409 になる。トークンの漏洩などで今すぐ止めたいときは ASP 側でアプリの認可を
+取り消す（プラグインの切断は ColorMe 側のトークンを取り消さない）。
 `cancel_run` はロックを取らない（ツールのバッチの実行中でも止められるように。キャンセルは進行中を減らすだけ）。キャンセル済み run の失敗ジョブへの Retry は従来どおり許す
 （利用者の操作として後勝ち）。クリーンアップのプレビュー（`run_in_progress`）は `is_platform_busy()` で判定するが、読むだけなのでロックは取らない。
 
@@ -352,7 +363,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 
 **残る制限**: 同じジョブのアクションが重複した場合（AS の管理画面からの手動実行等）、`running` のジョブは冒頭の遷移で弾けず 2 本が同じページを処理しうる（重複の元だった二重 Retry・
 次ジョブの二重起動は上の遷移で塞いだので、cursor の CAS は入れていない）。Mappings の PUT はサーバーで拒否しない（§6「進行中 run の発見」の残る制限のとおり）。
-`DELETE /connections/{platform}` は run 中も拒否しない（範囲外。backlog）。
+`DELETE /connections/{platform}` は R3-0p で囲んだ（上記）。再接続側は run 中も拒否しない（backlog `r3-0p-guard-disconnect/plan-X1-rest`）。
 
 **実機確認（2026-10-03、wp-env・mock アダプタ `mockv`）**: `wp eval-file` を 2 プロセス同時に走らせた。`query` フィルターで `start_run()` を最初のジョブの INSERT 直前に 8 秒止め
 （ロックを保持したまま）、その間にもう一方のプロセスで `start_run()` が `PlatformBusyException`、`POST /runs`・`POST /tools/sample-cleanup` が 409（一覧は空・待って再試行の文言）になり、
@@ -433,7 +444,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 |---|---|---|
 | GET | `/connections` | 全プラットフォームの接続状態一覧 |
 | PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme・base: client_id+secret） |
-| DELETE | `/connections/{platform}` | 接続解除（トークン削除） |
+| DELETE | `/connections/{platform}` | 接続解除（トークン・client_id/secret の削除）。run・ツールの実行中は 409（R3-0p。下記） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
 | GET | `/connections/{platform}/authorize-url` | OAuth認可URL取得（OAuth型プラットフォーム: colorme / base）。`?mode=oob` でコード手動貼り付けフォールバック用URLを取得 |
 | POST | `/connections/{platform}/exchange-code` | OAuthコード手動貼り付けフォールバック（`{code}`。認証済み管理画面からの呼び出しのため通常のnonce+capability保護のみ。F1-2で追加） |
@@ -460,6 +471,9 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 （retry は対象ジョブ自身の run を除く。判定と応答の間に run が終われば空配列）。キャンセルした run が処理中のページを書き終えていないとき・別の操作がプラットフォームの
 ロックを持っているとき（§5「同時実行のロックと条件付きの状態遷移」）も同じコードで返す（UI が一覧の取り直しに同じ経路を使えるように）。一覧が空のときだけ、文言を
 「Another operation is still in progress for this platform. Try again in a moment.」にする（一覧に run があるときは従来の「A run is already in progress…」）。
+`DELETE /connections/{platform}` も同じ判定・ロックで 409 を返す（R3-0p。§5「同時実行のロックと条件付きの状態遷移」）。一覧に run があるときの文言だけを
+「A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.」にする（Connections タブはサーバーの文言を
+そのまま表示し、run の進捗・キャンセルを持たないため。失敗して止まった run にも合う表現にし、未接続・要再接続でも run を並べる Tools タブを先に挙げる）。コードと `data.active_runs` は他のルートと同じ。
 
 ### 進行中 run の発見（R3-0i・issue #70）
 
