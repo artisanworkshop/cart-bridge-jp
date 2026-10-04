@@ -47,7 +47,8 @@ use WP_REST_Response;
  *
  * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
  * `GET /runs?platform=` は進行中 run の発見（R3-0i・issue #70。409 `cbjp_run_in_progress` の `active_runs` も同じ形）。
- * 同時実行の判定とその後の状態変更は、プラットフォーム単位のロック（`Support\PlatformLock`。issue #57）で囲む。
+ * 同時実行の判定とその後の状態変更は、プラットフォーム単位のロック（`Support\PlatformLock`。issue #57）で囲む
+ * （接続の解除も囲む。R3-0p）。
  * ツール系（sample-cleanup/rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
  * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。
  */
@@ -489,6 +490,11 @@ final class RestController {
 		return rest_ensure_response( $connections );
 	}
 
+	/**
+	 * 接続を解除する（トークンと client_id/secret を消す）。run・ツールの実行中は 409（R3-0p）。
+	 * 実行中に消すと、export は送信できないまま全件を skipped にして completed になり、import は次のページで失敗して
+	 * プラットフォームを塞ぎ、別のショップで認可し直すと run の続きがそのショップに対して走る。
+	 */
 	public function delete_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
 
@@ -496,9 +502,16 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		( new TokenStore( $platform ) )->delete();
+		return $this->run_exclusively(
+			$platform,
+			PlatformLock::TTL_SHORT,
+			static function () use ( $platform ): WP_REST_Response {
+				( new TokenStore( $platform ) )->delete();
 
-		return rest_ensure_response( [ 'deleted' => true ] );
+				return rest_ensure_response( [ 'deleted' => true ] );
+			},
+			__( 'A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.', 'cart-bridge-jp' )
+		);
 	}
 
 	/**
@@ -1827,22 +1840,23 @@ final class RestController {
 	 * ロックを取れなければ（別の操作が判定〜状態変更の区間を実行中）409。
 	 *
 	 * @param callable():(WP_REST_Response|WP_Error) $callback 判定を通った後の処理。
+	 * @param string|null                            $run_message 一覧に run があるときの 409 の文言（`run_in_progress_error()`）。
 	 */
-	private function run_exclusively( string $platform, int $ttl_seconds, callable $callback ): WP_REST_Response|WP_Error {
+	private function run_exclusively( string $platform, int $ttl_seconds, callable $callback, ?string $run_message = null ): WP_REST_Response|WP_Error {
 		try {
 			return ( new PlatformLock() )->run(
 				$platform,
 				$ttl_seconds,
-				function () use ( $platform, $callback ): WP_REST_Response|WP_Error {
+				function () use ( $platform, $callback, $run_message ): WP_REST_Response|WP_Error {
 					if ( ( new JobRepository() )->is_platform_busy( $platform ) ) {
-						return $this->run_in_progress_error( $platform );
+						return $this->run_in_progress_error( $platform, null, $run_message );
 					}
 
 					return $callback();
 				}
 			);
 		} catch ( PlatformBusyException ) {
-			return $this->run_in_progress_error( $platform );
+			return $this->run_in_progress_error( $platform, null, $run_message );
 		}
 	}
 
@@ -1856,15 +1870,17 @@ final class RestController {
 	 * 一覧に run が無い（ツールのバッチ・キャンセル済みの run）ことが多いので、一覧が空なら「少し待って再試行」の文言にする。
 	 *
 	 * @param string|null $exclude_run_id 一覧から除く run（`retry_job()`の対象ジョブ自身の run。判定と同じ除外）。
+	 * @param string|null $run_message    一覧に run があるときの文言（既定は「A run is already in progress…」）。run を始める画面の外
+	 *                                    （Connections タブの切断）から、先にキャンセルする場所を案内するため。
 	 */
-	private function run_in_progress_error( string $platform, ?string $exclude_run_id = null ): WP_Error {
+	private function run_in_progress_error( string $platform, ?string $exclude_run_id = null, ?string $run_message = null ): WP_Error {
 		$active_runs = ( new JobRepository() )->find_active_runs_for_platform( $platform, $exclude_run_id );
 
 		return new WP_Error(
 			'cbjp_run_in_progress',
 			[] === $active_runs
 				? __( 'Another operation is still in progress for this platform. Try again in a moment.', 'cart-bridge-jp' )
-				: __( 'A run is already in progress for this platform.', 'cart-bridge-jp' ),
+				: ( $run_message ?? __( 'A run is already in progress for this platform.', 'cart-bridge-jp' ) ),
 			[
 				'status'      => 409,
 				'active_runs' => $active_runs,

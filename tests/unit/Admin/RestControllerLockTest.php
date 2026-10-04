@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\PlatformLock;
+use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
@@ -176,6 +177,8 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				$request->set_body_params( [ 'action' => 'not_created' ] );
 
 				return $request;
+			case 'disconnect':
+				return new WP_REST_Request( 'DELETE', '/cbjp/v1/connections/mock' );
 		}
 
 		$this->fail( "Unknown request: {$name}" );
@@ -194,6 +197,7 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 			'state repair run'    => [ 'state repair run', 'colorme' ],
 			'export options'      => [ 'export options', 'mock' ],
 			'push intent resolve' => [ 'push intent resolve', 'mock' ],
+			'disconnect'          => [ 'disconnect', 'mock' ],
 		];
 	}
 
@@ -240,6 +244,10 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				return fn () => $this->assertTrue( ExportOptions::push_images_enabled( 'mock' ) );
 			case 'push intent resolve':
 				return fn () => $this->assertCount( 1, ( new PushIntentRepository() )->find_unresolved( 'mock' ) );
+			case 'disconnect':
+				( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
+
+				return fn () => $this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
 			case 'state repair scan':
 			case 'state repair run':
 				// 旧コードで取り込まれた顧客（pref_id=4＝秋田なのに JP04＝宮城）。Scan は ASP へ照会し、Run は JP05 へ補正する。
@@ -347,6 +355,38 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'A run is already in progress for this platform.', $error->get_error_message() );
 		$this->assertSame( [ $start->get_data()['run_id'] ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
+	}
+
+	/**
+	 * run の実行中は接続を解除しない（R3-0p）。Connections タブには run の進捗もキャンセルも無いので、文言でキャンセルする場所を案内する。
+	 */
+	public function test_disconnect_is_refused_while_a_run_is_in_progress_and_points_to_the_cancel(): void {
+		( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
+		$start = $this->server->dispatch( $this->guarded_request( 'start run' ) );
+		$this->assertSame( 200, $start->get_status() );
+
+		$response = $this->server->dispatch( $this->guarded_request( 'disconnect' ) );
+		$error    = $response->as_error();
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_run_in_progress', $error->get_error_code() );
+		$this->assertSame( 'A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.', $error->get_error_message() );
+		$this->assertSame( [ $start->get_data()['run_id'] ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
+		$this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
+	}
+
+	/**
+	 * run をキャンセルすれば接続を解除できる（解除の手段が残っている）。
+	 */
+	public function test_disconnect_succeeds_after_the_run_is_cancelled(): void {
+		( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
+		$run_id = $this->server->dispatch( $this->guarded_request( 'start run' ) )->get_data()['run_id'];
+		$this->assertSame( 200, $this->server->dispatch( new WP_REST_Request( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" ) )->get_status() );
+
+		$response = $this->server->dispatch( $this->guarded_request( 'disconnect' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], ( new TokenStore( 'mock' ) )->settings() );
 	}
 
 	public function test_the_cleanup_preview_reports_a_cancelled_run_still_writing_a_page(): void {
