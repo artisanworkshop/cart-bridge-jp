@@ -36,6 +36,8 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 
 	private const BUSY_MESSAGE = 'Another operation is still in progress for this platform. Try again in a moment.';
 
+	private const DISCONNECT_RUN_MESSAGE = 'A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.';
+
 	private WP_REST_Server $server;
 	private JobRepository $jobs;
 
@@ -294,13 +296,15 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 	 * @dataProvider guarded_requests
 	 */
 	public function test_a_guarded_request_is_refused_while_a_cancelled_run_is_still_writing_a_page( string $name, string $platform ): void {
-		$request = $this->guarded_request( $name );
-		$job_id  = $this->jobs->create( 'run-cancelled', 'import', $platform, 'product' );
+		$request   = $this->guarded_request( $name );
+		$untouched = $this->untouched_probe( $name );
+		$job_id    = $this->jobs->create( 'run-cancelled', 'import', $platform, 'product' );
 		$this->jobs->cancel_run( 'run-cancelled' );
 		$action = as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], JobManager::ACTION_GROUP );
 		\ActionScheduler::store()->log_execution( $action );
 
 		$this->assert_busy( $this->server->dispatch( $request ) );
+		$untouched();
 	}
 
 	/**
@@ -358,7 +362,8 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * run の実行中は接続を解除しない（R3-0p）。Connections タブには run の進捗もキャンセルも無いので、文言でキャンセルする場所を案内する。
+	 * run の実行中は接続を解除しない（R3-0p）。Connections タブには run の進捗もキャンセルも無いので、文言でキャンセルする場所（どの接続状態でも
+	 * run を並べる Tools タブ）を案内する。
 	 */
 	public function test_disconnect_is_refused_while_a_run_is_in_progress_and_points_to_the_cancel(): void {
 		( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
@@ -370,7 +375,7 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 
 		$this->assertSame( 409, $response->get_status() );
 		$this->assertSame( 'cbjp_run_in_progress', $error->get_error_code() );
-		$this->assertSame( 'A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.', $error->get_error_message() );
+		$this->assertSame( self::DISCONNECT_RUN_MESSAGE, $error->get_error_message() );
 		$this->assertSame( [ $start->get_data()['run_id'] ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
 		$this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
 	}
@@ -387,6 +392,42 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( [], ( new TokenStore( 'mock' ) )->settings() );
+	}
+
+	/**
+	 * 要再接続（保存済みのトークンを復号できない）で止まった run があっても同じ 409 で、案内先は Tools タブ（R1-1）。
+	 * Import/Export タブは接続済みのプラットフォームしか並べず、この状態では切断が唯一の復旧手段なので、案内が辿れることが要る。
+	 */
+	public function test_disconnect_while_reconnect_is_needed_points_to_the_tools_tab(): void {
+		update_option( 'cbjp_token_mock', 'not-decryptable' );
+		$store = new TokenStore( 'mock' );
+		$this->assertTrue( $store->needs_reconnect() );
+		$this->assertFalse( $store->is_connected() );
+		$this->failed_job( 'mock' );
+		$this->jobs->create( 'run-failed', 'import', 'mock', 'product' );
+
+		$response = $this->server->dispatch( $this->guarded_request( 'disconnect' ) );
+		$error    = $response->as_error();
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( self::DISCONNECT_RUN_MESSAGE, $error->get_error_message() );
+		$this->assertSame( [ 'run-failed' ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
+		$this->assertSame( 'not-decryptable', get_option( 'cbjp_token_mock' ) );
+	}
+
+	/**
+	 * 別の要求がロックを持っている間に一覧に run があるときも、切断用の文言（R1-L1。ロックを取れなかった側の分岐）。
+	 */
+	public function test_disconnect_refused_by_the_lock_keeps_the_disconnect_message_while_a_run_is_listed(): void {
+		( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
+		$run_id = $this->server->dispatch( $this->guarded_request( 'start run' ) )->get_data()['run_id'];
+		( new PlatformLock() )->acquire( 'mock', PlatformLock::TTL_SHORT );
+
+		$error = $this->server->dispatch( $this->guarded_request( 'disconnect' ) )->as_error();
+
+		$this->assertSame( self::DISCONNECT_RUN_MESSAGE, $error->get_error_message() );
+		$this->assertSame( [ $run_id ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
+		$this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
 	}
 
 	public function test_the_cleanup_preview_reports_a_cancelled_run_still_writing_a_page(): void {

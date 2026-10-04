@@ -337,9 +337,12 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 `retry()`（判定〜`failed→pending`〜エンキュー）、REST の `run_sample_cleanup`・`rebuild_mappings`・`repair_states`（Scan を含む。ASP を呼ぶため）・`save_export_options`・
 `resolve_push_intent`（判定〜そのバッチの処理。`RestController::run_exclusively()`）。ロックを取れなければ 409 `cbjp_run_in_progress`（下記）。
 接続の解除（`delete_connection`。`TTL_SHORT`）も同じく囲む（R3-0p、backlog `r3-0i-platform-lock/plan-X1` の B 案。2026-10-04 決定）。run の実行中に
-トークンと client_id/secret を消すと、export は送信の失敗を 1 件ずつ skipped にして run が completed になり（何も送っていないのに「完了」）、import は次のページの取得で
-失敗して後続のジョブが pending のまま残り、別のショップで認可し直すと run の続きがそのショップに対して走る（cursor・`cbjp_mappings` はショップを区別しない）。
-Connections タブには run の進捗もキャンセルも無いため、一覧に run があるときの 409 の文言を「Import／Export タブで先にキャンセルする」案内に替える（§6）。
+トークンと client_id/secret を消すと、export は送信の失敗を 1 件ずつ skipped にして run が completed になり（何も送っていないのに「完了」）、import は次のリクエストで
+処理するページの取得から失敗して後続のジョブが pending のまま残り、別のショップで認可し直すと、止まっていない run（paused 等）や Retry した run の続きがそのショップに対して走る
+（cursor・`cbjp_mappings` はショップを区別しない。Action Scheduler が 1 リクエストで続けて処理するページは、メモリ上のトークンで削除の後も進む）。
+Connections タブには run の進捗もキャンセルも無いため、一覧に run があるときの 409 の文言を「先にキャンセルする」案内に替える（§6）。案内先は Tools タブを先に挙げる:
+Import/Export タブは接続済みのプラットフォームしか並べないが、Tools タブは未接続・要再接続でも run を並べてキャンセルできる（`ActiveRunNotice`）。要再接続（トークンを復号できない）では
+資格情報の保存（`PUT /connections`）も認可 URL の取得も失敗し、切断が唯一の復旧手段なので、案内が辿れることが要る（R1-1）。
 残る制限: (1) 再接続側（OAuth のコールバック・コードの貼り付け・資格情報の保存）は囲まない（C 案。コールバックはリダイレクトで、Connections タブへエラーを返す経路が要る）。
 (2) run の開始時の接続先ショップと、ページごとの接続先が同じかは確かめない（D 案）。どちらも backlog `r3-0p-guard-disconnect/plan-X1-rest`。
 (3) 強制終了で残ったロック（最長 1 時間）・処理中のアクション（5 分以上）の間は切断も 409 になる。トークンの漏洩などで今すぐ止めたいときは ASP 側でアプリの認可を
@@ -469,8 +472,8 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 ロックを持っているとき（§5「同時実行のロックと条件付きの状態遷移」）も同じコードで返す（UI が一覧の取り直しに同じ経路を使えるように）。一覧が空のときだけ、文言を
 「Another operation is still in progress for this platform. Try again in a moment.」にする（一覧に run があるときは従来の「A run is already in progress…」）。
 `DELETE /connections/{platform}` も同じ判定・ロックで 409 を返す（R3-0p。§5「同時実行のロックと条件付きの状態遷移」）。一覧に run があるときの文言だけを
-「A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.」にする（Connections タブはサーバーの文言をそのまま
-表示し、run の進捗・キャンセルを持たないため）。コードと `data.active_runs` は他のルートと同じ。
+「A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.」にする（Connections タブはサーバーの文言を
+そのまま表示し、run の進捗・キャンセルを持たないため。失敗して止まった run にも合う表現にし、未接続・要再接続でも run を並べる Tools タブを先に挙げる）。コードと `data.active_runs` は他のルートと同じ。
 
 ### 進行中 run の発見（R3-0i・issue #70）
 

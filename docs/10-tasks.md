@@ -612,12 +612,14 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   run の実行中に押すと、export は送信の失敗を 1 件ずつ skipped にして completed になり（何も送っていないのに「完了」）、import は次のページで失敗して後続のジョブが pending のまま
   プラットフォームを塞ぎ、別のショップで認可し直すと run の続きがそのショップに対して走っていた（R3-0i (3)(4) の計画時の設計レビューで発見）。
   **実装サマリ**: `RestController::delete_connection()` の削除を `run_exclusively()`（`is_platform_busy()`＋`PlatformLock`、`TTL_SHORT`）で囲んだ。`run_exclusively()`/`run_in_progress_error()` に
-  省略できる `$run_message` を足し、一覧に run があるときだけ切断用の文言「A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.」にする
-  （一覧が空〈ロックの保持中・キャンセルした run の書き終わり待ち〉は既存の「Try again in a moment.」。コード・`data.active_runs` は他のルートと同じ）。フロントエンドは無変更
+  省略できる `$run_message` を足し、一覧に run があるときだけ切断用の文言「A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.」にする
+  （一覧が空〈ロックの保持中・キャンセルした run の書き終わり待ち〉は既存の「Try again in a moment.」。コード・`data.active_runs` は他のルートと同じ）。案内先に Tools タブを先に挙げるのは、
+  Import/Export タブが接続済みのプラットフォームしか並べず、要再接続（切断が唯一の復旧手段）で行き止まりになるため（review-loop R1-1）。フロントエンドは無変更
   （`ConnectionCard` はサーバーの文言をそのまま出す）。再接続側（C 案）と接続先ショップの照合（D 案）は対象外（backlog `r3-0p-guard-disconnect/plan-X1-rest`）。詳細は `docs/03` §5「同時実行のロックと条件付きの状態遷移」・§6。
-  **検証**: PHPUnit 追加 5 件（`RestControllerLockTest` のデータプロバイダに切断を足し、ロックの保持中・キャンセルした run の書き終わり待ちに 409 で資格情報が残ること・成功後にロックが残らないこと、
-  専用 2 件〈run の実行中は切断用の文言と `active_runs`・資格情報が残る／キャンセルの後は 200 で消える〉）。`mutate-check.sh` で 3 種（判定より前に削除する・切断用の文言を渡さない・
-  一覧が空でも切断用の文言にする）がすべて CAUGHT。wp-env の dev サイト（mock `mockv`）で `rest_do_request()` により、run の開始後の切断が 409・切断用の文言・資格情報が残る、
+  **検証**: PHPUnit 追加 7 件（`RestControllerLockTest` のデータプロバイダに切断を足し、ロックの保持中・キャンセルした run の書き終わり待ちに 409 で資格情報が残ること〈書き終わり待ちのテストは
+  全要求で副作用が無いことも確かめるようにした〉・成功後にロックが残らないこと、専用 4 件〈run の実行中は切断用の文言と `active_runs`・資格情報が残る／キャンセルの後は 200 で消える／
+  要再接続で止まった run があっても同じ 409／ロックを取れなかった側でも切断用の文言〉）。`mutate-check.sh` で 5 種（判定より前に削除する・切断用の文言を渡さない・
+  一覧が空でも切断用の文言にする・ロックを取れなかった側で文言を渡さない・未接続なら判定を飛ばす）がすべて CAUGHT。wp-env の dev サイト（mock `mockv`）で `rest_do_request()` により、run の開始後の切断が 409・切断用の文言・資格情報が残る、
   キャンセルの後は 200 で資格情報が消えることを確認して撤去した
 - [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、

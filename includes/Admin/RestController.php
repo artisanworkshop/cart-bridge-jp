@@ -492,8 +492,10 @@ final class RestController {
 
 	/**
 	 * 接続を解除する（トークンと client_id/secret を消す）。run・ツールの実行中は 409（R3-0p）。
-	 * 実行中に消すと、export は送信できないまま全件を skipped にして completed になり、import は次のページで失敗して
-	 * プラットフォームを塞ぎ、別のショップで認可し直すと run の続きがそのショップに対して走る。
+	 * 実行中に消すと、export は送信できないまま残りを skipped にして completed になり、import は次のリクエストで処理する
+	 * ページから失敗してプラットフォームを塞ぎ、別のショップで認可し直すと、止まっていない run（paused 等）や Retry した run の続きが
+	 * そのショップに対して走る。文言は、未接続・要再接続でも run をキャンセルできる Tools タブを先に案内する
+	 * （Import/Export タブは接続済みのプラットフォームしか並べない。要再接続では切断が唯一の復旧手段になる）。
 	 */
 	public function delete_connection( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
@@ -510,7 +512,7 @@ final class RestController {
 
 				return rest_ensure_response( [ 'deleted' => true ] );
 			},
-			__( 'A run is in progress for this platform. Cancel it on the Import or Export tab first, then try again.', 'cart-bridge-jp' )
+			__( 'A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.', 'cart-bridge-jp' )
 		);
 	}
 
