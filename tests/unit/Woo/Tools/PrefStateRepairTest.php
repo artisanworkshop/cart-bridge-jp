@@ -647,6 +647,49 @@ final class PrefStateRepairTest extends WooTestCase {
 		$this->assertSame( 'JP05', $this->order( $order_id )->get_billing_state() );
 	}
 
+	/**
+	 * 照会の待ち（429 の `Retry-After` 等）でバッチが長引いても、経過時間の上限を超えたら次の行に取りかからず cursor を返す
+	 * （REST はこのバッチをプラットフォームのロックの中で実行し、ロックの期限を超えると別の要求に回収されうる。PR #96 G1-1）。
+	 */
+	public function test_a_slow_batch_stops_at_the_time_budget_and_resumes_from_the_cursor(): void {
+		$models = [];
+		$ids    = [];
+
+		foreach ( [ 4, 5, 16 ] as $index => $pref_id ) {
+			$models[ $index ] = $this->customer_model( "C{$index}", $pref_id );
+			$ids[ $index ]    = $this->import_customer( $models[ $index ] );
+			$this->make_customer_legacy( $ids[ $index ], $pref_id );
+		}
+
+		$adapter = new MockPlatformAdapter( [], $models );
+		// 時刻を読むたびに 70 秒進む（1 行の照会ごとに待ちが積み重なる状況）。
+		$now  = 0.0;
+		$tool = new PrefStateRepair(
+			$this->mappings,
+			$adapter,
+			new \CartBridgeJP\Support\Logger(),
+			static function () use ( &$now ): float {
+				$now += 70.0;
+
+				return $now;
+			}
+		);
+
+		$first = $tool->run( self::PLATFORM, true );
+
+		$this->assertNull( $first['interruption'] );
+		$this->assertNotNull( $first['cursor'] );
+		$this->assertSame( 2, array_sum( $first['counts']['customer'] ), '120 秒を超えた時点で 3 人目に取りかからない' );
+		$this->assertCount( 2, $adapter->fetched_by_id );
+		$this->assertSame( 'JP16', $this->user_state( $ids[2], 'billing' ), '3 人目はまだ旧コードの値のまま' );
+
+		$second = $tool->run( self::PLATFORM, true, $first['cursor'] );
+
+		$this->assertNull( $second['cursor'] );
+		$this->assertSame( 1, array_sum( $second['counts']['customer'] ) );
+		$this->assertSame( 'JP18', $this->user_state( $ids[2], 'billing' ) );
+	}
+
 	public function test_an_invalid_cursor_is_rejected(): void {
 		$this->expectException( InvalidArgumentException::class );
 

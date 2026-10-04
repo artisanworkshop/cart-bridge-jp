@@ -8,11 +8,14 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
+use InvalidArgumentException;
 use WP_UnitTestCase;
 
 /**
- * `JobRepository::find_active_runs_for_platform()`（進行中 run の発見。R3-0i・issue #70）。
+ * `JobRepository::find_active_runs_for_platform()`（進行中 run の発見。R3-0i・issue #70）と、
+ * 条件付きの状態遷移・処理中のアクションの判定（issue #57）。
  */
 final class JobRepositoryTest extends WP_UnitTestCase {
 
@@ -183,5 +186,159 @@ final class JobRepositoryTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'run-first', 'run-second' ], array_column( $runs, 'run_id' ) );
 		$this->assertSame( '2026-10-01 09:00:00', $runs[0]['created_at'] );
 		$this->assertSame( '2026-10-01 09:30:00', $runs[0]['updated_at'] );
+	}
+
+	public function test_transition_changes_the_status_only_from_the_expected_states(): void {
+		$id = $this->jobs->create( 'run-t', 'import', 'mock', 'product' );
+
+		$this->assertTrue( $this->jobs->transition( $id, [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) );
+		$this->assertSame( JobRepository::STATUS_RUNNING, $this->jobs->find( $id )['status'] );
+
+		// 2 回目は今の状態（running）が期待した状態（pending）と違うので何もしない（二重 Retry・二重起動の 2 本目）。
+		$this->assertFalse( $this->jobs->transition( $id, [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) );
+
+		$this->assertTrue( $this->jobs->transition( $id, [ JobRepository::STATUS_PENDING, JobRepository::STATUS_RUNNING ], JobRepository::STATUS_COMPLETED ) );
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $this->jobs->find( $id )['status'] );
+	}
+
+	public function test_transition_does_not_overwrite_a_cancelled_job(): void {
+		[ $id ] = $this->create_run( 'run-c', 'import', 'mock', [ [ 'product', JobRepository::STATUS_CANCELLED ] ] );
+
+		$this->assertFalse( $this->jobs->transition( $id, [ JobRepository::STATUS_RUNNING ], JobRepository::STATUS_COMPLETED ) );
+		$this->assertSame( JobRepository::STATUS_CANCELLED, $this->jobs->find( $id )['status'] );
+	}
+
+	/**
+	 * @return array<string,array{0:list<string>,1:string}>
+	 */
+	public static function invalid_transitions(): array {
+		return [
+			'no source state'                => [ [], JobRepository::STATUS_RUNNING ],
+			'target among the source states' => [ [ JobRepository::STATUS_PENDING, JobRepository::STATUS_RUNNING ], JobRepository::STATUS_RUNNING ],
+		];
+	}
+
+	/**
+	 * @dataProvider invalid_transitions
+	 * @param list<string> $from
+	 */
+	public function test_transition_rejects_source_states_that_include_the_target( array $from, string $to ): void {
+		$id = $this->jobs->create( 'run-i', 'import', 'mock', 'product' );
+
+		$this->expectException( InvalidArgumentException::class );
+		$this->jobs->transition( $id, $from, $to );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:bool}>
+	 */
+	public static function mark_failed_cases(): array {
+		return [
+			'pending'   => [ JobRepository::STATUS_PENDING, true ],
+			'running'   => [ JobRepository::STATUS_RUNNING, true ],
+			'paused'    => [ JobRepository::STATUS_PAUSED, true ],
+			'cancelled' => [ JobRepository::STATUS_CANCELLED, false ],
+			'completed' => [ JobRepository::STATUS_COMPLETED, false ],
+		];
+	}
+
+	/**
+	 * @dataProvider mark_failed_cases
+	 */
+	public function test_mark_failed_only_records_a_failure_on_an_unfinished_job( string $status, bool $recorded ): void {
+		[ $id ] = $this->create_run( 'run-f', 'import', 'mock', [ [ 'product', $status ] ] );
+
+		$result = $this->jobs->mark_failed(
+			$id,
+			[
+				'code'    => 'exception',
+				'message' => 'boom',
+			]
+		);
+
+		$job = $this->jobs->find( $id );
+		$this->assertSame( $recorded, $result );
+		$this->assertSame( $recorded ? JobRepository::STATUS_FAILED : $status, $job['status'] );
+		$this->assertSame( $recorded, null !== $job['error_json'] );
+	}
+
+	public function test_cancel_run_cancels_only_the_unfinished_jobs_of_the_run(): void {
+		$ids   = $this->create_run(
+			'run-x',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_COMPLETED ],
+				[ 'tag', JobRepository::STATUS_FAILED ],
+				[ 'product', JobRepository::STATUS_RUNNING ],
+				[ 'customer', JobRepository::STATUS_PAUSED ],
+				[ 'order', JobRepository::STATUS_PENDING ],
+			]
+		);
+		$other = $this->create_run( 'run-y', 'import', 'mock', [ [ 'product', JobRepository::STATUS_RUNNING ] ] );
+
+		$this->assertSame( 3, $this->jobs->cancel_run( 'run-x' ) );
+
+		$this->assertSame(
+			[
+				JobRepository::STATUS_COMPLETED,
+				JobRepository::STATUS_FAILED,
+				JobRepository::STATUS_CANCELLED,
+				JobRepository::STATUS_CANCELLED,
+				JobRepository::STATUS_CANCELLED,
+			],
+			array_map( fn ( int $id ): string => $this->jobs->find( $id )['status'], $ids )
+		);
+		$this->assertSame( JobRepository::STATUS_RUNNING, $this->jobs->find( $other[0] )['status'] );
+	}
+
+	/**
+	 * Action Scheduler の `process_job()` のアクションを作り、実行中（in-progress）にする。
+	 */
+	private function start_action_for( int $job_id ): int {
+		$action_id = as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], JobManager::ACTION_GROUP );
+		\ActionScheduler::store()->log_execution( $action_id );
+
+		return $action_id;
+	}
+
+	/**
+	 * キャンセル済みのジョブでも、処理中のページを書き終えるまでは同時実行の判定で「進行中」に数える。
+	 */
+	public function test_a_cancelled_job_whose_page_is_still_being_processed_keeps_the_platform_busy(): void {
+		[ $id ] = $this->create_run( 'run-a', 'import', 'mock', [ [ 'product', JobRepository::STATUS_CANCELLED ] ] );
+
+		$this->assertFalse( $this->jobs->is_platform_busy( 'mock' ) );
+
+		$action_id = $this->start_action_for( $id );
+
+		$this->assertFalse( $this->jobs->has_active_job_for_platform( 'mock' ) );
+		$this->assertTrue( $this->jobs->has_in_flight_job_for_platform( 'mock' ) );
+		$this->assertTrue( $this->jobs->is_platform_busy( 'mock' ) );
+		// 処理中のアクションの判定には run の除外を適用しない（retry の対象ジョブ自身の run でも書込み中は待つ）。
+		$this->assertTrue( $this->jobs->is_platform_busy( 'mock', 'run-a' ) );
+
+		\ActionScheduler::store()->mark_complete( $action_id );
+
+		$this->assertFalse( $this->jobs->is_platform_busy( 'mock' ) );
+	}
+
+	public function test_in_flight_ignores_queued_actions_and_other_platforms(): void {
+		[ $queued ]    = $this->create_run( 'run-q', 'import', 'mock', [ [ 'product', JobRepository::STATUS_CANCELLED ] ] );
+		[ $elsewhere ] = $this->create_run( 'run-e', 'import', 'other', [ [ 'product', JobRepository::STATUS_CANCELLED ] ] );
+
+		as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $queued ], JobManager::ACTION_GROUP );
+		$this->start_action_for( $elsewhere );
+
+		$this->assertFalse( $this->jobs->has_in_flight_job_for_platform( 'mock' ) );
+		$this->assertTrue( $this->jobs->has_in_flight_job_for_platform( 'other' ) );
+	}
+
+	public function test_is_platform_busy_excludes_the_given_run_from_the_active_jobs(): void {
+		$this->create_run( 'run-a', 'import', 'mock', [ [ 'product', JobRepository::STATUS_PENDING ] ] );
+
+		$this->assertTrue( $this->jobs->is_platform_busy( 'mock' ) );
+		$this->assertFalse( $this->jobs->is_platform_busy( 'mock', 'run-a' ) );
+		$this->assertTrue( $this->jobs->is_platform_busy( 'mock', 'run-b' ) );
 	}
 }
