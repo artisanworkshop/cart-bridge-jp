@@ -609,8 +609,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、19 件が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
 - [x] **R3-0p: run の実行中は接続を解除させない**（backlog `r3-0i-platform-lock/plan-X1` の B 案。2026-10-04 ユーザー決定。issue は未起票。ブランチ `feat/r3-0p-guard-disconnect`）
   **経緯**: `DELETE /connections/{platform}`（Connections タブの Disconnect / Clear saved credentials。確認なしの 1 クリック）は同時実行の判定もプラットフォームのロックも通らず、
-  run の実行中に押すと、export は送信の失敗を 1 件ずつ skipped にして completed になり（何も送っていないのに「完了」）、import は次のページで失敗して後続のジョブが pending のまま
-  プラットフォームを塞ぎ、別のショップで認可し直すと run の続きがそのショップに対して走っていた（R3-0i (3)(4) の計画時の設計レビューで発見）。
+  run の実行中に押すと、export は送信の失敗を 1 件ずつ skipped にして completed になり（何も送っていないのに「完了」）、import は次のリクエストで処理するページから失敗して後続のジョブが
+  pending のままプラットフォームを塞ぎ、別のショップで認可し直すと、止まっていない run（paused 等）や Retry した run の続きがそのショップに対して走っていた（R3-0i (3)(4) の計画時の設計レビューで発見）。
   **実装サマリ**: `RestController::delete_connection()` の削除を `run_exclusively()`（`is_platform_busy()`＋`PlatformLock`、`TTL_SHORT`）で囲んだ。`run_exclusively()`/`run_in_progress_error()` に
   省略できる `$run_message` を足し、一覧に run があるときだけ切断用の文言「A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again.」にする
   （一覧が空〈ロックの保持中・キャンセルした run の書き終わり待ち〉は既存の「Try again in a moment.」。コード・`data.active_runs` は他のルートと同じ）。案内先に Tools タブを先に挙げるのは、
