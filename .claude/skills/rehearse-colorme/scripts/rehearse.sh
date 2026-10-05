@@ -38,6 +38,27 @@ wp() {
   return "$rc"
 }
 
+# 出力先 .rehearsal/（プラグインディレクトリの中＝Web から配信される場所）に Apache のアクセス拒否を置き、
+# 実際に HTTP で読めないことを確かめる。読めたら（または確かめられなければ）何も実行せずに止める（G3-1）。
+# スナップショットは会員・受注を含み、wp-env は 0.0.0.0 で待ち受けるので同じネットワークからも届くため。
+guard_output_dir() {
+  local root dir port url code
+  root="$(git rev-parse --show-toplevel)" || return 1
+  dir="$root/.rehearsal"
+  mkdir -p "$dir" || return 1
+  [ -f "$dir/.htaccess" ] || printf '%s\n' '# rehearse-colorme: snapshots hold customer and order data. Never serve this directory.' 'Require all denied' > "$dir/.htaccess" || return 1
+  [ -f "$dir/index.php" ] || printf '%s\n' '<?php' '// Silence is golden.' > "$dir/index.php" || return 1
+  port=$(grep -m1 '"port"' "$root/.wp-env.json" | grep -o '[0-9][0-9]*') || { echo "could not read the dev port from .wp-env.json" >&2; return 1; }
+  url="http://localhost:${port}/wp-content/plugins/$(basename "$root")/.rehearsal/.probe.json"
+  printf '{}\n' > "$dir/.probe.json" || return 1
+  if code=$(curl -s -o /dev/null -w '%{http_code}' "$url"); then :; else code="curl-failed"; fi
+  rm -f "$dir/.probe.json"
+  case "$code" in
+    403|404) return 0 ;;
+    *) echo "refusing to run: $url answered '$code' (the rehearsal output must not be served over HTTP)" >&2; return 1 ;;
+  esac
+}
+
 cmd=${1:-}
 case "$cmd" in
   php)
@@ -46,6 +67,7 @@ case "$cmd" in
     file="$SKILL_REL/php/$name.php"
     [ -f "$file" ] || { echo "no such script: $file" >&2; exit 2; }
     shift 2
+    guard_output_dir || exit 1
     wp eval-file "$file" "$@"
     ;;
   limits-on)

@@ -69,7 +69,8 @@ $mapping = static function ( int $local_id ) use ( $wpdb, $platform ): ?array {
 // サンプルを 1 商品に固定し、push の seed を差し替えて product の実 export を 1 回走らせる。この run のジョブだけを処理する
 // （paused からの再開予定のアクションも、時刻を待たずに処理する）。job の totals と status、paused のログの有無を返す。
 $run_export = static function ( int $local_id, ?string $create_failure ) use ( $call, $platform, $wpdb ): array {
-	update_option( ExportSampleSelector::option_name_for( $platform ), ( new ExportSampleSet( [], [ $local_id ], [], false ) )->to_array(), false );
+	$sample = ( new ExportSampleSet( [], [ $local_id ], [], false ) )->to_array();
+	update_option( ExportSampleSelector::option_name_for( $platform ), $sample, false );
 
 	$seed = get_option( 'cbjp_verify_seed', [] );
 	$seed = is_array( $seed ) ? $seed : [];
@@ -79,6 +80,16 @@ $run_export = static function ( int $local_id, ?string $create_failure ) use ( $
 		'create_failure' => $create_failure,
 	];
 	update_option( 'cbjp_verify_seed', $seed );
+
+	// 前提の書込みを読み直して確かめる（`update_option()` は同じ値でも false を返すので戻り値では判断しない）。サンプルや seed が古いままだと、
+	// 別の商品・別の失敗の仕方で export して、固定の remote_id の検査が意味を失う（G3-B3）。
+	wp_cache_delete( ExportSampleSelector::option_name_for( $platform ), 'options' );
+	wp_cache_delete( 'cbjp_verify_seed', 'options' );
+
+	if ( get_option( ExportSampleSelector::option_name_for( $platform ) ) !== $sample || ( get_option( 'cbjp_verify_seed' )['push'] ?? null ) !== $seed['push'] ) {
+		return [ 'error' => 'the pinned export sample or the push seed was not saved as requested' ];
+	}
+
 	AdapterRegistry::reset_cache();
 
 	$started = $call(

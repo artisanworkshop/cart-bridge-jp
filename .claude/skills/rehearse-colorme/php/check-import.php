@@ -182,6 +182,11 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 			continue;
 		}
 
+		// バリエーションは remote_id で全体から引くので、別の可変商品に付いていても型番・価格・在庫の照合は通ってしまう。親を確かめる（G3-B1）。
+		if ( (int) $cbjp_wv['parent_id'] !== (int) $cbjp_woo['id'] ) {
+			$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'the Woo variation belongs to product #' . (int) $cbjp_wv['parent_id'] . ', not #' . (int) $cbjp_woo['id'] );
+		}
+
 		$cbjp_vmodel = is_string( $cbjp_variant['model_number'] ?? null ) ? trim( $cbjp_variant['model_number'] ) : '';
 		if ( '' === $cbjp_vmodel ) {
 			$cbjp_report( 'NOTE', $cbjp_vwhere, 'variant model_number blank; Woo SKU = ' . $cbjp_s( $cbjp_wv['sku'] ) );

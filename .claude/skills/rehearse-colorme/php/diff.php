@@ -104,12 +104,15 @@ foreach ( $cbjp_entities as $cbjp_e ) {
 
 	echo "== {$cbjp_e}: {$cbjp_opts['a']} (" . count( $cbjp_old ) . ") → {$cbjp_opts['b']} (" . count( $cbjp_new ) . ") ==\n";
 
+	// 増えた・消えた実体も差として数える（作成・削除だけのスナップショットで「変化 0」と出さないため。G3-B2）。
 	foreach ( $cbjp_added as $cbjp_id ) {
 		echo "  + {$cbjp_id} " . ( $cbjp_new[ $cbjp_id ]['name'] ?? '' ) . "\n";
+		++$cbjp_total;
 	}
 
 	foreach ( $cbjp_removed as $cbjp_id ) {
 		echo "  - {$cbjp_id} " . ( $cbjp_old[ $cbjp_id ]['name'] ?? '' ) . "\n";
+		++$cbjp_total;
 	}
 
 	foreach ( array_intersect( array_keys( $cbjp_old ), array_keys( $cbjp_new ) ) as $cbjp_id ) {
@@ -138,4 +141,4 @@ foreach ( $cbjp_entities as $cbjp_e ) {
 	}
 }
 
-echo "total changed values: {$cbjp_total}\n";
+echo "total differences (changed values + added/removed entities): {$cbjp_total}\n";
