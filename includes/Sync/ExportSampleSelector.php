@@ -232,8 +232,12 @@ final class ExportSampleSelector {
 			static fn ( int $page ): array => get_users(
 				[
 					'role'    => 'customer',
-					'orderby' => 'registered ID',
-					'order'   => 'DESC',
+					// 受注・商品の`'date ID'`と同じく ID を決め手に足す。`WP_User_Query`は空白区切りの文字列も分割するが、bot が 2 回続けて
+					// 「効かない」と誤読したため（PR #104 G1-2・G2-1）、向き付きの配列で書く。
+					'orderby' => [
+						'registered' => 'DESC',
+						'ID'         => 'DESC',
+					],
 					'number'  => self::SCAN_BATCH,
 					'paged'   => $page,
 					'exclude' => $existing,
