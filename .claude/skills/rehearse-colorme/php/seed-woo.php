@@ -11,7 +11,8 @@
  * - 単純（SKU なし）、可変 1 軸（1 バリエーションだけセール。`option_market_price` の税基準の確認用）、可変 2 軸（2 軸目のオプション直後に
  *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率、`zero-rate`（hidden 安全策〔issue #78〕の発動条件）。
  * - 顧客: 日本の住所の顧客（名・姓を Woo の欄に入れる。`_cbjp_full_name` が無いので「名 姓」の順で送られる既知の制限を見る）。
- * - 同じ名前・メールが既にあれば作らずに飛ばす。ただしそれが取込みで結ばれた実体（`_cbjp_platform` がある）なら止まる
+ * - 同じ名前・メールが既にあれば作らずに飛ばす。ただしそれが取込みで結ばれた実体（`_cbjp_platform` がある。顧客は作成の印
+ *   `_cbjp_created_by_import` も見る＝エクスポートの判定〔`Woo\Support\EntityOrigin`〕より広く取る）なら、何も作る前に止まる
  *   （前回エクスポートした実体を取り込んだもので、Woo 生まれとして扱うと手順 3 が成り立たない。`prefix=` を変えて作り直す）。
  *   開発サイト専用（`reset-local` と同じ条件）。
  *
@@ -41,10 +42,6 @@ $cbjp_exists = static function ( string $name ): ?int {
 
 	if ( [] === $ids ) {
 		return null;
-	}
-
-	if ( '' !== (string) get_post_meta( (int) $ids[0], '_cbjp_platform', true ) ) {
-		cbjp_rh_abort( "'{$name}' (#{$ids[0]}) already exists and is linked by import (_cbjp_platform). It is not Woo-born; rerun with another prefix= (for example ZZV)." );
 	}
 
 	return (int) $ids[0];
@@ -122,6 +119,33 @@ $cbjp_variable = static function ( string $name, array $axes, array $variations 
 	echo "  ok {$id} {$name}\n";
 };
 
+// 何も作る前に、作る予定の名前・メールが取込みで結ばれた既存の実体と重ならないかをまとめて確かめる（途中で止めると、先に作った
+// 実体が旧接頭辞のまま残り、やり直しの手順 3 でテストショップへ余分に送られるため）。
+$cbjp_product_names = [
+	"{$cbjp_prefix}-1 simple without SKU",
+	"{$cbjp_prefix}-2 reduced rate",
+	"{$cbjp_prefix}-3 zero rate class",
+	"{$cbjp_prefix}-4 one axis with a sale variation",
+	"{$cbjp_prefix}-5 two axes",
+];
+$cbjp_emails        = array_merge( [ "{$cbjp_lower}-c1@example.com" ], isset( $cbjp_opts['extra-email'] ) ? [ $cbjp_opts['extra-email'] ] : [] );
+
+foreach ( $cbjp_product_names as $cbjp_name ) {
+	$cbjp_found = $cbjp_exists( $cbjp_name );
+
+	if ( null !== $cbjp_found && '' !== (string) get_post_meta( $cbjp_found, '_cbjp_platform', true ) ) {
+		cbjp_rh_abort( "'{$cbjp_name}' (#{$cbjp_found}) already exists and is linked by import (_cbjp_platform). It is not Woo-born; nothing was created. Rerun with another prefix= (for example ZZV)." );
+	}
+}
+
+foreach ( $cbjp_emails as $cbjp_email ) {
+	$cbjp_found = email_exists( $cbjp_email );
+
+	if ( false !== $cbjp_found && ( '' !== (string) get_user_meta( (int) $cbjp_found, '_cbjp_platform', true ) || '' !== (string) get_user_meta( (int) $cbjp_found, '_cbjp_created_by_import', true ) ) ) {
+		cbjp_rh_abort( "the customer #{$cbjp_found} with a planned email already exists and is linked by import (_cbjp_platform or _cbjp_created_by_import). It is not Woo-born; nothing was created. Rerun with another prefix=." );
+	}
+}
+
 echo "== products ==\n";
 $cbjp_simple( "{$cbjp_prefix}-1 simple without SKU", '1980', '', 5 );
 $cbjp_simple( "{$cbjp_prefix}-2 reduced rate", '1080', 'reduced-rate', null );
@@ -162,13 +186,7 @@ if ( isset( $cbjp_opts['extra-email'] ) ) {
 }
 
 foreach ( $cbjp_customers as $cbjp_email => [ $cbjp_first, $cbjp_last, $cbjp_state, $cbjp_postcode, $cbjp_address, $cbjp_phone ] ) {
-	$cbjp_existing_user = email_exists( $cbjp_email );
-
-	if ( false !== $cbjp_existing_user ) {
-		if ( '' !== (string) get_user_meta( (int) $cbjp_existing_user, '_cbjp_platform', true ) ) {
-			cbjp_rh_abort( "the customer {$cbjp_last} {$cbjp_first} (#{$cbjp_existing_user}) already exists and is linked by import (_cbjp_platform). It is not Woo-born; rerun with another prefix=." );
-		}
-
+	if ( false !== email_exists( $cbjp_email ) ) {
 		echo "  skip {$cbjp_last} {$cbjp_first} (already exists)\n";
 		continue;
 	}
