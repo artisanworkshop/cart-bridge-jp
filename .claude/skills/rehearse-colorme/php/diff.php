@@ -1,7 +1,11 @@
 <?php
 /**
- * 2 つのスナップショットの ColorMe 側を、remote_id と項目の単位で比べる（往復の前後で ColorMe の値が変わったか）。読み取りのみ。
- * 引数: a=<label> b=<label> [entity=products|customers|coupons|sales|all]（既定 products,customers）
+ * 2 つのスナップショットの ColorMe 側（既定）または Woo 側を、id と項目の単位で比べる（往復の前後で値が変わったか）。読み取りのみ。
+ * 引数: a=<label> b=<label> [side=colorme|woo] [entity=…|all]
+ *   - side=colorme（既定）: entity は products|customers|coupons|sales（既定 products,customers）。id は ColorMe の id
+ *   - side=woo: entity は products|customers|orders|coupons|mappings（既定 products,customers）。id は Woo の ID（バリエーションも
+ *     商品と同じ並びに入る）、mappings は `platform/entity/remote_id` で突き合わせる。D25 の確認（エクスポートで作った実体が
+ *     再取込みで変わらないこと）に使う
  *
  * - 比べないもの: `make_date`/`update_date`/`account_id`（PUT で必ず変わる・意味が無い）。
  * - 商品のバリエーション・オプションは id で突き合わせて項目ごとに比べる。
@@ -12,21 +16,63 @@
 
 require_once __DIR__ . '/_lib.php';
 
-$cbjp_opts     = cbjp_rh_args( $args, [ 'a', 'b', 'entity' ] );
-$cbjp_a        = cbjp_rh_load_snapshot( $cbjp_opts['a'] ?? '' );
-$cbjp_b        = cbjp_rh_load_snapshot( $cbjp_opts['b'] ?? '' );
+$cbjp_opts = cbjp_rh_args( $args, [ 'a', 'b', 'side', 'entity' ] );
+$cbjp_a    = cbjp_rh_load_snapshot( $cbjp_opts['a'] ?? '' );
+$cbjp_b    = cbjp_rh_load_snapshot( $cbjp_opts['b'] ?? '' );
+$cbjp_side = $cbjp_opts['side'] ?? 'colorme';
+$cbjp_all  = [
+	'colorme' => [ 'products', 'customers', 'coupons', 'sales' ],
+	'woo'     => [ 'products', 'customers', 'orders', 'coupons', 'mappings' ],
+];
+
+if ( ! isset( $cbjp_all[ $cbjp_side ] ) ) {
+	cbjp_rh_abort( "side must be colorme or woo (got '{$cbjp_side}')" );
+}
+
 $cbjp_entity   = $cbjp_opts['entity'] ?? 'products,customers';
-$cbjp_entities = 'all' === $cbjp_entity ? [ 'products', 'customers', 'coupons', 'sales' ] : explode( ',', $cbjp_entity );
+$cbjp_entities = 'all' === $cbjp_entity ? $cbjp_all[ $cbjp_side ] : explode( ',', $cbjp_entity );
 
 foreach ( $cbjp_entities as $cbjp_e ) {
-	if ( ! in_array( $cbjp_e, [ 'products', 'customers', 'coupons', 'sales' ], true ) ) {
-		cbjp_rh_abort( "unknown entity '{$cbjp_e}'" );
+	if ( ! in_array( $cbjp_e, $cbjp_all[ $cbjp_side ], true ) ) {
+		cbjp_rh_abort( "unknown entity '{$cbjp_e}' for side={$cbjp_side}" );
 	}
 
-	if ( ! is_array( $cbjp_a['colorme'][ $cbjp_e ] ?? null ) || ! is_array( $cbjp_b['colorme'][ $cbjp_e ] ?? null ) ) {
-		cbjp_rh_abort( "both snapshots need colorme.{$cbjp_e} (take them with side=both or side=colorme)" );
+	if ( ! is_array( $cbjp_a[ $cbjp_side ][ $cbjp_e ] ?? null ) || ! is_array( $cbjp_b[ $cbjp_side ][ $cbjp_e ] ?? null ) ) {
+		cbjp_rh_abort( "both snapshots need {$cbjp_side}.{$cbjp_e} (take them with side=both or side={$cbjp_side})" );
 	}
 }
+
+/**
+ * Woo の mappings は id の無い行の並びなので、`platform/entity/remote_id` をキーにする（並びのずれを差として出さない）。
+ *
+ * @param array<int|string,mixed> $rows
+ * @return array<string,mixed>
+ */
+$cbjp_rows_of = static function ( array $snapshot, string $side, string $entity ): array {
+	$rows = $snapshot[ $side ][ $entity ];
+
+	if ( 'woo' !== $side || 'mappings' !== $entity ) {
+		return $rows;
+	}
+
+	$keyed = [];
+
+	foreach ( $rows as $row ) {
+		if ( ! is_array( $row ) ) {
+			cbjp_rh_abort( 'a mappings row in the snapshot is not an object' );
+		}
+
+		$key = ( $row['platform'] ?? '?' ) . '/' . ( $row['entity_type'] ?? '?' ) . '/' . ( $row['remote_id'] ?? '?' );
+
+		if ( isset( $keyed[ $key ] ) ) {
+			cbjp_rh_abort( "duplicate mappings row {$key} in the snapshot" );
+		}
+
+		$keyed[ $key ] = $row;
+	}
+
+	return $keyed;
+};
 
 const CBJP_RH_IGNORED = [ 'make_date', 'update_date', 'account_id' ];
 
@@ -96,13 +142,13 @@ $cbjp_compare = static function ( $old, $new, string $path = '' ) use ( &$cbjp_c
 $cbjp_total = 0;
 
 foreach ( $cbjp_entities as $cbjp_e ) {
-	$cbjp_old     = $cbjp_a['colorme'][ $cbjp_e ];
-	$cbjp_new     = $cbjp_b['colorme'][ $cbjp_e ];
+	$cbjp_old     = $cbjp_rows_of( $cbjp_a, $cbjp_side, $cbjp_e );
+	$cbjp_new     = $cbjp_rows_of( $cbjp_b, $cbjp_side, $cbjp_e );
 	$cbjp_added   = array_diff( array_keys( $cbjp_new ), array_keys( $cbjp_old ) );
 	$cbjp_removed = array_diff( array_keys( $cbjp_old ), array_keys( $cbjp_new ) );
 	$cbjp_fields  = [];
 
-	echo "== {$cbjp_e}: {$cbjp_opts['a']} (" . count( $cbjp_old ) . ") → {$cbjp_opts['b']} (" . count( $cbjp_new ) . ") ==\n";
+	echo "== {$cbjp_side}.{$cbjp_e}: {$cbjp_opts['a']} (" . count( $cbjp_old ) . ") → {$cbjp_opts['b']} (" . count( $cbjp_new ) . ") ==\n";
 
 	// 増えた・消えた実体も差として数える（作成・削除だけのスナップショットで「変化 0」と出さないため。G3-B2）。
 	foreach ( $cbjp_added as $cbjp_id ) {

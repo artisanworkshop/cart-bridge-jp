@@ -36,10 +36,10 @@ R3-4（公開）前の再確認や、v2.0 の BASE（B4-6）でも同じ考え�
 | `$S php inspect shop=<id>` | 店舗の税設定・プラン・件数・カテゴリ/グループ/クーポン/決済/配送と、ローカルの件数（mapping・ジョブ・Woo 実体・Woo の税設定）。読み取りのみ |
 | `$S php reset-local [mode=preview\|yes]` | 開発サイトの Woo データ（商品・受注・role が customer だけの顧客・クーポン・商品カテゴリ/タグ・取込んだ画像）と `cbjp_*` テーブル・サンプル選定のオプション・ジョブの pending アクションを消す。接続・マッピング設定・Woo の設定は残す。既定は preview（件数だけ） |
 | `$S php seed-shop shop=<id> [part=all\|products\|customers] [categories=require\|skip]` | `ZZR-` の商品 55 件（往復リスクを突く 19 件＋埋め草）と `zzr-…@example.com` の会員 12 件を API で投入。同じ名前・メールが既にあれば飛ばす（途中で失敗した投入は再実行で残りだけ入る） |
-| `$S php seed-woo [extra-email=<address>]` | 開発サイトの Woo に、ColorMe 由来でない `ZZW-` の商品 5 件（単純〔SKU なし〕・軽減税率・`zero-rate`・1 軸でセール中のバリエーション・2 軸）と顧客 1 件を作る（手順 3 の作成エクスポート用）。`extra-email` はユーザーが受信できるアドレスで顧客を 1 件足す（`add_member` の通知メールの有無の確認用。repo に書かない） |
+| `$S php seed-woo [prefix=<英大文字 3 字>] [extra-email=<address>]` | 開発サイトの Woo に、ColorMe 由来でない `ZZW-` の商品 5 件（単純〔SKU なし〕・軽減税率・`zero-rate`・1 軸でセール中のバリエーション・2 軸）と顧客 1 件を作る（手順 3 の作成エクスポート用）。`prefix` は名前・型番・メール・姓の接頭辞（既定 `ZZW`。前のリハーサルでエクスポートした `ZZW-` がテストショップに残っていると、取込みでそれが Woo に入り同じ名前・型番・メールで作れないので `ZZV` などに変える）。`extra-email` はユーザーが受信できるアドレスで顧客を 1 件足す（`add_member` の通知メールの有無の確認用。repo に書かない） |
 | `$S php snapshot shop=<id> label=<name> [side=both\|colorme\|woo]` | ColorMe（商品・会員・クーポン・受注）と Woo（商品・バリエーション・顧客・受注・クーポン・`_cbjp_*` メタ・mapping）を `.rehearsal/<name>.json` へ |
-| `$S php check-import label=<name>` | side=both のスナップショットで、取込んだ値を ColorMe の値と突き合わせる（`MISMATCH`＝規則から見て食い違い／`NOTE`＝規則どおりだが往復で問題になりうる変換／`MISSING`）。商品（名前・型番・公開状態〔非公開であるべきものの公開は MISMATCH〕・税区分・価格・在庫と在庫管理・説明・同じ id の重複）、バリエーション（型番・価格・セール価格・在庫）、会員（メール・郵便番号・県・住所・法人名・電話・名前）、受注（合計・税額〔`totals` の標準＋軽減〕・決済/配送のマッピング先）。`MISMATCH`／`MISSING` が 1 件でもあれば終了コード 1 |
-| `$S php diff a=<name> b=<name> [entity=products,customers\|all]` | 2 つのスナップショットの ColorMe 側を id・項目単位で比べる（`make_date`/`update_date`/`account_id` は除外） |
+| `$S php check-import label=<name>` | side=both のスナップショットで、取込んだ値を ColorMe の値と突き合わせる（`MISMATCH`＝規則から見て食い違い／`NOTE`＝規則どおりだが往復で問題になりうる変換／`MISSING`／`LINKED_BY_EXPORT`＝エクスポートで結ばれた実体〔D25。取込みは上書きしないので値は突き合わせない〕）。商品（名前・型番・公開状態〔非公開であるべきものの公開は MISMATCH〕・税区分・価格・在庫と在庫管理・説明・同じ id の重複）、バリエーション（型番・価格・セール価格・在庫）、会員（メール・郵便番号・県・住所・法人名・電話・名前）、受注（合計・税額〔`totals` の標準＋軽減〕・決済/配送のマッピング先）。`MISMATCH`／`MISSING` が 1 件でもあれば終了コード 1 |
+| `$S php diff a=<name> b=<name> [side=colorme\|woo] [entity=products,customers\|all]` | 2 つのスナップショットの ColorMe 側（既定）か Woo 側を id・項目単位で比べる（`make_date`/`update_date`/`account_id` は除外）。`side=woo` の entity は products・customers・orders・coupons・mappings（mappings は `platform/entity/remote_id` で突き合わせる）。D25 の確認（エクスポートで作った実体が再取込みで変わらないこと）に使う |
 | `$S php run shop=<id> type=<dry_run\|import\|dry_run_export\|export> [entities=a,b] [cancel-after=n] [max-minutes=n] [attach=<run_id>] [context=cron\|admin]` | `POST /runs` で始め、その run のジョブだけを Action Scheduler の claim を取って同期で処理（管理画面を開いたままでも二重に処理しない。他の run の閉じたジョブのアクションは処理して片付け、開いたジョブのものは手放す）。**ジョブは既定で未ログイン＋kses あり（WP-Cron と同じ）で処理する**（`context=admin` は管理画面から非同期ランナーが動く場合と同じ管理者。どちらで処理されたかで商品名・説明の保存結果が変わる）。`attach` は止まった run を続きから処理する。ジョブが失敗・未完了のまま終わると終了コード 1（`cancel-after` で止めた場合を除く）。paused は再開時刻まで待つ。dry-run は明細を `.rehearsal/<run_id>-items.json` に保存して操作・警告コードの件数を出す。import は検証レポートも出す |
 | `$S limits-on '<json>'` / `$S limits-off` | 無料版の上限を差し替える mu-plugin（`templates/mu-plugin-rehearsal-limits.php`）とオプション `cbjp_rehearsal_limits` を置く／消す。`{"order":2}` で受注だけ 2 件、全 entity を `null` にすると Pro 版の解除を模擬（F1-8 と同じ） |
 
@@ -69,18 +69,24 @@ R3-4（公開）前の再確認や、v2.0 の BASE（B4-6）でも同じ考え�
 6. `$S php snapshot shop=<id> label=w1` → `$S php check-import label=w1`。`MISMATCH` は原因を調べ、`NOTE` は往復リスクの実例として記録する。
 7. 検証レポート（`run` が出す `verification`）の件数・受注合計が一致していること。
 
-### 2. 往復エクスポート（Woo → 同じショップへ PUT）
+### 2. 往復エクスポート（Woo → 同じショップへ。D25 以後は何も送らないことを確かめる）
 
-1. `$S php run shop=<id> type=dry_run_export` → 警告（カテゴリ対応の未設定 `category_map_unresolved` など）を見る。Export タブでカテゴリ対応を設定するかは目的に合わせる。
-2. `$S php run shop=<id> type=export`（取込んだ実体は mapping があるので全件 PUT。export の checksum は import と別の名前空間のため、初回は手直しが無くても全件送る）。
-3. `$S php snapshot shop=<id> label=s1 side=colorme` → `$S php diff a=s0 b=s1`。**差のある値が往復で ColorMe 側に起きた変化**。下の「往復リスク」と照らして仕分ける。
-4. もう一度 `type=export` → `unchanged`（カテゴリ未対応の商品は毎回 `updated` になる既知の挙動）。もう一度 `type=import` → 重複なし
-   （import/export が同じ mapping 行の checksum を共有するため 1 回だけ再同期する。backlog `R2-M-checksum-shared-row`）。
+D25（R3-1a、`docs/03` §10.2「往復の扱い（D25）」）以後、取込みで結ばれた実体（`_cbjp_platform` が colorme）はエクスポートしない。
+
+1. `$S php run shop=<id> type=dry_run_export` → 取込んだ商品・会員・在庫がすべて `linked_by_import_not_exported`（スキップ）で、作成・更新が 0 であること。
+2. `$S php run shop=<id> type=export` → 何も送らない（作成・更新 0）。
+3. `$S php snapshot shop=<id> label=s1 side=colorme` → `$S php diff a=s0 b=s1`。**取り込んだ実体の差が 0** であること（手順 3 を続けて行う場合は、
+   作成エクスポートの後にまとめて比べ、Woo 生まれの実体の追加〔`+`〕だけが出ることを確かめてもよい）。D25 より前の往復で起きた変化の実例は
+   下の「往復リスク」と `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`。
+4. もう一度 `type=import` → 重複なし・全件 `unchanged`（取込みが書いた checksum をエクスポートが書き換えなくなった）。
 
 ### 3. Woo 生まれのデータの作成エクスポート
 
 Woo で作った商品・顧客（`_cbjp_*` メタ無し）を export して ColorMe に新規作成し、API で読み戻して値を確かめる。`$S php seed-woo` で作る（単純〔SKU なし〕、可変〔1 バリエーションだけセール〕、
-軽減税率、`zero-rate` などの非標準の税区分〔hidden 安全策・issue #78 の発動条件〕、2 軸、顧客）。読み戻した後に import して重複が無いこと。
+軽減税率、`zero-rate` などの非標準の税区分〔hidden 安全策・issue #78 の発動条件〕、2 軸、顧客）。前のリハーサルの `ZZW-` がテストショップに残っているときは `prefix=ZZV` などに変える
+（手順 1 の取込みでそれが Woo に入っているため）。読み戻した後に `snapshot side=woo`（例 `label=w1`）→ `type=import` → `snapshot side=woo`（`label=w2`）→
+`diff a=w1 b=w2 side=woo entity=all` で、**エクスポートで作った実体が再取込みで変わらない**（D25。`linked_by_export_not_imported` でスキップ）・重複が無いことを確かめる。
+`check-import` はこれらを `LINKED_BY_EXPORT` として数える。
 バリエーションの `option_market_price`（定価）の税基準は API の応答に税込の対が無いので、管理画面・ストアフロントの表示で確かめる。
 
 ### 4. mock で確かめるもの
