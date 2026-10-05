@@ -512,6 +512,12 @@ if ( 'products' !== $cbjp_part ) {
 
 		try {
 			$cbjp_id = (int) ( $cbjp_client->post( 'customers.json', [ 'customer' => $cbjp_customer ] )['customer']['id'] ?? 0 );
+
+			// 成功応答でも id が無ければ作れたか分からないので失敗に数える（商品の作成と同じ扱い）。
+			if ( $cbjp_id <= 0 ) {
+				throw new RuntimeException( 'no customer id in the response' );
+			}
+
 			echo "  ok {$cbjp_id} {$cbjp_customer['name']} <{$cbjp_customer['mail']}>\n";
 		} catch ( Throwable $e ) {
 			$cbjp_fail( "customer {$cbjp_key}", $e );

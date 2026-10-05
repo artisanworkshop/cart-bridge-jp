@@ -34,8 +34,9 @@ foreach ( $cbjp_limits as $cbjp_entity => $cbjp_value ) {
 		cbjp_rh_abort( "unknown entity '{$cbjp_entity}' (allowed: " . implode( ', ', $cbjp_entities ) . ')' );
 	}
 
-	if ( ! is_int( $cbjp_value ) && null !== $cbjp_value ) {
-		cbjp_rh_abort( "the limit for '{$cbjp_entity}' must be an integer or null" );
+	// 件数の上限なので 0 以上の整数か null だけ（負の値は `LimitPolicy` がそのまま使い、サンプル選定と上限の判定を壊す）。
+	if ( ( ! is_int( $cbjp_value ) || $cbjp_value < 0 ) && null !== $cbjp_value ) {
+		cbjp_rh_abort( "the limit for '{$cbjp_entity}' must be a non-negative integer or null" );
 	}
 }
 

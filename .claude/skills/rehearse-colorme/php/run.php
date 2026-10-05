@@ -134,6 +134,7 @@ $cbjp_runner  = ActionScheduler::runner();
 $cbjp_done    = 0;
 $cbjp_waited  = 0;
 $cbjp_orphaned = 0;
+$cbjp_cancel_failed = false;
 
 while ( true ) {
 	$cbjp_open = array_filter( $cbjp_run(), static fn ( array $job ): bool => in_array( $job['status'], [ 'pending', 'running', 'paused' ], true ) );
@@ -192,6 +193,7 @@ while ( true ) {
 	if ( null !== $cbjp_cancel_after && $cbjp_done >= $cbjp_cancel_after ) {
 		$cbjp_cancel = cbjp_rh_rest( 'POST', "/cbjp/v1/runs/{$cbjp_run_id}/cancel" );
 		echo "cancelled after {$cbjp_done} page(s): HTTP {$cbjp_cancel['status']}\n";
+		$cbjp_cancel_failed = 200 !== $cbjp_cancel['status'];
 		break;
 	}
 
@@ -284,23 +286,29 @@ if ( $cbjp_is_dry_run ) {
 	}
 }
 
+$cbjp_verification_failed = false;
+
 if ( JobManager::TYPE_IMPORT === $cbjp_type ) {
 	$cbjp_verification = cbjp_rh_rest( 'GET', "/cbjp/v1/runs/{$cbjp_run_id}/verification" );
 	echo "\n-- verification (HTTP {$cbjp_verification['status']}) --\n" . wp_json_encode( $cbjp_verification['data'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) . "\n";
+	// 取込みの件数・受注合計の突合はリハーサルの確認項目なので、取得できなければ失敗にする（G2-4）。
+	$cbjp_verification_failed = 200 !== $cbjp_verification['status'] || ! is_array( $cbjp_verification['data']['entities'] ?? null );
 }
 
 echo "\nrun_id={$cbjp_run_id}\n";
 
 // 失敗したジョブ、または開いたまま終わったジョブ（max-minutes・アクションを失ったジョブで止めた）があれば非ゼロで終える。
-// 続く snapshot・diff が、途中までの run を完了したものとして扱わないため（G1-2）。`cancel-after` で意図して止めた場合は成功とする。
+// 続く snapshot・diff が、途中までの run を完了したものとして扱わないため（G1-2）。`cancel-after` で止めた場合も、キャンセルの要求が通り、
+// 開いたジョブが残っていないこと（すべて cancelled か完了）を確かめる。残っていると、続く再開の試験が生きている run と競合する（G2-3）。
 $cbjp_final = $cbjp_run();
 $cbjp_bad   = array_filter(
 	$cbjp_final,
-	static fn ( array $job ): bool => 'failed' === $job['status']
-		|| ( null === $cbjp_cancel_after && in_array( $job['status'], [ 'pending', 'running', 'paused' ], true ) )
+	static fn ( array $job ): bool => in_array( $job['status'], [ 'failed', 'pending', 'running', 'paused' ], true )
 );
 
-if ( [] !== $cbjp_bad ) {
-	echo 'FAILED: ' . count( $cbjp_bad ) . " job(s) failed or did not finish\n";
+if ( [] !== $cbjp_bad || $cbjp_cancel_failed || $cbjp_verification_failed ) {
+	echo 'FAILED: ' . count( $cbjp_bad ) . ' job(s) failed or did not finish'
+		. ( $cbjp_cancel_failed ? '; the cancel request failed' : '' )
+		. ( $cbjp_verification_failed ? '; the verification report could not be read' : '' ) . "\n";
 	exit( 1 );
 }

@@ -67,6 +67,23 @@ $cbjp_incl = static function ( $net, bool $reduced ) use ( $cbjp_shop ): ?int {
 	return intdiv( $net * ( 100 + $rate ) + 50, 100 );
 };
 $cbjp_s    = static fn ( $v ): string => (string) wp_json_encode( $v, JSON_UNESCAPED_UNICODE );
+// 在庫管理ありの商品・バリエーション: 取込みは Woo の `manage_stock=true` にし、在庫が null（未設定）なら 0 にする
+// （`ProductTransformer` の `stock()`／バリエーションの在庫。`.claude/rules/adapters-colorme.md`）。フラグと期待する数量の両方を見る。
+// null から 0 への変換そのものは往復リスク 3 の実例として NOTE にする（G2-2）。
+$cbjp_check_stock = static function ( string $where, $stocks, array $woo ) use ( $cbjp_report, $cbjp_s ): void {
+	if ( true !== $woo['manage_stock'] ) {
+		$cbjp_report( 'MISMATCH', $where, 'stock is managed in ColorMe, but Woo manage_stock=' . $cbjp_s( $woo['manage_stock'] ) );
+		return;
+	}
+
+	$want = is_int( $stocks ) ? max( 0, $stocks ) : 0;
+
+	if ( $want !== $woo['stock_quantity'] ) {
+		$cbjp_report( 'MISMATCH', $where, 'stock ' . $cbjp_s( $woo['stock_quantity'] ) . ' vs expected ' . $want . ' (ColorMe stocks ' . $cbjp_s( $stocks ) . ')' );
+	} elseif ( null === $stocks ) {
+		$cbjp_report( 'NOTE', $where, 'stocks is null in ColorMe; Woo stock = 0 (would be sent back as 0)' );
+	}
+};
 
 $cbjp_woo_products   = $cbjp_by_remote( 'product', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' !== $p['type'] );
 $cbjp_woo_variations = $cbjp_by_remote( 'variant', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' === $p['type'] );
@@ -140,12 +157,8 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 
 	if ( $cbjp_managed ) {
 		// variable 商品の在庫は Woo ではバリエーション側で管理する（親の manage_stock は false）。下のバリエーションの突合で見る。
-		if ( [] === $cbjp_variants && true !== $cbjp_woo['manage_stock'] ) {
-			$cbjp_report( 'MISMATCH', $cbjp_where, 'stock_managed but Woo manage_stock=' . $cbjp_s( $cbjp_woo['manage_stock'] ) );
-		} elseif ( [] === $cbjp_variants && null === ( $cbjp_cm['stocks'] ?? null ) ) {
-			$cbjp_report( 'NOTE', $cbjp_where, 'stocks is null in ColorMe; Woo stock = ' . $cbjp_s( $cbjp_woo['stock_quantity'] ) . ' (would be sent back as 0)' );
-		} elseif ( [] === $cbjp_variants && $cbjp_cm['stocks'] !== $cbjp_woo['stock_quantity'] ) {
-			$cbjp_report( 'MISMATCH', $cbjp_where, 'stock ' . $cbjp_s( $cbjp_woo['stock_quantity'] ) . ' vs stocks ' . $cbjp_s( $cbjp_cm['stocks'] ) );
+		if ( [] === $cbjp_variants ) {
+			$cbjp_check_stock( $cbjp_where, $cbjp_cm['stocks'] ?? null, $cbjp_woo );
 		}
 	}
 
@@ -192,11 +205,7 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 
 		if ( $cbjp_managed ) {
-			if ( null === ( $cbjp_variant['stocks'] ?? null ) ) {
-				$cbjp_report( 'NOTE', $cbjp_vwhere, 'variant stocks null; Woo stock = ' . $cbjp_s( $cbjp_wv['stock_quantity'] ) );
-			} elseif ( $cbjp_variant['stocks'] !== $cbjp_wv['stock_quantity'] ) {
-				$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'stock ' . $cbjp_s( $cbjp_wv['stock_quantity'] ) . ' vs stocks ' . $cbjp_s( $cbjp_variant['stocks'] ) );
-			}
+			$cbjp_check_stock( $cbjp_vwhere, $cbjp_variant['stocks'] ?? null, $cbjp_wv );
 		}
 	}
 }

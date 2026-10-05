@@ -36,6 +36,21 @@ if ( $cbjp_active > 0 ) {
 	cbjp_rh_abort( "{$cbjp_active} job(s) are still pending/running/paused. Cancel the run first." );
 }
 
+// キャンセルした直後のジョブは、状態が cancelled でも処理中のページ（Action Scheduler の in-progress のアクション）がまだ書き込んでいることがある
+// （`JobRepository::is_platform_busy()` と同じ考え方）。その間に消すと、書き終えたページの実体や mapping が残る（G2-1）。
+$cbjp_in_progress = as_get_scheduled_actions(
+	[
+		'hook'     => 'cbjp_process_job',
+		'status'   => ActionScheduler_Store::STATUS_RUNNING,
+		'per_page' => 1,
+	],
+	'ids'
+);
+
+if ( [] !== $cbjp_in_progress ) {
+	cbjp_rh_abort( 'a cbjp_process_job action is still in progress (a page of a cancelled run may be writing). Wait for it to finish, then retry.' );
+}
+
 $cbjp_product_ids    = get_posts(
 	[
 		'post_type'   => [ 'product', 'product_variation' ],
