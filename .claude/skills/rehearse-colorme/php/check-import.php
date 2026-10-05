@@ -45,15 +45,29 @@ $cbjp_report    = static function ( string $kind, string $where, string $message
 	echo "  {$kind} {$where}: {$message}\n";
 };
 // ColorMe の id → Woo の実体。同じ id に Woo の実体が 2 件以上あれば重複作成なので MISMATCH にする（後勝ちで黙って 1 件にしない）。
-// 他の platform の実体（`_cbjp_platform` が colorme 以外）は数えない。
-$cbjp_by_remote = static function ( string $kind, array $rows, callable $filter ) use ( $cbjp_report ): array {
+// 他の platform の実体（`_cbjp_platform` が colorme 以外）は数えない。`_cbjp_remote_id` があるのに `_cbjp_platform` が無い行は MISMATCH:
+// 取込みの writer は両方を書き、エクスポートはどちらも書かないので、片方だけなのは writer が取込みの印を書かなかった退行（D25 の判定が
+// エクスポートで結ばれた実体と取り違え、以後の取込みが止まる）。`LINKED_BY_EXPORT` の分岐に回さず、`expect-export-links=yes` でも止める。
+$cbjp_unmarked  = static function ( string $kind, string $remote, array $row ) use ( $cbjp_report ): void {
+	$cbjp_report( 'MISMATCH', "{$kind} {$remote}", 'Woo #' . ( $row['id'] ?? '?' ) . ' has the remote id but no _cbjp_platform (an import writer did not write the import marker; D25 would treat it as linked by export)' );
+};
+$cbjp_by_remote = static function ( string $kind, array $rows, callable $filter ) use ( $cbjp_report, $cbjp_unmarked ): array {
 	$out = [];
 
 	foreach ( $rows as $row ) {
 		$remote   = $row['meta']['_cbjp_remote_id'] ?? null;
 		$platform = $row['meta']['_cbjp_platform'] ?? null;
 
-		if ( null === $remote || '' === $remote || ( null !== $platform && 'colorme' !== $platform ) || ! $filter( $row ) ) {
+		if ( null === $remote || '' === $remote || ! $filter( $row ) ) {
+			continue;
+		}
+
+		if ( null === $platform || '' === $platform ) {
+			$cbjp_unmarked( $kind, (string) $remote, $row );
+			continue;
+		}
+
+		if ( 'colorme' !== $platform ) {
 			continue;
 		}
 
@@ -359,9 +373,20 @@ if ( ! isset( $cbjp_snap['woo']['settings'] ) ) {
 }
 $cbjp_woo_orders = [];
 foreach ( $cbjp_snap['woo']['orders'] as $cbjp_order ) {
-	$cbjp_remote = $cbjp_order['meta']['_cbjp_remote_order_id'] ?? null;
+	$cbjp_remote   = $cbjp_order['meta']['_cbjp_remote_order_id'] ?? null;
+	$cbjp_platform = $cbjp_order['meta']['_cbjp_platform'] ?? null;
 
 	if ( null === $cbjp_remote ) {
+		continue;
+	}
+
+	// 商品・会員と同じ: 取込みの印が無いのは writer の退行。他の platform の受注は数えない。
+	if ( null === $cbjp_platform || '' === $cbjp_platform ) {
+		$cbjp_unmarked( 'sale', (string) $cbjp_remote, $cbjp_order );
+		continue;
+	}
+
+	if ( 'colorme' !== $cbjp_platform ) {
 		continue;
 	}
 
