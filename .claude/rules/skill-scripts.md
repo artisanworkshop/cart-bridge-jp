@@ -50,5 +50,6 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   `wp_set_current_user( 0 ); kses_init_filters();`、戻すときは `kses_remove_filters()`（`rehearse-colorme` の `run.php` の `context=cron|admin`）。
   管理者のまま処理した最初のリハーサルは、商品名の `&`・`<…>` が変わる問題（issue #99）を隠していた
 - **Action Scheduler の claim をグループで絞らない**。移行途中の `ActionScheduler_HybridStore::stake_claim()` は旧ストア（`wpPostStore`）にも問い合わせ、そのグループの term が無いと
-  `InvalidArgumentException: The group "…" does not exist` を投げる（実測）。フック名だけで claim し、アクションの引数（job_id）を照合して他の run のものは `unclaim_action()` で手放す
-  （`rehearse-colorme` の `run.php`）。claim を取ってから `ActionScheduler::runner()->process_action()` で処理すると、管理画面を開いたままでも WP-Cron／非同期ランナーと二重に処理しない
+  `InvalidArgumentException: The group "…" does not exist` を投げる（実測）。フック名だけで claim し、アクションの引数（job_id）を照合する。他の run のアクションは、そのジョブが開いていれば `unclaim_action()` で手放し、
+  閉じている（完了・失敗・キャンセル）か存在しなければ処理して片付ける（キャンセルした run のアクションはキューに残るので、手放すだけだと毎回それを claim して自分の番が来ない。
+  `rehearse-colorme` の `run.php`）。claim を取ってから `ActionScheduler::runner()->process_action()` で処理すると、管理画面を開いたままでも WP-Cron／非同期ランナーと二重に処理しない
