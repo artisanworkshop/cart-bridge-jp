@@ -2,10 +2,10 @@
 
 - タスク: R3-1 — 全件 E2E リハーサル（カラーミーのテストショップ〔非プレミアム〕でインポート全般 → 同じショップへの往復エクスポート。D16・R3-0a/b〔モック〕・`option_market_price` の税基準・hidden 安全策〔issue #78〕）
 - 開始: 2026-10-05
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
-- Copilot: 依頼 0 回
-- Codex: 依頼 0 回
+- PR: #103 https://github.com/artisanworkshop/cart-bridge-jp/pull/103
+- 現在のステップ: 7（ゲート G1 の反映・G2 の依頼前）
+- Copilot: 依頼 1 回 / 未収束
+- Codex: 依頼 1 回 / 未収束
 
 ## ログ
 
@@ -19,3 +19,5 @@
 | 2026-10-05 12:07 | 2 | 実装コミット 3 件（スキル `b5a2419`・mock example `e03b614`・docs `435d2a6`）。品質チェック green（PHPUnit 1493・Jest 87） |
 | 2026-10-05 12:31 | 3 | review-loop R1（自己レビュー＋独立サブエージェント）: Critical/High 0、Medium 4（partial-push の警告の検査が常に成り立つ、check-import の公開状態の向き、記録と check-import の検査範囲のずれ、D25 の出自の判定の前提）と Low 12 を修正（`8b47f3d`・`e60564e`）。Low 2 件と対象外 2 件を backlog。欠陥を注入したスナップショットで 8 種を検出、警告ログを壊す変異で FAIL を確認 |
 | 2026-10-05 12:45 | 3 | review-loop R2（独立サブエージェントで検証）: **APPROVE**（R1 の Medium をすべて解消・新規 Critical/High 0）。新規 Low 6 件（在庫管理の欠損の扱い、受注の税額・配送の規則、受注の重複、`get_var()`、記述のずれ、案内文）を修正（`b31218e`・`3800da9`） |
+| 2026-10-05 12:50 | 4〜6 | PR #103 作成（T=2026-10-05T03:45:54Z）→ CI green → Copilot 依頼 1 回目（登録確認済み）・Codex は PR 作成時の自動レビューを待つ（5 分で来なければ review コメントを自動投稿） |
+| 2026-10-05 13:55 | 7 | G1: Copilot 5（修正 4・誤検知 1〔`post_status` の配列の `any`〕）、Codex 2（修正 2。1 件は Copilot と重複）。確認ゲート承認後に commit（`a55cc7e`）。G1-5 はユーザー承認のうえ根拠を返信して Resolve |
