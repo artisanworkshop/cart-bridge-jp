@@ -44,8 +44,8 @@ paths:
 - **投稿の保存に kses がかかるかは、Action Scheduler のどのランナーが処理したかで変わる**（R3-1、issue #99）。WP-Cron（未ログインの HTTP リクエスト）は kses が有効で、
   `title_save_pre`（`wp_filter_kses`）が商品名の `&` を `&amp;` にし、許可されないタグを除く（`Tom & Jerry <set>` → `Tom &amp; Jerry `。一時 mu-plugin で実測）。
   非同期ランナー（`WP_Async_Request`）は呼び出し元の Cookie を転送するので、管理画面を開いている間に処理されたページは管理者（unfiltered_html あり）として保存され、そのまま残る。
-  Writer の保存結果を「実行するユーザーの権限」に依存させないこと（自分で決定的に整形してから保存する）。WP-CLI は未ログインでも kses のフィルターを登録しないことがある
-  （`wp_set_current_user( 0 )` は既に 0 だと `set_current_user` を発火しない）ので、CLI の確認は本番の条件を再現しない（`.claude/rules/skill-scripts.md`）
+  Writer の保存結果を「実行するユーザーの権限」に依存させないこと（自分で決定的に整形してから保存する）。WP-CLI は `--user` が無いと `init` の優先度 11 で kses を外す
+  （`wp action-scheduler run` も同じ）ので、CLI の確認は WP-Cron の条件を再現しない（`.claude/rules/skill-scripts.md`）
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）

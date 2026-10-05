@@ -44,8 +44,9 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **手編集される記録の「値」を読むときは、許可リスト・最初の 1 つ・重複拒否の 3 点で fail-closed にする**（PR #81・#82 で、承認行と `対象 HEAD` の読み方を 5 ラウンド連続で指摘された）。(1) 値の直後は行末・空白・括弧など**許可する区切りだけ**を許し、`Z-junk`・`abc1234!` のように記号が直接続く値は読めないものとして扱う。否定形（英数字でなければ可）は次の穴を生む。括弧の補足は開きと閉じの種類を対応させる。(2) 同名のラベルが 1 行に複数あるときは、正規表現の全走査で後ろを拾わず、**最初のラベルの直後だけ**を検証する（不正なら空に倒す）。(3) 同名の行がヘッダに複数ある記録は、先頭だけ読まず曖昧として拒否する（先頭の古い `auto-commit` が後ろの時刻承認を隠す）。文法を厳しくするときは、既存の記録を全件パースして読み取りが変わらないことを確認する（`対象 HEAD: fa7b40b（…）` のように、括弧の補足を付けた既存の書式を壊さないため）
 - **実データを書く・消す example（`examples/**`）は、最初に「mock が登録され、OAuth トークンが無い」を肯定形で確認してから始める**（`AdapterRegistry::get( $platform ) instanceof MockPlatformAdapter`）。「実アダプタでなければ可」と否定形で書くと、mock を uninstall した後の未登録 key が素通りする（PR #81 G2-3・G3-1）。開始前の残り検査と cleanup の `left` は、cleanup が消すもの（intent・mapping・job・ログに加え、example が書く seed のキー・platform 単位のオプション〔サンプル・レート制限〕）と同じ範囲を数える（片方だけだと、別の検証の途中の状態を上書き・削除する／`delete_option()` の失敗を「完全に戻った」と報告する。PR #88 G1-1・G2-2）。共有オプションは丸ごと上書き・削除せず、自分が書くキーだけを差し替える。**cleanup は子の行（ジョブに紐づくログ・dry-run 明細）を親（ジョブ）より先に消す**（親を先に消すと、間で止まったとき次回は親の ID から辿れず子が残る。PR #88 G3-1）
 - **example の判定は dev サイトの既存データに隠されないようにする**。集計（totals）だけで判定すると、既存商品の結果が混ざって自分が作った実体の退行を見逃す。作った実体ごとに dry-run の明細（export 方向は `existing_local_id`）で確かめる。無料版のサンプル（`cbjp_export_sample_{platform}` 等）は、受注が 10 件以上ある dev サイトでは受注の商品だけで決まる（補充されない）ので、特定の実体を export させたい example はサンプルを自分の ID に固定する（PR #88 G1-2・G2-1。`examples/upsell-notice/` 参照）
-- **WP-CLI（`wp eval-file`）でジョブや Writer を動かす検証は、本番の実行条件を明示的に再現する**（R3-1）。CLI で `wp_set_current_user( 1 )` のまま処理すると kses がかからず、
-  未ログインでも（既に 0 のユーザーに `wp_set_current_user( 0 )` しても `set_current_user` が発火せず）kses のフィルターが登録されないことがある。WP-Cron と同じ条件は
+- **WP-CLI（`wp eval-file`）でジョブや Writer を動かす検証は、本番の実行条件を明示的に再現する**（R3-1）。WP-CLI は `--user` が無いと `init` の優先度 11 に
+  `kses_remove_filters` を登録して kses を外す（実測。`--user` を付けると登録しない）ので、未ログインのままでも kses はかからず、既に 0 のユーザーに `wp_set_current_user( 0 )` しても
+  `set_current_user` が発火しないので戻らない。`wp action-scheduler run` で処理したジョブも同じ理由で kses がかからない。WP-Cron（未ログインの HTTP）と同じ条件は
   `wp_set_current_user( 0 ); kses_init_filters();`、戻すときは `kses_remove_filters()`（`rehearse-colorme` の `run.php` の `context=cron|admin`）。
   管理者のまま処理した最初のリハーサルは、商品名の `&`・`<…>` が変わる問題（issue #99）を隠していた
 - **Action Scheduler の claim をグループで絞らない**。移行途中の `ActionScheduler_HybridStore::stake_claim()` は旧ストア（`wpPostStore`）にも問い合わせ、そのグループの term が無いと
