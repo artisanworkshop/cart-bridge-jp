@@ -2618,4 +2618,21 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 0, $items[0]->get_variation_id() );
 		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-local' ), $result->warnings );
 	}
+
+	/**
+	 * D25: バリエーションを mapping で引くのはこのプラットフォームの variant の mapping だけ。別プラットフォームで結ばれた
+	 * バリエーション（印も無い）には解決しない。
+	 */
+	public function test_line_item_does_not_resolve_to_a_variation_mapped_only_for_another_platform(): void {
+		$this->make_export_linked_variable_product( 'vp-foreign' );
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'vp-foreign-red' );
+		$this->mappings->delete_one( 'colorme', 'variant', 'vp-foreign-red' );
+		$this->seed_mapping( 'makeshop', 'variant', 'ms-red', $variation_id );
+
+		$result = $this->make_writer()->write( $this->order_for_option( '4103', 'vp-foreign', '赤' ), null );
+		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_variation_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-foreign' ), $result->warnings );
+	}
 }

@@ -155,7 +155,8 @@ final class ExportSampleSelectorTest extends WP_UnitTestCase {
 
 	/**
 	 * D25 の走査（`collect_newest()`）: 同じ ID は 1 回だけ数え（ページの境目で同じ行が 2 回返っても重複させない）、正の整数として
-	 * 読めない値は捨て、ページが`SCAN_BATCH`件に満たなければ次のページを読まない。
+	 * 読めない値は捨て、ページが`SCAN_BATCH`件に満たなければ次のページを読まない。`$keep`は常に真にする（本番の`$keep`は 0 に対しても
+	 * 真を返しうる〔印の無い ID 0〕ので、0・負の値を捨てるのは`collect_newest()`自身でなければならない）。
 	 */
 	public function test_collect_newest_skips_duplicates_and_non_ids_and_stops_at_a_short_page(): void {
 		$pages = [
@@ -171,7 +172,7 @@ final class ExportSampleSelectorTest extends WP_UnitTestCase {
 		};
 
 		$method = new \ReflectionMethod( ExportSampleSelector::class, 'collect_newest' );
-		$kept   = $method->invoke( new ExportSampleSelector(), $fetch, static fn ( int $id ): bool => $id > 0, 100 );
+		$kept   = $method->invoke( new ExportSampleSelector(), $fetch, static fn (): bool => true, 100 );
 
 		$this->assertSame( array_merge( [ 1, 2 ], range( 10, 52 ), [ 4 ] ), $kept );
 		$this->assertSame( [ 1, 2 ], $read, 'page 2 has fewer rows than a batch, so page 3 is never read' );
