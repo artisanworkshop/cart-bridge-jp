@@ -655,8 +655,10 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   インポート側は `WooRepository`/`DryRunRepository` が writer の前で、在庫は `StockWriter` が解決した対象で判定し、`linked_by_export_not_imported` でスキップする（local_id 0。mapping に触れない）。
   どちらも mapping があれば `unchanged` に数える。対象は商品・顧客・在庫・受注・クーポン。ユーザー決定で、エクスポートのサンプル選定から取込み品を除き、WC の商品複製でリンクのメタを写さないようにした。
   backlog `R2-M-checksum-shared-row` は解消。詳細と既知の限界は `docs/03` §10.2「往復の扱い（D25）」。
-  **検証**: PHPUnit 追加 49 件（実配線の往復 `RoundTripOriginTest` を含む）。`mutate-check.sh` で 30 種（Exporter の分岐と `unchanged`、Reader 5 つと在庫行 3 か所、顧客の作成の印、
-  リポジトリ 2 つ、実体の有無、保護ロール、空のプラットフォーム、StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 6 か所、複製フィルターの登録ほか）がすべて CAUGHT。
+  review-loop R1 の独立レビューで、エクスポートで作った可変商品のバリエーションが取込み受注の明細から解決できなくなる取りこぼしを見つけ、`ProductResolver` が variant の mapping で結ばれた
+  バリエーションも対象にするよう直した（ほかにサンプル選定の走査の並び・重複、在庫行のテスト、リハーサル用スクリプトのフェイルクローズ）。
+  **検証**: PHPUnit 追加 52 件（実配線の往復 `RoundTripOriginTest` を含む）。`mutate-check.sh` で 36 種（Exporter の分岐と `unchanged`、Reader 5 つと在庫行の全 5 か所、顧客の作成の印、
+  リポジトリ 2 つ、実体の有無、保護ロール、空のプラットフォーム、StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 8 か所、複製フィルターの登録、受注明細のバリエーション解決 2 か所ほか）がすべて CAUGHT。
   `rehearse-colorme` に `seed-woo prefix=`・`diff side=woo`・`check-import` の `LINKED_BY_EXPORT` を追加した。**テストショップでの再リハーサル（手順 2・3）は未実施**（2026-10-05 ユーザー判断で後回し。
   お試し期限 2026-10-22 まで。R3-1b〜e の再リハーサルとまとめてもよい）
 - [ ] **R3-1b: 商品名を実体参照にして保存し、エクスポートで戻す（issue #99）**（ランナーによらず同じ結果にする。`context=cron`／`admin` の両方で取り込んで確認。

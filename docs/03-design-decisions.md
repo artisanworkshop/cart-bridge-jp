@@ -727,8 +727,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 **import/export共有**: `cbjp_mappings` は方向を持たない設計（`UNIQUE(platform, entity_type,
 remote_id)`）のため、上記累積カウントは import 由来・export 由来の行を区別せず合算する
 （E2-2で確定。無料版=挙動確認という位置づけ（D14）から、往復を通じた合計上限として扱う）。
-**D25（R3-1a）以後は 1 つの行を両方向が書かない**: 取込みで結ばれた実体はエクスポートせず、エクスポートで結ばれた実体は取込みで
-上書きしないため、各行の checksum は結んだ向きだけが書く（下の「往復の扱い（D25）」）。以下の 2 段落は D25 より前の状態の記録で、
+**D25（R3-1a）以後は原則として 1 つの行を両方向が書かない**: 取込みで結ばれた実体はエクスポートせず、エクスポートで結ばれた実体は取込みで
+上書きしないため、各行の checksum は結んだ向きだけが書く（下の「往復の扱い（D25）」。例外は同節の既知の限界 2）。以下の 2 段落は D25 より前の状態の記録で、
 名前空間の混ぜ込みは D25 より前に両方向が書いた行と、判定の取りこぼしへの防御として残している。
 
 **checksum列も同じ行をimport/exportで共有するが値の意味は別物**（E2-2 R1で判明。詳細は
@@ -1767,19 +1767,28 @@ D25「実体は作られた向きにだけ更新する」の実装。判定は�
   `woocommerce_duplicate_product_exclude_meta` で `_cbjp_platform`・`_cbjp_remote_id` を外す（`Core\Plugin::boot()`。WC 11 の実ソースで
   バリエーションの複製にも同じ一覧が使われることを確認）。写すと複製が「取込み品」と判定されて黙ってエクスポートされず、
   リンク再構築が同じ remote_id で複製側に mapping を付け替えうる（既存の問題も同時に解消）。
-- **backlog `e2-2-exporter-core/R2-M-checksum-shared-row` は解消**: 1 つの mapping 行を両方向が書かなくなった。
+- **受注明細の商品解決**: 取込み受注の明細がエクスポートで作った可変商品を指すとき、そのバリエーションは取込みの印を持たない
+  （取込みがその商品を書かなくなったので、以前のように印が付くことも無い）。`ProductResolver::resolve_variation_by_options()` は、印に加えて
+  このプラットフォームの variant の mapping で結ばれたバリエーションも対象にする（単純商品が remote_id の mapping で解決するのと揃える。
+  印も mapping も無い、店舗が Woo で足したバリエーションは従来どおり対象外。review-loop R1 の独立レビュー A-1）。
+- **backlog `e2-2-exporter-core/R2-M-checksum-shared-row` は解消**: 原則として 1 つの mapping 行を両方向が書かなくなった（例外は既知の限界 2）。
 - **既知の限界**（実装しない）:
-  1. mapping を失った（クリーンアップ等）エクスポート生まれの顧客は、再取込みでメール突合により採用・上書きされうる
-     （mapping が無いと Woo で手作りした顧客と区別できない）。
-  2. 保護ロールで採用された後に `customer` へ降格したアカウントは取込みの印が無く、エクスポートで更新として送られうる。
+  1. エクスポートで結ばれた実体が mapping を失う（クリーンアップ等）と、取込みの向きからは Woo で手作りした実体と区別できない。
+     リンク再構築（`MappingRebuilder`）は取込みの印からしか復元しないので、再取込みで商品・受注・クーポンは Woo に作り直され（重複）、
+     顧客はメール突合で採用・上書きされうる。
+  2. 保護ロールが絡むアカウントは印で判定しない（取込みが印を書かない）: 保護ロールで採用された後に `customer` へ降格したアカウントは
+     取込みの印が無いのでエクスポートで更新として送られうる。逆にエクスポートで作った顧客が後から保護ロールを持つと、ガードを通らず
+     `CustomerWriter` が保護ロールとしてスキップし（local_id はそのユーザー）、`Importer` がその行に取込みの checksum を書く（値は書かない）。
   3. 複数プラットフォーム（v2.0）: P が採用した顧客を Q が採用し直すと `_cbjp_platform` が Q になり、P の取込みはその顧客をスキップする。
   4. エクスポート生まれの顧客にも、受注の取込みで `paying_customer` などの関係の情報は付く（値の上書きではない）。
   5. カテゴリ・タグ・レビューは対象外（エクスポートの Reader が無く、ColorMe は `can_create_category=false`）。BASE（v2.0）で
      カテゴリを作るときに再検討する。
 - **検証**: PHPUnit（`EntityOriginTest`・各 Reader・`ExporterTest`・`WooRepositoryTest`・`StockWriterTest`・`ImporterTest`・
-  `ExportSampleSelectorTest`・`WarningCodeTest`、実配線の往復 `RoundTripOriginTest`）。`mutate-check.sh` で各ガード（Exporter の分岐と
-  `unchanged`、Reader 5 つと在庫行 3 か所、顧客の作成の印、リポジトリ 2 つ、実体の有無の判定、保護ロール、空のプラットフォーム、
-  StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 6 か所、複製フィルターの登録）を壊して落ちることを確認。
+  `ExportSampleSelectorTest`・`WarningCodeTest`・`OrderWriterTest`、実配線の往復 `RoundTripOriginTest`）。`mutate-check.sh` で各ガード（Exporter の分岐と
+  `unchanged`、Reader 5 つと在庫行の全 5 か所、顧客の作成の印、リポジトリ 2 つ、実体の有無の判定、保護ロール、空のプラットフォーム、
+  StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 8 か所〔走査の重複除去・ID でない値の除外を含む〕、複製フィルターの登録、
+  受注明細のバリエーション解決）を壊して落ちることを確認（36 種）。サンプル選定の走査は同じ日時の行がページの境目で重複・欠落しないよう
+  `orderby => 'date ID'`（HPOS・CPT・`WP_User_Query` とも空白区切りを受け付けることを実ソースで確認）で並べ、ID だけを取得する。
   テストショップでの再リハーサル（`rehearse-colorme` の手順 2・3）は未実施（2026-10-05 ユーザー判断で後回し。`docs/10-tasks.md` R3-1a）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
