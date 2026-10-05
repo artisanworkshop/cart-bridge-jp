@@ -11,7 +11,9 @@
  * - 単純（SKU なし）、可変 1 軸（1 バリエーションだけセール。`option_market_price` の税基準の確認用）、可変 2 軸（2 軸目のオプション直後に
  *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率、`zero-rate`（hidden 安全策〔issue #78〕の発動条件）。
  * - 顧客: 日本の住所の顧客（名・姓を Woo の欄に入れる。`_cbjp_full_name` が無いので「名 姓」の順で送られる既知の制限を見る）。
- * - 同じ名前・メールが既にあれば作らずに飛ばす。開発サイト専用（`reset-local` と同じ条件）。
+ * - 同じ名前・メールが既にあれば作らずに飛ばす。ただしそれが取込みで結ばれた実体（`_cbjp_platform` がある）なら止まる
+ *   （前回エクスポートした実体を取り込んだもので、Woo 生まれとして扱うと手順 3 が成り立たない。`prefix=` を変えて作り直す）。
+ *   開発サイト専用（`reset-local` と同じ条件）。
  *
  * @package CartBridgeJP
  */
@@ -37,7 +39,15 @@ $cbjp_cat_ids  = $cbjp_category instanceof WP_Term ? [ (int) $cbjp_category->ter
 $cbjp_exists = static function ( string $name ): ?int {
 	$ids = get_posts( [ 'post_type' => 'product', 'post_status' => 'any', 'title' => $name, 'numberposts' => 1, 'fields' => 'ids' ] );
 
-	return [] === $ids ? null : (int) $ids[0];
+	if ( [] === $ids ) {
+		return null;
+	}
+
+	if ( '' !== (string) get_post_meta( (int) $ids[0], '_cbjp_platform', true ) ) {
+		cbjp_rh_abort( "'{$name}' (#{$ids[0]}) already exists and is linked by import (_cbjp_platform). It is not Woo-born; rerun with another prefix= (for example ZZV)." );
+	}
+
+	return (int) $ids[0];
 };
 
 $cbjp_simple = static function ( string $name, string $price, string $tax_class, ?int $stock ) use ( $cbjp_exists, $cbjp_cat_ids ): void {
@@ -152,7 +162,13 @@ if ( isset( $cbjp_opts['extra-email'] ) ) {
 }
 
 foreach ( $cbjp_customers as $cbjp_email => [ $cbjp_first, $cbjp_last, $cbjp_state, $cbjp_postcode, $cbjp_address, $cbjp_phone ] ) {
-	if ( email_exists( $cbjp_email ) ) {
+	$cbjp_existing_user = email_exists( $cbjp_email );
+
+	if ( false !== $cbjp_existing_user ) {
+		if ( '' !== (string) get_user_meta( (int) $cbjp_existing_user, '_cbjp_platform', true ) ) {
+			cbjp_rh_abort( "the customer {$cbjp_last} {$cbjp_first} (#{$cbjp_existing_user}) already exists and is linked by import (_cbjp_platform). It is not Woo-born; rerun with another prefix=." );
+		}
+
 		echo "  skip {$cbjp_last} {$cbjp_first} (already exists)\n";
 		continue;
 	}

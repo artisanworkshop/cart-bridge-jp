@@ -43,10 +43,11 @@ foreach ( $cbjp_entities as $cbjp_e ) {
 }
 
 /**
- * Woo の mappings は id の無い行の並びなので、`platform/entity/remote_id` をキーにする（並びのずれを差として出さない）。
+ * スナップショットの`$side.$entity`の行を返す。Woo の mappings は id の無い行の並びなので、`platform/entity/remote_id` をキーにする
+ * （並びのずれを差として出さない）。
  *
- * @param array<int|string,mixed> $rows
- * @return array<string,mixed>
+ * @param array<string,mixed> $snapshot
+ * @return array<int|string,mixed>
  */
 $cbjp_rows_of = static function ( array $snapshot, string $side, string $entity ): array {
 	$rows = $snapshot[ $side ][ $entity ];

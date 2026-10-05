@@ -1,7 +1,7 @@
 <?php
 /**
  * 取込み後のスナップショット（side=both）で、ColorMe の値と Woo の値を主要項目ごとに突き合わせる。読み取りのみ。
- * 引数: label=<name>
+ * 引数: label=<name> [expect-export-links=yes]
  *
  * Woo 側は `_cbjp_remote_id` メタ（商品・バリエーション・顧客。受注は `_cbjp_remote_order_id`）で ColorMe の id と結ぶ。
  * 見る項目: 商品（名前・型番・公開状態・税区分・価格・在庫と在庫管理・説明・重複）、バリエーション（型番・価格・セール価格・在庫）、
@@ -11,15 +11,23 @@
  * - `MISSING`: ColorMe にあるのに Woo に無い（会員以外の顧客は `NOTE`）。
  * - `LINKED_BY_EXPORT`: mapping はあるが、指す Woo の実体に取込みの印（`_cbjp_platform`。顧客は作成の印も）が無い＝エクスポートで
  *   結ばれた実体（D25）。取込みは上書きせず紐づけだけを保つので、Woo に `_cbjp_remote_id` の付いた実体が無いのが正しい。値は突き合わせない。
- * `MISMATCH` か `MISSING` が 1 件でもあれば終了コード 1。
+ *   ただし取込みだけの段階（手順 1）では、writer が既存の実体を結んだのに印を書かなかった退行と見分けられないので、
+ *   **既定では失敗として数える**。作成エクスポートの後（手順 3）に `expect-export-links=yes` を付けたときだけ許す。
+ * `MISMATCH` か `MISSING`、または（`expect-export-links=yes` が無いときの）`LINKED_BY_EXPORT` が 1 件でもあれば終了コード 1。
  *
  * @package CartBridgeJP
  */
 
 require_once __DIR__ . '/_lib.php';
 
-$cbjp_opts = cbjp_rh_args( $args, [ 'label' ] );
+$cbjp_opts = cbjp_rh_args( $args, [ 'label', 'expect-export-links' ] );
 $cbjp_snap = cbjp_rh_load_snapshot( $cbjp_opts['label'] ?? '' );
+
+if ( ! in_array( $cbjp_opts['expect-export-links'] ?? 'no', [ 'yes', 'no' ], true ) ) {
+	cbjp_rh_abort( 'expect-export-links must be yes or no' );
+}
+
+$cbjp_expect_export_links = 'yes' === ( $cbjp_opts['expect-export-links'] ?? 'no' );
 
 if ( ! is_array( $cbjp_snap['colorme'] ?? null ) || ! is_array( $cbjp_snap['woo'] ?? null ) ) {
 	cbjp_rh_abort( 'the snapshot needs both sides (take it with side=both)' );
@@ -425,6 +433,10 @@ foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 echo 'summary: ' . wp_json_encode( $cbjp_counts ) . "\n";
 
 // 食い違い・欠落があれば非ゼロで終える（出力を人が読まなくても、続く手順や確認スクリプトが失敗として扱えるように。G1-1）。
-if ( $cbjp_counts['MISMATCH'] > 0 || $cbjp_counts['MISSING'] > 0 ) {
+if ( $cbjp_counts['LINKED_BY_EXPORT'] > 0 && ! $cbjp_expect_export_links ) {
+	echo "LINKED_BY_EXPORT counts as a failure unless expect-export-links=yes (only after the create export of step 3)\n";
+}
+
+if ( $cbjp_counts['MISMATCH'] > 0 || $cbjp_counts['MISSING'] > 0 || ( $cbjp_counts['LINKED_BY_EXPORT'] > 0 && ! $cbjp_expect_export_links ) ) {
 	exit( 1 );
 }
