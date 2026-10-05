@@ -41,3 +41,11 @@ paths:
 - `WC_Abstract_Order::save()` は保存中の例外（他プラグインの`woocommerce_before_order_object_save`フック等）を**内部で握りつぶしてログに残し、IDを返す**（WC 11.1の`abstract-wc-order.php`で確認）。握りつぶすのは`Exception`だけで、`Error`（`null`/`false`へのメソッド呼び出し等）はそのまま外へ出る（実店舗の請求書プラグインの`Error`で受注の保存が失敗した。issue #91。テストで他プラグインの失敗を模擬するときも`Error`を投げる）。新規作成では、`woocommerce_new_order`（行の作成の後・明細の保存の前）で`Exception`が出ると、0でないIDが返るのに**明細は保存されていない**。1回だけ保存して作る処理は、追加した明細にIDが付いたかを確かめること（`OrderWriter::all_items_saved()`。PR #92 G2）。呼び出し側からは成功に見えるため、受注を書き換える処理は`wc_get_order()`で読み直して書けたことを確認する（表示フィルターの影響を受けない`edit`コンテキストで）。`update_user_meta()`も同値更新と書込み失敗の両方でfalseを返し区別できない（issue #46）
 - 「Any（すべての）」バリエーションは、軸属性の値が**空文字列**で保存される（ローカル属性 `attribute_size=""`・taxonomy 属性 `attribute_pa_…=""` とも実測）。購入時に選ばれた値は受注明細のメタ（`attribute_` を除いたキー。例 `{"size":"M"}`）にだけ残り、`get_variation_id()` は Any のバリエーション自身を指す。バリエーション自体の属性を読む処理（`VariationAxisResolver::option_values()`）は Any を `null` にするだけで「解決済み」に見えるため、明細のオプション値を解決する処理は `VariationAxisResolver::has_any_attribute()` で Any を弾くこと（`OrderReader::variation_option_values()`。D23、issue #74）
 - `wc_get_products( [ 'sku' => 'X' ] )` は**部分一致**（`WC_Product_Data_Store_CPT` が `meta_query` を `compare => 'LIKE'` で組み立てる）。完全一致・接頭辞で絞りたいときは結果を自分で確かめる（`str_starts_with()` 等）。1 件の完全一致が要るなら `wc_get_product_id_by_sku()`（lookup テーブルを `sku = %s` で引く）を使う。Codex は「完全一致」と誤って断定した（PR #88 G1-3）
+- **投稿の保存に kses がかかるかは、Action Scheduler のどのランナーが処理したかで変わる**（R3-1、issue #99）。WP-Cron（未ログインの HTTP リクエスト）は kses が有効で、
+  `title_save_pre`（`wp_filter_kses`）が商品名の `&` を `&amp;` にし、許可されないタグを除く（`Tom & Jerry <set>` → `Tom &amp; Jerry `。一時 mu-plugin で実測）。
+  非同期ランナー（`WP_Async_Request`）は呼び出し元の Cookie を転送するので、管理画面を開いている間に処理されたページは管理者（unfiltered_html あり）として保存され、そのまま残る。
+  Writer の保存結果を「実行するユーザーの権限」に依存させないこと（自分で決定的に整形してから保存する）。WP-CLI は未ログインでも kses のフィルターを登録しないことがある
+  （`wp_set_current_user( 0 )` は既に 0 だと `set_current_user` を発火しない）ので、CLI の確認は本番の条件を再現しない（`.claude/rules/skill-scripts.md`）
+- **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
+  日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
+  スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）

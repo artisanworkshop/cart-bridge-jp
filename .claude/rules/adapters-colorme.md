@@ -50,3 +50,12 @@ paths:
 - **`Capabilities::$beta_features` は表示と既定オフのためだけの宣言**（可否は各能力が決める）。外部アダプタの戻り値は型が強制されないので、`to_array()` が文字列以外・空文字・重複を落として `array_values` で詰め直す（キーが飛ぶと JSON がオブジェクトになり UI の `.includes()` が落ちる）。UI の分岐を足すときも `beta_features` に無いものを既定オフにしない（サーバー側の既定オフは設定側 `ExportOptions` が担う）
 - **`Capabilities::$can_push_images` が true のアダプタは、画像を `ExportOptions::push_images_enabled( $this->id() )` に従って送る契約**（Export タブの項目・PUT の能力ゲート・`Exporter` の checksum の印がその前提。従わないと既定オフが成り立たず、切替のたびに商品が再送される。`ColorMeAdapter::should_push_images()` 参照。R3-0j R1）。カラーミーの `POST /v1/products/{id}/images` は**同じ position の既存画像を上書き**し（swagger）、`push_images()` は既存画像を確認しないので、オンにすると管理画面で手作業登録した画像も Woo の画像で置き換わる（UI の説明文に書いてある）
 - I/O を伴う遅延初期化の Transformer（`order_transformer()`/`product_transformer()`。初回呼び出し時に `payments.json`/`deliveries.json`/`shop.json` を叩き、インスタンス単位でメモ化する）は、`transform_rows()`/`transform_rows_flat()` に渡すクロージャの**外**で解決すること。クロージャの内側（行単位の `catch ( Throwable )` の内側）で解決すると、基盤取得の失敗（認証切れ・レート制限・5xx）が「1行の変換失敗」に化けて握りつぶされる。しかも失敗時はメモ化されず全行で再取得→失敗を繰り返し、ページ全体が0件のまま「成功」で完了しうる（issue #69。同じパターンを商品側で先に踏んでいる: `fetch_products()` は最初から正しい形だったが、`fetch_product_by_remote_id()` は導入時のレビューで見つかり同じPR内で修正された〔PR #24〕。受注側の一覧取得3箇所〔`fetch_orders()`・`fetch_latest_orders()` の初回取得とループ〕はその時点では見つからず、別issueとして起票してから直した）。新しい ASP アダプタで同種の遅延初期化 Transformer を書く場合も同じ形にすること。
+- **ColorMe API の実測（R3-1、テストショップ、2026-10-05）。swagger と違う・書かれていない挙動**:
+  (1) `PUT /customers/{id}` は swagger では必須項目が無いが、実際は名前と住所（市区町村・番地）が無いと 422（「名前を入力してください」「市区町村・番地を入力してください」）。
+  住所の 3 点（都道府県・郵便番号・住所 1）をそろえられない顧客（海外 `pref_id=48` など）の更新は、送る前に止める（issue #100）。
+  (2) `PUT /products/{id}` に `category_id_small` だけを送ると「指定したカテゴリidが無効です」。`category_id_big` と対で送る（プラグインの更新は対で送る）。
+  作成で `category_id_big` を送らないと、ColorMe はショップの既定のカテゴリ（「初期カテゴリー」）に入れる（再取込みで Woo のカテゴリがそれに変わる）。
+  (3) バリエーションの `option_market_price`（定価）は管理画面のオプション一覧にもストアフロントの「オプションの値段詳細」にも表示されない（税基準は判定できず、見える影響も無い）。
+  (4) `birthday` は POST・PUT とも成功応答のまま `null` で保存されないことがある（テストショップで実測。ショップの会員登録項目の設定によると推測、未確認）。
+  (5) 2 軸目のオプションを POST した直後の `GET /products/{id}` で、バリエーションの値の組が出そろっていないことがある（API を直接叩く投入スクリプトで実測。
+  プラグインの `push_variant_details()` の経路では起きなかった）
