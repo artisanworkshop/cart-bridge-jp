@@ -282,17 +282,17 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     空 CSV R3-X1）は F1-7 に含めず別 issue として起票する
 - [x] **F1-8: 実データE2E**（テストショップから商品100件・受注50件規模。中断→再開、再実行の冪等性、**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16**、実行時間計測=要検証#6）。
   2026-09-13 実施。テストショップではなく**実店舗2件**（ちくわ実店舗・クラフト実店舗）で実施し、当初想定より大幅に大きい実データ規模となった。
-  - **ちくわ実店舗**: 全エンティティを実施。実データ規模は商品113件・顧客331件・受注1230件（想定の10倍超）。
+  - **ちくわ実店舗**: 全エンティティを実施。
     決済/配送マッピング未設定時は受注全件が`payment_method_unmapped`/`shipping_method_unmapped`になることを確認し、`PUT /settings/mappings/colorme`
-    （決済5種→`bacs`/`cod`/`postofficebank`/`payjp_card`、配送2種→代表`flat_rate:6`）を設定後に警告0件へ解消することを確認。
-    サンプル移行（上限あり、商品12/顧客4/受注10/クーポン3）→一時的なmu-plugin（`cbjp/limits/*`フィルターをnullへ上書き、Pro版の上限解除を模擬）
-    設置→全件本移行の順で実施し、**サンプルで作成済みの10件の受注・12件の商品・3件のクーポンが本移行で重複作成されずskipped扱いになった**（D16の冪等upsert実証）。
-    最終結果: 商品113件・顧客332件（327作成+5skip）・受注1230件（1220作成+10skip）・在庫159件・クーポン3件、失敗0件。
-  - **クラフト実店舗**: ColorMe副管理者アカウント未取得のため、Categories/Tags/Products（7/1/117件、失敗0件）のみ実施。
+    （決済→`bacs`/`cod`/`postofficebank`/`payjp_card`、配送→代表`flat_rate:6`）を設定後に警告0件へ解消することを確認。
+    サンプル移行（上限あり）→一時的なmu-plugin（`cbjp/limits/*`フィルターをnullへ上書き、Pro版の上限解除を模擬）
+    設置→全件本移行の順で実施し、**サンプルで作成済みの受注・商品・クーポンが本移行で重複作成されずskipped扱いになった**（D16の冪等upsert実証）。
+    最終結果: 全エンティティで失敗0件（サンプルで作成済みの分はskip）。
+  - **クラフト実店舗**: ColorMe副管理者アカウント未取得のため、Categories/Tags/Products（失敗0件）のみ実施。
     Customers/Orders/Stock/Couponsは決済/配送マッピングのID→名称確認ができないため保留。サブ管理者アカウント取得後に別途実施する。
   - **実行時間計測（要検証#6）の実測値**: 画像付き商品の取り込みは画像sideloadで大きくコストがかかる（クラフト実店舗: 画像付き商品50件/バッチで最大90秒/バッチ、
-    117件で数分）。一方、画像の少ないちくわ実店舗の商品113件は数十秒で完了。受注1230件の全件本移行（カーソル全走査、WP-Cron駆動）は十数分規模。
-    無料版のサンプル移行（上限10件）でも受注ジョブは**サンプル10件を選ぶためだけに全1230件をカーソル走査していた**ことが判明し、
+    全件で数分）。一方、画像の少ないちくわ実店舗の商品は数十秒で完了。受注の全件本移行（カーソル全走査、WP-Cron駆動）は十数分規模。
+    無料版のサンプル移行（上限10件）でも受注ジョブは**サンプル10件を選ぶためだけに全件をカーソル走査していた**ことが判明し、
     product/customerに存在するID指定取得の高速経路（`run_sample_page`）が`order`エンティティに無い実装漏れを issue #38 として起票した。
   - **持ち越し**: (1) 中断→再開（Cancel run→再開）の明示的なテストは未実施。(2) 上書きポリシー（更新/スキップの選択式UI）の両方の動作確認は未実施
     （今回はchecksum一致による自動skipのみ観測。選択式UIの実装有無は未確認）。(3) `docs/review-backlog.md`の`tax_rounding_method=round_off`端数実測は
@@ -469,8 +469,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   Jest 33 件。`mutate-check.sh` で PHP 8 種（`unchanged` の加算 2・blocking を数える・上限スキップを数える・scheme／host／型の判定・`args`）と JS 11 種がすべて CAUGHT。
   review-loop R1（独立レビュー）の Medium 1 件（商品を移行し終えた後も在庫の行が出る）を修正。PR #87 の G1 で、新しい dry-run の一部のジョブが失敗・キャンセルしたときに前回の件数が残る問題（Copilot）を修正（`withoutDryRunTotals()`）
 - [x] **R3-0m: 受注インポートの決済/配送マッピングを Import 側で設定・確認できるようにする（プレビュー警告の解消）**（2026-09-30 決定。**最優先: R3-0i / R3-0k より先に着手する**。issue は未起票。ブランチ `feat/r3-0m-mappings-tab`）
-  **経緯**: 実店舗（F1-8 のちくわ実店舗）の受注 1,237 件を main（2abb1db）のビルドで dry-run したところ、**全件**に `payment_method_unmapped`（決済 5 種）と `shipping_method_unmapped`（配送 2 種）が付いた
-  （`dist/cart-bridge-jp-dry-run-a3ef31b3-….csv`。`dist/` は未コミット）。残りの警告（数量 0 明細 44・税合計不完全 45・商品/顧客の未解決参照 24・管理者アカウント 2）は R3-0n で扱う。
+  **経緯**: 実店舗（F1-8 のちくわ実店舗）の受注を main（2abb1db）のビルドで dry-run したところ、**全件**に `payment_method_unmapped` と `shipping_method_unmapped` が付いた
+  （`dist/cart-bridge-jp-dry-run-a3ef31b3-….csv`。`dist/` は未コミット）。残りの警告（数量 0 明細・税合計不完全・商品/顧客の未解決参照・管理者アカウント）は R3-0n で扱う。
   **原因**: 設定ストア `cbjp_settings_{platform}`（`payment_map`/`shipping_map`/`status_map`）はインポート（`Woo\Writer\OrderWriter` → `Woo\Support\MethodMap`）と
   エクスポート（`ColorMeAdapter::push_order()`）で既に共有されており、F1-8 では REST 直 PUT で設定すると警告 0 件になることを確認済み。しかし設定 UI（E2-1「Mapping settings」）は
   **Export タブにしか無く**、Import タブには案内も事前チェックも無い。dry-run CSV の `note` 列も空（`WarningCode::indicates_mapping_required()` が `CATEGORY_MAP_UNRESOLVED` しか対象に
@@ -502,11 +502,11 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   (a) 配置は共有コンポーネントを使った**専用の Mappings タブ**（当初案の「Import/Export 両タブに表示」ではない）。(b) 事前チェックは**案内のみ**（Run import は止めない）。
   **要検証**: ColorMe の `payments.json`/`deliveries.json` に廃止（無効化）済みの決済/配送方法が含まれるか。含まれない場合、旧受注が参照する廃止 ID は候補に無く UI から
   マッピングできない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。その場合は直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して
-  行を足す REST を v1.0 に入れるかを判断する（今回の店舗は 5+2 種すべてが現行の候補にあり F1-8 で全件解消できたため、結果次第で v1.0 では見送り可）。
+  行を足す REST を v1.0 に入れるかを判断する（今回の店舗は決済・配送の方法すべてが現行の候補にあり F1-8 で全件解消できたため、結果次第で v1.0 では見送り可）。
   **自動マッピング（名称からの推定）は行わない**（楽観的既定はアーキテクチャ原則 9 に反する。候補として提案表示する案は v1.1 以降）
   **検証**: PHPUnit（`WarningCodeTest`/`DryRunReportCsvTest`）・Jest（`mapping-status`）・`tsc`/`npm run build`。`verify-with-mock-adapter` で Mappings タブの表示・保存の永続化
   （`cbjp_settings_{platform}`）、Import タブの事前チェックの件数表示とリンク、Export タブからカードが消えて案内だけ残ることを確認（mock の `mapping_candidates()` がテンプレートに無ければ足す）。実 API（テストショップ `ttka3lg60f`）で
-  候補の描画と、受注 dry-run の当該 2 警告が設定後に 0 件になることを確認する。実店舗 1,237 件の再 dry-run は店舗側で実施する
+  候補の描画と、受注 dry-run の当該 2 警告が設定後に 0 件になることを確認する。実店舗の受注の再 dry-run は店舗側で実施する
   **完了条件**: Mappings タブで決済/配送マッピングを設定でき、Import タブの案内から辿り着ける。設定後の dry-run で当該 2 警告が消える。CSV の `note` が `mapping_required` になる。
   `composer lint && composer analyze && composer test:wpenv` と `npm run lint && npm run build && npm run test:js` が通る
   **実装サマリ（2026-09-30）**: 方針 1〜4 を計画どおり実装。共有コンポーネント `src/components/MappingSettings.tsx`（GET/PUT で世代カウンタを共有）・
@@ -525,28 +525,28 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   mock（`mockv`）で、未マッピングの dry-run に 2 警告と `mapping_required` → 管理画面で決済を 1 件保存（`cbjp_settings_mockv` に永続化）→ Import の案内が
   「決済 1/2・配送 1/1」→ 一時的な配送ゾーンを作り残りを設定 → 再 dry-run で 2 警告が 0 件・案内が消えることを確認し、撤去して検証前の状態に戻した。
   実 API（テストショップ）では候補の取得と描画（決済 1・配送 1・カテゴリ 1）と Import の案内「決済 1/1・配送 1/1」を確認した。**テストショップは受注 0 件**
-  （非プレミアムのため API で受注も作れない）で、実 API の dry-run で警告が消えることは確かめられていない。実店舗 1,237 件の再 dry-run は店舗側で実施する
+  （非プレミアムのため API で受注も作れない）で、実 API の dry-run で警告が消えることは確かめられていない。実店舗の受注の再 dry-run は店舗側で実施する
 - [x] **R3-0n: 受注 dry-run の残りの警告（数量 0 明細・税合計不完全・未解決参照）の原因確定と扱い**（R3-0m の後。issue は未起票。ブランチ `feat/r3-0n-order-dry-run-warnings`）: R3-0m と同じ CSV の残り。
   いずれも ColorMe 側の実データに起因するため、実データの確認（要検証）を先に行い、フィクスチャは匿名化して追加する。実データ（ちくわ実店舗の該当受注）の取得は
   ユーザー承認済み（2026-09-30）。取得環境（dry-run を実行したサイトの WP-CLI で生 JSON を取るか、wp-env を同じ店舗に接続するか）は着手時に決める。
-  1. `order_line_quantity_invalid` 44 件と `order_line_tax_inconsistent` 44 件は 1:1 で対（受注約 25 件）。`sale.details[].product_num` が 0（または負）の明細を
+  1. `order_line_quantity_invalid` と `order_line_tax_inconsistent` は 1:1 で対。`sale.details[].product_num` が 0（または負）の明細を
      `Woo\Writer\OrderItemBuilder` が数量 1 に倒し、`subtotal`（0 円）＜ 税抜単価 × 1 で税額が負になって 2 つ目の警告が付く（**2 つ目は 1 つ目のフォールバックの副作用**）。
      該当受注の生 JSON を取得して明細の正体（ColorMe 管理画面で数量 0 に編集された行か）を確認する。方針案: `product_num=0` かつ `subtotal_price=0` の明細は数量 0・金額 0 の
      まま取り込み、情報警告に落とす（`WC_Order_Item_Product::set_quantity(0)` の可否は wp-env で実測する。D10 #3「明細を消さない」は維持）
-  2. `order_tax_total_incomplete` 45 件: `sale.totals`（nullable）が欠損し `sale.tax`（商品分のみ）へフォールバックした受注。欠損する条件（古い受注か）を実データで確認する。
+  2. `order_tax_total_incomplete`: `sale.totals`（nullable）が欠損し `sale.tax`（商品分のみ）へフォールバックした受注。欠損する条件（古い受注か）を実データで確認する。
      情報警告のまま、R3-0k のカタログで「送料分の税が含まれない可能性」と説明する
-  3. `order_line_product_unresolved` 19 件（商品 3 種）/ `order_customer_unresolved` 5 件（顧客 2 名）: 該当 ID が ColorMe 側で削除済みか、インポートの除外条件
+  3. `order_line_product_unresolved` / `order_customer_unresolved`: 該当 ID が ColorMe 側で削除済みか、インポートの除外条件
      （顧客は `mail` 欠損で除外）に該当するかを確認する。恒久的に解決しないなら `note` の `reference_pending_import`（先にインポートすれば消える）が誤案内になるため、
      削除済みを区別する扱いを検討する
-  4. `customer_account_protected` 2 件: 管理者・スタッフのアカウントと同じメールのため仕様どおりゲスト受注にする。対応なし（R3-0k で文言）
+  4. `customer_account_protected`: 管理者・スタッフのアカウントと同じメールのため仕様どおりゲスト受注にする。対応なし（R3-0k で文言）
 
   **原因の確定（2026-09-30、実データ）**: dry-run したサイトで読取専用の取得スクリプト（GET のみ・トークンを出さない・個人情報は取得時に伏せ字。
-  `dist/` に置いた未コミットのもの）を SSH＋WP-CLI で実行し、受注 67・商品 6・顧客 3 件を取得した（ホスティングの管理画面のコマンド実行は出力を返さず、
-  `ABSPATH` は読み取り専用だったので、出力先を引数でホームへ向けた）。1. 数量 0 の 44 行はすべて `product_num=0`・`subtotal_price=0`（単価は残る）で、27 受注のうち 18 件はキャンセル受注
-  （ColorMe はキャンセルで全明細を数量 0・受注合計 0 にする）、9 件は一部の明細を外した受注。2. `totals` は 2019-09-09 以前の受注で null（2019-09-12 以降は全件にある）。
-  該当受注はすべて送料があり、`sale.tax` は商品分のみなので警告は正しい。3. 未解決の商品 16 行（1 種）と顧客 2 名は ColorMe で削除済み（404）。残る商品 2 種（3 行、2018 年の受注）は
-  ColorMe にもローカルにも実在する variable 商品で、受注後にオプションの軸が 1 → 2 に増えたため軸の数が合わず特定できない。24 件すべてが「先にインポートすれば消える」ではなかった。
-  4. `customer_account_protected` の顧客（1 名）はスタッフのアカウントと同じメールで、2 件ともキャンセル済みのテスト受注。要検証#18（`sales.json?ids=` が直近 7 日の制限を上書きするか）も同時に測り、上書きしないことを確認した
+  `dist/` に置いた未コミットのもの）を SSH＋WP-CLI で実行し、該当する受注・商品・顧客を取得した（ホスティングの管理画面のコマンド実行は出力を返さず、
+  `ABSPATH` は読み取り専用だったので、出力先を引数でホームへ向けた）。1. 数量 0 の行はすべて `product_num=0`・`subtotal_price=0`（単価は残る）で、該当受注はキャンセル受注
+  （ColorMe はキャンセルで全明細を数量 0・受注合計 0 にする）か、一部の明細を外した受注。2. `totals` は 2019-09-09 以前の受注で null（2019-09-12 以降は全件にある）。
+  該当受注はすべて送料があり、`sale.tax` は商品分のみなので警告は正しい。3. 未解決の顧客と、未解決の商品の大半は ColorMe で削除済み（404）。残りの商品（2018 年の受注）は
+  ColorMe にもローカルにも実在する variable 商品で、受注後にオプションの軸が 1 → 2 に増えたため軸の数が合わず特定できない。どれも「先にインポートすれば消える」ではなかった。
+  4. `customer_account_protected` の顧客はスタッフのアカウントと同じメールで、該当受注はいずれもキャンセル済みのテスト受注。要検証#18（`sales.json?ids=` が直近 7 日の制限を上書きするか）も同時に測り、上書きしないことを確認した
   （`docs/03` 要検証#18・#20〜#22）。
   **実装サマリ（ユーザー決定 2026-09-30）**: (1) `Woo\Writer\OrderItemBuilder` は数量と明細合計がどちらも数値として厳密に 0 の明細を、数量 0・金額 0 のまま**警告なし**で
   残す（税の分割もしない）。欠損・負数・小数・「数量 0 だが金額あり」は従来どおり数量 1＋`order_line_quantity_invalid`。wp-env で `set_quantity(0)` が保存・再読込で 0 のまま、
@@ -588,11 +588,11 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   wp-env の dev サイト（mock `mockv`）で `wp eval-file` を 2 プロセス同時に走らせ、ロックを持って止まった `start_run` の間にもう一方の `start_run`・`POST /runs`・クリーンアップが 409 になり run が 1 本だけ
   できること、ページの処理中（アクションを in-progress にして止めた）にキャンセルすると処理後もジョブが `cancelled` のままで、その間の `POST /runs`・再構築は 409、処理後は開始できることを確認して撤去した
 - [x] **R3-0o: 受注のインポートで新規作成を最終ステータスで保存し、状態変化フックを発火させない**（issue #91。2026-10-01。ブランチ `fix/91-import-order-final-status`）
-  **経緯**: R3-0n の版で実店舗の受注をインポートしたところ、プレビューは「作成 19」なのに本番は「作成 0・警告 24」で、WooCommerce の受注一覧は「支払い待ち (19)」なのに一覧が空だった。
+  **経緯**: R3-0n の版で実店舗の受注をインポートしたところ、プレビューは作成予定があるのに本番は「作成 0」で警告だけが付き、WooCommerce の受注一覧は「支払い待ち」に件数が出るのに一覧が空だった。
   読み取り専用の診断スクリプト（SSH＋WP-CLI。`dist/`、未コミット）で原因を確定した: `OrderWriter::write()` が `wc_create_order( pending )` で作ってから ColorMe のステータスへ `set_status()` していたため、
   保存時に「支払い待ち→完了」等の状態変化として `woocommerce_order_status_*` が発火し、他プラグインの完了時処理が取り込んだ全受注で動いていた（請求書プラグインの PDF 作成とメール送信〈メールは `SideEffectGuard` の
   `pre_wp_mail` で止まり未送信。ただし `wp_mail` フィルターで記録するメールログには残る〉、決済プラグインの売上確定）。請求書プラグインが商品の無い明細で `Error` を投げるため、ColorMe で削除済みの商品などの明細を持つ
-  19 受注は作っては削除され、削除時にメモリ上の「完了」で件数キャッシュ（`OrderCountCacheService`）を減らしたため「支払い待ち +19・完了 −19」の表示になっていた（DB の件数は正しく、支払い待ちは 0）。
+  受注は作っては削除され、削除時にメモリ上の「完了」で件数キャッシュ（`OrderCountCacheService`）を減らしたため「支払い待ち」が増え「完了」が減った表示になっていた（DB の件数は正しく、支払い待ちは 0）。
   **実装サマリ**: 新規は `new WC_Order()` を組み立てて 1 回だけ保存し、`set_status()` の間だけ `woocommerce_default_order_status` を最終ステータスにして状態変化を記録させない（状態変化のフックは発火せず、保存の前後・`woocommerce_new_order`・明細の作成だけ。
   件数キャッシュは最終ステータスに加算）。保存の途中の失敗では作られた行を同じステータスのまま削除する。新規の completed では `wc_paying_customer()`（顧客の購入実績）を明示的に呼ぶ
   （状態変化を起こさないことで動かなくなる本体の他の処理は `docs/03`「受注の新規作成と状態変化フック」に列挙）。
@@ -606,7 +606,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   明細の保存で `Error` が出たら受注を残さず件数キャッシュが DB と一致・`paying_customer` は completed のときだけ・更新は従来どおり状態変化）。`mutate-check.sh` で 13 種（フィルター・`wc_create_order()` への差し戻し・
   `wc_paying_customer()`・その条件・失敗時の削除・Analytics の予約・後処理の失敗の握りつぶし・ID 0 の見送り・失敗時の件数キャッシュの破棄・
   明細の確認・2 回目の保存・その後の件数キャッシュの破棄・再確認）がすべて CAUGHT。mock（`mockv`）で他プラグイン役のフックを足して**本番インポート**を回し、商品の無い明細を持つ完了の受注が作成され、状態変化フックが 0 回、件数キャッシュが
-  DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、19 件が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
+  DB と一致することを確認して撤去した。実店舗では修正版で再インポートし、作成されなかった受注が作成されることを店舗側で確認する（事前に `wp cache flush` で件数表示を直す）
 - [x] **R3-0p: run の実行中は接続を解除させない**（backlog `r3-0i-platform-lock/plan-X1` の B 案。2026-10-04 ユーザー決定。issue は未起票。ブランチ `feat/r3-0p-guard-disconnect`）
   **経緯**: `DELETE /connections/{platform}`（Connections タブの Disconnect / Clear saved credentials。確認なしの 1 クリック）は同時実行の判定もプラットフォームのロックも通らず、
   run の実行中に押すと、export は送信の失敗を 1 件ずつ skipped にして completed になり（何も送っていないのに「完了」）、import は次のリクエストで処理するページから失敗して後続のジョブが

@@ -5,7 +5,7 @@
 - タスク: R3-0g「受注のサンプルインポートを ID 指定取得にする」（`docs/10-tasks.md`。issue #38）
 - PR: [#86](https://github.com/artisanworkshop/cart-bridge-jp/pull/86)
 - 承認された計画の要約: 無料版サンプル移行で `order` エンティティだけがカーソル全量走査（`fetch_orders`）を通っていた
-  バグ（実店舗1230件で `processed: 1230 / created: 10 / skipped: 1220`）を、`Importer::run_sample_page()` と
+  バグ（実店舗で `processed` が受注の全件・`created: 10`・残りが `skipped`）を、`Importer::run_sample_page()` と
   `JobManager::SAMPLE_ID_FETCH_ENTITIES` に `order` を追加してID指定取得（`fetch_order_by_remote_id()`。
   issue #46 で追加済み・日付窓の影響なし）へ切り替える。
 - コミット一覧（実装12件＋記録用docsコミットを含む）:

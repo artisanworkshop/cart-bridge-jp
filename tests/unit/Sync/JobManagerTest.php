@@ -294,7 +294,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 		// issue #38: サンプル実行は受注のカーソル全量走査（fetch_orders）を一切呼ばず、
 		// SampleSelectorが選んだ10件をfetch_order_by_remote_id()で個別取得すること。
 		// カーソル走査に戻ると、実店舗の全受注履歴を走査してからサンプル外を捨てる
-		// （F1-8実測: processed 1230 / created 10 / skipped 1220）という無料版のコンセプトに
+		// （F1-8実測: processed が全件・created 10・残りが skipped）という無料版のコンセプトに
 		// 反する退行が再発する。
 		$this->assertSame( 0, $adapter->fetch_orders_calls );
 

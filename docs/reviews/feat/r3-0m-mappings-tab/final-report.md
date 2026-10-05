@@ -63,10 +63,10 @@
 - 実機: mock（`mockv`）で dry-run の 2 警告と `mapping_required`、設定後の 0 件、管理画面の Mappings タブ・Import の案内・Export タブ・platform の引き継ぎを確認し、撤去済み（`inspect` が検証前と一致）
 
 ## マージ前に人間が確認すべき点
-- **実 API での警告の解消は未確認**: テストショップ（非プレミアム）は受注 0 件で、API で受注も作れない。実 API で確認できたのは候補の取得・描画と Import の案内の件数まで。実店舗（1,237 件）の再 dry-run で 2 警告が消えることの確認は店舗側で行う
+- **実 API での警告の解消は未確認**: テストショップ（非プレミアム）は受注 0 件で、API で受注も作れない。実 API で確認できたのは候補の取得・描画と Import の案内の件数まで。実店舗の再 dry-run で 2 警告が消えることの確認は店舗側で行う
 - checksum の扱いの変更は、この変更より前に本取込みした受注には効かない（Tools のサンプル削除→再取込み）
 
 ## 次にできること（人間の判断）
 - マージ（GitHub 上で人間が行う）→ マージ後は `/post-merge`
-- 実店舗で Mappings タブから決済 5 種・配送 2 種を設定し、受注の再 dry-run で `payment_method_unmapped`/`shipping_method_unmapped` が 0 件になることを確認する
+- 実店舗で Mappings タブから決済・配送の方法を設定し、受注の再 dry-run で `payment_method_unmapped`/`shipping_method_unmapped` が 0 件になることを確認する
 - 続くタスク: R3-0n（受注 dry-run の残りの警告）
