@@ -175,6 +175,11 @@ function cbjp_rh_get_all( ColorMeClient $client, string $path, string $key, arra
 		$total = $body['meta']['total'] ?? null;
 
 		if ( count( $chunk ) < $limit || ( is_int( $total ) && count( $rows ) >= $total ) ) {
+			// 短いページで終わったのに `meta.total` より少ないなら、途中のページが欠けている（スナップショット・差分が件数を取りこぼす）。
+			if ( is_int( $total ) && count( $rows ) < $total ) {
+				throw new RuntimeException( "GET {$path}: got " . count( $rows ) . " rows but meta.total is {$total}" );
+			}
+
 			return $rows;
 		}
 
@@ -203,4 +208,21 @@ function cbjp_rh_load_snapshot( string $label ): array {
 	}
 
 	return $data;
+}
+
+/**
+ * JSON を書き出す。エンコード・書込みのどちらかが失敗したら止める（失敗したのに「saved」と出して、古いファイルを読み違えないため）。
+ *
+ * @param mixed $data
+ */
+function cbjp_rh_write_json( string $path, $data ): void {
+	$json = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+
+	if ( ! is_string( $json ) ) {
+		cbjp_rh_abort( "could not encode JSON for {$path}" );
+	}
+
+	if ( false === file_put_contents( $path, $json ) ) {
+		cbjp_rh_abort( "could not write {$path}" );
+	}
 }

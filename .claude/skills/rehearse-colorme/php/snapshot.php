@@ -4,7 +4,7 @@
  * 引数: shop=<login_id> label=<name> [side=both|colorme|woo]
  *
  * - colorme: 商品（一覧の行はオプション・バリエーションを含む詳細と同じ項目）・会員・クーポン・受注（2000-01-01 以降）
- * - woo: 商品・バリエーション・顧客（role customer）・受注・クーポンの、往復で比べる項目と `_cbjp_*` メタ、`cbjp_mappings`
+ * - woo: 商品・バリエーション・顧客（role customer）・受注・クーポンの、往復で比べる項目と `_cbjp_*` メタ、`cbjp_mappings`、マッピング設定
  *
  * @package CartBridgeJP
  */
@@ -165,6 +165,7 @@ if ( 'colorme' !== $cbjp_side ) {
 				'total_tax'  => $cbjp_item->get_total_tax(),
 				'product_id' => $cbjp_item instanceof WC_Order_Item_Product ? $cbjp_item->get_product_id() : null,
 				'variation'  => $cbjp_item instanceof WC_Order_Item_Product ? $cbjp_item->get_variation_id() : null,
+				'method'     => $cbjp_item instanceof WC_Order_Item_Shipping ? $cbjp_item->get_method_id() . ':' . $cbjp_item->get_instance_id() : null,
 			];
 		}
 		$cbjp_orders[ (string) $cbjp_order->get_id() ] = [
@@ -222,11 +223,13 @@ if ( 'colorme' !== $cbjp_side ) {
 		'orders'    => $cbjp_orders,
 		'coupons'   => $cbjp_coupons,
 		'mappings'  => $wpdb->get_results( "SELECT platform, entity_type, remote_id, local_id, checksum IS NULL AS checksum_null FROM {$wpdb->prefix}cbjp_mappings ORDER BY platform, entity_type, remote_id", ARRAY_A ),
+		// 決済・配送などのマッピング設定（`check-import` が受注の決済・配送の対応を確かめる）。配列でない壊れた値は空として扱う。
+		'settings'  => is_array( get_option( 'cbjp_settings_colorme', [] ) ) ? get_option( 'cbjp_settings_colorme', [] ) : [],
 	];
 }
 
 $cbjp_path = cbjp_rh_out_dir() . "/{$cbjp_label}.json";
-file_put_contents( $cbjp_path, wp_json_encode( $cbjp_snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+cbjp_rh_write_json( $cbjp_path, $cbjp_snapshot );
 
 echo "saved .rehearsal/{$cbjp_label}.json\n";
 foreach ( [ 'colorme', 'woo' ] as $cbjp_s ) {

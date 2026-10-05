@@ -22,7 +22,23 @@ require_once __DIR__ . '/_lib.php';
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 
-wp_set_current_user( 1 );
+// REST（manage_woocommerce が要る）を呼ぶ管理者。ID を決め打ちせず、最初の管理者を使う（ジョブの処理後もこのユーザーに戻す）。
+$cbjp_admins = get_users(
+	[
+		'role'   => 'administrator',
+		'number' => 1,
+		'fields' => 'ID',
+	]
+);
+
+if ( [] === $cbjp_admins ) {
+	cbjp_rh_abort( 'no administrator user on this site' );
+}
+
+$cbjp_admin_id = (int) $cbjp_admins[0];
+wp_set_current_user( $cbjp_admin_id );
+
+global $wpdb;
 
 $cbjp_opts = cbjp_rh_args( $args, [ 'shop', 'type', 'entities', 'cancel-after', 'max-minutes', 'attach', 'context' ] );
 cbjp_rh_require_shop( $cbjp_opts );
@@ -54,8 +70,9 @@ if ( ! in_array( $cbjp_context, [ 'cron', 'admin' ], true ) ) {
 }
 
 // ジョブを処理するときのユーザー（REST の呼び出しは manage_woocommerce が要るので管理者のまま）。
-// - cron（既定）: WP-Cron・`wp action-scheduler run` と同じ未ログイン。投稿の保存に kses がかかる（商品名の `&` が `&amp;` になり、
-//   許可されないタグが消える）。WP-CLI は未ログインでも kses のフィルターを登録しないことがある（実測）ので、明示的に登録する。
+// - cron（既定）: WP-Cron（未ログインの HTTP リクエスト）と同じ。投稿の保存に kses がかかる（商品名の `&` が `&amp;` になり、
+//   許可されないタグが除かれる）。WP-CLI は `--user` が無いと `init` の優先度 11 に `kses_remove_filters` を登録して kses を外す（実測）ので、
+//   ここで明示的に登録し直す（`wp action-scheduler run` で処理した場合は、この理由で kses がかからない＝admin と同じ結果になる）。
 // - admin: 管理画面を開いている間に Action Scheduler の非同期ランナーが処理する場合（管理者の Cookie を転送するので unfiltered_html あり）。
 $cbjp_enter_context = static function () use ( $cbjp_context ): void {
 	if ( 'cron' === $cbjp_context ) {
@@ -63,10 +80,10 @@ $cbjp_enter_context = static function () use ( $cbjp_context ): void {
 		kses_init_filters();
 	}
 };
-$cbjp_leave_context = static function () use ( $cbjp_context ): void {
+$cbjp_leave_context = static function () use ( $cbjp_context, $cbjp_admin_id ): void {
 	if ( 'cron' === $cbjp_context ) {
 		kses_remove_filters();
-		wp_set_current_user( 1 );
+		wp_set_current_user( $cbjp_admin_id );
 	}
 };
 
@@ -82,7 +99,6 @@ if ( JobManager::TYPE_EXPORT === $cbjp_type ) {
 
 if ( isset( $cbjp_opts['attach'] ) ) {
 	// 途中で止まった run（max-minutes・スクリプトの異常終了）を、新しく始めずに続きから処理する。種別と platform が一致するものだけ。
-	global $wpdb;
 	$cbjp_run_id = $cbjp_opts['attach'];
 	$cbjp_found  = $wpdb->get_row( $wpdb->prepare( "SELECT type, platform FROM {$wpdb->prefix}cbjp_jobs WHERE run_id = %s LIMIT 1", $cbjp_run_id ), ARRAY_A );
 
@@ -116,6 +132,7 @@ $cbjp_store   = ActionScheduler::store();
 $cbjp_runner  = ActionScheduler::runner();
 $cbjp_done    = 0;
 $cbjp_waited  = 0;
+$cbjp_orphaned = 0;
 
 while ( true ) {
 	$cbjp_open = array_filter( $cbjp_run(), static fn ( array $job ): bool => in_array( $job['status'], [ 'pending', 'running', 'paused' ], true ) );
@@ -131,7 +148,7 @@ while ( true ) {
 
 	// グループでは絞らない: 移行途中の HybridStore は旧ストア（wpPostStore）にも claim を問い合わせ、そのグループの term が
 	// 無いと InvalidArgumentException を投げる（実測）。フックで絞り、下でジョブ ID を照合して他の run のアクションは手放す。
-	$cbjp_claim     = $cbjp_store->stake_claim( 5, null, [ JobManager::ACTION_HOOK ] );
+	$cbjp_claim     = $cbjp_store->stake_claim( 20, null, [ JobManager::ACTION_HOOK ] );
 	$cbjp_processed = 0;
 
 	foreach ( $cbjp_claim->get_actions() as $cbjp_action_id ) {
@@ -139,7 +156,17 @@ while ( true ) {
 		$cbjp_job_id = (int) ( $cbjp_action->get_args()['job_id'] ?? 0 );
 
 		if ( ! in_array( $cbjp_job_id, $cbjp_job_ids, true ) ) {
-			$cbjp_store->unclaim_action( (string) $cbjp_action_id );
+			// 他の run のアクション。ジョブが既に閉じている（キャンセル・完了・失敗）か存在しないなら、`JobManager::process_job()` は
+			// 何もせずに戻るので処理して片付ける（キャンセルした run のアクションが残ると、毎回それだけを claim して自分のアクションに届かない）。
+			// 開いているジョブのものは手放す（他の run を巻き込まない）。
+			$cbjp_other = $wpdb->get_var( $wpdb->prepare( "SELECT status FROM {$wpdb->prefix}cbjp_jobs WHERE id = %d", $cbjp_job_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			if ( null === $cbjp_other || in_array( $cbjp_other, [ 'completed', 'failed', 'cancelled' ], true ) ) {
+				$cbjp_runner->process_action( (int) $cbjp_action_id, 'CBJP Rehearsal (stale)' );
+			} else {
+				$cbjp_store->unclaim_action( (string) $cbjp_action_id );
+			}
+
 			continue;
 		}
 
@@ -167,7 +194,34 @@ while ( true ) {
 	}
 
 	if ( 0 === $cbjp_processed ) {
-		// 次のアクションがまだ予定時刻前（paused からの再開待ち）か、他のランナーが処理中。少し待って見直す。
+		// 次のアクションがまだ予定時刻前（paused からの再開待ち）か、他のランナーが処理中なら、少し待って見直す。
+		// この run のジョブのアクションが 1 つも無い（pending も in-progress も無い）のにジョブが開いたままなら、待っても進まない
+		// （アクションを失ったジョブ）。3 回続いたら max-minutes まで待たずに止める。
+		$cbjp_live = 0;
+
+		foreach ( $cbjp_job_ids as $cbjp_job_id ) {
+			foreach ( [ ActionScheduler_Store::STATUS_PENDING, ActionScheduler_Store::STATUS_RUNNING ] as $cbjp_status ) {
+				$cbjp_live += count(
+					as_get_scheduled_actions(
+						[
+							'hook'     => JobManager::ACTION_HOOK,
+							'args'     => [ 'job_id' => $cbjp_job_id ],
+							'status'   => $cbjp_status,
+							'per_page' => 1,
+						],
+						'ids'
+					)
+				);
+			}
+		}
+
+		$cbjp_orphaned = 0 === $cbjp_live ? $cbjp_orphaned + 1 : 0;
+
+		if ( $cbjp_orphaned >= 3 ) {
+			echo "STOP: jobs are open but have no pending or running action; the run cannot progress (cancel it on the Tools tab).\n";
+			break;
+		}
+
 		sleep( 5 );
 		$cbjp_waited += 5;
 	}
@@ -188,7 +242,6 @@ foreach ( $cbjp_run() as $cbjp_job ) {
 	);
 }
 
-global $wpdb;
 $cbjp_in   = implode( ',', array_map( 'intval', $cbjp_job_ids ) );
 $cbjp_logs = $wpdb->get_results( "SELECT job_id, level, message, context_json FROM {$wpdb->prefix}cbjp_logs WHERE job_id IN ({$cbjp_in}) AND level IN ('warning','error') ORDER BY id", ARRAY_A ); // phpcs:ignore
 
@@ -217,7 +270,7 @@ if ( $cbjp_is_dry_run ) {
 	ksort( $cbjp_ops );
 	ksort( $cbjp_codes );
 	$cbjp_path = cbjp_rh_out_dir() . "/{$cbjp_run_id}-items.json";
-	file_put_contents( $cbjp_path, wp_json_encode( $cbjp_items, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) );
+	cbjp_rh_write_json( $cbjp_path, $cbjp_items );
 
 	echo "\n-- dry-run items: " . count( $cbjp_items ) . " (saved to .rehearsal/{$cbjp_run_id}-items.json) --\n";
 	foreach ( $cbjp_ops as $cbjp_key => $cbjp_count ) {

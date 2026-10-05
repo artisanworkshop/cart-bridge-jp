@@ -520,3 +520,7 @@ if ( 'products' !== $cbjp_part ) {
 }
 
 echo 0 === $cbjp_failures ? "done.\n" : "done with {$cbjp_failures} failure(s).\n";
+
+if ( $cbjp_failures > 0 ) {
+	exit( 1 );
+}

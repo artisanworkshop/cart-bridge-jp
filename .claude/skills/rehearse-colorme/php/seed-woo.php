@@ -46,6 +46,13 @@ $cbjp_simple = static function ( string $name, string $price, string $tax_class,
 	$product->set_stock_quantity( $stock );
 	$product->set_description( '<p>Woo で作った商品（リハーサル）。</p>' );
 	$id = $product->save();
+
+	// その税区分が店舗に無いと `set_tax_class()` は黙って標準（''）にする。軽減・ゼロ税率の商品が標準税率で作られると、
+	// 作成エクスポートの確認（hidden 安全策・軽減税率の換算）が別の条件を見てしまうので止める。
+	if ( wc_get_product( $id )->get_tax_class( 'edit' ) !== $tax_class ) {
+		cbjp_rh_abort( "the tax class '{$tax_class}' does not exist on this site; {$name} (#{$id}) was saved with the standard class. Create the class (or delete the product) and retry." );
+	}
+
 	echo "  ok {$id} {$name}\n";
 };
 

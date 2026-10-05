@@ -124,10 +124,16 @@ $run_export = static function ( int $local_id, ?string $create_failure ) use ( $
 		$paused += (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE message = 'Job paused: rate limit exhausted.' AND context_json LIKE %s", '%' . $wpdb->esc_like( '"job_id":' . $job_id ) . '%' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	}
 
+	// 作成の後で止まったことの証拠は、`Exporter` がその 1 件について残す警告ログ（`job_id` 列あり）で数える。集計の `warned` は
+	// カテゴリ対応の無い mockv では全商品に付く（`category_map_unresolved`）ので、それだけでは区別できない（R1-1）。
+	$in          = implode( ',', array_map( 'intval', $job_ids ) );
+	$interrupted = '' !== $in ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IN ({$in}) AND message = 'Push of a product item was interrupted after the remote entity was created.'" ) : 0; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
 	return [
-		'totals' => $job['totals'] ?? [],
-		'status' => $job['status'] ?? null,
-		'paused' => $paused,
+		'totals'      => $job['totals'] ?? [],
+		'status'      => $job['status'] ?? null,
+		'paused'      => $paused,
+		'interrupted' => $interrupted,
 	];
 };
 
@@ -147,10 +153,13 @@ if ( null === ( new LimitPolicy( new MappingRepository() ) )->limit_for( 'produc
 $leftover = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	+ count( ( new PushIntentRepository() )->find_unresolved( $platform ) )
-	+ ( false !== get_option( ExportSampleSelector::option_name_for( $platform ), false ) ? 1 : 0 );
+	+ ( false !== get_option( ExportSampleSelector::option_name_for( $platform ), false ) ? 1 : 0 )
+	// cleanup.php が消す範囲と揃える: この example が書く `push` キー、job_id を持たない platform のログ（resolve の操作ログ）。
+	+ ( is_array( get_option( 'cbjp_verify_seed', [] ) ) && array_key_exists( 'push', (array) get_option( 'cbjp_verify_seed', [] ) ) ? 1 : 0 )
+	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", '%' . $wpdb->esc_like( '"platform":"' . $platform . '"' ) . '%' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 if ( $leftover > 0 ) {
-	$abort( "'{$platform}' already has mappings, jobs, intents or a pinned export sample ({$leftover}) — run push-intent-resolution/cleanup.php first, then retry", 2 );
+	$abort( "'{$platform}' already has mappings, jobs, intents, a pinned export sample, a push seed or platform logs ({$leftover}) — run push-intent-resolution/cleanup.php first, then retry", 2 );
 }
 
 $products = array_values(
@@ -172,7 +181,7 @@ $r = $run_export( $first, 'partial_push' );
 $m = $mapping( $first );
 $check( '1 作成後に止まっても export は完了する', 'completed' === ( $r['status'] ?? null ), wp_json_encode( $r ) );
 $check( '1 mapping は書かれ、remote_id は作成済みの ZZV-PARTIAL-API', null !== $m && 'ZZV-PARTIAL-API' === $m['remote_id'], wp_json_encode( $m ) );
-$check( '1 警告（' . WarningCode::PUSH_INTERRUPTED_AFTER_CREATE . '）として数える', (int) ( $r['totals']['warned'] ?? 0 ) >= 1, wp_json_encode( $r['totals'] ?? [] ) );
+$check( '1 作成の後で止まったことを記録する（' . WarningCode::PUSH_INTERRUPTED_AFTER_CREATE . ' の警告ログが 1 件）', 1 === (int) ( $r['interrupted'] ?? 0 ), wp_json_encode( $r ) );
 $check( '1 作成結果は確定しているので印（push intent）は残さない', [] === ( new PushIntentRepository() )->find_unresolved( $platform ) );
 
 // ---- 2) 次の export: 作成ではなく更新。remote_id は変わらない ----
