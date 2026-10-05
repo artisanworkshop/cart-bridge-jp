@@ -154,7 +154,8 @@ $leftover = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	+ count( ( new PushIntentRepository() )->find_unresolved( $platform ) )
 	+ ( false !== get_option( ExportSampleSelector::option_name_for( $platform ), false ) ? 1 : 0 )
-	// cleanup.php が消す範囲と揃える: この example が書く `push` キー、job_id を持たない platform のログ（resolve の操作ログ）。
+	// この example が書くもの（mapping・job・intent・固定したサンプル・`push` キー）と、job_id を持たない platform のログ（前回の resolve の操作ログ）を数える。
+	// cleanup.php はほかに `cbjp_sample_{platform}`／`cbjp_rate_limit_{platform}` も消すが、この example は書かないので数えない。
 	+ ( is_array( get_option( 'cbjp_verify_seed', [] ) ) && array_key_exists( 'push', (array) get_option( 'cbjp_verify_seed', [] ) ) ? 1 : 0 )
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", '%' . $wpdb->esc_like( '"platform":"' . $platform . '"' ) . '%' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 

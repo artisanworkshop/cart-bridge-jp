@@ -129,7 +129,8 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 	}
 
-	if ( true !== ( $cbjp_cm['stock_managed'] ?? null ) && [] === $cbjp_variants && true === $cbjp_woo['manage_stock'] ) {
+	// 欠損・null は取込みが「在庫管理あり」に倒す（`ProductTransformer::is_stock_managed()` のフェイルクローズ）ので、明示の false だけを見る。
+	if ( false === ( $cbjp_cm['stock_managed'] ?? null ) && [] === $cbjp_variants && true === $cbjp_woo['manage_stock'] ) {
 		$cbjp_report( 'MISMATCH', $cbjp_where, 'ColorMe does not manage stock, but Woo manage_stock=true (stock ' . $cbjp_s( $cbjp_woo['stock_quantity'] ) . ')' );
 	}
 
@@ -178,7 +179,7 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 			$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'Woo variation has a sale price ' . $cbjp_s( $cbjp_wv['sale_price'] ) . ' (import does not set variation sale prices)' );
 		}
 
-		if ( true !== ( $cbjp_cm['stock_managed'] ?? null ) && true === $cbjp_wv['manage_stock'] ) {
+		if ( false === ( $cbjp_cm['stock_managed'] ?? null ) && true === $cbjp_wv['manage_stock'] ) {
 			$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'ColorMe does not manage stock, but the Woo variation manage_stock=true' );
 		}
 
@@ -294,9 +295,17 @@ $cbjp_woo_orders = [];
 foreach ( $cbjp_snap['woo']['orders'] as $cbjp_order ) {
 	$cbjp_remote = $cbjp_order['meta']['_cbjp_remote_order_id'] ?? null;
 
-	if ( null !== $cbjp_remote ) {
-		$cbjp_woo_orders[ (string) $cbjp_remote ] = $cbjp_order;
+	if ( null === $cbjp_remote ) {
+		continue;
 	}
+
+	// 商品・会員と同じく、同じ ColorMe の受注に Woo の受注が 2 件以上あれば重複作成（後勝ちで黙って 1 件にしない）。
+	if ( isset( $cbjp_woo_orders[ (string) $cbjp_remote ] ) ) {
+		$cbjp_report( 'MISMATCH', "sale {$cbjp_remote}", 'duplicate Woo orders for one ColorMe sale: #' . $cbjp_woo_orders[ (string) $cbjp_remote ]['id'] . ' and #' . $cbjp_order['id'] );
+		continue;
+	}
+
+	$cbjp_woo_orders[ (string) $cbjp_remote ] = $cbjp_order;
 }
 foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 	$cbjp_woo = $cbjp_woo_orders[ (string) $cbjp_id ] ?? null;
@@ -312,10 +321,14 @@ foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 
 	// 税額。ColorMe の `tax` は商品分だけで、送料・手数料の税を含む税額は `totals`（標準＋軽減）にある（取込みはこちらを使う。
 	// `totals` が無い古い受注は `tax`）。軽減税率の明細の税（8%）は、`totals.reduced_tax_amount` を通してここに入る。
+	// 期待値は取込みの規則（`OrderTransformer::tax()`）と同じ: 分割受注は 0、`totals.normal_tax_amount` があれば標準＋軽減（軽減の欠損は 0）、無ければ `tax`。
 	$cbjp_totals   = is_array( $cbjp_cm['totals'] ?? null ) ? $cbjp_cm['totals'] : null;
-	$cbjp_tax_want = null !== $cbjp_totals && is_int( $cbjp_totals['normal_tax_amount'] ?? null ) && is_int( $cbjp_totals['reduced_tax_amount'] ?? null )
-		? $cbjp_totals['normal_tax_amount'] + $cbjp_totals['reduced_tax_amount']
-		: ( $cbjp_cm['tax'] ?? null );
+	$cbjp_is_split = is_array( $cbjp_cm['segment'] ?? null ) && true === ( $cbjp_cm['segment']['splitted'] ?? null );
+	$cbjp_tax_want = match ( true ) {
+		$cbjp_is_split => 0,
+		null !== $cbjp_totals && isset( $cbjp_totals['normal_tax_amount'] ) => (int) $cbjp_totals['normal_tax_amount'] + (int) ( $cbjp_totals['reduced_tax_amount'] ?? 0 ),
+		default => $cbjp_cm['tax'] ?? null,
+	};
 	if ( (string) $cbjp_tax_want !== (string) (int) round( (float) $cbjp_woo['total_tax'] ) ) {
 		$cbjp_report( 'MISMATCH', "sale {$cbjp_id}", "total_tax {$cbjp_woo['total_tax']} vs ColorMe tax " . $cbjp_s( $cbjp_tax_want ) . ' (totals: normal + reduced, or tax)' );
 	}
@@ -326,13 +339,22 @@ foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 		$cbjp_report( 'MISMATCH', "sale {$cbjp_id}", "payment_method {$cbjp_woo['payment_method']} vs payment_map {$cbjp_payment_want}" );
 	}
 
-	$cbjp_methods = array_values( array_filter( array_map( static fn ( array $i ): ?string => 'shipping' === $i['type'] ? $i['method'] ?? null : null, $cbjp_woo['items'] ) ) );
-	foreach ( is_array( $cbjp_cm['sale_deliveries'] ?? null ) ? $cbjp_cm['sale_deliveries'] : [] as $cbjp_delivery ) {
-		$cbjp_shipping_want = $cbjp_shipping_map[ (string) ( $cbjp_delivery['delivery_id'] ?? '' ) ] ?? null;
+	// 取込みは先頭の配送先だけを配送方法にする（`OrderTransformer::shipping()`）。マッピング値の `flat_rate` のような
+	// インスタンス番号の無い形は `flat_rate:0` として保存される（`MethodMap::split_shipping_method_id()`）ので、同じ形にそろえて比べる。
+	$cbjp_methods   = array_values( array_filter( array_map( static fn ( array $i ): ?string => 'shipping' === $i['type'] ? $i['method'] ?? null : null, $cbjp_woo['items'] ) ) );
+	$cbjp_delivery  = is_array( $cbjp_cm['sale_deliveries'] ?? null ) && is_array( $cbjp_cm['sale_deliveries'][0] ?? null ) ? $cbjp_cm['sale_deliveries'][0] : null;
+	$cbjp_ship_want = null !== $cbjp_delivery ? ( $cbjp_shipping_map[ (string) ( $cbjp_delivery['delivery_id'] ?? '' ) ] ?? null ) : null;
 
-		if ( null !== $cbjp_shipping_want && ! in_array( $cbjp_shipping_want, $cbjp_methods, true ) ) {
-			$cbjp_report( 'MISMATCH', "sale {$cbjp_id}", 'shipping methods ' . $cbjp_s( $cbjp_methods ) . " do not include shipping_map {$cbjp_shipping_want}" );
-		}
+	if ( is_string( $cbjp_ship_want ) && ! str_contains( $cbjp_ship_want, ':' ) ) {
+		$cbjp_ship_want .= ':0';
+	}
+
+	if ( null !== $cbjp_ship_want && ! in_array( $cbjp_ship_want, $cbjp_methods, true ) ) {
+		$cbjp_report( 'MISMATCH', "sale {$cbjp_id}", 'shipping methods ' . $cbjp_s( $cbjp_methods ) . " do not include shipping_map {$cbjp_ship_want}" );
+	}
+
+	if ( is_array( $cbjp_cm['sale_deliveries'] ?? null ) && count( $cbjp_cm['sale_deliveries'] ) > 1 ) {
+		$cbjp_report( 'NOTE', "sale {$cbjp_id}", 'multiple delivery destinations; import keeps only the first one as the shipping method' );
 	}
 }
 

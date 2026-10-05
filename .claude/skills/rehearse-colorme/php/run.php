@@ -5,7 +5,8 @@
  *
  * - export は管理画面と同じく `acknowledge_production_write=true` を付ける（REST の検証を通す）。
  * - ジョブは Action Scheduler の claim を取ってから処理する（`ActionScheduler::runner()->process_action()`）。管理画面を開いたままでも、
- *   WP-Cron／非同期のキューランナーと同じアクションを二重に処理しない。claim に他の run のアクションが混ざったら処理せず手放す。
+ *   WP-Cron／非同期のキューランナーと同じアクションを二重に処理しない。claim に他の run のアクションが混ざったら、そのジョブが開いていれば手放し、
+ *   閉じている（完了・失敗・キャンセル）か存在しなければ処理して片付ける（`process_job()` は何もせずに戻る。残ったアクションで自分の番が来なくなるのを防ぐ）。
  * - レート制限で paused になったジョブは、再開の予定時刻まで待ってから続ける（`max-minutes` で打ち切る。既定 40 分）。
  * - `cancel-after=<n>`: n ページ（アクション）を処理したら `POST /runs/{id}/cancel` して止める（キャンセル→再実行の試験用）。
  * - `attach=<run_id>`: 新しく始めず、途中で止まった同じ種別の run を続きから処理する（max-minutes で打ち切った・スクリプトが異常終了した run）。
@@ -147,7 +148,7 @@ while ( true ) {
 	}
 
 	// グループでは絞らない: 移行途中の HybridStore は旧ストア（wpPostStore）にも claim を問い合わせ、そのグループの term が
-	// 無いと InvalidArgumentException を投げる（実測）。フックで絞り、下でジョブ ID を照合して他の run のアクションは手放す。
+	// 無いと InvalidArgumentException を投げる（実測）。フックで絞り、下でジョブ ID を照合する（他の run のアクションは上のコメントの扱い）。
 	$cbjp_claim     = $cbjp_store->stake_claim( 20, null, [ JobManager::ACTION_HOOK ] );
 	$cbjp_processed = 0;
 
@@ -159,9 +160,10 @@ while ( true ) {
 			// 他の run のアクション。ジョブが既に閉じている（キャンセル・完了・失敗）か存在しないなら、`JobManager::process_job()` は
 			// 何もせずに戻るので処理して片付ける（キャンセルした run のアクションが残ると、毎回それだけを claim して自分のアクションに届かない）。
 			// 開いているジョブのものは手放す（他の run を巻き込まない）。
-			$cbjp_other = $wpdb->get_var( $wpdb->prepare( "SELECT status FROM {$wpdb->prefix}cbjp_jobs WHERE id = %d", $cbjp_job_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			// `get_var()` は値が空文字の行でも null を返し「行が無い」と区別できない（CLAUDE.md）ので、`get_row()` で行の有無を見る。
+			$cbjp_other = $wpdb->get_row( $wpdb->prepare( "SELECT status FROM {$wpdb->prefix}cbjp_jobs WHERE id = %d", $cbjp_job_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
-			if ( null === $cbjp_other || in_array( $cbjp_other, [ 'completed', 'failed', 'cancelled' ], true ) ) {
+			if ( null === $cbjp_other || in_array( $cbjp_other['status'] ?? null, [ 'completed', 'failed', 'cancelled' ], true ) ) {
 				$cbjp_runner->process_action( (int) $cbjp_action_id, 'CBJP Rehearsal (stale)' );
 			} else {
 				$cbjp_store->unclaim_action( (string) $cbjp_action_id );
