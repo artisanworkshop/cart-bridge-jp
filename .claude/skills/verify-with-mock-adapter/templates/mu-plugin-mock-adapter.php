@@ -7,12 +7,14 @@
  *
  * - mock の中身（顧客・受注）は、オプション `cbjp_verify_seed`（配列。seed スクリプトが保存する）から組み立てる。
  *   形は { customers: [{remote_id,email,pref}], orders: [{number,billing_pref,shipping_pref}],
- *   push: {enabled: bool, create_failure: 'ambiguous_5xx'|null} }。`push.enabled=true` で
+ *   push: {enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null} }。`push.enabled=true` で
  *   push_product()/push_customer()/push_order()/push_coupon() が成功を返すようになる
  *   （既定では全て`UnsupportedOperationException`で失敗する）。`push.create_failure='ambiguous_5xx'`は
  *   D21-B（issue #73）の「作成結果が不明」経路（`cbjp_push_intents`に印が残る）を再現する
  *   （作成経路`$remote_id===null`のみに効く。`tests/unit/Fixtures/MockPlatformAdapter`の
- *   `create_push_failure`参照）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
+ *   `create_push_failure`参照）。`'partial_push'`／`'partial_rate_limit'`は D21-A（R3-0a）の「作成は確定したが後続で止まった」
+ *   経路（`PartialPushException`。mapping は書くが checksum は null、後者はレート制限でジョブが paused になる）を再現する。
+ *   remote_id は固定の `ZZV-PARTIAL-API`／`ZZV-PARTIAL-RL`（`examples/partial-push/`）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
  *   （テンプレートなので）。
  * - `capabilities`（配列。任意）があれば mock の `capabilities()` を上書きする（D24。Export タブの Beta 表示・
  *   既定オフ・非プレミアム相当の出し分けの確認用）。形は { can_create_order: bool, can_push_images: bool,
@@ -118,11 +120,16 @@ add_action(
 				// D21-B（issue #73）検証用: `push`が配列でない・`enabled`が真偽値でない場合は
 				// 無効（push_*()は全てUnsupportedOperationExceptionのまま）として読み飛ばす
 				// （mu-pluginのfatalを避ける既存方針。`$rows()`と同じ考え方）。
-				$push_seed        = is_array( $seed ) && is_array( $seed['push'] ?? null ) ? $seed['push'] : [];
-				$push_enabled     = true === ( $push_seed['enabled'] ?? false );
-				$create_push_fail = 'ambiguous_5xx' === ( $push_seed['create_failure'] ?? null )
-					? new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 )
-					: null;
+				$push_seed    = is_array( $seed ) && is_array( $seed['push'] ?? null ) ? $seed['push'] : [];
+				$push_enabled = true === ( $push_seed['enabled'] ?? false );
+				// D21-A（R3-0a）検証用の 2 種は、作成が確定した後で止まった経路（`PartialPushException`）。remote_id は固定値なので、
+				// 1 回の export で作成経路を通る商品は 1 件にすること（2 件目は同じ remote_id で mapping がぶつかる。`examples/partial-push/`）。
+				$create_push_fail = match ( $push_seed['create_failure'] ?? null ) {
+					'ambiguous_5xx' => new CartBridgeJP\Support\ApiException( 'Simulated 5xx (verify-with-mock-adapter)', 500 ),
+					'partial_push' => new CartBridgeJP\Adapters\PartialPushException( 'ZZV-PARTIAL-API', new CartBridgeJP\Support\ApiException( 'Simulated 5xx after the create (verify-with-mock-adapter)', 500 ) ),
+					'partial_rate_limit' => new CartBridgeJP\Adapters\PartialPushException( 'ZZV-PARTIAL-RL', new CartBridgeJP\Support\RateLimitExhaustedException( '__PLATFORM_KEY__' ) ),
+					default => null,
+				};
 
 				// D24 検証用: `capabilities` が配列のときだけ上書きする（配列でなければ既定の mock。mu-plugin の fatal を
 				// 避ける既存方針）。`can_*` は**キーが無いときだけ**既定の true、キーがあれば厳密な
