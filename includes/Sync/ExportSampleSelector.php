@@ -9,7 +9,6 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Support\EntityOrigin;
-use WC_Abstract_Order;
 use WC_Order;
 use WC_Order_Item_Product;
 
@@ -66,17 +65,16 @@ final class ExportSampleSelector {
 		// （CLAUDE.md参照）のため、サンプルの起点に含めない。
 		$statuses  = array_values( array_diff( array_keys( wc_get_order_statuses() ), [ 'wc-checkout-draft' ] ) );
 		$order_ids = $this->collect_newest(
-			static fn ( int $page ): array => array_map(
-				static fn ( WC_Abstract_Order $order ): int => $order->get_id(),
-				wc_get_orders(
-					[
-						'limit'   => self::SCAN_BATCH,
-						'page'    => $page,
-						'orderby' => 'date',
-						'order'   => 'DESC',
-						'status'  => $statuses,
-					]
-				)
+			static fn ( int $page ): array => wc_get_orders(
+				[
+					'limit'   => self::SCAN_BATCH,
+					'page'    => $page,
+					// 同じ日時の受注があってもページの境目で重複・欠落しないよう、ID を決め手に足す（HPOS・CPT とも空白区切りを受け付ける）。
+					'orderby' => 'date ID',
+					'order'   => 'DESC',
+					'return'  => 'ids',
+					'status'  => $statuses,
+				]
 			),
 			static function ( int $order_id ) use ( $platform ): bool {
 				$order = wc_get_order( $order_id );
@@ -174,7 +172,7 @@ final class ExportSampleSelector {
 				[
 					'status'  => ProductReader::EXPORTABLE_STATUSES,
 					'type'    => ProductReader::EXPORTABLE_TYPES,
-					'orderby' => 'date',
+					'orderby' => 'date ID',
 					'order'   => 'DESC',
 					'return'  => 'ids',
 					'limit'   => self::SCAN_BATCH,
@@ -229,7 +227,7 @@ final class ExportSampleSelector {
 			static fn ( int $page ): array => get_users(
 				[
 					'role'    => 'customer',
-					'orderby' => 'registered',
+					'orderby' => 'registered ID',
 					'order'   => 'DESC',
 					'number'  => self::SCAN_BATCH,
 					'paged'   => $page,
@@ -246,28 +244,32 @@ final class ExportSampleSelector {
 
 	/**
 	 * 新しい順に`SCAN_BATCH`件ずつ読み、`$keep`が真の ID を`$target`件まで集める（D25 の除外。最大`SCAN_MAX_BATCHES`回で打ち切る）。
+	 * 同じ ID は 1 回だけ数える（ページの境目で同じ行が 2 回返っても、サンプルに重複を入れない）。
 	 *
-	 * @param callable(int):array<int,int|string> $fetch 1 始まりのページ番号を受け取り、そのページの ID を返す。
-	 * @param callable(int):bool                  $keep  残す ID なら真。
+	 * @param callable(int):array<int,mixed> $fetch 1 始まりのページ番号を受け取り、そのページの ID を返す（`return => ids`。
+	 *   WooCommerce の型定義は実体の配列なので、要素は正の整数として読める値だけを ID として扱う）。
+	 * @param callable(int):bool             $keep  残す ID なら真。
 	 * @return array<int,int>
 	 */
 	private function collect_newest( callable $fetch, callable $keep, int $target ): array {
 		$kept = [];
 
 		for ( $page = 1; $page <= self::SCAN_MAX_BATCHES; $page++ ) {
-			$ids = array_map( 'intval', $fetch( $page ) );
+			$rows = $fetch( $page );
 
-			foreach ( $ids as $id ) {
+			foreach ( $rows as $row ) {
 				if ( count( $kept ) >= $target ) {
 					return $kept;
 				}
 
-				if ( $keep( $id ) ) {
+				$id = is_int( $row ) || ( is_string( $row ) && ctype_digit( $row ) ) ? (int) $row : 0;
+
+				if ( 0 < $id && ! in_array( $id, $kept, true ) && $keep( $id ) ) {
 					$kept[] = $id;
 				}
 			}
 
-			if ( count( $kept ) >= $target || count( $ids ) < self::SCAN_BATCH ) {
+			if ( count( $kept ) >= $target || count( $rows ) < self::SCAN_BATCH ) {
 				return $kept;
 			}
 		}

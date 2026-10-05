@@ -152,4 +152,28 @@ final class ExportSampleSelectorTest extends WP_UnitTestCase {
 		$this->assertSame( [ $order_id ], $sample->order_ids );
 		$this->assertContains( $product, $sample->product_ids );
 	}
+
+	/**
+	 * D25 の走査（`collect_newest()`）: 同じ ID は 1 回だけ数え（ページの境目で同じ行が 2 回返っても重複させない）、正の整数として
+	 * 読めない値は捨て、ページが`SCAN_BATCH`件に満たなければ次のページを読まない。
+	 */
+	public function test_collect_newest_skips_duplicates_and_non_ids_and_stops_at_a_short_page(): void {
+		$pages = [
+			1 => array_merge( [ 1, 1, '2', 'x', 0, -3, 3.5 ], range( 10, 52 ) ),
+			2 => [ 2, 4 ],
+			3 => [ 5 ],
+		];
+		$read  = [];
+		$fetch = static function ( int $page ) use ( $pages, &$read ): array {
+			$read[] = $page;
+
+			return $pages[ $page ] ?? [];
+		};
+
+		$method = new \ReflectionMethod( ExportSampleSelector::class, 'collect_newest' );
+		$kept   = $method->invoke( new ExportSampleSelector(), $fetch, static fn ( int $id ): bool => $id > 0, 100 );
+
+		$this->assertSame( array_merge( [ 1, 2 ], range( 10, 52 ), [ 4 ] ), $kept );
+		$this->assertSame( [ 1, 2 ], $read, 'page 2 has fewer rows than a batch, so page 3 is never read' );
+	}
 }
