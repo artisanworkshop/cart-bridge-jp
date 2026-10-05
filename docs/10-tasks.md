@@ -649,8 +649,20 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [ ] **R3-1a: 実体は作られた向きにだけ更新する（D25、issue #98）**（取り込んだ商品・顧客・在庫は export しない〔情報の警告〕、export で作った実体は取込みで上書きしない。
   出自の判定は `_cbjp_platform`＋`_cbjp_remote_id` だけでは足りない〔メールで再利用した既存顧客、export で作った実体を再取込みした場合にも付く〕ので、作成の印〔顧客は既存の
   `_cbjp_created_by_import`、商品は新設が要るか〕を計画で決める。`rehearse-colorme` の手順 2・3 を `reset-local` からやり直して確認）
-- [ ] **R3-1b: 商品名を実体参照にして保存し、エクスポートで戻す（issue #99）**（ランナーによらず同じ結果にする。`context=cron`／`admin` の両方で取り込んで確認）
-- [ ] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい）
+  **実装サマリ（2026-10-05、ブランチ `feat/r3-1a-direction-of-origin`。実装済み・実機の再リハーサル待ち）**: 計画で、印は新設せず `_cbjp_platform` を「取込みで結ばれた」印に使い、
+  「誰が作ったか」ではなく「誰が紐づけたか」で判定すると決めた（メールで採用した顧客は取込み側、顧客は `_cbjp_created_by_import` も見る。判定は新設 `Woo\Support\EntityOrigin`）。
+  エクスポート側は各 Reader が `ReadItem::$linked_by_import` を立て、`Exporter` が `linked_by_import_not_exported` でスキップする（mapping の有無によらず。mapping・無料枠・intent に触れない）。
+  インポート側は `WooRepository`/`DryRunRepository` が writer の前で、在庫は `StockWriter` が解決した対象で判定し、`linked_by_export_not_imported` でスキップする（local_id 0。mapping に触れない）。
+  どちらも mapping があれば `unchanged` に数える。対象は商品・顧客・在庫・受注・クーポン。ユーザー決定で、エクスポートのサンプル選定から取込み品を除き、WC の商品複製でリンクのメタを写さないようにした。
+  backlog `R2-M-checksum-shared-row` は解消。詳細と既知の限界は `docs/03` §10.2「往復の扱い（D25）」。
+  **検証**: PHPUnit 追加 49 件（実配線の往復 `RoundTripOriginTest` を含む）。`mutate-check.sh` で 30 種（Exporter の分岐と `unchanged`、Reader 5 つと在庫行 3 か所、顧客の作成の印、
+  リポジトリ 2 つ、実体の有無、保護ロール、空のプラットフォーム、StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 6 か所、複製フィルターの登録ほか）がすべて CAUGHT。
+  `rehearse-colorme` に `seed-woo prefix=`・`diff side=woo`・`check-import` の `LINKED_BY_EXPORT` を追加した。**テストショップでの再リハーサル（手順 2・3）は未実施**（2026-10-05 ユーザー判断で後回し。
+  お試し期限 2026-10-22 まで。R3-1b〜e の再リハーサルとまとめてもよい）
+- [ ] **R3-1b: 商品名を実体参照にして保存し、エクスポートで戻す（issue #99）**（ランナーによらず同じ結果にする。`context=cron`／`admin` の両方で取り込んで確認。
+  R3-1a〔D25〕で取り込んだ商品はエクスポートしなくなったので、エクスポートで戻す側の対象は Woo 生まれの商品だけになった）
+- [ ] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい。
+  R3-1a〔D25〕で取り込んだ会員はエクスポートしなくなったので、#100 の対象はエクスポートで作った〔Woo 生まれの〕海外の顧客の更新だけになった）
 - [ ] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
 - [ ] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
