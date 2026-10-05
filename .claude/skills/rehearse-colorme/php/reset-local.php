@@ -230,6 +230,13 @@ foreach ( $cbjp_tables as $cbjp_table ) {
 
 foreach ( $cbjp_options as $cbjp_option ) {
 	delete_option( $cbjp_option );
+	wp_cache_delete( $cbjp_option, 'options' );
+
+	// 消えたことを読み直して確かめる。サンプルやレート制限の状態が残ると、次のリハーサルが古いサンプルで進む（G1-7）。
+	if ( false !== get_option( $cbjp_option, false ) ) {
+		echo "  failed to delete option {$cbjp_option}\n";
+		++$cbjp_failed;
+	}
 }
 
 wc_delete_product_transients();

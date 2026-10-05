@@ -290,3 +290,17 @@ if ( JobManager::TYPE_IMPORT === $cbjp_type ) {
 }
 
 echo "\nrun_id={$cbjp_run_id}\n";
+
+// 失敗したジョブ、または開いたまま終わったジョブ（max-minutes・アクションを失ったジョブで止めた）があれば非ゼロで終える。
+// 続く snapshot・diff が、途中までの run を完了したものとして扱わないため（G1-2）。`cancel-after` で意図して止めた場合は成功とする。
+$cbjp_final = $cbjp_run();
+$cbjp_bad   = array_filter(
+	$cbjp_final,
+	static fn ( array $job ): bool => 'failed' === $job['status']
+		|| ( null === $cbjp_cancel_after && in_array( $job['status'], [ 'pending', 'running', 'paused' ], true ) )
+);
+
+if ( [] !== $cbjp_bad ) {
+	echo 'FAILED: ' . count( $cbjp_bad ) . " job(s) failed or did not finish\n";
+	exit( 1 );
+}

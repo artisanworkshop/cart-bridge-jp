@@ -40,4 +40,14 @@ foreach ( $cbjp_limits as $cbjp_entity => $cbjp_value ) {
 }
 
 update_option( 'cbjp_rehearsal_limits', $cbjp_limits, false );
-echo 'cbjp_rehearsal_limits = ' . wp_json_encode( get_option( 'cbjp_rehearsal_limits' ) ) . "\n";
+
+// `update_option()` は値が同じでも false を返すので、戻り値ではなく読み直した値で確かめる。保存に失敗したまま mu-plugin を置くと、
+// 古い上限のまま run が進んでサンプル・本移行の結果を取り違える（G1-4・G1-6。`rehearse.sh` はここが失敗すると mu-plugin を置かない）。
+wp_cache_delete( 'cbjp_rehearsal_limits', 'options' );
+$cbjp_stored = get_option( 'cbjp_rehearsal_limits' );
+
+if ( $cbjp_stored !== $cbjp_limits ) {
+	cbjp_rh_abort( 'cbjp_rehearsal_limits was not saved as requested (stored: ' . wp_json_encode( $cbjp_stored ) . ')' );
+}
+
+echo 'cbjp_rehearsal_limits = ' . wp_json_encode( $cbjp_stored ) . "\n";

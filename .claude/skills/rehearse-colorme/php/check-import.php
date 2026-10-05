@@ -8,7 +8,8 @@
  * 会員（メール・郵便番号・県・住所・法人名・電話・名前）、受注（合計・税額・決済と配送のマッピング先）。
  * - `MISMATCH`: 変換規則（docs/03・`ProductTransformer`）から見て食い違う値。原因を調べる対象。
  * - `NOTE`: 規則どおりだが往復で問題になりうる変換（仮 SKU・在庫 null→0・会員限定の公開状態など）。
- * - `MISSING`: ColorMe にあるのに Woo に無い（会員以外の顧客・取込みが除外したものを含む）。
+ * - `MISSING`: ColorMe にあるのに Woo に無い（会員以外の顧客は `NOTE`）。
+ * `MISMATCH` か `MISSING` が 1 件でもあれば終了コード 1。
  *
  * @package CartBridgeJP
  */
@@ -129,12 +130,15 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 	}
 
-	// 欠損・null は取込みが「在庫管理あり」に倒す（`ProductTransformer::is_stock_managed()` のフェイルクローズ）ので、明示の false だけを見る。
-	if ( false === ( $cbjp_cm['stock_managed'] ?? null ) && [] === $cbjp_variants && true === $cbjp_woo['manage_stock'] ) {
+	// 取込みは明示の false 以外（欠損・null を含む）を「在庫管理あり」に倒す（`ProductTransformer::is_stock_managed()` のフェイルクローズ）。
+	// 同じ判定で、管理なしの向きと管理ありの向き（在庫数）の両方を見る（G1-3）。
+	$cbjp_managed = false !== ( $cbjp_cm['stock_managed'] ?? null );
+
+	if ( ! $cbjp_managed && [] === $cbjp_variants && true === $cbjp_woo['manage_stock'] ) {
 		$cbjp_report( 'MISMATCH', $cbjp_where, 'ColorMe does not manage stock, but Woo manage_stock=true (stock ' . $cbjp_s( $cbjp_woo['stock_quantity'] ) . ')' );
 	}
 
-	if ( true === ( $cbjp_cm['stock_managed'] ?? null ) ) {
+	if ( $cbjp_managed ) {
 		// variable 商品の在庫は Woo ではバリエーション側で管理する（親の manage_stock は false）。下のバリエーションの突合で見る。
 		if ( [] === $cbjp_variants && true !== $cbjp_woo['manage_stock'] ) {
 			$cbjp_report( 'MISMATCH', $cbjp_where, 'stock_managed but Woo manage_stock=' . $cbjp_s( $cbjp_woo['manage_stock'] ) );
@@ -179,7 +183,7 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 			$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'Woo variation has a sale price ' . $cbjp_s( $cbjp_wv['sale_price'] ) . ' (import does not set variation sale prices)' );
 		}
 
-		if ( false === ( $cbjp_cm['stock_managed'] ?? null ) && true === $cbjp_wv['manage_stock'] ) {
+		if ( ! $cbjp_managed && true === $cbjp_wv['manage_stock'] ) {
 			$cbjp_report( 'MISMATCH', $cbjp_vwhere, 'ColorMe does not manage stock, but the Woo variation manage_stock=true' );
 		}
 
@@ -187,7 +191,7 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 			$cbjp_report( 'NOTE', $cbjp_vwhere, 'option_price is null (inherits the product price); Woo stores ' . $cbjp_s( $cbjp_wv['regular_price'] ) );
 		}
 
-		if ( true === ( $cbjp_cm['stock_managed'] ?? null ) ) {
+		if ( $cbjp_managed ) {
 			if ( null === ( $cbjp_variant['stocks'] ?? null ) ) {
 				$cbjp_report( 'NOTE', $cbjp_vwhere, 'variant stocks null; Woo stock = ' . $cbjp_s( $cbjp_wv['stock_quantity'] ) );
 			} elseif ( $cbjp_variant['stocks'] !== $cbjp_wv['stock_quantity'] ) {
@@ -359,3 +363,8 @@ foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 }
 
 echo 'summary: ' . wp_json_encode( $cbjp_counts ) . "\n";
+
+// 食い違い・欠落があれば非ゼロで終える（出力を人が読まなくても、続く手順や確認スクリプトが失敗として扱えるように。G1-1）。
+if ( $cbjp_counts['MISMATCH'] > 0 || $cbjp_counts['MISSING'] > 0 ) {
+	exit( 1 );
+}
