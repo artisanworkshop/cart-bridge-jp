@@ -1787,7 +1787,7 @@ D25「実体は作られた向きにだけ更新する」の実装。判定は�
   `ExportSampleSelectorTest`・`WarningCodeTest`・`OrderWriterTest`、実配線の往復 `RoundTripOriginTest`）。`mutate-check.sh` で各ガード（Exporter の分岐と
   `unchanged`、Reader 5 つと在庫行の全 5 か所、顧客の作成の印、リポジトリ 2 つ、実体の有無の判定、保護ロール、空のプラットフォーム、
   StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 8 か所〔走査の重複除去・ID でない値の除外を含む〕、複製フィルターの登録、
-  受注明細のバリエーション解決）を壊して落ちることを確認（36 種）。サンプル選定の走査は同じ日時の行がページの境目で重複・欠落しないよう
+  受注明細のバリエーション解決〔このプラットフォームの mapping だけ〕）を壊して落ちることを確認（38 種）。サンプル選定の走査は同じ日時の行がページの境目で重複・欠落しないよう
   `orderby => 'date ID'`（HPOS・CPT・`WP_User_Query` とも空白区切りを受け付けることを実ソースで確認）で並べ、ID だけを取得する。
   テストショップでの再リハーサル（`rehearse-colorme` の手順 2・3）は未実施（2026-10-05 ユーザー判断で後回し。`docs/10-tasks.md` R3-1a）。
 
