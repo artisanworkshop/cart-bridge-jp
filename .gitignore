@@ -31,3 +31,6 @@ colorme.env
 
 # Locally built plugin zips (ad-hoc installs for manual testing; not release artifacts)
 /dist/
+
+# rehearse-colorme skill output (snapshots / dry-run items of the ColorMe test shop; never committed)
+/.rehearsal/
