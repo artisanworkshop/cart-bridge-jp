@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCoupon;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_Coupon;
@@ -49,6 +50,12 @@ use WP_Query;
 final class CouponReader implements EntityReader {
 
 	private const PAGE_SIZE = 20;
+
+	/**
+	 * @param string $platform 書き出し先のプラットフォームID（D25: 取込みで結ばれたクーポンを`ReadItem::$linked_by_import`で印す）。
+	 *   既定値を持たせない（空だと判定が黙って効かなくなるため）。
+	 */
+	public function __construct( private readonly string $platform ) {}
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
@@ -160,7 +167,7 @@ final class CouponReader implements EntityReader {
 			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
 		}
 
-		return new ReadItem( $coupon->get_id(), $canonical, $warnings );
+		return new ReadItem( $coupon->get_id(), $canonical, $warnings, true, [], EntityOrigin::post_linked_by_import( $coupon->get_id(), $this->platform ) );
 	}
 
 	/**

@@ -422,6 +422,13 @@ final class Importer {
 
 			++$totals[ $operation ];
 
+			// D25（issue #98）: エクスポートで結ばれた実体を上書きしなかった結果（local_id 0 で mapping には触れない）。mapping がある実体は
+			// 既に結ばれている（`LimitPolicy::used()`にも数えられている）ので、Exporter の同じ扱いと揃えて`unchanged`にも数え、
+			// Pro 案内の「未移行」を過小にしない。在庫は在庫の mapping が無くても届くので、mapping（`$row`）があるときだけ数える。
+			if ( WriteResult::OPERATION_SKIPPED === $operation && null !== $row && WarningCode::indicates_kept_by_link_direction( $result->warnings ) ) {
+				++$totals['unchanged'];
+			}
+
 			if ( [] !== $result->warnings ) {
 				++$totals['warned'];
 			}

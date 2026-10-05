@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\StockApplier;
 use CartBridgeJP\Woo\WarningCode;
@@ -22,7 +23,13 @@ use WC_Product_Variation;
  */
 final class StockWriter implements EntityWriter {
 
-	public function __construct( private readonly ProductResolver $resolver ) {}
+	/**
+	 * @param string $platform 取込み元のプラットフォームID（D25: 解決した対象が取込みで結ばれていなければ書かない）。
+	 */
+	public function __construct(
+		private readonly string $platform,
+		private readonly ProductResolver $resolver
+	) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
 		$prepared = $this->prepare( $item );
@@ -76,6 +83,15 @@ final class StockWriter implements EntityWriter {
 		if ( null === $target ) {
 			// local_id 0 はImporterにmappingsを書かせない契約なので、次回実行時に再試行できる。
 			return new StockPrepared( null, $item, 0, [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, $ref ) ] );
+		}
+
+		// D25（issue #98）: 在庫は在庫の mapping ではなく商品・バリエーションの mapping で対象を解決するので（在庫の mapping が
+		// 無くても届く）、`Woo\WooRepository`の`existing_local_id`での判定では止まらない。解決した対象（バリエーションは
+		// `VariationWriter`が書く自身の印）が取込みで結ばれていなければ、エクスポートで結ばれた商品なので書かない。
+		// SKU での解決は`ProductResolver`が既に所有で絞っている。下の variable 親の分岐より**前**に置く: 後ろだと親の ID を
+		// 返し、`Sync\Importer`がエクスポートで結ばれた商品に stock の mapping を取込みの checksum で書いてしまう。
+		if ( ! EntityOrigin::post_linked_by_import( $target->get_id(), $this->platform ) ) {
+			return new StockPrepared( null, $item, 0, [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ] );
 		}
 
 		if ( $target instanceof WC_Product_Variable ) {

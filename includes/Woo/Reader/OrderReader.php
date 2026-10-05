@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderWriter;
@@ -201,7 +202,14 @@ final class OrderReader implements EntityReader {
 			$this->extras( $order )
 		);
 
-		return new ReadItem( $order->get_id(), $canonical, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+		return new ReadItem(
+			$order->get_id(),
+			$canonical,
+			$warnings,
+			! WarningCode::indicates_unresolved_reference( $warnings ),
+			[],
+			EntityOrigin::order_linked_by_import( $order, $this->platform )
+		);
 	}
 
 	/**

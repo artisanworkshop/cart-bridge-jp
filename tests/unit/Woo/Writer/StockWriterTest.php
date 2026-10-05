@@ -20,7 +20,7 @@ use WC_Product_Variation;
 final class StockWriterTest extends WooTestCase {
 
 	private function make_writer(): StockWriter {
-		return new StockWriter( new ProductResolver( 'colorme', $this->mappings ) );
+		return new StockWriter( 'colorme', new ProductResolver( 'colorme', $this->mappings ) );
 	}
 
 	public function test_unresolved_product_returns_skipped_with_zero_local_id(): void {
@@ -36,7 +36,7 @@ final class StockWriterTest extends WooTestCase {
 		$product = new WC_Product_Simple();
 		$product->set_name( 'P' );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$stock  = new CanonicalStock( '1', null, null, 7, true );
 		$result = $this->make_writer()->write( $stock, $product_id );
@@ -61,7 +61,7 @@ final class StockWriterTest extends WooTestCase {
 		$product = new WC_Product_Simple();
 		$product->set_name( 'P' );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$stock = new CanonicalStock( '1', null, null, 7, false );
 		$this->make_writer()->write( $stock, $product_id );
@@ -76,7 +76,7 @@ final class StockWriterTest extends WooTestCase {
 		$product = new WC_Product_Simple();
 		$product->set_name( 'P' );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$stock = new CanonicalStock( '1', null, null, null, false );
 		$this->make_writer()->write( $stock, $product_id );
@@ -94,7 +94,7 @@ final class StockWriterTest extends WooTestCase {
 		$product = new WC_Product_Variable();
 		$product->set_name( 'Variable' );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
@@ -130,7 +130,7 @@ final class StockWriterTest extends WooTestCase {
 		$product->set_manage_stock( true );
 		$product->set_stock_quantity( 50 );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
@@ -155,7 +155,7 @@ final class StockWriterTest extends WooTestCase {
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
 		$variation_id = $variation->save();
-		$this->seed_mapping( 'colorme', 'variant', 'v1', $variation_id );
+		$this->seed_imported_post_mapping( 'colorme', 'variant', 'v1', $variation_id );
 
 		$stock  = new CanonicalStock( '1', 'v1', null, 3, true );
 		$result = $this->make_writer()->write( $stock, $variation_id );
@@ -259,7 +259,7 @@ final class StockWriterTest extends WooTestCase {
 		$product->set_name( 'P' );
 		$product->set_manage_stock( false );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$stock      = new CanonicalStock( '1', null, null, 7, true );
 		$validation = $this->make_writer()->validate( $stock, $product_id );
@@ -278,7 +278,7 @@ final class StockWriterTest extends WooTestCase {
 		$product->set_manage_stock( true );
 		$product->set_stock_quantity( 50 );
 		$product_id = $product->save();
-		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+		$this->seed_imported_post_mapping( 'colorme', 'product', '1', $product_id );
 
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $product_id );
@@ -293,5 +293,67 @@ final class StockWriterTest extends WooTestCase {
 		$untouched = wc_get_product( $product_id );
 		$this->assertTrue( $untouched->get_manage_stock() );
 		$this->assertSame( 50, $untouched->get_stock_quantity() );
+	}
+
+	/**
+	 * D25（issue #98）: 商品の mapping で解決した対象がエクスポートで結ばれた商品（取込みの印が無い）なら、在庫を書かない。
+	 * 在庫の mapping が無くても（`existing_local_id`が null でも）商品の mapping で届くので、リポジトリではなくここで止める。
+	 */
+	public function test_stock_of_a_product_linked_by_export_is_not_written(): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Woo born' );
+		$product->set_manage_stock( true );
+		$product->set_stock_quantity( 7 );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$stock      = new CanonicalStock( '1', null, null, 0, false );
+		$result     = $this->make_writer()->write( $stock, null );
+		$validation = $this->make_writer()->validate( $stock, null );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ], $result->warnings );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertSame( [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ], $validation->warnings );
+		$this->assertSame( 7, wc_get_product( $product_id )->get_stock_quantity() );
+	}
+
+	/**
+	 * D25: エクスポートで作ったバリエーション（`Exporter`が variant の mapping だけを書き、印は無い）の在庫も書かない。
+	 */
+	public function test_stock_of_a_variation_linked_by_export_is_not_written(): void {
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Woo born variable' );
+		$product_id = $product->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->set_manage_stock( true );
+		$variation->set_stock_quantity( 4 );
+		$variation_id = $variation->save();
+		$this->seed_mapping( 'colorme', 'variant', 'v1', $variation_id );
+
+		$result = $this->make_writer()->write( new CanonicalStock( '1', 'v1', null, 0, false ), $variation_id );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ], $result->warnings );
+		$this->assertSame( 4, wc_get_product( $variation_id )->get_stock_quantity() );
+	}
+
+	/**
+	 * D25: エクスポートで結ばれた variable 親は`STOCK_PARENT_OF_VARIABLE`より先に止める。後ろだと親の ID を返し、`Importer`が
+	 * エクスポートで結ばれた商品に在庫の mapping を取込みの checksum で書いてしまう。
+	 */
+	public function test_a_variable_parent_linked_by_export_is_skipped_before_the_parent_check(): void {
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Woo born variable' );
+		$product_id = $product->save();
+		$this->seed_mapping( 'colorme', 'product', '1', $product_id );
+
+		$result = $this->make_writer()->write( new CanonicalStock( '1', null, null, 0, false ), $product_id );
+
+		$this->assertSame( 0, $result->local_id );
+		$this->assertSame( [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ], $result->warnings );
 	}
 }

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
 use CartBridgeJP\Woo\Writer\EntityWriter;
 
@@ -24,10 +25,12 @@ final class DryRunRepository implements WooWriter {
 
 	/**
 	 * @param array<string,EntityWriter> $writers entity名 => Writer（`WooRepositoryFactory`と同じ組み立て）。
+	 * @param string                     $platform 取込み元のプラットフォームID（D25 のガード。`Woo\Support\EntityOrigin::blocks_import()`）。
 	 */
 	public function __construct(
 		private readonly SideEffectGuard $guard,
-		private readonly array $writers
+		private readonly array $writers,
+		private readonly string $platform
 	) {}
 
 	public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
@@ -35,6 +38,11 @@ final class DryRunRepository implements WooWriter {
 
 		if ( null === $writer ) {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::ENTITY_NOT_SUPPORTED ] );
+		}
+
+		// D25: 実書込み（`WooRepository::write()`）と同じ判定で、エクスポートで結ばれた実体は検証もせずスキップとして報告する。
+		if ( EntityOrigin::blocks_import( $this->platform, $entity, $existing_local_id ) ) {
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ] );
 		}
 
 		// `validate()`は何も永続化しないため`SideEffectGuard`は本来不要だが、サードパーティ

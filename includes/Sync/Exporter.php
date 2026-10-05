@@ -44,6 +44,10 @@ use Throwable;
  * 64文字のsha256 hex digestに収まる。`Importer`側は一切変更せずにこの衝突を避ける
  * （どちらのchecksumも「自分が最後に書いたものと一致するか」だけを見るため、相手方向の
  * 生ハッシュとは構造的に一致しなくなり、安全側＝再同期に倒れる。SHA-256の衝突耐性に依拠する）。
+ *
+ * D25（issue #98）以後は、取込みで結ばれた実体をこのクラスが送らず（`ReadItem::$linked_by_import`）、エクスポートで結ばれた実体を
+ * 取込みが上書きしない（`Woo\Support\EntityOrigin`）ため、1 つの mapping 行を両方向が書くことは無くなった。名前空間の混ぜ込みは、
+ * D25 より前に両方向が書いた行と、判定の取りこぼしに対する防御として残す。
  */
 final class Exporter {
 
@@ -179,6 +183,27 @@ final class Exporter {
 				if ( null !== $remaining && null !== $limit_policy ) {
 					$remaining = $limit_policy->remaining( $platform, $entity );
 				}
+			}
+
+			// D25（issue #98）: このプラットフォームからの取込みで結ばれた実体は送らない（実体は作られた向きにだけ更新する。
+			// 往復で送ると、取込みで変換した値〔仮 SKU・会員限定販売の公開・在庫未設定の 0 等〕がリモートに書き戻される）。
+			// mapping の有無によらず止める（mapping を失った取込み品を作成し直して、リモートに重複を作らない）。mapping・
+			// 無料枠・push intent には触れず、取込みが書いた checksum もそのまま残す。読出時の警告（止める警告を含む）は
+			// 送らない行には意味が無いので、dry-run 行には D25 のコードだけを載せる。mapping がある実体は既に結ばれている
+			// （`LimitPolicy::used()`にも数えられている）ので`unchanged`にも数え、Pro 案内の「未移行」を過小にしない。
+			if ( $read_item->linked_by_import ) {
+				++$totals['skipped'];
+				++$totals['warned'];
+
+				if ( null !== $existing_remote_id ) {
+					++$totals['unchanged'];
+				}
+
+				if ( $is_dry_run ) {
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ] );
+				}
+
+				continue;
 			}
 
 			// D21-B（issue #73）: 作成経路（既存remote_id無し）で、以前の試行の結果が不明なまま

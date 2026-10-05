@@ -24,7 +24,7 @@ final class CouponReaderTest extends WooTestCase {
 	}
 
 	private function make_reader(): CouponReader {
-		return new CouponReader();
+		return new CouponReader( 'colorme' );
 	}
 
 	/**
@@ -427,5 +427,37 @@ final class CouponReaderTest extends WooTestCase {
 		$result = $method->invoke( $this->make_reader(), $coupon_id );
 
 		$this->assertNull( $result );
+	}
+
+	/**
+	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれたクーポン（`_cbjp_platform`）だけに
+	 * `linked_by_import`が立つ。
+	 */
+	public function test_linked_by_import_is_set_only_for_coupons_imported_from_the_same_platform(): void {
+		$expected = [];
+
+		foreach ( [
+			'colorme'  => true,
+			'makeshop' => false,
+			''         => false,
+		] as $platform => $flag ) {
+			$coupon = $this->create_coupon( 'd25-' . ( '' !== $platform ? $platform : 'woo' ) );
+
+			if ( '' !== $platform ) {
+				update_post_meta( $coupon->get_id(), '_cbjp_platform', $platform );
+			}
+
+			$expected[ $coupon->get_id() ] = $flag;
+		}
+
+		$actual = [];
+
+		foreach ( $this->make_reader()->query( Cursor::start(), array_keys( $expected ) )->items as $item ) {
+			$actual[ $item->local_id ] = $item->linked_by_import;
+		}
+
+		ksort( $actual );
+		ksort( $expected );
+		$this->assertSame( $expected, $actual );
 	}
 }

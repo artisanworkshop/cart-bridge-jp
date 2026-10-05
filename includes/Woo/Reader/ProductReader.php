@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Reader;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\StockDerivation;
 use CartBridgeJP\Woo\Support\TaxInclusivePrice;
@@ -92,6 +93,12 @@ final class ProductReader implements EntityReader {
 	}
 
 	private function to_read_item( WC_Product $product ): ReadItem {
+		// D25: 取込みで結ばれた商品も変換は従来どおり全部行う（`Sync\Exporter`の判定が退行しても、空の Canonical を送るのではなく
+		// 従来の送信に戻るだけにするため）。`Exporter`はこの商品の警告を捨てるので、ページに 1 回だけ付ける情報の警告
+		// （`PRICES_CONVERTED_TO_TAX_INCLUSIVE`）はこの商品で消費せず、同じページの Woo 生まれの商品に付ける。
+		$linked_by_import        = EntityOrigin::post_linked_by_import( $product->get_id(), $this->platform );
+		$prices_converted_warned = $this->prices_converted_warned;
+
 		$warnings          = [];
 		$is_variable       = $product instanceof WC_Product_Variable;
 		$axis_names        = $is_variable ? $this->variation_axis_attributes( $product, $warnings ) : [];
@@ -144,12 +151,17 @@ final class ProductReader implements EntityReader {
 			'' !== $tax_class ? $tax_class : null
 		);
 
+		if ( $linked_by_import ) {
+			$this->prices_converted_warned = $prices_converted_warned;
+		}
+
 		return new ReadItem(
 			$product->get_id(),
 			$canonical,
 			$warnings,
 			! WarningCode::indicates_unresolved_reference( $warnings ),
-			$variant_local_ids
+			$variant_local_ids,
+			$linked_by_import
 		);
 	}
 

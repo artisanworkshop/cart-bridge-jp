@@ -14,7 +14,7 @@ use CartBridgeJP\Woo\Reader\CustomerReader;
 final class CustomerReaderTest extends WooTestCase {
 
 	private function make_reader(): CustomerReader {
-		return new CustomerReader();
+		return new CustomerReader( 'colorme' );
 	}
 
 	private function create_customer( string $email, array $meta = [] ): int {
@@ -226,5 +226,42 @@ final class CustomerReaderTest extends WooTestCase {
 		sort( $all_ids );
 		sort( $ids );
 		$this->assertSame( $ids, $all_ids );
+	}
+
+	/**
+	 * D25（issue #98）: 取込みで結ばれた顧客（リンクの印`_cbjp_platform`か作成の印`_cbjp_created_by_import`が書き出し先と一致）に
+	 * `linked_by_import`が立つ。メールで採用した顧客はリンクの印だけを持つが、紐づけたのは取込みなので立つ。別プラットフォームの印・
+	 * 印なしには立たない。
+	 */
+	public function test_linked_by_import_follows_the_link_or_creation_marker_of_the_same_platform(): void {
+		$adopted = $this->create_customer( 'adopted@example.com', [ 'user_meta' => [ '_cbjp_platform' => 'colorme' ] ] );
+		$created = $this->create_customer(
+			'created@example.com',
+			[
+				'user_meta' => [
+					'_cbjp_platform'          => 'makeshop',
+					'_cbjp_created_by_import' => 'colorme',
+				],
+			]
+		);
+		$other   = $this->create_customer( 'other@example.com', [ 'user_meta' => [ '_cbjp_platform' => 'makeshop' ] ] );
+		$woo     = $this->create_customer( 'woo@example.com' );
+
+		$expected             = [];
+		$expected[ $adopted ] = true;
+		$expected[ $created ] = true;
+		$expected[ $other ]   = false;
+		$expected[ $woo ]     = false;
+
+		$items  = $this->make_reader()->query( Cursor::start(), array_keys( $expected ) )->items;
+		$actual = [];
+
+		foreach ( $items as $item ) {
+			$actual[ $item->local_id ] = $item->linked_by_import;
+		}
+
+		ksort( $actual );
+		ksort( $expected );
+		$this->assertSame( $expected, $actual );
 	}
 }

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Reader;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\StockDerivation;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Product;
@@ -113,14 +114,18 @@ final class StockReader implements EntityReader {
 	 * @return array<int,ReadItem>
 	 */
 	private function items_for_product( WC_Product $product ): array {
+		// D25: 在庫は商品に従う。取込みで結ばれた商品（variable は親）の在庫行はすべて印す（`ProductReader`と同じ関数で、
+		// 未解決の行も含めて。印が無いと mapping を失った取込み品の在庫に「先に商品をエクスポート」と誤って案内してしまう）。
+		$linked_by_import = EntityOrigin::post_linked_by_import( $product->get_id(), $this->platform );
+
 		if ( $product instanceof WC_Product_Variable ) {
-			return $this->items_for_variable( $product );
+			return $this->items_for_variable( $product, $linked_by_import );
 		}
 
 		$product_ref = $this->product_refs[ $product->get_id() ]['remote_id'] ?? null;
 
 		if ( null === $product_ref ) {
-			return [ $this->unresolved_item( $product->get_id(), (string) $product->get_id() ) ];
+			return [ $this->unresolved_item( $product->get_id(), (string) $product->get_id(), $linked_by_import ) ];
 		}
 
 		$quantity = StockDerivation::for_product( $product );
@@ -133,13 +138,13 @@ final class StockReader implements EntityReader {
 			CanonicalStock::is_in_stock( $quantity )
 		);
 
-		return [ new ReadItem( $product->get_id(), $stock ) ];
+		return [ new ReadItem( $product->get_id(), $stock, [], true, [], $linked_by_import ) ];
 	}
 
 	/**
 	 * @return array<int,ReadItem>
 	 */
-	private function items_for_variable( WC_Product_Variable $product ): array {
+	private function items_for_variable( WC_Product_Variable $product, bool $linked_by_import ): array {
 		$product_ref = $this->product_refs[ $product->get_id() ]['remote_id'] ?? null;
 		$items       = [];
 
@@ -156,14 +161,14 @@ final class StockReader implements EntityReader {
 			$mixed     = $is_mixed ? [ WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED ] : [];
 
 			if ( null === $product_ref ) {
-				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $mixed );
+				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $linked_by_import, $mixed );
 				continue;
 			}
 
 			$variant_ref = $this->variant_refs[ $variation_id ]['remote_id'] ?? null;
 
 			if ( null === $variant_ref ) {
-				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $mixed );
+				$items[] = $this->unresolved_item( $variation_id, (string) $variation_id, $linked_by_import, $mixed );
 				continue;
 			}
 
@@ -181,7 +186,7 @@ final class StockReader implements EntityReader {
 				CanonicalStock::is_in_stock( $derived['quantity'] )
 			);
 
-			$items[] = new ReadItem( $variation_id, $stock, $warnings );
+			$items[] = new ReadItem( $variation_id, $stock, $warnings, true, [], $linked_by_import );
 		}
 
 		return $items;
@@ -238,17 +243,20 @@ final class StockReader implements EntityReader {
 	}
 
 	/**
+	 * @param bool              $linked_by_import D25: 商品（variable は親）が取込みで結ばれている（`items_for_product()`参照）。
 	 * @param array<int,string> $extra_warnings `STOCK_PRODUCT_NOT_EXPORTED`に続けて積む警告（D22の
 	 *   `VARIATION_STOCK_MANAGEMENT_MIXED`等。商品より先に在庫行だけを見る店舗にも理由が出る）。
 	 */
-	private function unresolved_item( int $local_id, string $detail, array $extra_warnings = [] ): ReadItem {
+	private function unresolved_item( int $local_id, string $detail, bool $linked_by_import, array $extra_warnings = [] ): ReadItem {
 		$stock = new CanonicalStock( '', null, null, null, true );
 
 		return new ReadItem(
 			$local_id,
 			$stock,
 			array_merge( [ WarningCode::with_detail( WarningCode::STOCK_PRODUCT_NOT_EXPORTED, $detail ) ], $extra_warnings ),
-			false
+			false,
+			[],
+			$linked_by_import
 		);
 	}
 }

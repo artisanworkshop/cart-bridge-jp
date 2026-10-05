@@ -516,6 +516,22 @@ final class WarningCode {
 	public const PRODUCT_VARIANT_SURPLUS_ON_REMOTE = 'product_variant_surplus_on_remote';
 
 	/**
+	 * `Sync\Exporter`: この Woo の実体は書き出し先と同じプラットフォームからの取込みで結ばれている
+	 * （`Woo\Support\EntityOrigin`。`Woo\Reader\ReadItem::$linked_by_import`）ため送らなかった（D25「実体は作られた向きにだけ
+	 * 更新する」）。情報のみ。送らないことが終端の状態なので、`indicates_export_blocking()`/
+	 * `indicates_unresolved_reference()`/CSV の`note`のどれにも登録しない。
+	 */
+	public const LINKED_BY_IMPORT_NOT_EXPORTED = 'linked_by_import_not_exported';
+
+	/**
+	 * `Woo\WooRepository`/`Woo\DryRunRepository`/`Woo\Writer\StockWriter`: mapping が指す Woo の実体（在庫は対象の商品・
+	 * バリエーション）はエクスポートで結ばれた（取込みで結ばれていない）ため、取込みで上書きしなかった（D25）。mapping はそのまま残す。
+	 * 情報のみ。`LINKED_BY_IMPORT_NOT_EXPORTED`と同じ理由でどの判定関数にも登録しない（`Sync\Importer`の`unchanged`の数え方は
+	 * {@see indicates_kept_by_link_direction()}）。
+	 */
+	public const LINKED_BY_EXPORT_NOT_IMPORTED = 'linked_by_export_not_imported';
+
+	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {
@@ -643,6 +659,23 @@ final class WarningCode {
 
 		foreach ( $warnings as $warning ) {
 			if ( in_array( self::split( $warning )[0], $blocking_codes, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * `Sync\Importer::process_items()`用: 取込みがエクスポートで結ばれた実体を上書きしなかった結果か（D25。
+	 * `LINKED_BY_EXPORT_NOT_IMPORTED`）。mapping がある実体なら既に結ばれている＝移行済みとして`unchanged`にも数える
+	 * （`LimitPolicy::used()`は向きを問わず mapping を数えるため、数えないと Pro 案内の「未移行」が過小になる）。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_kept_by_link_direction( array $warnings ): bool {
+		foreach ( $warnings as $warning ) {
+			if ( self::LINKED_BY_EXPORT_NOT_IMPORTED === self::split( $warning )[0] ) {
 				return true;
 			}
 		}

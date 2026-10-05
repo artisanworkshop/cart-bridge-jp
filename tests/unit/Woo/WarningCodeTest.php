@@ -199,4 +199,29 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
 		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( 'order_line_product_unresolved_extra:1' ) );
 	}
+
+	/**
+	 * D25（issue #98）: 往復で送らない／上書きしない 2 つのコードは終端の情報。止める警告・checksum を保存しない警告・CSV の
+	 * 注記のどれにも入れない（入れると、送らない実体が「移行できない」扱いになったり、毎回再処理されたりする）。
+	 */
+	public function test_link_direction_codes_are_informational_only(): void {
+		foreach ( [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED, WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ] as $code ) {
+			$this->assertFalse( WarningCode::indicates_export_blocking( [ $code ] ), $code );
+			$this->assertFalse( WarningCode::indicates_unresolved_reference( [ $code ] ), $code );
+			$this->assertFalse( WarningCode::indicates_variation_stock_mixed( [ $code ] ), $code );
+			$this->assertFalse( WarningCode::indicates_pending_import( $code ), $code );
+			$this->assertFalse( WarningCode::indicates_pending_export( $code ), $code );
+			$this->assertFalse( WarningCode::indicates_mapping_required( $code ), $code );
+		}
+	}
+
+	/**
+	 * D25: `Sync\Importer`が`unchanged`に数えるのは、取込みがエクスポートで結ばれた実体を上書きしなかった結果だけ。
+	 */
+	public function test_kept_by_link_direction_matches_only_the_import_side_code(): void {
+		$this->assertTrue( WarningCode::indicates_kept_by_link_direction( [ WarningCode::PRODUCT_SAVE_FAILED, WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ] ) );
+		$this->assertFalse( WarningCode::indicates_kept_by_link_direction( [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ] ) );
+		$this->assertFalse( WarningCode::indicates_kept_by_link_direction( [ WarningCode::PRODUCT_SAVE_FAILED ] ) );
+		$this->assertFalse( WarningCode::indicates_kept_by_link_direction( [] ) );
+	}
 }

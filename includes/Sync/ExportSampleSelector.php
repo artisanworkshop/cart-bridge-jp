@@ -8,6 +8,8 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Woo\Reader\ProductReader;
+use CartBridgeJP\Woo\Support\EntityOrigin;
+use WC_Abstract_Order;
 use WC_Order;
 use WC_Order_Item_Product;
 
@@ -19,14 +21,27 @@ use WC_Order_Item_Product;
  * Woo側は日付ソートが常に可能なため無条件に新しい順とする）で残り枠を補完する。
  *
  * 永続化キーは `cbjp_export_sample_{platform}`（import用 `cbjp_sample_{platform}` とは別）。
- * `platform`はエクスポート先ASP（`cbjp_mappings`の複合キーに使うだけでWoo側の抽出には
- * 関与しない）。
+ * `platform`はエクスポート先ASP（`cbjp_mappings`の複合キーと、下の D25 の除外に使う）。
+ *
+ * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた受注・商品・顧客（`Woo\Support\EntityOrigin`）は
+ * エクスポートされない（`Sync\Exporter`がスキップする）ので、サンプルの起点・明細・補充のどれからも除く。除かないと、
+ * 取り込んだ受注（ASP の注文日時を保つので最新側に並ぶ）だけでサンプルが埋まって保存され、クリーンアップするまで選び直せず
+ * （D16）、無料版のエクスポートが全件スキップのまま確かめられなくなる。受注の絞り込みは取得してから PHP で判定する
+ * （`wc_get_orders()`の`meta_query`はレガシーの保存方式では無視されるため）。既に保存されたサンプル（`load()`）は
+ * 選び直さず、そこに残る取込み品は`Exporter`のスキップに任せる。
  */
 final class ExportSampleSelector {
 
 	private const SAMPLE_ORDER_LIMIT = 10;
 	private const PRODUCT_HARD_CAP   = 50;
 	private const CUSTOMER_CAP       = 10;
+
+	/**
+	 * D25 の除外で Woo 生まれの実体を探すときの読み方: 新しい順に`SCAN_BATCH`件ずつ、最大`SCAN_MAX_BATCHES`回。取り込んだ受注・
+	 * 商品が大量にある店舗で全件を読まないための打ち切りで、見つからない分は従来どおり（受注不足なら商品・顧客一覧から）補う。
+	 */
+	private const SCAN_BATCH       = 50;
+	private const SCAN_MAX_BATCHES = 10;
 
 	public function select_or_load( string $platform ): ExportSampleSet {
 		return $this->load( $platform ) ?? $this->select_and_persist( $platform );
@@ -47,16 +62,28 @@ final class ExportSampleSelector {
 	}
 
 	private function select_and_persist( string $platform ): ExportSampleSet {
-		$order_ids = wc_get_orders(
-			[
-				'limit'   => self::SAMPLE_ORDER_LIMIT,
-				'orderby' => 'date',
-				'order'   => 'DESC',
-				'return'  => 'ids',
-				// `wc-checkout-draft`は日次cronで24時間後に完全削除される一時的な下書き注文
-				// （CLAUDE.md参照）のため、サンプルの起点に含めない。
-				'status'  => array_values( array_diff( array_keys( wc_get_order_statuses() ), [ 'wc-checkout-draft' ] ) ),
-			]
+		// `wc-checkout-draft`は日次cronで24時間後に完全削除される一時的な下書き注文
+		// （CLAUDE.md参照）のため、サンプルの起点に含めない。
+		$statuses  = array_values( array_diff( array_keys( wc_get_order_statuses() ), [ 'wc-checkout-draft' ] ) );
+		$order_ids = $this->collect_newest(
+			static fn ( int $page ): array => array_map(
+				static fn ( WC_Abstract_Order $order ): int => $order->get_id(),
+				wc_get_orders(
+					[
+						'limit'   => self::SCAN_BATCH,
+						'page'    => $page,
+						'orderby' => 'date',
+						'order'   => 'DESC',
+						'status'  => $statuses,
+					]
+				)
+			),
+			static function ( int $order_id ) use ( $platform ): bool {
+				$order = wc_get_order( $order_id );
+
+				return $order instanceof WC_Order && ! EntityOrigin::order_linked_by_import( $order, $platform );
+			},
+			self::SAMPLE_ORDER_LIMIT
 		);
 
 		$product_ids  = [];
@@ -85,8 +112,8 @@ final class ExportSampleSelector {
 
 			$customer_id = $order->get_customer_id();
 
-			// ゲスト購入（customer_id=0）は顧客枠にカウントしない（D15 §10.2 #2と同じ方針）。
-			if ( 0 !== $customer_id ) {
+			// ゲスト購入（customer_id=0）は顧客枠にカウントしない（D15 §10.2 #2と同じ方針）。取込みで結ばれた顧客（D25）も除く。
+			if ( 0 !== $customer_id && ! EntityOrigin::user_linked_by_import( $customer_id, $platform ) ) {
 				$customer_ids[ $customer_id ] = true;
 			}
 		}
@@ -99,7 +126,7 @@ final class ExportSampleSelector {
 		// 「サンプル選定は完了しているのに実際にエクスポートされる商品が枠より少ない」という
 		// 説明できない挙動になる（D16「クリーンアップせずに再選定は不可」のため一度枠を
 		// 消費すると取り返しがつかない）。
-		$product_id_list  = array_slice( $this->filter_exportable_product_ids( array_keys( $product_ids ) ), 0, self::PRODUCT_HARD_CAP );
+		$product_id_list  = array_slice( $this->filter_exportable_product_ids( array_keys( $product_ids ), $platform ), 0, self::PRODUCT_HARD_CAP );
 		$customer_id_list = array_slice( array_keys( $customer_ids ), 0, self::CUSTOMER_CAP );
 
 		// Copilot指摘（PR #40, G3）: `$used_fallback`（受注件数のみで判定）だけをトップアップの
@@ -113,11 +140,11 @@ final class ExportSampleSelector {
 		// この意図を固定化している）。トップアップは元々の`$used_fallback`（受注不足）に加え、
 		// 「完全に空」の場合のみ発火させ、1件以上ある小規模サンプルはそのまま尊重する。
 		if ( $used_fallback || [] === $product_id_list ) {
-			$product_id_list = $this->top_up_products( $product_id_list, self::SAMPLE_ORDER_LIMIT );
+			$product_id_list = $this->top_up_products( $product_id_list, self::SAMPLE_ORDER_LIMIT, $platform );
 		}
 
 		if ( $used_fallback || [] === $customer_id_list ) {
-			$customer_id_list = $this->top_up_customers( $customer_id_list, self::SAMPLE_ORDER_LIMIT );
+			$customer_id_list = $this->top_up_customers( $customer_id_list, self::SAMPLE_ORDER_LIMIT, $platform );
 		}
 
 		$sample = new ExportSampleSet( array_values( $order_ids ), $product_id_list, $customer_id_list, $used_fallback );
@@ -137,24 +164,29 @@ final class ExportSampleSelector {
 	 * @param array<int,int> $existing
 	 * @return array<int,int>
 	 */
-	private function top_up_products( array $existing, int $target ): array {
+	private function top_up_products( array $existing, int $target, string $platform ): array {
 		if ( count( $existing ) >= $target ) {
 			return $existing;
 		}
 
-		$ids = wc_get_products(
-			[
-				'status'  => ProductReader::EXPORTABLE_STATUSES,
-				'type'    => ProductReader::EXPORTABLE_TYPES,
-				'orderby' => 'date',
-				'order'   => 'DESC',
-				'return'  => 'ids',
-				'limit'   => $target,
-				'exclude' => $existing,
-			]
+		$ids = $this->collect_newest(
+			static fn ( int $page ): array => wc_get_products(
+				[
+					'status'  => ProductReader::EXPORTABLE_STATUSES,
+					'type'    => ProductReader::EXPORTABLE_TYPES,
+					'orderby' => 'date',
+					'order'   => 'DESC',
+					'return'  => 'ids',
+					'limit'   => self::SCAN_BATCH,
+					'page'    => $page,
+					'exclude' => $existing,
+				]
+			),
+			static fn ( int $product_id ): bool => ! EntityOrigin::post_linked_by_import( $product_id, $platform ),
+			$target - count( $existing )
 		);
 
-		return array_slice( array_values( array_unique( array_merge( $existing, array_map( 'intval', $ids ) ) ) ), 0, $target );
+		return array_slice( array_values( array_unique( array_merge( $existing, $ids ) ) ), 0, $target );
 	}
 
 	/**
@@ -164,7 +196,9 @@ final class ExportSampleSelector {
 	 * @param array<int,int> $product_ids
 	 * @return array<int,int>
 	 */
-	private function filter_exportable_product_ids( array $product_ids ): array {
+	private function filter_exportable_product_ids( array $product_ids, string $platform ): array {
+		$product_ids = array_values( array_filter( $product_ids, static fn ( int $product_id ): bool => ! EntityOrigin::post_linked_by_import( $product_id, $platform ) ) );
+
 		if ( [] === $product_ids ) {
 			return [];
 		}
@@ -186,23 +220,59 @@ final class ExportSampleSelector {
 	 * @param array<int,int> $existing
 	 * @return array<int,int>
 	 */
-	private function top_up_customers( array $existing, int $target ): array {
+	private function top_up_customers( array $existing, int $target, string $platform ): array {
 		if ( count( $existing ) >= $target ) {
 			return $existing;
 		}
 
-		$ids = get_users(
-			[
-				'role'    => 'customer',
-				'orderby' => 'registered',
-				'order'   => 'DESC',
-				'number'  => $target,
-				'exclude' => $existing,
-				'fields'  => 'ID',
-			]
+		$ids = $this->collect_newest(
+			static fn ( int $page ): array => get_users(
+				[
+					'role'    => 'customer',
+					'orderby' => 'registered',
+					'order'   => 'DESC',
+					'number'  => self::SCAN_BATCH,
+					'paged'   => $page,
+					'exclude' => $existing,
+					'fields'  => 'ID',
+				]
+			),
+			static fn ( int $user_id ): bool => ! EntityOrigin::user_linked_by_import( $user_id, $platform ),
+			$target - count( $existing )
 		);
 
-		return array_slice( array_values( array_unique( array_merge( $existing, array_map( 'intval', $ids ) ) ) ), 0, $target );
+		return array_slice( array_values( array_unique( array_merge( $existing, $ids ) ) ), 0, $target );
+	}
+
+	/**
+	 * 新しい順に`SCAN_BATCH`件ずつ読み、`$keep`が真の ID を`$target`件まで集める（D25 の除外。最大`SCAN_MAX_BATCHES`回で打ち切る）。
+	 *
+	 * @param callable(int):array<int,int|string> $fetch 1 始まりのページ番号を受け取り、そのページの ID を返す。
+	 * @param callable(int):bool                  $keep  残す ID なら真。
+	 * @return array<int,int>
+	 */
+	private function collect_newest( callable $fetch, callable $keep, int $target ): array {
+		$kept = [];
+
+		for ( $page = 1; $page <= self::SCAN_MAX_BATCHES; $page++ ) {
+			$ids = array_map( 'intval', $fetch( $page ) );
+
+			foreach ( $ids as $id ) {
+				if ( count( $kept ) >= $target ) {
+					return $kept;
+				}
+
+				if ( $keep( $id ) ) {
+					$kept[] = $id;
+				}
+			}
+
+			if ( count( $kept ) >= $target || count( $ids ) < self::SCAN_BATCH ) {
+				return $kept;
+			}
+		}
+
+		return $kept;
 	}
 
 	/**

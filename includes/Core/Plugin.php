@@ -17,6 +17,7 @@ use CartBridgeJP\Admin\RestController;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\LogCleanup;
 use CartBridgeJP\Sync\LogRepository;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 
 /**
  * 各レイヤーのフックを配線して起動する。
@@ -114,6 +115,9 @@ final class Plugin {
 				( new LogCleanup( new LogRepository() ) )->schedule();
 			}
 		);
+
+		// D25: 店舗が取り込んだ商品を複製したとき、ASP との紐づけのメタを写さない（`EntityOrigin::exclude_link_meta_on_duplicate()`）。
+		add_filter( 'woocommerce_duplicate_product_exclude_meta', [ EntityOrigin::class, 'exclude_link_meta_on_duplicate' ] );
 	}
 
 	/**

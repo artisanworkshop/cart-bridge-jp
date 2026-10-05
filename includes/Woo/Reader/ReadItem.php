@@ -29,12 +29,16 @@ final readonly class ReadItem {
 	 *   Reader時点のメタデータとしてここで運び、`Sync\Exporter`が`PushResult::$variant_remote_ids`と
 	 *   zipして`cbjp_mappings`（'variant'）へ書き戻す（`docs/03-design-decisions.md` §10.2
 	 *   「E2-3への申し送り」のバリエーションremote_id永続化経路）。
+	 * @param bool              $linked_by_import D25: この実体は書き出し先と同じプラットフォームからの取込みで結ばれている
+	 *   （`Woo\Support\EntityOrigin`。在庫は親商品で判定）。`Sync\Exporter`は送らない。mapping の有無によらず立てる
+	 *   （mapping を失った取込み品を作成し直して、リモートに重複を作らないため）。
 	 */
 	public function __construct(
 		public int $local_id,
 		public CanonicalModel $item,
 		public array $warnings = [],
 		public bool $fully_resolved = true,
-		public array $variant_local_ids = []
+		public array $variant_local_ids = [],
+		public bool $linked_by_import = false
 	) {}
 }

@@ -928,4 +928,37 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertSame( 'S', $line['option1_value_current'] );
 		$this->assertSame( 'Blue', $line['option2_value_current'] );
 	}
+
+	/**
+	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた受注（`_cbjp_platform`。HPOS でも読めるよう
+	 * `WC_Order::get_meta()`で読む）だけに`linked_by_import`が立つ。
+	 */
+	public function test_linked_by_import_is_set_only_for_orders_imported_from_the_same_platform(): void {
+		$expected = [];
+
+		foreach ( [
+			self::PLATFORM => true,
+			'makeshop'     => false,
+			''             => false,
+		] as $platform => $flag ) {
+			$order = wc_create_order( [ 'status' => 'processing' ] );
+
+			if ( '' !== $platform ) {
+				$order->update_meta_data( '_cbjp_platform', $platform );
+				$order->save();
+			}
+
+			$expected[ $order->get_id() ] = $flag;
+		}
+
+		$actual = [];
+
+		foreach ( $this->make_reader()->query( Cursor::start(), array_keys( $expected ) )->items as $item ) {
+			$actual[ $item->local_id ] = $item->linked_by_import;
+		}
+
+		ksort( $actual );
+		ksort( $expected );
+		$this->assertSame( $expected, $actual );
+	}
 }
