@@ -5,7 +5,7 @@
 `00-plan-overview.md` を具体化した実装設計。他の計画ドキュメント（00〜02・04）と本書が矛盾する場合は**本書を優先**する。
 タスクの進行管理は `10-tasks.md` を参照。
 
-## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13 / D20は2026-09-24 / D21〜D24は2026-09-26）
+## 1. 確定した方針（ユーザー確認済み・2026-07-06 / D11〜D13は2026-07-07 / D14〜D17は2026-07-08 / D18は2026-09-05 / D19は2026-09-13 / D20は2026-09-24 / D21〜D24は2026-09-26 / D25・D26は2026-10-05）
 
 | # | 論点 | 決定 |
 |---|---|---|
@@ -24,7 +24,7 @@
 | D13 | 有効期限付きトークン対応 | BASEのアクセストークン1時間+リフレッシュトークン30日ローテーションに対応するため、**TokenStoreはPhase 0から構造化ペイロード（access/refresh/expires_at）+リフレッシュ排他ロックを前提に設計**する（§4参照。カラーミー/MakeShopは単一トークンとして同構造に格納） |
 | D14 | ビジネスモデル | 無料版=挙動確認用（**dry-runは全量無料**+実移行はサンプルのみ）。Pro版=買切り**「移行プロジェクトライセンス」**: サイト数無制限・**初回アクティベーションから3ヶ月**のアップデート&サポート・認証済みサイトは期限後も永続動作（新規サイト認証と更新のみ不可）・価格 ¥19,800 前後・自社サイト直販（**WooCommerce API Manager**）・返金保証なし（無料版で事前検証可能なことを明記）。**継続同期（Pro同期）は販売しない**。詳細は §10.1 |
 | D15 | 無料版の実行上限 | **最新受注10件起点のサンプル移行**: サンプル受注に紐づく商品（ハードキャップ50件）・顧客（最大10件）・受注10件のみ実インポート/エクスポート可。カテゴリ/タグは全量無料。上限はサーバーサイド（JobManager）で強制し、`cbjp/limits/{entity}` フィルター（総称表記: `cbjp/limits/*`）でPro版が解除。詳細は §10.2 |
-| D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
+| D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**（**v1.0 では選択式を実装しない**: checksum が変わった分だけ更新・同じならスキップ〔2026-10-05 決定、R3-1〕。§10.3）。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
 | D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
 | D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は、プラットフォーム固有のコードをアダプタ外に書かない（アーキテクチャ原則1）ことを維持しつつ、プラットフォーム非依存のコア拡張点（例: 受注インポート時に抽出した顧客をImporterが永続化するフック=B4-5、レート制限超過時の再試行遅延をアダプタ側から指定できるJobManagerの拡張点=E5-1）の追加は許容し、Importer/Exporter本体にプラットフォーム固有の分岐を持ち込まないことを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
 | D19 | マッピング候補一覧の取得方式（E2-1） | `PlatformAdapter`（§2「確定版」）に `mappingCandidates(): array` を追加する。`/settings/mappings/{platform}` のマッピングUI（カテゴリ/決済/配送/注文ステータス）が選択肢を動的に描画するための自己記述スキーマで、既存の `connectionFields()` と同じ設計思想。外部アドオンによるカスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換リスクは低いと判断した（該当メソッドが無いカスタムアダプタは致命的エラーになるため、将来外部アダプタが増えた場合はこの追加を周知する）。あわせて `cbjp_settings_{platform}` に `category_map`（キー: Woo側カテゴリID、値: ASP側カテゴリID）を追加。カラーミーがカテゴリ作成不可なため、既存の `payment_map`/`shipping_map`/`status_map`（ASP側ID→Woo側ID）とは向きが逆になる。**E2-2/E2-3への申し送り**: `payment_map`/`shipping_map`はASP→Wooの単射とは限らない（複数のASP決済/配送方法が同じWooゲートウェイ/配送方法へ寄せられうる）ため、エクスポート時にWoo側の値からASP側の値へ機械的に逆引きすることはできない。E2-3の`push_order`実装時にこの逆引きの曖昧性をどう解決するか（例: 最初に一致した1件を使う、複数一致時は警告付きでフェイルクローズする等）を設計すること |
@@ -33,6 +33,8 @@
 | D22 | 在庫管理が混在する variable 商品のエクスポート（issue #52） | Woo でバリエーションごとに在庫管理の有無が違う商品は、商品単位の在庫管理しか持たない ColorMe では表現できず、管理外のバリエーションが売り切れ表示のまま戻らない。**混在した商品（とその在庫行）はエクスポートを止めて警告**し、Woo 側で揃えてもらう。仮の在庫数を送る案・商品全体を管理外で送る案は過剰販売につながるため採らない。判定は Reader（Woo の事実）、止めるかは `Capabilities::$supports_per_variant_stock_management`（末尾に既定 `false` で追加）で `Exporter` が決める。詳細は §10.2「在庫管理が混在する variable 商品のエクスポート（D22）」 |
 | D23 | 「Any」バリエーションのエクスポート | Woo の「Any（すべての）」バリエーションは ColorMe に相当する仕組みが無く、正規化モデルでも表現できない。**v1.0 では非対応**とし、Any を含む商品と、その明細を持つ受注のエクスポートを止めて警告する（プラットフォーム非依存の blocking）。全組み合わせへの展開は v1.x で要望を見て検討する。詳細は §10.2「「Any（すべての）」バリエーションのエクスポート（D23）」 |
 | D24 | プレミアムプラン限定機能のベータ扱い | プレミアムプランの ColorMe テストショップをすぐに用意できないため、プレミアム限定 API に依存する**受注のエクスポートと商品画像のアップロードを v1.0 ではベータ版**とし、実テストは行わない（R3-1 の対象外）。Export タブと readme で「Beta」と明示し、**どちらも既定オフ**（店舗が明示的に選んだときだけ動かす）にする。仕組みは `Capabilities::$beta_features`（末尾に既定 `[]` で追加）。詳細は §10.2「プレミアムプラン限定機能のベータ扱い（D24）」 |
+| D25 | 往復（取り込んだ実体の再エクスポート・エクスポートで作った実体の再取込み）の扱い（R3-1、issue #98） | R3-1 のリハーサルで、ColorMe から取り込んだ実体を同じショップへエクスポートすると ColorMe の値が書き換わる（空の型番に仮 SKU、**会員限定販売が全員に販売可能**、在庫未設定が 0、埋め込み動画の消失ほか）こと、逆向きの再取込みが Woo で作った実体を ColorMe 由来の値で上書きすることを実データで確認した（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`）。**実体は作られた向きにだけ更新する**: 取り込んだ商品・顧客・在庫はエクスポートしない（スキップ＋情報の警告）、エクスポートで作った実体は取込みで上書きせず紐づけだけを保つ。出自は Woo 側の印で判定し、スキーマは変えない。ただし `_cbjp_platform`＋`_cbjp_remote_id` だけでは足りない（メールで再利用した既存の Woo 顧客〔`CustomerWriter::resolve_target()`〕にも、export で作った実体を再取込みした場合にも付く）ので、「取込みで作った」ことを示す印（顧客は既存の `_cbjp_created_by_import`、商品は新設が要るか）を実装の計画で決める。D14（継続同期は販売しない）と整合する。実装は issue #98（v1.0 に含める） |
+| D26 | 軽減税率・標準税率の税区分の見分け方（issue #102、R3-1e） | WooCommerce は既定の税区分をインストール時の言語で翻訳した名前から作るため（日本語は「軽減税」「免税」。スラッグは URL エンコード）、スラッグ `reduced-rate` の決め打ちでは日本語でインストールした店舗の軽減税率を見失い、取込みで 8% の商品が 10% の税区分に入る。**税率から自動判定することを優先する**: JP の税率が `shop.reduce_tax_rate`（8%）の税区分を軽減税率、`shop.tax`（10%）を標準税率とみなす。**必要な税率が Woo に設定されていない場合は、dry-run で先に税率を作るよう促す**（警告の文言・本実行を止めるか・候補が複数あるときの扱いは R3-1e の計画で決める）。R3-1d（issue #78。標準・軽減以外の税区分のエクスポートを止める）はこの判定を前提にする |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -568,7 +570,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   （`ColorMeAdapter::order_skip_warnings()`）ため影響しない。**要検証（v1.0 では見送り、2026-09-30 決定）**: ColorMe の
   `payments.json`/`deliveries.json` に削除済みの方法が含まれるか。非表示（`display=false`/`display_state`）の方法は応答に含まれ候補にも出る
   （`ColorMeAdapter::id_name_map()` は表示状態で絞らない）が、削除済みの方法を参照する旧受注があると、その ID は候補に無いため UI からマッピングできず、
-  事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は 5+2 種すべてが現行の候補にあった。
+  事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は決済・配送の方法すべてが現行の候補にあった。
   必要になったら、直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して行を足す REST を検討する
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
 - UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）
@@ -628,9 +630,9 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 | 16 | カラーミー: 商品の定価（`price`）が税抜/税込どちらか（`CanonicalProduct.sale_price` への反映可否） | F1-3で判明。実店舗での実測時（Phase 1 E2E等） | **済（実機確認 2026-09-03）**: テストショップ（`shop.tax_type=excluded`, `tax=10`）で定価8,000円・販売価格6,000円の商品を登録した結果、APIは`price=8000`, `sales_price=6000`, `sales_price_including_tax=6600`を返し、店頭は定価「¥8,800」・販売価格「¥6,600」を表示した。つまり**`price`（定価）は`sales_price`と同じ税基準の値**（`tax_type=excluded`なら税抜、`included`なら税込）で、税込版フィールドは無い。Woo反映は「`regular_price`=定価の税込換算値、`sale_price`=`sales_price_including_tax`（定価未設定または定価≦販売価格なら`regular_price`=`sales_price_including_tax`、`sale_price`=null）」とし、税込換算は`shop.tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品`tax_reduced`から行う。**実装済み**: `ProductTransformer`が店舗税設定をコンストラクタで受け取り（`ColorMeAdapter::product_transformer()`が`GET /shop.json`から注入）、既知の許可値（`tax_type`が`excluded`/`included`、丸め方式が`round_off`/`round_down`/`round_up`）のみ肯定形で判定する。未知値・欠損・税設定未取得の場合は換算せず現行の`regular_price = sales_price_including_tax` / `sale_price = null`にフェイルクローズする。`tax_type=included`の店舗は未実測（計算上は換算不要） |
 | 17 | カラーミー: `POST /v1/customers`の`add_member: true`が会員登録時に通知メール（パスワード設定案内等）を自動送信するか | E2-3 PR-Bで判明。実店舗での実測時（要検証#5と合わせて） | 未。swaggerに記載無し。`push_customer()`は往復インポート整合性のため新規作成時に常時`add_member: true`を送るが、本プロジェクトは移行時の副作用（通知メール等）抑止を重視する方針（`docs/01-plan-colorme.md`「通知メールは送らない」）。`POST /sales/{id}/mails.json`が受注確認メールを独立エンドポイントに切り出している設計から自動送信の可能性は低いと推測するが未確認。実店舗確認まで、E2-3の実機確認（要検証#5）と合わせて要検証のまま残す |
 | 18 | カラーミー: `GET /sales.json?ids=` が `after`/`before` 省略時の「直近7日」制限（#14）を上書きするか（複数ID指定で古い受注を取れるか） | 県コード修復（issue #46）の計画で判明。実店舗での実測時 | **済（実店舗で実測 2026-09-30、R3-0n）: 上書きしない**。2018年の受注IDを `ids` だけで指定すると `total: 0` で返る（同じIDは `GET /sales/{id}.json` では取得できる）。以下は実測前の記録: swagger は `ids` が日付範囲を上書きするとは書いておらず（`after` の説明は「未指定時は現在から7日前の0時」）、#15 は「`ids` で複数ID指定取得可能」としか確認していない。`ids` だけでは古い受注が黙って0件になる可能性がある。県コード修復ツールは一覧の `ids` を使わず、日付窓の影響を受けない単一取得 `GET /sales/{id}.json`（`ColorMeAdapter::fetch_order_by_remote_id()`）を使う。issue #38（受注のID指定取得による無料版サンプル選定）で `ids` の一括取得を採用する場合は、`after` を明示したうえで実機確認が必要 |
-| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`の商品でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明、R2で記述を精査、G1（Codex指摘）でコード側の対応方針を確定。実店舗での実測時 | 未実測だが**運用上は解消済み**。swaggerの`variant.stocks`説明文は「全バリエーションの在庫数が未設定(`null`)の状態で1件でも値を送ると商品全体の在庫数（数値）がバリエーション在庫に揃う」としか述べておらず、`product.stock_managed`という真偽値フラグ自体が追随するとは書かれていないため、`push_stock()`はG1でバリエーションの`stocks`をPUTする前に`PUT /products/{id}`へ`{stock_managed: true}`を明示送信するよう変更した（`docs/03`§10.2「E2-3 PR-D」参照）。これによりコードは「`variant.stocks`だけで反映されるか」という未確認の挙動に依存しなくなったため、本項目は**ブロッカーではない**。実店舗で2リクエスト構成が意図どおり動くことの確認自体は今後の実機確認（E2-4/R3-1）で行う |
+| 19 | カラーミー: `PUT /products/{id}/variants/{id}` で`variant.stocks`を送った際、商品側の`stock_managed`が`false`の商品でも反映されるか | E2-3 PR-D（issue #47）review-loop R1で判明、R2で記述を精査、G1（Codex指摘）でコード側の対応方針を確定。実店舗での実測時 | 未実測だが**運用上は解消済み**。swaggerの`variant.stocks`説明文は「全バリエーションの在庫数が未設定(`null`)の状態で1件でも値を送ると商品全体の在庫数（数値）がバリエーション在庫に揃う」としか述べておらず、`product.stock_managed`という真偽値フラグ自体が追随するとは書かれていないため、`push_stock()`はG1でバリエーションの`stocks`をPUTする前に`PUT /products/{id}`へ`{stock_managed: true}`を明示送信するよう変更した（`docs/03`§10.2「E2-3 PR-D」参照）。これによりコードは「`variant.stocks`だけで反映されるか」という未確認の挙動に依存しなくなったため、本項目は**ブロッカーではない**。実店舗で2リクエスト構成が意図どおり動くことの確認自体は今後の実機確認（E2-4/R3-1）で行う。**R3-1（2026-10-05）**: テストショップで在庫管理ありの可変商品（1 軸・2 軸）の在庫を export し、2 リクエスト構成（`stock_managed: true` → バリエーションの `stocks`）がエラーなく通り、在庫数が変わらない（往復で一致）ことを確認した。在庫管理なしの可変商品のバリエーションは `stock_variant_unmanaged_not_pushable` で送らない（仕様どおり）。`stock_managed=false` の商品に `variant.stocks` だけを送ったときの挙動そのものは引き続き未実測（コードは依存しない） |
 | 20 | カラーミー: `sale.totals`（nullable）が欠損する条件 | 実店舗の受注 dry-run（R3-0n） | **済（実店舗で実測 2026-09-30）**: 2019-09-09 以前の受注で null、2019-09-12 以降は全件にある（軽減税率の導入直前に追加されたと見られる）。欠損時の `sale.tax` は商品分のみ（当時の税率8%）で送料分を含まないため、`order_tax_total_incomplete`（情報）は正しい。該当受注はすべて送料があり、「送料・手数料・割引が0なら `sale.tax` が全税額」という絞り込みは効かないので入れていない |
-| 21 | カラーミー: `sale.details[].product_num=0` の明細 | 実店舗の受注 dry-run（R3-0n） | **済（実店舗で実測 2026-09-30）**: キャンセルした受注は全明細が `product_num=0`・`subtotal_price=0`（商品合計・受注合計も0）、一部の明細を外した受注はその行だけ同じ形（単価 `price`/`price_with_tax` は残る。商品合計はその行を含まない）。27 受注 44 行のうち 18 受注がキャンセル受注。数量0・金額0のまま取り込む（D10「数量0の明細」） |
+| 21 | カラーミー: `sale.details[].product_num=0` の明細 | 実店舗の受注 dry-run（R3-0n） | **済（実店舗で実測 2026-09-30）**: キャンセルした受注は全明細が `product_num=0`・`subtotal_price=0`（商品合計・受注合計も0）、一部の明細を外した受注はその行だけ同じ形（単価 `price`/`price_with_tax` は残る。商品合計はその行を含まない）。該当の受注の多くはキャンセル受注。数量0・金額0のまま取り込む（D10「数量0の明細」） |
 | 22 | カラーミー: 受注明細の `option1_value`/`option2_value`/`product_model_number` は受注時点の値か現在の商品の値か（swagger は「最新の商品情報」） | 実店舗の受注 dry-run（R3-0n） | **一部確認（2026-09-30）**: 受注後にオプションの軸が増えた商品の2018年の受注では、`option2_value` が null・`product_model_number` が当時のバリエーションの型番（現在のバリエーションには型番が無い）で、**受注時点の値**だった。現存するバリエーションだけが対象のときに現在の値へ置き換わるかは未確認。`ProductResolver` は軸の数が合わなければ特定を諦める（`order_line_variation_unmatched`） |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
@@ -1365,9 +1367,12 @@ ColorMe の税設定（`shop.tax_type`）へ逆算する。
      商品を一切エクスポートできない）で dry-run レポートに知らせる。variable 親の代表値がセールを焼き付けない
      （最安の定価を使う）のとは対照的だが、バリエーション単位の実売価格はセール中の売価そのものなので送る
      （#60）。単純商品は本 PR 以前から同じ構図で、警告だけが新しい。
-   - **未確認（要検証）**: `option_market_price` の税基準が `option_price` と同じ（`shop.tax_type=excluded`
-     なら税抜）という仮定は実店舗で未確認。商品レベルの `price`（定価）が `sales_price` と同じ基準であることは
-     実機確認済み（要検証#16）だが、バリエーション側は `_including_tax` の対が無く swagger に明記が無い。
+   - **`option_market_price` の税基準（R3-1 で確認、2026-10-05）**: `option_market_price` の税基準が `option_price` と同じ（`shop.tax_type=excluded`
+     なら税抜）という仮定は、**表示からは判定できない**と分かった。テストショップ（税抜表示）で、セール中のバリエーションを export すると
+     `option_price=2500`・`option_market_price=3000`（どちらも税抜換算）で作成されたが、管理画面のオプション一覧（項目・型番・在庫数・適正在庫数・
+     販売価格・会員価格）にもストアフロントの「オプションの値段詳細」にも、バリエーションの定価は表示されない。API にも税込の対が無い。
+     販売価格は税抜換算で正しく表示される（2,500 → 2,750 円）。表示に使われない値なので、仮定が違っていても店舗・購入者に見える影響は無いと判断し、
+     要検証を閉じる（商品レベルの `price` が `sales_price` と同じ基準であることは要検証#16 で確認済み）。
 3. **checksum への影響**: 税抜入力店舗の商品（価格が変わる）とセール中バリエーションを持つ商品は、リリース後の
    初回 export で canonical が変わり1回だけ再 push される（意図どおり。ColorMe 側は既存 remote_id への PUT で重複しない）。
 
@@ -1722,6 +1727,12 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
   **開始時に選択した上書きポリシー**（既存を更新 / 既存はスキップ。デフォルト: 更新）に従い、未取込分のみ新規作成。
   dry-run で「新規◯件・更新◯件・スキップ◯件」を事前表示する
+  - **v1.0 の範囲（2026-10-05 決定、R3-1）**: 上書きポリシーの選択式（既存はスキップ）は実装しない。v1.0 の本移行は「mapping のある実体は
+    checksum を比べ、変わっていれば更新・同じならスキップ（`unchanged`）」の 1 通りで、上の「既存を更新」に当たる。選択式が効くのは、
+    サンプル移行から本移行までの間に ColorMe 側のデータが変わり、かつ店舗が Woo 側で手直しした場合だけで、v1.0 の必須ではないと判断した
+    （選択式は `docs/review-backlog.md` の `r3-1-e2e-rehearsal/D16-overwrite-policy` で v1.x 以降に検討する）。
+    R3-1 のリハーサルでは、サンプル → キャンセル → 上限解除の本移行で、サンプル・キャンセル前に作成した実体が作り直されず `unchanged`
+    になることを実データで確認した（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`）
 - **リンク再構築ツール**（`POST /tools/rebuild-mappings`）: 再インストール・DB移設等で mappings が失われた場合に、
   SKU（商品）/ email（顧客）/ `_cbjp_remote_order_number` メタ（受注）で既存Wooデータと突合して mappings を再構築
 - **サンプルクリーンアップツール**（`POST /tools/sample-cleanup`）: 無料版サンプル由来のWooデータと対応 mappings を一括削除。
@@ -1871,7 +1882,7 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   → `Sync\Importer::process_items()`がページ単位で`Sync\DryRunItemRepository`へバッチ記録
   → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
 - **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
-- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_order_reference_unresolved()`が真の警告（`order_line_product_unresolved`/`order_customer_unresolved`。R3-0n）に`reference_unresolved`（未インポート、またはASP側で削除済み・インポート対象外。実店舗の受注では、この2コードの21件すべてが ColorMe 側で削除済み〔404〕で、先にインポートしても消えなかった）、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`から、前述の2コードと`order_line_variation_unmatched`〔商品は取込み済み。注記なし〕を除いたもの）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_order_reference_unresolved()`が真の警告（`order_line_product_unresolved`/`order_customer_unresolved`。R3-0n）に`reference_unresolved`（未インポート、またはASP側で削除済み・インポート対象外。実店舗の受注では、この2コードの参照先はすべて ColorMe 側で削除済み〔404〕で、先にインポートしても消えなかった）、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`から、前述の2コードと`order_line_variation_unmatched`〔商品は取込み済み。注記なし〕を除いたもの）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
 

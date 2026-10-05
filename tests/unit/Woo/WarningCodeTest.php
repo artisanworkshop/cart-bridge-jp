@@ -160,7 +160,7 @@ final class WarningCodeTest extends WP_UnitTestCase {
 
 	/**
 	 * R3-0n: 受注の商品・顧客の未解決は、未インポートなのかASP側で削除済みなのかを区別できない（実店舗の受注では
-	 * この 2 コードの 21 件すべてが ColorMe 側で削除済みだった）。`reference_pending_import` から外して中立の注記にするが、
+	 * この 2 コードの参照先はすべて ColorMe 側で削除済みだった）。`reference_pending_import` から外して中立の注記にするが、
 	 * 未インポートなら後から解決しうるので checksum はキャッシュしない（`indicates_unresolved_reference()`）ままにする。
 	 */
 	public function test_order_product_and_customer_refs_are_unresolved_but_not_pending_import(): void {

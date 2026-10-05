@@ -173,7 +173,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 
 	/**
 	 * R3-0n: 受注の商品・顧客の未解決は「未インポート、またはASP側で削除済み」を含む `reference_unresolved`。
-	 * 実店舗の受注 dry-run では、この 2 コードの 21 件すべてが削除済みで、`reference_pending_import`（先にインポートすれば
+	 * 実店舗の受注 dry-run では、この 2 コードの参照先はすべて削除済みで、`reference_pending_import`（先にインポートすれば
 	 * 消える）は誤った案内だった。商品は取り込み済みでバリエーションだけ特定できない明細には注記を付けない。
 	 */
 	public function test_order_reference_warnings_get_a_neutral_note(): void {

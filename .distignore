@@ -44,3 +44,6 @@ colorme.sample.env
 # Misc
 .DS_Store
 *.DS_Store
+
+# rehearse-colorme skill output (ColorMe test-shop snapshots; dev only)
+.rehearsal/

@@ -724,8 +724,8 @@ final class WarningCode {
 	 * 見分けが付かなかった）。
 	 *
 	 * R3-0n: 受注の商品・顧客の参照（{@see indicates_order_reference_unresolved()}）と
-	 * `ORDER_LINE_VARIATION_UNMATCHED`（商品は取り込み済み）は除く。実店舗の受注では、商品・顧客の未解決 24 件のうち
-	 * 21 件がASP側で削除済み、3 件がバリエーションの不一致で、どれも先にインポートしても消えなかった。
+	 * `ORDER_LINE_VARIATION_UNMATCHED`（商品は取り込み済み）は除く。実店舗の受注では、商品・顧客の未解決は
+	 * ASP側で削除済みかバリエーションの不一致のどちらかで、どれも先にインポートしても消えなかった。
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
 		return ! self::indicates_mapping_required( $warning )
@@ -741,8 +741,8 @@ final class WarningCode {
 	 * 商品・顧客の参照がローカルに見つからない警告か（`ORDER_LINE_PRODUCT_UNRESOLVED`/`ORDER_CUSTOMER_UNRESOLVED`）。
 	 *
 	 * 参照先がまだインポートされていないだけなのか、ASP側で削除済み・インポート対象外なのかは、Woo側の
-	 * mappingsだけでは区別できない。実店舗の受注 1,237 件の dry-run（R3-0n）では、この 2 コードの 21 件（商品 16 行・
-	 * 顧客 5 受注）すべてが ColorMe 側で削除済み（`GET /products/{id}.json`・`/customers/{id}.json` が 404）で、先にインポートしても
+	 * mappingsだけでは区別できない。実店舗の受注の dry-run（R3-0n）では、この 2 コードの参照先
+	 * すべてが ColorMe 側で削除済み（`GET /products/{id}.json`・`/customers/{id}.json` が 404）で、先にインポートしても
 	 * 消えないのに`reference_pending_import`（「先にインポートすれば消える」）が付いていた。そのため
 	 * `indicates_pending_import()`から外し、両方の可能性を含む中立の注記にする。checksumキャッシュの判定
 	 * （{@see indicates_unresolved_reference()}）は変えない（未インポートなら後から解決しうるため）。

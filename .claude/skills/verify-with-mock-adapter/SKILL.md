@@ -36,8 +36,10 @@ description: >
    （composer の autoload-dev。`composer install` 済みなら dev サイトから使える）で、オプション `cbjp_verify_seed` から
    顧客・受注を組み立てる。このオプションは **PHP 配列を `update_option()` で保存する**（JSON 文字列ではない。mu-plugin は
    `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
-   `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|null }`）は mock の `push_*()` を有効にし（既定は全て
-   `UnsupportedOperationException`）、`create_failure` は作成 POST が 5xx（結果不明）になる経路を再現する（D21-B）。
+   `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null }`）は mock の `push_*()` を有効にし（既定は全て
+   `UnsupportedOperationException`）、`create_failure` は作成 POST が 5xx（結果不明）になる経路（D21-B）か、作成は確定したが後続で止まった経路
+   （`PartialPushException`。D21-A。`partial_rate_limit` はレート制限でジョブを一時停止させる）を再現する。後の 2 つは remote_id が固定なので、1 回の export で
+   作成経路を通る商品を 1 件に絞る（`examples/partial-push/`）。
    Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
    （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
    （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`）。
@@ -118,6 +120,12 @@ description: >
   オプションだけを消す（`cbjp_verify_seed` は `push` キーだけを外し、prefecture-repair と共有する他のキーと `cbjp_verify_ids` は残す）。**mock アダプタが登録されているときだけ実行する**
   （OAuth トークンを持つ・mock 以外のアダプタが登録されている・アダプタが未登録〔uninstall 後など〕の platform は拒否。uninstall 後の掃除は `install` し直してから）。終わりに `left:` で 0 件を確認する（`inspect` は logs・jobs・intents を数えない）。
   `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
+- `examples/partial-push/` — export の作成は確定したが後続の処理で止まった（`PartialPushException`。R3-0a / D21-A）経路の検証（R3-1 で追加）。`verify-rest.php` は
+  サンプルを 1 商品に固定して `create_failure` を `partial_push`（後続が 5xx）・`partial_rate_limit`（後続がレート制限 → 一時停止 → 再開）に切り替え、作成済みの
+  remote_id で mapping が書かれ印は残らないこと、次の export（再開を含む）が作成ではなく更新になることを確かめる。checksum は見ない（mock にカテゴリ対応が無く、
+  どの商品も `category_map_unresolved` で null のまま）。**前提**: `install mockv` 済み・価格のある公開の単純商品が 2 件以上・無料版の上限が効いている
+  （`rehearse-colorme` の `limits-on` で解除していると止まる）・前回の残りが無い。掃除は `push-intent-resolution/cleanup.php`（同じキーの intent・mapping・job・ログ・
+  サンプルを消す）。一時停止のログは job_id を context にだけ持つ（ログの `job_id` 列は空）ので、文脈で探している
 - `examples/upsell-notice/` — 無料版の Pro 案内（`LimitsUpsellNotice`。issue #55 / R3-0h）の元になる値を `rest_do_request()` で確かめる検証。`verify-rest.php` は
   Woo に `ZZV-UPSELL-*` の商品 4 件（うち 1 件は価格なし＝export で止まる）を作り、`cbjp_verify_seed.limits.product=2` で dry-run と export を走らせて、
   totals の `unchanged`・作った商品ごとの dry-run の明細（`VALID-*` は created、`NOPRICE` は skipped＋`product_price_invalid`。集計だけだと dev サイトの
