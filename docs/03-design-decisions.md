@@ -1860,6 +1860,7 @@ R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` �
   `Woo\Support\HtmlText::sanitize_post_html()` を新設し、2 つの要素を中身ごと除いてから kses を掛ける。取込みの `Cast::sanitize_html()`（商品の説明・簡易説明・
   スマートフォン用説明、カテゴリ・グループの説明）と、Writer が自分で浄化する `ProductWriter` の説明・短い説明（R3-1b）の両方で使う
   （商品の説明は外部アダプタ・将来の BASE でも同じ結果になる。ターム〔カテゴリ・タグ〕の説明は `TermWriter` が浄化しないので、アダプタが `sanitize_post_html()` を通す。backlog `r3-1c-customer-update-and-script-strip/R1-X1`）。
+  - kses と同じく、最初に制御文字を消す（`wp_kses_no_null( …, [ 'slash_zero' => 'keep' ] )`。kses は消してからタグを読むので、`<script\0>` を開始タグと見なさないと中身が残る。PR #106 G1-2）。
   - タグの区切りはブラウザに合わせる: `<` の直後が英字・`/`・`!`・`?` のときだけタグの始まりとし、最初の `>`（無ければ末尾）までを 1 つの区切りにする
     （`wp_kses_split()` と同じく、属性値の中の引用符・`>` は考えない）。区切りの先頭が `<script`・`<style` のものだけを開始タグとするので、属性値
     （`<p title="<script>">`）・CDATA の中の文字は開始タグと見なさない。最初は文字列全体を正規表現で探していたため、属性値・コメント・CDATA の中の

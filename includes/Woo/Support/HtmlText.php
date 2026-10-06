@@ -60,7 +60,9 @@ final class HtmlText {
 	 *   スクリプトの中の `<!--<script` の後ろ（ブラウザは次の `</script>` で閉じない）は区別しない。
 	 */
 	public static function sanitize_post_html( string $html ): string {
-		return wp_kses_post( self::strip_script_and_style( $html, false ) );
+		// kses は最初に制御文字を消してからタグを読む（`wp_kses()` の `wp_kses_no_null()`）。同じ順序にしないと、`<script\0>` を開始タグと
+		// 見なさないまま kses が普通の `<script>` として外し、中身が残る（PR #106 G1-2）。
+		return wp_kses_post( self::strip_script_and_style( wp_kses_no_null( $html, [ 'slash_zero' => 'keep' ] ), false ) );
 	}
 
 	private static function strip_script_and_style( string $html, bool $in_comment ): string {
