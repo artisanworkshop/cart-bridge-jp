@@ -49,9 +49,14 @@ paths:
   **商品名は R3-1b で対処済み**: Canonical の名前は平文、Woo の名前（post_title）は HTML として `Woo\Support\HtmlText` で変換する（取込みは `from_plain()`、
   エクスポート・画面表示は `to_plain()`）。新しく Woo の post_title・post_content・post_excerpt に書く Writer も同じく自分で整形する（受注の明細名・クーポンの説明は未対処。backlog）。
   バックスラッシュは kses と無関係に `wp_insert_post()` の `wp_unslash()` が消す（WooCommerce のデータストアは slash せずに渡す。実測 `A\B` → `AB`）。
-  **ターム名は WP が常に実体参照で保存する**（`pre_term_name` の `_wp_specialchars`。ランナーによらない。`Black & White` → `Black &amp; White`）ので、
-  ターム名（グローバル属性の値・カテゴリ名）を外へ送る・比べるときは `HtmlText::to_plain()` で戻す。テストでは `wp_set_current_user( 0 )` で kses が登録され
-  （`set_current_user` の `kses_init()`）、管理者にすると外れる（`ProductWriterTest::act_as_runner()`）
+  制御文字（タブ・改行・復帰を除く）は kses の `wp_kses_no_null()` が WP-Cron でだけ消すので、`from_plain()` が先に消す。
+  WooCommerce が作るバリエーションの `post_excerpt`（属性の要約）は今もランナーで変わる（Writer から制御しにくい。backlog `r3-1b-product-name-entities/R1-L1`）。
+  **ターム名は WP が常に実体参照で保存する**（`pre_term_name` の `sanitize_text_field`＋kses＋`_wp_specialchars`。ランナーによらない。`Black & White` → `Black &amp; White`）ので、
+  ターム名（グローバル属性の値・カテゴリ名）を外へ送る・画面に出すときは `HtmlText::to_plain()` で戻す。`wp_insert_term()` と同じ重複判定をしたいときは、戻さずに
+  入力側を `sanitize_term_field( 'name', …, 'db' )` で同じ形にして比べる（`to_plain()` と生の値の比較は、空白の畳み込み・タグの除去でずれる）。
+  テストでは未ログイン（ユーザー 0）の基準状態で kses が登録されていて（`init` と `set_current_user` の `kses_init()`）、管理者にすると外れる。
+  `wp_set_current_user()` は今と同じ ID を渡すと `set_current_user` を発火しない（既に 0 なら `wp_set_current_user( 0 )` は何もしない）ので、kses の有無は
+  `has_filter( 'title_save_pre', 'wp_filter_kses' )` で確かめる（`ProductWriterTest::act_as_runner()`）
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）

@@ -670,8 +670,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   push intent の一覧の商品名も戻す。計画時のユーザー回答で、issue の対応案（`esc_html()`）から方式を変え、ターム名・説明・push intent の表示を範囲に含めた。
   既存の取込み済み商品は checksum が変わらないので書き直さない。対象外（受注の明細名・クーポンの説明・説明の `\`）は backlog。詳細は `docs/03` §10.2「商品名の保存形式（R3-1b、issue #99）」。
   `rehearse-colorme` の `check-import` は名前を表示どおりの文字で比べ、保存値が実体参照の形かも確かめるようにし、`seed-woo` に名前が実体参照の商品（`ZZW-6`）を足した。
-  **検証**: PHPUnit 追加 29 件（データセット込み。未ログイン〈kses あり〉と管理者で保存した名前・更新・バリエーション名・説明の一致、Writer→Reader の往復、ターム名）。
-  `mutate-check.sh` で 12 種がすべて CAUGHT。wp-env の dev サイトで実際の Writer/Reader により WP-Cron の条件と管理者の保存結果が一致することを確認した。
+  review-loop R1 の独立レビューで、制御文字（kses の `wp_kses_no_null()` が WP-Cron でだけ消す）を `from_plain()` が先に消すようにし、更新のテストが `wp_update_post()` を通っていなかったのを直した。
+  **検証**: PHPUnit 追加 32 件（データセット込み。未ログイン〈kses あり〉と管理者で保存した名前・更新・バリエーション名・説明・制御文字の一致、Writer→Reader の往復、ターム名、不正な UTF-8）。
+  `mutate-check.sh` で 15 種がすべて CAUGHT。wp-env の dev サイトで実際の Writer/Reader により WP-Cron の条件と管理者の保存結果が一致することを確認した。
   **テストショップでの確認（`run context=cron|admin` → `check-import`、`ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい。
   R3-1a〔D25〕で取り込んだ会員はエクスポートしなくなったので、#100 の対象はエクスポートで作った〔Woo 生まれの〕海外の顧客の更新だけになった）
