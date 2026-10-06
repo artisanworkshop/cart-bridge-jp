@@ -67,3 +67,6 @@ paths:
   `OrdersTableQuery::sanitize_order_orderby()`・CPT の `WP_Query`）と `wc_get_products` は空白区切りの `'date ID'` を 2 列に分割する（実測 SQL `… DESC, … ID DESC`）。
   `WP_User_Query` も文字列を `preg_split( '/[,\s]+/' )` で分割するが、Codex・Copilot が 2 回続けて「効かない」と誤読したので配列（`[ 'registered' => 'DESC', 'ID' => 'DESC' ]`）で書く。
   bot の指摘は `query_orderby` 等で SQL を出して判定する（`Sync\ExportSampleSelector`、PR #104 G1-2・G2-1）
+- **`WC_Product::save()` の更新は、投稿の列（名前・説明・短い説明・状態・menu_order・スラッグ・日付など）が変わったときだけ `wp_update_post()` を呼ぶ**（`WC_Product_Data_Store_CPT::update()`）。
+  価格・在庫・メタだけの更新は `wp_insert_post` 系のフィルター（kses・`wp_insert_post_data`・`post_updated`）を通らない。保存時のフィルターを確かめるテストは投稿の列も変え、
+  `did_action( 'post_updated' )` などで通ったことを前提として確かめる（価格だけ変えたテストは、正しいコードでは何も通らず退行を見逃す。PR #105 R1-2）
