@@ -1336,45 +1336,92 @@ final class RestControllerTest extends WP_UnitTestCase {
 	/**
 	 * R3-0k: CSV の警告の説明はユーザーの言語で書く（リンクは非 JSON の要求で `_locale=user` が効かず、そのままでは
 	 * サイトの言語になる）。サイトの言語（`ja`）とユーザーの言語（`en_US`。翻訳ファイルが無くても切り替えられる）を変えて、
-	 * 書き出しの間だけユーザーの言語へ切り替わり、終わったら戻ることを確かめる。
+	 * 説明の文言が翻訳された時点の言語がユーザーの言語であること・書き終えたら戻ることを確かめる。サイトの言語の
+	 * `locale` フィルターは `WP_Locale_Switcher::filter_locale()`（優先度 10）より先に置き、切替中は切替先が勝つようにする。
 	 */
 	public function test_report_is_streamed_in_the_users_locale(): void {
-		$run_id  = $this->start_mock_dry_run();
-		$user_id = get_current_user_id();
-		update_user_meta( $user_id, 'locale', 'en_US' );
-		add_filter( 'locale', static fn (): string => 'ja' );
+		$run_id = $this->start_report_with_a_warning();
+		update_user_meta( get_current_user_id(), 'locale', 'en_US' );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
 
-		$switched = [];
-		$restored = 0;
-		add_action(
-			'switch_locale',
-			static function ( string $locale, $switched_user_id ) use ( &$switched ): void {
-				$switched[] = [ $locale, $switched_user_id ];
-			},
-			10,
-			2
-		);
-		add_action(
-			'restore_previous_locale',
-			static function () use ( &$restored ): void {
-				++$restored;
-			}
+		$seen = $this->stream_report_recording_locales( $run_id );
+
+		$this->assertNotSame( [], $seen );
+		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
+		$this->assertFalse( is_locale_switched() );
+		$this->assertSame( 'ja', get_locale() );
+	}
+
+	/**
+	 * ユーザーの言語が今の言語と同じなら切り替えず、戻しもしない（呼び出し側が先に切り替えていた言語を戻してしまわない）。
+	 */
+	public function test_report_does_not_restore_a_locale_it_did_not_switch(): void {
+		$run_id = $this->start_report_with_a_warning();
+		update_user_meta( get_current_user_id(), 'locale', 'en_US' );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+		$this->assertTrue( switch_to_locale( 'en_US' ) );
+
+		$seen = $this->stream_report_recording_locales( $run_id );
+
+		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
+		$this->assertTrue( is_locale_switched(), 'the outer switch must survive the report' );
+		restore_previous_locale();
+	}
+
+	/**
+	 * dry-run の run を作り、警告の付いた明細を 1 行入れる。
+	 */
+	private function start_report_with_a_warning(): string {
+		$run_id = $this->start_mock_dry_run();
+		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
+		( new DryRunItemRepository() )->insert_many(
+			$run_id,
+			(int) $jobs[0]['id'],
+			[
+				[
+					'entity'            => 'category',
+					'remote_id'         => 'c-locale',
+					'label'             => 'Locale',
+					'operation'         => 'created',
+					'existing_local_id' => 0,
+					'warnings'          => [ 'category_parent_unresolved:9' ],
+				],
+			]
 		);
 
+		return $run_id;
+	}
+
+	/**
+	 * CSV を書き出し、このプラグインの文言が翻訳された時点の言語を集める（書き出しの間だけ）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function stream_report_recording_locales( string $run_id ): array {
 		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
 		$response = $this->server->dispatch( $request );
+
+		$seen     = [];
+		$recorder = static function ( string $translation, string $text, string $domain ) use ( &$seen ): string {
+			if ( 'cart-bridge-jp' === $domain ) {
+				$seen[] = determine_locale();
+			}
+
+			return $translation;
+		};
+		add_filter( 'gettext', $recorder, 10, 3 );
 
 		ob_start();
 		$served = apply_filters( 'rest_pre_serve_request', false, $response, $request, $this->server );
 		$output = (string) ob_get_clean();
 
-		$this->assertTrue( $served );
-		$this->assertStringContainsString( 'severity,message,action', $output );
-		$this->assertSame( [ [ 'en_US', $user_id ] ], $switched );
-		$this->assertSame( 1, $restored );
-		$this->assertFalse( is_locale_switched() );
-
+		remove_filter( 'gettext', $recorder, 10 );
 		remove_all_filters( 'rest_pre_serve_request' );
+
+		$this->assertTrue( $served );
+		$this->assertStringContainsString( 'category_parent_unresolved', $output );
+
+		return $seen;
 	}
 
 	/**

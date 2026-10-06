@@ -137,7 +137,7 @@ final class WarningCatalog {
 			WarningCode::CURRENCY_MISMATCH => $import
 				? self::make(
 					$action,
-					__( 'The store currency is not Japanese yen. The order is imported with the platform’s amounts in yen, unconverted.', 'cart-bridge-jp' ),
+					__( 'The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency).', 'cart-bridge-jp' ),
 					__( 'Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency.', 'cart-bridge-jp' )
 				)
 				: self::make(
@@ -152,7 +152,7 @@ final class WarningCatalog {
 				__( 'Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way.', 'cart-bridge-jp' )
 			),
 			WarningCode::SALE_END_DATE_NOT_PUSHED => self::make(
-				$info,
+				$action,
 				__( 'The sale price is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce.', 'cart-bridge-jp' ),
 				__( 'After the sale ends, export the product again or change the price on the platform.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a variation. */
@@ -168,38 +168,38 @@ final class WarningCatalog {
 			WarningCode::TAX_CLASS_MISSING => self::make(
 				$action,
 				__( 'The tax class given by the platform does not exist in WooCommerce, so the item uses the standard tax class.', 'cart-bridge-jp' ),
-				__( 'Create the tax class in WooCommerce > Settings > Tax and set it on the item.', 'cart-bridge-jp' ),
+				__( 'Create the tax class in WooCommerce > Settings > Tax and set it on the item. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' ),
 				/* translators: %s: the slug of a tax class. */
 				__( 'The tax class “%s” given by the platform does not exist in WooCommerce, so the item uses the standard tax class.', 'cart-bridge-jp' )
 			),
 			WarningCode::TAX_RATES_NOT_CONFIGURED => self::make(
 				$action,
 				__( 'The item is put in the reduced rate tax class, but the class has no tax rates, so WooCommerce charges no tax on it.', 'cart-bridge-jp' ),
-				__( 'Add a Japanese tax rate (8%) to the reduced rate tax class in WooCommerce > Settings > Tax. You do not need to import again.', 'cart-bridge-jp' )
+				__( 'If WooCommerce calculates tax, add a Japanese tax rate (8%) to the reduced rate tax class in WooCommerce > Settings > Tax; you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' )
 			),
 			WarningCode::REDUCED_TAX_CLASS_NOT_FOUND => self::make(
 				$action,
 				__( 'WooCommerce has no tax class with a Japanese rate (8%) for reduced-rate items, so the item uses the standard tax class.', 'cart-bridge-jp' ),
-				__( 'In WooCommerce > Settings > Tax, give a tax class for the reduced rate (such as “Reduced rate”) a Japanese rate of 8%. Then import again: products are corrected, but orders that were already imported keep the standard tax class.', 'cart-bridge-jp' )
+				__( 'In WooCommerce > Settings > Tax (shown when tax calculation is turned on in WooCommerce > Settings > General), give a tax class for the reduced rate (such as “Reduced rate”) a Japanese rate of 8%. Then import again: products are corrected, but orders that were already imported keep the standard tax class.', 'cart-bridge-jp' )
 			),
 			WarningCode::TAX_CLASS_UNSUPPORTED => self::make(
 				$blocking,
-				__( 'The product’s tax class is neither the standard rate (10%) nor the reduced rate (8%) for Japan, so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' ),
-				__( 'Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced).', 'cart-bridge-jp' ),
+				__( 'The product’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' ),
+				__( 'Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
 				/* translators: %s: the name of a tax class. */
-				__( 'The tax class “%s” is neither the standard rate (10%%) nor the reduced rate (8%%) for Japan, so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' )
+				__( 'The tax class “%s” has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' )
 			),
 			WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED => self::make(
 				$blocking,
-				__( 'The tax class of a published variation is neither the standard rate (10%) nor the reduced rate (8%) for Japan, so the product is not exported.', 'cart-bridge-jp' ),
-				__( 'Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced).', 'cart-bridge-jp' ),
+				__( 'The tax class of a published variation has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a variation. */
-				__( 'The tax class of variation %s is neither the standard rate (10%%) nor the reduced rate (8%%) for Japan, so the product is not exported.', 'cart-bridge-jp' )
+				__( 'The tax class of variation %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported.', 'cart-bridge-jp' )
 			),
 			WarningCode::TAX_STATUS_NOT_TAXABLE => self::make(
 				$blocking,
 				__( 'The product’s tax status is “Shipping only” or “None”, which the platform cannot represent, so the product is not exported.', 'cart-bridge-jp' ),
-				__( 'If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand.', 'cart-bridge-jp' )
+				__( 'If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' )
 			),
 			WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE => self::make(
 				$blocking,
@@ -225,8 +225,8 @@ final class WarningCatalog {
 				)
 				: self::make(
 					$blocking,
-					__( 'The product has no valid price, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store.', 'cart-bridge-jp' ),
-					__( 'Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock.', 'cart-bridge-jp' )
+					__( 'The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store.', 'cart-bridge-jp' ),
+					__( 'Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes.', 'cart-bridge-jp' )
 				),
 			WarningCode::SALE_PRICE_INVALID => self::make(
 				$action,
@@ -266,10 +266,10 @@ final class WarningCatalog {
 				)
 				: self::make(
 					$action,
-					__( 'A variation has no valid regular price, so it is left out and the product is exported without it.', 'cart-bridge-jp' ),
-					__( 'Set a regular price on the variation, then export again.', 'cart-bridge-jp' ),
+					__( 'A variation has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export.', 'cart-bridge-jp' ),
+					__( 'Set a regular price on the variation, then export again. If its price cannot be converted to a price including tax, the whole product is not exported; fix the tax rate as that warning describes. A variation that was exported before stays on the platform; hide it there if needed.', 'cart-bridge-jp' ),
 					/* translators: %s: the WooCommerce ID of a variation. */
-					__( 'Variation %s has no valid regular price, so it is left out and the product is exported without it.', 'cart-bridge-jp' )
+					__( 'Variation %s has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export.', 'cart-bridge-jp' )
 				),
 			WarningCode::VARIATION_SNAPSHOT_INCOMPLETE => self::make(
 				$info,
@@ -298,7 +298,7 @@ final class WarningCatalog {
 			WarningCode::VARIATION_UNPUBLISHED => self::make(
 				$info,
 				__( 'A variation is not enabled, so it is left out of the export.', 'cart-bridge-jp' ),
-				__( 'If the variation should be sold, enable it and export again.', 'cart-bridge-jp' ),
+				__( 'If the variation should be sold, enable it and export again. A variation that was exported before stays on the platform; hide it there if needed.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a variation. */
 				__( 'Variation %s is not enabled, so it is left out of the export.', 'cart-bridge-jp' )
 			),
@@ -321,7 +321,7 @@ final class WarningCatalog {
 			),
 			WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED => self::make(
 				$blocking,
-				__( 'Some variations manage stock and others do not. A platform that manages stock per product cannot represent this, so the product and its stock are not exported.', 'cart-bridge-jp' ),
+				__( 'The variations’ stock settings are mixed: some manage stock and others do not, or variations that do not manage stock differ in stock status (in stock and out of stock). A platform that manages stock per product cannot represent this, so the product and its stock are not exported.', 'cart-bridge-jp' ),
 				__( 'Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock).', 'cart-bridge-jp' )
 			),
 			WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT => self::make(
@@ -357,14 +357,14 @@ final class WarningCatalog {
 				__( 'A category or tag with the same name under the same parent was imported from this platform before, so it is reused.', 'cart-bridge-jp' ),
 				__( 'If the platform has two categories with the same name that should stay separate, rename one of them on the platform.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a category or tag. */
-				__( 'A category or tag with the same name under the same parent (ID %s) was imported from this platform before, so it is reused.', 'cart-bridge-jp' )
+				__( 'A category or tag with the same name (ID %s) under the same parent was imported from this platform before, so it is reused.', 'cart-bridge-jp' )
 			),
 			WarningCode::TERM_NAME_CONFLICT => self::make(
 				$blocking,
 				__( 'A category or tag with the same name under the same parent already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' ),
 				__( 'Rename or delete the existing WooCommerce category or tag, or rename it on the platform, then import again.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a category or tag. */
-				__( 'A category or tag with the same name under the same parent (ID %s) already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' )
+				__( 'A category or tag with the same name (ID %s) already exists under the same parent in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' )
 			),
 			WarningCode::TERM_UPDATE_FAILED => self::make(
 				$action,
@@ -392,7 +392,7 @@ final class WarningCatalog {
 			WarningCode::CUSTOMER_ACCOUNT_PROTECTED => self::make(
 				$info,
 				__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager). The account is not changed, and orders from this customer are imported as guest orders.', 'cart-bridge-jp' ),
-				__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand.', 'cart-bridge-jp' )
+				__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp' )
 			),
 			WarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(
 				$blocking,
@@ -428,7 +428,7 @@ final class WarningCatalog {
 			WarningCode::ORDER_LINE_VARIATION_UNMATCHED => self::make(
 				$action,
 				__( 'The options of an order line do not identify one variation of the product (the product’s options may have changed after the order), so the line is added without a link to a product.', 'cart-bridge-jp' ),
-				__( 'Link the line to the right variation in WooCommerce by hand if needed.', 'cart-bridge-jp' ),
+				__( 'While this warning remains, the order’s lines are recreated each time the order is imported, so a line linked by hand is undone. Link the line to the right variation by hand only after you finish importing.', 'cart-bridge-jp' ),
 				/* translators: %s: the platform's ID of a product. */
 				__( 'The options of an order line do not identify one variation of the product %s (the product’s options may have changed after the order), so the line is added without a link to a product.', 'cart-bridge-jp' )
 			),
@@ -443,7 +443,7 @@ final class WarningCatalog {
 				? self::make(
 					$action,
 					__( 'The quantity of an order line is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' ),
-					__( 'Check the order on the platform and correct the quantity in the WooCommerce order.', 'cart-bridge-jp' ),
+					__( 'Check the order on the platform, and correct the quantity in the WooCommerce order after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
 					/* translators: %s: the platform's ID of a product. */
 					__( 'The quantity of the order line for the product %s is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' )
 				)
@@ -494,7 +494,7 @@ final class WarningCatalog {
 			WarningCode::ORDER_TOTAL_RESIDUAL => self::make(
 				$info,
 				__( 'The order total from the platform does not equal the sum of its lines, shipping, fees and discount. The platform’s total is kept.', 'cart-bridge-jp' ),
-				__( 'Compare the order with the platform and correct it in WooCommerce if needed.', 'cart-bridge-jp' ),
+				__( 'Compare the order with the platform, and correct it in WooCommerce after you finish importing if needed (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
 				/* translators: %s: an amount in yen. */
 				__( 'The order total from the platform differs from the sum of its lines, shipping, fees and discount by %s yen. The platform’s total is kept.', 'cart-bridge-jp' )
 			),
@@ -537,8 +537,8 @@ final class WarningCatalog {
 			WarningCode::ORDER_LINE_AMOUNT_INVALID => $import
 				? self::make(
 					$action,
-					__( 'An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0. The order total from the platform is kept.', 'cart-bridge-jp' ),
-					__( 'Compare the order with the platform and correct the amounts in WooCommerce.', 'cart-bridge-jp' )
+					__( 'An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0 (for a line’s price before tax, the line’s tax is recorded as 0 instead). The order total from the platform is kept.', 'cart-bridge-jp' ),
+					__( 'Compare the order with the platform, and correct the amounts in WooCommerce after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' )
 				)
 				: self::make(
 					$blocking,
@@ -589,10 +589,10 @@ final class WarningCatalog {
 			),
 			WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED => self::make(
 				$blocking,
-				__( 'An order line’s tax class is neither the standard rate (10%) nor the reduced rate (8%) for Japan, or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' ),
-				__( 'If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it.', 'cart-bridge-jp' ),
+				__( 'An order line’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
 				/* translators: %s: the platform's ID of a product. */
-				__( 'The order line for the platform’s product %s has a tax class other than the standard rate (10%%) or the reduced rate (8%%) for Japan, or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' )
+				__( 'The tax class of the order line for the platform’s product %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' )
 			),
 			WarningCode::ORDER_UPDATE_NOT_SUPPORTED => self::make(
 				$blocking,
@@ -616,12 +616,12 @@ final class WarningCatalog {
 			),
 			WarningCode::ORDER_DISCOUNT_NOT_PUSHED => self::make(
 				$info,
-				__( 'The order has a discount (such as a coupon), but the platform cannot receive discounts, so the order is sent at prices before the discount and its total on the platform is higher than the amount paid.', 'cart-bridge-jp' ),
+				__( 'The order has a discount (such as a coupon), but the platform cannot receive discounts. When the order is sent, it is sent at prices before the discount, so its total on the platform is higher than the amount paid.', 'cart-bridge-jp' ),
 				__( 'Adjust the order’s amount on the platform by hand if needed.', 'cart-bridge-jp' )
 			),
 			WarningCode::ORDER_FEE_NOT_PUSHED => self::make(
 				$info,
-				__( 'The order’s shipping and other fees are not sent. The platform applies its own fees for the payment and delivery methods, so the totals can differ.', 'cart-bridge-jp' ),
+				__( 'The order’s shipping and other fees cannot be sent. When the order is sent, the platform applies its own fees for the payment and delivery methods, so the totals can differ.', 'cart-bridge-jp' ),
 				__( 'Check the fees on the platform’s order if needed.', 'cart-bridge-jp' )
 			),
 			WarningCode::ORDER_PLACED_AT_NOT_PRESERVED => self::make(
@@ -681,10 +681,10 @@ final class WarningCatalog {
 			),
 			WarningCode::COUPON_CODE_CONFLICT => self::make(
 				$blocking,
-				__( 'A WooCommerce coupon with the same code already exists and was not imported from this platform, so the coupon is not imported or updated.', 'cart-bridge-jp' ),
+				__( 'Another WooCommerce coupon already uses the same code, so this coupon is not imported or updated.', 'cart-bridge-jp' ),
 				__( 'Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a coupon. */
-				__( 'A WooCommerce coupon with the same code already exists (coupon ID %s) and was not imported from this platform, so the coupon is not imported or updated.', 'cart-bridge-jp' )
+				__( 'Another WooCommerce coupon (coupon ID %s) already uses the same code, so this coupon is not imported or updated.', 'cart-bridge-jp' )
 			),
 			WarningCode::COUPON_TYPE_UNKNOWN => self::make(
 				$blocking,
@@ -717,7 +717,7 @@ final class WarningCatalog {
 			WarningCode::COUPON_SAVE_FAILED => self::make(
 				$blocking,
 				__( 'WooCommerce could not save the coupon, so it is not imported.', 'cart-bridge-jp' ),
-				__( 'Check WooCommerce > Status > Logs for the error, then import again.', 'cart-bridge-jp' )
+				__( 'Check the PHP error log for the cause, then import again.', 'cart-bridge-jp' )
 			),
 
 			// 送信（エクスポートの本実行）。
@@ -743,13 +743,13 @@ final class WarningCatalog {
 			),
 			WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE => self::make(
 				$action,
-				__( 'The product was sent, but uploading some of its images failed for now. They are uploaded on the next export.', 'cart-bridge-jp' ),
-				__( 'Run the export again. If this keeps happening, make sure your site can download its own media files (basic authentication or a firewall can block this).', 'cart-bridge-jp' )
+				__( 'The product was sent, but uploading some of its images failed for now (a network error or a temporary error on your site or the platform). They are uploaded on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again.', 'cart-bridge-jp' )
 			),
 			WarningCode::PRODUCT_IMAGE_PUSH_FAILED => self::make(
 				$action,
-				__( 'The product was sent, but some of its images were rejected (for example, more than 50 images, a missing file, or an unsupported format).', 'cart-bridge-jp' ),
-				__( 'Keep 50 or fewer images per product, fix or replace missing or unsupported images, and add the remaining images on the platform by hand.', 'cart-bridge-jp' )
+				__( 'The product was sent, but some of its images were rejected (for example, more than 50 images, a missing file, a file your site does not let the plugin download, or an unsupported format).', 'cart-bridge-jp' ),
+				__( 'Keep 50 or fewer images per product, fix or replace missing or unsupported images, and make sure your site can download its own media files (basic authentication or a firewall can block this). Add the remaining images on the platform by hand.', 'cart-bridge-jp' )
 			),
 			WarningCode::PRODUCT_IMAGES_NOT_PUSHED => self::make(
 				$info,

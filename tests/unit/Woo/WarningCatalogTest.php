@@ -9,7 +9,10 @@ namespace CartBridgeJP\Tests\Woo;
 
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
+use ArgumentCountError;
 use ReflectionClass;
+use ReflectionMethod;
+use ValueError;
 use WP_UnitTestCase;
 
 final class WarningCatalogTest extends WP_UnitTestCase {
@@ -105,6 +108,42 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 			}
 		}
 
+		$this->assertSame( [], $problems );
+	}
+
+	/**
+	 * detail を差し込む文言は `sprintf()` に通るので、`%` を `%%` と書き忘れると `ValueError` で detail の無い文言へ黙って倒れる。
+	 * 全コード×向きの detail 付きの文言が書式として正しく、detail を含むことを確かめる（`entry()` は非公開なのでリフレクションで呼ぶ）。
+	 */
+	public function test_every_detail_template_formats_and_includes_the_detail(): void {
+		$entry    = new ReflectionMethod( WarningCatalog::class, 'entry' );
+		$problems = [];
+		$checked  = 0;
+
+		foreach ( self::all_codes() as $name => $code ) {
+			foreach ( [ true, false ] as $import ) {
+				$template = $entry->invoke( null, $code, $import )['detail_message'] ?? '';
+
+				if ( '' === $template ) {
+					continue;
+				}
+
+				++$checked;
+
+				try {
+					$formatted = sprintf( $template, 'DETAIL-Z' );
+				} catch ( ValueError | ArgumentCountError $error ) {
+					$problems[] = "{$name}: " . $error->getMessage();
+					continue;
+				}
+
+				if ( ! str_contains( $formatted, 'DETAIL-Z' ) ) {
+					$problems[] = "{$name}: the detail is not in the message";
+				}
+			}
+		}
+
+		$this->assertGreaterThan( 40, $checked );
 		$this->assertSame( [], $problems );
 	}
 
