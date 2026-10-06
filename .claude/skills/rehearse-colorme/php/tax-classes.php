@@ -12,7 +12,7 @@
  * 移し元が無い対は飛ばす（既にその状態）。ただし移し元の税区分が消えているのに税率・商品・受注明細がまだそのスラッグを指していれば止まる。
  * 移し元と移し先の両方に税率がある対があれば、何も変えずに止まる（税率が 1 つの税区分に重なるため）。
  * 最後に、移し元を指す税率・商品・明細が残っていないことを確かめる（残れば終了コード 1）。
- * 開発サイト専用（`reset-local` と同じ条件）。進行中のジョブがあれば止まる。
+ * 開発サイト専用（`reset-local` と同じ条件）。進行中のジョブ・処理中のジョブのアクションがあれば止まる。
  *
  * @package CartBridgeJP
  */
@@ -36,6 +36,21 @@ $cbjp_active = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_j
 
 if ( $cbjp_active > 0 ) {
 	cbjp_rh_abort( "{$cbjp_active} job(s) are still pending/running/paused. Cancel the run first." );
+}
+
+// キャンセルした直後のジョブは、状態が cancelled でも処理中のページ（Action Scheduler の in-progress のアクション）がまだ書き込んでいることがある。
+// その間に税区分を移すと、書き終えたページが古いスラッグを保存して、最後の確認の後に参照が残る（PR #107 G3-1。`reset-local.php` と同じ確認）。
+$cbjp_in_progress = as_get_scheduled_actions(
+	[
+		'hook'     => 'cbjp_process_job',
+		'status'   => ActionScheduler_Store::STATUS_RUNNING,
+		'per_page' => 1,
+	],
+	'ids'
+);
+
+if ( [] !== $cbjp_in_progress ) {
+	cbjp_rh_abort( 'a cbjp_process_job action is still in progress (a page of a cancelled run may be writing). Wait for it to finish, then retry.' );
 }
 
 // 既定の税区分の名前（英語 => 日本語）。WooCommerce の日本語訳（`Reduced rate` → 軽減税、`Zero rate` → 免税）。
