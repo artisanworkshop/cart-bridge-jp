@@ -1,0 +1,778 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Woo;
+
+use ArgumentCountError;
+use ValueError;
+
+/**
+ * 警告コード（`WarningCode`）の店舗向けの説明: 重大度・原因・対処（R3-0k）。dry-run の CSV（`Admin\DryRunReportCsv`）の
+ * `severity`・`message`・`action` 列に使う。
+ *
+ * 同じコードでも取込みとエクスポートで意味が違う（同じ事実を Reader と Writer の両方が見て、片方は止め、片方は代替値で書く等）ため、
+ * 「コード × 向き」で引く。文言はプラットフォーム名を出さない（プラットフォーム非依存。原則 1）。
+ *
+ * 重大度は翻訳しない安定キー:
+ * - `blocking`: この警告のため、その実体を書かない（取込み）・送らない（エクスポート）
+ * - `action_required`: 書いた・送ったが、店舗の対処が要る（代替値で書いた、設定すれば直る等）。対処の文言を必ず持つ
+ * - `info`: 対処の要らない知らせ（既存の実体を使った、運べない項目がある等）
+ * - `unknown`: カタログに無いコード（外部アダプタ独自のコード等）・知らない向き。楽観的に `info` へ倒さない（原則 9）
+ *
+ * `VARIATION_STOCK_MANAGEMENT_MIXED` はプラットフォームの能力（`Capabilities::$supports_per_variant_stock_management`）で
+ * 止まるかが決まるが、v1.0 の同梱アダプタ（ColorMe）では止まるので `blocking` にしている（バリエーション単位で在庫管理できる
+ * アダプタを足すときは見直す）。
+ *
+ * エントリは `match` の一致したアームだけを評価する（CSV の数千行で全コードの `__()` を毎回呼ばない）。
+ */
+final class WarningCatalog {
+
+	public const IMPORT = 'import';
+	public const EXPORT = 'export';
+
+	public const SEVERITY_BLOCKING        = 'blocking';
+	public const SEVERITY_ACTION_REQUIRED = 'action_required';
+	public const SEVERITY_INFO            = 'info';
+	public const SEVERITY_UNKNOWN         = 'unknown';
+
+	private function __construct() {}
+
+	/**
+	 * `"{code}:{detail}"` 形式の警告を、向き（`IMPORT`/`EXPORT`）に応じて説明する。
+	 *
+	 * @return array{severity:string,message:string,action:string}
+	 */
+	public static function describe( string $warning, string $direction ): array {
+		[ $code, $detail ] = WarningCode::split( $warning );
+		$entry             = in_array( $direction, [ self::IMPORT, self::EXPORT ], true ) ? self::entry( $code, self::IMPORT === $direction ) : null;
+
+		if ( null === $entry ) {
+			/* translators: %s: the warning code. */
+			$template = __( 'Unknown warning (%s).', 'cart-bridge-jp' );
+
+			return [
+				'severity' => self::SEVERITY_UNKNOWN,
+				'message'  => self::format( $template, $code ) ?? $code,
+				'action'   => '',
+			];
+		}
+
+		$message = $entry['message'];
+
+		if ( null !== $detail && '' !== $detail && '' !== $entry['detail_message'] ) {
+			$message = self::format( $entry['detail_message'], $detail ) ?? $message;
+		}
+
+		return [
+			'severity' => $entry['severity'],
+			'message'  => $message,
+			'action'   => $entry['action'],
+		];
+	}
+
+	/**
+	 * 翻訳された書式へ値を 1 つ差し込む。翻訳は外部の入力で、余分なプレースホルダ（`%2$s` 等）を持つと `sprintf()` が例外を
+	 * 投げるため、CSV の書き出しを止めずに null を返す（呼び出し側は差し込まない文言へ倒す）。値の `%` は書式として解釈されない。
+	 */
+	private static function format( string $template, string $value ): ?string {
+		try {
+			return sprintf( $template, $value );
+		} catch ( ValueError | ArgumentCountError ) {
+			return null;
+		}
+	}
+
+	/**
+	 * @return array{severity:string,message:string,action:string,detail_message:string}
+	 */
+	private static function make( string $severity, string $message, string $action = '', string $detail_message = '' ): array {
+		return [
+			'severity'       => $severity,
+			'message'        => $message,
+			'action'         => $action,
+			'detail_message' => $detail_message,
+		];
+	}
+
+	/**
+	 * @return array{severity:string,message:string,action:string,detail_message:string}|null
+	 */
+	private static function entry( string $code, bool $import ): ?array {
+		$blocking = self::SEVERITY_BLOCKING;
+		$action   = self::SEVERITY_ACTION_REQUIRED;
+		$info     = self::SEVERITY_INFO;
+
+		// 文言の `%` の扱い: detail を差し込む文言（第 4 引数）は `sprintf()` に通すので `%%` と書く。それ以外は `sprintf()` に通さないので
+		// `%` のまま書くが、`% o`・`% f` のように空白と英字が続くと書式とみなされる（PHPCS・make-pot）ので、`%` の後は `)`・`,`・`.`・` (` にする。
+		return match ( $code ) {
+			// 共通。
+			WarningCode::ENTITY_NOT_SUPPORTED => self::make(
+				$blocking,
+				__( 'This kind of data is not supported, so it is skipped.', 'cart-bridge-jp' )
+			),
+			WarningCode::VALIDATION_EXCEPTION => self::make(
+				$blocking,
+				__( 'An unexpected error occurred while processing this item, so it is skipped. The error is recorded in the Logs tab.', 'cart-bridge-jp' ),
+				__( 'Check the error in the Logs tab and fix its cause (usually the item’s data or another plugin), then run again.', 'cart-bridge-jp' )
+			),
+			WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED => self::make(
+				$info,
+				__( 'This item was imported from the platform, so it is not exported back to it.', 'cart-bridge-jp' )
+			),
+			WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED => self::make(
+				$info,
+				__( 'This item was created in WooCommerce and exported to the platform, so importing does not overwrite it.', 'cart-bridge-jp' )
+			),
+
+			// 価格・税。
+			WarningCode::PRICES_INCLUDE_TAX_DISABLED => self::make(
+				$action,
+				__( 'WooCommerce does not treat entered prices as including tax, while the platform’s prices include tax and are imported as they are. This is a store-wide setting; only one product per batch is flagged.', 'cart-bridge-jp' ),
+				__( 'If WooCommerce calculates tax, set “Prices entered with tax” to “Yes, I will enter prices inclusive of tax” in WooCommerce > Settings > Tax. Otherwise tax is added on top at checkout. If tax calculation is turned off, no change is needed.', 'cart-bridge-jp' )
+			),
+			WarningCode::CURRENCY_MISMATCH => $import
+				? self::make(
+					$action,
+					__( 'The store currency is not Japanese yen. The order is imported with the platform’s amounts in yen, unconverted.', 'cart-bridge-jp' ),
+					__( 'Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' ),
+					'',
+					/* translators: %s: a currency code, such as USD. */
+					__( 'The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' )
+				),
+			WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE => self::make(
+				$info,
+				__( 'Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way.', 'cart-bridge-jp' )
+			),
+			WarningCode::SALE_END_DATE_NOT_PUSHED => self::make(
+				$info,
+				__( 'The sale price is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce.', 'cart-bridge-jp' ),
+				__( 'After the sale ends, export the product again or change the price on the platform.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'The sale price of variation %s is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRICE_TAX_BASIS_UNRESOLVED => self::make(
+				$blocking,
+				__( 'The price cannot be converted to a price including tax: the tax class has tax rates, but none of them applies to the store’s address. The product is not exported.', 'cart-bridge-jp' ),
+				__( 'Add a tax rate that applies to the store’s address (or to all locations) to the tax class in WooCommerce > Settings > Tax, or correct the store address.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'The price of variation %s cannot be converted to a price including tax: its tax class has tax rates, but none of them applies to the store’s address. The product is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::TAX_CLASS_MISSING => self::make(
+				$action,
+				__( 'The tax class given by the platform does not exist in WooCommerce, so the item uses the standard tax class.', 'cart-bridge-jp' ),
+				__( 'Create the tax class in WooCommerce > Settings > Tax and set it on the item.', 'cart-bridge-jp' ),
+				/* translators: %s: the slug of a tax class. */
+				__( 'The tax class “%s” given by the platform does not exist in WooCommerce, so the item uses the standard tax class.', 'cart-bridge-jp' )
+			),
+			WarningCode::TAX_RATES_NOT_CONFIGURED => self::make(
+				$action,
+				__( 'The item is put in the reduced rate tax class, but the class has no tax rates, so WooCommerce charges no tax on it.', 'cart-bridge-jp' ),
+				__( 'Add a Japanese tax rate (8%) to the reduced rate tax class in WooCommerce > Settings > Tax. You do not need to import again.', 'cart-bridge-jp' )
+			),
+			WarningCode::REDUCED_TAX_CLASS_NOT_FOUND => self::make(
+				$action,
+				__( 'WooCommerce has no tax class with a Japanese rate (8%) for reduced-rate items, so the item uses the standard tax class.', 'cart-bridge-jp' ),
+				__( 'In WooCommerce > Settings > Tax, give a tax class for the reduced rate (such as “Reduced rate”) a Japanese rate of 8%. Then import again: products are corrected, but orders that were already imported keep the standard tax class.', 'cart-bridge-jp' )
+			),
+			WarningCode::TAX_CLASS_UNSUPPORTED => self::make(
+				$blocking,
+				__( 'The product’s tax class is neither the standard rate (10%) nor the reduced rate (8%) for Japan, so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' ),
+				__( 'Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced).', 'cart-bridge-jp' ),
+				/* translators: %s: the name of a tax class. */
+				__( 'The tax class “%s” is neither the standard rate (10%%) nor the reduced rate (8%%) for Japan, so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED => self::make(
+				$blocking,
+				__( 'The tax class of a published variation is neither the standard rate (10%) nor the reduced rate (8%) for Japan, so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced).', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'The tax class of variation %s is neither the standard rate (10%%) nor the reduced rate (8%%) for Japan, so the product is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::TAX_STATUS_NOT_TAXABLE => self::make(
+				$blocking,
+				__( 'The product’s tax status is “Shipping only” or “None”, which the platform cannot represent, so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE => self::make(
+				$blocking,
+				__( 'The product’s prices cannot be converted to the platform’s prices because the platform’s tax settings cannot be used, so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Check the tax settings on the platform (prices including or excluding tax, the standard and reduced rates, and rounding), then export again.', 'cart-bridge-jp' )
+			),
+
+			// 商品。
+			WarningCode::SKU_DUPLICATE => self::make(
+				$action,
+				__( 'The SKU is already used by another product in WooCommerce, so the item is imported without a SKU.', 'cart-bridge-jp' ),
+				__( 'Make the SKU unique (change it on the platform, or change or delete the WooCommerce product that uses it), then enter the SKU on the imported item.', 'cart-bridge-jp' ),
+				/* translators: %s: a SKU. */
+				__( 'The SKU “%s” is already used by another product in WooCommerce, so the item is imported without a SKU.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_PRICE_INVALID => $import
+				? self::make(
+					$action,
+					__( 'The product’s price from the platform is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price.', 'cart-bridge-jp' ),
+					__( 'Correct the price on the platform and import again, or set the price in WooCommerce.', 'cart-bridge-jp' ),
+					/* translators: %s: the price value received from the platform. */
+					__( 'The product’s price from the platform (%s) is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The product has no valid price, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store.', 'cart-bridge-jp' ),
+					__( 'Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock.', 'cart-bridge-jp' )
+				),
+			WarningCode::SALE_PRICE_INVALID => self::make(
+				$action,
+				__( 'The sale price from the platform is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale.', 'cart-bridge-jp' ),
+				__( 'Correct the sale price on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the sale price value received from the platform. */
+				__( 'The sale price from the platform (%s) is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale.', 'cart-bridge-jp' )
+			),
+			WarningCode::IMAGE_DOWNLOAD_FAILED => self::make(
+				$action,
+				__( 'An image could not be downloaded from the platform, so it is not added. The item’s other images are added.', 'cart-bridge-jp' ),
+				__( 'Check that the image can be opened from your server, then add it to the item in WooCommerce.', 'cart-bridge-jp' ),
+				/* translators: %s: the URL of an image. */
+				__( 'The image %s could not be downloaded from the platform, so it is not added. The item’s other images are added.', 'cart-bridge-jp' )
+			),
+			WarningCode::ATTRIBUTE_NAME_COLLISION => self::make(
+				$action,
+				__( 'An attribute has the same name as one of the product’s variation options, so the attribute is not imported.', 'cart-bridge-jp' ),
+				__( 'Rename the attribute on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the name of an attribute. */
+				__( 'The attribute “%s” has the same name as one of the product’s variation options, so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_REMOVED => self::make(
+				$info,
+				__( 'A variation that was imported earlier no longer exists on the platform, so it is deleted from WooCommerce.', 'cart-bridge-jp' ),
+				'',
+				/* translators: %s: the platform's ID of a variation. */
+				__( 'The variation %s no longer exists on the platform, so it is deleted from WooCommerce.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_PRICE_INVALID => $import
+				? self::make(
+					$action,
+					__( 'A variation’s price from the platform is not a number or is negative, so the variation is not created or updated.', 'cart-bridge-jp' ),
+					__( 'Correct the variation’s price on the platform, then import again.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a variation. */
+					__( 'The price of variation %s from the platform is not a number or is negative, so the variation is not created or updated.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$action,
+					__( 'A variation has no valid regular price, so it is left out and the product is exported without it.', 'cart-bridge-jp' ),
+					__( 'Set a regular price on the variation, then export again.', 'cart-bridge-jp' ),
+					/* translators: %s: the WooCommerce ID of a variation. */
+					__( 'Variation %s has no valid regular price, so it is left out and the product is exported without it.', 'cart-bridge-jp' )
+				),
+			WarningCode::VARIATION_SNAPSHOT_INCOMPLETE => self::make(
+				$info,
+				__( 'Some variations from the platform could not be read, so variations that no longer exist on the platform are not deleted for this product.', 'cart-bridge-jp' ),
+				__( 'Correct the variations on the platform (usually their prices), then import again.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_SAVE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not save a variation, so it is not created. The product and its other variations are imported.', 'cart-bridge-jp' ),
+				__( 'Check the PHP error log for the cause.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a variation. */
+				__( 'WooCommerce could not save the variation %s, so it is not created. The product and its other variations are imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_SAVE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not save the product, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Check the PHP error log for the cause, then import again.', 'cart-bridge-jp' )
+			),
+			WarningCode::CATEGORY_MAP_UNRESOLVED => self::make(
+				$action,
+				__( 'A category of the product is not mapped to a category on the platform, so the product is exported without it.', 'cart-bridge-jp' ),
+				__( 'Map the category in the Mappings tab, then export again.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a product category. */
+				__( 'The category (ID %s) is not mapped to a category on the platform, so the product is exported without it.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_UNPUBLISHED => self::make(
+				$info,
+				__( 'A variation is not enabled, so it is left out of the export.', 'cart-bridge-jp' ),
+				__( 'If the variation should be sold, enable it and export again.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'Variation %s is not enabled, so it is left out of the export.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED => self::make(
+				$blocking,
+				__( 'The product uses three or more attributes for variations, but the platform supports at most two, so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Use at most two attributes for variations (combine attributes, or turn off “Used for variations” on the others).', 'cart-bridge-jp' )
+			),
+			WarningCode::ALL_VARIATIONS_EXCLUDED => self::make(
+				$blocking,
+				__( 'None of the product’s variations can be exported (they are not enabled or have no valid price, or the product has no variations), so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Enable at least one variation with a valid price. The other warnings for this product show why each variation was left out.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED => self::make(
+				$blocking,
+				__( 'A variation uses “Any” for an attribute, which the platform cannot represent, so the product is not exported.', 'cart-bridge-jp' ),
+				__( 'Replace the “Any” variation with one variation for each value of the attribute.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'Variation %s uses “Any” for an attribute, which the platform cannot represent, so the product is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED => self::make(
+				$blocking,
+				__( 'Some variations manage stock and others do not. A platform that manages stock per product cannot represent this, so the product and its stock are not exported.', 'cart-bridge-jp' ),
+				__( 'Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock).', 'cart-bridge-jp' )
+			),
+			WarningCode::VARIATION_STOCK_SHARED_WITH_PARENT => self::make(
+				$action,
+				__( 'A variation’s stock is managed by its parent product, and the platform cannot share stock between variations, so the variation is exported as out of stock.', 'cart-bridge-jp' ),
+				__( 'Turn on “Manage stock” for each variation and give it its own quantity.', 'cart-bridge-jp' )
+			),
+
+			// カテゴリー・タグ。
+			WarningCode::CATEGORY_PARENT_UNRESOLVED => self::make(
+				$action,
+				__( 'The parent category is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent.', 'cart-bridge-jp' ),
+				__( 'Import categories; parent categories are imported first. If this remains after an import, check why the parent category was not imported.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a category. */
+				__( 'The parent category %s is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent.', 'cart-bridge-jp' )
+			),
+			WarningCode::CATEGORY_REF_UNRESOLVED => self::make(
+				$action,
+				__( 'A category of the product is not found in WooCommerce, so the product is imported without it.', 'cart-bridge-jp' ),
+				__( 'Import categories before products (a full import does this). If this remains, the category is not imported, for example because it is hidden on the platform or its name conflicts with an existing category.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a category. */
+				__( 'The product’s category %s is not found in WooCommerce, so the product is imported without it.', 'cart-bridge-jp' )
+			),
+			WarningCode::TAG_REF_UNRESOLVED => self::make(
+				$action,
+				__( 'A tag (group) of the product is not found in WooCommerce, so the product is imported without it.', 'cart-bridge-jp' ),
+				__( 'Import tags before products (a full import does this). If this remains, the tag is not imported, for example because it is not public on the platform or its name conflicts with an existing tag.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a tag (group). */
+				__( 'The product’s tag (group) %s is not found in WooCommerce, so the product is imported without it.', 'cart-bridge-jp' )
+			),
+			WarningCode::TERM_REUSED_EXISTING => self::make(
+				$info,
+				__( 'A category or tag with the same name under the same parent was imported from this platform before, so it is reused.', 'cart-bridge-jp' ),
+				__( 'If the platform has two categories with the same name that should stay separate, rename one of them on the platform.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a category or tag. */
+				__( 'A category or tag with the same name under the same parent (ID %s) was imported from this platform before, so it is reused.', 'cart-bridge-jp' )
+			),
+			WarningCode::TERM_NAME_CONFLICT => self::make(
+				$blocking,
+				__( 'A category or tag with the same name under the same parent already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' ),
+				__( 'Rename or delete the existing WooCommerce category or tag, or rename it on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a category or tag. */
+				__( 'A category or tag with the same name under the same parent (ID %s) already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' )
+			),
+			WarningCode::TERM_UPDATE_FAILED => self::make(
+				$action,
+				__( 'WordPress could not update the category or tag, so its name, description or parent may be out of date.', 'cart-bridge-jp' ),
+				__( 'Check that it has a name on the platform and that its parent category exists, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: a WordPress error code. */
+				__( 'WordPress could not update the category or tag (%s), so its name, description or parent may be out of date.', 'cart-bridge-jp' )
+			),
+			WarningCode::TERM_CREATE_FAILED => self::make(
+				$blocking,
+				__( 'WordPress could not create the category or tag, so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' ),
+				__( 'Check that it has a name on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: a WordPress error code. */
+				__( 'WordPress could not create the category or tag (%s), so it is not imported. Products in it are imported without it.', 'cart-bridge-jp' )
+			),
+
+			// 顧客。
+			WarningCode::CUSTOMER_REUSED_EXISTING => self::make(
+				$info,
+				__( 'A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp' ),
+				__( 'Check that the existing account belongs to the same person.', 'cart-bridge-jp' ),
+				/* translators: %s: the WordPress ID of a user. */
+				__( 'A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp' )
+			),
+			WarningCode::CUSTOMER_ACCOUNT_PROTECTED => self::make(
+				$info,
+				__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager). The account is not changed, and orders from this customer are imported as guest orders.', 'cart-bridge-jp' ),
+				__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(
+				$blocking,
+				__( 'The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated.', 'cart-bridge-jp' ),
+				__( 'Change or remove the email address on the other WordPress user, or correct it on the platform, then import again.', 'cart-bridge-jp' )
+			),
+			WarningCode::CUSTOMER_CREATE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported.', 'cart-bridge-jp' ),
+				__( 'Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: a WordPress error code. */
+				__( 'WooCommerce could not create the customer account (%s), so the customer is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::ADDRESS_OVERSEAS => self::make(
+				$action,
+				__( 'The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty.', 'cart-bridge-jp' ),
+				__( 'Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce.', 'cart-bridge-jp' )
+			),
+			WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING => self::make(
+				$blocking,
+				__( 'The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens).', 'cart-bridge-jp' ),
+				__( 'Fill in the customer’s name, billing address and phone number in WooCommerce, then export again.', 'cart-bridge-jp' )
+			),
+
+			// 受注（取込み）。
+			WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED => self::make(
+				$action,
+				__( 'The product of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product.', 'cart-bridge-jp' ),
+				__( 'Import products before orders (a full import does this). If the product was deleted on the platform, the line stays without a product link.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a product. */
+				__( 'The product %s of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_VARIATION_UNMATCHED => self::make(
+				$action,
+				__( 'The options of an order line do not identify one variation of the product (the product’s options may have changed after the order), so the line is added without a link to a product.', 'cart-bridge-jp' ),
+				__( 'Link the line to the right variation in WooCommerce by hand if needed.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a product. */
+				__( 'The options of an order line do not identify one variation of the product %s (the product’s options may have changed after the order), so the line is added without a link to a product.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_CUSTOMER_UNRESOLVED => self::make(
+				$action,
+				__( 'The customer of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer.', 'cart-bridge-jp' ),
+				__( 'Import customers before orders (a full import does this). If the customer was deleted on the platform, the order stays a guest order.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a customer. */
+				__( 'The customer %s of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_QUANTITY_INVALID => $import
+				? self::make(
+					$action,
+					__( 'The quantity of an order line is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' ),
+					__( 'Check the order on the platform and correct the quantity in the WooCommerce order.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a product. */
+					__( 'The quantity of the order line for the product %s is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The quantity of an order line is not a positive whole number, so the order is not exported.', 'cart-bridge-jp' ),
+					__( 'Correct the quantity on the WooCommerce order, or create the order on the platform by hand.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a product. */
+					__( 'The quantity of the order line for the platform’s product %s is not a positive whole number, so the order is not exported.', 'cart-bridge-jp' )
+				),
+			WarningCode::PAYMENT_METHOD_UNMAPPED => $import
+				? self::make(
+					$action,
+					__( 'The platform’s payment method is not mapped to a WooCommerce payment method, so the order is imported without a payment method.', 'cart-bridge-jp' ),
+					__( 'Map the payment method in the Mappings tab. The order is updated the next time it is imported.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a payment method. */
+					__( 'The platform’s payment method %s is not mapped to a WooCommerce payment method, so the order is imported without a payment method.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The order has no payment method, so it is not exported.', 'cart-bridge-jp' ),
+					__( 'In the Mappings tab, map exactly one of the platform’s payment methods to the order’s WooCommerce payment method (set a payment method on the order if it has none), then export again.', 'cart-bridge-jp' ),
+					/* translators: %s: the ID of a WooCommerce payment method, such as bacs. */
+					__( 'The payment method “%s” is not mapped to exactly one of the platform’s payment methods, so the order is not exported.', 'cart-bridge-jp' )
+				),
+			WarningCode::SHIPPING_METHOD_UNMAPPED => $import
+				? self::make(
+					$action,
+					__( 'The platform’s delivery method is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method.', 'cart-bridge-jp' ),
+					__( 'Map the delivery method in the Mappings tab. The order is updated the next time it is imported.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a delivery method. */
+					__( 'The platform’s delivery method %s is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The order has no shipping (for example, it has only virtual products), so it is not exported.', 'cart-bridge-jp' ),
+					__( 'In the Mappings tab, map exactly one of the platform’s delivery methods to the order’s WooCommerce shipping method, then export again. An order without shipping cannot be exported; create it on the platform by hand.', 'cart-bridge-jp' ),
+					/* translators: %s: the ID of a WooCommerce shipping method, such as flat_rate:3. */
+					__( 'The shipping method “%s” is not mapped to exactly one of the platform’s delivery methods, so the order is not exported.', 'cart-bridge-jp' )
+				),
+			WarningCode::ORDER_STATUS_UNKNOWN => self::make(
+				$action,
+				__( 'The order status is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' ),
+				__( 'In the order status mapping (Mappings tab), choose a status that is registered in WooCommerce before importing. Orders that were already imported need to be corrected by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: an order status. */
+				__( 'The order status “%s” is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_TOTAL_RESIDUAL => self::make(
+				$info,
+				__( 'The order total from the platform does not equal the sum of its lines, shipping, fees and discount. The platform’s total is kept.', 'cart-bridge-jp' ),
+				__( 'Compare the order with the platform and correct it in WooCommerce if needed.', 'cart-bridge-jp' ),
+				/* translators: %s: an amount in yen. */
+				__( 'The order total from the platform differs from the sum of its lines, shipping, fees and discount by %s yen. The platform’s total is kept.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_SPLIT_TAX_UNKNOWN => self::make(
+				$info,
+				__( 'This order is part of a split order, and the platform does not give the tax for the part, so the order’s tax is recorded as 0.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_TAX_SPLIT_UNAVAILABLE => self::make(
+				$info,
+				__( 'The platform does not give an order line’s price before tax, so the line is recorded at its price including tax with a tax of 0. The order total and tax are not affected.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_TAX_TOTAL_INCOMPLETE => self::make(
+				$info,
+				__( 'The platform does not give the tax breakdown for this order (older orders), so the order’s tax includes only the tax on products, not on shipping.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_TAX_INCONSISTENT => self::make(
+				$info,
+				__( 'An order line’s amount including tax is less than its price before tax times the quantity (a discount or rounding on the platform), so the line is recorded at its amount including tax with a tax of 0.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_CREATE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not create the order (another plugin may have stopped it while it was being saved), so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Check WooCommerce > Status > Logs for the error, fix or turn off the plugin that caused it, then import again.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_TOTALS_INVALID => $import
+				? self::make(
+					$blocking,
+					__( 'An amount of the order (total, discount, shipping fee or tax) from the platform is missing, not a number, or negative, so the order is not imported.', 'cart-bridge-jp' ),
+					__( 'Correct the order’s amounts on the platform, then import again.', 'cart-bridge-jp' ),
+					/* translators: %s: the name of an amount field, such as shipping_fee. */
+					__( 'The order’s amount “%s” from the platform is missing, not a number, or negative, so the order is not imported.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'An amount of the order (total, discount, shipping, a fee or tax) is not a number or is negative, so the order is not exported.', 'cart-bridge-jp' ),
+					__( 'Correct the amounts on the WooCommerce order (a negative fee is a common cause), or create the order on the platform by hand.', 'cart-bridge-jp' ),
+					/* translators: %s: the name of an amount field, such as payment_fee. */
+					__( 'The order’s amount “%s” is not a number or is negative, so the order is not exported.', 'cart-bridge-jp' )
+				),
+			WarningCode::ORDER_LINE_AMOUNT_INVALID => $import
+				? self::make(
+					$action,
+					__( 'An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0. The order total from the platform is kept.', 'cart-bridge-jp' ),
+					__( 'Compare the order with the platform and correct the amounts in WooCommerce.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'An order line’s amount or tax is not a number or is negative, so the order is not exported.', 'cart-bridge-jp' ),
+					__( 'Recalculate or correct the line on the WooCommerce order, or create the order on the platform by hand.', 'cart-bridge-jp' ),
+					/* translators: %s: the platform's ID of a product. */
+					__( 'The amount or tax of the order line for the platform’s product %s is not a number or is negative, so the order is not exported.', 'cart-bridge-jp' )
+				),
+
+			// 受注（エクスポート）。
+			WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED => self::make(
+				$action,
+				__( 'A product in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders.', 'cart-bridge-jp' ),
+				__( 'Include products in the export, or export them first. If the product is not exported because of its own warnings, fix those first.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a product. */
+				__( 'The product %s in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_CUSTOMER_NOT_EXPORTED => self::make(
+				$action,
+				__( 'The customer of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later.', 'cart-bridge-jp' ),
+				__( 'Include customers in the export (they are sent before orders), or export them first.', 'cart-bridge-jp' ),
+				/* translators: %s: the WordPress ID of a user. */
+				__( 'The customer (user ID %s) of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_PRODUCT_DELETED => self::make(
+				$blocking,
+				__( 'A product in this order has been deleted from WooCommerce, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'Create the order on the platform by hand if you need it.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a deleted product. */
+				__( 'The product %s in this order has been deleted from WooCommerce, so the order is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_PRODUCT_MISSING => self::make(
+				$blocking,
+				__( 'An order line is not linked to any product, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'Create the order on the platform by hand if you need it.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_VARIATION_UNRESOLVED => self::make(
+				$blocking,
+				__( 'The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a variation. */
+				__( 'The variation %s of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_REFUNDED => self::make(
+				$blocking,
+				__( 'The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'Create the order on the platform by hand if you need it.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED => self::make(
+				$blocking,
+				__( 'An order line’s tax class is neither the standard rate (10%) nor the reduced rate (8%) for Japan, or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a product. */
+				__( 'The order line for the platform’s product %s has a tax class other than the standard rate (10%%) or the reduced rate (8%%) for Japan, or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_UPDATE_NOT_SUPPORTED => self::make(
+				$blocking,
+				__( 'The order was already exported, and the platform cannot update an order’s items, payment or delivery, so it is not sent again (that would create a duplicate).', 'cart-bridge-jp' ),
+				__( 'If the order changed, update it on the platform by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_SHIPPING_ADDRESS_INCOMPLETE => self::make(
+				$blocking,
+				__( 'The order’s delivery address is incomplete (a name, phone number, postcode, prefecture and address are required), so the order is not exported. A partly filled shipping address is not completed from the billing address.', 'cart-bridge-jp' ),
+				__( 'Complete the shipping address on the WooCommerce order, or clear it so that the billing address is used, then export again.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_ITEMS_EMPTY => self::make(
+				$blocking,
+				__( 'The order has no product lines, and the platform requires at least one, so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'Create the order on the platform by hand if you need it.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_LINE_PRICE_UNRESOLVED => self::make(
+				$blocking,
+				__( 'The unit price of an order line cannot be worked out (the line total does not divide evenly by the quantity, or the platform’s tax setting is unknown), so the order is not exported.', 'cart-bridge-jp' ),
+				__( 'Check the platform’s tax setting. If a line total does not divide evenly by its quantity, create the order on the platform by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_DISCOUNT_NOT_PUSHED => self::make(
+				$info,
+				__( 'The order has a discount (such as a coupon), but the platform cannot receive discounts, so the order is sent at prices before the discount and its total on the platform is higher than the amount paid.', 'cart-bridge-jp' ),
+				__( 'Adjust the order’s amount on the platform by hand if needed.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_FEE_NOT_PUSHED => self::make(
+				$info,
+				__( 'The order’s shipping and other fees are not sent. The platform applies its own fees for the payment and delivery methods, so the totals can differ.', 'cart-bridge-jp' ),
+				__( 'Check the fees on the platform’s order if needed.', 'cart-bridge-jp' )
+			),
+			WarningCode::ORDER_PLACED_AT_NOT_PRESERVED => self::make(
+				$info,
+				__( 'The platform cannot receive the order date, so the order date on the platform is the date of the export.', 'cart-bridge-jp' )
+			),
+
+			// 在庫。
+			WarningCode::STOCK_PRODUCT_UNRESOLVED => self::make(
+				$blocking,
+				__( 'The product or variation for this stock is not found in WooCommerce, so the stock is not imported.', 'cart-bridge-jp' ),
+				__( 'Import products before stock (a full import does this). If this remains, the product was not imported, for example because of the free version’s limit.', 'cart-bridge-jp' ),
+				/* translators: %s: the platform's ID of a product or variation. */
+				__( 'The product or variation %s for this stock is not found in WooCommerce, so the stock is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::STOCK_PARENT_OF_VARIABLE => self::make(
+				$blocking,
+				__( 'The stock is for a product that has variations in WooCommerce, and stock is kept on each variation, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'If the product no longer has variations on the platform, import products again so that the WooCommerce product is updated, then import stock.', 'cart-bridge-jp' )
+			),
+			WarningCode::STOCK_PRODUCT_NOT_EXPORTED => self::make(
+				$blocking,
+				__( 'The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock.', 'cart-bridge-jp' ),
+				__( 'Include products in the export. If the product or this variation is not exported because of other warnings, fix those first.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a product or variation. */
+				__( 'The product or variation %s for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock.', 'cart-bridge-jp' )
+			),
+			WarningCode::STOCK_VARIANT_UNMANAGED_NOT_PUSHABLE => self::make(
+				$info,
+				__( 'The variation does not manage stock, and the platform cannot mark a single variation as not managed, so its stock is not sent. The product itself is exported as not managing stock.', 'cart-bridge-jp' ),
+				__( 'To send stock for each variation, turn on stock management for all published variations of the product.', 'cart-bridge-jp' )
+			),
+
+			// クーポン。
+			WarningCode::COUPON_REUSED_EXISTING => self::make(
+				$info,
+				__( 'A coupon with the same code that was imported from this platform before already exists, so it is linked and updated.', 'cart-bridge-jp' ),
+				'',
+				/* translators: %s: the WooCommerce ID of a coupon. */
+				__( 'A coupon with the same code that was imported from this platform before already exists (coupon ID %s), so it is linked and updated.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED => $import
+				? self::make(
+					$blocking,
+					__( 'The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported (without them, it could be used more widely).', 'cart-bridge-jp' ),
+					__( 'Create the coupon in WooCommerce by hand with equivalent restrictions.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The coupon has settings the platform cannot represent (such as product, category or email restrictions, a maximum spend, “Individual use only”, or a fixed product discount), or it has already been used, so it is not exported.', 'cart-bridge-jp' ),
+					__( 'Remove those settings, or create the coupon on the platform by hand. For a coupon that has been used, create a new coupon.', 'cart-bridge-jp' )
+				),
+			WarningCode::COUPON_RESTRICTIONS_UNKNOWN => self::make(
+				$blocking,
+				__( 'The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported (to avoid creating it without them).', 'cart-bridge-jp' ),
+				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_CODE_CONFLICT => self::make(
+				$blocking,
+				__( 'A WooCommerce coupon with the same code already exists and was not imported from this platform, so the coupon is not imported or updated.', 'cart-bridge-jp' ),
+				__( 'Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a coupon. */
+				__( 'A WooCommerce coupon with the same code already exists (coupon ID %s) and was not imported from this platform, so the coupon is not imported or updated.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_TYPE_UNKNOWN => self::make(
+				$blocking,
+				__( 'The coupon’s discount type is not supported (only a fixed amount or a percentage), so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the discount type received from the platform. */
+				__( 'The coupon’s discount type “%s” is not supported (only a fixed amount or a percentage), so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_AMOUNT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s discount is not valid (not a number, negative, or a percentage over 100), so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Correct the discount on the platform, or create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the discount value received from the platform. */
+				__( 'The coupon’s discount (%s) is not valid (not a number, negative, or a percentage over 100), so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_EXPIRES_AT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s expiry date cannot be read, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the expiry date received from the platform. */
+				__( 'The coupon’s expiry date (%s) cannot be read, so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_MIN_AMOUNT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s minimum spend is not a number or is negative, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Correct the minimum spend on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the minimum spend received from the platform. */
+				__( 'The coupon’s minimum spend (%s) is not a number or is negative, so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_SAVE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not save the coupon, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Check WooCommerce > Status > Logs for the error, then import again.', 'cart-bridge-jp' )
+			),
+
+			// 送信（エクスポートの本実行）。
+			WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE => self::make(
+				$action,
+				__( 'The product was created on the platform, but sending its remaining details (such as the subcategory and stock) failed for now. They are sent on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_DETAILS_PUSH_FAILED => self::make(
+				$action,
+				__( 'The product was created on the platform, but the platform rejected its remaining details (such as the subcategory and stock), so they may be missing.', 'cart-bridge-jp' ),
+				__( 'Check the product’s category and stock on the platform and correct them by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_VARIANT_PUSH_INCOMPLETE => self::make(
+				$action,
+				__( 'The product was sent, but setting up some of its variations failed for now. They are sent on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_VARIANT_PUSH_FAILED => self::make(
+				$action,
+				__( 'The product was sent, but some of its variations could not be set up on the platform (for example, two attributes have the same name, a variation has no value for an attribute, or the platform rejected the change).', 'cart-bridge-jp' ),
+				__( 'Give the attributes used for variations different names and set a value for every attribute on each variation. Then change the product so that it is exported again, and check its variations on the platform.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE => self::make(
+				$action,
+				__( 'The product was sent, but uploading some of its images failed for now. They are uploaded on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again. If this keeps happening, make sure your site can download its own media files (basic authentication or a firewall can block this).', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_IMAGE_PUSH_FAILED => self::make(
+				$action,
+				__( 'The product was sent, but some of its images were rejected (for example, more than 50 images, a missing file, or an unsupported format).', 'cart-bridge-jp' ),
+				__( 'Keep 50 or fewer images per product, fix or replace missing or unsupported images, and add the remaining images on the platform by hand.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_IMAGES_NOT_PUSHED => self::make(
+				$info,
+				__( 'The product was sent without its images (image upload is turned off, or the platform’s plan does not allow it).', 'cart-bridge-jp' ),
+				__( 'If the platform’s plan allows image upload, turn on “Upload product images (Beta)” in the Export tab and export again. Otherwise, add the images on the platform.', 'cart-bridge-jp' )
+			),
+			WarningCode::PRODUCT_VARIANT_SURPLUS_ON_REMOTE => self::make(
+				$action,
+				__( 'The platform creates every combination of the product’s options, so it now has variations that do not exist in WooCommerce. They are not deleted and can be bought if stock is not managed.', 'cart-bridge-jp' ),
+				__( 'Review the product’s variations on the platform and hide or delete the extra combinations.', 'cart-bridge-jp' )
+			),
+			WarningCode::PUSH_INTERRUPTED_AFTER_CREATE => self::make(
+				$action,
+				__( 'The item was created on the platform, but the export stopped before it was finished (for example, at the platform’s request limit). It is completed on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again.', 'cart-bridge-jp' )
+			),
+			WarningCode::PUSH_OUTCOME_UNCONFIRMED => self::make(
+				$blocking,
+				__( 'An earlier export of this item ended without confirming whether it was created on the platform, so it is not sent again until you check.', 'cart-bridge-jp' ),
+				__( 'In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”.', 'cart-bridge-jp' )
+			),
+
+			default => null,
+		};
+	}
+}

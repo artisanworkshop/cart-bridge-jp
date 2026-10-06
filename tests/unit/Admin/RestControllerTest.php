@@ -1331,6 +1331,50 @@ final class RestControllerTest extends WP_UnitTestCase {
 		remove_all_filters( 'rest_pre_serve_request' );
 	}
 
+	/**
+	 * R3-0k: CSV の警告の説明はユーザーの言語で書く（リンクは非 JSON の要求で `_locale=user` が効かず、そのままでは
+	 * サイトの言語になる）。サイトの言語（`ja`）とユーザーの言語（`en_US`。翻訳ファイルが無くても切り替えられる）を変えて、
+	 * 書き出しの間だけユーザーの言語へ切り替わり、終わったら戻ることを確かめる。
+	 */
+	public function test_report_is_streamed_in_the_users_locale(): void {
+		$run_id  = $this->start_mock_dry_run();
+		$user_id = get_current_user_id();
+		update_user_meta( $user_id, 'locale', 'en_US' );
+		add_filter( 'locale', static fn (): string => 'ja' );
+
+		$switched = [];
+		$restored = 0;
+		add_action(
+			'switch_locale',
+			static function ( string $locale, $switched_user_id ) use ( &$switched ): void {
+				$switched[] = [ $locale, $switched_user_id ];
+			},
+			10,
+			2
+		);
+		add_action(
+			'restore_previous_locale',
+			static function () use ( &$restored ): void {
+				++$restored;
+			}
+		);
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		ob_start();
+		$served = apply_filters( 'rest_pre_serve_request', false, $response, $request, $this->server );
+		$output = (string) ob_get_clean();
+
+		$this->assertTrue( $served );
+		$this->assertStringContainsString( 'severity,message,action', $output );
+		$this->assertSame( [ [ 'en_US', $user_id ] ], $switched );
+		$this->assertSame( 1, $restored );
+		$this->assertFalse( is_locale_switched() );
+
+		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
 	private function register_mock_adapter(): void {
 		add_filter(
 			'cbjp/adapters/register',

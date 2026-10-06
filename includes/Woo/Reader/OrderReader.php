@@ -480,11 +480,10 @@ final class OrderReader implements EntityReader {
 	 * `$resolved=false`は3パターン: (1) 親またはバリエーション自体が取得できない（削除済み等）、
 	 * (2) バリエーションが「Any」の軸を持つ（D23。`VariationAxisResolver::has_any_attribute()`）、
 	 * (3) 親の軸が3つ以上（`VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_
-	 * EXCEEDED`を積む）。`Woo\Reader\ProductReader`はこのケースを無警告（3軸目を切り捨てるだけ）で
-	 * 扱うが、受注明細では3軸目の値が異なる複数のバリエーションがoption1/2の組だけでは区別できず
-	 * 誤った商品を受注として記録しうるため、product exportより厳しくここでは解決不能として扱う
-	 * （Copilot指摘, PR #41 G2: 当初は`$axis_warnings`を破棄しており、この警告が受注側へ
-	 * 伝播していなかった）。
+	 * EXCEEDED`を積む）。受注明細では3軸目の値が異なる複数のバリエーションがoption1/2の組だけでは区別できず
+	 * 誤った商品を受注として記録しうるため、ここでは解決不能として扱う（`Woo\Reader\ProductReader`も
+	 * この商品を`VARIATION_AXIS_LIMIT_EXCEEDED`で止める）（Copilot指摘, PR #41 G2: 当初は`$axis_warnings`を
+	 * 破棄しており、この警告が受注側へ伝播していなかった）。
 	 *
 	 * @return array{0:?string,1:?string,2:bool} [option1_value, option2_value, resolved]
 	 */
