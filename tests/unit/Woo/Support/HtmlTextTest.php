@@ -107,22 +107,61 @@ final class HtmlTextTest extends WP_UnitTestCase {
 			'attributes'                   => [ 'a<script type="text/javascript" async data-x="1">x()</script>b', 'ab' ],
 			'multi line'                   => [ "a<style media=\"all\">\n.x{\n  color:red;\n}\n</style>b", 'ab' ],
 			'space before closing bracket' => [ 'a<script>x()</script >b', 'ab' ],
+			'slash after closing name'     => [ 'a<script>y()</script/>b', 'ab' ],
+			'attribute on closing tag'     => [ 'a<script>y()</script foo>b', 'ab' ],
+			'longer name is not a closer'  => [ 'a<script>x</scripts>y()</script>b', 'ab' ],
 			'self-closing look'            => [ 'a<script/>x()</script>b', 'ab' ],
 			'several elements'             => [ 'a<script>1</script>b<style>2</style>c<script>3</script>d', 'abcd' ],
+			'less-than inside the script'  => [ 'a<script>if (a<b && c>d) { x(); }</script>b', 'ab' ],
 			'closing tag text in string'   => [ 'a<script>var s="</script>";</script>b', 'a";b' ],
-			'unclosed element'             => [ 'a<p>b</p><script>x();<p>c</p>', 'a<p>b</p>' ],
-			'rebuilt after removal'        => [ 'a<scr<script></script>ipt>x()</scr<script></script>ipt>b', 'ab' ],
+			'joined text is not a tag'     => [ 'a<script>1</script>script>2</script>b', 'ascript&gt;2b' ],
+			'closing tag without bracket'  => [ 'a<script>x()</script b', 'a' ],
+			'form feed after the name'     => [ "a<script\f>x()</script\f>b", 'ab' ],
 			'inside a comment'             => [ 'a<!-- <script>c()</script> -->b', 'a<!--  -->b' ],
+			'inside a multi-line comment'  => [ "a<!--\n<script>c()</script>\n-->b", "a<!--\n\n-->b" ],
 		];
 	}
 
 	/**
-	 * 大文字小文字・属性・改行・閉じタグの空白・閉じタグ無し（末尾まで。ブラウザも残りを中身として読む）・除いた後にできる要素。
+	 * 大文字小文字・属性・改行・閉じタグの形（空白・`/`・属性。`</scripts>` は閉じタグではない）・中身の `<`・コメントの中。
+	 * 中身の文字列に `</script>` があれば、ブラウザと同じくそこで閉じる。
 	 *
 	 * @dataProvider script_style_variants
 	 */
 	public function test_script_and_style_variants_are_removed( string $html, string $expected ): void {
 		$this->assertSame( $expected, HtmlText::sanitize_post_html( $html ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function contents_that_must_survive(): array {
+		return [
+			'script text in an attribute'        => [ '<p title="<script>">keep me</p><p>after</p>', '<p>after</p>' ],
+			'style text in an image alt'         => [ '<img alt="<style>" src="https://example.com/x.png">visible text<p>more</p>', 'visible text<p>more</p>' ],
+			'script text in CDATA'               => [ 'a<![CDATA[<script>]]>visible<p>x</p>', 'visible<p>x</p>' ],
+			'unclosed style in a comment'        => [ '<!-- <style> --> Visible description here. <b>bold</b>', ' Visible description here. <b>bold</b>' ],
+			'unclosed element'                   => [ 'a<p>b</p><script>x();<p>c</p>', '<p>c</p>' ],
+			'attribute script before a real one' => [ '<p title="<script>">keep me</p><p>after</p><script>x()</script>', '<p>after</p>' ],
+		];
+	}
+
+	/**
+	 * 本物の開始タグでない `<script>`・`<style>`（属性値・CDATA・閉じていないコメントの中）と、閉じタグの無い要素は除かない。
+	 * 正規表現で文字列全体を探すと、ここから後ろ（末尾まで）の説明を消していた（review-loop R1-1）。kses だけの結果と同じになる。
+	 *
+	 * @dataProvider contents_that_must_survive
+	 */
+	public function test_contents_outside_real_script_and_style_elements_survive( string $html, string $survivor ): void {
+		$sanitized = HtmlText::sanitize_post_html( $html );
+
+		$this->assertStringContainsString( $survivor, $sanitized );
+
+		if ( str_ends_with( $html, '<script>x()</script>' ) ) {
+			$this->assertStringNotContainsString( 'x()', $sanitized, '後ろの本物の要素は除く' );
+		} else {
+			$this->assertSame( wp_kses_post( $html ), $sanitized, 'kses だけの結果と同じ（何も除かない）' );
+		}
 	}
 
 	/**
@@ -132,6 +171,9 @@ final class HtmlTextTest extends WP_UnitTestCase {
 		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b' ) );
 		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<script-x>kept</script-x>b' ) );
 		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<styles>kept</styles>b' ) );
+		// 後ろに本物の要素があっても、`<scripts>` から本物の閉じタグまでを 1 つの要素と見なさない。
+		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b<script>x()</script>c' ) );
+		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<style-x>kept</style-x>b<style>p{}</style>c' ) );
 	}
 
 	public function test_allowed_html_and_entities_are_kept_as_kses_leaves_them(): void {
@@ -139,39 +181,5 @@ final class HtmlTextTest extends WP_UnitTestCase {
 
 		$this->assertSame( wp_kses_post( $html ), HtmlText::sanitize_post_html( $html ) );
 		$this->assertSame( '', HtmlText::sanitize_post_html( '' ) );
-	}
-
-	/**
-	 * `preg_replace()` が失敗した（PCRE の上限）ときは除去を諦め、入力をそのまま返す（説明を丸ごと失わない）。
-	 * kses 自体も PCRE を使い、上限を下げると空文字列を返す（実測）ので、除去の段だけを確かめる。
-	 */
-	public function test_a_pcre_failure_returns_the_input_instead_of_an_empty_string(): void {
-		$html = 'a<script>' . str_repeat( 'x', 5000 ) . '</script>b';
-
-		// phpcs:ignore WordPress.PHP.IniSet.Risky -- PCRE の失敗を起こすためにテストの間だけ下げる。
-		$previous_limit = ini_set( 'pcre.backtrack_limit', '10' );
-		// phpcs:ignore WordPress.PHP.IniSet.Risky -- JIT は backtrack_limit を見ないので切る。
-		$previous_jit = ini_set( 'pcre.jit', '0' );
-
-		try {
-			$stripped = HtmlText::strip_script_and_style( $html );
-			$error    = preg_last_error();
-		} finally {
-			// phpcs:ignore WordPress.PHP.IniSet.Risky -- 元に戻す。
-			ini_set( 'pcre.backtrack_limit', (string) $previous_limit );
-			// phpcs:ignore WordPress.PHP.IniSet.Risky -- 元に戻す。
-			ini_set( 'pcre.jit', (string) $previous_jit );
-		}
-
-		$this->assertSame( PREG_BACKTRACK_LIMIT_ERROR, $error, 'PCRE が失敗する条件になっている（前提）' );
-		$this->assertSame( $html, $stripped );
-		$this->assertSame( 'ab', HtmlText::strip_script_and_style( $html ), '上限を戻せば除ける' );
-	}
-
-	/**
-	 * 除去の段は kses を掛けない（`<iframe>` のような他の許可されないタグは {@see HtmlText::sanitize_post_html()} の kses が外す）。
-	 */
-	public function test_strip_does_not_apply_kses(): void {
-		$this->assertSame( 'a<iframe src="https://example.com/"></iframe>b', HtmlText::strip_script_and_style( 'a<iframe src="https://example.com/"></iframe><script>x()</script>b' ) );
 	}
 }

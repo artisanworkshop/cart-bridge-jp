@@ -22,42 +22,112 @@ namespace CartBridgeJP\Woo\Support;
 final class HtmlText {
 
 	/**
-	 * `<script>`・`<style>` 要素（開始タグから閉じタグまで）。タグ名の直後は空白・`/`・`>` に限る（`<scripts>`・`<script-x>` は
-	 * 別の要素）。閉じタグが無ければ末尾まで（ブラウザも残り全体を中身として読み、表示しない）。大文字小文字と改行を問わない
-	 * （後方参照 `\1` も `i` で大文字小文字を区別しない）。
+	 * `<script>`・`<style>` の開始タグ。タグ名の直後は HTML の空白・`/`・`>` に限る（`<scripts>`・`<script-x>` は別の要素）。
 	 */
-	private const SCRIPT_STYLE_ELEMENT = '#<(script|style)(?=[\s/>])[^>]*>.*?(?:</\1(?=[\s/>])[^>]*>|\z)#is';
+	private const SCRIPT_STYLE_OPENER = '~\A<(script|style)(?=[\t\n\f\r />])~i';
+
+	/**
+	 * 閉じタグの名前の直後に来てよい文字（HTML の空白・`/`・`>`）。
+	 */
+	private const TAG_NAME_TERMINATORS = " \t\n\f\r/>";
 
 	private function __construct() {}
 
 	/**
-	 * 説明などの HTML を `wp_kses_post()` で浄化する。その前に `<script>`・`<style>` 要素を中身ごと除く（{@see self::strip_script_and_style()}）。
-	 * kses はこの 2 つのタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示されてしまう（R3-1 で実測。issue #101）。
+	 * 説明などの HTML を `wp_kses_post()` で浄化する。その前に `<script>`・`<style>` 要素を中身ごと除く。kses はこの 2 つのタグを
+	 * 外すだけで中身の JS・CSS を文字として残し、商品ページに表示されてしまう（R3-1 で実測。issue #101）。
+	 *
+	 * - 開始タグは kses と同じ区切り（`wp_kses_split()`: コメント、または `<` から最初の `>`〔無ければ末尾〕までのタグらしい範囲）で
+	 *   見つけ、kses がタグとして外す範囲だけを対象にする。正規表現で文字列全体から `<script` を探すと、属性値（`<p title="<script>">`）・
+	 *   CDATA の中の文字まで要素の開始と見なし、後ろの説明を消してしまう（review-loop R1-1）。
+	 * - 中身はブラウザと同じく生のテキストとして読み、最初の `</script`（直後が空白・`/`・`>`）で閉じる（JS の `a<b` をタグと見なさない）。
+	 *   閉じタグに `>` が無ければ末尾までが閉じタグ（ブラウザも表示しない）。
+	 * - 閉じタグが無ければ何も除かない（後ろの説明を失わない。kses がタグを外し、中身は文字として残る従来の結果になる）。
+	 * - コメントの中（閉じていなければ末尾まで）も同じ規則で除く（kses はコメントの中身にも kses を掛けるので、コメントアウトした
+	 *   `<script>` の中身が文字として出る）。コメントは入れ子にならないので、中の `<!--` はただの区切りとして読む。
+	 *   kses の正規表現は `s` 修飾子が無く複数行のコメントをタグらしい範囲として読むが、どちらでもコメントの中は同じ規則で除く。
+	 * - テキストの部分は `<` を含まない（`<` は必ず区切りの始まりになる）ので、除いた前後がつながって新しい開始タグになることは無い。
+	 * - 区切りと閉じタグは `strpos()`・`stripos()` で探す（正規表現の遅延一致は長い説明で PCRE の上限に達し、閉じタグの無い開始タグが
+	 *   多い入力では探し直しが二乗になる）。
+	 * - `<textarea>`・`<title>` の中（ブラウザでは文字）の `<script>…</script>` も除く（kses と同じく区別しない。実害は無いと判断）。
 	 */
 	public static function sanitize_post_html( string $html ): string {
-		return wp_kses_post( self::strip_script_and_style( $html ) );
+		return wp_kses_post( self::strip_script_and_style( $html, false ) );
+	}
+
+	private static function strip_script_and_style( string $html, bool $in_comment ): string {
+		$stripped = '';
+		$offset   = 0;
+		$length   = strlen( $html );
+		// 閉じタグが見つからなかった要素名。それより後ろの開始タグにも閉じタグは無いので探し直さない。
+		$unclosed = [];
+
+		while ( $offset < $length ) {
+			$start = strpos( $html, '<', $offset );
+
+			if ( false === $start ) {
+				break;
+			}
+
+			$stripped .= substr( $html, $offset, $start - $offset );
+
+			if ( ! $in_comment && '<!--' === substr( $html, $start, 4 ) ) {
+				$end    = strpos( $html, '-->', $start + 4 );
+				$inner  = false === $end ? substr( $html, $start + 4 ) : substr( $html, $start + 4, $end - $start - 4 );
+				$offset = false === $end ? $length : $end + 3;
+
+				$stripped .= '<!--' . self::strip_script_and_style( $inner, true ) . ( false === $end ? '' : '-->' );
+				continue;
+			}
+
+			$end    = strpos( $html, '>', $start );
+			$token  = false === $end ? substr( $html, $start ) : substr( $html, $start, $end - $start + 1 );
+			$offset = $start + strlen( $token );
+
+			if ( 1 !== preg_match( self::SCRIPT_STYLE_OPENER, $token, $opener ) ) {
+				$stripped .= $token;
+				continue;
+			}
+
+			$name   = strtolower( $opener[1] );
+			$closer = isset( $unclosed[ $name ] ) ? null : self::closing_tag_end( $html, $name, $offset );
+
+			if ( null === $closer ) {
+				// 閉じタグが無い: 開始タグも中身も残す（kses に任せる）。
+				$unclosed[ $name ] = true;
+				$stripped         .= $token;
+				continue;
+			}
+
+			$offset = $closer;
+		}
+
+		return $stripped . substr( $html, $offset );
 	}
 
 	/**
-	 * `<script>`・`<style>` 要素を中身ごと除く（kses は掛けない）。
-	 *
-	 * - 除いた後に要素ができる入力（`<scr<script></script>ipt>…</script>`）があるので、変化しなくなるまで繰り返す。
-	 * - `preg_replace()` が失敗した（PCRE の上限に達した）ときは除去を諦め、その時点の文字列を返す（説明を丸ごと失わない。
-	 *   kses を掛けると中身の文字が残る従来の結果になる）。
+	 * `$offset` 以降で最初の `</{$name}`（直後が空白・`/`・`>`）の閉じタグの終わり（`>` の次。`>` が無ければ末尾）。無ければ null。
 	 */
-	public static function strip_script_and_style( string $html ): string {
-		do {
-			$previous = $html;
-			$stripped = preg_replace( self::SCRIPT_STYLE_ELEMENT, '', $html );
+	private static function closing_tag_end( string $html, string $name, int $offset ): ?int {
+		$needle = '</' . $name;
 
-			if ( null === $stripped ) {
-				return $previous;
+		while ( true ) {
+			$position = stripos( $html, $needle, $offset );
+
+			if ( false === $position ) {
+				return null;
 			}
 
-			$html = $stripped;
-		} while ( $html !== $previous );
+			$next = $html[ $position + strlen( $needle ) ] ?? '';
 
-		return $html;
+			if ( '' !== $next && str_contains( self::TAG_NAME_TERMINATORS, $next ) ) {
+				$end = strpos( $html, '>', $position );
+
+				return false === $end ? strlen( $html ) : $end + 1;
+			}
+
+			$offset = $position + 1;
+		}
 	}
 
 	/**
