@@ -999,7 +999,8 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   既にColorMe専用ゲート済みの`AddressMapper`を`Adapters\ColorMe\Transform\CustomerTransformer`から
   再利用することはこれに反しないと判断した（対称の変換を複製すると2箇所が食い違うリスクを負う）。
 - **新規作成必須フィールドの欠落はAPIを呼ばずスキップ**: `POST /v1/customers`は`name`/`mail`/
-  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は部分更新で必須項目なし）。Woo顧客の請求先情報
+  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は swagger では部分更新で必須項目なしだが、実際は名前と住所が必須。
+  R3-1 の実測で訂正し、R3-1c〔issue #100〕で更新も同じくスキップするようにした。§10.2「名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c）」）。Woo顧客の請求先情報
   から`pref_id`/`postal`/`address1`/`tel`のいずれかを解決できない場合、送信すると確実に422になる
   ため`CustomerTransformer::to_create_payload()`が`null`を返し、`ColorMeAdapter::push_customer()`が
   `PushResult('', OPERATION_SKIPPED, [WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING])`で
@@ -1838,6 +1839,39 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   引用符・復号の範囲・Reader の名前とターム・Resolver・Presenter）がすべて CAUGHT。wp-env の dev サイトでも実際の Writer/Reader で WP-Cron の条件（未ログイン＋`kses_init_filters()`）と管理者の
   保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの確認（`rehearse-colorme` の `run context=cron|admin` → `check-import`、
   Woo 生まれの `ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+
+#### 名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c、issue #100・#101）
+
+R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` の所見 B・C）で見つかった 2 件。
+
+- **顧客の更新（issue #100）**: `PUT /customers/{id}` は swagger では必須項目が無いが、ColorMe は名前と住所（市区町村・番地）が無いと 422 にする
+  （テストショップで実測。`.claude/rules/adapters-colorme.md`）。以前の `CustomerTransformer::to_update_payload()` は住所 3 点（`pref_id`/`postal`/`address1`）を
+  そろえられないと住所を省いて送り、海外の会員の更新が毎回 422・`Exporter` の 1 件失敗（ログは例外のクラス名だけ）になっていた。
+  `to_update_payload()` を `?array` にし、名前（空白だけでない・50 文字以内）と住所 3 点を作成と共有の判定で確かめ、そろわなければ `null` を返す。
+  `ColorMeAdapter::push_customer()` は作成と同じく API を呼ばずに `PushResult('', skipped, [CUSTOMER_REQUIRED_FIELD_MISSING])` を返す
+  （`push_order()` の更新スキップと同じ形。`Exporter` は既存の mapping〔remote_id・checksum〕に触れず、checksum も保存しないので、店舗が住所を補えば次回送る）。
+  電話番号は作成だけの必須のまま（更新で必須かは未実測。解決できなければ従来どおり省く）。作成側にも名前が空のスキップを足した（以前は `display_name` 頼みで、空なら 422）。
+  D25 で取り込んだ会員はエクスポートしないので、対象は Woo 生まれの顧客で作成後に住所を消した・名前を 50 文字超に変えた場合だけ。
+  理由の見せ方は警告コードだけ（2026-10-06 ユーザー決定。dry-run はアダプタを呼ばないので明細・CSV には出ない。作成時と同じ既知の限界。項目別警告の保存は R3-0k の決定どおり v1.1 以降）。
+  backlog `e2-3-push-customer/G1-name-length-on-update` は解消。
+- **説明の `<script>`・`<style>`（issue #101）**: `wp_kses_post()` はこの 2 つのタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示される
+  （`a<script>console.log("zzr")</script><style>.zzr{color:red}</style>b` → `aconsole.log("zzr").zzr{color:red}b`。wp-env で実測）。
+  `Woo\Support\HtmlText::sanitize_post_html()` を新設し、2 つの要素を中身ごと除いてから kses を掛ける。取込みの `Cast::sanitize_html()`（商品の説明・簡易説明・
+  スマートフォン用説明、カテゴリ・グループの説明）と、Writer が自分で浄化する `ProductWriter` の説明・短い説明（R3-1b）の両方で使う（外部アダプタ・将来の BASE でも同じ結果）。
+  - 正規表現は `#<(script|style)(?=[\s/>])[^>]*>.*?(?:</\1(?=[\s/>])[^>]*>|\z)#is`: 大文字小文字・属性・改行・`</script >` を受け、`<scripts>`・`<script-x>` は別の要素として残す。
+    閉じタグが無ければ末尾まで除く（ブラウザも残り全体を中身として読み、表示しない）。中身の文字列に `</script>` があれば、ブラウザと同じくそこで閉じる。
+  - 除いた後に要素ができる入力（`<scr<script></script>ipt>…`）があるので、変化しなくなるまで繰り返す。
+  - `preg_replace()` が失敗した（PCRE の上限）ときは除去を諦めて入力を返し、kses だけを掛ける（説明を丸ごと失わない。中身の文字が残る従来の結果）。
+    除去の段は `HtmlText::strip_script_and_style()` として分けた（kses 自体も PCRE を使い、上限を下げると空文字列を返すので、失敗時の扱いを単独で確かめるため）。
+  - 既存の取込み済み商品は、説明に script/style がある商品だけ Canonical が変わり、次の取込みで更新される（それ以外は checksum 不変で書き直さない）。
+- **検証**: PHPUnit（`HtmlTextTest`〔中身ごとの除去・大文字・属性・改行・閉じタグの空白・閉じタグ無し・除いた後の再構成・コメント内・`<scripts>` は残る・PCRE 失敗時〕、
+  `CastTest`・`ProductTransformerTest`〔説明 3 種〕・`CategoryTransformerTest`・`TagTransformerTest`・`ProductWriterTest`〔未ログイン〈kses あり〉と管理者の保存が一致し JS・CSS の文字が無い〕、
+  `CustomerTransformerTest`〔住所なし・一部・海外で郵便番号なし・海外で住所あり・電話なし・名前の空/空白/50/51 文字を作成と更新の両方〕、
+  `ColorMeAdapterTest`〔更新で PUT を送らない・`Exporter` との結合で mapping が残りエラーログが無い〕）。`mutate-check.sh` で 17 種（除去の呼び出し・繰り返し・閉じタグ無し・
+  タグ名の境界・閉じタグの空白・PCRE 失敗時に空を返す・Cast と Writer 2 か所を kses だけに戻す・更新の判定・住所・名前の空・空白・長さ〔境界と削除〕・作成の電話・アダプタの null 扱い）がすべて CAUGHT。
+  wp-env の dev サイトで、P11 と同じ説明を `Cast::sanitize_html()` と実際の `ProductWriter`（WP-Cron の条件〔未ログイン＋`kses_init_filters()`〕と管理者）に通して JS・CSS の文字が残らず両者が一致すること、
+  実アダプタの `push_customer()` が住所の無い顧客の更新で HTTP を一切送らずに警告つきでスキップすることを確認した。テストショップでの確認（`rehearse-colorme` の `check-import`〔script/style の中身が残れば MISMATCH〕と
+  手順 3 の顧客の更新）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

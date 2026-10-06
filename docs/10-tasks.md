@@ -676,6 +676,14 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **テストショップでの確認（`run context=cron|admin` → `check-import`、`ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい。
   R3-1a〔D25〕で取り込んだ会員はエクスポートしなくなったので、#100 の対象はエクスポートで作った〔Woo 生まれの〕海外の顧客の更新だけになった）
+  **実装サマリ（2026-10-06、ブランチ `feat/r3-1c-customer-update-and-script-strip`。実装済み・実機の再リハーサル待ち）**: #100 は `CustomerTransformer::to_update_payload()` が名前（空白だけでない・50 文字以内）と
+  住所 3 点を作成と共有の判定で確かめ、そろわなければ `null`、`ColorMeAdapter::push_customer()` が作成と同じ `customer_required_field_missing` で PUT を送らずにスキップする（既存の mapping は残る）。
+  作成側にも名前が空のスキップを足した。理由の見せ方は計画時のユーザー決定で警告コードだけ（ログは足さない。dry-run には出ない既知の限界）。backlog `e2-3-push-customer/G1-name-length-on-update` は解消。
+  #101 は新設 `Woo\Support\HtmlText::sanitize_post_html()` が `<script>`・`<style>` を中身ごと除いてから `wp_kses_post()` し、取込みの `Cast::sanitize_html()` と `ProductWriter` の説明・短い説明が使う
+  （閉じタグ無しは末尾まで・除いた後の再構成も繰り返して除く・PCRE が失敗したら除去を諦めて kses だけ）。詳細は `docs/03` §10.2「名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c）」。
+  `rehearse-colorme` の `check-import` は script/style の中身が Woo の説明に残っていれば MISMATCH にし、手順 3 に顧客の更新のスキップの確認を足した（issue の「C05 で確かめる」は D25 で C05 がエクスポートされなくなったため置き換え）。
+  **検証**: PHPUnit 追加 29 件（データセット込み。計 1607）。`mutate-check.sh` で 17 種がすべて CAUGHT。wp-env の dev サイトで実際の `Cast`・`ProductWriter`（WP-Cron の条件と管理者）・`push_customer()` を通して確認した。
+  **テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
 - [ ] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する。
   **R3-1a〜e をすべて実装した後、テストショップで `rehearse-colorme` の再リハーサルをまとめて行う**〔2026-10-06 ユーザー決定。PR ごとには行わない。お試し期限 2026-10-22 まで。
