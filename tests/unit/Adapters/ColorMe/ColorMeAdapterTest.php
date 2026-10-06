@@ -437,11 +437,10 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * R1レビュー指摘（CLAUDE.mdアーキテクチャ原則9）: 税設定不明で価格を1件も解決できなかった
-	 * 場合、無価格のまま`showing`で公開すると実質無料で購入可能になりうる。`display_state`を
-	 * `hidden`へ強制し、`PRODUCT_DETAILS_PUSH_INCOMPLETE`（retry対象）を積むことを確認する。
+	 * R3-1d（issue #78）: 税設定不明で価格を1件も換算できない商品は、作成しない（以前は作成時だけ`display_state=hidden`に
+	 * 倒していたが、次の更新で公開されていた）。POST も追いPUT も送らず、remote_id の空の`skipped`で返す。
 	 */
-	public function test_push_product_forces_hidden_when_price_cannot_be_resolved(): void {
+	public function test_push_product_does_not_create_when_price_cannot_be_resolved(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -458,29 +457,45 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$result = $adapter->push_product( $this->simple_product(), null );
 
-		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
-
-		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
-		$this->assertNotNull( $create_request );
-		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
-		$this->assertArrayNotHasKey( 'price', $create_request['body']['product'] );
-		$this->assertArrayNotHasKey( 'sales_price', $create_request['body']['product'] );
-
-		// R3レビュー指摘（Copilot/Codex）: 作成直後の追いPUT（category_id_small/group_ids/stocks
-		// 反映用）が`to_update_payload()`の素のshowingでこの安全策を即座に上書きしていた。
-		// 追いPUTでもhiddenが維持されることを確認する。
-		$follow_up_request = $this->find_captured( $captured, 'PUT', 'products/502.json' );
-		$this->assertNotNull( $follow_up_request );
-		$this->assertSame( 'hidden', $follow_up_request['body']['product']['display_state'] );
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE ], $result->warnings );
+		$this->assert_no_product_writes( $captured );
 	}
 
 	/**
-	 * G2レビュー指摘（Copilot Suppressed comments）: `tax_class`が`null`/`'reduced-rate'`以外
-	 * （店舗独自の税区分スラッグ、例: `zero-rate`）の場合、`base_payload()`は`tax_reduced=false`
-	 * （標準税率）へフェイルクローズするが、実際には非標準の税区分かもしれない。価格が正しく
-	 * 解決できていても、hidden強制と`PRODUCT_DETAILS_PUSH_INCOMPLETE`が働くことを確認する。
+	 * R3-1d（issue #78）: 価格を換算できない商品は更新もしない（以前は`showing`のまま価格を省いて PUT していた）。
+	 * ColorMe 側の既存の商品はそのまま残る。
 	 */
-	public function test_push_product_forces_hidden_when_tax_class_is_unsupported(): void {
+	public function test_push_product_does_not_update_when_price_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests(
+			[
+				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
+				'PUT products/778.json' => [ [ 'body' => [ 'product' => [ 'id' => 778 ] ] ] ],
+			],
+			$captured
+		);
+
+		$result = $adapter->push_product( $this->simple_product(), '778' );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE ], $result->warnings );
+		$this->assert_no_product_writes( $captured );
+	}
+
+	/**
+	 * R3-1d: 正規化モデルの税区分が記号（null／`reduced-rate`）以外の商品は、作成も更新もしない
+	 * （`Woo\Reader\ProductReader`が止める警告を積み`Sync\Exporter`が先に止めるので、ここは多重防御）。
+	 * 以前は作成時だけ hidden、更新では`tax_reduced`を省いて`showing`のまま送っていた。
+	 *
+	 * @dataProvider provide_remote_ids
+	 */
+	public function test_push_product_does_not_send_an_unsupported_tax_class( ?string $remote_id ): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -512,24 +527,28 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 			null,
 			'zero-rate'
 		);
-		$result  = $adapter->push_product( $product, null );
+		$result  = $adapter->push_product( $product, $remote_id );
 
-		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
-
-		$create_request = $this->find_captured( $captured, 'POST', 'products.json' );
-		$this->assertNotNull( $create_request );
-		$this->assertSame( 'hidden', $create_request['body']['product']['display_state'] );
-		// 価格自体は解決できているため送られる（税区分だけが未対応）。
-		$this->assertSame( 1000, $create_request['body']['product']['sales_price'] );
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, 'zero-rate' ) ], $result->warnings );
+		$this->assert_no_product_writes( $captured );
 	}
 
 	/**
-	 * G3レビュー指摘（Copilot Suppressed comments）: 更新（PUT）は新規作成のような
-	 * hidden安全策が無いため、`tax_class`が未対応のまま`tax_reduced=false`を送ると、
-	 * 既に（恐らく正しく）設定されているColorMe側の税区分を毎回標準税率へ上書きしてしまう。
-	 * 更新時は`tax_reduced`フィールド自体を省略し、ColorMe側の既存値を保持することを確認する。
+	 * @return array<string,array{0:?string}>
 	 */
-	public function test_push_product_omits_tax_reduced_on_update_when_tax_class_is_unsupported(): void {
+	public static function provide_remote_ids(): array {
+		return [
+			'create' => [ null ],
+			'update' => [ '505' ],
+		];
+	}
+
+	/**
+	 * 軽減税率の記号の商品は`tax_reduced=true`で、標準（null）は`false`で送る（作成・追いPUT とも）。
+	 */
+	public function test_push_product_sends_tax_reduced_for_the_reduced_rate_token(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
 
@@ -537,38 +556,30 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->mock_push_requests(
 			[
 				'GET shop.json'         => [ [ 'body' => [ 'shop' => [ 'tax_type' => 'included' ] ] ] ],
-				'PUT products/506.json' => [ [ 'body' => [ 'product' => [ 'id' => 506 ] ] ] ],
+				'POST products.json'    => [ [ 'body' => [ 'product' => [ 'id' => 507 ] ] ] ],
+				'PUT products/507.json' => [ [ 'body' => [ 'product' => [ 'id' => 507 ] ] ] ],
 			],
 			$captured
 		);
 
-		$product = new CanonicalProduct(
-			'Zero Rate Product',
-			'SKU-Z',
-			'1000',
-			null,
-			null,
-			[],
-			[],
-			[],
-			[],
-			5,
-			'publish',
-			[],
-			true,
-			[],
-			null,
-			'zero-rate'
-		);
-		$result  = $adapter->push_product( $product, '506' );
+		$product = new CanonicalProduct( 'Reduced', 'SKU-R', '1080', null, null, [], [], [], [], 5, 'publish', [], true, [], null, CanonicalProduct::TAX_CLASS_REDUCED );
+		$result  = $adapter->push_product( $product, null );
 
-		// 更新でも警告は積む（checksumをキャッシュさせず再試行対象にする）が、既存の
-		// ColorMe側税区分を上書きしない。
-		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
+		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
+		$this->assertSame( true, $this->find_captured( $captured, 'POST', 'products.json' )['body']['product']['tax_reduced'] ?? null );
+		$this->assertSame( true, $this->find_captured( $captured, 'PUT', 'products/507.json' )['body']['product']['tax_reduced'] ?? null );
+		$this->assertSame( 'showing', $this->find_captured( $captured, 'POST', 'products.json' )['body']['product']['display_state'] ?? null );
+	}
 
-		$update_request = $this->find_captured( $captured, 'PUT', 'products/506.json' );
-		$this->assertNotNull( $update_request );
-		$this->assertArrayNotHasKey( 'tax_reduced', $update_request['body']['product'] );
+	/**
+	 * 商品の作成・更新のリクエスト（POST/PUT）が 1 件も無い（`shop.json`の GET だけ）。
+	 *
+	 * @param array<int,array<string,mixed>> $captured
+	 */
+	private function assert_no_product_writes( array $captured ): void {
+		$writes = array_filter( $captured, static fn ( array $request ): bool => 'GET' !== $request['method'] );
+
+		$this->assertSame( [], array_values( $writes ) );
 	}
 
 	public function test_push_product_updates_existing_simple_product_with_a_single_put(): void {
@@ -594,38 +605,6 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$put_requests = array_filter( $captured, static fn ( array $request ): bool => 'PUT' === $request['method'] );
 		$this->assertCount( 1, $put_requests );
 		$this->assertNull( $this->find_captured( $captured, 'POST', 'products.json' ) );
-	}
-
-	/**
-	 * R2レビュー指摘: 価格を1件も解決できない場合の`display_state=hidden`強制
-	 * （`ProductTransformer::to_create_payload()`）は**新規作成のみ**に適用する。更新時にも
-	 * 同じ判定を適用すると、既に公開・販売中の商品が価格未解決のたびに（税設定取得の一時的な
-	 * 失敗等でも）毎回非公開化されてしまい、安全上の利得が無いまま機会損失だけが生じる。
-	 */
-	public function test_push_product_does_not_force_hidden_on_update_when_price_cannot_be_resolved(): void {
-		[ $adapter, $token_store ] = $this->make_adapter();
-		$token_store->save( [ 'access_token' => 'token' ] );
-
-		$captured = [];
-		$this->mock_push_requests(
-			[
-				'GET shop.json'         => [ [ 'body' => [ 'shop' => [] ] ] ],
-				'PUT products/778.json' => [ [ 'body' => [ 'product' => [ 'id' => 778 ] ] ] ],
-			],
-			$captured
-		);
-
-		$result = $adapter->push_product( $this->simple_product(), '778' );
-
-		$this->assertSame( [ WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE ], $result->warnings );
-
-		$update_request = $this->find_captured( $captured, 'PUT', 'products/778.json' );
-		$this->assertNotNull( $update_request );
-		// Wooの商品ステータスが`publish`のため、価格未解決でも`showing`のまま送る
-		// （既存のColorMe側公開状態を毎回非公開へ落とさない）。
-		$this->assertSame( 'showing', $update_request['body']['product']['display_state'] );
-		$this->assertArrayNotHasKey( 'price', $update_request['body']['product'] );
-		$this->assertArrayNotHasKey( 'sales_price', $update_request['body']['product'] );
 	}
 
 	public function test_push_product_creates_variable_product_and_syncs_variant_remote_ids(): void {
@@ -934,13 +913,14 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 店舗の税設定を解決できない（`tax_type=excluded`なのに税率が無い）場合は、通常価格も実売価格も
-	 * 換算できないため価格フィールドを両方省く（フェイルクローズ）。
+	 * バリエーションの通常価格を換算できない（数値でない。`CanonicalProduct::$variants`は外部アダプタ境界）場合は、
+	 * 実売価格と比べられないため価格フィールドを両方省く（フェイルクローズ）。店舗の税設定が読めない場合は、商品の価格も
+	 * 換算できず商品ごと送らない（R3-1d。`test_push_product_does_not_create_when_price_cannot_be_resolved`）。
 	 */
-	public function test_push_product_omits_variant_prices_when_the_shop_tax_settings_are_unresolvable(): void {
+	public function test_push_product_omits_variant_prices_when_the_variant_price_cannot_be_converted(): void {
 		$captured = $this->push_two_variants(
-			[ 'tax_type' => 'excluded' ],
-			[ $this->color_variant( 'Red', '2200', '1980' ), $this->color_variant( 'Blue', '2200' ) ]
+			[ 'tax_type' => 'included' ],
+			[ $this->color_variant( 'Red', 'n/a', '1980' ), $this->color_variant( 'Blue', '2200' ) ]
 		);
 
 		$red = $this->find_captured( $captured, 'PUT', 'products/900/variants/9001.json' );

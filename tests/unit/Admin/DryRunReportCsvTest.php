@@ -96,6 +96,17 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertSame( 'reference_pending_import', $rows[0][7] );
 	}
 
+	/**
+	 * D26: 軽減税率の税区分・税率が Woo に無いことによる取込みの警告は、`tax_setup_required`（WooCommerce の税の設定を先に作る）。
+	 */
+	public function test_tax_setup_warnings_are_flagged_in_the_note_column(): void {
+		$this->items->insert_many( 'run-tax', 1, [ $this->row( [ 'warnings' => [ 'reduced_tax_class_not_found', 'tax_rates_not_configured:reduced-rate', 'tax_class_missing:x' ] ] ) ] );
+
+		$rows = $this->csv->rows( 'run-tax', null, false );
+
+		$this->assertSame( [ 'tax_setup_required', 'tax_setup_required', '' ], array_column( $rows, 7 ) );
+	}
+
 	public function test_stock_with_unimported_parent_product_is_flagged_as_pending_import(): void {
 		// 在庫は親商品が未解決だとアイテム自体が保存されないため`indicates_unresolved_reference()`
 		// （checksumキャッシュ判定用）の対象外だが、レポート上は他の参照未解決と同じ

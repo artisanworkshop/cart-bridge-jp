@@ -224,4 +224,36 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		$this->assertFalse( WarningCode::indicates_kept_by_link_direction( [ WarningCode::PRODUCT_SAVE_FAILED ] ) );
 		$this->assertFalse( WarningCode::indicates_kept_by_link_direction( [] ) );
 	}
+
+	/**
+	 * R3-1d（issue #78）: 標準・軽減以外の税区分の商品・バリエーションは送らない（プラットフォーム非依存）。取込みの税の設定の
+	 * 警告・アダプタの換算不能は送信を止める判定に入れない（後者はアダプタ自身がスキップする）。
+	 */
+	public function test_tax_class_codes_are_registered_where_they_belong(): void {
+		foreach ( [ WarningCode::TAX_CLASS_UNSUPPORTED, WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED ] as $code ) {
+			$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::with_detail( $code, 'x' ) ] ), $code );
+			$this->assertFalse( WarningCode::indicates_tax_setup_required( $code ), $code );
+		}
+
+		foreach ( [ WarningCode::REDUCED_TAX_CLASS_NOT_FOUND, WarningCode::TAX_RATES_NOT_CONFIGURED, WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE, WarningCode::TAX_CLASS_MISSING ] as $code ) {
+			$this->assertFalse( WarningCode::indicates_export_blocking( [ $code ] ), $code );
+			// 受注も共有する判定には入れない（受注は取込みのたびに明細を作り直さない）。
+			$this->assertFalse( WarningCode::indicates_unresolved_reference( [ $code ] ), $code );
+			$this->assertFalse( WarningCode::indicates_pending_import( $code ), $code );
+		}
+	}
+
+	/**
+	 * D26: 税の設定を作れば消える取込みの警告は CSV の`note`で`tax_setup_required`。checksum を止めるのは軽減税率の税区分が
+	 * 無くて標準に倒した商品だけ（`ProductWriter`が見る）。
+	 */
+	public function test_tax_setup_codes(): void {
+		$this->assertTrue( WarningCode::indicates_tax_setup_required( WarningCode::REDUCED_TAX_CLASS_NOT_FOUND ) );
+		$this->assertTrue( WarningCode::indicates_tax_setup_required( WarningCode::with_detail( WarningCode::TAX_RATES_NOT_CONFIGURED, 'reduced-rate' ) ) );
+		$this->assertFalse( WarningCode::indicates_tax_setup_required( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'x' ) ) );
+
+		$this->assertTrue( WarningCode::indicates_reduced_tax_class_fallback( [ WarningCode::PRODUCT_SAVE_FAILED, WarningCode::REDUCED_TAX_CLASS_NOT_FOUND ] ) );
+		$this->assertFalse( WarningCode::indicates_reduced_tax_class_fallback( [ WarningCode::with_detail( WarningCode::TAX_RATES_NOT_CONFIGURED, 'reduced-rate' ) ] ) );
+		$this->assertFalse( WarningCode::indicates_reduced_tax_class_fallback( [] ) );
+	}
 }

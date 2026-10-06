@@ -29,6 +29,12 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	use RemoteIdFromExtrasTrait;
 
 	/**
+	 * `$tax_class` の「軽減税率」の記号（標準税率は null）。Woo のスラッグではない（英語でインストールした Woo の既定のスラッグと
+	 * 同じ文字列だが、Woo 層は JP の税率で税区分を見分けて相互変換する。`Woo\Support\TaxClass`、D26）。
+	 */
+	public const TAX_CLASS_REDUCED = 'reduced-rate';
+
+	/**
 	 * `extras`は元々このモデルの最終（12番目）の位置指定引数だった。`cbjp/adapters/register`
 	 * 経由の外部アダプタ/アドオンが位置引数で `new CanonicalProduct(..., $extras)` のように
 	 * 呼び出す可能性があるため、`extras`より後の引数（`requires_shipping`を含む）はすべて
@@ -42,8 +48,10 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	 * @param array<string,mixed>            $extras ASP固有フィールドの退避先。往復移行でのデータ欠損を防ぐ。
 	 * @param array<int,string>              $tag_refs 連携先タグのremote_id一覧。
 	 * @param ?int                            $weight 重量（グラム単位）。Wooのネイティブな重量設定に対応する。
-	 * @param ?string                         $tax_class Wooのネイティブな税区分スラッグ（例: 標準税率はnull、
-	 *   軽減税率は`reduced-rate`）。Wooが標準で用意する追加税区分の規約に合わせる。
+	 * @param ?string                         $tax_class 税区分。標準税率は null、軽減税率は記号`reduced-rate`
+	 *   （`TAX_CLASS_REDUCED`）。**Woo のスラッグではない**: Woo 層が JP の税率（8%）で
+	 *   税区分を見分けて相互変換する（D26。日本語でインストールした Woo の軽減税率の税区分は「軽減税」でスラッグが違う）。
+	 *   それ以外の値（Woo の他の税区分のスラッグ）は、エクスポートでは止める警告とセットでしか現れない。
 	 */
 	public function __construct(
 		public string $name,

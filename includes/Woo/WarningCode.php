@@ -54,9 +54,57 @@ final class WarningCode {
 	 */
 	public const PRICE_TAX_BASIS_UNRESOLVED = 'price_tax_basis_unresolved';
 
-	public const SKU_DUPLICATE                 = 'sku_duplicate';
-	public const TAX_CLASS_MISSING             = 'tax_class_missing';
-	public const TAX_RATES_NOT_CONFIGURED      = 'tax_rates_not_configured';
+	public const SKU_DUPLICATE = 'sku_duplicate';
+
+	/**
+	 * インポート（`Woo\Support\TaxClass::resolve()`）: アダプタが渡した Woo の税区分スラッグ（正規化モデルの軽減税率の記号以外）が
+	 * Woo に無い。標準の税区分に倒して保存した。detail はそのスラッグ。
+	 */
+	public const TAX_CLASS_MISSING = 'tax_class_missing';
+
+	/**
+	 * インポート（`Woo\Support\TaxClass::resolve()`）: 入れた税区分に税率が 1 件も無い（WooCommerce はその商品・明細を課税しない）。
+	 * 軽減税率の商品では、JP の税率が 8% の税区分が無いときに既定の軽減税率の税区分（`reduced-rate`／`軽減税`）へ入れた場合に付く。
+	 * その税区分に日本の税率を足せば、取り込み直さなくても正しくなる（checksum は保存する）。detail は税区分のスラッグ。
+	 * dry-run の CSV の `note` は `tax_setup_required`。
+	 */
+	public const TAX_RATES_NOT_CONFIGURED = 'tax_rates_not_configured';
+
+	/**
+	 * インポート（`Woo\Support\TaxClass::resolve()`。D26、issue #102）: 軽減税率（8%）の商品・明細を入れる税区分が Woo に無い
+	 * （JP の税率が 8% の税区分も、税率の無い既定の軽減税率の税区分も無い）。標準の税区分に倒して保存した（本実行は止めない。
+	 * 2026-10-06 ユーザー決定）。WooCommerce の設定の「税」で、軽減税率の税区分に JP の 8% の税率を作ってから取り込み直す。
+	 * 商品は checksum を保存しない（`indicates_reduced_tax_class_fallback()`。作ってから取り込み直せば直る）。受注は保存する
+	 * （取込みのたびに明細を作り直さないため。受注の金額は ASP の値を明示しており、変わるのは税区分の名前だけ）。
+	 * dry-run の CSV の `note` は `tax_setup_required`。
+	 */
+	public const REDUCED_TAX_CLASS_NOT_FOUND = 'reduced_tax_class_not_found';
+
+	/**
+	 * エクスポート（`Woo\Reader\ProductReader`。R3-1d、issue #78）: 課税商品の税区分が、JP の税率で標準（10%）・軽減（8%）の
+	 * どちらとも判定できない（`Woo\Support\TaxClass::classify()` が `unsupported`＝ゼロ税率などそれ以外の税率、または
+	 * `unconfigured`＝JP の税率が無い）。正規化モデルは標準・軽減しか運べず、ColorMe も商品単位の軽減税率フラグしか持たないため、
+	 * 送ると誤った税区分で販売される。`indicates_export_blocking()` の対象（作成も更新もしない）。detail は Woo の税区分の名前。
+	 * 案内: 商品の税区分を標準か軽減税率に変える、または税区分に日本の税率（10%・8%）を設定する。
+	 * `ColorMeAdapter::push_product()` も、正規化モデルの税区分が記号以外のときに多重防御として同じコードで送らない。
+	 */
+	public const TAX_CLASS_UNSUPPORTED = 'tax_class_unsupported';
+
+	/**
+	 * エクスポート（`Woo\Reader\ProductReader`。R3-1d）: 公開バリエーションの税区分（親と同じ設定なら親の税区分）が、標準・軽減の
+	 * どちらとも判定できない（`TAX_CLASS_UNSUPPORTED` と同じ判定）。ColorMe の税区分は商品単位のため、ゼロ税率などのバリエーションは
+	 * 親の税区分で課税されてしまう。`indicates_export_blocking()` の対象。detail はバリエーションの ID。
+	 * 標準の親の下の軽減税率のバリエーション（支払額は一致する）は対象外。
+	 */
+	public const VARIATION_TAX_CLASS_UNSUPPORTED = 'variation_tax_class_unsupported';
+
+	/**
+	 * `ColorMeAdapter::push_product()`（R3-1d）: 価格を 1 件も ColorMe の基準へ換算できない（`shop.json` の税設定〔内税・外税、
+	 * 税率、端数処理〕が読めない等）ため、商品を作成も更新もしなかった（以前は作成時だけ非公開にしていたが、更新で公開されていた。
+	 * issue #78）。ColorMe の店舗設定で決まるため dry-run には出ない（dry-run はアダプタを呼ばない。既知の限界）。
+	 */
+	public const PRODUCT_PRICE_NOT_CONVERTIBLE = 'product_price_not_convertible';
+
 	public const IMAGE_DOWNLOAD_FAILED         = 'image_download_failed';
 	public const ATTRIBUTE_NAME_COLLISION      = 'attribute_name_collision';
 	public const VARIATION_REMOVED             = 'variation_removed';
@@ -354,8 +402,9 @@ final class WarningCode {
 	public const ORDER_REFUNDED = 'order_refunded';
 
 	/**
-	 * エクスポート時、受注明細の`tax_class`が`''`（標準）/`'reduced-rate'`（軽減税率）以外
-	 * （`zero-rate`・カスタム税区分等）、または`WC_Order_Item_Product::get_tax_status()`が
+	 * エクスポート時、受注明細の`tax_class`が JP の税率で標準（10%）・軽減（8%）のどちらとも判定できない
+	 * （`Woo\Support\TaxClass::classify()`。ゼロ税率・JP の税率が無いカスタム税区分等。D26 以前はスラッグ
+	 * `''`/`'reduced-rate'`の決め打ちだった）、または`WC_Order_Item_Product::get_tax_status()`が
 	 * `'taxable'`以外（送料のみ課税・非課税）。`CanonicalOrder::$line_items[].tax_reduced`は
 	 * bool（標準/軽減税率の2値）しか表現できないため、それ以外の税区分・非課税状態を無警告で
 	 * 標準課税として扱うと税額が誤って計算されうる（`Woo\Reader\ProductReader`の
@@ -619,6 +668,12 @@ final class WarningCode {
 			// いずれか）で課税された受注を恒久的に作成してしまう（例: 実際は非課税だった受注が
 			// 通常課税として記録される。Codexレビュー指摘、金銭的リスク）。
 			self::ORDER_LINE_TAX_CLASS_UNSUPPORTED,
+			// `Woo\Reader\ProductReader`: 課税商品・公開バリエーションの税区分が、JP の税率で標準・軽減のどちらとも判定できない
+			// （R3-1d、issue #78）。正規化モデルは標準・軽減しか運べないため、送ると誤った税区分で販売される。以前は ColorMe の
+			// 作成時だけ非公開にしていたが、更新で課税商品として公開されていた。標準の税区分（`''`）は判定しないので、
+			// 新しい WooCommerce の既定（全商品が標準）では発火しない。プラットフォーム非依存（`TAX_STATUS_NOT_TAXABLE`と同じ）。
+			self::TAX_CLASS_UNSUPPORTED,
+			self::VARIATION_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
 			// 可視バリエーション0件）ため`price='0'`にフェイルクローズ済み。`CanonicalProduct`は
 			// 「価格0円（正規の無料商品）」と「価格を復元できない」を区別するフィールドを持たない
@@ -832,5 +887,31 @@ final class WarningCode {
 		];
 
 		return in_array( self::split( $warning )[0], $codes, true );
+	}
+
+	/**
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列。値は`tax_setup_required`）用: WooCommerce の税の設定
+	 * （軽減税率の税区分と JP の 8% の税率）を作れば消える取込みの警告か（D26「dry-run で先に税率を作るよう促す」）。
+	 */
+	public static function indicates_tax_setup_required( string $warning ): bool {
+		return in_array( self::split( $warning )[0], [ self::REDUCED_TAX_CLASS_NOT_FOUND, self::TAX_RATES_NOT_CONFIGURED ], true );
+	}
+
+	/**
+	 * `Woo\Writer\ProductWriter`用: 軽減税率の商品を、入れる税区分が無いため標準の税区分に倒して保存したか
+	 * （`REDUCED_TAX_CLASS_NOT_FOUND`）。商品だけ checksum を保存せず、税区分と税率を作ってから取り込み直せば直るようにする。
+	 * `indicates_unresolved_reference()`（受注も共有する）には入れない: 受注は取込みのたびに明細を作り直すことになるため
+	 * （定数の docblock 参照）。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	public static function indicates_reduced_tax_class_fallback( array $warnings ): bool {
+		foreach ( $warnings as $warning ) {
+			if ( self::REDUCED_TAX_CLASS_NOT_FOUND === self::split( $warning )[0] ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }

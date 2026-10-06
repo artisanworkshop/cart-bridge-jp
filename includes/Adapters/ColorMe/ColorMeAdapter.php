@@ -588,9 +588,19 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * remote_id付き）に包んで投げる（D21-A。issue #72）。`Sync\Exporter`がそのremote_idを
 	 * checksum=nullでmappingに書き、次回exportをPOSTではなくPUTにして重複作成を防ぐ。
 	 * 更新（既存remote_idへのPUT）は包まない（mappingが既にあるため）。
+	 *
+	 * 送れない商品（標準・軽減以外の税区分、価格を 1 件も換算できない。`ProductTransformer::push_blocker()`）は、
+	 * 作成も更新もせず remote_id を空にした`skipped`で返す（R3-1d、issue #78。`push_customer()`の必須項目の欠けと同じ形。
+	 * `Sync\Exporter`は作成なら intent を消して無料枠を返し、更新なら既存の mapping・checksum に触れず次回に再試行する）。
+	 * 以前は作成時だけ hidden にしていたが、更新では効かず次のエクスポートで課税商品として公開されていた。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
 		$transformer = $this->product_transformer();
+		$blocker     = $transformer->push_blocker( $product );
+
+		if ( null !== $blocker ) {
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ $blocker ] );
+		}
 
 		if ( null === $remote_id ) {
 			$body      = $this->client()->post( 'products.json', [ 'product' => $transformer->to_create_payload( $product ) ] );
@@ -641,18 +651,6 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	private function finish_product_push( ProductTransformer $transformer, CanonicalProduct $product, string $product_remote_id, string $operation, bool $is_create ): PushResult {
 		$warnings = [];
 
-		$create_payload         = $transformer->to_create_payload( $product );
-		$needs_hidden_safeguard = $transformer->requires_hidden_safeguard( $product, $create_payload );
-
-		if ( $needs_hidden_safeguard ) {
-			// 価格を一切換算できなかった、または`tax_class`が既知の値以外
-			// （`ProductTransformer::requires_hidden_safeguard()`のdocblock参照）。
-			// `to_create_payload()`が既にdisplay_stateをhiddenへ強制しているため商品自体は
-			// 非公開で作成/更新済みだが、解決後の再exportで正しい状態へ戻すためchecksumを
-			// キャッシュさせない。
-			$warnings[] = WarningCode::PRODUCT_DETAILS_PUSH_INCOMPLETE;
-		}
-
 		if ( $is_create ) {
 			// 新規作成はPOSTが受け付けない項目（category_id_small/group_ids/stocks）を
 			// 反映するための追いPUTを行う。この追いPUTの失敗は商品自体の作成成功を無効にしない。
@@ -661,13 +659,6 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 				'terminal'  => false,
 			];
 			$follow_up_payload = $transformer->to_update_payload( $product );
-
-			if ( $needs_hidden_safeguard ) {
-				// R2レビュー指摘で`to_create_payload()`のみに限定したhidden強制を、この直後の
-				// 追いPUTが`to_update_payload()`のshowingでそのまま上書きしてしまっていた
-				// （R3レビュー指摘: 安全策が実質0秒しか効かない）。追いPUTでも同じ判定を反映する。
-				$follow_up_payload['display_state'] = 'hidden';
-			}
 
 			try {
 				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $follow_up_payload ] );

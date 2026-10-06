@@ -14,6 +14,7 @@ use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\HtmlText;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\StockDerivation;
+use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\TaxInclusivePrice;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\Support\WeightUnit;
@@ -22,6 +23,7 @@ use WC_Product;
 use WC_Product_Attribute;
 use WC_Product_Variable;
 use WC_Product_Variation;
+use WC_Tax;
 
 /**
  * `WC_Product`（+バリエーション）を `CanonicalProduct` へ変換する（`Woo\Writer\ProductWriter` の
@@ -131,6 +133,11 @@ final class ProductReader implements EntityReader {
 		// 非課税の商品を無警告でexportすると変換先で通常課税として扱われうる。
 		if ( 'taxable' !== $product->get_tax_status() ) {
 			$warnings[] = WarningCode::TAX_STATUS_NOT_TAXABLE;
+		} elseif ( ! self::is_supported_tax_class( $tax_class ) ) {
+			// R3-1d（issue #78）: 税区分を JP の税率で標準・軽減のどちらとも判定できない（ゼロ税率・JP の税率が無い独自の税区分等）。
+			// 正規化モデルは標準・軽減しか運べないため止める（`indicates_export_blocking()`）。`is_taxable()`（税計算 OFF なら偽）では
+			// なく `tax_status` で見る: 税計算 OFF の店舗でも dry-run と本実行（アダプタの多重防御）の結果を揃えるため。
+			$warnings[] = WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, self::tax_class_label( $tax_class ) );
 		}
 
 		$canonical = new CanonicalProduct(
@@ -150,7 +157,8 @@ final class ProductReader implements EntityReader {
 			! $product->is_virtual(),
 			[],
 			$weight,
-			'' !== $tax_class ? $tax_class : null
+			// D26: 正規化モデルの記号へ（標準は null、軽減は`TaxClass::CANONICAL_REDUCED`。日本語でインストールした店舗の「軽減税」も軽減）。
+			TaxClass::to_canonical( $tax_class )
 		);
 
 		if ( $linked_by_import ) {
@@ -165,6 +173,22 @@ final class ProductReader implements EntityReader {
 			$variant_local_ids,
 			$linked_by_import
 		);
+	}
+
+	/**
+	 * 税区分が JP の税率で標準・軽減のどちらかと判定できるか（`Woo\Support\TaxClass::classify()`。D26）。
+	 */
+	private static function is_supported_tax_class( string $tax_class ): bool {
+		return in_array( TaxClass::classify( $tax_class ), [ TaxClass::STANDARD, TaxClass::REDUCED ], true );
+	}
+
+	/**
+	 * 警告の detail に載せる税区分の名前（日本語の税区分のスラッグは URL エンコードで読めないため）。名前が引けなければスラッグ。
+	 */
+	private static function tax_class_label( string $tax_class ): string {
+		$row = WC_Tax::get_tax_class_by( 'slug', $tax_class );
+
+		return is_array( $row ) && is_string( $row['name'] ?? null ) && '' !== $row['name'] ? $row['name'] : $tax_class;
 	}
 
 	/**
@@ -228,7 +252,8 @@ final class ProductReader implements EntityReader {
 		}
 
 		// 親の代表値は親商品の税区分で税込へ換算する（バリエーション個別の税区分が親と異なる場合の
-		// 代表値の厳密さは対象外。`tax_reduced`も商品単位でしかASPへ運べない）。
+		// 代表値の厳密さは対象外。`tax_reduced`も商品単位でしかASPへ運べない。標準・軽減以外のバリエーションは
+		// `VARIATION_TAX_CLASS_UNSUPPORTED`で止まる）。
 		$warnings  = [];
 		$inclusive = $this->normalize_price( $product, $min_price, $warnings );
 
@@ -414,6 +439,13 @@ final class ProductReader implements EntityReader {
 			// （`Sync\Exporter`が`VARIATION_ANY_ATTRIBUTE_UNSUPPORTED`で商品全体のpushを止める）。
 			if ( VariationAxisResolver::has_any_attribute( $variation, $axis_attributes ) ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, (string) $variation_id );
+			}
+
+			// R3-1d: バリエーションの税区分（親と同じ設定なら親の税区分。view コンテキストが`parent`を解決する）が標準・軽減の
+			// どちらでもない。ColorMe の税区分は商品単位なので親の税区分で課税されてしまう。警告を積むだけで`continue`しない
+			// （D22/D23 の母集団と、下の価格の検証の警告を変えない。`Sync\Exporter`が商品全体を止める）。
+			if ( ! self::is_supported_tax_class( $variation->get_tax_class() ) ) {
+				$warnings[] = WarningCode::with_detail( WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED, (string) $variation_id );
 			}
 
 			$remote_id = $existing_remote_ids[ $variation_id ]['remote_id'] ?? null;

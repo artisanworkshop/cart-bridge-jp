@@ -1314,4 +1314,195 @@ final class ProductReaderTest extends WooTestCase {
 			unregister_taxonomy( $taxonomy );
 		}
 	}
+
+	/**
+	 * 税込入力・税計算 ON（日本の一般的な構成）に、JP の税率を税区分ごとに登録する。
+	 *
+	 * @param array<string,string> $rates 税区分のスラッグ => 税率。
+	 */
+	private function jp_tax_store( array $rates ): void {
+		update_option( 'woocommerce_default_country', 'JP:JP13' );
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+
+		foreach ( $rates as $tax_class => $rate ) {
+			\WC_Tax::_insert_tax_rate(
+				[
+					'tax_rate_country'  => 'JP',
+					'tax_rate_state'    => '',
+					'tax_rate'          => $rate,
+					'tax_rate_name'     => 'JP ' . $rate,
+					'tax_rate_priority' => 1,
+					'tax_rate_compound' => 0,
+					'tax_rate_shipping' => 1,
+					'tax_rate_class'    => (string) $tax_class,
+				]
+			);
+		}
+	}
+
+	private function simple_product_with_tax( string $tax_class, string $tax_status = 'taxable' ): int {
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Tax class product' );
+		$wc_product->set_regular_price( '1000' );
+		$wc_product->set_tax_class( $tax_class );
+		$wc_product->set_tax_status( $tax_status );
+		$id = $wc_product->save();
+
+		$this->assertSame( $tax_class, wc_get_product( $id )->get_tax_class( 'edit' ), '前提: 税区分が保存されている' );
+
+		return $id;
+	}
+
+	/**
+	 * D26（issue #102）: 日本語でインストールした WooCommerce の軽減税率の税区分（「軽減税」。`reduced-rate` は無い）の商品は、
+	 * JP の 8% で軽減税率と判定し、正規化モデルの記号で運ぶ（止めない。以前は非標準の税区分として hidden で作成されていた）。
+	 */
+	public function test_japanese_install_reduced_class_is_read_as_the_reduced_token(): void {
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+		$japanese = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $japanese );
+		$this->jp_tax_store(
+			[
+				''                => '10.0000',
+				$japanese['slug'] => '8.0000',
+			]
+		);
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( $japanese['slug'] ) ] )->items[0];
+
+		$this->assertSame( CanonicalProduct::TAX_CLASS_REDUCED, $read_item->item->tax_class );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * D26: 標準でない税区分でも JP の税率が 10% なら標準（null）として運ぶ。
+	 */
+	public function test_a_custom_class_with_the_jp_standard_rate_is_read_as_standard(): void {
+		$custom = \WC_Tax::create_tax_class( 'Standard ten' );
+		$this->assertIsArray( $custom );
+		$this->jp_tax_store( [ $custom['slug'] => '10.0000' ] );
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( $custom['slug'] ) ] )->items[0];
+
+		$this->assertNull( $read_item->item->tax_class );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * R3-1d（issue #78）: 標準・軽減のどちらとも判定できない税区分の課税商品は止める（ゼロ税率〔0%〕・JP の税率が無い独自の税区分・
+	 * 税率の無い既定のゼロ税率）。税計算 OFF の店舗でも止める（`is_taxable()`ではなく`tax_status`で見る）。detail は税区分の名前。
+	 *
+	 * @dataProvider provide_unsupported_tax_classes
+	 */
+	public function test_products_in_unsupported_tax_classes_are_blocked( string $calc_taxes, ?string $zero_rate, string $expected_label ): void {
+		$custom = \WC_Tax::create_tax_class( 'No JP rate' );
+		$this->assertIsArray( $custom );
+		$rates = [ '' => '10.0000' ];
+
+		if ( null !== $zero_rate ) {
+			$rates['zero-rate'] = $zero_rate;
+		}
+
+		$this->jp_tax_store( $rates );
+		update_option( 'woocommerce_calc_taxes', $calc_taxes );
+
+		$slug      = 'Zero rate' === $expected_label ? 'zero-rate' : $custom['slug'];
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( $slug ) ] )->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, $expected_label ), $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+		$this->assertSame( $slug, $read_item->item->tax_class );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:?string,2:string}>
+	 */
+	public static function provide_unsupported_tax_classes(): array {
+		return [
+			'zero rate 0%'                       => [ 'yes', '0.0000', 'Zero rate' ],
+			'zero rate without any rate'         => [ 'yes', null, 'Zero rate' ],
+			'zero rate with tax calculation off' => [ 'no', '0.0000', 'Zero rate' ],
+			'custom class without a JP rate'     => [ 'yes', null, 'No JP rate' ],
+		];
+	}
+
+	/**
+	 * 非課税・送料のみ課税の商品は既存の`TAX_STATUS_NOT_TAXABLE`で止まり、税区分の警告は重ねない。
+	 */
+	public function test_non_taxable_products_do_not_get_the_tax_class_warning(): void {
+		$this->jp_tax_store( [ 'zero-rate' => '0.0000' ] );
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( 'zero-rate', 'none' ) ] )->items[0];
+
+		$this->assertContains( WarningCode::TAX_STATUS_NOT_TAXABLE, $read_item->warnings );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, 'Zero rate' ), $read_item->warnings );
+	}
+
+	/**
+	 * 新しい WooCommerce の既定（税計算 OFF・税率なし・標準の税区分）の商品は止めない（`indicates_export_blocking()`は
+	 * フレッシュな環境で発火してはいけない。sync-export-tools.md）。
+	 */
+	public function test_standard_class_products_in_a_fresh_store_are_not_blocked(): void {
+		update_option( 'woocommerce_default_country', 'US:CA' );
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( '' ) ] )->items[0];
+
+		$this->assertNull( $read_item->item->tax_class );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * R3-1d: 公開バリエーションの税区分（親と同じ設定なら親の税区分）が標準・軽減のどちらでもないと、商品全体を止める。
+	 * 警告を積むだけでバリエーション自体は従来どおり`variants`に残す（D22/D23 の母集団を変えない）。
+	 * 標準の親の下の軽減税率のバリエーションは止めない（backlog `fix-59/G1-2`。支払額は一致する）。
+	 */
+	public function test_a_variation_in_an_unsupported_tax_class_blocks_the_product(): void {
+		$this->jp_tax_store(
+			[
+				''             => '10.0000',
+				'reduced-rate' => '8.0000',
+				'zero-rate'    => '0.0000',
+			]
+		);
+
+		$parent_id = VariableProductFactory::create_parent( 'Mixed tax', [ 'Size' => [ 'S', 'M', 'L' ] ] );
+		$small     = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'S' ] );
+		$medium    = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'M' ] );
+		$large     = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'L' ] );
+
+		$reduced = wc_get_product( $medium );
+		$reduced->set_tax_class( 'reduced-rate' );
+		$reduced->save();
+		$zero = wc_get_product( $large );
+		$zero->set_tax_class( 'zero-rate' );
+		$zero->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $parent_id ] )->items[0];
+
+		$this->assertSame( [ WarningCode::with_detail( WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED, (string) $large ) ], array_values( array_filter( $read_item->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED ) ) ) );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED, (string) $small ), $read_item->warnings );
+		$this->assertSame( [ 'S', 'M', 'L' ], array_column( $read_item->item->variants, 'option1_value' ) );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
+	 * 親が標準・軽減以外の税区分なら、親と同じ設定（`parent`）のバリエーションも同じ理由で止まる。
+	 */
+	public function test_variations_inherit_the_parent_tax_class(): void {
+		$this->jp_tax_store( [ 'zero-rate' => '0.0000' ] );
+
+		$parent_id = VariableProductFactory::create_parent( 'Zero parent', [ 'Size' => [ 'S' ] ] );
+		$parent    = wc_get_product( $parent_id );
+		$parent->set_tax_class( 'zero-rate' );
+		$parent->save();
+		$small = VariableProductFactory::add_variation( $parent_id, [ 'size' => 'S' ] );
+		$this->assertSame( 'parent', wc_get_product( $small )->get_tax_class( 'edit' ), '前提: バリエーションは親と同じ設定' );
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $parent_id ] )->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, 'Zero rate' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED, (string) $small ), $read_item->warnings );
+	}
 }

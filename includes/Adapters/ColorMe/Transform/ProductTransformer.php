@@ -8,6 +8,8 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Canonical\CanonicalProduct;
+use CartBridgeJP\Woo\WarningCode;
+use LogicException;
 use RuntimeException;
 
 /**
@@ -42,45 +44,39 @@ final class ProductTransformer {
 	 * 呼び出し元=`ColorMeAdapter`が付与する）。swagger上必須フィールドは無いが、`tax_reduced`/
 	 * `stock_managed`は常に明示送信する（省略時の既定値がドキュメント化されていないため、
 	 * Woo側の実値をそのまま反映するほうが安全: CLAUDE.md「楽観的デフォルトは金銭的リスク」）。
+	 * 呼び出し元は先に`push_blocker()`で送れる商品か確かめる。
 	 *
 	 * @return array<string,mixed>
 	 */
 	public function to_create_payload( CanonicalProduct $product ): array {
-		$payload = $this->base_payload( $product );
-
-		if ( $this->requires_hidden_safeguard( $product, $payload ) ) {
-			// 金銭的リスクのフェイルクローズ（CLAUDE.mdアーキテクチャ原則9）。display_stateを
-			// 強制的にhiddenへ倒す（`ColorMeAdapter::push_product()`が同じ判定から
-			// `PRODUCT_DETAILS_PUSH_INCOMPLETE`を積み、checksumをキャッシュせず解決後の
-			// 再exportで正しい状態に戻す）。**新規作成のみ**に適用する（R2レビュー指摘）:
-			// 更新時にも同じ判定を`base_payload()`へ入れると、既に公開・販売中の商品が
-			// 毎回非公開化されてしまい、安全上の利得が無いまま機会損失だけが生じる。更新時は
-			// 該当フィールドを単に省略し（ColorMe側の既存値はそのまま残る）、`display_state`も
-			// Woo側の状態をそのまま送る。
-			$payload['display_state'] = 'hidden';
-		}
-
-		return $payload;
+		return $this->base_payload( $product );
 	}
 
 	/**
-	 * 新規作成時にhidden公開へ倒すべきか。`ColorMeAdapter::push_product()`が警告要否の判定にも
-	 * 使うため公開する。
+	 * 作成も更新もしてはいけない商品なら、その理由の警告コードを返す（送れるなら null）。`ColorMeAdapter::push_product()`が
+	 * POST/PUT の前に見て、送らずにスキップする（R3-1d、issue #78。原則9）。以前は作成時だけ`display_state=hidden`に倒していたが、
+	 * 更新では効かず次のエクスポートで課税商品として公開されていた。
 	 *
-	 * - 価格を1件も解決できない（税設定不明・未知の丸め方式等）。
-	 * - `tax_class`が既知の値（`null`=標準税率／`'reduced-rate'`=軽減税率）以外
-	 *   （店舗独自の税区分スラッグ等）。`base_payload()`はこの場合`tax_reduced=false`
-	 *   （標準税率）へフェイルクローズするが、実際には非標準の税区分かもしれず、誤った
-	 *   税区分のまま公開してしまう（G2レビュー指摘, Copilot Suppressed comments）。
-	 *
-	 * @param array<string,mixed> $payload `base_payload()`の戻り値。
+	 * - 税区分が正規化モデルの記号（null＝標準／`CanonicalProduct::TAX_CLASS_REDUCED`＝軽減）以外: `TAX_CLASS_UNSUPPORTED`。
+	 *   `Woo\Reader\ProductReader`が同じ商品を止める警告を積み`Sync\Exporter`が先に止めるので、ここは多重防御。
+	 * - 価格を 1 件も換算できない（`shop.json`の税設定〔内税・外税、税率、端数処理〕が読めない等）: `PRODUCT_PRICE_NOT_CONVERTIBLE`。
+	 *   ColorMe の店舗設定で決まるため dry-run には出ない（dry-run はアダプタを呼ばない。既知の限界）。
 	 */
-	public function requires_hidden_safeguard( CanonicalProduct $product, array $payload ): bool {
-		if ( ! isset( $payload['price'] ) && ! isset( $payload['sales_price'] ) ) {
-			return true;
+	public function push_blocker( CanonicalProduct $product ): ?string {
+		if ( ! self::is_supported_tax_class( $product->tax_class ) ) {
+			return WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, (string) $product->tax_class );
 		}
 
-		return null !== $product->tax_class && 'reduced-rate' !== $product->tax_class;
+		[ $price, $sales_price ] = $this->push_prices( $product );
+
+		return null === $price && null === $sales_price ? WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE : null;
+	}
+
+	/**
+	 * 税区分が ColorMe に送れる正規化モデルの記号か（null＝標準、`CanonicalProduct::TAX_CLASS_REDUCED`＝軽減）。
+	 */
+	private static function is_supported_tax_class( ?string $tax_class ): bool {
+		return null === $tax_class || CanonicalProduct::TAX_CLASS_REDUCED === $tax_class;
 	}
 
 	/**
@@ -94,17 +90,6 @@ final class ProductTransformer {
 	 */
 	public function to_update_payload( CanonicalProduct $product ): array {
 		$payload = $this->base_payload( $product );
-
-		if ( null !== $product->tax_class && 'reduced-rate' !== $product->tax_class ) {
-			// `tax_class`が標準/軽減税率のどちらでもない場合（店舗独自スラッグ等）、
-			// `base_payload()`は`tax_reduced=false`（標準税率）へフェイルクローズする。新規作成は
-			// `requires_hidden_safeguard()`がhidden化するため実害が無いが、更新でこれをそのまま
-			// 送ると、既に（恐らく正しく）設定されているColorMe側の税区分を誤って標準税率へ
-			// 上書きしてしまう（G3レビュー指摘, Copilot）。この税区分は解決する見込みが無い
-			// （リトライしても`tax_class`は変わらない）ため、更新のたびに誤った値を送り続けない
-			// よう、このフィールド自体を省略しColorMe側の既存値を保持させる。
-			unset( $payload['tax_reduced'] );
-		}
 
 		[ , $category_id_small ] = self::parse_category_ref( $product->category_refs[0] ?? null );
 
@@ -139,11 +124,17 @@ final class ProductTransformer {
 	 * @return array<string,mixed>
 	 */
 	private function base_payload( CanonicalProduct $product ): array {
+		if ( ! self::is_supported_tax_class( $product->tax_class ) ) {
+			// `push_blocker()`を通らない呼び出しが将来増えても、標準・軽減以外の税区分を`tax_reduced=false`（標準税率）として
+			// 送らない（原則9。R3-1d より前は作成時に hidden、更新時はこの項目を省いていた）。
+			throw new LogicException( 'ColorMe product payloads only support the standard and reduced tax classes.' );
+		}
+
 		$payload = [
 			'name'          => $product->name,
 			'display_state' => 'publish' === $product->status ? 'showing' : 'hidden',
 			'stock_managed' => $this->is_stock_managed_for_push( $product ),
-			'tax_reduced'   => 'reduced-rate' === $product->tax_class,
+			'tax_reduced'   => CanonicalProduct::TAX_CLASS_REDUCED === $product->tax_class,
 		];
 
 		if ( null !== $product->sku ) {
@@ -239,7 +230,7 @@ final class ProductTransformer {
 			return null;
 		}
 
-		$rate = 'reduced-rate' === $tax_class ? $this->shop_reduce_tax_rate : $this->shop_tax_rate;
+		$rate = CanonicalProduct::TAX_CLASS_REDUCED === $tax_class ? $this->shop_reduce_tax_rate : $this->shop_tax_rate;
 
 		if ( null === $rate ) {
 			return null;
@@ -822,15 +813,15 @@ final class ProductTransformer {
 	}
 
 	/**
-	 * `tax_reduced`（軽減税率対象商品かどうか）をWooのネイティブな税区分（`_tax_class`）に
-	 * マッピングする。`reduced-rate`はWooが標準インストール時から用意する追加税区分のスラッグ
-	 * （`sanitize_title( __( 'Reduced rate', 'woocommerce' ) )`）。ここでextrasだけに留めると、
-	 * アダプタ非依存のWoo writerが軽減税率対象商品にも標準税率を適用してしまい、税額を過大計算しうる。
+	 * `tax_reduced`（軽減税率対象商品かどうか）を正規化モデルの税区分（軽減は`CanonicalProduct::TAX_CLASS_REDUCED`、
+	 * 標準は null）にする。Woo のどの税区分に入れるかは Woo 層が JP の税率（8%）で決める（`Woo\Support\TaxClass`、D26。
+	 * 日本語でインストールした Woo の軽減税率の税区分は「軽減税」でスラッグが違う）。ここで extras だけに留めると、
+	 * アダプタ非依存の Woo writer が軽減税率対象商品にも標準税率を適用してしまい、税額を過大計算しうる。
 	 *
 	 * @param array<string,mixed> $raw
 	 */
 	private function tax_class( array $raw ): ?string {
-		return true === Cast::to_bool_or_null( $raw['tax_reduced'] ?? null ) ? 'reduced-rate' : null;
+		return true === Cast::to_bool_or_null( $raw['tax_reduced'] ?? null ) ? CanonicalProduct::TAX_CLASS_REDUCED : null;
 	}
 
 	/**

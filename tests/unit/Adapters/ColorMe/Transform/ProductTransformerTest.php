@@ -8,7 +8,10 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
+use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\WarningCode;
+use LogicException;
 use RuntimeException;
 use WP_UnitTestCase;
 
@@ -830,6 +833,46 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 
 		$this->assertSame( '6600', $product->price );
 		$this->assertNull( $product->sale_price );
+	}
+
+	/**
+	 * R3-1d（issue #78）: 送れない商品の理由。標準（null）・軽減（記号）以外の税区分と、価格を 1 件も換算できない店舗設定。
+	 */
+	public function test_push_blocker(): void {
+		$transformer = new ProductTransformer( 'excluded', 10, 8, 'round_off' );
+
+		$this->assertNull( $transformer->push_blocker( $this->canonical( null ) ) );
+		$this->assertNull( $transformer->push_blocker( $this->canonical( CanonicalProduct::TAX_CLASS_REDUCED ) ) );
+		$this->assertSame( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, 'zero-rate' ), $transformer->push_blocker( $this->canonical( 'zero-rate' ) ) );
+
+		// 税設定が無い（`shop.json`が読めない）・軽減税率が無い店舗の軽減税率の商品は換算できない。
+		$this->assertSame( WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE, ( new ProductTransformer() )->push_blocker( $this->canonical( null ) ) );
+		$this->assertSame( WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE, ( new ProductTransformer( 'excluded', 10, null, 'round_off' ) )->push_blocker( $this->canonical( CanonicalProduct::TAX_CLASS_REDUCED ) ) );
+		$this->assertNull( ( new ProductTransformer( 'excluded', 10, null, 'round_off' ) )->push_blocker( $this->canonical( null ) ) );
+	}
+
+	/**
+	 * `push_blocker()`を通らずに payload を組み立てても、標準・軽減以外の税区分を`tax_reduced=false`として送らない（原則9）。
+	 */
+	public function test_payloads_refuse_unsupported_tax_classes(): void {
+		$transformer = new ProductTransformer( 'included' );
+
+		$this->assertTrue( $transformer->to_create_payload( $this->canonical( CanonicalProduct::TAX_CLASS_REDUCED ) )['tax_reduced'] );
+		$this->assertFalse( $transformer->to_update_payload( $this->canonical( null ) )['tax_reduced'] );
+		$this->assertSame( 'showing', $transformer->to_create_payload( $this->canonical( null ) )['display_state'] );
+
+		foreach ( [ 'to_create_payload', 'to_update_payload' ] as $method ) {
+			try {
+				$transformer->{$method}( $this->canonical( 'zero-rate' ) );
+				$this->fail( "{$method} accepted an unsupported tax class." );
+			} catch ( LogicException $exception ) {
+				$this->assertStringContainsString( 'tax classes', $exception->getMessage() );
+			}
+		}
+	}
+
+	private function canonical( ?string $tax_class ): CanonicalProduct {
+		return new CanonicalProduct( 'P', 'SKU', '1100', null, null, [], [], [], [], 1, 'publish', [], true, [], null, $tax_class );
 	}
 
 	/**

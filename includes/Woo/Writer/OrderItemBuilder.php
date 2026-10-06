@@ -111,8 +111,8 @@ final class OrderItemBuilder {
 			]
 		);
 		// ProductWriterの商品tax_classと同じ検証・フェイルクローズ規則を共有ヘルパーで適用する
-		// （未設定のtax_classをそのまま渡すとWooCommerceが例外を投げるため）。
-		$requested_tax_class                = true === Value::bool( $line_item['tax_reduced'] ?? null ) ? 'reduced-rate' : '';
+		// （未設定のtax_classをそのまま渡すとWooCommerceが例外を投げるため）。軽減税率はJPの税率が8%の税区分へ解決する（D26）。
+		$requested_tax_class                = true === Value::bool( $line_item['tax_reduced'] ?? null ) ? TaxClass::CANONICAL_REDUCED : '';
 		[ $tax_class, $tax_class_warnings ] = TaxClass::resolve( $requested_tax_class );
 		$warnings                           = array_merge( $warnings, $tax_class_warnings );
 
