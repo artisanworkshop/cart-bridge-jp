@@ -61,7 +61,7 @@ echo '  woo tax classes (plugin classification): ' . implode(
 		array_merge( [ '' ], WC_Tax::get_tax_class_slugs() )
 	)
 ) . "\n";
-echo '  classes with the JP 8% rate (tax rate table): ' . implode( ', ', array_map( 'rawurldecode', cbjp_rh_jp_reduced_classes( cbjp_rh_tax_rate_rows() ) ) ) . "\n";
+echo '  classes with the JP 8% rate (tax rate table): ' . implode( ', ', array_map( 'rawurldecode', cbjp_rh_jp_reduced_classes( cbjp_rh_tax_setup() ) ?? [ '(cannot be reproduced)' ] ) ) . "\n";
 echo "  mappings by platform/entity:\n";
 foreach ( $wpdb->get_results( "SELECT platform, entity_type, COUNT(*) c, SUM(checksum IS NULL) n FROM {$wpdb->prefix}cbjp_mappings GROUP BY platform, entity_type", ARRAY_A ) as $cbjp_row ) {
 	echo "    {$cbjp_row['platform']} / {$cbjp_row['entity_type']}: {$cbjp_row['c']} (checksum null: {$cbjp_row['n']})\n";

@@ -151,7 +151,11 @@ foreach ( $cbjp_emails as $cbjp_email ) {
 
 // D26: 軽減税率の税区分はスラッグでなく JP の税率（8%）で選ぶ（日本語でインストールした店舗では「軽減税」。`tax-classes mode=ja`）。
 // ゼロ税率は既定の税区分（英語 `zero-rate`／日本語「免税」）。どちらも無ければ何も作る前に止める。
-$cbjp_reduced_classes = cbjp_rh_jp_reduced_classes( cbjp_rh_tax_rate_rows() );
+$cbjp_reduced_classes = cbjp_rh_jp_reduced_classes( cbjp_rh_tax_setup() );
+
+if ( null === $cbjp_reduced_classes ) {
+	cbjp_rh_abort( 'the JP rates cannot be reproduced from the tax rate table (postcode/city rates?).' );
+}
 
 if ( [] === $cbjp_reduced_classes ) {
 	cbjp_rh_abort( 'no tax class has the JP 8% rate on this site. Set up the Woo tax rates first (SKILL.md step 0-5).' );

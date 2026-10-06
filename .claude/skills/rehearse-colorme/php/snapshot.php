@@ -227,8 +227,8 @@ if ( 'colorme' !== $cbjp_side ) {
 		'mappings'  => $wpdb->get_results( "SELECT platform, entity_type, remote_id, local_id, checksum IS NULL AS checksum_null, LEFT(checksum, 12) AS checksum_prefix FROM {$wpdb->prefix}cbjp_mappings ORDER BY platform, entity_type, remote_id", ARRAY_A ),
 		// 決済・配送などのマッピング設定（`check-import` が受注の決済・配送の対応を確かめる）。配列でない壊れた値は空として扱う。
 		'settings'  => is_array( get_option( 'cbjp_settings_colorme', [] ) ) ? get_option( 'cbjp_settings_colorme', [] ) : [],
-		// 税率の表（`check-import` が軽減税率の商品の税区分を、JP の税率が 8% の税区分かで確かめる。D26）。
-		'tax_rates' => cbjp_rh_tax_rate_rows(),
+		// 税の設定（基準所在地と税率の表。`check-import` が軽減税率の商品の税区分を、JP の税率が 8% の税区分かで確かめる。D26）。
+		'tax_setup' => cbjp_rh_tax_setup(),
 	];
 }
 

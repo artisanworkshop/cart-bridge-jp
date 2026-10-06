@@ -9,7 +9,8 @@
  * （`WC_Tax::_update_tax_rate()`。生の SQL では WooCommerce の税のキャッシュが無効化されない）、(3) 移し元の税区分の商品・バリエーション・
  * 受注明細を CRUD で移し先へ保存し直す（`WC_Tax::delete_tax_class_by()` は商品・明細の `_tax_class` を書き換えず、存在しない税区分は
  * 読込時に黙って標準 `''` になるため、消すだけでは軽減税率の商品がすべて標準に見えて確認にならない）、(4) 移し元の税区分を消す。
- * 移し元が無い対は飛ばす（既にその状態）。最後に、移し元を指す税率・商品・明細が残っていないことを確かめる（残れば終了コード 1）。
+ * 移し元が無い対は飛ばす（既にその状態）。移し元と移し先の両方に税率がある対があれば、何も変えずに止まる（税率が 1 つの税区分に重なるため）。
+ * 最後に、移し元を指す税率・商品・明細が残っていないことを確かめる（残れば終了コード 1）。
  * 開発サイト専用（`reset-local` と同じ条件）。進行中のジョブがあれば止まる。
  *
  * @package CartBridgeJP
@@ -66,6 +67,18 @@ $cbjp_refs = static function ( string $slug ): array {
 };
 
 echo '== tax classes: ' . implode( ', ', array_map( static fn ( string $slug ): string => '' === $slug ? "''" : rawurldecode( $slug ), WC_Tax::get_tax_class_slugs() ) ) . "\n";
+
+// 移す前に全部の対を確かめる: 移し元と移し先の両方に税率があると、付け替えで 1 つの税区分に税率が重なり（優先度が違えば 8%＋8% で 16%）、
+// 件数の検査も通ってしまう（PR #107 G1-3）。途中の対で止めると半分だけ移った状態が残るので、何かを変える前に止める。
+if ( 'preview' !== $cbjp_mode ) {
+	foreach ( $cbjp_names as $cbjp_en => $cbjp_ja ) {
+		[ $cbjp_from_name, $cbjp_to_name ] = 'en' === $cbjp_mode ? [ $cbjp_ja, $cbjp_en ] : [ $cbjp_en, $cbjp_ja ];
+
+		if ( [] !== $cbjp_refs( sanitize_title( $cbjp_from_name ) )['rates'] && [] !== $cbjp_refs( sanitize_title( $cbjp_to_name ) )['rates'] ) {
+			cbjp_rh_abort( "both {$cbjp_from_name} and {$cbjp_to_name} have tax rates; moving would stack them in one class. Remove one side's rates in WooCommerce > Settings > Tax first (nothing was changed)." );
+		}
+	}
+}
 
 $cbjp_left = 0;
 
@@ -147,7 +160,7 @@ foreach ( $cbjp_names as $cbjp_en => $cbjp_ja ) {
 
 if ( 'preview' !== $cbjp_mode ) {
 	echo '== tax classes now: ' . implode( ', ', array_map( 'rawurldecode', WC_Tax::get_tax_class_slugs() ) ) . "\n";
-	echo '== classes with the JP 8% rate: ' . implode( ', ', array_map( 'rawurldecode', cbjp_rh_jp_reduced_classes( cbjp_rh_tax_rate_rows() ) ) ) . "\n";
+	echo '== classes with the JP 8% rate: ' . implode( ', ', array_map( 'rawurldecode', cbjp_rh_jp_reduced_classes( cbjp_rh_tax_setup() ) ?? [ '(cannot be reproduced)' ] ) ) . "\n";
 }
 
 if ( $cbjp_left > 0 ) {

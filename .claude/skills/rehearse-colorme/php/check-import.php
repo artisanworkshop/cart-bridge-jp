@@ -135,12 +135,12 @@ $cbjp_check_stock = static function ( string $where, $stocks, array $woo ) use (
 	}
 };
 
-// D26: 軽減税率の商品が入るべき税区分（JP の税率が 8%）。スナップショットの税率の表から、プラグインの判定と別に求める。
-// 税率の表の無い古いスナップショットは税区分を比べられないので、1 件の MISMATCH にして取り直しを促す（黙って飛ばさない）。
-$cbjp_reduced_classes = is_array( $cbjp_snap['woo']['tax_rates'] ?? null ) ? cbjp_rh_jp_reduced_classes( $cbjp_snap['woo']['tax_rates'] ) : null;
+// D26: 軽減税率の商品が入るべき税区分（JP の税率が 8%）。スナップショットの税の設定から、プラグインの判定と別に求める。
+// 税の設定の無い古いスナップショットや、一致を再現できない設定（郵便番号・市で限定した税率）は税区分を比べられないので、1 件の MISMATCH にする（黙って飛ばさない）。
+$cbjp_reduced_classes = cbjp_rh_jp_reduced_classes( $cbjp_snap['woo']['tax_setup'] ?? null );
 
 if ( null === $cbjp_reduced_classes ) {
-	$cbjp_report( 'MISMATCH', 'snapshot', 'no woo.tax_rates in this snapshot; tax classes are not checked — take it again' );
+	$cbjp_report( 'MISMATCH', 'snapshot', 'woo.tax_setup is missing or cannot be reproduced (postcode/city rates); tax classes are not checked — take the snapshot again' );
 }
 
 $cbjp_woo_products   = $cbjp_by_remote( 'product', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' !== $p['type'] );
