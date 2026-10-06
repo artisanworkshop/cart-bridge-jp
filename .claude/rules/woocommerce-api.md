@@ -53,7 +53,7 @@ paths:
   WooCommerce が作るバリエーションの `post_excerpt`（属性の要約）は今もランナーで変わる（Writer から制御しにくい。backlog `r3-1b-product-name-entities/R1-L1`）。
   **ターム名は WP が常に実体参照で保存する**（`pre_term_name` の `sanitize_text_field`＋kses＋`_wp_specialchars`。ランナーによらない。`Black & White` → `Black &amp; White`）ので、
   ターム名（グローバル属性の値・カテゴリ名）を外へ送る・画面に出すときは `HtmlText::to_plain()` で戻す。`wp_insert_term()` と同じ重複判定をしたいときは、戻さずに
-  入力側を `sanitize_term_field( 'name', …, 'db' )` で同じ形にして比べる（`to_plain()` と生の値の比較は、空白の畳み込み・タグの除去でずれる）。
+  入力側を `wp_unslash( sanitize_term_field( 'name', …, 'db' ) )` で同じ形にして比べる（`'db'` の結果は kses の `addslashes` でスラッシュ付き）（`to_plain()` と生の値の比較は、空白の畳み込み・タグの除去でずれる）。
   テストでは未ログイン（ユーザー 0）の基準状態で kses が登録されていて（`init` と `set_current_user` の `kses_init()`）、管理者にすると外れる。
   `wp_set_current_user()` は今と同じ ID を渡すと `set_current_user` を発火しない（既に 0 なら `wp_set_current_user( 0 )` は何もしない）ので、kses の有無は
   `has_filter( 'title_save_pre', 'wp_filter_kses' )` で確かめる（`ProductWriterTest::act_as_runner()`）

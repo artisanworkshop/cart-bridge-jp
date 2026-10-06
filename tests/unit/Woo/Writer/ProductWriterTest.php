@@ -909,7 +909,7 @@ final class ProductWriterTest extends WooTestCase {
 	/**
 	 * 更新（`wp_update_post()`）でも kses が掛かる。管理者として作った商品を WP-Cron の条件で更新しても名前が変わらない。
 	 * WooCommerce は投稿の列（名前・説明・状態など）が変わったときだけ `wp_update_post()` を呼ぶので、短い説明も変えて通らせる
-	 * （`WC_Product_Data_Store_CPT::update()`。価格だけの更新では名前が kses を通らず、このテストが何も確かめなくなる）。
+	 * （`WC_Product_Data_Store_CPT::update()`。価格だけの更新では保存済みの名前が kses を通らず、更新時の kses での安定性を確かめなくなる）。
 	 */
 	public function test_updating_under_the_other_runner_keeps_the_name(): void {
 		$name    = 'Tom & Jerry <set>';
