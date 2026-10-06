@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCustomer;
+use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WP_User;
 use WP_User_Query;
@@ -23,6 +24,12 @@ use WP_User_Query;
 final class CustomerReader implements EntityReader {
 
 	private const PAGE_SIZE = 20;
+
+	/**
+	 * @param string $platform 書き出し先のプラットフォームID（D25: 取込みで結ばれた顧客を`ReadItem::$linked_by_import`で印す）。
+	 *   既定値を持たせない（空だと判定が黙って効かなくなるため）。
+	 */
+	public function __construct( private readonly string $platform ) {}
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
@@ -76,7 +83,7 @@ final class CustomerReader implements EntityReader {
 			[]
 		);
 
-		return new ReadItem( $user->ID, $canonical );
+		return new ReadItem( $user->ID, $canonical, [], true, [], EntityOrigin::user_linked_by_import( $user->ID, $this->platform ) );
 	}
 
 	/**

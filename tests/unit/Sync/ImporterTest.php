@@ -21,6 +21,7 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\InMemoryWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\WooRepositoryFactory;
 use WP_UnitTestCase;
 
@@ -746,5 +747,50 @@ final class ImporterTest extends WP_UnitTestCase {
 		} finally {
 			remove_all_filters( 'cbjp/limits/product' );
 		}
+	}
+
+	/**
+	 * D25（issue #98）: エクスポートで結ばれた実体を上書きしなかった結果（`LINKED_BY_EXPORT_NOT_IMPORTED`）は、mapping がある実体なら
+	 * 既に結ばれている（`LimitPolicy::used()`にも数えられている）ので`unchanged`にも数え、mapping（エクスポートの checksum）には触れない。
+	 * mapping が無い結果（在庫は商品の mapping で届く）は`unchanged`に数えない。実書込み・dry-run の両方。
+	 */
+	public function test_a_result_kept_by_link_direction_counts_as_unchanged_only_with_a_mapping(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ), CanonicalFactory::product( 'p2', 'SKU-2' ) ] );
+		$this->mappings->upsert( $adapter->id(), 'product', 'p1', 501, 'export-checksum' );
+
+		$writer = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::LINKED_BY_EXPORT_NOT_IMPORTED ] );
+			}
+		};
+
+		foreach ( [ false, true ] as $is_dry_run ) {
+			$result = ( new Importer( $this->mappings ) )->run_page( $adapter, $writer, 'product', Cursor::start(), $is_dry_run );
+
+			$this->assertSame( 2, $result['totals']['skipped'] );
+			$this->assertSame( 1, $result['totals']['unchanged'] );
+			$this->assertSame( 2, $result['totals']['warned'] );
+			$this->assertSame( 'export-checksum', $this->mappings->find_checksum( $adapter->id(), 'product', 'p1' ) );
+			$this->assertNull( $this->mappings->find_local_id( $adapter->id(), 'product', 'p2' ) );
+		}
+	}
+
+	/**
+	 * D25: 他の理由でスキップした結果（mapping あり）は従来どおり`unchanged`に数えない（「移行できない」側）。
+	 */
+	public function test_other_skips_with_a_mapping_are_not_counted_as_unchanged(): void {
+		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
+		$this->mappings->upsert( $adapter->id(), 'product', 'p1', 501, 'stale' );
+
+		$writer = new class() implements WooWriter {
+			public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::PRODUCT_SAVE_FAILED ] );
+			}
+		};
+
+		$result = ( new Importer( $this->mappings ) )->run_page( $adapter, $writer, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['unchanged'] );
 	}
 }

@@ -1472,4 +1472,94 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 0, $result['totals']['unchanged'] );
 	}
+
+	/**
+	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた実体（`ReadItem::$linked_by_import`）は送らない。
+	 * mapping には取込みの checksum が残り、無料枠も使わない。既に結ばれているので`unchanged`にも数える。
+	 */
+	public function test_an_item_linked_by_import_is_not_pushed_and_its_mapping_is_left_untouched(): void {
+		$product = $this->product();
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, $product->checksum() );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $product, [], true, [], true ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['processed'] );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['unchanged'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 0, $result['totals']['updated'] );
+		$this->assertSame( $product->checksum(), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * D25: mapping を失った取込み品も送らない（作成し直してリモートに重複を作らない）。結ばれていないので`unchanged`には数えない
+	 * （Pro 案内では「どの版でも移行できない」側）。push intent も書かない。
+	 */
+	public function test_an_item_linked_by_import_without_a_mapping_is_not_created(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [], true ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+
+		$this->assertSame( [], $writer->writes );
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['unchanged'] );
+		$this->assertSame( 0, $result['totals']['created'] );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * D25: dry-run の行には D25 のコードだけを載せる（送らない行に、止める警告などの読出時の警告を出さない）。
+	 */
+	public function test_a_dry_run_row_for_an_item_linked_by_import_carries_only_the_d25_code(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'import-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::ALL_VARIATIONS_EXCLUDED ], true, [], true ) ] );
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, null, null, 9501, 'run-9501' );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['unchanged'] );
+
+		$rows = ( new DryRunItemRepository() )->list_after( 'run-9501', 0, 10 );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'skipped', $rows[0]['operation'] );
+		$this->assertSame( 'remote-1', $rows[0]['remote_id'] );
+		$this->assertSame( [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ], json_decode( $rows[0]['warnings_json'], true ) );
+	}
+
+	/**
+	 * D25: 取込み品は無料枠を使わないので、同じページの Woo 生まれの実体は枠どおり作成される（枠 1、取込み品が先頭）。
+	 */
+	public function test_an_item_linked_by_import_does_not_consume_the_free_tier_slot_of_the_page(): void {
+		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
+
+		$reader   = new FixedWooReader(
+			[
+				new ReadItem( 101, $this->product( 'Imported' ), [], true, [], true ),
+				new ReadItem( 102, $this->product( 'Woo born' ) ),
+			],
+			2
+		);
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+
+		remove_all_filters( 'cbjp/limits/product' );
+
+		$this->assertCount( 1, $writer->writes );
+		$this->assertSame( 'Woo born', $writer->writes[0]['item']->name );
+		$this->assertSame( 1, $result['totals']['created'] );
+		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
+	}
 }

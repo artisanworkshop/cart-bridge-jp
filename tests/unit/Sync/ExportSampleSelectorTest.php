@@ -53,4 +53,128 @@ final class ExportSampleSelectorTest extends WP_UnitTestCase {
 
 		$this->assertContains( $topup_target, $sample->product_ids );
 	}
+
+	/**
+	 * D25 用: 受注を作る。`$imported`なら取込みの writer と同じく`_cbjp_platform`を書く。日時は`$age_seconds`だけ過去にする。
+	 */
+	private function create_order( int $product_id, int $customer_id, bool $imported, int $age_seconds ): int {
+		$order = wc_create_order( [ 'customer_id' => $customer_id ] );
+		$order->add_product( wc_get_product( $product_id ), 1 );
+		$order->set_date_created( time() - $age_seconds );
+
+		if ( $imported ) {
+			$order->update_meta_data( '_cbjp_platform', 'mock' );
+		}
+
+		$order->calculate_totals();
+
+		return $order->save();
+	}
+
+	private function create_customer( bool $imported ): int {
+		$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+
+		if ( $imported ) {
+			update_user_meta( $user_id, '_cbjp_platform', 'mock' );
+		}
+
+		return $user_id;
+	}
+
+	/**
+	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた受注・商品・顧客はエクスポートされないので、
+	 * サンプルの起点（受注）・明細の商品・購入者・補充のどれにも入れない。取り込んだ受注が最新側に並んでいても、Woo 生まれの
+	 * 受注からサンプルを作る。
+	 */
+	public function test_entities_linked_by_import_are_excluded_from_the_sample(): void {
+		$imported_product  = $this->create_product( 'Imported', 'SKU-IMP' );
+		$imported_customer = $this->create_customer( true );
+		update_post_meta( $imported_product, '_cbjp_platform', 'mock' );
+
+		$woo_product  = $this->create_product( 'Woo born', 'SKU-WOO' );
+		$woo_customer = $this->create_customer( false );
+
+		$woo_order = $this->create_order( $woo_product, $woo_customer, false, 3600 );
+
+		// Woo 生まれの受注に取込み品の商品・取込みで結ばれた顧客（取り込んだ会員が Woo で買った）が含まれていても、その商品と顧客は
+		// サンプルに入れない（受注は入れる）。
+		$mixed_order = $this->create_order( $imported_product, $imported_customer, false, 1800 );
+
+		for ( $i = 0; $i < 10; $i++ ) {
+			$this->create_order( $imported_product, $imported_customer, true, $i );
+		}
+
+		$sample = ( new ExportSampleSelector() )->select_or_load( 'mock' );
+
+		$this->assertEqualsCanonicalizing( [ $woo_order, $mixed_order ], $sample->order_ids );
+		$this->assertTrue( $sample->used_fallback );
+		$this->assertContains( $woo_product, $sample->product_ids );
+		$this->assertNotContains( $imported_product, $sample->product_ids, 'neither from order lines nor from the top-up' );
+		$this->assertContains( $woo_customer, $sample->customer_ids );
+		$this->assertNotContains( $imported_customer, $sample->customer_ids, 'neither from orders nor from the top-up' );
+	}
+
+	/**
+	 * D25: 取り込んだ受注が 1 回に読む件数（50）を超えて最新側に並んでいても、次のページを読んで Woo 生まれの受注を見つける。
+	 */
+	public function test_woo_born_orders_behind_more_than_one_batch_of_imported_orders_are_found(): void {
+		$imported_product = $this->create_product( 'Imported', 'SKU-IMP' );
+		update_post_meta( $imported_product, '_cbjp_platform', 'mock' );
+		$woo_product = $this->create_product( 'Woo born', 'SKU-WOO' );
+
+		$woo_order = $this->create_order( $woo_product, 0, false, 7200 );
+
+		for ( $i = 0; $i < 55; $i++ ) {
+			$this->create_order( $imported_product, 0, true, $i );
+		}
+
+		$sample = ( new ExportSampleSelector() )->select_or_load( 'mock' );
+
+		$this->assertSame( [ $woo_order ], $sample->order_ids );
+		$this->assertContains( $woo_product, $sample->product_ids );
+	}
+
+	/**
+	 * D25: 別プラットフォームから取り込んだ実体は、このプラットフォームへ移す対象なので除かない。
+	 */
+	public function test_entities_imported_from_another_platform_stay_in_the_sample(): void {
+		$product = $this->create_product( 'From MakeShop', 'SKU-MS' );
+		update_post_meta( $product, '_cbjp_platform', 'makeshop' );
+
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $product ), 1 );
+		$order->update_meta_data( '_cbjp_platform', 'makeshop' );
+		$order->calculate_totals();
+		$order_id = $order->save();
+
+		$sample = ( new ExportSampleSelector() )->select_or_load( 'mock' );
+
+		$this->assertSame( [ $order_id ], $sample->order_ids );
+		$this->assertContains( $product, $sample->product_ids );
+	}
+
+	/**
+	 * D25 の走査（`collect_newest()`）: 同じ ID は 1 回だけ数え（ページの境目で同じ行が 2 回返っても重複させない）、正の整数として
+	 * 読めない値は捨て、ページが`SCAN_BATCH`件に満たなければ次のページを読まない。`$keep`は常に真にする（本番の`$keep`は 0 に対しても
+	 * 真を返しうる〔印の無い ID 0〕ので、0・負の値を捨てるのは`collect_newest()`自身でなければならない）。
+	 */
+	public function test_collect_newest_skips_duplicates_and_non_ids_and_stops_at_a_short_page(): void {
+		$pages = [
+			1 => array_merge( [ 1, 1, '2', 'x', 0, -3, 3.5 ], range( 10, 52 ) ),
+			2 => [ 2, 4 ],
+			3 => [ 5 ],
+		];
+		$read  = [];
+		$fetch = static function ( int $page ) use ( $pages, &$read ): array {
+			$read[] = $page;
+
+			return $pages[ $page ] ?? [];
+		};
+
+		$method = new \ReflectionMethod( ExportSampleSelector::class, 'collect_newest' );
+		$kept   = $method->invoke( new ExportSampleSelector(), $fetch, static fn (): bool => true, 100 );
+
+		$this->assertSame( array_merge( [ 1, 2 ], range( 10, 52 ), [ 4 ] ), $kept );
+		$this->assertSame( [ 1, 2 ], $read, 'page 2 has fewer rows than a batch, so page 3 is never read' );
+	}
 }

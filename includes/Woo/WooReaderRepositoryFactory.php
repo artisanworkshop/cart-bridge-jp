@@ -35,10 +35,10 @@ final class WooReaderRepositoryFactory implements WooReaderFactory {
 
 		return [
 			'product'  => new ProductReader( $platform, new MethodMap( $platform ), $mappings ),
-			'customer' => new CustomerReader(),
+			'customer' => new CustomerReader( $platform ),
 			'order'    => new OrderReader( $platform, $mappings ),
 			'stock'    => new StockReader( $platform, $mappings ),
-			'coupon'   => new CouponReader(),
+			'coupon'   => new CouponReader( $platform ),
 		];
 	}
 }

@@ -2521,4 +2521,118 @@ final class OrderWriterTest extends WooTestCase {
 			)
 		);
 	}
+
+	/**
+	 * D25 用: 1 軸（Color: 赤・青）の可変商品を作り、取込みの印（`_cbjp_platform`/`_cbjp_remote_id`）を親とバリエーションから外して
+	 * エクスポートで作った商品と同じ状態にする（product・variant の mapping は残る）。
+	 */
+	private function make_export_linked_variable_product( string $product_remote_id ): int {
+		$parent_id = $this->make_variable_product(
+			$product_remote_id,
+			[
+				[
+					'remote_id'     => "{$product_remote_id}-red",
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '赤',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => "{$product_remote_id}-blue",
+					'sku'           => null,
+					'option1_name'  => 'Color',
+					'option1_value' => '青',
+					'price'         => '1000',
+					'stock'         => 5,
+				],
+			]
+		);
+
+		foreach ( array_merge( [ $parent_id ], wc_get_product( $parent_id )->get_children() ) as $post_id ) {
+			delete_post_meta( (int) $post_id, '_cbjp_platform' );
+			delete_post_meta( (int) $post_id, '_cbjp_remote_id' );
+		}
+
+		return $parent_id;
+	}
+
+	private function order_for_option( string $number, string $product_remote_id, string $option1_value ): CanonicalOrder {
+		return $this->make_order(
+			$number,
+			'processing',
+			null,
+			[
+				[
+					'sku'                   => null,
+					'remote_product_id'     => $product_remote_id,
+					'name'                  => "商品（カラー：{$option1_value}）",
+					'price'                 => '1000',
+					'unit_price_excl_tax'   => '1000',
+					'subtotal'              => '1000',
+					'quantity'              => 1,
+					'option1_value_current' => $option1_value,
+				],
+			]
+		);
+	}
+
+	/**
+	 * D25（issue #98）: エクスポートで作った可変商品のバリエーションは取込みの印を持たない（取込みがその商品を書かなくなったので
+	 * 印が付くことも無い）が、variant の mapping でこのプラットフォームと結ばれているので、受注明細はバリエーションに解決する
+	 * （単純商品が remote_id の mapping で解決するのと揃える）。
+	 */
+	public function test_line_item_resolves_to_a_variation_linked_by_export_through_its_variant_mapping(): void {
+		$parent_id    = $this->make_export_linked_variable_product( 'vp-exported' );
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'vp-exported-red' );
+		$this->assertSame( '', get_post_meta( $variation_id, '_cbjp_platform', true ) );
+
+		$result = $this->make_writer()->write( $this->order_for_option( '4101', 'vp-exported', '赤' ), null );
+		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
+
+		$this->assertSame( $parent_id, $items[0]->get_product_id() );
+		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-exported' ), $result->warnings );
+	}
+
+	/**
+	 * D25: 印も variant の mapping も無いバリエーション（店舗が Woo で足したもの）は、従来どおり解決の対象にしない。
+	 */
+	public function test_line_item_does_not_resolve_to_a_variation_without_marker_or_mapping(): void {
+		$parent_id = $this->make_export_linked_variable_product( 'vp-local' );
+
+		$green = new WC_Product_Variation();
+		$green->set_parent_id( $parent_id );
+		$green->set_attributes( [ 'color' => '緑' ] );
+		$green->save();
+
+		$parent     = wc_get_product( $parent_id );
+		$attributes = $parent->get_attributes();
+		$attributes['color']->set_options( array_merge( $attributes['color']->get_options(), [ '緑' ] ) );
+		$parent->set_attributes( $attributes );
+		$parent->save();
+
+		$result = $this->make_writer()->write( $this->order_for_option( '4102', 'vp-local', '緑' ), null );
+		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_variation_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-local' ), $result->warnings );
+	}
+
+	/**
+	 * D25: バリエーションを mapping で引くのはこのプラットフォームの variant の mapping だけ。別プラットフォームで結ばれた
+	 * バリエーション（印も無い）には解決しない。
+	 */
+	public function test_line_item_does_not_resolve_to_a_variation_mapped_only_for_another_platform(): void {
+		$this->make_export_linked_variable_product( 'vp-foreign' );
+		$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'vp-foreign-red' );
+		$this->mappings->delete_one( 'colorme', 'variant', 'vp-foreign-red' );
+		$this->seed_mapping( 'makeshop', 'variant', 'ms-red', $variation_id );
+
+		$result = $this->make_writer()->write( $this->order_for_option( '4103', 'vp-foreign', '赤' ), null );
+		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
+
+		$this->assertSame( 0, $items[0]->get_variation_id() );
+		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-foreign' ), $result->warnings );
+	}
 }

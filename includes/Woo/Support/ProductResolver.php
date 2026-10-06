@@ -135,13 +135,19 @@ final class ProductResolver {
 
 		$expected = array_combine( $axis_slugs, $provided_values );
 
-		$matches = [];
+		$matches  = [];
+		$children = array_map( 'intval', $parent_product->get_children() );
 
-		foreach ( $parent_product->get_children() as $variation_id ) {
-			// 別プラットフォーム由来・このプラグイン外で作成されたvariationは対象外
+		// D25（issue #98）: エクスポートで作った可変商品のバリエーションは`_cbjp_platform`を持たない（取込みがその商品を書かなくなった
+		// ため、以前のように取込みが印を付けることも無い）。このプラットフォームの variant の mapping で結ばれていれば、ASP の
+		// バリエーションと結ばれた実体なので対象にする（親が remote_id の mapping で解決した単純商品と同じく、紐づけで解決する）。
+		$linked_by_mapping = $this->mappings->find_many_by_local_ids( $this->platform, 'variant', $children );
+
+		foreach ( $children as $variation_id ) {
+			// 別プラットフォーム由来・このプラグイン外で作成されたvariation（印も mapping も無い）は対象外
 			// （`VariationWriter`のstale削除・`ProductResolver::resolve_stock_target()`と同じ
 			// ownershipガード）。
-			if ( ! PlatformOwnership::owns_post( $variation_id, $this->platform ) ) {
+			if ( ! PlatformOwnership::owns_post( $variation_id, $this->platform ) && ! isset( $linked_by_mapping[ $variation_id ] ) ) {
 				continue;
 			}
 

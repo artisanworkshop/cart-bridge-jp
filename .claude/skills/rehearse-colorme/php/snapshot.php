@@ -222,7 +222,9 @@ if ( 'colorme' !== $cbjp_side ) {
 		'customers' => $cbjp_customers,
 		'orders'    => $cbjp_orders,
 		'coupons'   => $cbjp_coupons,
-		'mappings'  => $wpdb->get_results( "SELECT platform, entity_type, remote_id, local_id, checksum IS NULL AS checksum_null FROM {$wpdb->prefix}cbjp_mappings ORDER BY platform, entity_type, remote_id", ARRAY_A ),
+		// checksum は先頭 12 桁だけを持つ（`diff side=woo entity=mappings` が、取込みとエクスポートの checksum の書き換え〔D25 で起きてはいけない〕を
+		// 見分けられるように。全桁は要らない）。
+		'mappings'  => $wpdb->get_results( "SELECT platform, entity_type, remote_id, local_id, checksum IS NULL AS checksum_null, LEFT(checksum, 12) AS checksum_prefix FROM {$wpdb->prefix}cbjp_mappings ORDER BY platform, entity_type, remote_id", ARRAY_A ),
 		// 決済・配送などのマッピング設定（`check-import` が受注の決済・配送の対応を確かめる）。配列でない壊れた値は空として扱う。
 		'settings'  => is_array( get_option( 'cbjp_settings_colorme', [] ) ) ? get_option( 'cbjp_settings_colorme', [] ) : [],
 	];

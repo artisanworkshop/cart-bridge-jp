@@ -1168,4 +1168,70 @@ final class ProductReaderTest extends WooTestCase {
 		$this->assertNotContains( WarningCode::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED, $this->warning_codes( $read_item->warnings ) );
 		$this->assertContains( WarningCode::VARIATION_UNPUBLISHED, $this->warning_codes( $read_item->warnings ) );
 	}
+
+	/**
+	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた商品（`_cbjp_platform`が一致）だけに
+	 * `linked_by_import`が立つ。印が無い商品・別プラットフォームの印の商品には立たない（別プラットフォームから取り込んだ商品を
+	 * このプラットフォームへ移すのは正当な移行）。変換は従来どおり行う。
+	 */
+	public function test_linked_by_import_is_set_only_for_products_imported_from_the_same_platform(): void {
+		$ids = [];
+
+		foreach ( [ 'colorme', 'makeshop', null ] as $platform ) {
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( 'P-' . ( $platform ?? 'woo' ) );
+			$wc_product->set_regular_price( '1000' );
+			$id = $wc_product->save();
+
+			if ( null !== $platform ) {
+				update_post_meta( $id, '_cbjp_platform', $platform );
+			}
+
+			$ids[] = $id;
+		}
+
+		$items = $this->make_reader()->query( Cursor::start(), $ids )->items;
+		$flags = [];
+
+		foreach ( $items as $read_item ) {
+			$flags[ $read_item->local_id ] = $read_item->linked_by_import;
+		}
+
+		$this->assertSame(
+			[
+				$ids[0] => true,
+				$ids[1] => false,
+				$ids[2] => false,
+			],
+			$flags
+		);
+		$this->assertSame( '1000', $items[0]->item->price );
+	}
+
+	/**
+	 * D25: 取込みで結ばれた商品の警告は`Exporter`が捨てるので、ページに 1 回だけ付ける情報の警告をその商品で消費せず、
+	 * 同じページの Woo 生まれの商品に付ける。
+	 */
+	public function test_the_once_per_page_conversion_warning_is_not_consumed_by_a_product_linked_by_import(): void {
+		$this->tax_exclusive_store();
+
+		$ids = [];
+
+		foreach ( [ 'Imported', 'Woo born' ] as $name ) {
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( $name );
+			$wc_product->set_regular_price( '1000' );
+			$ids[] = $wc_product->save();
+		}
+
+		update_post_meta( $ids[0], '_cbjp_platform', self::PLATFORM );
+
+		$items = $this->make_reader()->query( Cursor::start(), $ids )->items;
+
+		$this->assertCount( 2, $items );
+		$this->assertSame( $ids[0], $items[0]->local_id );
+		$this->assertTrue( $items[0]->linked_by_import );
+		$this->assertContains( WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE, $items[1]->warnings );
+		$this->assertFalse( $items[1]->linked_by_import );
+	}
 }

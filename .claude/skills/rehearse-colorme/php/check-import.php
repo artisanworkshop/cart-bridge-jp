@@ -1,7 +1,7 @@
 <?php
 /**
  * 取込み後のスナップショット（side=both）で、ColorMe の値と Woo の値を主要項目ごとに突き合わせる。読み取りのみ。
- * 引数: label=<name>
+ * 引数: label=<name> [expect-export-links=yes]
  *
  * Woo 側は `_cbjp_remote_id` メタ（商品・バリエーション・顧客。受注は `_cbjp_remote_order_id`）で ColorMe の id と結ぶ。
  * 見る項目: 商品（名前・型番・公開状態・税区分・価格・在庫と在庫管理・説明・重複）、バリエーション（型番・価格・セール価格・在庫）、
@@ -9,15 +9,25 @@
  * - `MISMATCH`: 変換規則（docs/03・`ProductTransformer`）から見て食い違う値。原因を調べる対象。
  * - `NOTE`: 規則どおりだが往復で問題になりうる変換（仮 SKU・在庫 null→0・会員限定の公開状態など）。
  * - `MISSING`: ColorMe にあるのに Woo に無い（会員以外の顧客は `NOTE`）。
- * `MISMATCH` か `MISSING` が 1 件でもあれば終了コード 1。
+ * - `LINKED_BY_EXPORT`: mapping はあるが、指す Woo の実体に取込みの印（`_cbjp_platform`。顧客は作成の印も）が無い＝エクスポートで
+ *   結ばれた実体（D25）。取込みは上書きせず紐づけだけを保つので、Woo に `_cbjp_remote_id` の付いた実体が無いのが正しい。値は突き合わせない。
+ *   ただし取込みだけの段階（手順 1）では、writer が既存の実体を結んだのに印を書かなかった退行と見分けられないので、
+ *   **既定では失敗として数える**。作成エクスポートの後（手順 3）に `expect-export-links=yes` を付けたときだけ許す。
+ * `MISMATCH` か `MISSING`、または（`expect-export-links=yes` が無いときの）`LINKED_BY_EXPORT` が 1 件でもあれば終了コード 1。
  *
  * @package CartBridgeJP
  */
 
 require_once __DIR__ . '/_lib.php';
 
-$cbjp_opts = cbjp_rh_args( $args, [ 'label' ] );
+$cbjp_opts = cbjp_rh_args( $args, [ 'label', 'expect-export-links' ] );
 $cbjp_snap = cbjp_rh_load_snapshot( $cbjp_opts['label'] ?? '' );
+
+if ( ! in_array( $cbjp_opts['expect-export-links'] ?? 'no', [ 'yes', 'no' ], true ) ) {
+	cbjp_rh_abort( 'expect-export-links must be yes or no' );
+}
+
+$cbjp_expect_export_links = 'yes' === ( $cbjp_opts['expect-export-links'] ?? 'no' );
 
 if ( ! is_array( $cbjp_snap['colorme'] ?? null ) || ! is_array( $cbjp_snap['woo'] ?? null ) ) {
 	cbjp_rh_abort( 'the snapshot needs both sides (take it with side=both)' );
@@ -25,24 +35,39 @@ if ( ! is_array( $cbjp_snap['colorme'] ?? null ) || ! is_array( $cbjp_snap['woo'
 
 $cbjp_shop      = $cbjp_snap['shop'];
 $cbjp_counts    = [
-	'MISMATCH' => 0,
-	'NOTE'     => 0,
-	'MISSING'  => 0,
+	'MISMATCH'         => 0,
+	'NOTE'             => 0,
+	'MISSING'          => 0,
+	'LINKED_BY_EXPORT' => 0,
 ];
 $cbjp_report    = static function ( string $kind, string $where, string $message ) use ( &$cbjp_counts ): void {
 	++$cbjp_counts[ $kind ];
 	echo "  {$kind} {$where}: {$message}\n";
 };
 // ColorMe の id → Woo の実体。同じ id に Woo の実体が 2 件以上あれば重複作成なので MISMATCH にする（後勝ちで黙って 1 件にしない）。
-// 他の platform の実体（`_cbjp_platform` が colorme 以外）は数えない。
-$cbjp_by_remote = static function ( string $kind, array $rows, callable $filter ) use ( $cbjp_report ): array {
+// 他の platform の実体（`_cbjp_platform` が colorme 以外）は数えない。`_cbjp_remote_id` があるのに `_cbjp_platform` が無い行は MISMATCH:
+// 取込みの writer は両方を書き、エクスポートはどちらも書かないので、片方だけなのは writer が取込みの印を書かなかった退行（D25 の判定が
+// エクスポートで結ばれた実体と取り違え、以後の取込みが止まる）。`LINKED_BY_EXPORT` の分岐に回さず、`expect-export-links=yes` でも止める。
+$cbjp_unmarked  = static function ( string $kind, string $remote, array $row ) use ( $cbjp_report ): void {
+	$cbjp_report( 'MISMATCH', "{$kind} {$remote}", 'Woo #' . ( $row['id'] ?? '?' ) . ' has the remote id but no _cbjp_platform (an import writer did not write the import marker; D25 would treat it as linked by export)' );
+};
+$cbjp_by_remote = static function ( string $kind, array $rows, callable $filter ) use ( $cbjp_report, $cbjp_unmarked ): array {
 	$out = [];
 
 	foreach ( $rows as $row ) {
 		$remote   = $row['meta']['_cbjp_remote_id'] ?? null;
 		$platform = $row['meta']['_cbjp_platform'] ?? null;
 
-		if ( null === $remote || '' === $remote || ( null !== $platform && 'colorme' !== $platform ) || ! $filter( $row ) ) {
+		if ( null === $remote || '' === $remote || ! $filter( $row ) ) {
+			continue;
+		}
+
+		if ( null === $platform || '' === $platform ) {
+			$cbjp_unmarked( $kind, (string) $remote, $row );
+			continue;
+		}
+
+		if ( 'colorme' !== $platform ) {
 			continue;
 		}
 
@@ -52,6 +77,31 @@ $cbjp_by_remote = static function ( string $kind, array $rows, callable $filter 
 		}
 
 		$out[ (string) $remote ] = $row;
+	}
+
+	return $out;
+};
+// D25: ColorMe の id → エクスポートで結ばれた Woo の実体の ID（mapping はあるが、指す実体に取込みの印が無い。上の docblock 参照）。
+// `$rows` は Woo 側のスナップショットの行（ID がキー）。印の判定は `Woo\Support\EntityOrigin` と同じ（顧客は作成の印も見る）。
+$cbjp_linked_by_export = static function ( string $entity_type, array $rows ) use ( $cbjp_snap ): array {
+	$out = [];
+
+	foreach ( is_array( $cbjp_snap['woo']['mappings'] ?? null ) ? $cbjp_snap['woo']['mappings'] : [] as $row ) {
+		if ( ! is_array( $row ) || 'colorme' !== ( $row['platform'] ?? null ) || $entity_type !== ( $row['entity_type'] ?? null ) ) {
+			continue;
+		}
+
+		$local = $rows[ (string) ( $row['local_id'] ?? '' ) ] ?? null;
+
+		if ( ! is_array( $local ) ) {
+			continue;
+		}
+
+		$meta = is_array( $local['meta'] ?? null ) ? $local['meta'] : [];
+
+		if ( 'colorme' !== ( $meta['_cbjp_platform'] ?? null ) && 'colorme' !== ( $meta['_cbjp_created_by_import'] ?? null ) ) {
+			$out[ (string) $row['remote_id'] ] = (int) $local['id'];
+		}
 	}
 
 	return $out;
@@ -87,11 +137,17 @@ $cbjp_check_stock = static function ( string $where, $stocks, array $woo ) use (
 
 $cbjp_woo_products   = $cbjp_by_remote( 'product', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' !== $p['type'] );
 $cbjp_woo_variations = $cbjp_by_remote( 'variant', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' === $p['type'] );
+$cbjp_export_linked  = $cbjp_linked_by_export( 'product', $cbjp_snap['woo']['products'] );
 
 echo "== products ==\n";
 foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 	$cbjp_where = "product {$cbjp_id} " . $cbjp_s( $cbjp_cm['name'] ?? '' );
 	$cbjp_woo   = $cbjp_woo_products[ (string) $cbjp_id ] ?? null;
+
+	if ( null === $cbjp_woo && isset( $cbjp_export_linked[ (string) $cbjp_id ] ) ) {
+		$cbjp_report( 'LINKED_BY_EXPORT', $cbjp_where, 'linked to Woo product #' . $cbjp_export_linked[ (string) $cbjp_id ] . ' by export; import keeps it as is (D25)' );
+		continue;
+	}
 
 	if ( null === $cbjp_woo ) {
 		$cbjp_report( 'MISSING', $cbjp_where, 'no Woo product with this _cbjp_remote_id' );
@@ -268,10 +324,16 @@ $cbjp_jis           = array_flip(
 		'沖縄県',
 	]
 );
-$cbjp_woo_customers = $cbjp_by_remote( 'customer', $cbjp_snap['woo']['customers'], static fn ( array $c ): bool => true );
+$cbjp_woo_customers          = $cbjp_by_remote( 'customer', $cbjp_snap['woo']['customers'], static fn ( array $c ): bool => true );
+$cbjp_export_linked_customer = $cbjp_linked_by_export( 'customer', $cbjp_snap['woo']['customers'] );
 foreach ( $cbjp_snap['colorme']['customers'] as $cbjp_id => $cbjp_cm ) {
 	$cbjp_where = "customer {$cbjp_id}";
 	$cbjp_woo   = $cbjp_woo_customers[ (string) $cbjp_id ] ?? null;
+
+	if ( null === $cbjp_woo && isset( $cbjp_export_linked_customer[ (string) $cbjp_id ] ) ) {
+		$cbjp_report( 'LINKED_BY_EXPORT', $cbjp_where, 'linked to Woo user #' . $cbjp_export_linked_customer[ (string) $cbjp_id ] . ' by export; import keeps it as is (D25)' );
+		continue;
+	}
 
 	if ( null === $cbjp_woo ) {
 		if ( true !== ( $cbjp_cm['member'] ?? null ) ) {
@@ -311,9 +373,20 @@ if ( ! isset( $cbjp_snap['woo']['settings'] ) ) {
 }
 $cbjp_woo_orders = [];
 foreach ( $cbjp_snap['woo']['orders'] as $cbjp_order ) {
-	$cbjp_remote = $cbjp_order['meta']['_cbjp_remote_order_id'] ?? null;
+	$cbjp_remote   = $cbjp_order['meta']['_cbjp_remote_order_id'] ?? null;
+	$cbjp_platform = $cbjp_order['meta']['_cbjp_platform'] ?? null;
 
 	if ( null === $cbjp_remote ) {
+		continue;
+	}
+
+	// 商品・会員と同じ: 取込みの印が無いのは writer の退行。他の platform の受注は数えない。
+	if ( null === $cbjp_platform || '' === $cbjp_platform ) {
+		$cbjp_unmarked( 'sale', (string) $cbjp_remote, $cbjp_order );
+		continue;
+	}
+
+	if ( 'colorme' !== $cbjp_platform ) {
 		continue;
 	}
 
@@ -325,8 +398,14 @@ foreach ( $cbjp_snap['woo']['orders'] as $cbjp_order ) {
 
 	$cbjp_woo_orders[ (string) $cbjp_remote ] = $cbjp_order;
 }
+$cbjp_export_linked_order = $cbjp_linked_by_export( 'order', $cbjp_snap['woo']['orders'] );
 foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 	$cbjp_woo = $cbjp_woo_orders[ (string) $cbjp_id ] ?? null;
+
+	if ( null === $cbjp_woo && isset( $cbjp_export_linked_order[ (string) $cbjp_id ] ) ) {
+		$cbjp_report( 'LINKED_BY_EXPORT', "sale {$cbjp_id}", 'linked to Woo order #' . $cbjp_export_linked_order[ (string) $cbjp_id ] . ' by export; import keeps it as is (D25)' );
+		continue;
+	}
 
 	if ( null === $cbjp_woo ) {
 		$cbjp_report( 'MISSING', "sale {$cbjp_id}", 'no Woo order with _cbjp_remote_order_id' );
@@ -379,6 +458,10 @@ foreach ( $cbjp_snap['colorme']['sales'] as $cbjp_id => $cbjp_cm ) {
 echo 'summary: ' . wp_json_encode( $cbjp_counts ) . "\n";
 
 // 食い違い・欠落があれば非ゼロで終える（出力を人が読まなくても、続く手順や確認スクリプトが失敗として扱えるように。G1-1）。
-if ( $cbjp_counts['MISMATCH'] > 0 || $cbjp_counts['MISSING'] > 0 ) {
+if ( $cbjp_counts['LINKED_BY_EXPORT'] > 0 && ! $cbjp_expect_export_links ) {
+	echo "LINKED_BY_EXPORT counts as a failure unless expect-export-links=yes (only after the create export of step 3)\n";
+}
+
+if ( $cbjp_counts['MISMATCH'] > 0 || $cbjp_counts['MISSING'] > 0 || ( $cbjp_counts['LINKED_BY_EXPORT'] > 0 && ! $cbjp_expect_export_links ) ) {
 	exit( 1 );
 }

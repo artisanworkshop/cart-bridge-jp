@@ -532,4 +532,85 @@ final class StockReaderTest extends WooTestCase {
 			$this->assertSame( $expected_mixed, $this->has_mixed_warning( $item->warnings ), 'StockReader local_id=' . $item->local_id );
 		}
 	}
+
+	/**
+	 * @return array<string,array{0:?string,1:bool}>
+	 */
+	public function linked_by_import_cases(): array {
+		return [
+			'imported from the same platform' => [ self::PLATFORM, true ],
+			'imported from another platform'  => [ 'makeshop', false ],
+			'woo born'                        => [ null, false ],
+		];
+	}
+
+	/**
+	 * D25（issue #98）: 在庫は商品に従う。在庫行を作るすべての箇所（単純商品・解決したバリエーション・未解決の行〔mapping の無い単純商品・
+	 * mapping の無いバリエーション・mapping の無い variable 親のバリエーション〕）で、商品（variable は親）の
+	 * 取込みの印から`linked_by_import`を立て、`ProductReader`の判定と一致する（同じ事実を 2 つの Reader で判定するため一致を固定する）。
+	 *
+	 * @dataProvider linked_by_import_cases
+	 */
+	public function test_every_stock_row_follows_the_product_and_agrees_with_the_product_reader( ?string $platform, bool $expected ): void {
+		$mapped_simple = $this->create_simple_product( 5 );
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-simple', $mapped_simple );
+
+		$unmapped = new WC_Product_Simple();
+		$unmapped->set_name( 'Unmapped' );
+		$unmapped->set_regular_price( '1000' );
+		$unmapped_simple = $unmapped->save();
+
+		[ $parent_id, $variation_ids ] = $this->make_variable_product_with_variations(
+			[
+				[
+					'size'  => 'S',
+					'sku'   => 'SHIRT-S',
+					'stock' => 3,
+				],
+				[
+					'size'  => 'M',
+					'sku'   => 'SHIRT-M',
+					'stock' => 4,
+				],
+			]
+		);
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-parent', $parent_id );
+		$this->seed_mapping( self::PLATFORM, 'variant', 'v-s', $variation_ids['S'] );
+
+		// 親に mapping の無い variable 商品（mapping を失った取込み品）。バリエーションの行はすべて未解決になる。
+		[ $unmapped_parent ] = $this->make_variable_product_with_variations(
+			[
+				[
+					'size'  => 'S',
+					'sku'   => 'TEE-S',
+					'stock' => 1,
+				],
+			]
+		);
+
+		$products = [ $mapped_simple, $unmapped_simple, $parent_id, $unmapped_parent ];
+
+		if ( null !== $platform ) {
+			foreach ( $products as $product_id ) {
+				update_post_meta( $product_id, '_cbjp_platform', $platform );
+			}
+		}
+
+		$stock_items = $this->make_reader()->query( Cursor::start(), $products )->items;
+		$this->assertCount( 5, $stock_items );
+
+		$unresolved = array_filter( $stock_items, static fn ( $item ): bool => ! $item->fully_resolved );
+		$this->assertCount( 3, $unresolved, 'unmapped simple product, variation M and the variation of the unmapped parent' );
+
+		foreach ( $stock_items as $item ) {
+			$this->assertSame( $expected, $item->linked_by_import, 'local_id=' . $item->local_id );
+		}
+
+		$product_items = ( new ProductReader( self::PLATFORM, new MethodMap( self::PLATFORM ), $this->mappings ) )->query( Cursor::start(), $products )->items;
+		$this->assertCount( 4, $product_items );
+
+		foreach ( $product_items as $item ) {
+			$this->assertSame( $expected, $item->linked_by_import, 'ProductReader local_id=' . $item->local_id );
+		}
+	}
 }

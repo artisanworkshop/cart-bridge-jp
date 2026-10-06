@@ -30,7 +30,7 @@ use CartBridgeJP\Woo\Writer\VariationWriter;
 final class WooRepositoryFactory implements WooWriterFactory {
 
 	public function for_platform( string $platform ): WooWriter {
-		return new WooRepository( new SideEffectGuard(), $this->writers( $platform ) );
+		return new WooRepository( new SideEffectGuard(), $this->writers( $platform ), $platform );
 	}
 
 	/**
@@ -38,7 +38,7 @@ final class WooRepositoryFactory implements WooWriterFactory {
 	 * `write()`ではなく`validate()`しか呼ばないため何も永続化しない（F1-6）。
 	 */
 	public function for_dry_run( string $platform ): WooWriter {
-		return new DryRunRepository( new SideEffectGuard(), $this->writers( $platform ) );
+		return new DryRunRepository( new SideEffectGuard(), $this->writers( $platform ), $platform );
 	}
 
 	/**
@@ -57,7 +57,7 @@ final class WooRepositoryFactory implements WooWriterFactory {
 			'product'  => new ProductWriter( $platform, $mappings, $variations, $media ),
 			'customer' => new CustomerWriter( $platform ),
 			'order'    => new OrderWriter( $platform, $mappings, new OrderItemBuilder( $resolver ), $methods ),
-			'stock'    => new StockWriter( $resolver ),
+			'stock'    => new StockWriter( $platform, $resolver ),
 			'coupon'   => new CouponWriter( $platform ),
 		];
 	}

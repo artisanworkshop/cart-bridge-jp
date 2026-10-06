@@ -34,6 +34,15 @@ abstract class WooTestCase extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 取込みで結ばれた商品・バリエーション（投稿）の mapping をシードする。取込みの writer と同じく`_cbjp_platform`も書く
+	 * （D25: 印の無い投稿はエクスポートで結ばれた実体として扱われ、取込みが書かない。`Woo\Support\EntityOrigin`）。
+	 */
+	protected function seed_imported_post_mapping( string $platform, string $entity_type, string $remote_id, int $post_id ): void {
+		$this->seed_mapping( $platform, $entity_type, $remote_id, $post_id );
+		update_post_meta( $post_id, '_cbjp_platform', $platform );
+	}
+
+	/**
 	 * `media_sideload_image()`/`download_url()`が使う `pre_http_request` を1x1 PNGでスタブする。
 	 * 実ネットワークを叩かずに画像取込のパスを検証する。
 	 *
