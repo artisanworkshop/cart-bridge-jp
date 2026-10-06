@@ -1932,7 +1932,7 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
   この変更より前に日本語の Woo へ取り込んだ軽減税率の商品（`tax_class_missing` で標準に入った）は checksum 保存済みで、再取込みでは直らない（v0.1.0 を検証中のサイトが該当しうる。直すなら税区分を手で変えるか、クリーンアップして取り込み直す）。
 - **検証**: PHPUnit（`TaxClassTest` 23 件〔日本語インストールの再現・標準の税区分の税率・記号との衝突・非文字列・基準所在地の州・分割税率・ワイルドカード・基準国 US・他地域のみ・税率なし・存在しない税区分・壊れたフィルター・キャッシュの追従・候補の順・フォールバック〕、
   `ProductReaderTest`・`OrderReaderTest`・`ProductWriterTest`・`OrderWriterTest`・`ColorMeAdapterTest`・`ProductTransformerTest`・`ExporterTest`〔実際の `ProductReader` を通した dry-run と本実行〕・`ImporterTest`〔作ってから取り込み直すと直る〕・`DryRunReportCsvTest`・`WarningCodeTest`）。
-  `mutate-check.sh` で分類の各分岐・候補の順・フォールバック・キャッシュのキー・Reader の判定（商品・バリエーション・`tax_status`・記号への変換・detail）・blocking と CSV の登録・商品だけの checksum 判定・受注の明細・アダプタのスキップと LogicException の 36 種と、review-loop R1 の修正 7 種がすべて CAUGHT（ほかに等価な置換 1 種〔`OrderItemBuilder` の記号の定数を同じ値の文字列に〕は対象外）。
+  `mutate-check.sh` で分類の各分岐・候補の順・フォールバック・キャッシュのキー・Reader の判定（商品・バリエーション・`tax_status`・記号への変換・detail）・blocking と CSV の登録・商品だけの checksum 判定・受注の明細・アダプタのスキップと LogicException の 36 種と、review-loop R1 の修正 7 種・ゲート G2 の 1 種〔`TaxInclusivePrice` の非文字列〕がすべて CAUGHT（ほかに等価な置換 1 種〔`OrderItemBuilder` の記号の定数を同じ値の文字列に〕は対象外）。
   wp-env の dev サイトで、`rehearse-colorme` の `tax-classes mode=ja`（日本語インストールの状態）にして、実際の `ProductWriter`（WP-Cron の条件と管理者）で軽減税率の商品が「軽減税」に入り、
   `ProductReader`＋`Exporter` の dry-run（実アダプタ・`DryRunPlatformWriter`）で「軽減税」の商品が軽減の記号で作成対象・「免税」の商品が `tax_class_unsupported:免税` で止まることを確認し、`mode=en` で戻した。
   テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。

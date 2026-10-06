@@ -698,7 +698,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   計画時のユーザー回答: 判定の税率は法定税率の定数、8% の税区分が無くても取込みは止めない、税率の無い既定名の税区分は軽減とみなす、ColorMe 側の換算不能は本実行のスキップのみ。
   backlog `fix-72-partial-push/R1-X1`（#78）と `e2-3-push-product/R1-L1`（#102）は解消。詳細は `docs/03` §10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」。
   `rehearse-colorme` に `tax-classes`（日本語／英語インストールの既定税区分の切替）を足し、`check-import` は税率の表から求めた JP 8% の税区分で比べ、`seed-woo` は税区分を税率で選ぶようにした。
-  **検証**: PHPUnit 計 1681（main から +50。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 43 種（review-loop R1 の 7 種を含む）がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
+  **検証**: PHPUnit 計 1683（main から +52。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 44 種（review-loop R1 の 7 種・ゲート G2 の 1 種を含む）がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
   **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。取込みの標準の商品は常に `''` に入る（`''` に 10% 以外を入れた店舗では誤る。backlog `r3-1de-tax-class-detection/R1-X1`）。
   **テストショップでの確認（`tax-classes mode=ja` での取込み・作成エクスポート、ゼロ税率の商品が止まること）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）

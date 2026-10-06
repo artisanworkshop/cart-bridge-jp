@@ -3,7 +3,7 @@
 - タスク: R3-1d + R3-1e — 税区分を JP の税率で見分け（D26、issue #102）、標準・軽減以外の税区分と換算できない価格の商品のエクスポートを止める（issue #78）
 - 開始: 2026-10-06
 - PR: #107 https://github.com/artisanworkshop/cart-bridge-jp/pull/107
-- 現在のステップ: 7（ゲート G3 の反映 → 最終 CI → 最終報告）
+- 現在のステップ: 8（完了。final-report.md 記録済み）
 - Copilot: 依頼 3 回（上限）/ G3 の 2 件を修正（4 回目は依頼しない）
 - Codex: 依頼 2 回 / 収束（G2 で指摘なし・👍。1 回目は自動レビューが応答せず `bot-wait.sh` が投稿）
 
@@ -21,3 +21,4 @@
 | 2026-10-06 21:43 | 6 | G1 反映（返信・Resolve 3 件・サマリ）→ push（T=2026-10-06T12:39:06Z）→ CI green → G2 を両 bot に依頼（T=2026-10-06T12:42:56Z。Copilot の登録を timeline で確認） |
 | 2026-10-07 06:17 | 7 | G2: Codex は指摘なしで収束（👍）。Copilot は本文の Previously missed 2 件（`tax-classes` が消えた税区分への参照を見逃す・税抜入力の店舗で非文字列の税区分が価格の換算で TypeError）→ ユーザー承認で修正（`908300c`・`2b84ec0`）。品質チェック green（PHPUnit 1683） |
 | 2026-10-07 06:31 | 7 | G3（Copilot 3 回目。T=2026-10-06T21:21:12Z）: Copilot 2（`tax-classes` が処理中のジョブのアクションで止まらない・TaxClass のメモ化が永続キャッシュに残る）→ ユーザー承認で修正（`88626f6`・`ac62f06`）。依頼上限に達したので再依頼しない |
+| 2026-10-07 06:37 | 8 | 最終 push（`93e9ebb`）の CI green。push 後の新しいレビューなし。Codex 収束（G2）、Copilot は依頼上限（G3 の 2 件を修正）。最終報告を記録（final-report.md） |
