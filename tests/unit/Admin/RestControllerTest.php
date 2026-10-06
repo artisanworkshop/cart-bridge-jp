@@ -20,6 +20,7 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LogRepository;
@@ -27,6 +28,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\Tools\PrefStateRepair;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Coupon;
@@ -1373,6 +1375,54 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertFalse( is_locale_switched() );
 
 		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	/**
+	 * R3-0k: 警告の説明は run の種別（取込み・エクスポート）の向きで引く。同じコードでも向きで意味が違う
+	 * （通貨の不一致は取込みでは保存し、エクスポートでは送らない）。
+	 *
+	 * @dataProvider report_direction_cases
+	 */
+	public function test_report_describes_warnings_in_the_runs_direction( string $type, string $direction ): void {
+		$run_id = 'run-direction-' . str_replace( '_', '-', $type );
+		$job_id = ( new JobRepository() )->create( $run_id, $type, 'mock', 'order' );
+		( new DryRunItemRepository() )->insert_many(
+			$run_id,
+			$job_id,
+			[
+				[
+					'entity'            => 'order',
+					'remote_id'         => 'o1',
+					'label'             => '#1',
+					'operation'         => 'skipped',
+					'existing_local_id' => 0,
+					'warnings'          => [ 'currency_mismatch:USD' ],
+				],
+			]
+		);
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		ob_start();
+		apply_filters( 'rest_pre_serve_request', false, $response, $request, $this->server );
+		$output = (string) ob_get_clean();
+
+		$expected = WarningCatalog::describe( 'currency_mismatch:USD', $direction );
+		$this->assertStringContainsString( $expected['severity'] . ',', $output );
+		$this->assertStringContainsString( $expected['message'], $output );
+
+		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function report_direction_cases(): array {
+		return [
+			'import dry run' => [ JobManager::TYPE_DRY_RUN, WarningCatalog::IMPORT ],
+			'export dry run' => [ JobManager::TYPE_DRY_RUN_EXPORT, WarningCatalog::EXPORT ],
+		];
 	}
 
 	private function register_mock_adapter(): void {
