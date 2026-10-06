@@ -1467,6 +1467,29 @@ final class ProductReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * PR #107 G2-B2: 税抜入力の店舗では価格の換算（`TaxInclusivePrice`）が税区分の判定より先に`get_tax_class()`を使う。フィルターが配列を
+	 * 返しても WC へ渡さず換算不能に倒し、TypeError でページを落とさず止める。可変商品は、プラグインより先に WooCommerce 本体
+	 * （`WC_Product_Variable::get_variation_regular_price()` の価格の読込みが`WC_Tax::get_rates()`へ渡す）が同じ値で落ちるので対象外
+	 * （ストアフロントも落ちる壊れたサイトで、プラグインからは防げない）。
+	 */
+	public function test_a_non_string_tax_class_in_a_tax_exclusive_store_blocks_without_crashing(): void {
+		$this->tax_exclusive_store();
+		$simple = $this->simple_product_with_tax( '' );
+		$filter = static fn (): array => [ 'reduced-rate' ];
+		add_filter( 'woocommerce_product_get_tax_class', $filter );
+
+		try {
+			$read_item = $this->make_reader()->query( Cursor::start(), [ $simple ] )->items[0];
+		} finally {
+			remove_filter( 'woocommerce_product_get_tax_class', $filter );
+		}
+
+		$this->assertContains( WarningCode::PRICE_TAX_BASIS_UNRESOLVED, $read_item->warnings );
+		$this->assertContains( WarningCode::TAX_CLASS_UNSUPPORTED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+	}
+
+	/**
 	 * 非課税・送料のみ課税の商品は既存の`TAX_STATUS_NOT_TAXABLE`で止まり、税区分の警告は重ねない。
 	 */
 	public function test_non_taxable_products_do_not_get_the_tax_class_warning(): void {
