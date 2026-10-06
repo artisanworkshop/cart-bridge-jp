@@ -16,10 +16,49 @@ namespace CartBridgeJP\Woo\Support;
  * そこで取込みは名前を {@see self::from_plain()} で実体参照にしてから保存し、どちらのランナーでも同じ値・同じ表示にする。
  * エクスポートは {@see self::to_plain()} で平文へ戻して送る。ターム名は WP が常に `&amp;` で保存する
  * （`pre_term_name` の `_wp_specialchars`）ので、読み出す側だけが戻す。
+ *
+ * 説明などの HTML は {@see self::sanitize_post_html()} で浄化する（取込みの変換と Writer の保存の両方。issue #101）。
  */
 final class HtmlText {
 
+	/**
+	 * `<script>`・`<style>` 要素（開始タグから閉じタグまで）。タグ名の直後は空白・`/`・`>` に限る（`<scripts>`・`<script-x>` は
+	 * 別の要素）。閉じタグが無ければ末尾まで（ブラウザも残り全体を中身として読み、表示しない）。大文字小文字と改行を問わない
+	 * （後方参照 `\1` も `i` で大文字小文字を区別しない）。
+	 */
+	private const SCRIPT_STYLE_ELEMENT = '#<(script|style)(?=[\s/>])[^>]*>.*?(?:</\1(?=[\s/>])[^>]*>|\z)#is';
+
 	private function __construct() {}
+
+	/**
+	 * 説明などの HTML を `wp_kses_post()` で浄化する。その前に `<script>`・`<style>` 要素を中身ごと除く（{@see self::strip_script_and_style()}）。
+	 * kses はこの 2 つのタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示されてしまう（R3-1 で実測。issue #101）。
+	 */
+	public static function sanitize_post_html( string $html ): string {
+		return wp_kses_post( self::strip_script_and_style( $html ) );
+	}
+
+	/**
+	 * `<script>`・`<style>` 要素を中身ごと除く（kses は掛けない）。
+	 *
+	 * - 除いた後に要素ができる入力（`<scr<script></script>ipt>…</script>`）があるので、変化しなくなるまで繰り返す。
+	 * - `preg_replace()` が失敗した（PCRE の上限に達した）ときは除去を諦め、その時点の文字列を返す（説明を丸ごと失わない。
+	 *   kses を掛けると中身の文字が残る従来の結果になる）。
+	 */
+	public static function strip_script_and_style( string $html ): string {
+		do {
+			$previous = $html;
+			$stripped = preg_replace( self::SCRIPT_STYLE_ELEMENT, '', $html );
+
+			if ( null === $stripped ) {
+				return $previous;
+			}
+
+			$html = $stripped;
+		} while ( $html !== $previous );
+
+		return $html;
+	}
 
 	/**
 	 * `&` `<` `>` を実体参照にし（既存の実体参照も二重に符号化する）、バックスラッシュを `&#092;` にする。

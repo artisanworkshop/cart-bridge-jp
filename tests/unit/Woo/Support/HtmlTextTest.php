@@ -84,4 +84,94 @@ final class HtmlTextTest extends WP_UnitTestCase {
 		$this->assertSame( "Men's \u{2026}", HtmlText::to_plain( 'Men&#039;s &hellip;' ) );
 		$this->assertSame( 'A\\B', HtmlText::to_plain( 'A&#092;B' ) );
 	}
+
+	// --- sanitize_post_html()（issue #101）
+
+	/**
+	 * kses だけだと `<script>`・`<style>` の中身が文字として残る（R3-1 の P11 と同じ入力）。中身ごと除く。
+	 */
+	public function test_script_and_style_elements_are_removed_with_their_contents(): void {
+		$html = '<p>説明</p><script>console.log("zzr")</script><style>.zzr{color:red}</style><p style="color:blue">装飾つき</p>';
+
+		$this->assertSame( 'aconsole.log("zzr").zzr{color:red}b', wp_kses_post( 'a<script>console.log("zzr")</script><style>.zzr{color:red}</style>b' ), 'kses だけでは中身が残る（前提）' );
+		$this->assertSame( '<p>説明</p><p style="color:blue">装飾つき</p>', HtmlText::sanitize_post_html( $html ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function script_style_variants(): array {
+		return [
+			'upper case'                   => [ 'a<SCRIPT>x()</SCRIPT>b', 'ab' ],
+			'mixed case pair'              => [ 'a<Script>x()</sCRIPT>b', 'ab' ],
+			'attributes'                   => [ 'a<script type="text/javascript" async data-x="1">x()</script>b', 'ab' ],
+			'multi line'                   => [ "a<style media=\"all\">\n.x{\n  color:red;\n}\n</style>b", 'ab' ],
+			'space before closing bracket' => [ 'a<script>x()</script >b', 'ab' ],
+			'self-closing look'            => [ 'a<script/>x()</script>b', 'ab' ],
+			'several elements'             => [ 'a<script>1</script>b<style>2</style>c<script>3</script>d', 'abcd' ],
+			'closing tag text in string'   => [ 'a<script>var s="</script>";</script>b', 'a";b' ],
+			'unclosed element'             => [ 'a<p>b</p><script>x();<p>c</p>', 'a<p>b</p>' ],
+			'rebuilt after removal'        => [ 'a<scr<script></script>ipt>x()</scr<script></script>ipt>b', 'ab' ],
+			'inside a comment'             => [ 'a<!-- <script>c()</script> -->b', 'a<!--  -->b' ],
+		];
+	}
+
+	/**
+	 * 大文字小文字・属性・改行・閉じタグの空白・閉じタグ無し（末尾まで。ブラウザも残りを中身として読む）・除いた後にできる要素。
+	 *
+	 * @dataProvider script_style_variants
+	 */
+	public function test_script_and_style_variants_are_removed( string $html, string $expected ): void {
+		$this->assertSame( $expected, HtmlText::sanitize_post_html( $html ) );
+	}
+
+	/**
+	 * タグ名の後ろが空白・`/`・`>` でないものは別の要素なので残す（kses の扱いのまま。許可されないタグとして外れ、中身は残る）。
+	 */
+	public function test_elements_whose_name_only_starts_with_script_or_style_are_kept(): void {
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b' ) );
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<script-x>kept</script-x>b' ) );
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<styles>kept</styles>b' ) );
+	}
+
+	public function test_allowed_html_and_entities_are_kept_as_kses_leaves_them(): void {
+		$html = '<p class="x">A &amp; B <a href="https://example.com/">link</a> <strong>強調</strong></p><!-- note -->';
+
+		$this->assertSame( wp_kses_post( $html ), HtmlText::sanitize_post_html( $html ) );
+		$this->assertSame( '', HtmlText::sanitize_post_html( '' ) );
+	}
+
+	/**
+	 * `preg_replace()` が失敗した（PCRE の上限）ときは除去を諦め、入力をそのまま返す（説明を丸ごと失わない）。
+	 * kses 自体も PCRE を使い、上限を下げると空文字列を返す（実測）ので、除去の段だけを確かめる。
+	 */
+	public function test_a_pcre_failure_returns_the_input_instead_of_an_empty_string(): void {
+		$html = 'a<script>' . str_repeat( 'x', 5000 ) . '</script>b';
+
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- PCRE の失敗を起こすためにテストの間だけ下げる。
+		$previous_limit = ini_set( 'pcre.backtrack_limit', '10' );
+		// phpcs:ignore WordPress.PHP.IniSet.Risky -- JIT は backtrack_limit を見ないので切る。
+		$previous_jit = ini_set( 'pcre.jit', '0' );
+
+		try {
+			$stripped = HtmlText::strip_script_and_style( $html );
+			$error    = preg_last_error();
+		} finally {
+			// phpcs:ignore WordPress.PHP.IniSet.Risky -- 元に戻す。
+			ini_set( 'pcre.backtrack_limit', (string) $previous_limit );
+			// phpcs:ignore WordPress.PHP.IniSet.Risky -- 元に戻す。
+			ini_set( 'pcre.jit', (string) $previous_jit );
+		}
+
+		$this->assertSame( PREG_BACKTRACK_LIMIT_ERROR, $error, 'PCRE が失敗する条件になっている（前提）' );
+		$this->assertSame( $html, $stripped );
+		$this->assertSame( 'ab', HtmlText::strip_script_and_style( $html ), '上限を戻せば除ける' );
+	}
+
+	/**
+	 * 除去の段は kses を掛けない（`<iframe>` のような他の許可されないタグは {@see HtmlText::sanitize_post_html()} の kses が外す）。
+	 */
+	public function test_strip_does_not_apply_kses(): void {
+		$this->assertSame( 'a<iframe src="https://example.com/"></iframe>b', HtmlText::strip_script_and_style( 'a<iframe src="https://example.com/"></iframe><script>x()</script>b' ) );
+	}
 }

@@ -40,6 +40,22 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( true, $product->extras['stock_managed'] );
 	}
 
+	/**
+	 * 説明・簡易説明・スマートフォン用説明のどれも、`<script>`・`<style>` を中身ごと除く（kses だけでは JS・CSS の文字が残る。issue #101）。
+	 */
+	public function test_script_and_style_contents_are_removed_from_all_descriptions(): void {
+		$raw                    = $this->product_fixture( 192616831 );
+		$raw['expl']            = '<p>説明</p><script>console.log("zzr")</script><style>.zzr{color:red}</style>';
+		$raw['simple_expl']     = '簡易<SCRIPT type="text/javascript">alert(1)</SCRIPT>説明';
+		$raw['smartphone_expl'] = "スマホ<style>\n.sp{}\n</style>説明";
+
+		$product = $this->transformer->transform( $raw );
+
+		$this->assertSame( '<p>説明</p>', $product->description );
+		$this->assertSame( '簡易説明', $product->extras['short_description'] );
+		$this->assertSame( 'スマホ説明', $product->extras['smartphone_description'] );
+	}
+
 	public function test_unmanaged_stock_is_not_treated_as_out_of_stock(): void {
 		// `stock_managed: false`の商品は在庫管理をしていないため、rawの`stocks`値は在庫切れ判定に
 		// 使わない。stockをnullにし、Importerに「無制限＝在庫あり」と判断させる
