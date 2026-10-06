@@ -45,7 +45,13 @@ paths:
   `title_save_pre`（`wp_filter_kses`）が商品名の `&` を `&amp;` にし、許可されないタグを除く（`Tom & Jerry <set>` → `Tom &amp; Jerry `。一時 mu-plugin で実測）。
   非同期ランナー（`WP_Async_Request`）は呼び出し元の Cookie を転送するので、管理画面を開いている間に処理されたページは管理者（unfiltered_html あり）として保存され、そのまま残る。
   Writer の保存結果を「実行するユーザーの権限」に依存させないこと（自分で決定的に整形してから保存する）。WP-CLI は `--user` が無いと `init` の優先度 11 で kses を外す
-  （`wp action-scheduler run` も同じ）ので、CLI の確認は WP-Cron の条件を再現しない（`.claude/rules/skill-scripts.md`）
+  （`wp action-scheduler run` も同じ）ので、CLI の確認は WP-Cron の条件を再現しない（`.claude/rules/skill-scripts.md`）。
+  **商品名は R3-1b で対処済み**: Canonical の名前は平文、Woo の名前（post_title）は HTML として `Woo\Support\HtmlText` で変換する（取込みは `from_plain()`、
+  エクスポート・画面表示は `to_plain()`）。新しく Woo の post_title・post_content・post_excerpt に書く Writer も同じく自分で整形する（受注の明細名・クーポンの説明は未対処。backlog）。
+  バックスラッシュは kses と無関係に `wp_insert_post()` の `wp_unslash()` が消す（WooCommerce のデータストアは slash せずに渡す。実測 `A\B` → `AB`）。
+  **ターム名は WP が常に実体参照で保存する**（`pre_term_name` の `_wp_specialchars`。ランナーによらない。`Black & White` → `Black &amp; White`）ので、
+  ターム名（グローバル属性の値・カテゴリ名）を外へ送る・比べるときは `HtmlText::to_plain()` で戻す。テストでは `wp_set_current_user( 0 )` で kses が登録され
+  （`set_current_user` の `kses_init()`）、管理者にすると外れる（`ProductWriterTest::act_as_runner()`）
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）
