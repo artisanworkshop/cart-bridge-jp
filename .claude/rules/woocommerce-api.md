@@ -64,7 +64,16 @@ paths:
   `Woo\Support\HtmlText::sanitize_post_html()` 参照
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
-  スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）
+  スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）。
+  **税区分は `Woo\Support\TaxClass` で JP の税率から見分ける**（D26。`classify()`・`resolve()`・`to_canonical()`）。スラッグを比べる新しいコードを書かない。既定名の候補を足すときは
+  `__( 'Reduced rate', 'woocommerce' )` を実行時に引かず、`sanitize_title()` の結果を固定値で持つ（他の text domain の `__()` は PHPCS のエラーで、既定の税区分は有効化したときの言語で作られ、
+  REST〔ユーザーの言語〕・WP-CLI／Action Scheduler〔サイトの言語〕の実行時の言語と一致する保証が無い）
+- **税率の判定は `WC_Tax::find_rates()`（国 `''` のワイルドカード行も一致する）と `WC_Tax::calc_tax()` の合計で行う**（7.8%＋2.2% の分割・複合税率も合算される）。`get_base_tax_rates()` は店舗の基準所在地で引くので、
+  基準所在地が WooCommerce 既定の US:CA のままの店舗では JP の税率が見えない（`TaxClass` は国を JP に固定し、基準国が JP のときだけ基準所在地の州などを使う）。
+  `WC_Tax::create_tax_class()` は WooCommerce の税のキャッシュの接頭辞を無効化しない（`delete_tax_class_by()`・税率の追加・更新・削除はする）ので、税区分の一覧に依存するメモ化は一覧もキーに含める
+- **`WC_Tax::delete_tax_class_by()` は、その税区分の税率は消すが、商品・受注明細の `_tax_class` は書き換えない**。存在しない税区分の商品は読込時に `WC_Product::set_tax_class()` が黙って標準 `''` にし、
+  受注明細は `WC_Order_Item_Product::set_tax_class()` の例外を `set_props()` が握りつぶして `''` になる（どちらも保存値は古いスラッグのまま）。税区分を付け替える処理は、新しい税区分を作り → 税率を
+  `WC_Tax::_update_tax_rate()`（生の SQL ではキャッシュが無効化されない）で移し → 商品・明細を CRUD で保存し直してから古い税区分を消す（`rehearse-colorme` の `tax-classes.php`）
 - **WooCommerce の商品の「複製」（`WC_Admin_Duplicate_Product::product_duplicate()`）は既定でメタをすべて写し、同じ除外一覧をバリエーションの複製にも使う**（WC 11 の実ソース）。
   取込みの紐づけメタ（`_cbjp_platform`/`_cbjp_remote_id`）を写すと、複製が取込み品と判定されて黙ってエクスポートされず（D25）、リンク再構築が複製へ mapping を付け替えうるので、
   `woocommerce_duplicate_product_exclude_meta` で外している（`Woo\Support\EntityOrigin::exclude_link_meta_on_duplicate()`）。紐づけ用のメタを新設するときはこの一覧に足す

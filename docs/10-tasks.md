@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-10-04
+最終更新: 2026-10-06
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -685,9 +685,22 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **検証**: PHPUnit 追加 53 件（データセット込み。計 1631）。`mutate-check.sh` で 26 種（除去 18・顧客 8）がすべて CAUGHT。review-loop R1 の独立レビューで、属性値・コメント・CDATA の中の `<script>` という文字から後ろの説明を消す問題を見つけ、開始タグをタグの区切りで見つける形に作り直した（あわせて二乗の探し直しも解消）。R2 の独立レビューで、その作り直しが `容量 < 500ml` のような文字の `<` の後ろの `<style>` を見落とすと分かり、`<` の扱いとコメントの扱いをブラウザ・kses に合わせた。PR #106 のゲートで、除去の前に kses と同じく制御文字を消すようにし（Codex G1-2）、`check-import` の判定を WP の HTML API で作った期待値との完全一致に作り直した（Copilot G1〜G3）。wp-env の dev サイトで実際の `Cast`・`ProductWriter`（WP-Cron の条件と管理者）・`push_customer()` を通して確認した。
   **テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
+  **実装（2026-10-06、R3-1e と 1 つのブランチ `feat/r3-1de-tax-class-detection`。実装済み・実機の再リハーサル待ち）**: 下の R3-1e の実装サマリにまとめた
 - [ ] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する。
   **R3-1a〜e をすべて実装した後、テストショップで `rehearse-colorme` の再リハーサルをまとめて行う**〔2026-10-06 ユーザー決定。PR ごとには行わない。お試し期限 2026-10-22 まで。
   R3-1a〔D25〕の確認手順は `docs/reviews/feat/r3-1a-direction-of-origin/final-report.md`〕）
+  **実装サマリ（2026-10-06、R3-1d と 1 つのブランチ `feat/r3-1de-tax-class-detection`。実装済み・実機の再リハーサル待ち）**: `Woo\Support\TaxClass` が税区分を **JP の税率**で分類する
+  （標準 `''` は常に標準、JP 10% → 標準、8% → 軽減、それ以外〔0% を含む〕→ unsupported、JP の税率が分からない → unconfigured。税率が 1 件も無い既定名〔`reduced-rate`・「軽減税」〕は軽減）。
+  正規化モデルの `'reduced-rate'`（`CanonicalProduct::TAX_CLASS_REDUCED`）は Woo のスラッグではなく記号と位置づけ直した（英語でインストールした店舗では checksum が変わらない）。
+  取込みは JP 8% の税区分へ入れ、無ければ税率の無い既定名の税区分（`tax_rates_not_configured`）、それも無ければ標準に倒して `reduced_tax_class_not_found`（本実行は止めない。商品だけ checksum を保存しない）。
+  dry-run の CSV の `note` は `tax_setup_required`。エクスポートは標準・軽減以外の税区分の商品・公開バリエーションを `tax_class_unsupported`／`variation_tax_class_unsupported`（blocking）で止める（R3-1d）。
+  ColorMe の hidden 安全策を削除し、`push_product()` は送れない商品（記号以外の税区分・価格を 1 件も換算できない〔`product_price_not_convertible`。dry-run には出ない既知の限界〕）を作成も更新もせずスキップする。
+  計画時のユーザー回答: 判定の税率は法定税率の定数、8% の税区分が無くても取込みは止めない、税率の無い既定名の税区分は軽減とみなす、ColorMe 側の換算不能は本実行のスキップのみ。
+  backlog `fix-72-partial-push/R1-X1`（#78）と `e2-3-push-product/R1-L1`（#102）は解消。詳細は `docs/03` §10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」。
+  `rehearse-colorme` に `tax-classes`（日本語／英語インストールの既定税区分の切替）を足し、`check-import` は税率の表から求めた JP 8% の税区分で比べ、`seed-woo` は税区分を税率で選ぶようにした。
+  **検証**: PHPUnit 計 1672（main から +41。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 36 種がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
+  **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。
+  **テストショップでの確認（`tax-classes mode=ja` での取込み・作成エクスポート、ゼロ税率の商品が止まること）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
