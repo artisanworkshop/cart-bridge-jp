@@ -71,7 +71,8 @@ final class VariationAxisResolver {
 		if ( $attribute->is_taxonomy() ) {
 			$term = get_term_by( 'slug', $raw_value, $attribute->get_name() );
 
-			return ( $term instanceof WP_Term ) ? $term->name : $raw_value;
+			// ターム名は WP が常に実体参照で保存する（`pre_term_name`）ので平文へ戻す（issue #99）。
+			return ( $term instanceof WP_Term ) ? HtmlText::to_plain( $term->name ) : $raw_value;
 		}
 
 		return $raw_value;

@@ -139,6 +139,52 @@ final class VariationAxisResolverTest extends WP_UnitTestCase {
 		}
 	}
 
+	/**
+	 * WP はターム名を常に実体参照で保存する（`pre_term_name` の `_wp_specialchars`）。taxonomy 属性の値は平文へ戻す（issue #99）。
+	 */
+	public function test_taxonomy_attribute_value_is_the_plain_term_name(): void {
+		$attribute_id = wc_create_attribute(
+			[
+				'name'         => 'Vartest Tone',
+				'slug'         => 'vartesttone',
+				'type'         => 'select',
+				'order_by'     => 'menu_order',
+				'has_archives' => false,
+			]
+		);
+		$this->assertIsInt( $attribute_id );
+
+		$taxonomy = 'pa_vartesttone';
+		register_taxonomy( $taxonomy, 'product', [ 'hierarchical' => false ] );
+
+		try {
+			$term = wp_insert_term( 'Black & White', $taxonomy, [ 'slug' => 'black-white' ] );
+			$this->assertIsArray( $term );
+			$this->assertSame( 'Black &amp; White', get_term( (int) $term['term_id'], $taxonomy )->name, '前提: WP はターム名を実体参照で保存する' );
+
+			$parent = new WC_Product_Variable();
+			$parent->set_name( 'Taxonomy tone' );
+			$attribute = new \WC_Product_Attribute();
+			$attribute->set_id( $attribute_id );
+			$attribute->set_name( $taxonomy );
+			$attribute->set_options( [ (int) $term['term_id'] ] );
+			$attribute->set_position( 0 );
+			$attribute->set_visible( true );
+			$attribute->set_variation( true );
+			$parent->set_attributes( [ $attribute ] );
+			$parent_id = $parent->save();
+			wp_set_object_terms( $parent_id, [ 'black-white' ], $taxonomy );
+
+			$variation_id = VariableProductFactory::add_variation( $parent_id, [ $taxonomy => 'black-white' ] );
+
+			$this->assertSame( [ 'Black & White', null ], VariationAxisResolver::option_values( $this->variation( $variation_id ), $this->axes( $parent_id ) ) );
+		} finally {
+			// 属性を先に消す。taxonomyが登録されている間でないとターム削除が行われないため。
+			wc_delete_attribute( $attribute_id );
+			unregister_taxonomy( $taxonomy );
+		}
+	}
+
 	public function test_no_axes_means_no_any(): void {
 		$parent_id = VariableProductFactory::create_parent( 'No axes', [] );
 		$variation = VariableProductFactory::add_variation( $parent_id, [] );

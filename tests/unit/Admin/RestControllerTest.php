@@ -2098,7 +2098,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->register_mock_adapter();
 
 		$product = new WC_Product_Simple();
-		$product->set_name( 'Widget' );
+		// Woo の名前は HTML（kses・REST・取込みでは実体参照になる）。画面には表示どおりの文字で渡す（issue #99）。
+		$product->set_name( 'Widget &amp; Co' );
 		$product->set_sku( 'SKU-9' );
 		$product_id = $product->save();
 
@@ -2132,7 +2133,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		}
 
 		$this->assertTrue( $by_entity['product']['exists'] );
-		$this->assertSame( 'Widget', $by_entity['product']['details']['name'] );
+		$this->assertSame( 'Widget & Co', $by_entity['product']['details']['name'] );
 		$this->assertSame( 'SKU-9', $by_entity['product']['details']['sku'] );
 		$this->assertNotNull( $by_entity['product']['edit_url'] );
 

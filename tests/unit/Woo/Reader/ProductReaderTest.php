@@ -1234,4 +1234,84 @@ final class ProductReaderTest extends WooTestCase {
 		$this->assertContains( WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE, $items[1]->warnings );
 		$this->assertFalse( $items[1]->linked_by_import );
 	}
+
+	// --- 名前は Woo では HTML。平文へ戻して送る（issue #99）
+
+	/**
+	 * Woo で作られた名前は、管理画面で保存された生の値のことも、kses・REST で実体参照になった値のこともある。どちらも表示どおりの文字で送る。
+	 */
+	public function test_woo_born_names_are_read_as_the_text_the_store_displays(): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$ids = [];
+
+		foreach ( [ 'Tom &amp; Jerry &hellip;', 'Tom & Jerry <set>' ] as $name ) {
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( $name );
+			$wc_product->set_regular_price( '1000' );
+			$ids[] = $wc_product->save();
+		}
+
+		$names = array_map( static fn ( $read_item ): string => $read_item->item->name, $this->make_reader()->query( Cursor::start(), $ids )->items );
+
+		$this->assertSame( [ "Tom & Jerry \u{2026}", 'Tom & Jerry <set>' ], $names );
+	}
+
+	/**
+	 * 取込み（WP-Cron の条件＝kses あり）で保存した名前を読むと、元の平文に戻る（Writer と Reader の層をまたいだ往復）。
+	 */
+	public function test_name_saved_by_import_reads_back_as_the_original_plain_text(): void {
+		wp_set_current_user( 0 );
+		$this->assertNotFalse( has_filter( 'title_save_pre', 'wp_filter_kses' ), '前提: 未ログインでは kses が有効' );
+
+		$name    = 'Tom & Jerry <set> A\\B &amp;';
+		$product = new CanonicalProduct( $name, null, '1000', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'name-rt' ] );
+		$result  = $this->make_writer()->write( $product, null );
+
+		$this->assertSame( $name, $this->first_item( $this->make_reader(), [ $result->local_id ] )->name );
+	}
+
+	/**
+	 * WP はターム名を常に実体参照で保存する（`pre_term_name` の `_wp_specialchars`）。タクソノミー属性の値は平文へ戻す。
+	 */
+	public function test_taxonomy_attribute_term_names_are_read_as_plain_text(): void {
+		$attribute_id = wc_create_attribute(
+			[
+				'name'         => 'Readtest Material',
+				'slug'         => 'readtestmaterial',
+				'type'         => 'select',
+				'order_by'     => 'menu_order',
+				'has_archives' => false,
+			]
+		);
+		$this->assertIsInt( $attribute_id );
+
+		$taxonomy = 'pa_readtestmaterial';
+		register_taxonomy( $taxonomy, 'product', [ 'hierarchical' => false ] );
+
+		try {
+			$term = wp_insert_term( 'Cotton & Silk', $taxonomy );
+			$this->assertIsArray( $term );
+			$this->assertSame( 'Cotton &amp; Silk', get_term( (int) $term['term_id'], $taxonomy )->name, '前提: WP はターム名を実体参照で保存する' );
+
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( 'Scarf' );
+			$wc_product->set_regular_price( '1000' );
+			$attribute = new \WC_Product_Attribute();
+			$attribute->set_id( $attribute_id );
+			$attribute->set_name( $taxonomy );
+			$attribute->set_options( [ (int) $term['term_id'] ] );
+			$attribute->set_visible( true );
+			$wc_product->set_attributes( [ $attribute ] );
+			$id = $wc_product->save();
+
+			$options = $this->first_item( $this->make_reader(), [ $id ] )->options;
+
+			$this->assertSame( [ 'Cotton & Silk' ], $options[0]['values'] ?? null );
+		} finally {
+			// 属性を先に消す。taxonomyが登録されている間でないとターム削除が行われないため。
+			wc_delete_attribute( $attribute_id );
+			unregister_taxonomy( $taxonomy );
+		}
+	}
 }

@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\EntityOrigin;
+use CartBridgeJP\Woo\Support\HtmlText;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\StockDerivation;
 use CartBridgeJP\Woo\Support\TaxInclusivePrice;
@@ -133,7 +134,8 @@ final class ProductReader implements EntityReader {
 		}
 
 		$canonical = new CanonicalProduct(
-			$product->get_name(),
+			// Woo の名前は HTML（取込みは実体参照で保存する。issue #99）。平文へ戻して送る。
+			HtmlText::to_plain( $product->get_name() ),
 			'' !== $product->get_sku() ? $product->get_sku() : null,
 			$price,
 			$sale_price,
@@ -537,8 +539,9 @@ final class ProductReader implements EntityReader {
 			}
 
 			if ( $attribute->is_taxonomy() ) {
+				// ターム名は WP が常に実体参照で保存する（`pre_term_name`）ので平文へ戻す（issue #99）。
 				$terms  = wc_get_product_terms( $product->get_id(), $attribute->get_name(), [ 'fields' => 'names' ] );
-				$values = array_values( array_filter( $terms, 'is_string' ) );
+				$values = array_map( [ HtmlText::class, 'to_plain' ], array_values( array_filter( $terms, 'is_string' ) ) );
 			} else {
 				$values = array_values( array_filter( $attribute->get_options(), 'is_string' ) );
 			}

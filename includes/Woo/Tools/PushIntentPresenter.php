@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Tools;
 
+use CartBridgeJP\Woo\Support\HtmlText;
 use WC_Coupon;
 use WC_Order;
 use WC_Product;
@@ -55,7 +56,8 @@ final class PushIntentPresenter {
 			'exists'   => true,
 			'edit_url' => get_edit_post_link( $local_id, 'raw' ),
 			'details'  => [
-				'name' => $product->get_name(),
+				// Woo の名前は HTML。画面は文字として出すので平文へ戻す（issue #99）。
+				'name' => HtmlText::to_plain( $product->get_name() ),
 				'sku'  => '' !== $product->get_sku() ? $product->get_sku() : null,
 			],
 		];
