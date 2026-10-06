@@ -102,23 +102,28 @@ final class HtmlTextTest extends WP_UnitTestCase {
 	 */
 	public static function script_style_variants(): array {
 		return [
-			'upper case'                   => [ 'a<SCRIPT>x()</SCRIPT>b', 'ab' ],
-			'mixed case pair'              => [ 'a<Script>x()</sCRIPT>b', 'ab' ],
-			'attributes'                   => [ 'a<script type="text/javascript" async data-x="1">x()</script>b', 'ab' ],
-			'multi line'                   => [ "a<style media=\"all\">\n.x{\n  color:red;\n}\n</style>b", 'ab' ],
-			'space before closing bracket' => [ 'a<script>x()</script >b', 'ab' ],
-			'slash after closing name'     => [ 'a<script>y()</script/>b', 'ab' ],
-			'attribute on closing tag'     => [ 'a<script>y()</script foo>b', 'ab' ],
-			'longer name is not a closer'  => [ 'a<script>x</scripts>y()</script>b', 'ab' ],
-			'self-closing look'            => [ 'a<script/>x()</script>b', 'ab' ],
-			'several elements'             => [ 'a<script>1</script>b<style>2</style>c<script>3</script>d', 'abcd' ],
-			'less-than inside the script'  => [ 'a<script>if (a<b && c>d) { x(); }</script>b', 'ab' ],
-			'closing tag text in string'   => [ 'a<script>var s="</script>";</script>b', 'a";b' ],
-			'joined text is not a tag'     => [ 'a<script>1</script>script>2</script>b', 'ascript&gt;2b' ],
-			'closing tag without bracket'  => [ 'a<script>x()</script b', 'a' ],
-			'form feed after the name'     => [ "a<script\f>x()</script\f>b", 'ab' ],
-			'inside a comment'             => [ 'a<!-- <script>c()</script> -->b', 'a<!--  -->b' ],
-			'inside a multi-line comment'  => [ "a<!--\n<script>c()</script>\n-->b", "a<!--\n\n-->b" ],
+			'upper case'                     => [ 'a<SCRIPT>x()</SCRIPT>b', 'ab' ],
+			'mixed case pair'                => [ 'a<Script>x()</sCRIPT>b', 'ab' ],
+			'attributes'                     => [ 'a<script type="text/javascript" async data-x="1">x()</script>b', 'ab' ],
+			'multi line'                     => [ "a<style media=\"all\">\n.x{\n  color:red;\n}\n</style>b", 'ab' ],
+			'space before closing bracket'   => [ 'a<script>x()</script >b', 'ab' ],
+			'slash after closing name'       => [ 'a<script>y()</script/>b', 'ab' ],
+			'attribute on closing tag'       => [ 'a<script>y()</script foo>b', 'ab' ],
+			'longer name is not a closer'    => [ 'a<script>x</scripts>y()</script>b', 'ab' ],
+			'self-closing look'              => [ 'a<script/>x()</script>b', 'ab' ],
+			'several elements'               => [ 'a<script>1</script>b<style>2</style>c<script>3</script>d', 'abcd' ],
+			'less-than inside the script'    => [ 'a<script>if (a<b && c>d) { x(); }</script>b', 'ab' ],
+			'closing tag text in string'     => [ 'a<script>var s="</script>";</script>b', 'a";b' ],
+			'joined text is not a tag'       => [ 'a<script>1</script>script>2</script>b', 'ascript&gt;2b' ],
+			'closing tag without bracket'    => [ 'a<script>x()</script b', 'a' ],
+			'form feed after the name'       => [ "a<script\f>x()</script\f>b", 'ab' ],
+			'inside a comment'               => [ 'a<!-- <script>c()</script> -->b', 'a<!--  -->b' ],
+			'inside a multi-line comment'    => [ "a<!--\n<script>c()</script>\n-->b", "a<!--\n\n-->b" ],
+			'less-than as text before'       => [ 'A < B<script>x()</script>C', 'A &lt; BC' ],
+			'less-than with a later bracket' => [ 'A < B<script>x()</script>C > D', 'A &lt; BC &gt; D' ],
+			'japanese text with less-than'   => [ "容量 < 500ml\n<style>.foo{color:red}</style>end", "容量 &lt; 500ml\nend" ],
+			'double less-than'               => [ '<<script>x()</script>tail', '&lt;tail' ],
+			'less-than and a digit'          => [ '<3 <script>x()</script>', '&lt;3 ' ],
 		];
 	}
 
@@ -174,6 +179,54 @@ final class HtmlTextTest extends WP_UnitTestCase {
 		// 後ろに本物の要素があっても、`<scripts>` から本物の閉じタグまでを 1 つの要素と見なさない。
 		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b<script>x()</script>c' ) );
 		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<style-x>kept</style-x>b<style>p{}</style>c' ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function comments_hiding_scripts(): array {
+		return [
+			'abruptly closed comment'      => [ '<!--><script>x()-->y()</script>tail' ],
+			'abruptly closed comment dash' => [ '<!---><script>x()</script>tail' ],
+			'comment opener in a comment'  => [ '<!-- <!-- <script>x()</script> -->tail' ],
+			'attribute in a comment'       => [ '<!-- <p title="<script>">x()</script> -->tail' ],
+		];
+	}
+
+	/**
+	 * `<!-->`・`<!--->` はブラウザと同じくその場で閉じたコメントとし（kses は次の `-->` までを隠す）、コメントの中では区切りによらず
+	 * `<script>` を開始タグと見なす（kses は `<` を含むコメントを文字にする）。JS が文字として出ず、後ろの説明が残ること
+	 * （コメントの残りの見え方は kses の扱いのままなので、正確な文字列では確かめない。review-loop R2-1）。
+	 *
+	 * @dataProvider comments_hiding_scripts
+	 */
+	public function test_scripts_around_comments_do_not_leak_and_the_rest_survives( string $html ): void {
+		$sanitized = HtmlText::sanitize_post_html( $html );
+
+		$this->assertStringNotContainsString( 'x()', $sanitized );
+		$this->assertStringNotContainsString( 'y()', $sanitized );
+		$this->assertStringEndsWith( 'tail', $sanitized );
+	}
+
+	/**
+	 * `<!-->`・`<!--->` の後ろの文字を残さず、コメントとして読み飛ばさない（kses は空のコメントを消す）。
+	 */
+	public function test_abruptly_closed_comments_keep_the_following_text(): void {
+		$this->assertSame( 'tail', HtmlText::sanitize_post_html( '<!-->tail' ) );
+		$this->assertSame( 'tail', HtmlText::sanitize_post_html( '<!--->tail' ) );
+		$this->assertSame( '<p>a</p>tail--&gt;', HtmlText::sanitize_post_html( '<!--><p>a</p>tail-->' ), '後ろの `-->` までを隠さない' );
+	}
+
+	/**
+	 * 閉じタグの無い開始タグが多い入力でも、閉じタグを探し直さない（探し直すと二乗になり、約 180KB で 1.6 秒かかった。review-loop R2-3）。
+	 * 時間で確かめる（この約 370KB の入力は、探し直さなければ 0.1 秒前後、探し直すと数秒。テストの並行実行で 1 秒を超えたことがあるので 3 秒にする）。
+	 */
+	public function test_many_unclosed_openers_are_handled_in_linear_time(): void {
+		$html    = str_repeat( '<script>', 25000 ) . str_repeat( '<style>', 25000 );
+		$started = microtime( true );
+
+		$this->assertSame( '', HtmlText::sanitize_post_html( $html ) );
+		$this->assertLessThan( 3.0, microtime( true ) - $started );
 	}
 
 	public function test_allowed_html_and_entities_are_kept_as_kses_leaves_them(): void {

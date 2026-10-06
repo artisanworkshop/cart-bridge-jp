@@ -31,25 +31,33 @@ final class HtmlText {
 	 */
 	private const TAG_NAME_TERMINATORS = " \t\n\f\r/>";
 
+	/**
+	 * `<` の直後に来るとタグの始まりになる文字（{@see self::opens_markup()}）。
+	 */
+	private const MARKUP_OPENERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/!?';
+
 	private function __construct() {}
 
 	/**
 	 * 説明などの HTML を `wp_kses_post()` で浄化する。その前に `<script>`・`<style>` 要素を中身ごと除く。kses はこの 2 つのタグを
 	 * 外すだけで中身の JS・CSS を文字として残し、商品ページに表示されてしまう（R3-1 で実測。issue #101）。
 	 *
-	 * - 開始タグは kses と同じ区切り（`wp_kses_split()`: コメント、または `<` から最初の `>`〔無ければ末尾〕までのタグらしい範囲）で
-	 *   見つけ、kses がタグとして外す範囲だけを対象にする。正規表現で文字列全体から `<script` を探すと、属性値（`<p title="<script>">`）・
-	 *   CDATA の中の文字まで要素の開始と見なし、後ろの説明を消してしまう（review-loop R1-1）。
+	 * - タグの区切りはブラウザに合わせる: `<` の直後が英字・`/`・`!`・`?` のときだけタグの始まりとし、最初の `>`（無ければ末尾）までを
+	 *   1 つの区切りにする（`wp_kses_split()` と同じく、属性値の中の引用符・`>` は考えない）。それ以外の `<` は文字なので `&lt;` にして出す
+	 *   （kses も `wp_pre_kses_less_than()` で同じ `<` を文字にする。生のまま出すと、除いた前後がつながってタグに見えることがある）。
+	 *   文字列全体から `<script` を探すと、属性値（`<p title="<script>">`）・CDATA の中の文字まで要素の開始と見なし、後ろの説明を消してしまう
+	 *   （review-loop R1-1）。区切りの先頭が `<script`・`<style` のものだけを開始タグとする。
 	 * - 中身はブラウザと同じく生のテキストとして読み、最初の `</script`（直後が空白・`/`・`>`）で閉じる（JS の `a<b` をタグと見なさない）。
 	 *   閉じタグに `>` が無ければ末尾までが閉じタグ（ブラウザも表示しない）。
 	 * - 閉じタグが無ければ何も除かない（後ろの説明を失わない。kses がタグを外し、中身は文字として残る従来の結果になる）。
-	 * - コメントの中（閉じていなければ末尾まで）も同じ規則で除く（kses はコメントの中身にも kses を掛けるので、コメントアウトした
-	 *   `<script>` の中身が文字として出る）。コメントは入れ子にならないので、中の `<!--` はただの区切りとして読む。
-	 *   kses の正規表現は `s` 修飾子が無く複数行のコメントをタグらしい範囲として読むが、どちらでもコメントの中は同じ規則で除く。
-	 * - テキストの部分は `<` を含まない（`<` は必ず区切りの始まりになる）ので、除いた前後がつながって新しい開始タグになることは無い。
+	 * - コメントは `-->` まで（無ければ末尾まで）。`<!-->`・`<!--->` はブラウザと同じくその場で閉じたコメントとし、`<!---->` にそろえて出す
+	 *   （kses はそのままでは次の `-->` までをコメントと読み、後ろの説明を隠す）。kses は `<` を含むコメントを `wp_pre_kses_less_than()` で
+	 *   文字にしてしまうので、コメントの中では区切りによらずどの `<script`・`<style` も開始タグとし、閉じタグはコメントの中だけで探す。
 	 * - 区切りと閉じタグは `strpos()`・`stripos()` で探す（正規表現の遅延一致は長い説明で PCRE の上限に達し、閉じタグの無い開始タグが
 	 *   多い入力では探し直しが二乗になる）。
-	 * - `<textarea>`・`<title>` の中（ブラウザでは文字）の `<script>…</script>` も除く（kses と同じく区別しない。実害は無いと判断）。
+	 * - 既知の限界（どれも R3-1c より前の kses だけの結果と同じかそれ以上）: 引用符で囲んだ属性値の中の `>` の後ろの `<script>`
+	 *   （`<p title="a>b<script>">`）は開始タグと見なす。`<textarea>`・`<title>` の中（ブラウザでは文字）の `<script>` も開始タグと見なす。
+	 *   スクリプトの中の `<!--<script` の後ろ（ブラウザは次の `</script>` で閉じない）は区別しない。
 	 */
 	public static function sanitize_post_html( string $html ): string {
 		return wp_kses_post( self::strip_script_and_style( $html, false ) );
@@ -71,20 +79,34 @@ final class HtmlText {
 
 			$stripped .= substr( $html, $offset, $start - $offset );
 
-			if ( ! $in_comment && '<!--' === substr( $html, $start, 4 ) ) {
+			if ( $in_comment ) {
+				// コメントの中: 区切りによらず `<` ごとに開始タグかを確かめる（文字の `<` はそのまま。kses が文字にする）。
+				$token  = '<';
+				$opened = substr( $html, $start, 8 );
+			} elseif ( '<!-->' === substr( $html, $start, 5 ) || '<!--->' === substr( $html, $start, 6 ) ) {
+				$stripped .= '<!---->';
+				$offset    = $start + ( '<!-->' === substr( $html, $start, 5 ) ? 5 : 6 );
+				continue;
+			} elseif ( '<!--' === substr( $html, $start, 4 ) ) {
 				$end    = strpos( $html, '-->', $start + 4 );
 				$inner  = false === $end ? substr( $html, $start + 4 ) : substr( $html, $start + 4, $end - $start - 4 );
 				$offset = false === $end ? $length : $end + 3;
 
 				$stripped .= '<!--' . self::strip_script_and_style( $inner, true ) . ( false === $end ? '' : '-->' );
 				continue;
+			} elseif ( ! self::opens_markup( $html[ $start + 1 ] ?? '' ) ) {
+				$stripped .= '&lt;';
+				$offset    = $start + 1;
+				continue;
+			} else {
+				$end    = strpos( $html, '>', $start );
+				$token  = false === $end ? substr( $html, $start ) : substr( $html, $start, $end - $start + 1 );
+				$opened = $token;
 			}
 
-			$end    = strpos( $html, '>', $start );
-			$token  = false === $end ? substr( $html, $start ) : substr( $html, $start, $end - $start + 1 );
 			$offset = $start + strlen( $token );
 
-			if ( 1 !== preg_match( self::SCRIPT_STYLE_OPENER, $token, $opener ) ) {
+			if ( 1 !== preg_match( self::SCRIPT_STYLE_OPENER, $opened, $opener ) ) {
 				$stripped .= $token;
 				continue;
 			}
@@ -103,6 +125,13 @@ final class HtmlText {
 		}
 
 		return $stripped . substr( $html, $offset );
+	}
+
+	/**
+	 * `<` の直後の 1 文字が、ブラウザがタグ（終了タグ・コメント・宣言・処理命令を含む）の始まりとして読む文字か（ASCII の英字・`/`・`!`・`?`）。
+	 */
+	private static function opens_markup( string $next ): bool {
+		return '' !== $next && str_contains( self::MARKUP_OPENERS, $next );
 	}
 
 	/**
