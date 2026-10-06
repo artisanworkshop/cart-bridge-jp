@@ -72,9 +72,11 @@
 - **テストショップでの再リハーサル（`rehearse-colorme` 手順 2・3）は未実施**（2026-10-05 にユーザー判断で後回し。お試し期限 2026-10-22 まで）。Copilot の G3 の総評もこの点を挙げている。
   - 手順の概要: `reset-local mode=yes` → `limits-on`（全 entity null）→ `snapshot s0 side=colorme` → import → `seed-woo prefix=ZZV` → dry_run_export → export → `snapshot s1` → `diff a=s0 b=s1` → `snapshot w1 side=woo` → import → `snapshot w2 side=woo` → `diff a=w1 b=w2 side=woo entity=all` → `check-import label=w2 expect-export-links=yes`。
   - R3-1b〜e の再リハーサルとまとめてもよい。
-- 双方向の移行の挙動が変わる（取り込んだ実体はエクスポートされず、エクスポートで作った実体は再取込みで更新されない）。既知の限界は docs/03 §10.2「往復の扱い（D25）」に 5 点ある。
+- 双方向の移行の挙動が変わる（取り込んだ実体はエクスポートされず、エクスポートで作った実体は再取込みで更新されない）。
+  **最終報告の後、ユーザー決定（2026-10-06）で「このプラグインは一方向の移行に特化し、往復は想定しない」と docs に明記した**。D25 は誤って往復したときの安全策で、
+  往復でしか起きない取りこぼし（docs/03 §10.2「往復の扱い（D25）」の 5 点）は「往復を想定しないため対応しないもの」として直さない。readme・FAQ への明記は R3-3 で行う。
 
 ## 次にできること（人間の判断）
 - テストショップでの再リハーサル（上記）。
 - マージ（GitHub 上で人間が行う）→ マージ後は `/post-merge`。
-- backlog `r3-1a-direction-of-origin/R1-X1`（エクスポートで結ばれた実体の mapping を失ったときの復元）の起票を判断する。
+- backlog `r3-1a-direction-of-origin/R1-X1`（エクスポートで結ばれた実体の mapping を失ったときの復元）は、往復を想定しないので対応しない（2026-10-06 ユーザー決定。起票不要）。

@@ -654,7 +654,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   エクスポート側は各 Reader が `ReadItem::$linked_by_import` を立て、`Exporter` が `linked_by_import_not_exported` でスキップする（mapping の有無によらず。mapping・無料枠・intent に触れない）。
   インポート側は `WooRepository`/`DryRunRepository` が writer の前で、在庫は `StockWriter` が解決した対象で判定し、`linked_by_export_not_imported` でスキップする（local_id 0。mapping に触れない）。
   どちらも mapping があれば `unchanged` に数える。対象は商品・顧客・在庫・受注・クーポン。ユーザー決定で、エクスポートのサンプル選定から取込み品を除き、WC の商品複製でリンクのメタを写さないようにした。
-  backlog `R2-M-checksum-shared-row` は解消。詳細と既知の限界は `docs/03` §10.2「往復の扱い（D25）」。
+  backlog `R2-M-checksum-shared-row` は解消。詳細は `docs/03` §10.2「往復の扱い（D25）」。**往復は想定しない（2026-10-06 ユーザー決定）**: このプラグインは一方向の移行に特化し、
+  D25 は誤って往復したときの安全策。往復でしか起きない取りこぼしは「往復を想定しないため対応しないもの」として直さない（R3-3 で readme・FAQ に明記する）。
   review-loop R1 の独立レビューで、エクスポートで作った可変商品のバリエーションが取込み受注の明細から解決できなくなる取りこぼしを見つけ、`ProductResolver` が variant の mapping で結ばれた
   バリエーションも対象にするよう直した（ほかにサンプル選定の走査の並び・重複、在庫行のテスト、リハーサル用スクリプトのフェイルクローズ）。
   **検証**: PHPUnit 追加 53 件（実配線の往復 `RoundTripOriginTest` を含む）。`mutate-check.sh` で 38 種（Exporter の分岐と `unchanged`、Reader 5 つと在庫行の全 5 か所、顧客の作成の印、
@@ -668,7 +669,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [ ] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
 - [ ] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する）
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
-- [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**）
+- [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
 

@@ -47,7 +47,7 @@ use Throwable;
  *
  * D25（issue #98）以後は、取込みで結ばれた実体をこのクラスが送らず（`ReadItem::$linked_by_import`）、エクスポートで結ばれた実体を
  * 取込みが上書きしない（`Woo\Support\EntityOrigin`）ため、原則として 1 つの mapping 行を両方向が書くことは無くなった（例外は
- * `docs/03-design-decisions.md` §10.2「往復の扱い（D25）」の既知の限界 2）。名前空間の混ぜ込みは、D25 より前に両方向が書いた行と、
+ * `docs/03-design-decisions.md` §10.2「往復の扱い（D25）」の「往復を想定しないため対応しないもの」2）。名前空間の混ぜ込みは、D25 より前に両方向が書いた行と、
  * その例外・判定の取りこぼしに対する防御として残す。
  */
 final class Exporter {
