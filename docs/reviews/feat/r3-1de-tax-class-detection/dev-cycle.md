@@ -3,9 +3,9 @@
 - タスク: R3-1d + R3-1e — 税区分を JP の税率で見分け（D26、issue #102）、標準・軽減以外の税区分と換算できない価格の商品のエクスポートを止める（issue #78）
 - 開始: 2026-10-06
 - PR: #107 https://github.com/artisanworkshop/cart-bridge-jp/pull/107
-- 現在のステップ: 7（ゲート G1 の反映 → G2）
-- Copilot: 依頼 1 回
-- Codex: 依頼 1 回（PR 作成時の自動レビュー）
+- 現在のステップ: 7（ゲート G2 の反映 → G3）
+- Copilot: 依頼 2 回
+- Codex: 依頼 2 回 / 収束（G2 で指摘なし・👍。1 回目は自動レビューが応答せず `bot-wait.sh` が投稿）
 
 ## ログ
 
@@ -18,3 +18,5 @@
 | 2026-10-06 21:24 | 4〜5 | PR #107 作成（T=2026-10-06T12:23:23Z）→ CI 待ち |
 | 2026-10-06 21:28 | 6 | CI green → Copilot 依頼 1 回目（timeline で登録を確認）・Codex は PR 作成時の自動レビューを待つ（`bot-wait.sh --codex-nudge=300`） |
 | 2026-10-06 21:39 | 7 | G1: Copilot 1・Codex 2（うち 1 件は Copilot と同じ）。いずれもリハーサル道具（期待値の税率の計算を WC の規則に合わせる・`tax-classes` が税率を重ねない）→ ユーザー承認で 3 件とも修正（`387dc1b`） |
+| 2026-10-06 21:43 | 6 | G1 反映（返信・Resolve 3 件・サマリ）→ push（T=2026-10-06T12:39:06Z）→ CI green → G2 を両 bot に依頼（T=2026-10-06T12:42:56Z。Copilot の登録を timeline で確認） |
+| 2026-10-07 06:17 | 7 | G2: Codex は指摘なしで収束（👍）。Copilot は本文の Previously missed 2 件（`tax-classes` が消えた税区分への参照を見逃す・税抜入力の店舗で非文字列の税区分が価格の換算で TypeError）→ ユーザー承認で修正（`908300c`・`2b84ec0`）。品質チェック green（PHPUnit 1683） |
