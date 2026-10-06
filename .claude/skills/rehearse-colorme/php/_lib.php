@@ -27,6 +27,7 @@ if ( function_exists( 'cbjp_rh_args' ) ) {
  * kses と同じく先に制御文字を消す（`<script\0>` を要素として読むため）。保存値と期待値は、kses を変化しなくなるまで掛けてから完全一致で比べる
  * （kses 自体が冪等でない入力があり、WP-Cron では保存時にもう一度 kses が掛かるため）。文字列の有無・出現回数で比べると、中身と同じ文字列が
  * 本文にもある正しい取込みを失敗にし、除いた前後がつながった漏れ（`a<script>ab</script>b` → `aabb`）を見逃す（PR #106 G1-1・G2-1〜3）。
+ * 保存時の `wp_unslash()`（バックスラッシュが消える）も期待値に掛ける（G3-1）。対象は投稿の列に保存する説明・短い説明。
  *
  * @return array{elements:int,ok:bool,expected:string} `elements` は HTML API が見つけた要素の数（0 なら比べない）。
  */
@@ -62,7 +63,8 @@ function cbjp_rh_script_style_check( string $from, string $stored ): array {
 		return $html;
 	};
 
-	$expected = $stable( HtmlText::sanitize_post_html( $processor->get_updated_html() ) );
+	// 保存の `wp_insert_post()` はランナーによらず `wp_unslash()` でバックスラッシュを消す（`.claude/rules/woocommerce-api.md`）ので、期待値にも掛ける（PR #106 G3-1）。
+	$expected = $stable( wp_unslash( HtmlText::sanitize_post_html( $processor->get_updated_html() ) ) );
 
 	return [
 		'elements' => $elements,
