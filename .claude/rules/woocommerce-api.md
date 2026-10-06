@@ -57,6 +57,11 @@ paths:
   テストでは未ログイン（ユーザー 0）の基準状態で kses が登録されていて（`init` と `set_current_user` の `kses_init()`）、管理者にすると外れる。
   `wp_set_current_user()` は今と同じ ID を渡すと `set_current_user` を発火しない（既に 0 なら `wp_set_current_user( 0 )` は何もしない）ので、kses の有無は
   `has_filter( 'title_save_pre', 'wp_filter_kses' )` で確かめる（`ProductWriterTest::act_as_runner()`）
+- **kses の前に HTML を読む処理は、kses（とブラウザ）と同じ順序・区切りで読む**（R3-1c、issue #101）。`wp_kses()` は ① `wp_kses_no_null()` で制御文字を消し ② 実体参照を正規化し
+  ③ `pre_kses` の `wp_pre_kses_less_than()` で「`>` より前に次の `<` が来る `<…`」を `&lt;` にし ④ `wp_kses_split()` でコメントと `<`〜最初の `>` をタグとして読む。
+  文字列全体を正規表現で探すと属性値・コメント・CDATA の中の `<script>` という文字から後ろの説明を消し（review-loop R1）、区切りだけ真似ると文字の `<` の後ろのタグを見落とし（R2）、
+  制御文字を消さないと `<script\0>` を見落とす（PR #106 Codex G1）。区切りは `strpos()` で探す（遅延一致の正規表現は約 1MB で PCRE の上限に達し、閉じタグの無い開始タグが多いと二乗になる）。
+  `Woo\Support\HtmlText::sanitize_post_html()` 参照
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）

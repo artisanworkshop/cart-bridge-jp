@@ -53,3 +53,7 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   `InvalidArgumentException: The group "…" does not exist` を投げる（実測）。フック名だけで claim し、アクションの引数（job_id）を照合する。他の run のアクションは、そのジョブが開いていれば `unclaim_action()` で手放し、
   閉じている（完了・失敗・キャンセル）か存在しなければ処理して片付ける（キャンセルした run のアクションはキューに残るので、手放すだけだと毎回それを claim して自分の番が来ない。
   `rehearse-colorme` の `run.php`）。claim を取ってから `ActionScheduler::runner()->process_action()` で処理すると、管理画面を開いたままでも WP-Cron／非同期ランナーと二重に処理しない
+- **検証スクリプトの判定は、文字列の有無・出現回数で推測せず、独立に作った期待値と完全一致で比べる**（PR #106: `check-import` の script/style の残りの判定を `str_contains` → 出現回数 → 完全一致と作り直し、
+  Copilot に G1〜G3 の 3 ラウンド指摘された）。推測の判定は、本文に同じ文字列がある正しい取込みを失敗にし、前後がつながった漏れ（`a<script>ab</script>b` → `aabb`）を見逃す。
+  期待値は対象のコードと別の実装（WP の HTML API `WP_HTML_Tag_Processor` など）で作り、保存時の変換（kses の再適用・`wp_unslash()`）も両側にそろえてから比べる
+  （`rehearse-colorme` の `_lib.php` の `cbjp_rh_script_style_check()`）
