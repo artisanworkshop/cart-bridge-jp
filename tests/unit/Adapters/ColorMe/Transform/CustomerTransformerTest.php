@@ -14,6 +14,16 @@ use WP_UnitTestCase;
 
 final class CustomerTransformerTest extends WP_UnitTestCase {
 
+	/**
+	 * 住所3点（`pref_id`/`postal`/`address1`）を解決できる国内の請求先住所。
+	 */
+	private const JP_ADDRESS = [
+		'address_1' => '千代田区千代田1-1-1',
+		'state'     => 'JP13',
+		'postcode'  => '1000001',
+		'country'   => 'JP',
+	];
+
 	private CustomerTransformer $transformer;
 
 	public function set_up(): void {
@@ -464,37 +474,19 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `PUT`はswagger上必須フィールドが無い部分更新のため、解決できなかった住所項目は
-	 * 単に省略され（ColorMe側の既存値を保持する）、`null`を返して丸ごとスキップすることはない。
+	 * `PUT`はswagger上必須フィールドが無いが、実際は名前と住所（市区町村・番地）が無いと422になる（テストショップで実測。
+	 * issue #100）。住所を1つも解決できない顧客の更新は、住所を省いて送らずに`null`（送信しない）にする。
 	 */
-	public function test_to_update_payload_omits_unresolvable_address_fields_instead_of_failing_closed(): void {
-		$customer = self::exported_customer( [], null );
-
-		$payload = $this->transformer->to_update_payload( $customer );
-
-		$this->assertSame(
-			[
-				'name'                  => '山田 太郎',
-				'mail'                  => 'taro@example.com',
-				'furigana'              => 'ヤマダ タロウ',
-				'hojin'                 => '株式会社サンプル',
-				'busho'                 => '営業部',
-				'birthday'              => '1990-01-01',
-				'other'                 => 'テスト備考',
-				'receive_mail_magazine' => true,
-			],
-			$payload
-		);
-		$this->assertArrayNotHasKey( 'add_member', $payload );
+	public function test_to_update_payload_returns_null_when_no_address_can_be_resolved(): void {
+		$this->assertNull( $this->transformer->to_update_payload( self::exported_customer( [], '0300000001' ) ) );
 	}
 
 	/**
-	 * `postal`/`address1`/`pref_id`は3点セットで解決できた場合のみ送る。1つだけ欠けた状態
-	 * （ここでは`state`が空のため`pref_id`が解決できない）で個別に送ると、「新しい郵便番号＋
-	 * ColorMe側に残った古い都道府県・住所」という内部矛盾した住所に更新されかねない
-	 * （R1レビューで判明）。`address2`は補足情報のためこの3点セットとは独立に送ってよい。
+	 * `postal`/`address1`/`pref_id`は3点セットで解決できた場合のみ送る（1つだけ送ると「新しい郵便番号＋ColorMe側に残った
+	 * 古い都道府県・住所」という内部矛盾した住所になりうる。R1レビューで判明）。そろわなければ更新自体を送らない
+	 * （住所を省いて送ると422。issue #100）。`address2`だけがあっても送らない。
 	 */
-	public function test_to_update_payload_omits_the_whole_address_block_when_only_partially_resolvable(): void {
+	public function test_to_update_payload_returns_null_when_the_address_is_only_partially_resolvable(): void {
 		$customer = self::exported_customer(
 			[
 				'postcode'  => '1000001',
@@ -505,11 +497,99 @@ final class CustomerTransformerTest extends WP_UnitTestCase {
 			null
 		);
 
+		$this->assertNull( $this->transformer->to_update_payload( $customer ) );
+	}
+
+	/**
+	 * 海外の顧客は`pref_id=48`になるが、郵便番号が無いと住所3点がそろわない（R3-1 で海外の会員の更新が毎回422になった形）。
+	 */
+	public function test_to_update_payload_returns_null_for_an_overseas_customer_without_a_postcode(): void {
+		$customer = self::exported_customer(
+			[
+				'city'      => 'Hong Kong',
+				'address_1' => '1 Example Road',
+				'country'   => 'HK',
+			],
+			'0300000001'
+		);
+
+		$this->assertNull( $this->transformer->to_update_payload( $customer ) );
+	}
+
+	/**
+	 * 住所3点がそろえば、海外の顧客も送る（電話番号のように解決できない任意の項目は省く）。
+	 */
+	public function test_to_update_payload_sends_an_overseas_customer_with_a_complete_address(): void {
+		$customer = self::exported_customer(
+			[
+				'city'      => 'Los Angeles',
+				'address_1' => '123 Main St',
+				'state'     => 'CA',
+				'postcode'  => '90001',
+				'country'   => 'US',
+			],
+			'+1-555-0100'
+		);
+
 		$payload = $this->transformer->to_update_payload( $customer );
 
-		$this->assertArrayNotHasKey( 'postal', $payload );
-		$this->assertArrayNotHasKey( 'address1', $payload );
-		$this->assertArrayNotHasKey( 'pref_id', $payload );
-		$this->assertSame( 'サンプルマンション101', $payload['address2'] );
+		$this->assertNotNull( $payload );
+		$this->assertSame( 48, $payload['pref_id'] );
+		$this->assertSame( '90001', $payload['postal'] );
+		$this->assertSame( 'Los Angeles 123 Main St, CA, US', $payload['address1'] );
+		$this->assertArrayNotHasKey( 'tel', $payload );
+		$this->assertArrayNotHasKey( 'add_member', $payload );
+	}
+
+	/**
+	 * 電話番号は作成だけの必須項目のまま（更新で必須かは未実測）。解決できなければ省いて送る。
+	 */
+	public function test_to_update_payload_omits_an_unresolvable_tel_but_still_sends(): void {
+		$customer = self::exported_customer( self::JP_ADDRESS, null );
+
+		$payload = $this->transformer->to_update_payload( $customer );
+
+		$this->assertSame(
+			[
+				'name'                  => '山田 太郎',
+				'mail'                  => 'taro@example.com',
+				'postal'                => '1000001',
+				'address1'              => '千代田区千代田1-1-1',
+				'pref_id'               => 13,
+				'furigana'              => 'ヤマダ タロウ',
+				'hojin'                 => '株式会社サンプル',
+				'busho'                 => '営業部',
+				'birthday'              => '1990-01-01',
+				'other'                 => 'テスト備考',
+				'receive_mail_magazine' => true,
+			],
+			$payload
+		);
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:bool}>
+	 */
+	public static function names_for_the_api(): array {
+		return [
+			'empty'           => [ '', false ],
+			'spaces only'     => [ "  \t", false ],
+			'51 characters'   => [ str_repeat( '山', 51 ), false ],
+			'50 characters'   => [ str_repeat( '山', 50 ), true ],
+			'a single letter' => [ '山', true ],
+		];
+	}
+
+	/**
+	 * 名前は作成・更新とも必須で50文字以内（swagger の`maxLength: 50`。空なら「名前を入力してください」で422。
+	 * 更新で51文字以上を送ると毎回422になっていた。backlog `e2-3-push-customer/G1-name-length-on-update`）。
+	 *
+	 * @dataProvider names_for_the_api
+	 */
+	public function test_update_and_create_require_a_name_the_api_accepts( string $name, bool $sendable ): void {
+		$customer = new CanonicalCustomer( 'taro@example.com', $name, null, null, null, self::JP_ADDRESS, '0300000001', null, null, null );
+
+		$this->assertSame( $sendable, null !== $this->transformer->to_update_payload( $customer ), 'update' );
+		$this->assertSame( $sendable, null !== $this->transformer->to_create_payload( $customer ), 'create' );
 	}
 }

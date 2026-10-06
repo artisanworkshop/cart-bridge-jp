@@ -47,7 +47,7 @@ paths:
   Writer の保存結果を「実行するユーザーの権限」に依存させないこと（自分で決定的に整形してから保存する）。WP-CLI は `--user` が無いと `init` の優先度 11 で kses を外す
   （`wp action-scheduler run` も同じ）ので、CLI の確認は WP-Cron の条件を再現しない（`.claude/rules/skill-scripts.md`）。
   **商品名は R3-1b で対処済み**: Canonical の名前は平文、Woo の名前（post_title）は HTML として `Woo\Support\HtmlText` で変換する（取込みは `from_plain()`、
-  エクスポート・画面表示は `to_plain()`）。新しく Woo の post_title・post_content・post_excerpt に書く Writer も同じく自分で整形する（受注の明細名・クーポンの説明は未対処。backlog）。
+  エクスポート・画面表示は `to_plain()`）。新しく Woo の post_title・post_content・post_excerpt に書く Writer も同じく自分で整形する（説明は `HtmlText::sanitize_post_html()`。`<script>`・`<style>` を中身ごと除いてから kses。issue #101。受注の明細名・クーポンの説明は未対処。backlog）。
   バックスラッシュは kses と無関係に `wp_insert_post()` の `wp_unslash()` が消す（WooCommerce のデータストアは slash せずに渡す。実測 `A\B` → `AB`）。
   制御文字（タブ・改行・復帰を除く）は kses の `wp_kses_no_null()` が WP-Cron でだけ消すので、`from_plain()` が先に消す。
   WooCommerce が作るバリエーションの `post_excerpt`（属性の要約）は今もランナーで変わる（Writer から制御しにくい。backlog `r3-1b-product-name-entities/R1-L1`）。

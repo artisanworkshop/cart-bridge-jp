@@ -1299,21 +1299,23 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * Woo顧客の請求先情報から解決できない場合は`CustomerTransformer::to_create_payload()`が
 	 * `null`を返すため、送信自体を行わずフェイルクローズでスキップする
 	 * （`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`。422を送って恒久的な4xxを積み重ねない）。
+	 * 更新も名前と住所が無いと422になる（swagger と違う。issue #100）ので、`to_update_payload()`の`null`で同じくスキップする。
+	 * remote_id は空で返す（`push_order()`の更新スキップと同じ形。`Sync\Exporter`は既存の mapping に触れず checksum もキャッシュしないので、
+	 * 店舗が住所を補えば次回のエクスポートで送る）。
 	 */
 	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult {
 		$transformer = new CustomerTransformer();
+		$payload     = null === $remote_id ? $transformer->to_create_payload( $customer ) : $transformer->to_update_payload( $customer );
+
+		if ( null === $payload ) {
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+		}
 
 		if ( null === $remote_id ) {
-			$payload = $transformer->to_create_payload( $customer );
-
-			if ( null === $payload ) {
-				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
-			}
-
 			$body      = $this->client()->post( 'customers.json', [ 'customer' => $payload ] );
 			$operation = PushResult::OPERATION_CREATED;
 		} else {
-			$body      = $this->client()->put( "customers/{$remote_id}.json", [ 'customer' => $transformer->to_update_payload( $customer ) ] );
+			$body      = $this->client()->put( "customers/{$remote_id}.json", [ 'customer' => $payload ] );
 			$operation = PushResult::OPERATION_UPDATED;
 		}
 

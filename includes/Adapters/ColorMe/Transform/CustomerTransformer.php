@@ -70,7 +70,7 @@ final class CustomerTransformer {
 	 * `postal`/`address1`/`tel`）のうち`pref_id`/`postal`/`address1`/`tel`はWoo顧客の請求先住所・
 	 * 電話番号から解決できない場合がある（`Woo\Reader\CustomerReader`はWooネイティブの住所を
 	 * そのまま運ぶだけで、ColorMe固有スキームへの変換はここが責務を持つ）。`name`はWooの表示名が
-	 * swaggerの`maxLength: 50`を超えうる。いずれも解決できなければ`null`を返し、呼び出し元
+	 * swaggerの`maxLength: 50`を超えうる（空白だけ・空の表示名も422）。いずれも解決できなければ`null`を返し、呼び出し元
 	 * （`ColorMeAdapter::push_customer()`）にフェイルクローズさせる（送信すると確実に422になる
 	 * ため。理由を問わず`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`で一律に警告する。
 	 * 呼び出し元は`to_create_payload()`が`null`を返した理由を区別しない）。
@@ -84,10 +84,7 @@ final class CustomerTransformer {
 		$address = AddressMapper::to_asp_address_payload( 'colorme', $customer->address );
 		$tel     = Cast::normalize_tel( $customer->phone );
 
-		if ( ! isset( $address['pref_id'], $address['postal'], $address['address1'] )
-			|| null === $tel
-			|| mb_strlen( $customer->name ) > self::NAME_MAX_LENGTH
-		) {
+		if ( ! self::has_required_name_and_address( $customer, $address ) || null === $tel ) {
 			return null;
 		}
 
@@ -98,14 +95,34 @@ final class CustomerTransformer {
 	}
 
 	/**
-	 * `PUT /v1/customers/{id}`（更新）向けのペイロード。swagger上必須フィールドが無い部分更新の
-	 * ため、`to_create_payload()`と異なり解決できなかった項目は単に省略する
-	 * （ColorMe側の既存値をそのまま残す。`ProductTransformer::to_update_payload()`と同じ方針）。
+	 * `PUT /v1/customers/{id}`（更新）向けのペイロード。swagger上は必須フィールドが無い部分更新だが、
+	 * 実際は名前と住所（市区町村・番地）が無いと422になる（テストショップで実測。issue #100）。
+	 * 名前・住所3点を解決できなければ`to_create_payload()`と同じく`null`を返し、呼び出し元にフェイルクローズさせる
+	 * （以前は住所を省いて送り、海外の会員の更新が毎回422になっていた）。それ以外の解決できなかった項目
+	 * （電話番号など）は単に省略する（ColorMe側の既存値をそのまま残す。`ProductTransformer::to_update_payload()`と同じ方針）。
 	 *
-	 * @return array<string,mixed>
+	 * @return ?array<string,mixed>
 	 */
-	public function to_update_payload( CanonicalCustomer $customer ): array {
-		return $this->base_payload( $customer, AddressMapper::to_asp_address_payload( 'colorme', $customer->address ), Cast::normalize_tel( $customer->phone ) );
+	public function to_update_payload( CanonicalCustomer $customer ): ?array {
+		$address = AddressMapper::to_asp_address_payload( 'colorme', $customer->address );
+
+		if ( ! self::has_required_name_and_address( $customer, $address ) ) {
+			return null;
+		}
+
+		return $this->base_payload( $customer, $address, Cast::normalize_tel( $customer->phone ) );
+	}
+
+	/**
+	 * 作成・更新のどちらでも ColorMe が要求する名前（空白だけでない・50文字以内）と住所3点（`pref_id`/`postal`/`address1`）。
+	 * `AddressMapper::to_asp_address_payload()`は住所3点をそろえられたときだけまとめて返す（1つだけ送ると住所が食い違うため）。
+	 *
+	 * @param array<string,mixed> $address `AddressMapper::to_asp_address_payload()`の戻り値。
+	 */
+	private static function has_required_name_and_address( CanonicalCustomer $customer, array $address ): bool {
+		return isset( $address['pref_id'], $address['postal'], $address['address1'] )
+			&& null !== Cast::to_meaningful_string_or_null( $customer->name )
+			&& mb_strlen( $customer->name ) <= self::NAME_MAX_LENGTH;
 	}
 
 	/**

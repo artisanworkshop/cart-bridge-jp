@@ -24,6 +24,7 @@ use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\Exporter;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
@@ -2099,6 +2100,73 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertSame( [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
 		$this->assertSame( [], $captured );
+	}
+
+	/**
+	 * 更新（PUT）も名前と住所が無いと422になる（swagger と違う。テストショップで実測。issue #100）。住所3点を解決できない顧客
+	 * （ここでは郵便番号の無い海外の住所）の更新は、PUT を送らずに作成と同じ警告でスキップする。
+	 */
+	public function test_push_customer_skips_an_update_when_the_address_cannot_be_resolved(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$customer = new CanonicalCustomer(
+			'overseas@example.com',
+			'Example Overseas',
+			null,
+			null,
+			null,
+			[
+				'city'      => 'Hong Kong',
+				'address_1' => '1 Example Road',
+				'country'   => 'HK',
+			],
+			'0300000005',
+			null,
+			null,
+			null
+		);
+
+		$result = $adapter->push_customer( $customer, '701' );
+
+		$this->assertSame( '', $result->remote_id );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
+		$this->assertSame( [], $captured );
+	}
+
+	/**
+	 * issue #100 の結合確認（`Exporter` + `AdapterPlatformWriter` + `ColorMeAdapter`）: 住所のそろわない顧客の更新は、
+	 * 以前のような 422 の 1 件失敗（エラーログ）ではなく、警告つきのスキップになる。既存の mapping（remote_id・checksum）は残る。
+	 */
+	public function test_exporting_a_customer_update_without_an_address_skips_with_a_warning_and_keeps_the_mapping(): void {
+		Activator::activate();
+
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$captured = [];
+		$this->mock_push_requests( [], $captured );
+
+		$mappings = new MappingRepository();
+		$checksum = str_repeat( 'a', 64 );
+		$mappings->upsert( ColorMeAdapter::ID, 'customer', '701', 201, $checksum );
+
+		$customer = new CanonicalCustomer( 'woo@example.com', '山田 花子', null, null, null, [ 'country' => 'JP' ], '0300000001', null, null, null );
+		$reader   = new FixedWooReader( [ new ReadItem( 201, $customer ) ] );
+
+		$result = ( new Exporter( $mappings ) )->run_page( $adapter, new AdapterPlatformWriter( $adapter ), $reader, 'customer', Cursor::start(), false, null, null, 9301 );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 0, $result['totals']['updated'] );
+		$this->assertSame( [], $captured, 'PUT を送らない' );
+		$this->assertSame( '701', $mappings->find_remote_id( ColorMeAdapter::ID, 'customer', 201 ) );
+		$this->assertSame( $checksum, $mappings->find_checksum( ColorMeAdapter::ID, 'customer', '701' ) );
+		$this->assertSame( [], ( new LogRepository() )->list( 9301 ), '例外の 1 件失敗（エラーログ）にしない' );
 	}
 
 	public function test_push_customer_throws_when_response_is_missing_the_customer_id(): void {

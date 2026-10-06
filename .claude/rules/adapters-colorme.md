@@ -52,13 +52,15 @@ paths:
 - I/O を伴う遅延初期化の Transformer（`order_transformer()`/`product_transformer()`。初回呼び出し時に `payments.json`/`deliveries.json`/`shop.json` を叩き、インスタンス単位でメモ化する）は、`transform_rows()`/`transform_rows_flat()` に渡すクロージャの**外**で解決すること。クロージャの内側（行単位の `catch ( Throwable )` の内側）で解決すると、基盤取得の失敗（認証切れ・レート制限・5xx）が「1行の変換失敗」に化けて握りつぶされる。しかも失敗時はメモ化されず全行で再取得→失敗を繰り返し、ページ全体が0件のまま「成功」で完了しうる（issue #69。同じパターンを商品側で先に踏んでいる: `fetch_products()` は最初から正しい形だったが、`fetch_product_by_remote_id()` は導入時のレビューで見つかり同じPR内で修正された〔PR #24〕。受注側の一覧取得3箇所〔`fetch_orders()`・`fetch_latest_orders()` の初回取得とループ〕はその時点では見つからず、別issueとして起票してから直した）。新しい ASP アダプタで同種の遅延初期化 Transformer を書く場合も同じ形にすること。
 - **ColorMe API の実測（R3-1、テストショップ、2026-10-05）。swagger と違う・書かれていない挙動**:
   (1) `PUT /customers/{id}` は swagger では必須項目が無いが、実際は名前と住所（市区町村・番地）が無いと 422（「名前を入力してください」「市区町村・番地を入力してください」）。
-  住所の 3 点（都道府県・郵便番号・住所 1）をそろえられない顧客（海外 `pref_id=48` など）の更新は、送る前に止める（issue #100）。
+  住所の 3 点（都道府県・郵便番号・住所 1）をそろえられない顧客（海外 `pref_id=48` など）の更新は、送る前に止める（R3-1c、issue #100: `CustomerTransformer::to_update_payload()` が
+  `null` を返し、`push_customer()` が作成と同じ `CUSTOMER_REQUIRED_FIELD_MISSING` でスキップする。名前が空・50 文字超も同じ）。
   (2) `PUT /products/{id}` に `category_id_small` だけを送ると「指定したカテゴリidが無効です」。`category_id_big` と対で送る（プラグインの更新は対で送る）。
   作成で `category_id_big` を送らないと、ColorMe はショップの既定のカテゴリ（「初期カテゴリー」）に入れる（再取込みで Woo のカテゴリがそれに変わる）。
   (3) バリエーションの `option_market_price`（定価）は管理画面のオプション一覧にもストアフロントの「オプションの値段詳細」にも表示されない（税基準は判定できず、見える影響も無い）。
   (4) `birthday` は POST・PUT とも成功応答のまま `null` で保存されないことがある（テストショップで実測。ショップの会員登録項目の設定によると推測、未確認）。
   (5) 2 軸目のオプションを POST した直後の `GET /products/{id}` で、バリエーションの値の組が出そろっていないことがある（API を直接叩く投入スクリプトで実測。
   プラグインの `push_variant_details()` の経路では起きなかった）
+- **説明などの HTML は `Cast::sanitize_html()`（＝`Woo\Support\HtmlText::sanitize_post_html()`）で浄化する。`wp_kses_post()` を直接使わない**: kses は `<script>`・`<style>` のタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示される（R3-1 で実測。issue #101）。`sanitize_post_html()` は 2 つの要素を中身ごと除いてから kses を掛ける。新しい ASP アダプタも同じ関数を使う（Woo の `ProductWriter` も保存前に同じ関数を通す）
 - **`CanonicalProduct::$name` は平文で渡す**（HTML・実体参照を含めない。`description` と `extras['short_description']` は HTML）。Woo 側は名前を HTML として保存するので、
   `ProductWriter` が実体参照にし、`ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、R3-1b・issue #99）。ASP が名前を実体参照で返すなら、アダプタの変換層で平文へ戻す
   （そのまま渡すと二重に符号化されて Woo に `&amp;` が見える）。カラーミーの `name` は平文（R3-1 で `Tom & Jerry <set>` がそのまま返ることを実測）

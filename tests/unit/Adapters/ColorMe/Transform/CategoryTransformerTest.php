@@ -167,6 +167,15 @@ final class CategoryTransformerTest extends WP_UnitTestCase {
 		$this->assertNull( $categories[0]->extras['image_url'] );
 	}
 
+	public function test_script_and_style_contents_are_removed_from_the_description(): void {
+		$raw         = FixtureLoader::load( 'colorme', 'categories' )['categories'][0];
+		$raw['expl'] = 'カテゴリー<script>x()</script><style>p{}</style>の説明';
+
+		$categories = $this->transformer->transform( $raw );
+
+		$this->assertSame( 'カテゴリーの説明', $categories[0]->extras['description'] );
+	}
+
 	public function test_sort_order_is_preserved_for_parent_and_child(): void {
 		$raw = [
 			'id_big'        => 100,

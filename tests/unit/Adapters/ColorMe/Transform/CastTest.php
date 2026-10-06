@@ -55,8 +55,9 @@ final class CastTest extends WP_UnitTestCase {
 	}
 
 	public function test_sanitize_html_strips_disallowed_tags(): void {
-		// wp_kses_post はタグ自体を除去するが、script/style以外の要素は中のテキストを残す。
-		$this->assertSame( 'safe <strong>text</strong>alert(1)', Cast::sanitize_html( 'safe <strong>text</strong><script>alert(1)</script>' ) );
+		// wp_kses_post だけでは script/style の中身が文字として残るので、中身ごと除く（issue #101）。
+		$this->assertSame( 'safe <strong>text</strong>', Cast::sanitize_html( 'safe <strong>text</strong><script>alert(1)</script>' ) );
+		$this->assertSame( 'safe <strong>text</strong>', Cast::sanitize_html( 'safe <strong>text</strong><STYLE type="text/css">p{color:red}</STYLE>' ) );
 		$this->assertSame( 'safe <strong>text</strong>', Cast::sanitize_html( 'safe <strong>text</strong><iframe src="https://evil.example.com"></iframe>' ) );
 		$this->assertNull( Cast::sanitize_html( null ) );
 	}

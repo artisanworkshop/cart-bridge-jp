@@ -999,7 +999,8 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   既にColorMe専用ゲート済みの`AddressMapper`を`Adapters\ColorMe\Transform\CustomerTransformer`から
   再利用することはこれに反しないと判断した（対称の変換を複製すると2箇所が食い違うリスクを負う）。
 - **新規作成必須フィールドの欠落はAPIを呼ばずスキップ**: `POST /v1/customers`は`name`/`mail`/
-  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は部分更新で必須項目なし）。Woo顧客の請求先情報
+  `pref_id`/`postal`/`address1`/`tel`が必須（`PUT`は swagger では部分更新で必須項目なしだが、実際は名前と住所が必須。
+  R3-1 の実測で訂正し、R3-1c〔issue #100〕で更新も同じくスキップするようにした。§10.2「名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c）」）。Woo顧客の請求先情報
   から`pref_id`/`postal`/`address1`/`tel`のいずれかを解決できない場合、送信すると確実に422になる
   ため`CustomerTransformer::to_create_payload()`が`null`を返し、`ColorMeAdapter::push_customer()`が
   `PushResult('', OPERATION_SKIPPED, [WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING])`で
@@ -1813,6 +1814,7 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   issue #99 の対応案（`esc_html()`）は、引用符も符号化し既存の実体参照を二重に符号化しないので採らなかった。
 - **説明・短い説明**: アダプタの浄化（カラーミーは `Cast::sanitize_html()`）に頼らず、Writer が `wp_kses_post()` してから保存する
   （kses を通っても変わらない形。外部アダプタの値でもランナーで変わらない）。カラーミーの値は既に浄化済みなので結果は変わらない。
+  R3-1c（issue #101）からは `HtmlText::sanitize_post_html()`（`<script>`・`<style>` を中身ごと除いてから kses）を使う。
 - **バリエーションの名前**は WooCommerce が親の post_title と属性の値から作り、読み込み時に作り直して直接書き戻す（`WC_Product_Variation_Data_Store_CPT::read()`）。
   Writer は触らない（親の名前が決まれば、読み直した名前はランナーによらない。テストで確認）。属性の要約（`post_excerpt`）は下の対象外。
 - **エクスポート**: `ProductReader` は名前を `HtmlText::to_plain()`（`html_entity_decode( ENT_QUOTES | ENT_HTML5 )`）で平文へ戻して送る。
@@ -1838,6 +1840,55 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   引用符・復号の範囲・Reader の名前とターム・Resolver・Presenter）がすべて CAUGHT。wp-env の dev サイトでも実際の Writer/Reader で WP-Cron の条件（未ログイン＋`kses_init_filters()`）と管理者の
   保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの確認（`rehearse-colorme` の `run context=cron|admin` → `check-import`、
   Woo 生まれの `ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+
+#### 名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c、issue #100・#101）
+
+R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` の所見 B・C）で見つかった 2 件。
+
+- **顧客の更新（issue #100）**: `PUT /customers/{id}` は swagger では必須項目が無いが、ColorMe は名前と住所（市区町村・番地）が無いと 422 にする
+  （テストショップで実測。`.claude/rules/adapters-colorme.md`）。以前の `CustomerTransformer::to_update_payload()` は住所 3 点（`pref_id`/`postal`/`address1`）を
+  そろえられないと住所を省いて送り、海外の会員の更新が毎回 422・`Exporter` の 1 件失敗（ログは例外のクラス名だけ）になっていた。
+  `to_update_payload()` を `?array` にし、名前（空白だけでない・50 文字以内）と住所 3 点を作成と共有の判定で確かめ、そろわなければ `null` を返す。
+  `ColorMeAdapter::push_customer()` は作成と同じく API を呼ばずに `PushResult('', skipped, [CUSTOMER_REQUIRED_FIELD_MISSING])` を返す
+  （`push_order()` の更新スキップと同じ形。`Exporter` は既存の mapping〔remote_id・checksum〕に触れず、checksum も保存しないので、店舗が住所を補えば次回送る）。
+  電話番号は作成だけの必須のまま（更新で必須かは未実測。解決できなければ従来どおり省く）。作成側にも名前が空のスキップを足した（以前は `display_name` 頼みで、空なら 422）。
+  D25 で取り込んだ会員はエクスポートしないので、対象は Woo 生まれの顧客で作成後に住所を消した・名前を 50 文字超に変えた場合だけ。
+  理由の見せ方は警告コードだけ（2026-10-06 ユーザー決定。dry-run はアダプタを呼ばないので明細・CSV には出ない。作成時と同じ既知の限界。項目別警告の保存は R3-0k の決定どおり v1.1 以降）。
+  backlog `e2-3-push-customer/G1-name-length-on-update` は解消。
+- **説明の `<script>`・`<style>`（issue #101）**: `wp_kses_post()` はこの 2 つのタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示される
+  （`a<script>console.log("zzr")</script><style>.zzr{color:red}</style>b` → `aconsole.log("zzr").zzr{color:red}b`。wp-env で実測）。
+  `Woo\Support\HtmlText::sanitize_post_html()` を新設し、2 つの要素を中身ごと除いてから kses を掛ける。取込みの `Cast::sanitize_html()`（商品の説明・簡易説明・
+  スマートフォン用説明、カテゴリ・グループの説明）と、Writer が自分で浄化する `ProductWriter` の説明・短い説明（R3-1b）の両方で使う
+  （商品の説明は外部アダプタ・将来の BASE でも同じ結果になる。ターム〔カテゴリ・タグ〕の説明は `TermWriter` が浄化しないので、アダプタが `sanitize_post_html()` を通す。backlog `r3-1c-customer-update-and-script-strip/R1-X1`）。
+  - kses と同じく、最初に制御文字を消す（`wp_kses_no_null( …, [ 'slash_zero' => 'keep' ] )`。kses は消してからタグを読むので、`<script\0>` を開始タグと見なさないと中身が残る。PR #106 G1-2）。
+  - タグの区切りはブラウザに合わせる: `<` の直後が英字・`/`・`!`・`?` のときだけタグの始まりとし、最初の `>`（無ければ末尾）までを 1 つの区切りにする
+    （`wp_kses_split()` と同じく、属性値の中の引用符・`>` は考えない）。区切りの先頭が `<script`・`<style` のものだけを開始タグとするので、属性値
+    （`<p title="<script>">`）・CDATA の中の文字は開始タグと見なさない。最初は文字列全体を正規表現で探していたため、属性値・コメント・CDATA の中の
+    `<script>`・`<style>` から後ろ（閉じタグが無ければ末尾まで）の説明を消していた（review-loop R1 の独立レビュー A-1。wp-env で実測）。
+  - それ以外の `<`（`容量 < 500ml`・`<3`・`<<`）は文字なので `&lt;` にして出す。kses も `pre_kses` の `wp_pre_kses_less_than()` で同じ `<` を文字にするが、
+    区切りに含めると後ろの `<script>` が手前の区切りに隠れ、`容量 < 500ml` の後ろの `<style>` の CSS が文字として残った（R1 の作り直しで入り、R2 の独立レビューで判明）。
+    生の `<` のまま出すと、除いた前後がつながって kses がタグと見なし、見える文字を消す（`A < B<script>…</script>C > D`）。kses だけの結果と比べると、
+    `<` の後ろに `>` がある文（`1<2 and 3>2`）は kses がタグとして消していた部分も文字として残るようになる（ブラウザの表示に近づく。checksum が変わるのはこの形の説明だけ）。
+  - 中身はブラウザと同じく生のテキストとして読み、最初の `</script`・`</style`（直後が空白・`/`・`>`）で閉じる（JS の `a<b` をタグと見なさない。`</scripts>` は閉じタグではない。
+    閉じタグに `>` が無ければ末尾まで）。
+  - 閉じタグが無い要素は除かない（後ろの説明を失わない。kses がタグを外し、中身は文字として残る従来の結果）。
+  - コメントは `-->` まで（無ければ末尾まで）。`<!-->`・`<!--->` はブラウザと同じくその場で閉じたコメントとし、`<!---->` にそろえて出す（kses はそのままでは次の `-->` までを
+    コメントと読み、後ろの説明を隠す）。kses は `<` を含むコメントを `wp_pre_kses_less_than()` で文字にしてしまい（`<!-- ` が `&lt;!-- ` になる）、コメントアウトした
+    `<script>` の中身が文字として出るので、コメントの中では区切りによらずどの `<script`・`<style` も開始タグとし、閉じタグはコメントの中だけで探す。
+  - 区切りと閉じタグは `strpos()`・`stripos()` で探す（正規表現の遅延一致は約 1MB のコメントで PCRE の上限に達し、閉じタグの無い開始タグ・`>` の無い閉じタグが
+    多い入力では探し直しが二乗になった〔640KB で 1.3 秒・720KB で 5 秒。review-loop R1 で実測〕）。閉じタグの見つからなかった要素名は覚えて探し直さない（時間のテストで固定）。
+    PCRE が失敗する経路は無い（kses 自体が同じ入力に 100〜500ms かかり、除去の上乗せはその 1〜3 割）。
+  - 既知の限界（どれも R3-1c より前の kses だけの結果と同じかそれ以上）: 引用符で囲んだ属性値の中の `>` の後ろの `<script>`（`<p title="a>b<script>">`）は開始タグと見なす
+    （後ろに本物の `</script>` があれば、そこまでの説明を消す）。`<textarea>`・`<title>` の中（ブラウザでは文字）の `<script>` も開始タグと見なす。スクリプトの中の
+    `<!--<script` の後ろ（ブラウザは次の `</script>` で閉じない。古い `document.write` の書き方）は区別しない。backlog `r3-1c-customer-update-and-script-strip/R2-L1`。
+  - 既存の取込み済み商品は、説明に script/style がある商品だけ Canonical が変わり、次の取込みで更新される（それ以外は checksum 不変で書き直さない）。
+- **検証**: PHPUnit（`HtmlTextTest`〔中身ごとの除去・大文字・属性・改行・閉じタグの形〈空白・`/`・属性・`</scripts>` は閉じない〉・中身の `<`・コメント内〈複数行・入れ子の `<!--`・属性値の中も〉・`<!-->`・文字の `<`〈`容量 < 500ml` など〉・`<scripts>` は残る・閉じタグの `>` 無し・属性値／CDATA／閉じていないコメント／閉じタグ無しでは何も除かない・閉じタグの無い開始タグが多い入力の時間〕、
+  `CastTest`・`ProductTransformerTest`〔説明 3 種〕・`CategoryTransformerTest`・`TagTransformerTest`・`ProductWriterTest`〔未ログイン〈kses あり〉と管理者の保存が一致し JS・CSS の文字が無い〕、
+  `CustomerTransformerTest`〔住所なし・一部・海外で郵便番号なし・海外で住所あり・電話なし・名前の空/空白/50/51 文字を作成と更新の両方〕、
+  `ColorMeAdapterTest`〔更新で PUT を送らない・`Exporter` との結合で mapping が残りエラーログが無い〕）。`mutate-check.sh` で除去・顧客の判定の各ガードがすべて CAUGHT（種類と件数は `docs/reviews/feat/r3-1c-customer-update-and-script-strip/R1.md`・`R2.md`）。
+  wp-env の dev サイトで、P11 と同じ説明を `Cast::sanitize_html()` と実際の `ProductWriter`（WP-Cron の条件〔未ログイン＋`kses_init_filters()`〕と管理者）に通して JS・CSS の文字が残らず両者が一致すること、
+  実アダプタの `push_customer()` が住所の無い顧客の更新で HTTP を一切送らずに警告つきでスキップすることを確認した。テストショップでの確認（`rehearse-colorme` の `check-import`〔script/style の中身が残れば MISMATCH〕と
+  手順 3 の顧客の更新）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

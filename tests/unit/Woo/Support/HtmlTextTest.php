@@ -84,4 +84,158 @@ final class HtmlTextTest extends WP_UnitTestCase {
 		$this->assertSame( "Men's \u{2026}", HtmlText::to_plain( 'Men&#039;s &hellip;' ) );
 		$this->assertSame( 'A\\B', HtmlText::to_plain( 'A&#092;B' ) );
 	}
+
+	// --- sanitize_post_html()（issue #101）
+
+	/**
+	 * kses だけだと `<script>`・`<style>` の中身が文字として残る（R3-1 の P11 と同じ入力）。中身ごと除く。
+	 */
+	public function test_script_and_style_elements_are_removed_with_their_contents(): void {
+		$html = '<p>説明</p><script>console.log("zzr")</script><style>.zzr{color:red}</style><p style="color:blue">装飾つき</p>';
+
+		$this->assertSame( 'aconsole.log("zzr").zzr{color:red}b', wp_kses_post( 'a<script>console.log("zzr")</script><style>.zzr{color:red}</style>b' ), 'kses だけでは中身が残る（前提）' );
+		$this->assertSame( '<p>説明</p><p style="color:blue">装飾つき</p>', HtmlText::sanitize_post_html( $html ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function script_style_variants(): array {
+		return [
+			'upper case'                     => [ 'a<SCRIPT>x()</SCRIPT>b', 'ab' ],
+			'mixed case pair'                => [ 'a<Script>x()</sCRIPT>b', 'ab' ],
+			'attributes'                     => [ 'a<script type="text/javascript" async data-x="1">x()</script>b', 'ab' ],
+			'multi line'                     => [ "a<style media=\"all\">\n.x{\n  color:red;\n}\n</style>b", 'ab' ],
+			'space before closing bracket'   => [ 'a<script>x()</script >b', 'ab' ],
+			'slash after closing name'       => [ 'a<script>y()</script/>b', 'ab' ],
+			'attribute on closing tag'       => [ 'a<script>y()</script foo>b', 'ab' ],
+			'longer name is not a closer'    => [ 'a<script>x</scripts>y()</script>b', 'ab' ],
+			'self-closing look'              => [ 'a<script/>x()</script>b', 'ab' ],
+			'several elements'               => [ 'a<script>1</script>b<style>2</style>c<script>3</script>d', 'abcd' ],
+			'less-than inside the script'    => [ 'a<script>if (a<b && c>d) { x(); }</script>b', 'ab' ],
+			'closing tag text in string'     => [ 'a<script>var s="</script>";</script>b', 'a";b' ],
+			'joined text is not a tag'       => [ 'a<script>1</script>script>2</script>b', 'ascript&gt;2b' ],
+			'closing tag without bracket'    => [ 'a<script>x()</script b', 'a' ],
+			'form feed after the name'       => [ "a<script\f>x()</script\f>b", 'ab' ],
+			'null byte in the opener'        => [ "a<script\0>alert(1)</script>b", 'ab' ],
+			'null byte in the closer'        => [ "a<script>alert(1)</script\0>b", 'ab' ],
+			'control character in the name'  => [ "a<scr\x01ipt>alert(1)</script>b", 'ab' ],
+			'inside a comment'               => [ 'a<!-- <script>c()</script> -->b', 'a<!--  -->b' ],
+			'inside a multi-line comment'    => [ "a<!--\n<script>c()</script>\n-->b", "a<!--\n\n-->b" ],
+			'less-than as text before'       => [ 'A < B<script>x()</script>C', 'A &lt; BC' ],
+			'less-than with a later bracket' => [ 'A < B<script>x()</script>C > D', 'A &lt; BC &gt; D' ],
+			'japanese text with less-than'   => [ "容量 < 500ml\n<style>.foo{color:red}</style>end", "容量 &lt; 500ml\nend" ],
+			'double less-than'               => [ '<<script>x()</script>tail', '&lt;tail' ],
+			'less-than and a digit'          => [ '<3 <script>x()</script>', '&lt;3 ' ],
+		];
+	}
+
+	/**
+	 * 大文字小文字・属性・改行・閉じタグの形（空白・`/`・属性。`</scripts>` は閉じタグではない）・中身の `<`・コメントの中。
+	 * 中身の文字列に `</script>` があれば、ブラウザと同じくそこで閉じる。
+	 *
+	 * @dataProvider script_style_variants
+	 */
+	public function test_script_and_style_variants_are_removed( string $html, string $expected ): void {
+		$this->assertSame( $expected, HtmlText::sanitize_post_html( $html ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function contents_that_must_survive(): array {
+		return [
+			'script text in an attribute'        => [ '<p title="<script>">keep me</p><p>after</p>', '<p>after</p>' ],
+			'style text in an image alt'         => [ '<img alt="<style>" src="https://example.com/x.png">visible text<p>more</p>', 'visible text<p>more</p>' ],
+			'script text in CDATA'               => [ 'a<![CDATA[<script>]]>visible<p>x</p>', 'visible<p>x</p>' ],
+			'unclosed style in a comment'        => [ '<!-- <style> --> Visible description here. <b>bold</b>', ' Visible description here. <b>bold</b>' ],
+			'unclosed element'                   => [ 'a<p>b</p><script>x();<p>c</p>', '<p>c</p>' ],
+			'attribute script before a real one' => [ '<p title="<script>">keep me</p><p>after</p><script>x()</script>', '<p>after</p>' ],
+		];
+	}
+
+	/**
+	 * 本物の開始タグでない `<script>`・`<style>`（属性値・CDATA・閉じていないコメントの中）と、閉じタグの無い要素は除かない。
+	 * 正規表現で文字列全体を探すと、ここから後ろ（末尾まで）の説明を消していた（review-loop R1-1）。kses だけの結果と同じになる。
+	 *
+	 * @dataProvider contents_that_must_survive
+	 */
+	public function test_contents_outside_real_script_and_style_elements_survive( string $html, string $survivor ): void {
+		$sanitized = HtmlText::sanitize_post_html( $html );
+
+		$this->assertStringContainsString( $survivor, $sanitized );
+
+		if ( str_ends_with( $html, '<script>x()</script>' ) ) {
+			$this->assertStringNotContainsString( 'x()', $sanitized, '後ろの本物の要素は除く' );
+		} else {
+			$this->assertSame( wp_kses_post( $html ), $sanitized, 'kses だけの結果と同じ（何も除かない）' );
+		}
+	}
+
+	/**
+	 * タグ名の後ろが空白・`/`・`>` でないものは別の要素なので残す（kses の扱いのまま。許可されないタグとして外れ、中身は残る）。
+	 */
+	public function test_elements_whose_name_only_starts_with_script_or_style_are_kept(): void {
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b' ) );
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<script-x>kept</script-x>b' ) );
+		$this->assertSame( 'akeptb', HtmlText::sanitize_post_html( 'a<styles>kept</styles>b' ) );
+		// 後ろに本物の要素があっても、`<scripts>` から本物の閉じタグまでを 1 つの要素と見なさない。
+		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<scripts>kept</scripts>b<script>x()</script>c' ) );
+		$this->assertSame( 'akeptbc', HtmlText::sanitize_post_html( 'a<style-x>kept</style-x>b<style>p{}</style>c' ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function comments_hiding_scripts(): array {
+		return [
+			'abruptly closed comment'      => [ '<!--><script>x()-->y()</script>tail' ],
+			'abruptly closed comment dash' => [ '<!---><script>x()</script>tail' ],
+			'comment opener in a comment'  => [ '<!-- <!-- <script>x()</script> -->tail' ],
+			'attribute in a comment'       => [ '<!-- <p title="<script>">x()</script> -->tail' ],
+		];
+	}
+
+	/**
+	 * `<!-->`・`<!--->` はブラウザと同じくその場で閉じたコメントとし（kses は次の `-->` までを隠す）、コメントの中では区切りによらず
+	 * `<script>` を開始タグと見なす（kses は `<` を含むコメントを文字にする）。JS が文字として出ず、後ろの説明が残ること
+	 * （コメントの残りの見え方は kses の扱いのままなので、正確な文字列では確かめない。review-loop R2-1）。
+	 *
+	 * @dataProvider comments_hiding_scripts
+	 */
+	public function test_scripts_around_comments_do_not_leak_and_the_rest_survives( string $html ): void {
+		$sanitized = HtmlText::sanitize_post_html( $html );
+
+		$this->assertStringNotContainsString( 'x()', $sanitized );
+		$this->assertStringNotContainsString( 'y()', $sanitized );
+		$this->assertStringEndsWith( 'tail', $sanitized );
+	}
+
+	/**
+	 * `<!-->`・`<!--->` の後ろの文字を残さず、コメントとして読み飛ばさない（kses は空のコメントを消す）。
+	 */
+	public function test_abruptly_closed_comments_keep_the_following_text(): void {
+		$this->assertSame( 'tail', HtmlText::sanitize_post_html( '<!-->tail' ) );
+		$this->assertSame( 'tail', HtmlText::sanitize_post_html( '<!--->tail' ) );
+		$this->assertSame( '<p>a</p>tail--&gt;', HtmlText::sanitize_post_html( '<!--><p>a</p>tail-->' ), '後ろの `-->` までを隠さない' );
+	}
+
+	/**
+	 * 閉じタグの無い開始タグが多い入力でも、閉じタグを探し直さない（探し直すと二乗になり、約 180KB で 1.6 秒かかった。review-loop R2-3）。
+	 * 時間で確かめる（この約 370KB の入力は、探し直さなければ 0.1 秒前後、探し直すと数秒。テストの並行実行で 1 秒を超えたことがあるので 3 秒にする）。
+	 */
+	public function test_many_unclosed_openers_are_handled_in_linear_time(): void {
+		$html    = str_repeat( '<script>', 25000 ) . str_repeat( '<style>', 25000 );
+		$started = microtime( true );
+
+		$this->assertSame( '', HtmlText::sanitize_post_html( $html ) );
+		$this->assertLessThan( 3.0, microtime( true ) - $started );
+	}
+
+	public function test_allowed_html_and_entities_are_kept_as_kses_leaves_them(): void {
+		$html = '<p class="x">A &amp; B <a href="https://example.com/">link</a> <strong>強調</strong></p><!-- note -->';
+
+		$this->assertSame( wp_kses_post( $html ), HtmlText::sanitize_post_html( $html ) );
+		$this->assertSame( '', HtmlText::sanitize_post_html( '' ) );
+	}
 }

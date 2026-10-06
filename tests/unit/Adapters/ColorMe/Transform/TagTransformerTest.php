@@ -77,6 +77,17 @@ final class TagTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'グループの説明文', $tag->extras['description'] );
 	}
 
+	public function test_script_and_style_contents_are_removed_from_the_description(): void {
+		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
+		$raw['display_state'] = 'showing';
+		$raw['expl']          = 'グループ<script>x()</script><style>p{}</style>の説明';
+
+		$tag = ( new TagTransformer() )->transform( $raw );
+
+		$this->assertNotNull( $tag );
+		$this->assertSame( 'グループの説明', $tag->extras['description'] );
+	}
+
 	public function test_image_sort_and_meta_tag_are_preserved_in_extras(): void {
 		$raw                  = FixtureLoader::load( 'colorme', 'groups' )['groups'][0];
 		$raw['display_state'] = 'showing';

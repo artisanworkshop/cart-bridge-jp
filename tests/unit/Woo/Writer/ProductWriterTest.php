@@ -988,7 +988,8 @@ final class ProductWriterTest extends WooTestCase {
 	}
 
 	/**
-	 * 説明・短い説明は Writer 自身が `wp_kses_post()` してから保存する（アダプタが浄化していなくても、ランナーで結果が変わらない）。
+	 * 説明・短い説明は Writer 自身が浄化してから保存する（アダプタが浄化していなくても、ランナーで結果が変わらない）。
+	 * `<script>`・`<style>` は中身ごと除く（kses だけでは中身の JS・CSS が文字として残る。issue #101）。
 	 */
 	public function test_descriptions_are_saved_the_same_by_cron_and_admin_runners(): void {
 		$description       = '<p>A & B <script>x()</script><iframe src="https://video.example.com/"></iframe> <a href="https://example.com/">link</a></p>';
@@ -1020,7 +1021,7 @@ final class ProductWriterTest extends WooTestCase {
 		}
 
 		$this->assertSame( $stored['admin'], $stored['cron'] );
-		$this->assertSame( [ wp_kses_post( $description ), wp_kses_post( $short_description ) ], $stored['cron'] );
+		$this->assertSame( [ '<p>A &amp; B  <a href="https://example.com/">link</a></p>', 'Fish &amp; chips <b>hot</b> ' ], $stored['cron'] );
 	}
 
 	private function find_attachment_by_source_url( string $url ): int {

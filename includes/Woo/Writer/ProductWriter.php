@@ -151,9 +151,10 @@ final class ProductWriter implements EntityWriter {
 
 		// 保存結果を実行するユーザーの権限（kses の有無）に依存させない（issue #99）。名前は平文なので実体参照にし、
 		// 説明はアダプタの浄化に頼らずここで `wp_kses_post()` してから渡す（kses を通っても変わらない形にする）。
+		// `<script>`・`<style>` は中身ごと除く（kses は中身を文字として残す。issue #101）。
 		$product->set_name( HtmlText::from_plain( $item->name ) );
-		$product->set_description( wp_kses_post( $item->description ?? '' ) );
-		$product->set_short_description( wp_kses_post( Value::string( $item->extras['short_description'] ?? null ) ?? '' ) );
+		$product->set_description( HtmlText::sanitize_post_html( $item->description ?? '' ) );
+		$product->set_short_description( HtmlText::sanitize_post_html( Value::string( $item->extras['short_description'] ?? null ) ?? '' ) );
 		$product->set_status( 'publish' === $item->status ? 'publish' : 'private' );
 		$product->set_catalog_visibility( true === Value::bool( $item->extras['unlisted'] ?? null ) ? 'hidden' : 'visible' );
 

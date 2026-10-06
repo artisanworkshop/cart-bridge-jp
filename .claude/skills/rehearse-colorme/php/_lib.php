@@ -13,9 +13,64 @@
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\Support\HtmlText;
 
 if ( function_exists( 'cbjp_rh_args' ) ) {
 	return;
+}
+
+/**
+ * ColorMe の説明（`$from`）の `<script>`・`<style>` の中身が、取り込んだ Woo の説明（`$stored`）に文字として残っていないか（issue #101）。
+ *
+ * 期待値はプラグインの除去とは別に作る: WP の HTML API（`WP_HTML_Tag_Processor`。ブラウザと同じ字句解析で、属性値・コメント・文字の `<` を
+ * 正しく読む）で `<script>`・`<style>` の中身を空にし、プラグインと同じ浄化（`HtmlText::sanitize_post_html()`。kses と文字の `<` の扱い）を通す。
+ * kses と同じく先に制御文字を消す（`<script\0>` を要素として読むため）。保存値と期待値は、kses を変化しなくなるまで掛けてから完全一致で比べる
+ * （kses 自体が冪等でない入力があり、WP-Cron では保存時にもう一度 kses が掛かるため）。文字列の有無・出現回数で比べると、中身と同じ文字列が
+ * 本文にもある正しい取込みを失敗にし、除いた前後がつながった漏れ（`a<script>ab</script>b` → `aabb`）を見逃す（PR #106 G1-1・G2-1〜3）。
+ * 保存時の `wp_unslash()`（バックスラッシュが消える）も期待値に掛ける（G3-1）。対象は投稿の列に保存する説明・短い説明。
+ *
+ * @return array{elements:int,ok:bool,expected:string} `elements` は HTML API が見つけた要素の数（0 なら比べない）。
+ */
+function cbjp_rh_script_style_check( string $from, string $stored ): array {
+	$processor = new WP_HTML_Tag_Processor( wp_kses_no_null( $from, [ 'slash_zero' => 'keep' ] ) );
+	$elements  = 0;
+
+	while ( $processor->next_tag() ) {
+		if ( in_array( $processor->get_tag(), [ 'SCRIPT', 'STYLE' ], true ) && $processor->set_modifiable_text( '' ) ) {
+			++$elements;
+		}
+	}
+
+	if ( 0 === $elements ) {
+		return [
+			'elements' => 0,
+			'ok'       => true,
+			'expected' => '',
+		];
+	}
+
+	$stable = static function ( string $html ): string {
+		for ( $i = 0; $i < 5; $i++ ) {
+			$next = wp_kses_post( $html );
+
+			if ( $next === $html ) {
+				break;
+			}
+
+			$html = $next;
+		}
+
+		return $html;
+	};
+
+	// 保存の `wp_insert_post()` はランナーによらず `wp_unslash()` でバックスラッシュを消す（`.claude/rules/woocommerce-api.md`）ので、期待値にも掛ける（PR #106 G3-1）。
+	$expected = $stable( wp_unslash( HtmlText::sanitize_post_html( $processor->get_updated_html() ) ) );
+
+	return [
+		'elements' => $elements,
+		'ok'       => $stable( $stored ) === $expected,
+		'expected' => $expected,
+	];
 }
 
 /**

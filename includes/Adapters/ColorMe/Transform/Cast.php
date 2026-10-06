@@ -7,6 +7,8 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Adapters\ColorMe\Transform;
 
+use CartBridgeJP\Woo\Support\HtmlText;
+
 /**
  * ColorMe APIレスポンス（`json_decode` 由来の `mixed` 値）を安全にキャストするヘルパー。
  * `(string) $mixed` 等の直接キャストは値が配列だった場合に実行時エラーになるため、
@@ -151,12 +153,13 @@ final class Cast {
 	}
 
 	/**
-	 * 商品説明等のHTMLを `wp_kses_post` で浄化する（`docs/01-plan-colorme.md` §4）。
+	 * 商品説明等のHTMLを浄化する（`docs/01-plan-colorme.md` §4）。`wp_kses_post()` だけでは `<script>`・`<style>` の中身が
+	 * 文字として残るので、中身ごと除いてから kses を掛ける `HtmlText::sanitize_post_html()` を使う（issue #101）。
 	 */
 	public static function sanitize_html( mixed $value ): ?string {
 		$string = self::to_string_or_null( $value );
 
-		return null === $string ? null : wp_kses_post( $string );
+		return null === $string ? null : HtmlText::sanitize_post_html( $string );
 	}
 
 	/**

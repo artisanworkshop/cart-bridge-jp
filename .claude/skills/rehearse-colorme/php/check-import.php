@@ -232,6 +232,12 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		if ( $cbjp_from !== (string) $cbjp_woo[ $cbjp_woo_key ] ) {
 			$cbjp_report( 'NOTE', $cbjp_where, "{$cbjp_cm_key} changed on import (" . strlen( $cbjp_from ) . ' → ' . strlen( (string) $cbjp_woo[ $cbjp_woo_key ] ) . ' bytes; sanitized)' );
 		}
+
+		// `<script>`・`<style>` の中身（JS・CSS）が説明に文字として残っていないこと（issue #101。kses だけでは残る）。
+		$cbjp_check = cbjp_rh_script_style_check( $cbjp_from, (string) $cbjp_woo[ $cbjp_woo_key ] );
+		if ( ! $cbjp_check['ok'] ) {
+			$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: differs from the value with the {$cbjp_check['elements']} <script>/<style> element(s) removed by the HTML API (" . strlen( (string) $cbjp_woo[ $cbjp_woo_key ] ) . ' vs ' . strlen( $cbjp_check['expected'] ) . ' bytes; contents may remain as text)' );
+		}
 	}
 
 	foreach ( $cbjp_variants as $cbjp_variant ) {
