@@ -9,7 +9,8 @@
  * （`WC_Tax::_update_tax_rate()`。生の SQL では WooCommerce の税のキャッシュが無効化されない）、(3) 移し元の税区分の商品・バリエーション・
  * 受注明細を CRUD で移し先へ保存し直す（`WC_Tax::delete_tax_class_by()` は商品・明細の `_tax_class` を書き換えず、存在しない税区分は
  * 読込時に黙って標準 `''` になるため、消すだけでは軽減税率の商品がすべて標準に見えて確認にならない）、(4) 移し元の税区分を消す。
- * 移し元が無い対は飛ばす（既にその状態）。移し元と移し先の両方に税率がある対があれば、何も変えずに止まる（税率が 1 つの税区分に重なるため）。
+ * 移し元が無い対は飛ばす（既にその状態）。ただし移し元の税区分が消えているのに税率・商品・受注明細がまだそのスラッグを指していれば止まる。
+ * 移し元と移し先の両方に税率がある対があれば、何も変えずに止まる（税率が 1 つの税区分に重なるため）。
  * 最後に、移し元を指す税率・商品・明細が残っていないことを確かめる（残れば終了コード 1）。
  * 開発サイト専用（`reset-local` と同じ条件）。進行中のジョブがあれば止まる。
  *
@@ -74,8 +75,18 @@ if ( 'preview' !== $cbjp_mode ) {
 	foreach ( $cbjp_names as $cbjp_en => $cbjp_ja ) {
 		[ $cbjp_from_name, $cbjp_to_name ] = 'en' === $cbjp_mode ? [ $cbjp_ja, $cbjp_en ] : [ $cbjp_en, $cbjp_ja ];
 
-		if ( [] !== $cbjp_refs( sanitize_title( $cbjp_from_name ) )['rates'] && [] !== $cbjp_refs( sanitize_title( $cbjp_to_name ) )['rates'] ) {
+		$cbjp_from_refs = $cbjp_refs( sanitize_title( $cbjp_from_name ) );
+
+		if ( [] !== $cbjp_from_refs['rates'] && [] !== $cbjp_refs( sanitize_title( $cbjp_to_name ) )['rates'] ) {
 			cbjp_rh_abort( "both {$cbjp_from_name} and {$cbjp_to_name} have tax rates; moving would stack them in one class. Remove one side's rates in WooCommerce > Settings > Tax first (nothing was changed)." );
+		}
+
+		// 移し元の税区分の行が既に消えているのに、税率・商品・受注明細がまだそのスラッグを指している: 読込時に黙って標準に見える壊れた状態で、
+		// 飛ばして成功と報告すると見逃す（PR #107 G2-B1）。税区分を作り直してからやり直すよう止める。
+		$cbjp_from_count = count( $cbjp_from_refs['rates'] ) + count( $cbjp_from_refs['products'] ) + count( $cbjp_from_refs['items'] );
+
+		if ( $cbjp_from_count > 0 && ! in_array( sanitize_title( $cbjp_from_name ), WC_Tax::get_tax_class_slugs(), true ) ) {
+			cbjp_rh_abort( "the tax class {$cbjp_from_name} is gone but {$cbjp_from_count} rate(s)/product(s)/order item(s) still reference it. Recreate the class (WooCommerce > Settings > Tax), then retry (nothing was changed)." );
 		}
 	}
 }
