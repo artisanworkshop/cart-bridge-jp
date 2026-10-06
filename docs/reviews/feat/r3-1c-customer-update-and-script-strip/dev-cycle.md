@@ -3,7 +3,7 @@
 - タスク: R3-1c — 名前・住所がそろわない顧客の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）
 - 開始: 2026-10-06
 - PR: #106 https://github.com/artisanworkshop/cart-bridge-jp/pull/106
-- 現在のステップ: 7〜8（G3 の反映 → CI 待ち → 最終報告）
+- 現在のステップ: 8（完了。final-report.md 記録済み）
 - Copilot: 依頼 3 回（上限）/ G3 の 1 件を修正（4 回目は依頼しない）
 - Codex: 依頼 2 回 / 収束（G2 で指摘なし）
 
@@ -19,3 +19,4 @@
 | 2026-10-06 16:46 | 7 | G1: Copilot 1（check-import の誤検出）・Codex 2（制御文字で除去を抜ける・Copilot と同じ誤検出）→ ユーザー承認で 3 件とも修正（`97cf755`・`c506060`）。品質チェック green（PHPUnit 1631） |
 | 2026-10-06 17:07 | 7 | G2（T=2026-10-06T07:51:52Z）: Codex は指摘なしで収束。Copilot 3（check-import の判定: 制御文字・文字の `<` の誤検出・前後がつながった漏れ）→ ユーザー承認で判定を HTML API の期待値との完全一致に作り直し（`5c63e2b`） |
 | 2026-10-06 17:26 | 7 | G3（Copilot 3 回目。T=2026-10-06T08:11:51Z）: Copilot 1（check-import の期待値に保存時の `wp_unslash()` が無い）→ ユーザー承認で修正（`1769bcb`）。依頼上限に達したので再依頼しない |
+| 2026-10-06 17:32 | 8 | 最終 push（`0d3a50a`）の CI green。Codex 収束（G2）、Copilot は依頼上限（G3 の 1 件を修正）。最終報告を記録（final-report.md） |
