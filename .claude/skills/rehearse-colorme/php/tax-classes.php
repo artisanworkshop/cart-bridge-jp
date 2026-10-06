@@ -99,10 +99,17 @@ foreach ( $cbjp_names as $cbjp_en => $cbjp_ja ) {
 		}
 	}
 
-	$cbjp_ref = $cbjp_refs( $cbjp_from );
+	$cbjp_ref      = $cbjp_refs( $cbjp_from );
+	$cbjp_to_rates = count( $cbjp_refs( $cbjp_to )['rates'] );
 
 	foreach ( $cbjp_ref['rates'] as $cbjp_rate_id ) {
 		WC_Tax::_update_tax_rate( $cbjp_rate_id, [ 'tax_rate_class' => $cbjp_to ] );
+	}
+
+	// `_update_tax_rate()` は一覧に無いスラッグを黙って標準 `''` に置き換える（`WC_Tax::format_tax_rate_class()`）。税率が移し先に
+	// 着いたことを件数で確かめてから商品を移す（標準へ落ちたのに成功と報告しない）。
+	if ( count( $cbjp_refs( $cbjp_to )['rates'] ) !== $cbjp_to_rates + count( $cbjp_ref['rates'] ) ) {
+		cbjp_rh_abort( "the tax rates of {$cbjp_from_name} did not arrive in {$cbjp_to_name}; check the standard rates before retrying." );
 	}
 
 	foreach ( $cbjp_ref['products'] as $cbjp_id ) {
