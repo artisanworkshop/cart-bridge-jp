@@ -885,7 +885,31 @@ final class ProductWriterTest extends WooTestCase {
 	}
 
 	/**
+	 * 制御文字は kses（`wp_kses_no_null()`）が WP-Cron でだけ消すので、Writer が先に消して両方で同じにする。
+	 */
+	public function test_control_characters_in_the_name_are_removed_by_both_runners(): void {
+		$titles = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$product = new CanonicalProduct( "Line\x0Bbreak\x1B", null, '1000', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'ctrl-' . $index ] );
+
+			$titles[ $runner ] = $this->stored_post_field( $this->make_writer()->write( $product, null )->local_id, 'post_title' );
+		}
+
+		$this->assertSame(
+			[
+				'cron'  => 'Linebreak',
+				'admin' => 'Linebreak',
+			],
+			$titles
+		);
+	}
+
+	/**
 	 * 更新（`wp_update_post()`）でも kses が掛かる。管理者として作った商品を WP-Cron の条件で更新しても名前が変わらない。
+	 * WooCommerce は投稿の列（名前・説明・状態など）が変わったときだけ `wp_update_post()` を呼ぶので、短い説明も変えて通らせる
+	 * （`WC_Product_Data_Store_CPT::update()`。価格だけの更新では名前が kses を通らず、このテストが何も確かめなくなる）。
 	 */
 	public function test_updating_under_the_other_runner_keeps_the_name(): void {
 		$name    = 'Tom & Jerry <set>';
@@ -896,10 +920,28 @@ final class ProductWriterTest extends WooTestCase {
 		$before  = $this->stored_post_field( $created->local_id, 'post_title' );
 
 		$this->act_as_runner( 'cron' );
-		$updated = new CanonicalProduct( $name, null, '1200', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'name-update' ] );
+		$post_updates = did_action( 'post_updated' );
+		$updated      = new CanonicalProduct(
+			$name,
+			null,
+			'1200',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[
+				'remote_id'         => 'name-update',
+				'short_description' => 'changed',
+			]
+		);
 		$this->make_writer()->write( $updated, $created->local_id );
 
-		$this->assertSame( '1200', wc_get_product( $created->local_id )->get_regular_price(), '前提: 更新が保存された' );
+		$this->assertSame( 'changed', $this->stored_post_field( $created->local_id, 'post_excerpt' ), '前提: 投稿の列が更新された' );
+		$this->assertGreaterThan( $post_updates, did_action( 'post_updated' ), '前提: wp_update_post() を通った' );
 		$this->assertSame( $before, $this->stored_post_field( $created->local_id, 'post_title' ) );
 	}
 

@@ -24,6 +24,8 @@ final class HtmlText {
 	/**
 	 * `&` `<` `>` を実体参照にし（既存の実体参照も二重に符号化する）、バックスラッシュを `&#092;` にする。
 	 *
+	 * - 制御文字（タブ・改行・復帰を除く `\x00-\x1F`）は除く。kses の `wp_kses_no_null()` が WP-Cron でだけ消すので
+	 *   （管理者では残る）、先に消して同じ結果にする（実体参照にしても kses が `&amp;#11;` に書き換える）。
 	 * - 二重に符号化するので、文字どおり `&amp;` を含む名前も {@see self::to_plain()} で元どおりに戻る。
 	 * - 引用符は kses が変えないので符号化しない（`Men&#039;s` にすると `Men's` で商品を検索できなくなる）。
 	 * - バックスラッシュは `wp_insert_post()` の `wp_unslash()` がランナーによらず消すので、数値実体参照で守る。
@@ -31,11 +33,15 @@ final class HtmlText {
 	 *   （先に置換すると `&amp;#092;` になる）。
 	 */
 	public static function from_plain( string $text ): string {
+		$text = (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $text );
+
+		// `ENT_SUBSTITUTE`: 不正な UTF-8 を U+FFFD にする（無いと `htmlspecialchars()` が空文字列を返し、名前が消える）。
 		return str_replace( '\\', '&#092;', htmlspecialchars( $text, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8', true ) );
 	}
 
 	/**
-	 * HTML の文字列を表示どおりの平文にする（{@see self::from_plain()} の厳密な逆）。
+	 * HTML の文字列を表示どおりの平文にする（{@see self::from_plain()} の逆。除いた制御文字と U+FFFD にした不正な
+	 * UTF-8、保存時の `title_save_pre` の前後の空白の trim は戻らない）。
 	 *
 	 * Woo で作られた名前は生の `&` のことも、kses や REST で `&amp;` などの実体参照になっていることもあるので、
 	 * 5 種類だけを戻す `wp_specialchars_decode()` ではなく全ての実体参照を戻す。タグは除かない（管理者が名前に

@@ -59,6 +59,23 @@ final class HtmlTextTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 制御文字は kses（`wp_kses_no_null()`）が WP-Cron でだけ消すので、先に消す。タブ・改行・復帰は kses も残すので残す。
+	 */
+	public function test_control_characters_are_removed_like_kses_does(): void {
+		$encoded = HtmlText::from_plain( "A\x0BB\x1BC\x00D\tE\nF\rG" );
+
+		$this->assertSame( "ABCD\tE\nF\rG", $encoded );
+		$this->assertSame( $encoded, wp_kses( $encoded, 'title_save_pre' ) );
+	}
+
+	/**
+	 * 不正な UTF-8 は U+FFFD にして残す（`htmlspecialchars()` は既定では空文字列を返し、名前が消える）。
+	 */
+	public function test_invalid_utf8_is_substituted_instead_of_emptying_the_name(): void {
+		$this->assertSame( "A\u{FFFD}B &amp; C", HtmlText::from_plain( "A\xC3B & C" ) );
+	}
+
+	/**
 	 * Woo で作られた名前（管理画面の生の値、kses や REST で実体参照になった値）は、表示どおりの文字へ戻す。
 	 */
 	public function test_woo_born_html_is_decoded_to_what_the_store_displays(): void {
