@@ -70,7 +70,11 @@ paths:
   REST〔ユーザーの言語〕・WP-CLI／Action Scheduler〔サイトの言語〕の実行時の言語と一致する保証が無い）
 - **税率の判定は `WC_Tax::find_rates()`（国 `''` のワイルドカード行も一致する）と `WC_Tax::calc_tax()` の合計で行う**（7.8%＋2.2% の分割・複合税率も合算される）。`get_base_tax_rates()` は店舗の基準所在地で引くので、
   基準所在地が WooCommerce 既定の US:CA のままの店舗では JP の税率が見えない（`TaxClass` は国を JP に固定し、基準国が JP のときだけ基準所在地の州などを使う）。
-  `WC_Tax::create_tax_class()` は WooCommerce の税のキャッシュの接頭辞を無効化しない（`delete_tax_class_by()`・税率の追加・更新・削除はする）ので、税区分の一覧に依存するメモ化は一覧もキーに含める
+  `WC_Tax::create_tax_class()` は WooCommerce の税のキャッシュの接頭辞を無効化しない（`delete_tax_class_by()`・税率の追加・更新・削除はする）ので、税区分の一覧に依存するメモ化は一覧もキーに含める。
+  **`find_rates()` は優先度ごとに最も具体的な 1 行だけを使う**（国が空でない行 → 州が空でない行 → 郵便番号・市の件数が多い行 → ID の小さい行。`WC_Tax::sort_rates_callback()`）。複合税率は、複合でない税率の合計に上乗せされる。
+  同じ税区分の行を全部足すと、同じ優先度の JP の行と国 `''` の行を両方数えて誤る（`rehearse-colorme` の期待値で踏んだ。PR #107 G1-1）
+- **`get_tax_class()` のフィルター（`woocommerce_product_get_tax_class` など）が文字列以外を返すと、可変商品は WooCommerce 本体の価格の読込み**（`WC_Product_Variable::get_variation_regular_price()` →
+  `WC_Tax::get_rates()`）がプラグインより先に TypeError で落ちる（ストアフロントも落ちる壊れたサイト）。プラグインの `TaxClass`・`TaxInclusivePrice` は文字列以外を止める側に倒すが、この経路は防げない（PR #107 G2-B2）
 - **`WC_Tax::delete_tax_class_by()` は、その税区分の税率は消すが、商品・受注明細の `_tax_class` は書き換えない**。存在しない税区分の商品は読込時に `WC_Product::set_tax_class()` が黙って標準 `''` にし、
   受注明細は `WC_Order_Item_Product::set_tax_class()` の例外を `set_props()` が握りつぶして `''` になる（どちらも保存値は古いスラッグのまま）。税区分を付け替える処理は、新しい税区分を作り → 税率を
   `WC_Tax::_update_tax_rate()`（生の SQL ではキャッシュが無効化されない）で移し → 商品・明細を CRUD で保存し直してから古い税区分を消す（`rehearse-colorme` の `tax-classes.php`）

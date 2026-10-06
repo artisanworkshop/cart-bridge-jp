@@ -48,7 +48,8 @@ paths:
 - **送れない商品は ColorMe に作らない（非公開で作って後で公開される経路を持たない）**（R3-1d、issue #78）。以前の hidden 安全策（作成時だけ `display_state=hidden`）は、更新で Woo の status どおり
   `showing` を送るので、次のエクスポートで誤った税区分・価格未設定のまま公開された。標準・軽減以外の税区分は Reader が止め（`TAX_CLASS_UNSUPPORTED`）、価格を 1 件も換算できない店舗設定は
   `ProductTransformer::push_blocker()` が `push_product()` の POST/PUT の前に止める（`PRODUCT_PRICE_NOT_CONVERTIBLE`。作成も更新もしない）。`CanonicalProduct::$tax_class` は Woo のスラッグではなく記号
-  （null／`CanonicalProduct::TAX_CLASS_REDUCED`）なので、アダプタは記号だけを見る（Woo の税区分の見分け方は Woo 層の `TaxClass`。D26）
+  （null／`CanonicalProduct::TAX_CLASS_REDUCED`）なので、アダプタは記号だけを見る（Woo の税区分の見分け方は Woo 層の `TaxClass`。D26）。Woo 層は対応外の税区分を `woo:` 付きのスラッグにして記号と衝突させない
+  （軽減と判定できない `reduced-rate`〔5% を入れた等〕がそのままだと記号と同じ文字列になり、アダプタの多重防御をすり抜ける。PR #107 review-loop R1-1）
 - `ProductTransformer::to_push_amount()` は換算不能・非数値だけを null にし、0・負値・通常価格超えはそのまま通す。外部アダプタ境界の Canonical（`CanonicalProduct::$variants[]` 等）の金額を送る push 実装は、`Woo\Reader` で検証済みでも送る側で再検証すること（`push_variant_details()` は販売価格が 0 超・通常価格以下のときだけ送る。PR #61 G3-1）
 - **`Capabilities` は能力（プラン・API の可否）の宣言で、店舗の設定では変えない**。「プレミアム かつ 設定オン」を能力自体に入れると、設定オフの間は UI が「この店舗でその機能を使えるか」を判別できず、オンにする手段が無くなる（D24 の当初案がこの形で、`ColorMeAdapter::can_push_images()` を `capabilities()` が呼んでいたため気付いた）。能力は `is_premium_plan()` のまま、実際に動かすかは別メソッド（`should_push_images()` ＝ 能力 かつ 設定）で決める。外部への書込みをオンにする設定の読取は `Support\ExportOptions` のように**厳密な `true ===`** だけをオンとする（`'true'`・`1`・配列は全てオフ。`(bool)` キャストは `'false'` を true にする）。REST の保存側も `is_bool()` で検証し、能力の無い platform ではオンにできないようにする（後でプランが変わったときに黙って効き始めない。R3-0j、issue #75）
 - **`Capabilities::$beta_features` は表示と既定オフのためだけの宣言**（可否は各能力が決める）。外部アダプタの戻り値は型が強制されないので、`to_array()` が文字列以外・空文字・重複を落として `array_values` で詰め直す（キーが飛ぶと JSON がオブジェクトになり UI の `.includes()` が落ちる）。UI の分岐を足すときも `beta_features` に無いものを既定オフにしない（サーバー側の既定オフは設定側 `ExportOptions` が担う）

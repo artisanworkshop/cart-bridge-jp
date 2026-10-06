@@ -56,4 +56,9 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **検証スクリプトの判定は、文字列の有無・出現回数で推測せず、独立に作った期待値と完全一致で比べる**（PR #106: `check-import` の script/style の残りの判定を `str_contains` → 出現回数 → 完全一致と作り直し、
   Copilot に G1〜G3 の 3 ラウンド指摘された）。推測の判定は、本文に同じ文字列がある正しい取込みを失敗にし、前後がつながった漏れ（`a<script>ab</script>b` → `aabb`）を見逃す。
   期待値は対象のコードと別の実装（WP の HTML API `WP_HTML_Tag_Processor` など）で作り、保存時の変換（kses の再適用・`wp_unslash()`）も両側にそろえてから比べる
-  （`rehearse-colorme` の `_lib.php` の `cbjp_rh_script_style_check()`）
+  （`rehearse-colorme` の `_lib.php` の `cbjp_rh_script_style_check()`）。WC の値から期待値を作るときは、WC が値を選ぶ規則まで書き写す（税率は全行の合計ではなく、優先度ごとに最も具体的な 1 行と
+  複合税率の上乗せ。`cbjp_rh_jp_reduced_classes()`。PR #107 G1-1）
+- **開発サイトの状態を書き換える道具（`rehearse-colorme` の `tax-classes`・`reset-local` など）は、書き換える前にすべてを確かめてから始める**（PR #107 で G1-3・G2-B1・G3-1 と 1 項目ずつ指摘された）。
+  (1) 進行中のジョブに加え、処理中の `cbjp_process_job` アクション（キャンセル直後のページがまだ書いている）を拒否する（`reset-local.php` と同じ確認）。
+  (2) 複数の対を順に移す処理は、途中で止めて半分だけ移った状態を残さないよう、最初に全部の対の前提（移し先が空か・消えた移し元をまだ指す参照が無いか）を確かめる。
+  (3) WC の API が黙って値を置き換える箇所（`WC_Tax::_update_tax_rate()` は一覧に無いスラッグを `''` にする）の後は、移した件数を移し先で数え直してから先へ進む
