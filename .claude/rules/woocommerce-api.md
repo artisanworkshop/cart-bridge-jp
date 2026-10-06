@@ -49,3 +49,10 @@ paths:
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）
+- **WooCommerce の商品の「複製」（`WC_Admin_Duplicate_Product::product_duplicate()`）は既定でメタをすべて写し、同じ除外一覧をバリエーションの複製にも使う**（WC 11 の実ソース）。
+  取込みの紐づけメタ（`_cbjp_platform`/`_cbjp_remote_id`）を写すと、複製が取込み品と判定されて黙ってエクスポートされず（D25）、リンク再構築が複製へ mapping を付け替えうるので、
+  `woocommerce_duplicate_product_exclude_meta` で外している（`Woo\Support\EntityOrigin::exclude_link_meta_on_duplicate()`）。紐づけ用のメタを新設するときはこの一覧に足す
+- **日付で並べて OFFSET（`page`）でページングする走査は、同じ日時の行がページの境目で重複・欠落しないよう ID を決め手に足す**。`wc_get_orders`（HPOS の
+  `OrdersTableQuery::sanitize_order_orderby()`・CPT の `WP_Query`）と `wc_get_products` は空白区切りの `'date ID'` を 2 列に分割する（実測 SQL `… DESC, … ID DESC`）。
+  `WP_User_Query` も文字列を `preg_split( '/[,\s]+/' )` で分割するが、Codex・Copilot が 2 回続けて「効かない」と誤読したので配列（`[ 'registered' => 'DESC', 'ID' => 'DESC' ]`）で書く。
+  bot の指摘は `query_orderby` 等で SQL を出して判定する（`Sync\ExportSampleSelector`、PR #104 G1-2・G2-1）
