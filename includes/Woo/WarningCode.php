@@ -150,9 +150,10 @@ final class WarningCode {
 	 * （`remote_id`が空文字列のため`Sync\Exporter`はmappingsへupsertせず、店舗がWoo側の顧客情報を
 	 * 補完すれば次回exportで自動的に再試行される）。`PushResult`からのみ発生するため、
 	 * `DryRunPlatformWriter`はアダプタを呼ばないdry-runでは検出されない
-	 * （`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ既知の限界）。更新（`PUT`）には必須項目が
-	 * 無いため対象外（ただし`name`が50文字を超えたまま更新すると422になりうる点は未対応。
-	 * `docs/review-backlog.md` `e2-3-push-customer/G1-name-length-on-update`参照）。
+	 * （`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ既知の限界）。更新（`PUT`）も対象: swagger は必須項目を
+	 * 書かないが、実際は名前と住所が無いと422になる（テストショップで実測）ので、名前（空白だけ・50文字超）と
+	 * 住所3点（`pref_id`/`postal`/`address1`）を解決できない顧客の更新も送らずに同じ警告でスキップする
+	 * （issue #100。既存の mapping はそのまま残る）。
 	 */
 	public const CUSTOMER_REQUIRED_FIELD_MISSING = 'customer_required_field_missing';
 
