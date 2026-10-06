@@ -106,8 +106,8 @@ final class WarningCatalog {
 		$action   = self::SEVERITY_ACTION_REQUIRED;
 		$info     = self::SEVERITY_INFO;
 
-		// 文言の `%` の扱い: detail を差し込む文言（第 4 引数）は `sprintf()` に通すので `%%` と書く。それ以外は `sprintf()` に通さないので
-		// `%` のまま書くが、`% o`・`% f` のように空白と英字が続くと書式とみなされる（PHPCS・make-pot）ので、`%` の後は `)`・`,`・`.`・` (` にする。
+		// 文言の `%` の扱い: detail を差し込む文言（第 4 引数）は `sprintf()` に通すので `%%` と書く（`%)` のままだと `ValueError` になり、
+		// detail の無い文言に倒れる）。それ以外は `sprintf()` に通さないので `%` のまま書く。
 		return match ( $code ) {
 			// 共通。
 			WarningCode::ENTITY_NOT_SUPPORTED => self::make(

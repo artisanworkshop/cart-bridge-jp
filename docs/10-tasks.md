@@ -621,11 +621,24 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   要再接続で止まった run があっても同じ 409／ロックを取れなかった側でも切断用の文言〉）。`mutate-check.sh` で 5 種（判定より前に削除する・切断用の文言を渡さない・
   一覧が空でも切断用の文言にする・ロックを取れなかった側で文言を渡さない・未接続なら判定を飛ばす）がすべて CAUGHT。wp-env の dev サイト（mock `mockv`）で `rest_do_request()` により、run の開始後の切断が 409・切断用の文言・資格情報が残る、
   キャンセルの後は 200 で資格情報が消えることを確認して撤去した
-- [ ] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
+- [x] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票。ブランチ `feat/r3-0k-warning-catalog`）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
   `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
   dry-run の CSV（`Admin\DryRunReportCsv`）の**末尾**に `message`・`action` 列を足す（既存の列・`note` は変えない）。テスト（リフレクション）で「`WarningCode` の全定数にカタログがある」ことを強制し、文言の無い警告コードが出荷されないようにする。
   最初に書くのは、止める警告（`indicates_export_blocking()` と D22 の `VARIATION_STOCK_MANAGEMENT_MIXED`）と対処が要る警告の約 25 種で、残りは汎用文言でよい。**画面での警告要約（案 R3-0l）と実 run の項目別警告の保存は v1.0 に含めない**（DB 書込量とプライバシーの判断が要るため v1.1 以降）。
   UI 文言が増えるため R3-2（i18n）より前に入れる。D22/D23 の対処（在庫管理・在庫状況を揃える／Any を具体値に分ける）の文言は R3-3 の FAQ と共通にする
+  **実装サマリ（2026-10-07）**: 新設 `Woo\WarningCatalog::describe( $warning, $direction )` が警告を重大度（`blocking`／`action_required`／`info`、カタログに無いコードは `unknown`）・原因（`message`）・
+  対処（`action`。店舗が何もできない警告は空）で説明し、dry-run の CSV の**末尾**に `severity`・`message`・`action` の 3 列を足した（既存の列・`note` は不変）。計画時のユーザー回答で、
+  台帳の 2 列に `severity` を足し、98 個（台帳を書いた時点の 52 個から増えた）すべてに個別の原因を書いた（約 25 種＋汎用文言の案から変更）。同じコードでも取込みとエクスポートで意味が違う
+  （通貨の不一致・価格・数量・金額・クーポンの制限・決済／配送の未マッピング）ため、カタログは「コード × 向き」で引き、向きは run の種別から決める（`DryRunReportCsv::direction_for_job_type()`）。
+  detail が人に意味のあるコードは detail を差し込んだ文言（`%s`）を持ち、壊れた翻訳で `sprintf()` が例外を投げても CSV を止めず差し込まない文言へ倒す。外部アダプタ独自のコードは「Unknown warning (コード)」。
+  CSV はユーザーの言語で書く（`get_run_report()` が書き出しの間だけ `switch_to_user_locale()`。リンクは非 JSON の要求で `_locale=user` が効かない）。文言は英語の `__()` で、日本語は R3-2。
+  各コードの実際の挙動（書くか・代替値・detail の中身・dry-run に出るか）は発生元を読んで確かめ、`WarningCode` の docblock の誤り（止めるのに「警告のみ」と書いていた `variation_axis_limit_exceeded`・
+  `order_line_tax_class_unsupported`・`tax_status_not_taxable` ほか）を直した。調査で見つかった既存の挙動（設定次第の警告の checksum、顧客を含めない受注のエクスポート等）は backlog `r3-0k-warning-catalog/plan-*`。
+  詳細は `docs/03` §「dry-runレポートCSVの実装詳細」の「警告の説明の列（R3-0k）」。
+  **検証**: PHPUnit 追加 18 件（データセット込み。`WarningCatalogTest` 10〈全定数が両方向で説明されること・`indicates_export_blocking()` のコードはエクスポートで `blocking`・プレースホルダを残さない・detail の有無・
+  detail の `%`・壊れた翻訳・向き・不明なコード／向き〉、`DryRunReportCsvTest` 5、`RestControllerTest` 3〈ユーザーの言語・run の種別の向き〉）。`mutate-check.sh` で 10 種がすべて CAUGHT。
+  wp-env の dev サイトで mock（`mockv`）の取込み・エクスポートの dry-run を回し、CSV を実 HTTP で取得して列・向きごとの文言・detail・BOM を確認し、一時 mu-plugin でサイトの言語を ja に見せて、
+  ユーザーの言語（`en_US`）で書かれること・未設定ならサイトの言語になることを確認して撤去した
 - [x] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップ〔非プレミアム〕で実データ移行。インポート→エクスポートの往復でデータ欠損確認。**対象は商品・顧客・在庫とインポート全般。プレミアムプラン限定の受注エクスポート・商品画像アップロードは D24 によりベータ扱いで実テストの対象外**（モックでの確認のみ。プレミアムのテストショップが用意できた時点で v1.0.x 以降に実施）。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認。**R3-0a/b の確認（ブロック→解除→再 export）も含める**（送信結果が不明な状況は実 API で意図的に起こせないため、モックで確認する）。 **あわせて、`tax_type=excluded` の店舗でセール中バリエーションの `option_market_price`（定価）の税基準が `option_price` と同じか実機確認する**〔`docs/03` §10.2「価格の税込正規化とバリエーションのセール価格」の要検証。PR #61 Copilot G1-1〕。**さらに、テストショップの税設定に対して hidden 安全策（`ProductTransformer::requires_hidden_safeguard()`。作成時だけ hidden にし更新には効かない）が発動するかを確認する**〔issue #78・backlog `fix-72-partial-push/R1-X1`。発動する店舗が現実的にあるなら v1.0 に含めるかを再判断する〕）
   **実施サマリ（2026-10-05、PR #103。記録: `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`）**: テストショップ（非プレミアム・税抜・四捨五入）に商品 55・会員 12 を API で投入し
   （往復で値が変わりうる条件を突く商品を含む）、ゲスト注文 3 件をユーザーが作成。手順と道具はプロジェクトスキル `rehearse-colorme`（`.claude/skills/rehearse-colorme/`。

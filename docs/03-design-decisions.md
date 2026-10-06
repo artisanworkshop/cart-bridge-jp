@@ -1594,8 +1594,10 @@ ColorMe 側で在庫0（swagger: 全バリエーションが未設定の状態�
      `! $adapter->capabilities()->supports_per_variant_stock_management` と組み合わせて使う。警告が付いたときだけ
      `capabilities()` を呼ぶ。判定位置は既存の blocking 分岐と同じ（D21-B の未解決 intent 判定の後・checksum 一致スキップの前）ため、
      エクスポート済みで内容が変わった商品も止まり、checksum はキャッシュされない（揃えれば次回 export で再送される）
-  4. 警告の「案内文言」は `WarningCode` 定数の docblock に書く（警告コードは i18n しない安定キーで、UI・CSV にコードの説明文は
-     無い。全コード共通）。CSV の `note` 列には固有ノートを足していない
+  4. 警告の「案内文言」は当初 `WarningCode` 定数の docblock に書いていた（警告コードは i18n しない安定キー）。R3-0k で店舗向けの説明を
+     `Woo\WarningCatalog` に移し、dry-run の CSV の `severity`・`message`・`action` 列に出すようにした（下の「dry-runレポートCSVの実装詳細」）。
+     対処の文言（在庫管理を全バリエーションで有効にする、または全バリエーションで無効にして在庫状況も揃える）は R3-3 の FAQ と共通にする。
+     CSV の `note` 列には固有ノートを足していない
   5. **実機確認（mock アダプタ `mockv`・push 有効、`JobManager` 経由。2026-09-28）**: 混在商品（管理中5・管理外の在庫あり・管理外の
      在庫切れ）は product 行が `skipped`＋`variation_stock_management_mixed`（エクスポート済みの商品でも）、在庫 3 行も同様に
      `skipped`。実 export でも push されず mapping/checksum は変わらない。在庫管理を全バリエーションで有効にすると止まらなくなる
@@ -2100,6 +2102,17 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
 - **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
 - **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`WarningCode::indicates_tax_setup_required()`が真の取込みの警告（`reduced_tax_class_not_found`・`tax_rates_not_configured`。WooCommerce の税の設定で軽減税率の税区分と JP の 8% を作れば消える。D26・R3-1e）に`tax_setup_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_order_reference_unresolved()`が真の警告（`order_line_product_unresolved`/`order_customer_unresolved`。R3-0n）に`reference_unresolved`（未インポート、またはASP側で削除済み・インポート対象外。実店舗の受注では、この2コードの参照先はすべて ColorMe 側で削除済み〔404〕で、先にインポートしても消えなかった）、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`から、前述の2コードと`order_line_variation_unmatched`〔商品は取込み済み。注記なし〕を除いたもの）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **警告の説明の列（R3-0k、2026-10-07）**: 末尾に `severity`・`message`・`action` を足した（既存の列と `note` は変えない。見出しと `severity` の値は翻訳しない安定キー）。
+  説明は `Woo\WarningCatalog::describe( $warning, $direction )` が返す。`severity` は `blocking`（この警告のため書かない・送らない）／`action_required`（書いた・送ったが対処が要る、
+  または代替値で書いた）／`info`（対処不要の知らせ）／`unknown`（カタログに無いコード。外部アダプタ独自のコード等。楽観的に `info` へ倒さない）。
+  `message` は原因と結果、`action` は店舗ができる対処（何もできない警告は空）。**同じコードでも取込みとエクスポートで意味が違う**（通貨の不一致は取込みでは保存し、
+  エクスポートでは送らない等）ため、カタログは「コード × 向き」で引き、向きは run の種別から決める（`DryRunReportCsv::direction_for_job_type()`。`dry_run`/`import` → 取込み、
+  `dry_run_export`/`export` → エクスポート）。detail が人に意味のあるコードは detail を差し込んだ文言（`%s`）を持ち、detail が空なら差し込まない文言を使う。
+  壊れた翻訳（余分なプレースホルダ）で `sprintf()` が例外を投げても CSV の出力を止めず、detail を差し込まない文言へ倒す。
+  CSV はユーザーの言語で書く（`get_run_report()` が書き出しの間だけ `switch_to_user_locale()`。リンクは `<a href>` の非 JSON の要求で `_locale=user` が効かず、
+  そのままではサイトの言語になって管理画面と食い違う）。カタログは `WarningCode` の全定数について両方向の説明を持ち（`WarningCatalogTest` がリフレクションで強制）、
+  `indicates_export_blocking()` が真のコードはエクスポートで `blocking`。`VARIATION_STOCK_MANAGEMENT_MIXED` はプラットフォームの能力で止まるかが決まるが、
+  v1.0 の同梱アダプタ（ColorMe）では止まるので `blocking` にしている（バリエーション単位で在庫管理できるアダプタを足すときは見直す）
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
 
