@@ -234,13 +234,9 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 
 		// `<script>`・`<style>` の中身（JS・CSS）が説明に文字として残っていないこと（issue #101。kses だけでは残る）。
-		$cbjp_leaks = cbjp_rh_script_style_leaks( $cbjp_from, (string) $cbjp_woo[ $cbjp_woo_key ] );
-		if ( null === $cbjp_leaks ) {
-			$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: could not scan for <script>/<style> (PCRE error " . preg_last_error() . ')' );
-		} else {
-			foreach ( $cbjp_leaks as $cbjp_leak ) {
-				$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_leak['element']}> remain as text on import (" . $cbjp_s( $cbjp_leak['contents'] ) . ')' );
-			}
+		$cbjp_check = cbjp_rh_script_style_check( $cbjp_from, (string) $cbjp_woo[ $cbjp_woo_key ] );
+		if ( ! $cbjp_check['ok'] ) {
+			$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: differs from the value with the {$cbjp_check['elements']} <script>/<style> element(s) removed by the HTML API (" . strlen( (string) $cbjp_woo[ $cbjp_woo_key ] ) . ' vs ' . strlen( $cbjp_check['expected'] ) . ' bytes; contents may remain as text)' );
 		}
 	}
 

@@ -13,63 +13,62 @@
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\Support\HtmlText;
 
 if ( function_exists( 'cbjp_rh_args' ) ) {
 	return;
 }
 
 /**
- * ColorMe の説明（`$from`）の `<script>`・`<style>` の中身が、取り込んだ Woo の説明（`$stored`）に文字として残っているか（issue #101）。
+ * ColorMe の説明（`$from`）の `<script>`・`<style>` の中身が、取り込んだ Woo の説明（`$stored`）に文字として残っていないか（issue #101）。
  *
- * プラグインの処理を使わず、閉じタグまでの素朴な形だけを拾って確かめる。中身の文字列は要素の外の本文にも現れうる（`<p>version 1</p><script>1</script>`）ので、
- * 有無ではなく出現回数で比べる: 要素を除いた ColorMe の説明を kses に通した値（取り込んで期待される説明）より、保存値の方に多く現れれば残っている。
- * kses は文字の `&` `<` `>` を実体参照にし、中身の `a<b && c>d` のような並びをタグとして書き換えるので、中身そのもの・kses を通した中身の両方を、
- * 実体参照のままの値と戻した値の両方で数える。
+ * 期待値はプラグインの除去とは別に作る: WP の HTML API（`WP_HTML_Tag_Processor`。ブラウザと同じ字句解析で、属性値・コメント・文字の `<` を
+ * 正しく読む）で `<script>`・`<style>` の中身を空にし、プラグインと同じ浄化（`HtmlText::sanitize_post_html()`。kses と文字の `<` の扱い）を通す。
+ * kses と同じく先に制御文字を消す（`<script\0>` を要素として読むため）。保存値と期待値は、kses を変化しなくなるまで掛けてから完全一致で比べる
+ * （kses 自体が冪等でない入力があり、WP-Cron では保存時にもう一度 kses が掛かるため）。文字列の有無・出現回数で比べると、中身と同じ文字列が
+ * 本文にもある正しい取込みを失敗にし、除いた前後がつながった漏れ（`a<script>ab</script>b` → `aabb`）を見逃す（PR #106 G1-1・G2-1〜3）。
  *
- * @return array<int,array{element:string,contents:string}>|null 残っていた要素（無ければ空）。PCRE が失敗して確かめられなければ null。
+ * @return array{elements:int,ok:bool,expected:string} `elements` は HTML API が見つけた要素の数（0 なら比べない）。
  */
-function cbjp_rh_script_style_leaks( string $from, string $stored ): ?array {
-	$pattern = '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is';
+function cbjp_rh_script_style_check( string $from, string $stored ): array {
+	$processor = new WP_HTML_Tag_Processor( wp_kses_no_null( $from, [ 'slash_zero' => 'keep' ] ) );
+	$elements  = 0;
 
-	if ( false === preg_match_all( $pattern, $from, $elements, PREG_SET_ORDER ) ) {
-		return null;
-	}
-
-	$outside = preg_replace( $pattern, '', $from );
-
-	if ( null === $outside ) {
-		return null;
-	}
-
-	$decode   = static fn ( string $html ): string => html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-	$expected = wp_kses_post( $outside );
-	$leaks    = [];
-
-	foreach ( $elements as $element ) {
-		$contents = trim( $element[2] );
-
-		if ( '' === $contents ) {
-			continue;
+	while ( $processor->next_tag() ) {
+		if ( in_array( $processor->get_tag(), [ 'SCRIPT', 'STYLE' ], true ) && $processor->set_modifiable_text( '' ) ) {
+			++$elements;
 		}
+	}
 
-		foreach ( array_unique( [ $contents, trim( wp_kses_post( $contents ) ) ] ) as $needle ) {
-			if ( '' === $needle ) {
-				continue;
-			}
+	if ( 0 === $elements ) {
+		return [
+			'elements' => 0,
+			'ok'       => true,
+			'expected' => '',
+		];
+	}
 
-			if ( substr_count( $stored, $needle ) > substr_count( $expected, $needle )
-				|| substr_count( $decode( $stored ), $needle ) > substr_count( $decode( $expected ), $needle )
-			) {
-				$leaks[] = [
-					'element'  => strtolower( $element[1] ),
-					'contents' => $contents,
-				];
+	$stable = static function ( string $html ): string {
+		for ( $i = 0; $i < 5; $i++ ) {
+			$next = wp_kses_post( $html );
+
+			if ( $next === $html ) {
 				break;
 			}
-		}
-	}
 
-	return $leaks;
+			$html = $next;
+		}
+
+		return $html;
+	};
+
+	$expected = $stable( HtmlText::sanitize_post_html( $processor->get_updated_html() ) );
+
+	return [
+		'elements' => $elements,
+		'ok'       => $stable( $stored ) === $expected,
+		'expected' => $expected,
+	];
 }
 
 /**
