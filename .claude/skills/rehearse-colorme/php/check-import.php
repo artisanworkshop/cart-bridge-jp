@@ -244,7 +244,9 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 			$cbjp_decoded = html_entity_decode( $cbjp_stored, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 			foreach ( $cbjp_elements as $cbjp_element ) {
 				$cbjp_inner = trim( $cbjp_element[2] );
-				if ( '' !== $cbjp_inner && ( str_contains( $cbjp_stored, $cbjp_inner ) || str_contains( $cbjp_decoded, $cbjp_inner ) ) ) {
+				// 中身の `a<b && c>d` のような並びは kses がタグとして書き換えるので、kses を通した形でも探す。
+				$cbjp_kses = trim( wp_kses_post( $cbjp_inner ) );
+				if ( '' !== $cbjp_inner && ( str_contains( $cbjp_stored, $cbjp_inner ) || str_contains( $cbjp_decoded, $cbjp_inner ) || ( '' !== $cbjp_kses && str_contains( $cbjp_stored, $cbjp_kses ) ) ) ) {
 					$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_element[1]}> remain as text on import (" . $cbjp_s( $cbjp_inner ) . ')' );
 				}
 			}
