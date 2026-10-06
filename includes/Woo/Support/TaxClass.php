@@ -135,6 +135,10 @@ final class TaxClass {
 			return self::UNCONFIGURED;
 		}
 
+		// メモ化は 1 リクエストの中だけ（永続オブジェクトキャッシュ〔Redis など〕にも残すと、フィルター〔`woocommerce_find_rates` など〕を
+		// 通した結果が別のリクエスト・cron に持ち越される。PR #107 G3-B1）。既定のキャッシュでは何もしない関数。
+		wp_cache_add_non_persistent_groups( self::CACHE_GROUP );
+
 		$location  = self::jp_location();
 		$cache_key = WC_Cache_Helper::get_cache_prefix( 'taxes' ) . md5( implode( '|', array_merge( [ $woo_tax_class ], $location, WC_Tax::get_tax_class_slugs() ) ) );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );

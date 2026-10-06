@@ -1911,7 +1911,7 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
   JP の税率が無い: 標準の税区分は標準（税率を設定していない新しい店舗・基準所在地が US のままの店舗で全商品を止めない）。それ以外は、他の地域の税率だけある・存在しない税区分・
   フィルターが壊れた値を返した・文字列でない値（`get_tax_class()` はフィルターを通る外部由来の値。review-loop R1-3）→ `unconfigured`。税率が 1 件も無い → 既定の軽減税率の名前
   （`TaxClass::KNOWN_REDUCED_SLUGS`: `reduced-rate`・「軽減税」・古い訳の「軽減税率」の `sanitize_title()` を固定値で持つ。`__( …, 'woocommerce' )` は text domain の規約に反し、実行時の言語にも左右されるので使わない）なら軽減、それ以外 `unconfigured`。
-  1 リクエスト内は `wp_cache` でメモ化する（キーに WooCommerce の税のキャッシュの接頭辞〔税率の変更で無効化される〕・所在地・税区分の一覧を含める）。
+  1 リクエスト内は `wp_cache` でメモ化する（キーに WooCommerce の税のキャッシュの接頭辞〔税率の変更で無効化される〕・所在地・税区分の一覧を含める。グループは永続しない〔`wp_cache_add_non_persistent_groups()`〕: Redis などに残すとフィルターを通した結果が別のリクエスト・cron に持ち越される。PR #107 G3-B1）。
 - **取込み（R3-1e。`TaxClass::resolve()`）**: 軽減の記号は、(1) JP の 8% の税区分（複数なら既定の名前の順 → `WC_Tax::get_tax_class_slugs()` の名前順。どれも 8% で税額は同じなので警告なし）、
   (2) 無ければ税率の無い既定名の税区分（新しい店舗・税計算 OFF の店舗）に入れて `tax_rates_not_configured`（後からその税区分に税率を足せば直る。checksum は保存）、
   (3) どちらも無ければ標準に倒して `reduced_tax_class_not_found`（**本実行は止めない**）。(3) の**商品だけ** checksum を保存しない（`ProductWriter` が `WarningCode::indicates_reduced_tax_class_fallback()` で判定。
