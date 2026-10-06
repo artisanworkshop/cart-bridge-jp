@@ -690,7 +690,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **R3-1a〜e をすべて実装した後、テストショップで `rehearse-colorme` の再リハーサルをまとめて行う**〔2026-10-06 ユーザー決定。PR ごとには行わない。お試し期限 2026-10-22 まで。
   R3-1a〔D25〕の確認手順は `docs/reviews/feat/r3-1a-direction-of-origin/final-report.md`〕）
   **実装サマリ（2026-10-06、R3-1d と 1 つのブランチ `feat/r3-1de-tax-class-detection`。実装済み・実機の再リハーサル待ち）**: `Woo\Support\TaxClass` が税区分を **JP の税率**で分類する
-  （標準 `''` は常に標準、JP 10% → 標準、8% → 軽減、それ以外〔0% を含む〕→ unsupported、JP の税率が分からない → unconfigured。税率が 1 件も無い既定名〔`reduced-rate`・「軽減税」〕は軽減）。
+  （JP 10% → 標準、8% → 軽減、それ以外〔0% を含む〕→ unsupported、JP の税率が分からない → unconfigured。標準 `''` は JP の税率が無ければ標準〔review-loop R1 のユーザー決定でエクスポートは `''` も税率で分類〕。税率が 1 件も無い既定名〔`reduced-rate`・「軽減税」〕は軽減）。
   正規化モデルの `'reduced-rate'`（`CanonicalProduct::TAX_CLASS_REDUCED`）は Woo のスラッグではなく記号と位置づけ直した（英語でインストールした店舗では checksum が変わらない）。
   取込みは JP 8% の税区分へ入れ、無ければ税率の無い既定名の税区分（`tax_rates_not_configured`）、それも無ければ標準に倒して `reduced_tax_class_not_found`（本実行は止めない。商品だけ checksum を保存しない）。
   dry-run の CSV の `note` は `tax_setup_required`。エクスポートは標準・軽減以外の税区分の商品・公開バリエーションを `tax_class_unsupported`／`variation_tax_class_unsupported`（blocking）で止める（R3-1d）。
@@ -698,8 +698,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   計画時のユーザー回答: 判定の税率は法定税率の定数、8% の税区分が無くても取込みは止めない、税率の無い既定名の税区分は軽減とみなす、ColorMe 側の換算不能は本実行のスキップのみ。
   backlog `fix-72-partial-push/R1-X1`（#78）と `e2-3-push-product/R1-L1`（#102）は解消。詳細は `docs/03` §10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」。
   `rehearse-colorme` に `tax-classes`（日本語／英語インストールの既定税区分の切替）を足し、`check-import` は税率の表から求めた JP 8% の税区分で比べ、`seed-woo` は税区分を税率で選ぶようにした。
-  **検証**: PHPUnit 計 1672（main から +41。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 36 種がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
-  **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。
+  **検証**: PHPUnit 計 1681（main から +50。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 43 種（review-loop R1 の 7 種を含む）がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
+  **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。取込みの標準の商品は常に `''` に入る（`''` に 10% 以外を入れた店舗では誤る。backlog `r3-1de-tax-class-detection/R1-X1`）。
   **テストショップでの確認（`tax-classes mode=ja` での取込み・作成エクスポート、ゼロ税率の商品が止まること）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
 - [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
