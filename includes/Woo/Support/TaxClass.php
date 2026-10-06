@@ -66,6 +66,11 @@ final class TaxClass {
 		'%e8%bb%bd%e6%b8%9b%e7%a8%8e%e7%8e%87',
 	];
 
+	/**
+	 * `to_canonical()` が標準・軽減以外の税区分に付ける接頭辞（正規化モデルの記号 null・`CANONICAL_REDUCED` と衝突させない）。
+	 */
+	public const UNSUPPORTED_PREFIX = 'woo:';
+
 	private const CACHE_GROUP = 'cbjp_tax_class';
 
 	private function __construct() {}
@@ -102,27 +107,32 @@ final class TaxClass {
 
 	/**
 	 * エクスポート: Woo の税区分を正規化モデルの税区分へ。標準は `null`、軽減は `CANONICAL_REDUCED`。どちらでもない
-	 * 税区分は元のスラッグのまま返す（呼び出し側が止める警告を積む。送られない）。
+	 * 税区分は `UNSUPPORTED_PREFIX` を付けたスラッグを返す（呼び出し側が止める警告を積む。送られない）。接頭辞を付けるのは、
+	 * 軽減でないと判定した `reduced-rate`（例: 5% を入れた）が正規化モデルの軽減税率の記号と同じ文字列になり、アダプタの
+	 * 多重防御（`ProductTransformer::push_blocker()`）をすり抜けないようにするため（review-loop R1-1）。
+	 * 引数は外部由来（`woocommerce_product_get_tax_class` などのフィルター）なので `mixed` で受け、文字列でなければ判定できないものとして扱う。
 	 */
-	public static function to_canonical( string $woo_tax_class ): ?string {
+	public static function to_canonical( mixed $woo_tax_class ): ?string {
 		return match ( self::classify( $woo_tax_class ) ) {
 			self::STANDARD => null,
 			self::REDUCED => self::CANONICAL_REDUCED,
-			default => $woo_tax_class,
+			default => self::UNSUPPORTED_PREFIX . ( is_string( $woo_tax_class ) ? $woo_tax_class : '' ),
 		};
 	}
 
 	/**
 	 * Woo の税区分を JP の税率で分類する（`STANDARD`/`REDUCED`/`UNSUPPORTED`/`UNCONFIGURED`）。
 	 *
-	 * - `''`（標準の税区分）は税率を見ずに常に `STANDARD`（基準所在地を設定していない新しい店舗で全商品を止めないため）。
 	 * - JP の税率がある: 実効税率が 10% なら `STANDARD`、8% なら `REDUCED`、それ以外（0% を含む）は `UNSUPPORTED`。
-	 * - JP の税率が無い: 他の地域の税率だけがあるなら `UNCONFIGURED`。税率が 1 件も無い既定の軽減税率の税区分
+	 *   標準の税区分（`''`）も同じ（食品だけの店舗が標準に 8% を入れていれば軽減、0% なら止める。review-loop R1-2・2026-10-06 ユーザー決定）。
+	 * - JP の税率が無い: 標準の税区分は `STANDARD`（税率を設定していない新しい店舗・基準所在地が US のままの店舗で全商品を止めないため）。
+	 *   それ以外は、他の地域の税率だけがあるなら `UNCONFIGURED`、税率が 1 件も無い既定の軽減税率の税区分
 	 *   （`KNOWN_REDUCED_SLUGS`。税計算をしていない店舗の典型）は `REDUCED`、それ以外は `UNCONFIGURED`。
+	 * - 文字列でない値（フィルターが壊れた値を返した）は `UNCONFIGURED`（エクスポートを止める側。原則 8・9）。
 	 */
-	public static function classify( string $woo_tax_class ): string {
-		if ( '' === $woo_tax_class ) {
-			return self::STANDARD;
+	public static function classify( mixed $woo_tax_class ): string {
+		if ( ! is_string( $woo_tax_class ) ) {
+			return self::UNCONFIGURED;
 		}
 
 		$location  = self::jp_location();
@@ -144,7 +154,10 @@ final class TaxClass {
 	 * @param array{0:string,1:string,2:string} $location `jp_location()`。
 	 */
 	private static function classify_uncached( string $woo_tax_class, array $location ): string {
-		if ( ! in_array( $woo_tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
+		$is_standard_class = '' === $woo_tax_class;
+
+		// 標準の税区分（空文字）は WooCommerce の税区分の一覧に含まれないので、存在の確認をしない。
+		if ( ! $is_standard_class && ! in_array( $woo_tax_class, WC_Tax::get_tax_class_slugs(), true ) ) {
 			return self::UNCONFIGURED;
 		}
 
@@ -169,6 +182,10 @@ final class TaxClass {
 				null => self::UNCONFIGURED,
 				default => self::UNSUPPORTED,
 			};
+		}
+
+		if ( $is_standard_class ) {
+			return self::STANDARD;
 		}
 
 		if ( [] !== WC_Tax::get_rates_for_tax_class( $woo_tax_class ) ) {

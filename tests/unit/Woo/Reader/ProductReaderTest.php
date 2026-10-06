@@ -14,6 +14,7 @@ use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\ProductWriter;
 use CartBridgeJP\Woo\Writer\VariationWriter;
@@ -1412,7 +1413,8 @@ final class ProductReaderTest extends WooTestCase {
 
 		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, $expected_label ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
-		$this->assertSame( $slug, $read_item->item->tax_class );
+		// 正規化モデルの記号（null・`reduced-rate`）と衝突しない値で運ぶ（review-loop R1-1）。
+		$this->assertSame( TaxClass::UNSUPPORTED_PREFIX . $slug, $read_item->item->tax_class );
 	}
 
 	/**
@@ -1425,6 +1427,43 @@ final class ProductReaderTest extends WooTestCase {
 			'zero rate with tax calculation off' => [ 'no', '0.0000', 'Zero rate' ],
 			'custom class without a JP rate'     => [ 'yes', null, 'No JP rate' ],
 		];
+	}
+
+	/**
+	 * review-loop R1-2: 標準の税区分に JP の税率があれば税率で分類する。標準に 8% を入れた店舗の商品は軽減税率で送り、0% なら止める
+	 * （detail は `Standard`）。
+	 */
+	public function test_the_standard_class_follows_its_jp_rate(): void {
+		$this->jp_tax_store( [ '' => '8.0000' ] );
+		$reduced = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( '' ) ] )->items[0];
+
+		$this->assertSame( CanonicalProduct::TAX_CLASS_REDUCED, $reduced->item->tax_class );
+		$this->assertFalse( WarningCode::indicates_export_blocking( $reduced->warnings ) );
+
+		\WC_Tax::_delete_tax_rate( (int) array_key_first( \WC_Tax::get_rates_for_tax_class( '' ) ) );
+		$this->jp_tax_store( [ '' => '0.0000' ] );
+		$zero = $this->make_reader()->query( Cursor::start(), [ $this->simple_product_with_tax( '' ) ] )->items[0];
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_UNSUPPORTED, 'Standard' ), $zero->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $zero->warnings ) );
+	}
+
+	/**
+	 * review-loop R1-3: `woocommerce_product_get_tax_class` が文字列でない値を返しても、TypeError でページを落とさず止める警告にする。
+	 */
+	public function test_a_non_string_tax_class_from_a_filter_blocks_without_crashing(): void {
+		$id = $this->simple_product_with_tax( '' );
+		add_filter( 'woocommerce_product_get_tax_class', '__return_null' );
+
+		try {
+			$read_item = $this->make_reader()->query( Cursor::start(), [ $id ] )->items[0];
+		} finally {
+			remove_filter( 'woocommerce_product_get_tax_class', '__return_null' );
+		}
+
+		$this->assertContains( WarningCode::TAX_CLASS_UNSUPPORTED, $read_item->warnings );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
+		$this->assertSame( TaxClass::UNSUPPORTED_PREFIX, $read_item->item->tax_class );
 	}
 
 	/**

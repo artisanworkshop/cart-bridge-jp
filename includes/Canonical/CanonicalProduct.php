@@ -51,7 +51,7 @@ final readonly class CanonicalProduct implements CanonicalModel {
 	 * @param ?string                         $tax_class 税区分。標準税率は null、軽減税率は記号`reduced-rate`
 	 *   （`TAX_CLASS_REDUCED`）。**Woo のスラッグではない**: Woo 層が JP の税率（8%）で
 	 *   税区分を見分けて相互変換する（D26。日本語でインストールした Woo の軽減税率の税区分は「軽減税」でスラッグが違う）。
-	 *   それ以外の値（Woo の他の税区分のスラッグ）は、エクスポートでは止める警告とセットでしか現れない。
+	 *   それ以外の値は、エクスポートでは止める警告とセットでしか現れない（Woo 層は `woo:` を付けたスラッグにして、記号と衝突させない）。
 	 */
 	public function __construct(
 		public string $name,

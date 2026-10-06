@@ -176,16 +176,26 @@ final class ProductReader implements EntityReader {
 	}
 
 	/**
-	 * 税区分が JP の税率で標準・軽減のどちらかと判定できるか（`Woo\Support\TaxClass::classify()`。D26）。
+	 * 税区分が JP の税率で標準・軽減のどちらかと判定できるか（`Woo\Support\TaxClass::classify()`。D26）。`get_tax_class()` の値は
+	 * フィルター（`woocommerce_product_get_tax_class` など）を通る外部由来の値なので `mixed` で受ける（文字列でなければ判定できない＝止める）。
 	 */
-	private static function is_supported_tax_class( string $tax_class ): bool {
+	private static function is_supported_tax_class( mixed $tax_class ): bool {
 		return in_array( TaxClass::classify( $tax_class ), [ TaxClass::STANDARD, TaxClass::REDUCED ], true );
 	}
 
 	/**
-	 * 警告の detail に載せる税区分の名前（日本語の税区分のスラッグは URL エンコードで読めないため）。名前が引けなければスラッグ。
+	 * 警告の detail に載せる税区分の名前（日本語の税区分のスラッグは URL エンコードで読めないため）。標準の税区分は「Standard」、
+	 * 名前が引けなければスラッグ（文字列でなければ空）。
 	 */
-	private static function tax_class_label( string $tax_class ): string {
+	private static function tax_class_label( mixed $tax_class ): string {
+		if ( ! is_string( $tax_class ) ) {
+			return '';
+		}
+
+		if ( '' === $tax_class ) {
+			return 'Standard';
+		}
+
 		$row = WC_Tax::get_tax_class_by( 'slug', $tax_class );
 
 		return is_array( $row ) && is_string( $row['name'] ?? null ) && '' !== $row['name'] ? $row['name'] : $tax_class;

@@ -84,9 +84,11 @@ final class WarningCode {
 	 * エクスポート（`Woo\Reader\ProductReader`。R3-1d、issue #78）: 課税商品の税区分が、JP の税率で標準（10%）・軽減（8%）の
 	 * どちらとも判定できない（`Woo\Support\TaxClass::classify()` が `unsupported`＝ゼロ税率などそれ以外の税率、または
 	 * `unconfigured`＝JP の税率が無い）。正規化モデルは標準・軽減しか運べず、ColorMe も商品単位の軽減税率フラグしか持たないため、
-	 * 送ると誤った税区分で販売される。`indicates_export_blocking()` の対象（作成も更新もしない）。detail は Woo の税区分の名前。
+	 * 送ると誤った税区分で販売される。`indicates_export_blocking()` の対象（作成も更新もしない）。detail は Woo の税区分の名前
+	 * （標準の税区分は `Standard`。標準に JP 8%・10% 以外の税率〔0% など〕を入れた店舗で付く。review-loop R1-2）。
 	 * 案内: 商品の税区分を標準か軽減税率に変える、または税区分に日本の税率（10%・8%）を設定する。
-	 * `ColorMeAdapter::push_product()` も、正規化モデルの税区分が記号以外のときに多重防御として同じコードで送らない。
+	 * `ColorMeAdapter::push_product()` も、正規化モデルの税区分が記号以外のときに多重防御として同じコードで送らない
+	 * （その detail は正規化モデルの値〔`Woo\Support\TaxClass::to_canonical()` の `woo:` 付きのスラッグ〕）。
 	 */
 	public const TAX_CLASS_UNSUPPORTED = 'tax_class_unsupported';
 

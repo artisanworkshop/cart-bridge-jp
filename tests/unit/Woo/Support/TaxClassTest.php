@@ -74,14 +74,86 @@ final class TaxClassTest extends WP_UnitTestCase {
 		$this->assertSame( CanonicalProduct::TAX_CLASS_REDUCED, TaxClass::CANONICAL_REDUCED );
 	}
 
-	public function test_the_standard_class_is_always_standard(): void {
-		// 税率が 1 件も無くても、8% でも、標準の税区分は判定しない（基準所在地を設定していない新しい店舗で全商品を止めない）。
-		$this->assertSame( TaxClass::STANDARD, TaxClass::classify( '' ) );
-
-		$this->add_rate( '', '8.0000' );
-
+	public function test_the_standard_class_without_a_jp_rate_is_standard(): void {
+		// 税率が 1 件も無い・JP 以外の税率しか無い標準の税区分は標準（新しい店舗・基準所在地が US のままの店舗で全商品を止めない）。
 		$this->assertSame( TaxClass::STANDARD, TaxClass::classify( '' ) );
 		$this->assertNull( TaxClass::to_canonical( '' ) );
+
+		$this->add_rate( '', '7.0000', 'US' );
+		WC_Cache_Helper::invalidate_cache_group( 'taxes' );
+
+		$this->assertSame( TaxClass::STANDARD, TaxClass::classify( '' ) );
+	}
+
+	/**
+	 * review-loop R1-2（2026-10-06 ユーザー決定）: 標準の税区分に JP の税率があれば、その税率で分類する（食品だけの店舗が標準に 8% を
+	 * 入れていれば軽減、0% なら止める）。
+	 *
+	 * @dataProvider provide_standard_class_rates
+	 */
+	public function test_the_standard_class_with_a_jp_rate_follows_its_rate( string $rate, string $expected ): void {
+		$this->add_rate( '', $rate );
+
+		$this->assertSame( $expected, TaxClass::classify( '' ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function provide_standard_class_rates(): array {
+		return [
+			'10%' => [ '10.0000', TaxClass::STANDARD ],
+			'8%'  => [ '8.0000', TaxClass::REDUCED ],
+			'0%'  => [ '0.0000', TaxClass::UNSUPPORTED ],
+		];
+	}
+
+	/**
+	 * review-loop R1-1: 軽減と判定できない`reduced-rate`（5% を入れた）が、正規化モデルの軽減税率の記号と同じ文字列で運ばれない
+	 * （アダプタの多重防御`ProductTransformer::push_blocker()`をすり抜けない）。
+	 */
+	public function test_an_unsupported_class_never_collides_with_the_reduced_token(): void {
+		$this->add_rate( 'reduced-rate', '5.0000' );
+
+		$this->assertSame( TaxClass::UNSUPPORTED, TaxClass::classify( 'reduced-rate' ) );
+		$this->assertSame( TaxClass::UNSUPPORTED_PREFIX . 'reduced-rate', TaxClass::to_canonical( 'reduced-rate' ) );
+		$this->assertNotSame( CanonicalProduct::TAX_CLASS_REDUCED, TaxClass::to_canonical( 'reduced-rate' ) );
+	}
+
+	/**
+	 * review-loop R1-3: `get_tax_class()` の値はフィルターを通る外部由来の値。文字列でなければ判定できない（止める側）として扱い、
+	 * TypeError でエクスポートのページ全体を落とさない。
+	 */
+	public function test_non_string_values_are_unconfigured(): void {
+		foreach ( [ null, 8, [ 'reduced-rate' ], false ] as $value ) {
+			$this->assertSame( TaxClass::UNCONFIGURED, TaxClass::classify( $value ) );
+			$this->assertSame( TaxClass::UNSUPPORTED_PREFIX, TaxClass::to_canonical( $value ) );
+		}
+	}
+
+	/**
+	 * 基準国が JP の店舗は基準所在地の州（都道府県）も使って JP の税率を引く（`WC_Tax::get_base_tax_rates()` と同じ一致の仕方。review-loop R1-5）。
+	 */
+	public function test_uses_the_base_state_when_the_base_country_is_japan(): void {
+		WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => 'JP',
+				'tax_rate_state'    => 'JP13',
+				'tax_rate'          => '8.0000',
+				'tax_rate_name'     => 'Tokyo reduced',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 0,
+				'tax_rate_class'    => 'reduced-rate',
+			]
+		);
+
+		$this->assertSame( TaxClass::REDUCED, TaxClass::classify( 'reduced-rate' ) );
+
+		// 別の都道府県の店舗では、東京だけの税率は一致しない（他の地域の税率だけ＝判定できない）。
+		update_option( 'woocommerce_default_country', 'JP:JP27' );
+
+		$this->assertSame( TaxClass::UNCONFIGURED, TaxClass::classify( 'reduced-rate' ) );
 	}
 
 	public function test_classifies_by_the_jp_rate(): void {
@@ -99,7 +171,7 @@ final class TaxClassTest extends WP_UnitTestCase {
 
 		$this->assertSame( CanonicalProduct::TAX_CLASS_REDUCED, TaxClass::to_canonical( 'reduced-rate' ) );
 		$this->assertNull( TaxClass::to_canonical( $standard_like ) );
-		$this->assertSame( 'zero-rate', TaxClass::to_canonical( 'zero-rate' ) );
+		$this->assertSame( TaxClass::UNSUPPORTED_PREFIX . 'zero-rate', TaxClass::to_canonical( 'zero-rate' ) );
 	}
 
 	public function test_japanese_install_reduced_class_is_detected_by_its_rate(): void {
@@ -165,7 +237,15 @@ final class TaxClassTest extends WP_UnitTestCase {
 		$this->add_rate( 'reduced-rate', '8.0000' );
 
 		// 税率が数値でない（`compound` はある）、`compound` が無い（税率は数値）。どちらかだけを壊して、それぞれの検査を固定する。
-		add_filter( 'woocommerce_find_rates', static fn (): array => [ [ 'rate' => 'eight', 'compound' => 'no' ] ] );
+		add_filter(
+			'woocommerce_find_rates',
+			static fn (): array => [
+				[
+					'rate'     => 'eight',
+					'compound' => 'no',
+				],
+			]
+		);
 		$this->assertSame( TaxClass::UNCONFIGURED, TaxClass::classify( 'reduced-rate' ) );
 
 		remove_all_filters( 'woocommerce_find_rates' );
