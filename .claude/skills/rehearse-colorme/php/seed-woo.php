@@ -9,7 +9,8 @@
  *   このアドレスは repo・記録に書かない）
  *
  * - 単純（SKU なし）、可変 1 軸（1 バリエーションだけセール。`option_market_price` の税基準の確認用）、可変 2 軸（2 軸目のオプション直後に
- *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率、`zero-rate`（hidden 安全策〔issue #78〕の発動条件）、
+ *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率（JP の税率が 8% の税区分。日本語でインストールした
+ *   店舗の「軽減税」でもよい。D26）、ゼロ税率（既定の `zero-rate`／日本語の「免税」。標準・軽減以外の税区分はエクスポートを止める〔R3-1d、issue #78〕）、
  *   名前が実体参照の単純商品（REST・kses で保存された名前の形。エクスポートで `&` `<…>` に戻して送るか〔issue #99〕）。
  * - 顧客: 日本の住所の顧客（名・姓を Woo の欄に入れる。`_cbjp_full_name` が無いので「名 姓」の順で送られる既知の制限を見る）。
  * - 同じ名前・メールが既にあれば作らずに飛ばす。ただしそれが取込みで結ばれた実体（`_cbjp_platform` がある。顧客は作成の印
@@ -66,7 +67,7 @@ $cbjp_simple = static function ( string $name, string $price, string $tax_class,
 	$id = $product->save();
 
 	// その税区分が店舗に無いと `set_tax_class()` は黙って標準（''）にする。軽減・ゼロ税率の商品が標準税率で作られると、
-	// 作成エクスポートの確認（hidden 安全策・軽減税率の換算）が別の条件を見てしまうので止める。
+	// 作成エクスポートの確認（ゼロ税率の商品が止まること・軽減税率の換算）が別の条件を見てしまうので止める。
 	if ( wc_get_product( $id )->get_tax_class( 'edit' ) !== $tax_class ) {
 		cbjp_rh_abort( "the tax class '{$tax_class}' does not exist on this site; {$name} (#{$id}) was saved with the standard class. Delete the product, create the class, then retry (a retry without deleting skips the existing product and keeps the wrong class)." );
 	}
@@ -148,10 +149,28 @@ foreach ( $cbjp_emails as $cbjp_email ) {
 	}
 }
 
+// D26: 軽減税率の税区分はスラッグでなく JP の税率（8%）で選ぶ（日本語でインストールした店舗では「軽減税」。`tax-classes mode=ja`）。
+// ゼロ税率は既定の税区分（英語 `zero-rate`／日本語「免税」）。どちらも無ければ何も作る前に止める。
+$cbjp_reduced_classes = cbjp_rh_jp_reduced_classes( cbjp_rh_tax_setup() );
+
+if ( null === $cbjp_reduced_classes ) {
+	cbjp_rh_abort( 'the JP rates cannot be reproduced from the tax rate table (postcode/city rates?).' );
+}
+
+if ( [] === $cbjp_reduced_classes ) {
+	cbjp_rh_abort( 'no tax class has the JP 8% rate on this site. Set up the Woo tax rates first (SKILL.md step 0-5).' );
+}
+
+$cbjp_zero_classes = array_values( array_intersect( [ 'zero-rate', sanitize_title( '免税' ) ], WC_Tax::get_tax_class_slugs() ) );
+
+if ( [] === $cbjp_zero_classes ) {
+	cbjp_rh_abort( 'neither zero-rate nor 免税 exists on this site.' );
+}
+
 echo "== products ==\n";
 $cbjp_simple( "{$cbjp_prefix}-1 simple without SKU", '1980', '', 5 );
-$cbjp_simple( "{$cbjp_prefix}-2 reduced rate", '1080', 'reduced-rate', null );
-$cbjp_simple( "{$cbjp_prefix}-3 zero rate class", '500', 'zero-rate', null );
+$cbjp_simple( "{$cbjp_prefix}-2 reduced rate", '1080', $cbjp_reduced_classes[0], null );
+$cbjp_simple( "{$cbjp_prefix}-3 zero rate class", '500', $cbjp_zero_classes[0], null );
 // Woo の名前は HTML。REST や kses の条件で保存された名前はこの形になる（ColorMe には `… Fish & Chips <set>` で届くはず。issue #99）。
 $cbjp_simple( "{$cbjp_prefix}-6 Fish &amp; Chips &lt;set&gt;", '1100', '', 3 );
 $cbjp_variable(

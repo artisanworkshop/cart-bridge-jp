@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Support\EntityOrigin;
+use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderWriter;
@@ -304,12 +305,13 @@ final class OrderReader implements EntityReader {
 			$unit_price_excl_minor = self::divide_minor_units_rounded( $subtotal_minor, $quantity );
 			$unit_price_incl_minor = self::divide_minor_units_rounded( $line_total_minor, $quantity );
 
-			$tax_class = $order_item->get_tax_class();
+			// D26: 明細の税区分を JP の税率で分類する（日本語でインストールした店舗の「軽減税」も軽減。スラッグの決め打ちをしない）。
+			$tax_category = TaxClass::classify( $order_item->get_tax_class() );
 
 			// `CanonicalOrder::$line_items[].tax_reduced`はbool（標準/軽減税率の2値）のみで、
-			// `zero-rate`等のその他税区分・非課税/送料のみ課税を表現できない
+			// ゼロ税率等のその他税区分・非課税/送料のみ課税を表現できない
 			// （`Woo\Reader\ProductReader`の`TAX_STATUS_NOT_TAXABLE`と同じ理由）。
-			if ( ! in_array( $tax_class, [ '', 'reduced-rate' ], true ) || 'taxable' !== $order_item->get_tax_status() ) {
+			if ( ! in_array( $tax_category, [ TaxClass::STANDARD, TaxClass::REDUCED ], true ) || 'taxable' !== $order_item->get_tax_status() ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, $remote_product_id ?? '' );
 			}
 
@@ -327,7 +329,7 @@ final class OrderReader implements EntityReader {
 				'price'                 => Money::format_minor_units( $unit_price_incl_minor ),
 				'subtotal'              => Money::format_minor_units( $line_total_minor ),
 				'unit_price_excl_tax'   => Money::format_minor_units( $unit_price_excl_minor ),
-				'tax_reduced'           => 'reduced-rate' === $tax_class,
+				'tax_reduced'           => TaxClass::REDUCED === $tax_category,
 			];
 		}
 

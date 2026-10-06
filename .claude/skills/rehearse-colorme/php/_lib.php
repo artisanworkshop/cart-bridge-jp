@@ -295,3 +295,112 @@ function cbjp_rh_write_json( string $path, $data ): void {
 		cbjp_rh_abort( "could not write {$path}" );
 	}
 }
+
+/**
+ * JP の税率が 8% の税区分のスラッグ（標準 `''` を除く。名前順）。期待値をプラグインの判定（`Woo\Support\TaxClass`、D26）と別に作るため、
+ * 税の設定（`cbjp_rh_tax_setup()` の形）だけから、WooCommerce の `WC_Tax::find_rates()` と `calc_tax()` の規則を書き写して求める
+ * （skill-scripts.md: 期待値は独立に作る。PR #107 G1-1: 全行を足すと、同じ優先度の JP の行と国 `''` の行を両方数えて誤る）。
+ * - 一致する行: 国が JP か `''`、州が `''` か店舗の州（基準国が JP のときだけ）。郵便番号・市で限定した行が一致の候補にあれば、
+ *   一致を再現できないので null（判定できない＝呼び出し側が止める。リハーサルの税設定は限定しない）。
+ * - 優先度ごとに 1 行: 国が `''` でない行 → 州が `''` でない行 → ID の小さい行の順で最初のもの（`WC_Tax::sort_rates_callback()`）。
+ * - 実効税率: 複合でない税率の合計に、複合の税率を優先度の順に上乗せする（`WC_Tax::calc_exclusive_tax()`）。
+ * 行の形が違えば（古いスナップショットなど）null。
+ *
+ * @param mixed $setup `cbjp_rh_tax_setup()` の戻り値（`snapshot` の `woo.tax_setup`）。
+ * @return array<int,string>|null
+ */
+function cbjp_rh_jp_reduced_classes( $setup ): ?array {
+	if ( ! is_array( $setup ) || ! is_string( $setup['base_country'] ?? null ) || ! is_string( $setup['base_state'] ?? null ) || ! is_array( $setup['rates'] ?? null ) ) {
+		return null;
+	}
+
+	$state    = 'JP' === $setup['base_country'] ? $setup['base_state'] : '';
+	$selected = [];
+
+	foreach ( $setup['rates'] as $row ) {
+		if ( ! is_array( $row ) ) {
+			return null;
+		}
+
+		foreach ( [ 'tax_rate_id', 'tax_rate', 'tax_rate_priority', 'tax_rate_compound', 'location_count' ] as $key ) {
+			if ( ! is_numeric( $row[ $key ] ?? null ) ) {
+				return null;
+			}
+		}
+
+		foreach ( [ 'tax_rate_class', 'tax_rate_country', 'tax_rate_state' ] as $key ) {
+			if ( ! is_string( $row[ $key ] ?? null ) ) {
+				return null;
+			}
+		}
+
+		$class = $row['tax_rate_class'];
+
+		if ( '' === $class || ! in_array( $row['tax_rate_country'], [ 'JP', '' ], true ) || ! in_array( $row['tax_rate_state'], array_unique( [ '', $state ] ), true ) ) {
+			continue;
+		}
+
+		if ( (int) $row['location_count'] > 0 ) {
+			return null;
+		}
+
+		$priority = (int) $row['tax_rate_priority'];
+		$current  = $selected[ $class ][ $priority ] ?? null;
+		$rank     = static fn ( array $r ): array => [ '' === $r['tax_rate_country'] ? 1 : 0, '' === $r['tax_rate_state'] ? 1 : 0, (int) $r['tax_rate_id'] ];
+
+		if ( null === $current || $rank( $row ) < $rank( $current ) ) {
+			$selected[ $class ][ $priority ] = $row;
+		}
+	}
+
+	$classes = [];
+
+	foreach ( $selected as $class => $by_priority ) {
+		ksort( $by_priority );
+		$total = 0.0;
+
+		foreach ( $by_priority as $row ) {
+			if ( 0 === (int) $row['tax_rate_compound'] ) {
+				$total += (float) $row['tax_rate'];
+			}
+		}
+
+		foreach ( $by_priority as $row ) {
+			if ( 0 !== (int) $row['tax_rate_compound'] ) {
+				$total += ( 100 + $total ) * (float) $row['tax_rate'] / 100;
+			}
+		}
+
+		if ( 800 === (int) round( $total * 100 ) ) {
+			$classes[] = (string) $class;
+		}
+	}
+
+	sort( $classes, SORT_STRING );
+
+	return $classes;
+}
+
+/**
+ * 開発サイトの税の設定（`cbjp_rh_jp_reduced_classes()` に渡す形）: 店舗の基準国・州（`woocommerce_default_country` の `国:州`）と、
+ * 税率の表の行（郵便番号・市で限定した件数つき）。プラグインのコードは使わない。
+ *
+ * @return array{base_country:string,base_state:string,rates:array<int,array<string,string>>}
+ */
+function cbjp_rh_tax_setup(): array {
+	global $wpdb;
+
+	$base = explode( ':', (string) get_option( 'woocommerce_default_country', '' ), 2 );
+	$rows = $wpdb->get_results(
+		"SELECT r.tax_rate_id, r.tax_rate_class, r.tax_rate_country, r.tax_rate_state, r.tax_rate, r.tax_rate_priority, r.tax_rate_compound, COUNT( l.location_id ) AS location_count
+		FROM {$wpdb->prefix}woocommerce_tax_rates r LEFT JOIN {$wpdb->prefix}woocommerce_tax_rate_locations l ON l.tax_rate_id = r.tax_rate_id
+		GROUP BY r.tax_rate_id ORDER BY r.tax_rate_id",
+		ARRAY_A
+	);
+
+	return [
+		'base_country' => $base[0],
+		'base_state'   => $base[1] ?? '',
+		'rates'        => is_array( $rows ) ? $rows : [],
+	];
+}

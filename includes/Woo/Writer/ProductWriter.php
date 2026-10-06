@@ -111,7 +111,12 @@ final class ProductWriter implements EntityWriter {
 			throw $exception;
 		}
 
-		return new WriteResult( $product_id, $prepared->operation, $warnings, ! WarningCode::indicates_unresolved_reference( $warnings ) );
+		// D26: 軽減税率の商品を入れる税区分が無く標準に倒した商品は checksum を保存しない（税区分と JP の 8% の税率を作ってから
+		// 取り込み直せば直る。`WarningCode::indicates_reduced_tax_class_fallback()`）。
+		$fully_resolved = ! WarningCode::indicates_unresolved_reference( $warnings )
+			&& ! WarningCode::indicates_reduced_tax_class_fallback( $warnings );
+
+		return new WriteResult( $product_id, $prepared->operation, $warnings, $fully_resolved );
 	}
 
 	public function validate( CanonicalModel $item, ?int $existing_local_id ): ValidationResult {
@@ -280,6 +285,7 @@ final class ProductWriter implements EntityWriter {
 	 * @return array<int,string>
 	 */
 	private function apply_tax_class( WC_Product $product, ?string $tax_class ): array {
+		// 正規化モデルの軽減税率の記号は、JP の税率が 8% の税区分へ解決する（D26。日本語でインストールした店舗の「軽減税」を含む）。
 		[ $resolved, $warnings ] = TaxClass::resolve( $tax_class );
 
 		$product->set_tax_class( $resolved );

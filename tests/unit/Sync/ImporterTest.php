@@ -110,6 +110,105 @@ final class ImporterTest extends WP_UnitTestCase {
 		delete_option( 'cbjp_settings_' . $adapter->id() );
 	}
 
+	/**
+	 * D26（issue #102）: 軽減税率の商品を入れる税区分が無いまま本取込みした商品は、標準に倒して checksum を保存しない。
+	 * そのため WooCommerce の税の設定で軽減税率の税区分（日本語でインストールした店舗の「軽減税」）と JP の 8% を作ってから
+	 * 取り込み直すと、商品はその税区分へ移る。実 Writer（`WooRepositoryFactory`）で通して確かめる。
+	 */
+	public function test_reduced_rate_product_imported_without_a_reduced_class_is_fixed_by_the_next_import(): void {
+		update_option( 'woocommerce_default_country', 'JP:JP13' );
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+
+		$product  = new CanonicalProduct( 'Rice', 'SKU-RICE', '1080', null, null, [], [], [], [], 5, 'publish', [ 'remote_id' => 'p-rice' ], true, [], null, CanonicalProduct::TAX_CLASS_REDUCED );
+		$adapter  = new MockPlatformAdapter( products: [ $product ] );
+		$factory  = new WooRepositoryFactory();
+		$importer = new Importer( $this->mappings );
+
+		$first = $importer->run_page( $adapter, $factory->for_platform( $adapter->id() ), 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $first['totals']['created'] );
+		$local_id = $this->mappings->find_local_id( $adapter->id(), 'product', 'p-rice' );
+		$this->assertIsInt( $local_id );
+		$this->assertSame( '', wc_get_product( $local_id )->get_tax_class(), '入れる税区分が無いので標準に倒す' );
+		$this->assertNull( $this->mappings->find_checksum( $adapter->id(), 'product', 'p-rice' ), 'checksum を保存しない' );
+
+		$japanese = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $japanese );
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => 'JP',
+				'tax_rate'          => '8.0000',
+				'tax_rate_name'     => 'JP reduced',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 0,
+				'tax_rate_class'    => $japanese['slug'],
+			]
+		);
+
+		$second = $importer->run_page( $adapter, $factory->for_platform( $adapter->id() ), 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $second['totals']['updated'] );
+		$this->assertSame( $japanese['slug'], wc_get_product( $local_id )->get_tax_class() );
+		$this->assertNotNull( $this->mappings->find_checksum( $adapter->id(), 'product', 'p-rice' ), '税区分に入れば checksum を保存する' );
+	}
+
+	/**
+	 * D26: 受注は、軽減税率の明細を入れる税区分が無く標準に倒しても checksum を保存する（商品と違い、取込みのたびに明細を作り直さない。
+	 * 受注の金額は ASP の値を明示しており、変わるのは税区分の名前だけ。review-loop R1-4）。
+	 */
+	public function test_order_imported_without_a_reduced_class_keeps_its_checksum(): void {
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+
+		$wc_product = new \WC_Product_Simple();
+		$wc_product->set_name( 'Rice' );
+		$wc_product->set_regular_price( '1080' );
+		$product_id = $wc_product->save();
+
+		$order   = new CanonicalOrder(
+			'2101',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'p-rice',
+					'name'                => 'Rice',
+					'price'               => '1080',
+					'unit_price_excl_tax' => '1000',
+					'subtotal'            => '1080',
+					'quantity'            => 1,
+					'tax_reduced'         => true,
+				],
+			],
+			[],
+			[],
+			[
+				'total'        => '1080',
+				'tax'          => '80',
+				'shipping_fee' => '0',
+				'discount'     => '0',
+			],
+			'2026-07-01T00:00:00+00:00',
+			null
+		);
+		$adapter = new MockPlatformAdapter( orders: [ $order ] );
+		$this->mappings->upsert( $adapter->id(), 'product', 'p-rice', $product_id, null );
+
+		$result = ( new Importer( $this->mappings ) )->run_page( $adapter, ( new WooRepositoryFactory() )->for_platform( $adapter->id() ), 'order', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['created'] );
+		$local_id = $this->mappings->find_local_id( $adapter->id(), 'order', '2101' );
+		$this->assertIsInt( $local_id );
+		$items = array_values( wc_get_order( $local_id )->get_items() );
+		$this->assertSame( '', $items[0]->get_tax_class(), '入れる税区分が無いので標準に倒す' );
+		$this->assertNotNull( $this->mappings->find_checksum( $adapter->id(), 'order', '2101' ), '受注は checksum を保存する' );
+	}
+
 	public function test_remote_amount_stays_zero_for_non_order_entities(): void {
 		$adapter  = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
 		$importer = new Importer( $this->mappings );

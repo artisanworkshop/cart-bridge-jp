@@ -975,7 +975,57 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( '', $items[0]->get_tax_class() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::TAX_CLASS_MISSING, 'reduced-rate' ), $result->warnings );
+		// D26: 軽減税率の明細を入れる税区分（JP の 8% の税区分・税率の無い既定の軽減税率の税区分）が無い。
+		$this->assertContains( WarningCode::REDUCED_TAX_CLASS_NOT_FOUND, $result->warnings );
+		// 受注はこの警告では checksum を止めない（商品と違い、取込みのたびに明細を作り直さない）。この受注は商品の参照が
+		// 未解決なので`fully_resolved`自体は偽になる。
+		$this->assertFalse( WarningCode::indicates_unresolved_reference( [ WarningCode::REDUCED_TAX_CLASS_NOT_FOUND ] ) );
+	}
+
+	/**
+	 * D26（issue #102）: 日本語でインストールした WooCommerce の軽減税率の税区分（「軽減税」。`reduced-rate` は無い）に
+	 * JP の 8% の税率があれば、軽減税率の明細はそこへ入り、警告は出ない。
+	 */
+	public function test_reduced_rate_line_goes_to_the_class_with_the_jp_reduced_rate(): void {
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+		$created = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $created );
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => 'JP',
+				'tax_rate'          => '8.0000',
+				'tax_rate_name'     => 'JP reduced',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 0,
+				'tax_rate_class'    => $created['slug'],
+			]
+		);
+
+		$order = $this->make_order(
+			'3011',
+			'processing',
+			null,
+			[
+				[
+					'sku'                 => null,
+					'remote_product_id'   => 'reduced-item',
+					'name'                => 'Reduced rate item',
+					'price'               => '108',
+					'unit_price_excl_tax' => '100',
+					'subtotal'            => '108',
+					'quantity'            => 1,
+					'tax_reduced'         => true,
+				],
+			]
+		);
+
+		$result   = $this->make_writer()->write( $order, null );
+		$wc_order = wc_get_order( $result->local_id );
+		$items    = array_values( $wc_order->get_items() );
+
+		$this->assertSame( $created['slug'], $items[0]->get_tax_class() );
+		$this->assertSame( [], array_values( array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, 'tax_' ) || str_starts_with( $w, 'reduced_' ) ) ) );
 	}
 
 	public function test_inconsistent_tax_split_clamps_to_zero_with_warning(): void {

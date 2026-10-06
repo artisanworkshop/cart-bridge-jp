@@ -34,7 +34,7 @@
 | D23 | 「Any」バリエーションのエクスポート | Woo の「Any（すべての）」バリエーションは ColorMe に相当する仕組みが無く、正規化モデルでも表現できない。**v1.0 では非対応**とし、Any を含む商品と、その明細を持つ受注のエクスポートを止めて警告する（プラットフォーム非依存の blocking）。全組み合わせへの展開は v1.x で要望を見て検討する。詳細は §10.2「「Any（すべての）」バリエーションのエクスポート（D23）」 |
 | D24 | プレミアムプラン限定機能のベータ扱い | プレミアムプランの ColorMe テストショップをすぐに用意できないため、プレミアム限定 API に依存する**受注のエクスポートと商品画像のアップロードを v1.0 ではベータ版**とし、実テストは行わない（R3-1 の対象外）。Export タブと readme で「Beta」と明示し、**どちらも既定オフ**（店舗が明示的に選んだときだけ動かす）にする。仕組みは `Capabilities::$beta_features`（末尾に既定 `[]` で追加）。詳細は §10.2「プレミアムプラン限定機能のベータ扱い（D24）」 |
 | D25 | 往復（取り込んだ実体の再エクスポート・エクスポートで作った実体の再取込み）の扱い（R3-1、issue #98） | R3-1 のリハーサルで、ColorMe から取り込んだ実体を同じショップへエクスポートすると ColorMe の値が書き換わる（空の型番に仮 SKU、**会員限定販売が全員に販売可能**、在庫未設定が 0、埋め込み動画の消失ほか）こと、逆向きの再取込みが Woo で作った実体を ColorMe 由来の値で上書きすることを実データで確認した（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`）。**実体は作られた向きにだけ更新する**: 取り込んだ商品・顧客・在庫はエクスポートしない（スキップ＋情報の警告）、エクスポートで作った実体は取込みで上書きせず紐づけだけを保つ。出自は Woo 側の印で判定し、スキーマは変えない。~~ただし `_cbjp_platform`＋`_cbjp_remote_id` だけでは足りない…ので、「取込みで作った」ことを示す印を実装の計画で決める~~ → **R3-1a の計画で決定（2026-10-05）: 印は新設せず `_cbjp_platform` を「取込みで結ばれた」印に使い、「誰が作ったか」ではなく「誰が紐づけたか」で判定する**（メールで採用した既存の Woo 顧客は取込み側＝エクスポートしない。顧客は `_cbjp_created_by_import` の一致も取込み側。export で作った実体を再取込みすると印が付く問題は、取込みが書かなくなるので以後は起きない）。対象はエクスポートの Reader があるエンティティすべて（商品・顧客・在庫に加えて受注・クーポン）。エクスポートのサンプル選定から取込み品を除き、WC の商品複製ではリンクのメタを写さない。詳細と、往復を想定しないため対応しないものは §10.2「往復の扱い（D25）」。**往復は想定しない（2026-10-06 ユーザー決定）**: このプラグインは一方向の移行に特化する。D25 は誤って往復したときに値を壊さないための安全策で、往復の運用を支える機能ではない。D14（継続同期は販売しない）と整合する。実装は issue #98（v1.0 に含める） |
-| D26 | 軽減税率・標準税率の税区分の見分け方（issue #102、R3-1e） | WooCommerce は既定の税区分をインストール時の言語で翻訳した名前から作るため（日本語は「軽減税」「免税」。スラッグは URL エンコード）、スラッグ `reduced-rate` の決め打ちでは日本語でインストールした店舗の軽減税率を見失い、取込みで 8% の商品が 10% の税区分に入る。**税率から自動判定することを優先する**: JP の税率が `shop.reduce_tax_rate`（8%）の税区分を軽減税率、`shop.tax`（10%）を標準税率とみなす。**必要な税率が Woo に設定されていない場合は、dry-run で先に税率を作るよう促す**（警告の文言・本実行を止めるか・候補が複数あるときの扱いは R3-1e の計画で決める）。R3-1d（issue #78。標準・軽減以外の税区分のエクスポートを止める）はこの判定を前提にする |
+| D26 | 軽減税率・標準税率の税区分の見分け方（issue #102、R3-1e） | WooCommerce は既定の税区分をインストール時の言語で翻訳した名前から作るため（日本語は「軽減税」「免税」。スラッグは URL エンコード）、スラッグ `reduced-rate` の決め打ちでは日本語でインストールした店舗の軽減税率を見失い、取込みで 8% の商品が 10% の税区分に入る。**税率から自動判定することを優先する**: JP の税率が `shop.reduce_tax_rate`（8%）の税区分を軽減税率、`shop.tax`（10%）を標準税率とみなす。**必要な税率が Woo に設定されていない場合は、dry-run で先に税率を作るよう促す**（警告の文言・本実行を止めるか・候補が複数あるときの扱いは R3-1e の計画で決める）。R3-1d（issue #78。標準・軽減以外の税区分のエクスポートを止める）はこの判定を前提にする。**計画で決定（2026-10-06）**: 判定の税率は日本の法定税率の定数（10%／8%。Woo 層は店舗設定を持たないため）、取込みは 8% の税区分が無くても止めずに警告（標準に倒した商品は checksum を保存しない）、候補が複数なら既定の名前の税区分を先に選ぶ（どれも 8% で税額は同じ）、税率の無い既定名の税区分は軽減とみなす。review-loop R1（同日ユーザー決定）: エクスポートでは標準の税区分 `''` も JP の税率があれば税率で分類する（JP の税率が無ければ標準）。詳細は §10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」 |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -401,6 +401,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 
 カラーミー・MakeShop・BASEとも価格は税込（BASEは `item_tax_type` で軽減税率商品を判別可能。extrasに保存）。インポート開始前に Woo の
 `woocommerce_prices_include_tax` が `no` の場合は dry-run 警告に含める（自動変更はしない）。
+軽減税率の税区分は Woo のスラッグではなく JP の税率（8%）で見分ける（D26。§10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」）。
 
 ### 受注の新規作成と状態変化フック（issue #91）
 
@@ -1004,7 +1005,7 @@ indicates_unresolved_reference()`対象の警告＋`is_retryable_failure()`/`rec
   から`pref_id`/`postal`/`address1`/`tel`のいずれかを解決できない場合、送信すると確実に422になる
   ため`CustomerTransformer::to_create_payload()`が`null`を返し、`ColorMeAdapter::push_customer()`が
   `PushResult('', OPERATION_SKIPPED, [WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING])`で
-  フェイルクローズする（`push_product()`の`requires_hidden_safeguard()`と同じ思想）。`remote_id`が
+  フェイルクローズする（`push_product()`の`ProductTransformer::push_blocker()`〔R3-1d。以前の hidden 安全策を置き換えた〕と同じ思想）。`remote_id`が
   空文字列のため`Sync\Exporter`はmappingsへupsertせず、店舗がWoo側の顧客情報を補完すれば次回
   exportで自動的に再試行される。この警告は`PushResult`からのみ発生し`DryRunPlatformWriter`は
   アダプタを呼ばないため、dry-runでは検出できない（`PRODUCT_DETAILS_PUSH_INCOMPLETE`等と同じ
@@ -1890,6 +1891,52 @@ R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` �
   実アダプタの `push_customer()` が住所の無い顧客の更新で HTTP を一切送らずに警告つきでスキップすることを確認した。テストショップでの確認（`rehearse-colorme` の `check-import`〔script/style の中身が残れば MISMATCH〕と
   手順 3 の顧客の更新）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
 
+#### 税区分の見分け方とエクスポートの止め方（D26、R3-1d/e、issue #102・#78）
+
+**問題**: (1) WooCommerce は既定の税区分を有効化したときの言語の名前から作る（`class-wc-install.php` の `WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`）。
+日本語でインストールした店舗の軽減税率の税区分は「軽減税」（スラッグは URL エンコードの `%e8%bb%bd%e6%b8%9b%e7%a8%8e`）で、`reduced-rate` は無い。
+プラグインはスラッグ `reduced-rate` を決め打ちしていたため、取込みで 8% の商品が標準（10%）の税区分に入り（`tax_class_missing`。金銭）、エクスポートでは軽減税率の商品が非標準として扱われた（#102）。
+(2) `ProductTransformer::requires_hidden_safeguard()` は、非標準の税区分・価格を 1 件も換算できない商品を ColorMe に**作成するときだけ** hidden にしたが、更新では効かず、
+次のエクスポートで課税商品として公開された（R3-1 で `zero-rate` の商品で実測。#78）。
+
+**決定**: D26（2026-10-05）と #78 の決定（同日）。計画時のユーザー回答（2026-10-06）: Q1 判定の税率は日本の法定税率の定数、Q2 取込みで 8% の税区分が無くても止めない、
+Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減とみなす、Q4 ColorMe 側の換算不能は本実行のスキップだけ（dry-run には出さない）。
+
+- **正規化モデルの契約は変えない**: `CanonicalProduct::$tax_class` は null＝標準、`CanonicalProduct::TAX_CLASS_REDUCED`（`'reduced-rate'`）＝軽減。これを **Woo のスラッグではなく記号**と位置づけ直し、
+  相互変換は Woo 層の `Woo\Support\TaxClass` に集める（原則 1・2）。英語でインストールした店舗（`reduced-rate` に 8%）では Canonical が以前と同じ値で、checksum は変わらない。
+- **分類（`TaxClass::classify()`）**: **JP の税率**
+  （`WC_Tax::find_rates()` に国 JP。店舗の基準国が JP なら基準所在地の州・郵便番号・市も。国 `''` のワイルドカード行を含む。基準国が WooCommerce 既定の US:CA のままでも JP の税率で判定する）の実効税率
+  （`WC_Tax::calc_tax( 100, … )` の合計。7.8%＋2.2% の分割・複合税率も合算。100 倍の整数で比べる）が 10 → 標準、8 → 軽減、それ以外（0% を含む）→ `unsupported`。
+  標準の税区分 `''` も同じ（食品だけの店舗が標準に 8% を入れていれば軽減、0% なら止める。review-loop R1-2・2026-10-06 ユーザー決定。計画では「`''` は常に標準」だった）。
+  JP の税率が無い: 標準の税区分は標準（税率を設定していない新しい店舗・基準所在地が US のままの店舗で全商品を止めない）。それ以外は、他の地域の税率だけある・存在しない税区分・
+  フィルターが壊れた値を返した・文字列でない値（`get_tax_class()` はフィルターを通る外部由来の値。review-loop R1-3）→ `unconfigured`。税率が 1 件も無い → 既定の軽減税率の名前
+  （`TaxClass::KNOWN_REDUCED_SLUGS`: `reduced-rate`・「軽減税」・古い訳の「軽減税率」の `sanitize_title()` を固定値で持つ。`__( …, 'woocommerce' )` は text domain の規約に反し、実行時の言語にも左右されるので使わない）なら軽減、それ以外 `unconfigured`。
+  1 リクエスト内は `wp_cache` でメモ化する（キーに WooCommerce の税のキャッシュの接頭辞〔税率の変更で無効化される〕・所在地・税区分の一覧を含める。グループは永続しない〔`wp_cache_add_non_persistent_groups()`〕: Redis などに残すとフィルターを通した結果が別のリクエスト・cron に持ち越される。PR #107 G3-B1）。
+- **取込み（R3-1e。`TaxClass::resolve()`）**: 軽減の記号は、(1) JP の 8% の税区分（複数なら既定の名前の順 → `WC_Tax::get_tax_class_slugs()` の名前順。どれも 8% で税額は同じなので警告なし）、
+  (2) 無ければ税率の無い既定名の税区分（新しい店舗・税計算 OFF の店舗）に入れて `tax_rates_not_configured`（後からその税区分に税率を足せば直る。checksum は保存）、
+  (3) どちらも無ければ標準に倒して `reduced_tax_class_not_found`（**本実行は止めない**）。(3) の**商品だけ** checksum を保存しない（`ProductWriter` が `WarningCode::indicates_reduced_tax_class_fallback()` で判定。
+  税区分と税率を作ってから取り込み直せば直る。`ImporterTest` で固定）。受注は保存する（共有の `indicates_unresolved_reference()` に入れると、該当店舗で取込みのたびに受注の明細を作り直す。
+  受注の金額は ASP の値を明示しており変わるのは税区分の名前だけ）。dry-run の CSV の `note` は `tax_setup_required`（「先に税率を作るよう促す」の実装）。その他のスラッグ（外部アダプタ）は従来どおり。
+- **エクスポート（R3-1d）**: `ProductReader` は `TaxClass::to_canonical()` で記号へ（標準は null。標準以外の税区分でも JP 10% なら標準。標準・軽減以外は `woo:` を付けたスラッグにして、
+  軽減と判定できない `reduced-rate`〔5% を入れた等〕が記号と同じ文字列になってアダプタの多重防御をすり抜けないようにする。review-loop R1-1）。課税商品（`'taxable' === get_tax_status()`。`is_taxable()`〔税計算 OFF で偽〕
+  ではなく、税計算 OFF の店舗でも dry-run と本実行の結果をそろえる）の税区分が `unsupported`/`unconfigured` なら `tax_class_unsupported:{税区分の名前}`（標準の税区分は `Standard`）、
+  公開バリエーションの税区分（親と同じ設定なら親の税区分）が同じなら `variation_tax_class_unsupported:{variation_id}`（警告を積むだけで `continue` しない。D22/D23 の母集団を変えない）。
+  どちらも `indicates_export_blocking()` に登録（プラットフォーム非依存。`TAX_STATUS_NOT_TAXABLE` と同じ扱い）。標準の親の下の軽減税率のバリエーションは対象外（支払額は一致する。backlog `fix-59-export-price-tax/G1-2`）。
+  `StockReader` は止めない（在庫の送信は税区分・表示状態に触れない）。`OrderReader` の明細も `classify()` で判定する（`ORDER_LINE_TAX_CLASS_UNSUPPORTED`）。
+- **ColorMe（R3-1d）**: hidden 安全策を削除。`ColorMeAdapter::push_product()` は POST/PUT の前に `ProductTransformer::push_blocker()` を見て、税区分が記号以外（多重防御）なら `tax_class_unsupported`、
+  価格を 1 件も換算できない（`shop.json` の税設定が読めない等）なら `product_price_not_convertible` で、作成も更新もせず `PushResult( '', skipped, … )` を返す（`push_customer()` と同じ形。
+  `Exporter` は作成なら intent を消して無料枠を返し、更新なら mapping・checksum を残して次回に再試行し、`unchanged` には数えない）。後者は dry-run に出ない（アダプタを呼ばない。既知の限界、Q4）。
+  payload の組立て（`base_payload()`）に記号以外の税区分が来たら `LogicException`（判定を通らない呼び出しが増えても `tax_reduced=false` を送らない）。以前の安全策で hidden 作成済みの商品は、Reader が止めるので hidden のまま残る。
+- **既知の限界**: 取込みでは標準の商品を常に標準の税区分 `''` に入れる。`''` に JP 10% 以外を入れた店舗（標準を 8% にした食品だけの店舗など）では、ColorMe の標準税率の商品が
+  その税率で課税される（エクスポートと違い、取込みの標準側は税率で選ばない。review-loop R1 でユーザーがエクスポートだけ直すと決定。backlog `r3-1de-tax-class-detection/R1-X1`）。
+  この変更より前に日本語の Woo へ取り込んだ軽減税率の商品（`tax_class_missing` で標準に入った）は checksum 保存済みで、再取込みでは直らない（v0.1.0 を検証中のサイトが該当しうる。直すなら税区分を手で変えるか、クリーンアップして取り込み直す）。
+- **検証**: PHPUnit（`TaxClassTest` 23 件〔日本語インストールの再現・標準の税区分の税率・記号との衝突・非文字列・基準所在地の州・分割税率・ワイルドカード・基準国 US・他地域のみ・税率なし・存在しない税区分・壊れたフィルター・キャッシュの追従・候補の順・フォールバック〕、
+  `ProductReaderTest`・`OrderReaderTest`・`ProductWriterTest`・`OrderWriterTest`・`ColorMeAdapterTest`・`ProductTransformerTest`・`ExporterTest`〔実際の `ProductReader` を通した dry-run と本実行〕・`ImporterTest`〔作ってから取り込み直すと直る〕・`DryRunReportCsvTest`・`WarningCodeTest`）。
+  `mutate-check.sh` で分類の各分岐・候補の順・フォールバック・キャッシュのキー・Reader の判定（商品・バリエーション・`tax_status`・記号への変換・detail）・blocking と CSV の登録・商品だけの checksum 判定・受注の明細・アダプタのスキップと LogicException の 36 種と、review-loop R1 の修正 7 種・ゲート G2 の 1 種〔`TaxInclusivePrice` の非文字列〕がすべて CAUGHT（ほかに等価な置換 1 種〔`OrderItemBuilder` の記号の定数を同じ値の文字列に〕は対象外）。
+  wp-env の dev サイトで、`rehearse-colorme` の `tax-classes mode=ja`（日本語インストールの状態）にして、実際の `ProductWriter`（WP-Cron の条件と管理者）で軽減税率の商品が「軽減税」に入り、
+  `ProductReader`＋`Exporter` の dry-run（実アダプタ・`DryRunPlatformWriter`）で「軽減税」の商品が軽減の記号で作成対象・「免税」の商品が `tax_class_unsupported:免税` で止まることを確認し、`mode=en` で戻した。
+  テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
@@ -2052,7 +2099,7 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   → `Sync\Importer::process_items()`がページ単位で`Sync\DryRunItemRepository`へバッチ記録
   → `Admin\DryRunReportCsv`が`GET /runs/{run_id}/report`（`Admin\RestController::get_run_report()`）でCSVをストリーミング配信
 - **保存**: 新テーブル`cbjp_dry_run_items`（`(job_id, entity, remote_id)`のUNIQUE KEY + `ON DUPLICATE KEY UPDATE`で再実行冪等）。NULL許容カラムを持たず、`label=''`/`existing_local_id=0`を「無し」の番兵値とする（生SQLがnullを空文字に変換する罠を回避）。保持期間は`cbjp/dry_run_items/retention_days`フィルター（既定30日）で`Sync\LogCleanup`の日次ジョブに相乗り
-- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_order_reference_unresolved()`が真の警告（`order_line_product_unresolved`/`order_customer_unresolved`。R3-0n）に`reference_unresolved`（未インポート、またはASP側で削除済み・インポート対象外。実店舗の受注では、この2コードの参照先はすべて ColorMe 側で削除済み〔404〕で、先にインポートしても消えなかった）、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`から、前述の2コードと`order_line_variation_unmatched`〔商品は取込み済み。注記なし〕を除いたもの）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
+- **CSV列**: `entity, remote_id, label, operation, existing_local_id, warning_code, warning_detail, note`。1アイテム×1警告=1行に展開（`WarningCode::split()`で`:`区切りを最初の1つだけ分割）。`note`列は`WarningCode::indicates_mapping_required()`が真の警告（`category_map_unresolved`と、R3-0m で加えた`payment_method_unmapped`/`shipping_method_unmapped`。マッピング設定〔Mappings タブ〕を追加すれば消える）に`mapping_required`、`WarningCode::indicates_tax_setup_required()`が真の取込みの警告（`reduced_tax_class_not_found`・`tax_rates_not_configured`。WooCommerce の税の設定で軽減税率の税区分と JP の 8% を作れば消える。D26・R3-1e）に`tax_setup_required`、`indicates_pending_export()`が真の警告に`reference_pending_export`、`WarningCode::indicates_order_reference_unresolved()`が真の警告（`order_line_product_unresolved`/`order_customer_unresolved`。R3-0n）に`reference_unresolved`（未インポート、またはASP側で削除済み・インポート対象外。実店舗の受注では、この2コードの参照先はすべて ColorMe 側で削除済み〔404〕で、先にインポートしても消えなかった）、`WarningCode::indicates_pending_import()`が真の警告（`indicates_unresolved_reference()`の集合＋`stock_product_unresolved`から、前述の2コードと`order_line_variation_unmatched`〔商品は取込み済み。注記なし〕を除いたもの）に`reference_pending_import`を付与（初回dry-runではmappingsが空なため大量に出る「未インポートが原因の未解決」を、実際の不整合と区別するため。在庫は親商品未解決だとアイテム自体を保存しないためchecksumキャッシュ判定の対象外だが、レポート上は同じ注記を付ける。F1-5実機確認で判明）。UTF-8 BOM付き。全ASCII制御文字（タブ/CR/LF含む）を除去したうえで、OWASP CSVインジェクション対策として`=`/`+`/`-`/`@`始まりのセルに`'`前置
 - **dry-runでは判定できない警告**（保存を実際に試みないと分からない、またはネットワークI/Oを伴うため`validate()`では意図的に実行しない）: `PRODUCT_SAVE_FAILED` / `ORDER_CREATE_FAILED` / `COUPON_SAVE_FAILED` / `TERM_CREATE_FAILED` / `TERM_UPDATE_FAILED`（更新パスのバリデーション失敗のみ。新規作成パスの名前衝突は`term_exists()`による事前チェックで`write()`と共有し判定可能） / `VARIATION_SAVE_FAILED` / `VARIATION_REMOVED` / `VARIATION_PRICE_INVALID` / `VARIATION_SNAPSHOT_INCOMPLETE`（`VariationWriter`は親ID確定後にしか走らないため） / `IMAGE_DOWNLOAD_FAILED`（dry-runは実際のダウンロードを行わない） / `CUSTOMER_CREATE_FAILED`（`CUSTOMER_EMAIL_CONFLICT`は`email_exists()`による読取専用の事前チェックで`write()`と共有し判定可能）
 - **F1-6の残作業（PR-B）**: React Import タブ（エンティティ選択・dry-runプレビュー・CSVダウンロードリンク・進捗ポーリング・結果レポート・上限到達時のPro案内）と Logs タブのUI実装。バックエンド（本節の内容）はPR-Aで完結し、`GET /runs/{run_id}`（進捗）・`GET /runs/{run_id}/report`（CSV）・`GET /limits`（Pro案内用の残数）は実装済み
 

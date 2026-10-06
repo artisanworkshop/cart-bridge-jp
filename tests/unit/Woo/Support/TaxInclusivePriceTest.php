@@ -151,4 +151,20 @@ final class TaxInclusivePriceTest extends WP_UnitTestCase {
 
 		$this->assertSame( [ null, false ], TaxInclusivePrice::from_product_price( $this->product(), 'abc' ) );
 	}
+
+	/**
+	 * PR #107 G2-B2: `get_tax_class()` のフィルターが文字列でない値を返しても WC へ渡さず、換算不能に倒す（TypeError でページを落とさない）。
+	 */
+	public function test_a_non_string_tax_class_is_unresolved(): void {
+		$this->register_rate( 'JP', '10.0000' );
+		$product = $this->product();
+		$filter  = static fn (): array => [ 'reduced-rate' ];
+		add_filter( 'woocommerce_product_get_tax_class', $filter );
+
+		try {
+			$this->assertSame( [ null, false ], TaxInclusivePrice::from_product_price( $product, '1000' ) );
+		} finally {
+			remove_filter( 'woocommerce_product_get_tax_class', $filter );
+		}
+	}
 }

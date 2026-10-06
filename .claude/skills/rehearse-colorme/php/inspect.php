@@ -52,7 +52,16 @@ echo "== local (dev site) ==\n";
 echo '  environment: ' . wp_get_environment_type() . ' / ' . home_url() . "\n";
 echo '  woo tax: calc_taxes=' . get_option( 'woocommerce_calc_taxes' ) . ' prices_include_tax=' . get_option( 'woocommerce_prices_include_tax' )
 	. ' rates=' . (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_tax_rates" )
-	. ' classes=' . implode( ',', WC_Tax::get_tax_class_slugs() ) . "\n";
+	. ' classes=' . implode( ',', array_map( 'rawurldecode', WC_Tax::get_tax_class_slugs() ) ) . "\n";
+// D26: 税区分ごとの JP の税率による分類（プラグインの判定）と、税率の表から直接求めた 8% の税区分（check-import・seed-woo の期待値）。
+echo '  woo tax classes (plugin classification): ' . implode(
+	', ',
+	array_map(
+		static fn ( string $slug ): string => ( '' === $slug ? "''" : rawurldecode( $slug ) ) . '=' . CartBridgeJP\Woo\Support\TaxClass::classify( $slug ),
+		array_merge( [ '' ], WC_Tax::get_tax_class_slugs() )
+	)
+) . "\n";
+echo '  classes with the JP 8% rate (tax rate table): ' . implode( ', ', array_map( 'rawurldecode', cbjp_rh_jp_reduced_classes( cbjp_rh_tax_setup() ) ?? [ '(cannot be reproduced)' ] ) ) . "\n";
 echo "  mappings by platform/entity:\n";
 foreach ( $wpdb->get_results( "SELECT platform, entity_type, COUNT(*) c, SUM(checksum IS NULL) n FROM {$wpdb->prefix}cbjp_mappings GROUP BY platform, entity_type", ARRAY_A ) as $cbjp_row ) {
 	echo "    {$cbjp_row['platform']} / {$cbjp_row['entity_type']}: {$cbjp_row['c']} (checksum null: {$cbjp_row['n']})\n";

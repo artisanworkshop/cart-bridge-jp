@@ -41,7 +41,14 @@ final class TaxInclusivePrice {
 		}
 
 		$tax_class = $product->get_tax_class();
-		$rates     = WC_Tax::get_base_tax_rates( $tax_class );
+
+		if ( ! is_string( $tax_class ) ) {
+			// `get_tax_class()` はフィルター（`woocommerce_product_get_tax_class` など）を通る外部由来の値。配列などを WC に渡すと
+			// TypeError でエクスポートのページ全体が落ちるので、換算不能に倒す（原則 8・9。`PRICE_TAX_BASIS_UNRESOLVED` で止まる。PR #107 G2-B2）。
+			return [ null, false ];
+		}
+
+		$rates = WC_Tax::get_base_tax_rates( $tax_class );
 
 		if ( [] === $rates ) {
 			// その税区分に税率が1件も登録されていなければ、Wooはそもそも課税しない（入力価格＝支払額）。

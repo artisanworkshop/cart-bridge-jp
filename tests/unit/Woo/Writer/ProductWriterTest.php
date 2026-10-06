@@ -111,6 +111,79 @@ final class ProductWriterTest extends WooTestCase {
 		);
 	}
 
+	/**
+	 * D26（issue #102）: 日本語でインストールした WooCommerce（「軽減税」。`reduced-rate` は無い）でも、軽減税率の商品は
+	 * JP の 8% の税区分へ入る（以前は`tax_class_missing`で標準の 10% に入っていた）。
+	 */
+	public function test_reduced_rate_product_goes_to_the_class_with_the_jp_reduced_rate(): void {
+		// 日本の一般的な構成（税込入力・税計算 ON）。`prices_include_tax_disabled`を混ぜない。
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+		$japanese = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $japanese );
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country' => 'JP',
+				'tax_rate_state'   => '',
+				'tax_rate'         => '8.0000',
+				'tax_rate_name'    => 'JP Reduced',
+				'tax_rate_class'   => $japanese['slug'],
+			]
+		);
+
+		$product = new CanonicalProduct( 'P', 'SKU-33', '108', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '33' ], true, [], null, CanonicalProduct::TAX_CLASS_REDUCED );
+		$writer  = $this->make_writer();
+
+		$this->assertSame( [], $writer->validate( $product, null )->warnings );
+
+		$result = $writer->write( $product, null );
+
+		$this->assertSame( $japanese['slug'], wc_get_product( $result->local_id )->get_tax_class() );
+		$this->assertSame( [], $result->warnings );
+		$this->assertTrue( $result->fully_resolved );
+	}
+
+	/**
+	 * D26: 軽減税率の商品を入れる税区分が無い（8% の税区分も、税率の無い既定の軽減税率の税区分も無い）ときは、止めずに標準へ倒して
+	 * 警告し（dry-run にも出る）、checksum を保存しない（税区分と税率を作ってから取り込み直せば直る）。
+	 */
+	public function test_reduced_rate_product_without_a_reduced_class_is_not_cached(): void {
+		// 日本の一般的な構成（税込入力・税計算 ON）。`prices_include_tax_disabled`を混ぜない。
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+
+		$product = new CanonicalProduct( 'P', 'SKU-34', '108', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '34' ], true, [], null, CanonicalProduct::TAX_CLASS_REDUCED );
+		$writer  = $this->make_writer();
+
+		$this->assertContains( WarningCode::REDUCED_TAX_CLASS_NOT_FOUND, $writer->validate( $product, null )->warnings );
+
+		$result = $writer->write( $product, null );
+
+		$this->assertSame( '', wc_get_product( $result->local_id )->get_tax_class() );
+		$this->assertSame( [ WarningCode::REDUCED_TAX_CLASS_NOT_FOUND ], $result->warnings );
+		$this->assertFalse( $result->fully_resolved );
+	}
+
+	/**
+	 * 税率の無い既定の軽減税率の税区分に入れた場合（新しい店舗）は checksum を保存する（その税区分に税率を足せば、取り込み直さなくても正しくなる）。
+	 */
+	public function test_reduced_rate_product_in_a_default_class_without_rates_is_cached(): void {
+		// 日本の一般的な構成（税込入力・税計算 ON）。`prices_include_tax_disabled`を混ぜない。
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+
+		$product = new CanonicalProduct( 'P', 'SKU-35', '108', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => '35' ], true, [], null, CanonicalProduct::TAX_CLASS_REDUCED );
+
+		$result = $this->make_writer()->write( $product, null );
+
+		$this->assertSame( [ WarningCode::with_detail( WarningCode::TAX_RATES_NOT_CONFIGURED, 'reduced-rate' ) ], $result->warnings );
+		$this->assertTrue( $result->fully_resolved );
+	}
+
 	public function test_weight_is_converted_from_grams_to_store_unit(): void {
 		update_option( 'woocommerce_weight_unit', 'kg' );
 

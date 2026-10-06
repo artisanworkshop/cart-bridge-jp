@@ -258,6 +258,47 @@ final class OrderReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * D26（issue #102）: 日本語でインストールした WooCommerce の軽減税率の税区分（「軽減税」）の明細は、JP の 8% で
+	 * 軽減税率と判定する（以前は`reduced-rate`以外を非対応として受注ごと止めていた）。
+	 */
+	public function test_line_item_in_the_japanese_reduced_class_is_reduced(): void {
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+		$japanese = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $japanese );
+		update_option( 'woocommerce_default_country', 'JP:JP13' );
+		\WC_Tax::_insert_tax_rate(
+			[
+				'tax_rate_country'  => 'JP',
+				'tax_rate'          => '8.0000',
+				'tax_rate_name'     => 'JP reduced',
+				'tax_rate_priority' => 1,
+				'tax_rate_compound' => 0,
+				'tax_rate_shipping' => 0,
+				'tax_rate_class'    => $japanese['slug'],
+			]
+		);
+
+		$product_id = $this->create_product();
+		$this->seed_mapping( self::PLATFORM, 'product', 'p-reduced', $product_id );
+
+		$order = wc_create_order();
+		$item  = new WC_Order_Item_Product();
+		$item->set_product_id( $product_id );
+		$item->set_name( 'Reduced item' );
+		$item->set_quantity( 1 );
+		$item->set_subtotal( '1000' );
+		$item->set_total( '1000' );
+		$item->set_tax_class( $japanese['slug'] );
+		$order->add_item( $item );
+		$order->save();
+
+		$read_item = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] )->items[0];
+
+		$this->assertTrue( $read_item->item->line_items[0]['tax_reduced'] );
+		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-reduced' ), $read_item->warnings );
+	}
+
+	/**
 	 * 数量が0以下（破損メタ等）の明細をそのままexportすると、実際の購入数と食い違う
 	 * 出荷指示になりうる。`Woo\Writer\OrderItemBuilder`（インポート方向）と同じ基準で
 	 * 1個へフェイルクローズし警告する（レビュー指摘）。

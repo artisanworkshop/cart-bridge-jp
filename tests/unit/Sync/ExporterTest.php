@@ -26,12 +26,16 @@ use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PlatformWriter;
 use CartBridgeJP\Sync\PushIntentRepository;
+use CartBridgeJP\Sync\WooReader;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\InMemoryPlatformWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Export\DryRunPlatformWriter;
+use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Reader\ReadItem;
+use CartBridgeJP\Woo\Reader\ReadPage;
+use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -1561,5 +1565,105 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 'Woo born', $writer->writes[0]['item']->name );
 		$this->assertSame( 1, $result['totals']['created'] );
 		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
+	}
+
+	/**
+	 * R3-1d（issue #78）: アダプタが更新を送らずに`skipped`（remote_id 空）で返した（`ColorMeAdapter::push_product()`の
+	 * 価格の換算不能など）とき、既存の mapping と checksum には触れず（次回に再試行）、`unchanged`にも数えない。
+	 */
+	public function test_an_adapter_skip_on_update_keeps_the_mapping_and_its_checksum(): void {
+		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'previous-checksum' );
+
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Changed' ) ) ] );
+		$writer   = new class() implements PlatformWriter {
+			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE ] );
+			}
+		};
+		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
+
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( 1, $result['totals']['skipped'] );
+		$this->assertSame( 0, $result['totals']['unchanged'] );
+		$this->assertSame( 0, $result['totals']['updated'] );
+		$this->assertSame( 1, $result['totals']['warned'] );
+		$this->assertSame( 'remote-1', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
+		$this->assertSame( 'previous-checksum', $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
+		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * R3-1d（issue #78）: 実際の`ProductReader`で読んだゼロ税率の商品は、dry-run に止める警告つきの`skipped`行として出て、
+	 * 本実行では writer に渡らない（作成も更新もしない）。軽減税率の商品は止めない（D26: 日本語でインストールした「軽減税」）。
+	 */
+	public function test_products_in_unsupported_tax_classes_are_blocked_end_to_end(): void {
+		update_option( 'woocommerce_default_country', 'JP:JP13' );
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+		update_option( 'woocommerce_prices_include_tax', 'yes' );
+		\WC_Tax::delete_tax_class_by( 'slug', 'reduced-rate' );
+		$japanese = \WC_Tax::create_tax_class( '軽減税' );
+		$this->assertIsArray( $japanese );
+
+		foreach ( [
+			''                => '10.0000',
+			$japanese['slug'] => '8.0000',
+			'zero-rate'       => '0.0000',
+		] as $tax_class => $rate ) {
+			\WC_Tax::_insert_tax_rate(
+				[
+					'tax_rate_country'  => 'JP',
+					'tax_rate'          => $rate,
+					'tax_rate_name'     => 'JP ' . $rate,
+					'tax_rate_priority' => 1,
+					'tax_rate_compound' => 0,
+					'tax_rate_shipping' => 1,
+					'tax_rate_class'    => (string) $tax_class,
+				]
+			);
+		}
+
+		$ids = [];
+
+		foreach ( [
+			'Zero'    => 'zero-rate',
+			'Reduced' => $japanese['slug'],
+		] as $name => $tax_class ) {
+			$wc_product = new \WC_Product_Simple();
+			$wc_product->set_name( $name );
+			$wc_product->set_regular_price( '1000' );
+			$wc_product->set_tax_class( $tax_class );
+			$ids[ $name ] = $wc_product->save();
+		}
+
+		// 既定カテゴリ（「未分類」）の`category_map`の警告を混ぜない。
+		update_option( 'cbjp_settings_mock', [ 'category_map' => [ (string) get_option( 'default_product_cat' ) => 'mock-cat' ] ] );
+
+		$reader = new class( $ids ) implements WooReader {
+			/** @param array<string,int> $ids */
+			public function __construct( private readonly array $ids ) {}
+
+			public function read( string $entity, Cursor $cursor, ?array $only_local_ids = null ): ReadPage {
+				return ( new ProductReader( 'mock', new MethodMap( 'mock' ), new MappingRepository() ) )
+					->query( Cursor::start(), array_values( $this->ids ) );
+			}
+		};
+
+		$dry_run = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, null, null, 9401, 'run-9401' );
+
+		$this->assertSame( 1, $dry_run['totals']['created'] );
+		$this->assertSame( 1, $dry_run['totals']['skipped'] );
+
+		$rows = array_column( ( new DryRunItemRepository() )->list_after( 'run-9401', 0, 10 ), null, 'existing_local_id' );
+		$this->assertSame( PushResult::OPERATION_SKIPPED, $rows[ $ids['Zero'] ]['operation'] );
+		$this->assertStringContainsString( WarningCode::TAX_CLASS_UNSUPPORTED, $rows[ $ids['Zero'] ]['warnings_json'] );
+		$this->assertSame( PushResult::OPERATION_CREATED, $rows[ $ids['Reduced'] ]['operation'] );
+
+		$writer = new InMemoryPlatformWriter();
+		( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
+
+		$this->assertSame( [ 'Reduced' ], array_map( static fn ( array $write ): string => $write['item']->name, $writer->writes ) );
+		$this->assertSame( CanonicalProduct::TAX_CLASS_REDUCED, $writer->writes[0]['item']->tax_class );
+		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', $ids['Zero'] ) );
 	}
 }
