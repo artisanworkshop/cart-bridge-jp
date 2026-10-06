@@ -1814,6 +1814,7 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   issue #99 の対応案（`esc_html()`）は、引用符も符号化し既存の実体参照を二重に符号化しないので採らなかった。
 - **説明・短い説明**: アダプタの浄化（カラーミーは `Cast::sanitize_html()`）に頼らず、Writer が `wp_kses_post()` してから保存する
   （kses を通っても変わらない形。外部アダプタの値でもランナーで変わらない）。カラーミーの値は既に浄化済みなので結果は変わらない。
+  R3-1c（issue #101）からは `HtmlText::sanitize_post_html()`（`<script>`・`<style>` を中身ごと除いてから kses）を使う。
 - **バリエーションの名前**は WooCommerce が親の post_title と属性の値から作り、読み込み時に作り直して直接書き戻す（`WC_Product_Variation_Data_Store_CPT::read()`）。
   Writer は触らない（親の名前が決まれば、読み直した名前はランナーによらない。テストで確認）。属性の要約（`post_excerpt`）は下の対象外。
 - **エクスポート**: `ProductReader` は名前を `HtmlText::to_plain()`（`html_entity_decode( ENT_QUOTES | ENT_HTML5 )`）で平文へ戻して送る。
@@ -1857,18 +1858,25 @@ R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` �
 - **説明の `<script>`・`<style>`（issue #101）**: `wp_kses_post()` はこの 2 つのタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示される
   （`a<script>console.log("zzr")</script><style>.zzr{color:red}</style>b` → `aconsole.log("zzr").zzr{color:red}b`。wp-env で実測）。
   `Woo\Support\HtmlText::sanitize_post_html()` を新設し、2 つの要素を中身ごと除いてから kses を掛ける。取込みの `Cast::sanitize_html()`（商品の説明・簡易説明・
-  スマートフォン用説明、カテゴリ・グループの説明）と、Writer が自分で浄化する `ProductWriter` の説明・短い説明（R3-1b）の両方で使う（外部アダプタ・将来の BASE でも同じ結果）。
-  - 正規表現は `#<(script|style)(?=[\s/>])[^>]*>.*?(?:</\1(?=[\s/>])[^>]*>|\z)#is`: 大文字小文字・属性・改行・`</script >` を受け、`<scripts>`・`<script-x>` は別の要素として残す。
-    閉じタグが無ければ末尾まで除く（ブラウザも残り全体を中身として読み、表示しない）。中身の文字列に `</script>` があれば、ブラウザと同じくそこで閉じる。
-  - 除いた後に要素ができる入力（`<scr<script></script>ipt>…`）があるので、変化しなくなるまで繰り返す。
-  - `preg_replace()` が失敗した（PCRE の上限）ときは除去を諦めて入力を返し、kses だけを掛ける（説明を丸ごと失わない。中身の文字が残る従来の結果）。
-    除去の段は `HtmlText::strip_script_and_style()` として分けた（kses 自体も PCRE を使い、上限を下げると空文字列を返すので、失敗時の扱いを単独で確かめるため）。
+  スマートフォン用説明、カテゴリ・グループの説明）と、Writer が自分で浄化する `ProductWriter` の説明・短い説明（R3-1b）の両方で使う
+  （商品の説明は外部アダプタ・将来の BASE でも同じ結果になる。ターム〔カテゴリ・タグ〕の説明は `TermWriter` が浄化しないので、アダプタが `sanitize_post_html()` を通す。backlog `r3-1c-customer-update-and-script-strip/R1-X1`）。
+  - 開始タグは kses と同じ区切り（`wp_kses_split()` の正規表現: コメント、または `<` から最初の `>` まで）で見つける。kses がタグとして外す範囲だけを対象にし、
+    属性値（`<p title="<script>">`）・CDATA の中の文字は開始タグと見なさない。最初は文字列全体を正規表現で探していたため、属性値・コメント・CDATA の中の
+    `<script>`・`<style>` から後ろ（閉じタグが無ければ末尾まで）の説明を消していた（review-loop R1 の独立レビュー A-1。wp-env で実測）。
+  - 中身はブラウザと同じく生のテキストとして読み、最初の `</script`・`</style`（直後が空白・`/`・`>`）で閉じる（JS の `a<b` をタグと見なさない。`</scripts>` は閉じタグではない。
+    閉じタグに `>` が無ければ末尾まで）。
+  - 閉じタグが無い要素は除かない（後ろの説明を失わない。kses がタグを外し、中身は文字として残る従来の結果）。
+  - コメントの中も同じ規則で除く（kses はコメントの中身にも kses を掛けるので、コメントアウトした `<script>` の中身が文字として出ていた）。
+  - テキストの部分は `<` を含まないので、除いた前後がつながって新しい開始タグになることは無い（繰り返しは要らない）。
+  - 区切りと閉じタグは `strpos()`・`stripos()` で探す（正規表現の遅延一致は約 1MB のコメントで PCRE の上限に達し、閉じタグの無い開始タグ・`>` の無い閉じタグが
+    多い入力では探し直しが二乗になった〔640KB で 1.3 秒・720KB で 5 秒。review-loop R1 で実測〕）。閉じタグの見つからなかった要素名は覚えて探し直さない。
+    これで PCRE が失敗する経路は無くなった（kses の後ろでは同じ入力に kses 自体が 100〜500ms かかり、除去の上乗せはその 1〜3 割）。
+  - 既知の限界: `<textarea>`・`<title>` の中（ブラウザでは文字）の `<script>…</script>` も除く（kses と同じく区別しない）。
   - 既存の取込み済み商品は、説明に script/style がある商品だけ Canonical が変わり、次の取込みで更新される（それ以外は checksum 不変で書き直さない）。
-- **検証**: PHPUnit（`HtmlTextTest`〔中身ごとの除去・大文字・属性・改行・閉じタグの空白・閉じタグ無し・除いた後の再構成・コメント内・`<scripts>` は残る・PCRE 失敗時〕、
+- **検証**: PHPUnit（`HtmlTextTest`〔中身ごとの除去・大文字・属性・改行・閉じタグの形〈空白・`/`・属性・`</scripts>` は閉じない〉・中身の `<`・コメント内〈複数行も〉・`<scripts>` は残る・閉じタグの `>` 無し・属性値／CDATA／閉じていないコメント／閉じタグ無しでは何も除かない〕、
   `CastTest`・`ProductTransformerTest`〔説明 3 種〕・`CategoryTransformerTest`・`TagTransformerTest`・`ProductWriterTest`〔未ログイン〈kses あり〉と管理者の保存が一致し JS・CSS の文字が無い〕、
   `CustomerTransformerTest`〔住所なし・一部・海外で郵便番号なし・海外で住所あり・電話なし・名前の空/空白/50/51 文字を作成と更新の両方〕、
-  `ColorMeAdapterTest`〔更新で PUT を送らない・`Exporter` との結合で mapping が残りエラーログが無い〕）。`mutate-check.sh` で 17 種（除去の呼び出し・繰り返し・閉じタグ無し・
-  タグ名の境界・閉じタグの空白・PCRE 失敗時に空を返す・Cast と Writer 2 か所を kses だけに戻す・更新の判定・住所・名前の空・空白・長さ〔境界と削除〕・作成の電話・アダプタの null 扱い）がすべて CAUGHT。
+  `ColorMeAdapterTest`〔更新で PUT を送らない・`Exporter` との結合で mapping が残りエラーログが無い〕）。`mutate-check.sh` で除去・顧客の判定の各ガードがすべて CAUGHT（種類と件数は `docs/reviews/feat/r3-1c-customer-update-and-script-strip/R1.md`）。
   wp-env の dev サイトで、P11 と同じ説明を `Cast::sanitize_html()` と実際の `ProductWriter`（WP-Cron の条件〔未ログイン＋`kses_init_filters()`〕と管理者）に通して JS・CSS の文字が残らず両者が一致すること、
   実アダプタの `push_customer()` が住所の無い顧客の更新で HTTP を一切送らずに警告つきでスキップすることを確認した。テストショップでの確認（`rehearse-colorme` の `check-import`〔script/style の中身が残れば MISMATCH〕と
   手順 3 の顧客の更新）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
