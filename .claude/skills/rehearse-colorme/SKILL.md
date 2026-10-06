@@ -38,7 +38,7 @@ R3-4（公開）前の再確認や、v2.0 の BASE（B4-6）でも同じ考え�
 | `$S php seed-shop shop=<id> [part=all\|products\|customers] [categories=require\|skip]` | `ZZR-` の商品 55 件（往復リスクを突く 19 件＋埋め草）と `zzr-…@example.com` の会員 12 件を API で投入。同じ名前・メールが既にあれば飛ばす（途中で失敗した投入は再実行で残りだけ入る） |
 | `$S php seed-woo [prefix=<英大文字 3 字>] [extra-email=<address>]` | 開発サイトの Woo に、ColorMe 由来でない `ZZW-` の商品 6 件（単純〔SKU なし〕・軽減税率・`zero-rate`・1 軸でセール中のバリエーション・2 軸・名前が実体参照〔`Fish &amp; Chips &lt;set&gt;`。issue #99〕）と顧客 1 件を作る（手順 3 の作成エクスポート用）。`prefix` は名前・型番・メール・姓の接頭辞（既定 `ZZW`。前のリハーサルでエクスポートした `ZZW-` がテストショップに残っていると、取込みでそれが Woo に入り同じ名前・型番・メールで作れないので `ZZV` などに変える）。`extra-email` はユーザーが受信できるアドレスで顧客を 1 件足す（`add_member` の通知メールの有無の確認用。repo に書かない） |
 | `$S php snapshot shop=<id> label=<name> [side=both\|colorme\|woo]` | ColorMe（商品・会員・クーポン・受注）と Woo（商品・バリエーション・顧客・受注・クーポン・`_cbjp_*` メタ・mapping）を `.rehearsal/<name>.json` へ |
-| `$S php check-import label=<name> [expect-export-links=yes]` | side=both のスナップショットで、取込んだ値を ColorMe の値と突き合わせる（`MISMATCH`＝規則から見て食い違い／`NOTE`＝規則どおりだが往復で問題になりうる変換／`MISSING`／`LINKED_BY_EXPORT`＝エクスポートで結ばれた実体〔D25。取込みは上書きしないので値は突き合わせない。取込みだけの段階では「印を書かずに結んだ」退行と見分けられないので既定では失敗に数え、手順 3 の作成エクスポートの後は `expect-export-links=yes` で許す〕）。商品（名前〔表示どおりの文字が ColorMe と一致し、保存値が実体参照の形＝生の `<` `>` `\`・実体参照でない `&` が無いこと。issue #99〕・型番・公開状態〔非公開であるべきものの公開は MISMATCH〕・税区分・価格・在庫と在庫管理・説明・同じ id の重複）、バリエーション（型番・価格・セール価格・在庫）、会員（メール・郵便番号・県・住所・法人名・電話・名前）、受注（合計・税額〔`totals` の標準＋軽減〕・決済/配送のマッピング先）。`MISMATCH`／`MISSING`（と、`expect-export-links=yes` が無いときの `LINKED_BY_EXPORT`）が 1 件でもあれば終了コード 1 |
+| `$S php check-import label=<name> [expect-export-links=yes]` | side=both のスナップショットで、取込んだ値を ColorMe の値と突き合わせる（`MISMATCH`＝規則から見て食い違い／`NOTE`＝規則どおりだが往復で問題になりうる変換／`MISSING`／`LINKED_BY_EXPORT`＝エクスポートで結ばれた実体〔D25。取込みは上書きしないので値は突き合わせない。取込みだけの段階では「印を書かずに結んだ」退行と見分けられないので既定では失敗に数え、手順 3 の作成エクスポートの後は `expect-export-links=yes` で許す〕）。商品（名前〔表示どおりの文字が ColorMe と一致し、保存値が実体参照の形＝生の `<` `>` `\`・実体参照でない `&` が無いこと。issue #99〕・型番・公開状態〔非公開であるべきものの公開は MISMATCH〕・税区分・価格・在庫と在庫管理・説明〔`<script>`・`<style>` の中身が文字として残っていないこと。issue #101〕・同じ id の重複）、バリエーション（型番・価格・セール価格・在庫）、会員（メール・郵便番号・県・住所・法人名・電話・名前）、受注（合計・税額〔`totals` の標準＋軽減〕・決済/配送のマッピング先）。`MISMATCH`／`MISSING`（と、`expect-export-links=yes` が無いときの `LINKED_BY_EXPORT`）が 1 件でもあれば終了コード 1 |
 | `$S php diff a=<name> b=<name> [side=colorme\|woo] [entity=products,customers\|all]` | 2 つのスナップショットの ColorMe 側（既定）か Woo 側を id・項目単位で比べる（`make_date`/`update_date`/`account_id` は除外）。`side=woo` の entity は products・customers・orders・coupons・mappings（mappings は `platform/entity/remote_id` で突き合わせる）。D25 の確認（エクスポートで作った実体が再取込みで変わらないこと）に使う |
 | `$S php run shop=<id> type=<dry_run\|import\|dry_run_export\|export> [entities=a,b] [cancel-after=n] [max-minutes=n] [attach=<run_id>] [context=cron\|admin]` | `POST /runs` で始め、その run のジョブだけを Action Scheduler の claim を取って同期で処理（管理画面を開いたままでも二重に処理しない。他の run の閉じたジョブのアクションは処理して片付け、開いたジョブのものは手放す）。**ジョブは既定で未ログイン＋kses あり（WP-Cron と同じ）で処理する**（`context=admin` は管理画面から非同期ランナーが動く場合と同じ管理者。R3-1 の時点ではどちらで処理されたかで商品名・説明の保存結果が変わった。R3-1b〔issue #99〕以後は同じになるはずで、両方で取り込んで `check-import` で確かめる）。`attach` は止まった run を続きから処理する。ジョブが失敗・未完了のまま終わると終了コード 1（`cancel-after` で止めた場合を除く）。paused は再開時刻まで待つ。dry-run は明細を `.rehearsal/<run_id>-items.json` に保存して操作・警告コードの件数を出す。import は検証レポートも出す |
 | `$S limits-on '<json>'` / `$S limits-off` | 無料版の上限を差し替える mu-plugin（`templates/mu-plugin-rehearsal-limits.php`）とオプション `cbjp_rehearsal_limits` を置く／消す。`{"order":2}` で受注だけ 2 件、全 entity を `null` にすると Pro 版の解除を模擬（F1-8 と同じ） |
@@ -89,6 +89,8 @@ Woo で作った商品・顧客（`_cbjp_*` メタ無し）を export して Col
 `diff a=w1 b=w2 side=woo entity=all` で、**エクスポートで作った実体が再取込みで変わらない**（D25。`linked_by_export_not_imported` でスキップ）・重複が無いことを確かめる。
 `check-import` はこれらを `LINKED_BY_EXPORT` として数える（このときは `expect-export-links=yes` を付ける）。`seed-woo` は、作る予定の名前・メールの実体が取込みで結ばれていれば、何も作る前に止まる。
 バリエーションの `option_market_price`（定価）の税基準は API の応答に税込の対が無いので、管理画面・ストアフロントの表示で確かめる。
+名前・住所がそろわない顧客の更新（issue #100）: 作成エクスポートした Woo 生まれの顧客の郵便番号を消し（`npx wp-env run cli wp user meta update <user_id> billing_postcode ''`）、
+`type=export` で顧客が `skipped`・`warned` になり、`PlatformWriter threw while pushing a customer item.` のエラーログが出ない（PUT を送らない）ことを確かめてから郵便番号を戻す。
 
 ### 4. mock で確かめるもの
 
@@ -102,7 +104,7 @@ Woo で作った商品・顧客（`_cbjp_*` メタ無し）を export して Col
 1. 型番が空 → 取込みが付ける仮 SKU（`colorme-{id}`／`colorme-{pid}-{vid}`）が export で型番として書き戻される
 2. `display_state` の `sale_for_members`→`showing`、`showing_for_members`→`hidden`、取込みで private にした商品（販売期間外・売切れ非表示）が `hidden` に固定
 3. 在庫管理ありで在庫 null → 取込みで 0 → export で 0（バリエーションでは他のバリエーションと商品の在庫も 0 になる。D22 実装 7.）
-4. 説明 HTML の `wp_kses_post` で消えた要素（iframe・script 等）が export で ColorMe からも消える
+4. 説明 HTML の `wp_kses_post` で消えた要素（iframe・script 等）が export で ColorMe からも消える（`<script>`・`<style>` は R3-1c〔issue #101〕から中身ごと除く。以前は中身の JS・CSS が文字として残った）
 5. Woo に `reduced-rate` の税区分が無い → `tax_reduced=false`・標準税率で逆算
 6. バリエーションの `option_price` null（商品価格を継承）→ 明示の値、`get_sku()`/`get_weight()` の親へのフォールバックで親の値が送られる
 7. variable 商品の `sales_price` が最安バリエーションの価格で上書き

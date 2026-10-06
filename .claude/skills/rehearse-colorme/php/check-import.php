@@ -232,6 +232,17 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		if ( $cbjp_from !== (string) $cbjp_woo[ $cbjp_woo_key ] ) {
 			$cbjp_report( 'NOTE', $cbjp_where, "{$cbjp_cm_key} changed on import (" . strlen( $cbjp_from ) . ' → ' . strlen( (string) $cbjp_woo[ $cbjp_woo_key ] ) . ' bytes; sanitized)' );
 		}
+
+		// `<script>`・`<style>` の中身（JS・CSS）が説明に文字として残っていないこと（issue #101。kses だけでは残る）。
+		// プラグインの正規表現を使わず、ここでは閉じタグまでの素朴な形だけを拾って確かめる。
+		if ( preg_match_all( '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is', $cbjp_from, $cbjp_elements, PREG_SET_ORDER ) ) {
+			foreach ( $cbjp_elements as $cbjp_element ) {
+				$cbjp_inner = trim( $cbjp_element[2] );
+				if ( '' !== $cbjp_inner && str_contains( (string) $cbjp_woo[ $cbjp_woo_key ], $cbjp_inner ) ) {
+					$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_element[1]}> remain as text on import (" . $cbjp_s( $cbjp_inner ) . ')' );
+				}
+			}
+		}
 	}
 
 	foreach ( $cbjp_variants as $cbjp_variant ) {
