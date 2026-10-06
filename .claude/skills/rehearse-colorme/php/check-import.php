@@ -234,21 +234,12 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 
 		// `<script>`・`<style>` の中身（JS・CSS）が説明に文字として残っていないこと（issue #101。kses だけでは残る）。
-		// プラグインの処理を使わず、ここでは閉じタグまでの素朴な形だけを拾って確かめる。kses は文字の `&` `<` `>` を実体参照にするので、
-		// 実体参照を戻した保存値でも探す。拾えなかった（PCRE の失敗）ときは確かめられなかったものとして失敗に数える。
-		$cbjp_found = preg_match_all( '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is', $cbjp_from, $cbjp_elements, PREG_SET_ORDER );
-		if ( false === $cbjp_found ) {
+		$cbjp_leaks = cbjp_rh_script_style_leaks( $cbjp_from, (string) $cbjp_woo[ $cbjp_woo_key ] );
+		if ( null === $cbjp_leaks ) {
 			$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: could not scan for <script>/<style> (PCRE error " . preg_last_error() . ')' );
 		} else {
-			$cbjp_stored  = (string) $cbjp_woo[ $cbjp_woo_key ];
-			$cbjp_decoded = html_entity_decode( $cbjp_stored, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-			foreach ( $cbjp_elements as $cbjp_element ) {
-				$cbjp_inner = trim( $cbjp_element[2] );
-				// 中身の `a<b && c>d` のような並びは kses がタグとして書き換えるので、kses を通した形でも探す。
-				$cbjp_kses = trim( wp_kses_post( $cbjp_inner ) );
-				if ( '' !== $cbjp_inner && ( str_contains( $cbjp_stored, $cbjp_inner ) || str_contains( $cbjp_decoded, $cbjp_inner ) || ( '' !== $cbjp_kses && str_contains( $cbjp_stored, $cbjp_kses ) ) ) ) {
-					$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_element[1]}> remain as text on import (" . $cbjp_s( $cbjp_inner ) . ')' );
-				}
+			foreach ( $cbjp_leaks as $cbjp_leak ) {
+				$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_leak['element']}> remain as text on import (" . $cbjp_s( $cbjp_leak['contents'] ) . ')' );
 			}
 		}
 	}

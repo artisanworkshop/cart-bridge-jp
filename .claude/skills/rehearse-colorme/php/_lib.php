@@ -19,6 +19,60 @@ if ( function_exists( 'cbjp_rh_args' ) ) {
 }
 
 /**
+ * ColorMe の説明（`$from`）の `<script>`・`<style>` の中身が、取り込んだ Woo の説明（`$stored`）に文字として残っているか（issue #101）。
+ *
+ * プラグインの処理を使わず、閉じタグまでの素朴な形だけを拾って確かめる。中身の文字列は要素の外の本文にも現れうる（`<p>version 1</p><script>1</script>`）ので、
+ * 有無ではなく出現回数で比べる: 要素を除いた ColorMe の説明を kses に通した値（取り込んで期待される説明）より、保存値の方に多く現れれば残っている。
+ * kses は文字の `&` `<` `>` を実体参照にし、中身の `a<b && c>d` のような並びをタグとして書き換えるので、中身そのもの・kses を通した中身の両方を、
+ * 実体参照のままの値と戻した値の両方で数える。
+ *
+ * @return array<int,array{element:string,contents:string}>|null 残っていた要素（無ければ空）。PCRE が失敗して確かめられなければ null。
+ */
+function cbjp_rh_script_style_leaks( string $from, string $stored ): ?array {
+	$pattern = '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is';
+
+	if ( false === preg_match_all( $pattern, $from, $elements, PREG_SET_ORDER ) ) {
+		return null;
+	}
+
+	$outside = preg_replace( $pattern, '', $from );
+
+	if ( null === $outside ) {
+		return null;
+	}
+
+	$decode   = static fn ( string $html ): string => html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+	$expected = wp_kses_post( $outside );
+	$leaks    = [];
+
+	foreach ( $elements as $element ) {
+		$contents = trim( $element[2] );
+
+		if ( '' === $contents ) {
+			continue;
+		}
+
+		foreach ( array_unique( [ $contents, trim( wp_kses_post( $contents ) ) ] ) as $needle ) {
+			if ( '' === $needle ) {
+				continue;
+			}
+
+			if ( substr_count( $stored, $needle ) > substr_count( $expected, $needle )
+				|| substr_count( $decode( $stored ), $needle ) > substr_count( $decode( $expected ), $needle )
+			) {
+				$leaks[] = [
+					'element'  => strtolower( $element[1] ),
+					'contents' => $contents,
+				];
+				break;
+			}
+		}
+	}
+
+	return $leaks;
+}
+
+/**
  * `key=value` 形式の位置引数を連想配列にする。`=` の無い引数・重複したキーは誤記として止める。
  *
  * @param array<int,string> $args
