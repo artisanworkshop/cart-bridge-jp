@@ -295,3 +295,48 @@ function cbjp_rh_write_json( string $path, $data ): void {
 		cbjp_rh_abort( "could not write {$path}" );
 	}
 }
+
+/**
+ * JP の税率が 8% の税区分のスラッグ（標準 `''` を除く。名前順）。期待値をプラグインの判定（`Woo\Support\TaxClass`、D26）と別に作るため、
+ * 税率の表の行（`tax_rate_class`・`tax_rate_country`・`tax_rate_state`・`tax_rate`）だけから求める（skill-scripts.md: 期待値は独立に作る）。
+ * 国が JP か `''`（全ての国）、州が `''` の行を税区分ごとに合計し、8.0000 になるものを返す（リハーサルの税設定は州を限定しない）。
+ *
+ * @param array<int,mixed> $rows 税率の表の行（`snapshot` の `woo.tax_rates`、または `cbjp_rh_tax_rate_rows()`）。
+ * @return array<int,string>
+ */
+function cbjp_rh_jp_reduced_classes( array $rows ): array {
+	$totals = [];
+
+	foreach ( $rows as $row ) {
+		if ( ! is_array( $row ) || ! in_array( $row['tax_rate_country'] ?? null, [ 'JP', '' ], true ) || '' !== ( $row['tax_rate_state'] ?? null ) ) {
+			continue;
+		}
+
+		$class = (string) ( $row['tax_rate_class'] ?? '' );
+
+		if ( '' === $class || ! is_numeric( $row['tax_rate'] ?? null ) ) {
+			continue;
+		}
+
+		// 1/10000 % の整数で足す（税率の表は小数 4 桁）。
+		$totals[ $class ] = ( $totals[ $class ] ?? 0 ) + (int) round( (float) $row['tax_rate'] * 10000 );
+	}
+
+	$classes = array_keys( array_filter( $totals, static fn ( int $total ): bool => 80000 === $total ) );
+	sort( $classes, SORT_STRING );
+
+	return array_map( 'strval', $classes );
+}
+
+/**
+ * 開発サイトの税率の表の行（`cbjp_rh_jp_reduced_classes()` に渡す形）。
+ *
+ * @return array<int,array<string,string>>
+ */
+function cbjp_rh_tax_rate_rows(): array {
+	global $wpdb;
+
+	$rows = $wpdb->get_results( "SELECT tax_rate_class, tax_rate_country, tax_rate_state, tax_rate FROM {$wpdb->prefix}woocommerce_tax_rates ORDER BY tax_rate_id", ARRAY_A );
+
+	return is_array( $rows ) ? $rows : [];
+}

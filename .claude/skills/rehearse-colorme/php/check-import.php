@@ -135,6 +135,14 @@ $cbjp_check_stock = static function ( string $where, $stocks, array $woo ) use (
 	}
 };
 
+// D26: 軽減税率の商品が入るべき税区分（JP の税率が 8%）。スナップショットの税率の表から、プラグインの判定と別に求める。
+// 税率の表の無い古いスナップショットは税区分を比べられないので、1 件の MISMATCH にして取り直しを促す（黙って飛ばさない）。
+$cbjp_reduced_classes = is_array( $cbjp_snap['woo']['tax_rates'] ?? null ) ? cbjp_rh_jp_reduced_classes( $cbjp_snap['woo']['tax_rates'] ) : null;
+
+if ( null === $cbjp_reduced_classes ) {
+	$cbjp_report( 'MISMATCH', 'snapshot', 'no woo.tax_rates in this snapshot; tax classes are not checked — take it again' );
+}
+
 $cbjp_woo_products   = $cbjp_by_remote( 'product', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' !== $p['type'] );
 $cbjp_woo_variations = $cbjp_by_remote( 'variant', $cbjp_snap['woo']['products'], static fn ( array $p ): bool => 'variation' === $p['type'] );
 $cbjp_export_linked  = $cbjp_linked_by_export( 'product', $cbjp_snap['woo']['products'] );
@@ -184,9 +192,15 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		$cbjp_report( 'NOTE', $cbjp_where, "display_state {$cbjp_state} has no Woo equivalent (status {$cbjp_woo['status']})" );
 	}
 
+	// 軽減税率の商品は JP の税率が 8% の税区分に、それ以外は標準（`''`）に入る（D26。日本語でインストールした Woo の「軽減税」もスラッグによらず税率で見る）。
 	$cbjp_reduced = true === ( $cbjp_cm['tax_reduced'] ?? null );
-	if ( ( $cbjp_reduced ? 'reduced-rate' : '' ) !== $cbjp_woo['tax_class'] ) {
-		$cbjp_report( 'MISMATCH', $cbjp_where, 'tax_class ' . $cbjp_s( $cbjp_woo['tax_class'] ) . ' vs tax_reduced ' . $cbjp_s( $cbjp_cm['tax_reduced'] ?? null ) );
+	if ( null !== $cbjp_reduced_classes && ( $cbjp_reduced ? ! in_array( $cbjp_woo['tax_class'], $cbjp_reduced_classes, true ) : '' !== $cbjp_woo['tax_class'] ) ) {
+		$cbjp_report(
+			'MISMATCH',
+			$cbjp_where,
+			'tax_class ' . $cbjp_s( $cbjp_woo['tax_class'] ) . ' vs tax_reduced ' . $cbjp_s( $cbjp_cm['tax_reduced'] ?? null )
+				. ( $cbjp_reduced ? ' (expected a class with the JP 8% rate: ' . ( [] === $cbjp_reduced_classes ? 'none on this site — create it before importing' : implode( ',', $cbjp_reduced_classes ) ) . ')' : '' )
+		);
 	}
 
 	$cbjp_variants = is_array( $cbjp_cm['variants'] ?? null ) ? $cbjp_cm['variants'] : [];
