@@ -27,7 +27,7 @@ use WC_Tax;
  */
 final class TaxClass {
 
-	/** `classify()` の結果: 日本の標準税率（10%）、または標準の税区分（`''`）。 */
+	/** `classify()` の結果: 日本の標準税率（10%）、または JP の税率が無い標準の税区分（`''`）。 */
 	public const STANDARD = 'standard';
 
 	/** `classify()` の結果: 日本の軽減税率（8%）。 */
@@ -37,8 +37,8 @@ final class TaxClass {
 	public const UNSUPPORTED = 'unsupported';
 
 	/**
-	 * `classify()` の結果: JP の税率が分からない（税率が他の地域にしか無い、税率が 1 件も無い既定の軽減税率以外の税区分、
-	 * 存在しない税区分、フィルターが壊れた値を返した）。
+	 * `classify()` の結果: JP の税率が分からない（標準以外で税率が他の地域にしか無い、税率が 1 件も無い既定の軽減税率以外の税区分、
+	 * 存在しない税区分、フィルターが壊れた値を返した、税区分が文字列でない）。
 	 */
 	public const UNCONFIGURED = 'unconfigured';
 

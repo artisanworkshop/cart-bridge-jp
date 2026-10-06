@@ -672,8 +672,9 @@ final class WarningCode {
 			self::ORDER_LINE_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 課税商品・公開バリエーションの税区分が、JP の税率で標準・軽減のどちらとも判定できない
 			// （R3-1d、issue #78）。正規化モデルは標準・軽減しか運べないため、送ると誤った税区分で販売される。以前は ColorMe の
-			// 作成時だけ非公開にしていたが、更新で課税商品として公開されていた。標準の税区分（`''`）は判定しないので、
-			// 新しい WooCommerce の既定（全商品が標準）では発火しない。プラットフォーム非依存（`TAX_STATUS_NOT_TAXABLE`と同じ）。
+			// 作成時だけ非公開にしていたが、更新で課税商品として公開されていた。標準の税区分（`''`）は JP の税率が無ければ標準とみなすので、
+			// 新しい WooCommerce の既定（税率なし・全商品が標準）では発火しない（標準に JP 0% などを入れた店舗では標準の商品も止まる。
+			// review-loop R1-2）。プラットフォーム非依存（`TAX_STATUS_NOT_TAXABLE`と同じ）。
 			self::TAX_CLASS_UNSUPPORTED,
 			self::VARIATION_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 価格を復元できない（単純商品の価格未設定・variable商品の
