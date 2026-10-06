@@ -635,8 +635,10 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   各コードの実際の挙動（書くか・代替値・detail の中身・dry-run に出るか）は発生元を読んで確かめ、`WarningCode` の docblock の誤り（止めるのに「警告のみ」と書いていた `variation_axis_limit_exceeded`・
   `order_line_tax_class_unsupported`・`tax_status_not_taxable` ほか）を直した。調査で見つかった既存の挙動（設定次第の警告の checksum、顧客を含めない受注のエクスポート等）は backlog `r3-0k-warning-catalog/plan-*`。
   詳細は `docs/03` §「dry-runレポートCSVの実装詳細」の「警告の説明の列（R3-0k）」。
-  **検証**: PHPUnit 追加 18 件（データセット込み。`WarningCatalogTest` 10〈全定数が両方向で説明されること・`indicates_export_blocking()` のコードはエクスポートで `blocking`・プレースホルダを残さない・detail の有無・
-  detail の `%`・壊れた翻訳・向き・不明なコード／向き〉、`DryRunReportCsvTest` 5、`RestControllerTest` 3〈ユーザーの言語・run の種別の向き〉）。`mutate-check.sh` で 10 種がすべて CAUGHT。
+  review-loop R1 の独立レビュー（98 個を発生元と照合）で、文言の事実誤り（ターム衝突の detail を親の ID と読める、税込に換算できない価格を「定価が無い」と説明、在庫状況の混在、
+  税計算 OFF で存在しない画面の案内、取り込み直すと消える手修正の案内ほか）を直し、`sale_end_date_not_pushed` を `action_required` にした。言語のテストは切替中に書くことを固定していなかったので作り直した。
+  **検証**: PHPUnit 追加 20 件（データセット込み。`WarningCatalogTest` 11〈全定数が両方向で説明されること・`indicates_export_blocking()` のコードはエクスポートで `blocking`・プレースホルダを残さない・detail の有無・
+  detail の `%`・detail 付きの文言の書式・壊れた翻訳・向き・不明なコード／向き〉、`DryRunReportCsvTest` 5、`RestControllerTest` 4〈ユーザーの言語・外側の切替を戻さない・run の種別の向き〉）。`mutate-check.sh` で 13 種がすべて CAUGHT。
   wp-env の dev サイトで mock（`mockv`）の取込み・エクスポートの dry-run を回し、CSV を実 HTTP で取得して列・向きごとの文言・detail・BOM を確認し、一時 mu-plugin でサイトの言語を ja に見せて、
   ユーザーの言語（`en_US`）で書かれること・未設定ならサイトの言語になることを確認して撤去した
 - [x] **R3-1: 全件E2Eリハーサル**（カラーミーのテストショップ〔非プレミアム〕で実データ移行。インポート→エクスポートの往復でデータ欠損確認。**対象は商品・顧客・在庫とインポート全般。プレミアムプラン限定の受注エクスポート・商品画像アップロードは D24 によりベータ扱いで実テストの対象外**（モックでの確認のみ。プレミアムのテストショップが用意できた時点で v1.0.x 以降に実施）。**無料版サンプル→上限解除→本移行の重複なし確認（上書きポリシー両方）=D16** を F1-8 の結果と合わせて最終確認。**R3-0a/b の確認（ブロック→解除→再 export）も含める**（送信結果が不明な状況は実 API で意図的に起こせないため、モックで確認する）。 **あわせて、`tax_type=excluded` の店舗でセール中バリエーションの `option_market_price`（定価）の税基準が `option_price` と同じか実機確認する**〔`docs/03` §10.2「価格の税込正規化とバリエーションのセール価格」の要検証。PR #61 Copilot G1-1〕。**さらに、テストショップの税設定に対して hidden 安全策（`ProductTransformer::requires_hidden_safeguard()`。作成時だけ hidden にし更新には効かない）が発動するかを確認する**〔issue #78・backlog `fix-72-partial-push/R1-X1`。発動する店舗が現実的にあるなら v1.0 に含めるかを再判断する〕）
