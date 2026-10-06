@@ -9,7 +9,8 @@
  *   このアドレスは repo・記録に書かない）
  *
  * - 単純（SKU なし）、可変 1 軸（1 バリエーションだけセール。`option_market_price` の税基準の確認用）、可変 2 軸（2 軸目のオプション直後に
- *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率、`zero-rate`（hidden 安全策〔issue #78〕の発動条件）。
+ *   バリエーションが出そろわない実測〔rehearsal.md〕がエクスポートでも起きるか）、軽減税率、`zero-rate`（hidden 安全策〔issue #78〕の発動条件）、
+ *   名前が実体参照の単純商品（REST・kses で保存された名前の形。エクスポートで `&` `<…>` に戻して送るか〔issue #99〕）。
  * - 顧客: 日本の住所の顧客（名・姓を Woo の欄に入れる。`_cbjp_full_name` が無いので「名 姓」の順で送られる既知の制限を見る）。
  * - 同じ名前・メールが既にあれば作らずに飛ばす。ただしそれが取込みで結ばれた実体（`_cbjp_platform` がある。顧客は作成の印
  *   `_cbjp_created_by_import` も見る＝エクスポートの判定〔`Woo\Support\EntityOrigin`〕より広く取る）なら、何も作る前に止まる
@@ -127,6 +128,7 @@ $cbjp_product_names = [
 	"{$cbjp_prefix}-3 zero rate class",
 	"{$cbjp_prefix}-4 one axis with a sale variation",
 	"{$cbjp_prefix}-5 two axes",
+	"{$cbjp_prefix}-6 Fish &amp; Chips &lt;set&gt;",
 ];
 $cbjp_emails        = array_merge( [ "{$cbjp_lower}-c1@example.com" ], isset( $cbjp_opts['extra-email'] ) ? [ $cbjp_opts['extra-email'] ] : [] );
 
@@ -150,6 +152,8 @@ echo "== products ==\n";
 $cbjp_simple( "{$cbjp_prefix}-1 simple without SKU", '1980', '', 5 );
 $cbjp_simple( "{$cbjp_prefix}-2 reduced rate", '1080', 'reduced-rate', null );
 $cbjp_simple( "{$cbjp_prefix}-3 zero rate class", '500', 'zero-rate', null );
+// Woo の名前は HTML。REST や kses の条件で保存された名前はこの形になる（ColorMe には `… Fish & Chips <set>` で届くはず。issue #99）。
+$cbjp_simple( "{$cbjp_prefix}-6 Fish &amp; Chips &lt;set&gt;", '1100', '', 3 );
 $cbjp_variable(
 	"{$cbjp_prefix}-4 one axis with a sale variation",
 	[ 'サイズ' => [ 'S', 'M' ] ],

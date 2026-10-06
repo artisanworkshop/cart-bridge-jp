@@ -59,3 +59,6 @@ paths:
   (4) `birthday` は POST・PUT とも成功応答のまま `null` で保存されないことがある（テストショップで実測。ショップの会員登録項目の設定によると推測、未確認）。
   (5) 2 軸目のオプションを POST した直後の `GET /products/{id}` で、バリエーションの値の組が出そろっていないことがある（API を直接叩く投入スクリプトで実測。
   プラグインの `push_variant_details()` の経路では起きなかった）
+- **`CanonicalProduct::$name` は平文で渡す**（HTML・実体参照を含めない。`description` と `extras['short_description']` は HTML）。Woo 側は名前を HTML として保存するので、
+  `ProductWriter` が実体参照にし、`ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、R3-1b・issue #99）。ASP が名前を実体参照で返すなら、アダプタの変換層で平文へ戻す
+  （そのまま渡すと二重に符号化されて Woo に `&amp;` が見える）。カラーミーの `name` は平文（R3-1 で `Tom & Jerry <set>` がそのまま返ることを実測）

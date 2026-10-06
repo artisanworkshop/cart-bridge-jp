@@ -17,6 +17,11 @@ use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
  * **消費者が実際に支払う税込金額**（`price`＝通常価格、`sale_price`＝セール中の実売価格）。
  * `variants[].sale_price` はセール中のバリエーションにだけ存在するキー（セール外は省略。
  * checksumを不必要に変えないため。読む側は `$variant['sale_price'] ?? null` とする）。
+ *
+ * 文字列の契約: `name` は**平文**（HTML・実体参照を含めない。`&` はそのまま `&`）。`description` と
+ * `extras['short_description']` は HTML。Woo 側は名前を HTML として保存するので、`Woo\Writer\ProductWriter` が
+ * 実体参照にし、`Woo\Reader\ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、issue #99）。ASP が名前を
+ * 実体参照で返すなら、アダプタが平文へ戻してから渡す（そのまま渡すと二重に符号化され `&amp;` が見える）。
  */
 final readonly class CanonicalProduct implements CanonicalModel {
 

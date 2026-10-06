@@ -12,6 +12,7 @@ use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
+use CartBridgeJP\Woo\Support\HtmlText;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\SkuGuard;
@@ -148,9 +149,11 @@ final class ProductWriter implements EntityWriter {
 			$product           = wc_get_product_object( $type, 0 );
 		}
 
-		$product->set_name( $item->name );
-		$product->set_description( $item->description ?? '' );
-		$product->set_short_description( Value::string( $item->extras['short_description'] ?? null ) ?? '' );
+		// 保存結果を実行するユーザーの権限（kses の有無）に依存させない（issue #99）。名前は平文なので実体参照にし、
+		// 説明はアダプタの浄化に頼らずここで `wp_kses_post()` してから渡す（kses を通っても変わらない形にする）。
+		$product->set_name( HtmlText::from_plain( $item->name ) );
+		$product->set_description( wp_kses_post( $item->description ?? '' ) );
+		$product->set_short_description( wp_kses_post( Value::string( $item->extras['short_description'] ?? null ) ?? '' ) );
 		$product->set_status( 'publish' === $item->status ? 'publish' : 'private' );
 		$product->set_catalog_visibility( true === Value::bool( $item->extras['unlisted'] ?? null ) ? 'hidden' : 'visible' );
 

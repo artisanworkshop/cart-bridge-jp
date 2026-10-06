@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\Support\HtmlText;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\ProductWriter;
@@ -824,6 +825,202 @@ final class ProductWriterTest extends WooTestCase {
 		$wc_product = wc_get_product( $first->local_id );
 		$this->assertSame( '', $wc_product->get_image_id() );
 		$this->assertContains( $other_platform_id, $wc_product->get_gallery_image_ids() );
+	}
+
+	// --- 保存結果をランナー（kses の有無）に依存させない（issue #99）
+
+	/**
+	 * Action Scheduler のジョブを処理するユーザーを再現する。`cron` は WP-Cron（未ログイン。`set_current_user` の
+	 * `kses_init()` が kses を登録する）、`admin` は管理画面から動く非同期ランナー（unfiltered_html あり。kses なし）。
+	 * 前提が崩れると比較が無意味になるので、kses の登録状態も確かめる。
+	 */
+	private function act_as_runner( string $runner ): void {
+		if ( 'cron' === $runner ) {
+			wp_set_current_user( 0 );
+			$this->assertNotFalse( has_filter( 'title_save_pre', 'wp_filter_kses' ), '前提: 未ログインでは kses が有効' );
+
+			return;
+		}
+
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$this->assertFalse( has_filter( 'title_save_pre', 'wp_filter_kses' ), '前提: 管理者は unfiltered_html で kses なし' );
+	}
+
+	private function stored_post_field( int $post_id, string $field ): string {
+		clean_post_cache( $post_id );
+
+		return (string) get_post_field( $field, $post_id, 'raw' );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function names_that_kses_would_change(): array {
+		return [
+			'ampersand and unknown tag' => [ 'Tom & Jerry <set>' ],
+			'lone angle brackets'       => [ 'x > y < z' ],
+			'backslashes'               => [ 'A\\B C:\\path' ],
+			'literal entity text'       => [ 'A &amp; B &hearts;' ],
+			'quotes'                    => [ "Men's 17\" set" ],
+		];
+	}
+
+	/**
+	 * @dataProvider names_that_kses_would_change
+	 */
+	public function test_name_is_saved_the_same_by_cron_and_admin_runners( string $name ): void {
+		$titles = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$product = new CanonicalProduct( $name, null, '1000', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'name-' . $index ] );
+			$result  = $this->make_writer()->write( $product, null );
+
+			$titles[ $runner ] = $this->stored_post_field( $result->local_id, 'post_title' );
+			$this->assertSame( $titles[ $runner ], wc_get_product( $result->local_id )->get_name() );
+		}
+
+		$this->assertSame( $titles['admin'], $titles['cron'] );
+		$this->assertSame( $name, HtmlText::to_plain( $titles['cron'] ), '表示どおりの文字が元の名前' );
+	}
+
+	/**
+	 * 制御文字は kses（`wp_kses_no_null()`）が WP-Cron でだけ消すので、Writer が先に消して両方で同じにする。
+	 */
+	public function test_control_characters_in_the_name_are_removed_by_both_runners(): void {
+		$titles = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$product = new CanonicalProduct( "Line\x0Bbreak\x1B", null, '1000', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'ctrl-' . $index ] );
+
+			$titles[ $runner ] = $this->stored_post_field( $this->make_writer()->write( $product, null )->local_id, 'post_title' );
+		}
+
+		$this->assertSame(
+			[
+				'cron'  => 'Linebreak',
+				'admin' => 'Linebreak',
+			],
+			$titles
+		);
+	}
+
+	/**
+	 * 更新（`wp_update_post()`）でも kses が掛かる。管理者として作った商品を WP-Cron の条件で更新しても名前が変わらない。
+	 * WooCommerce は投稿の列（名前・説明・状態など）が変わったときだけ `wp_update_post()` を呼ぶので、短い説明も変えて通らせる
+	 * （`WC_Product_Data_Store_CPT::update()`。価格だけの更新では保存済みの名前が kses を通らず、更新時の kses での安定性を確かめなくなる）。
+	 */
+	public function test_updating_under_the_other_runner_keeps_the_name(): void {
+		$name    = 'Tom & Jerry <set>';
+		$product = new CanonicalProduct( $name, null, '1000', null, null, [], [], [], [], null, 'publish', [ 'remote_id' => 'name-update' ] );
+
+		$this->act_as_runner( 'admin' );
+		$created = $this->make_writer()->write( $product, null );
+		$before  = $this->stored_post_field( $created->local_id, 'post_title' );
+
+		$this->act_as_runner( 'cron' );
+		$post_updates = did_action( 'post_updated' );
+		$updated      = new CanonicalProduct(
+			$name,
+			null,
+			'1200',
+			null,
+			null,
+			[],
+			[],
+			[],
+			[],
+			null,
+			'publish',
+			[
+				'remote_id'         => 'name-update',
+				'short_description' => 'changed',
+			]
+		);
+		$this->make_writer()->write( $updated, $created->local_id );
+
+		$this->assertSame( 'changed', $this->stored_post_field( $created->local_id, 'post_excerpt' ), '前提: 投稿の列が更新された' );
+		$this->assertGreaterThan( $post_updates, did_action( 'post_updated' ), '前提: wp_update_post() を通った' );
+		$this->assertSame( $before, $this->stored_post_field( $created->local_id, 'post_title' ) );
+	}
+
+	/**
+	 * バリエーションの名前は Woo が親の名前と属性の値から作る（Writer は触らない）。どちらのランナーでも読み直した名前が同じ。
+	 */
+	public function test_variation_names_are_the_same_by_cron_and_admin_runners(): void {
+		$names = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$product = new CanonicalProduct(
+				'Tom & Jerry <set>',
+				null,
+				'0',
+				null,
+				null,
+				[],
+				[
+					[
+						'remote_id'     => 'name-v-' . $index,
+						'option1_name'  => 'Size',
+						'option1_value' => 'S&M <L>',
+						'price'         => '2000',
+						'stock'         => 1,
+					],
+				],
+				[],
+				[],
+				null,
+				'publish',
+				[ 'remote_id' => 'name-var-' . $index ]
+			);
+			$this->make_writer()->write( $product, null );
+
+			$variation_id = $this->mappings->find_local_id( 'colorme', 'variant', 'name-v-' . $index );
+			$this->assertNotNull( $variation_id );
+			clean_post_cache( (int) $variation_id );
+			$names[ $runner ] = wc_get_product( $variation_id )->get_name();
+		}
+
+		$this->assertSame( $names['admin'], $names['cron'] );
+		$this->assertStringStartsWith( 'Tom &amp; Jerry &lt;set&gt;', $names['cron'] );
+	}
+
+	/**
+	 * 説明・短い説明は Writer 自身が `wp_kses_post()` してから保存する（アダプタが浄化していなくても、ランナーで結果が変わらない）。
+	 */
+	public function test_descriptions_are_saved_the_same_by_cron_and_admin_runners(): void {
+		$description       = '<p>A & B <script>x()</script><iframe src="https://video.example.com/"></iframe> <a href="https://example.com/">link</a></p>';
+		$short_description = 'Fish & chips <b>hot</b> <style>p{}</style>';
+		$stored            = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$product = new CanonicalProduct(
+				'P',
+				null,
+				'1000',
+				null,
+				$description,
+				[],
+				[],
+				[],
+				[],
+				null,
+				'publish',
+				[
+					'remote_id'         => 'desc-' . $index,
+					'short_description' => $short_description,
+				]
+			);
+			$result  = $this->make_writer()->write( $product, null );
+
+			$stored[ $runner ] = [ $this->stored_post_field( $result->local_id, 'post_content' ), $this->stored_post_field( $result->local_id, 'post_excerpt' ) ];
+		}
+
+		$this->assertSame( $stored['admin'], $stored['cron'] );
+		$this->assertSame( [ wp_kses_post( $description ), wp_kses_post( $short_description ) ], $stored['cron'] );
 	}
 
 	private function find_attachment_by_source_url( string $url ): int {

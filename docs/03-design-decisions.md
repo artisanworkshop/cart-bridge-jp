@@ -1799,6 +1799,46 @@ D25「実体は作られた向きにだけ更新する」の実装。判定は�
   `orderby => 'date ID'`（HPOS・CPT・`WP_User_Query` とも空白区切りを受け付けることを実ソースで確認）で並べ、ID だけを取得する。
   テストショップでの再リハーサル（`rehearse-colorme` の手順 2・3）は未実施（2026-10-05 ユーザー判断で後回し。`docs/10-tasks.md` R3-1a）。
 
+#### 商品名の保存形式（R3-1b、issue #99）
+
+R3-1 のリハーサルで、取込みの商品名の保存結果が Action Scheduler のどのランナーで処理されたかで変わると分かった（WP-Cron は未ログインで kses が
+`title_save_pre` の `wp_filter_kses` を通し `Tom & Jerry <set>` → `Tom &amp; Jerry `、管理画面から動く非同期ランナーは管理者の Cookie を転送するので
+そのまま残る）。WordPress は投稿のタイトルを HTML として保存・表示するので、**Canonical の名前は平文、Woo の名前は HTML** と決め、変換を
+`Woo\Support\HtmlText` に集約した（2026-10-05 ユーザー決定「取込みで実体参照にして保存し、エクスポートで戻す」。方式は R3-1b の計画で決定）。
+
+- **取込み**（`ProductWriter::prepare()`）: 名前を `HtmlText::from_plain()` で保存する。`&` `<` `>` を実体参照にし（既存の実体参照も二重に符号化する）、
+  バックスラッシュを `&#092;` にする。引用符は kses が変えないので符号化しない（`Men&#039;s` にすると `Men's` で商品を検索できなくなる）。
+  二重に符号化するので、名前に文字どおり `&amp;` があっても戻せる。バックスラッシュは `wp_insert_post()` の `wp_unslash()` がランナーによらず
+  消していた（WooCommerce のデータストアが slash せずに渡す）。`&#092;` は kses が数値実体参照を正規化した形なので保存で変わらない。
+  issue #99 の対応案（`esc_html()`）は、引用符も符号化し既存の実体参照を二重に符号化しないので採らなかった。
+- **説明・短い説明**: アダプタの浄化（カラーミーは `Cast::sanitize_html()`）に頼らず、Writer が `wp_kses_post()` してから保存する
+  （kses を通っても変わらない形。外部アダプタの値でもランナーで変わらない）。カラーミーの値は既に浄化済みなので結果は変わらない。
+- **バリエーションの名前**は WooCommerce が親の post_title と属性の値から作り、読み込み時に作り直して直接書き戻す（`WC_Product_Variation_Data_Store_CPT::read()`）。
+  Writer は触らない（親の名前が決まれば、読み直した名前はランナーによらない。テストで確認）。属性の要約（`post_excerpt`）は下の対象外。
+- **エクスポート**: `ProductReader` は名前を `HtmlText::to_plain()`（`html_entity_decode( ENT_QUOTES | ENT_HTML5 )`）で平文へ戻して送る。
+  Woo で作られた名前は、管理画面の生の値（`Tom & Jerry <set>`）のことも、REST・kses の条件で実体参照になった値（`Tom &amp; Jerry`、`&hellip;`）のこともあるので、
+  5 種類だけを戻す `wp_specialchars_decode()` ではなく全ての実体参照を戻す（店舗の表示どおりの文字にする）。タグは除かない
+  （管理者が名前に書いた `<…>` は管理画面に文字として出ているので、そのまま送る）。
+- **ターム名**: WP はターム名を常に実体参照で保存する（`pre_term_name` の `_wp_specialchars`。ランナーによらない）ので、グローバル属性の値
+  （`VariationAxisResolver::attribute_value()` のタクソノミー分岐・`ProductReader::options()`）も `to_plain()` で戻す。以前は Woo 生まれの
+  `Black & White` が ColorMe のオプション値に `Black &amp; White` で送られていた。ローカル属性の値と属性のラベルは生の値なので変えない。
+- **表示**: push intent の一覧（`PushIntentPresenter`）が画面へ渡す商品名も `to_plain()` する（React は文字として出すので、実体参照がそのまま見えていた）。
+- **既存のデータ**: 取込みの checksum は Canonical（ColorMe の値）から作るので、保存形式を変えても既存の取込み済み商品は「更新」にならず、書き直さない
+  （ColorMe 側で変わったときに新しい形で書かれる。v0.1.0 の利用は開発・テストサイトだけで、再リハーサルは `reset-local` から行う）。
+  エクスポートでは、名前・ターム名が実体参照だった Woo 生まれの商品の Canonical が変わるので、1 回だけ再送される（意図どおりの修正）。
+  ColorMe 側に古いオプション値（`Black &amp; White`）が残っていれば、`ensure_option_values()` が新しい値を追加する（v1.0 前なので開発環境にしか無い）。
+- **制御文字**（タブ・改行・復帰を除く `\x00-\x1F`）は kses の `wp_kses_no_null()` が WP-Cron でだけ消すので、`from_plain()` が先に消す
+  （実体参照にしても kses が書き換える。review-loop R1 の独立レビュー A-1）。
+- **対象外**（backlog `r3-1b-product-name-entities/plan-X1`〜`X3`・`R1-L1`）: 取込み受注の明細名（Woo は HTML として表示時に kses。保存は kses を通らないので
+  ランナーには依存しない）、クーポンの説明（`post_excerpt`。ランナーに依存する）、説明のバックスラッシュ、WooCommerce が作るバリエーションの
+  `post_excerpt`（属性の要約。ランナーに依存し、名前と違って `read()` は作り直さない）。
+- **検証**: PHPUnit（`HtmlTextTest`、`ProductWriterTest` で未ログイン〈kses あり〉と管理者のそれぞれで保存した名前・更新・バリエーション名・説明が一致、
+  `ProductReaderTest` で Woo 生まれの名前・取込みの名前の往復・タクソノミー属性、`VariationAxisResolverTest`、`RestControllerTest` の push intent）。
+  `mutate-check.sh` で 15 種（Writer の符号化・更新時の符号化・説明の kses 2 か所・制御文字の除去・`ENT_SUBSTITUTE`・バックスラッシュの置換とその順序・二重符号化・
+  引用符・復号の範囲・Reader の名前とターム・Resolver・Presenter）がすべて CAUGHT。wp-env の dev サイトでも実際の Writer/Reader で WP-Cron の条件（未ログイン＋`kses_init_filters()`）と管理者の
+  保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの確認（`rehearse-colorme` の `run context=cron|admin` → `check-import`、
+  Woo 生まれの `ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 
 - **本移行**（Pro解除後）: カーソル先頭から全走査。mappings 一致分は checksum 比較のうえ
