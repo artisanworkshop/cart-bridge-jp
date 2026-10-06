@@ -234,11 +234,17 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		}
 
 		// `<script>`・`<style>` の中身（JS・CSS）が説明に文字として残っていないこと（issue #101。kses だけでは残る）。
-		// プラグインの正規表現を使わず、ここでは閉じタグまでの素朴な形だけを拾って確かめる。
-		if ( preg_match_all( '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is', $cbjp_from, $cbjp_elements, PREG_SET_ORDER ) ) {
+		// プラグインの処理を使わず、ここでは閉じタグまでの素朴な形だけを拾って確かめる。kses は文字の `&` `<` `>` を実体参照にするので、
+		// 実体参照を戻した保存値でも探す。拾えなかった（PCRE の失敗）ときは確かめられなかったものとして失敗に数える。
+		$cbjp_found = preg_match_all( '#<(script|style)\b[^>]*>(.*?)</\1\s*>#is', $cbjp_from, $cbjp_elements, PREG_SET_ORDER );
+		if ( false === $cbjp_found ) {
+			$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: could not scan for <script>/<style> (PCRE error " . preg_last_error() . ')' );
+		} else {
+			$cbjp_stored  = (string) $cbjp_woo[ $cbjp_woo_key ];
+			$cbjp_decoded = html_entity_decode( $cbjp_stored, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 			foreach ( $cbjp_elements as $cbjp_element ) {
 				$cbjp_inner = trim( $cbjp_element[2] );
-				if ( '' !== $cbjp_inner && str_contains( (string) $cbjp_woo[ $cbjp_woo_key ], $cbjp_inner ) ) {
+				if ( '' !== $cbjp_inner && ( str_contains( $cbjp_stored, $cbjp_inner ) || str_contains( $cbjp_decoded, $cbjp_inner ) ) ) {
 					$cbjp_report( 'MISMATCH', $cbjp_where, "{$cbjp_cm_key}: the contents of <{$cbjp_element[1]}> remain as text on import (" . $cbjp_s( $cbjp_inner ) . ')' );
 				}
 			}
