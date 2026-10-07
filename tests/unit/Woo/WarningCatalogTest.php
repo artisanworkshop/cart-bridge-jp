@@ -19,6 +19,11 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 
 	private const DIRECTIONS = [ WarningCatalog::IMPORT, WarningCatalog::EXPORT ];
 
+	/**
+	 * CSV の行の種別（`JobManager` の実体の種別）と、種別の分からない空。
+	 */
+	private const ENTITIES = [ '', 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
+
 	private const KNOWN_SEVERITIES = [
 		WarningCatalog::SEVERITY_BLOCKING,
 		WarningCatalog::SEVERITY_ACTION_REQUIRED,
@@ -37,7 +42,7 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 文言の無い警告コードを出荷させない: 全定数について、両方向で既知の重大度と空でない原因がある。
+	 * 文言の無い警告コードを出荷させない: 全定数について、両方向・どの行の種別でも既知の重大度と空でない原因がある。
 	 * 「対処が要る」なら対処も空でない。
 	 */
 	public function test_every_warning_code_is_described_in_both_directions(): void {
@@ -48,18 +53,21 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 
 		foreach ( $codes as $name => $code ) {
 			foreach ( self::DIRECTIONS as $direction ) {
-				$description = WarningCatalog::describe( $code, $direction );
+				foreach ( self::ENTITIES as $entity ) {
+					$description = WarningCatalog::describe( $code, $direction, $entity );
+					$where       = "{$name}/{$direction}/{$entity}";
 
-				if ( ! in_array( $description['severity'], self::KNOWN_SEVERITIES, true ) ) {
-					$problems[] = "{$name}/{$direction}: severity {$description['severity']}";
-				}
+					if ( ! in_array( $description['severity'], self::KNOWN_SEVERITIES, true ) ) {
+						$problems[] = "{$where}: severity {$description['severity']}";
+					}
 
-				if ( '' === trim( $description['message'] ) ) {
-					$problems[] = "{$name}/{$direction}: empty message";
-				}
+					if ( '' === trim( $description['message'] ) ) {
+						$problems[] = "{$where}: empty message";
+					}
 
-				if ( WarningCatalog::SEVERITY_ACTION_REQUIRED === $description['severity'] && '' === trim( $description['action'] ) ) {
-					$problems[] = "{$name}/{$direction}: action_required without an action";
+					if ( WarningCatalog::SEVERITY_ACTION_REQUIRED === $description['severity'] && '' === trim( $description['action'] ) ) {
+						$problems[] = "{$where}: action_required without an action";
+					}
 				}
 			}
 		}
@@ -122,28 +130,30 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 
 		foreach ( self::all_codes() as $name => $code ) {
 			foreach ( [ true, false ] as $import ) {
-				$template = $entry->invoke( null, $code, $import )['detail_message'] ?? '';
+				foreach ( self::ENTITIES as $entity ) {
+					$template = $entry->invoke( null, $code, $import, $entity )['detail_message'] ?? '';
 
-				if ( '' === $template ) {
-					continue;
-				}
+					if ( '' === $template ) {
+						continue;
+					}
 
-				++$checked;
+					++$checked;
 
-				try {
-					$formatted = sprintf( $template, 'DETAIL-Z' );
-				} catch ( ValueError | ArgumentCountError $error ) {
-					$problems[] = "{$name}: " . $error->getMessage();
-					continue;
-				}
+					try {
+						$formatted = sprintf( $template, 'DETAIL-Z' );
+					} catch ( ValueError | ArgumentCountError $error ) {
+						$problems[] = "{$name}/{$entity}: " . $error->getMessage();
+						continue;
+					}
 
-				if ( ! str_contains( $formatted, 'DETAIL-Z' ) ) {
-					$problems[] = "{$name}: the detail is not in the message";
+					if ( ! str_contains( $formatted, 'DETAIL-Z' ) ) {
+						$problems[] = "{$name}/{$entity}: the detail is not in the message";
+					}
 				}
 			}
 		}
 
-		$this->assertGreaterThan( 40, $checked );
+		$this->assertGreaterThan( 40 * count( self::ENTITIES ), $checked );
 		$this->assertSame( [], $problems );
 	}
 
@@ -195,6 +205,26 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 		$this->assertNotSame( WarningCatalog::SEVERITY_BLOCKING, $import['severity'] );
 		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $export['severity'] );
 		$this->assertNotSame( $import['message'], $export['message'] );
+	}
+
+	/**
+	 * 管理者・スタッフのアカウントと同じメールの顧客は、顧客の行ではプロフィールを書かずに飛ばし（`CustomerWriter`）、
+	 * 受注の行ではゲスト受注として書く（`OrderWriter`）。同じコードでも行の種別で重大度が違い、種別が分からなければ重いほうに倒す。
+	 */
+	public function test_a_protected_customer_is_described_by_the_row_entity(): void {
+		$warning  = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-1' );
+		$customer = WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'customer' );
+		$order    = WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'order' );
+
+		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $customer['severity'] );
+		$this->assertSame( WarningCatalog::SEVERITY_ACTION_REQUIRED, $order['severity'] );
+		$this->assertNotSame( $customer['message'], $order['message'] );
+
+		foreach ( [ '', 'product', 'Order' ] as $entity ) {
+			$this->assertSame( $customer, WarningCatalog::describe( $warning, WarningCatalog::IMPORT, $entity ), $entity );
+		}
+
+		$this->assertSame( $customer, WarningCatalog::describe( $warning, WarningCatalog::IMPORT ) );
 	}
 
 	/**

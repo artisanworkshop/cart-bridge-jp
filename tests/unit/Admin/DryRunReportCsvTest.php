@@ -344,6 +344,42 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 		$this->assertNotSame( $import[0][9], $export[0][9] );
 	}
 
+	/**
+	 * 同じ警告コードでも行の種別で結果が違う（管理者・スタッフと同じメールの顧客は、顧客を飛ばし、受注はゲストとして書く）。
+	 */
+	public function test_the_row_entity_selects_the_description(): void {
+		$warning = 'customer_account_protected:c-1';
+
+		$this->items->insert_many(
+			'run-entity',
+			1,
+			[
+				$this->row(
+					[
+						'entity'    => 'customer',
+						'remote_id' => 'c-1',
+						'operation' => 'skipped',
+						'warnings'  => [ $warning ],
+					]
+				),
+				$this->row(
+					[
+						'entity'    => 'order',
+						'remote_id' => 'o-1',
+						'warnings'  => [ $warning ],
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-entity', null, false, WarningCatalog::IMPORT );
+
+		$this->assertSame( [ 'customer', 'order' ], array_column( $rows, 0 ) );
+		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $rows[0][8] );
+		$this->assertSame( WarningCatalog::SEVERITY_ACTION_REQUIRED, $rows[1][8] );
+		$this->assertSame( WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'order' )['message'], $rows[1][9] );
+	}
+
 	public function test_an_unknown_direction_describes_warnings_as_unknown(): void {
 		$this->items->insert_many( 'run-nodir', 1, [ $this->row( [ 'warnings' => [ 'currency_mismatch' ] ] ) ] );
 

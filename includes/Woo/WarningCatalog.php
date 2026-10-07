@@ -23,6 +23,9 @@ use ValueError;
  * - `info`: 対処の要らない知らせ（既存の実体を使った、運べない項目がある等）
  * - `unknown`: カタログに無いコード（外部アダプタ独自のコード等）・知らない向き。楽観的に `info` へ倒さない（原則 9）
  *
+ * `CUSTOMER_ACCOUNT_PROTECTED` だけは行の種別（entity）でも分ける: 顧客の行はプロフィールを書かずに飛ばし（`CustomerWriter`）、
+ * 受注の行はゲスト受注として書く（`OrderWriter`）。種別が分からなければ重いほう（顧客の行）に倒す（原則 9）。
+ *
  * `VARIATION_STOCK_MANAGEMENT_MIXED` はプラットフォームの能力（`Capabilities::$supports_per_variant_stock_management`）で
  * 止まるかが決まるが、v1.0 の同梱アダプタ（ColorMe）では止まるので `blocking` にしている（バリエーション単位で在庫管理できる
  * アダプタを足すときは見直す）。
@@ -44,11 +47,12 @@ final class WarningCatalog {
 	/**
 	 * `"{code}:{detail}"` 形式の警告を、向き（`IMPORT`/`EXPORT`）に応じて説明する。
 	 *
+	 * @param string $entity その警告を持つ行の種別（`customer`・`order` 等）。分からなければ空（重いほうの説明になる）。
 	 * @return array{severity:string,message:string,action:string}
 	 */
-	public static function describe( string $warning, string $direction ): array {
+	public static function describe( string $warning, string $direction, string $entity = '' ): array {
 		[ $code, $detail ] = WarningCode::split( $warning );
-		$entry             = in_array( $direction, [ self::IMPORT, self::EXPORT ], true ) ? self::entry( $code, self::IMPORT === $direction ) : null;
+		$entry             = in_array( $direction, [ self::IMPORT, self::EXPORT ], true ) ? self::entry( $code, self::IMPORT === $direction, $entity ) : null;
 
 		if ( null === $entry ) {
 			/* translators: %s: the warning code. */
@@ -101,7 +105,7 @@ final class WarningCatalog {
 	/**
 	 * @return array{severity:string,message:string,action:string,detail_message:string}|null
 	 */
-	private static function entry( string $code, bool $import ): ?array {
+	private static function entry( string $code, bool $import, string $entity = '' ): ?array {
 		$blocking = self::SEVERITY_BLOCKING;
 		$action   = self::SEVERITY_ACTION_REQUIRED;
 		$info     = self::SEVERITY_INFO;
@@ -389,11 +393,19 @@ final class WarningCatalog {
 				/* translators: %s: the WordPress ID of a user. */
 				__( 'A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp' )
 			),
-			WarningCode::CUSTOMER_ACCOUNT_PROTECTED => self::make(
-				$info,
-				__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager). The account is not changed, and orders from this customer are imported as guest orders.', 'cart-bridge-jp' ),
-				__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp' )
-			),
+			// 顧客の行はプロフィールを書かずに飛ばし（`CustomerWriter`）、受注の行はゲスト受注として書く（`OrderWriter`）。
+			// 行の種別が分からなければ重いほう（顧客の行）に倒す。
+			WarningCode::CUSTOMER_ACCOUNT_PROTECTED => 'order' === $entity
+				? self::make(
+					$action,
+					__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account.', 'cart-bridge-jp' ),
+					__( 'If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders.', 'cart-bridge-jp' ),
+					__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp' )
+				),
 			WarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(
 				$blocking,
 				__( 'The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated.', 'cart-bridge-jp' ),

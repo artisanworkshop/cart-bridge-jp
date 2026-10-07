@@ -2107,7 +2107,8 @@ PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` �
   または代替値で書いた）／`info`（対処不要の知らせ）／`unknown`（カタログに無いコード。外部アダプタ独自のコード等。楽観的に `info` へ倒さない）。
   `message` は原因と結果、`action` は店舗ができる対処（何もできない警告は空）。**同じコードでも取込みとエクスポートで意味が違う**（通貨の不一致は取込みでは保存し、
   エクスポートでは送らない等）ため、カタログは「コード × 向き」で引き、向きは run の種別から決める（`DryRunReportCsv::direction_for_job_type()`。`dry_run`/`import` → 取込み、
-  `dry_run_export`/`export` → エクスポート）。detail が人に意味のあるコードは detail を差し込んだ文言（`%s`）を持ち、detail が空なら差し込まない文言を使う。
+  `dry_run_export`/`export` → エクスポート）。ただし `customer_account_protected` だけは同じ向きでも行の種別で結果が違う（顧客の行はプロフィールを書かずに飛ばし、
+  受注の行はゲスト受注として書く）ので、行の `entity` も渡して顧客は `blocking`・受注は `action_required` にする（種別が分からなければ `blocking`。PR #108 G4）。detail が人に意味のあるコードは detail を差し込んだ文言（`%s`）を持ち、detail が空なら差し込まない文言を使う。
   壊れた翻訳（余分なプレースホルダ）で `sprintf()` が例外を投げても CSV の出力を止めず、detail を差し込まない文言へ倒す。
   CSV はユーザーの言語で書く（`get_run_report()` が書き出しの間だけ `switch_to_user_locale()`。リンクは `<a href>` の非 JSON の要求で `_locale=user` が効かず、
   そのままではサイトの言語になって管理画面と食い違う）。カタログは `WarningCode` の全定数について両方向の説明を持ち（`WarningCatalogTest` がリフレクションで強制）、

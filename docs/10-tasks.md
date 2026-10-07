@@ -630,6 +630,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   対処（`action`。店舗が何もできない警告は空）で説明し、dry-run の CSV の**末尾**に `severity`・`message`・`action` の 3 列を足した（既存の列・`note` は不変）。計画時のユーザー回答で、
   台帳の 2 列に `severity` を足し、98 個（台帳を書いた時点の 52 個から増えた）すべてに個別の原因を書いた（約 25 種＋汎用文言の案から変更）。同じコードでも取込みとエクスポートで意味が違う
   （通貨の不一致・価格・数量・金額・クーポンの制限・決済／配送の未マッピング）ため、カタログは「コード × 向き」で引き、向きは run の種別から決める（`DryRunReportCsv::direction_for_job_type()`）。
+  `customer_account_protected` だけは行の種別でも分ける（顧客の行は書かないので `blocking`、受注の行はゲスト受注として書くので `action_required`。PR #108 G4 の Codex の指摘）。
   detail が人に意味のあるコードは detail を差し込んだ文言（`%s`）を持ち、壊れた翻訳で `sprintf()` が例外を投げても CSV を止めず差し込まない文言へ倒す。外部アダプタ独自のコードは「Unknown warning (コード)」。
   CSV はユーザーの言語で書く（`get_run_report()` が書き出しの間だけ `switch_to_user_locale()`。リンクは非 JSON の要求で `_locale=user` が効かない）。文言は英語の `__()` で、日本語は R3-2。
   各コードの実際の挙動（書くか・代替値・detail の中身・dry-run に出るか）は発生元を読んで確かめ、`WarningCode` の docblock の誤り（止めるのに「警告のみ」と書いていた `variation_axis_limit_exceeded`・

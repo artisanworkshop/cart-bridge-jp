@@ -167,7 +167,8 @@ final class DryRunReportCsv {
 				default => '',
 			};
 
-			$description = WarningCatalog::describe( $warning, $direction );
+			// 同じコードでも行の種別で結果が違うものがある（`customer_account_protected` は顧客を飛ばし、受注はゲストとして書く）。
+			$description = WarningCatalog::describe( $warning, $direction, (string) $item['entity'] );
 
 			$rows[] = array_map(
 				[ self::class, 'harden' ],
