@@ -63,6 +63,11 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		// 言語の切替は WP のテスト基盤が戻さない。表明の失敗で切り替えたまま残ると、後続のテストが連鎖して落ちる（R3-0k の言語のテスト）。
+		while ( is_locale_switched() ) {
+			restore_previous_locale();
+		}
+
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
 		global $wp_rest_server;
@@ -1365,7 +1370,6 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
 		$this->assertTrue( is_locale_switched(), 'the outer switch must survive the report' );
-		restore_previous_locale();
 	}
 
 	/**

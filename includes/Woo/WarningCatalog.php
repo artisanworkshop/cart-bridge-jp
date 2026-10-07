@@ -296,7 +296,7 @@ final class WarningCatalog {
 				__( 'The category (ID %s) is not mapped to a category on the platform, so the product is exported without it.', 'cart-bridge-jp' )
 			),
 			WarningCode::VARIATION_UNPUBLISHED => self::make(
-				$info,
+				$action,
 				__( 'A variation is not enabled, so it is left out of the export.', 'cart-bridge-jp' ),
 				__( 'If the variation should be sold, enable it and export again. A variation that was exported before stays on the platform; hide it there if needed.', 'cart-bridge-jp' ),
 				/* translators: %s: the WooCommerce ID of a variation. */
@@ -487,7 +487,7 @@ final class WarningCatalog {
 			WarningCode::ORDER_STATUS_UNKNOWN => self::make(
 				$action,
 				__( 'The order status is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' ),
-				__( 'In the order status mapping (Mappings tab), choose a status that is registered in WooCommerce before importing. Orders that were already imported need to be corrected by hand.', 'cart-bridge-jp' ),
+				__( 'In the order status mapping (Mappings tab), choose a status that is registered in WooCommerce before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
 				/* translators: %s: an order status. */
 				__( 'The order status “%s” is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' )
 			),
@@ -743,8 +743,8 @@ final class WarningCatalog {
 			),
 			WarningCode::PRODUCT_IMAGE_PUSH_INCOMPLETE => self::make(
 				$action,
-				__( 'The product was sent, but uploading some of its images failed for now (a network error or a temporary error on your site or the platform). They are uploaded on the next export.', 'cart-bridge-jp' ),
-				__( 'Run the export again.', 'cart-bridge-jp' )
+				__( 'The product was sent, but uploading some of its images failed (a network error, or an error on your site or the platform). They are tried again on the next export.', 'cart-bridge-jp' ),
+				__( 'Run the export again. If this keeps happening, make sure your site can download its own media files (a firewall, a blocked request to the site itself, or an untrusted SSL certificate can stop this).', 'cart-bridge-jp' )
 			),
 			WarningCode::PRODUCT_IMAGE_PUSH_FAILED => self::make(
 				$action,
