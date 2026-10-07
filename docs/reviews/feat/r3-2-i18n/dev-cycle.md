@@ -3,9 +3,9 @@
 - タスク: R3-2 — i18n（ソースの i18n 不備の修正、POT 生成、日本語訳〈ja〉、.mo/.l10n.php/make-json、翻訳の鮮度を CI で検査）
 - 開始: 2026-10-07
 - PR: #109 https://github.com/artisanworkshop/cart-bridge-jp/pull/109
-- 現在のステップ: 6〜7（G2: Codex 2 回目）
+- 現在のステップ: 8（完了。最終報告 final-report.md）
 - Copilot: 依頼 1 回 / 収束（G1 で新規指摘なし）
-- Codex: 依頼 1 回（自動レビューが 5 分で始まらず review コメントを自動投稿）/ 未収束（G1 で 1 件修正）
+- Codex: 依頼 2 回 / 収束（G2 で新規指摘なし。G1 の 1 件は修正）
 
 ## ログ
 
@@ -20,3 +20,5 @@
 | 2026-10-07 22:05 | 4〜5 | PR #109 作成（T=2026-10-07T13:04:01Z）→ CI green（run 37625718945。PHPUnit ジョブの新しい `npm run i18n:check` も Linux で通過〈555 strings〉） |
 | 2026-10-07 22:10 | 6 | Copilot 依頼 1 回目（timeline で登録を確認）・Codex は自動レビューを待ち、5 分で始まらなかったため `bot-wait.sh` が review コメントを投稿 |
 | 2026-10-08 06:11 | 7 | G1: Copilot は 🔵・Findings: None で収束（総評は最終報告へ）。Codex は P2 1 件（前提条件の通知が英語のまま）→ ユーザー承認で修正（`e737522`: 訳のパスの登録を `cbjp_load_textdomain()` に分離）。品質チェック green（PHPUnit 1717） |
+| 2026-10-08 06:16 | 6 | G1 反映（返信・Resolve 1 件・サマリ）→ push（T=2026-10-07T21:11:40Z）→ CI green → Codex 依頼 2 回目（`gate-turn.sh`。T=2026-10-07T21:16:34Z） |
+| 2026-10-08 06:40 | 7〜8 | G2: Codex は指摘なし（issue コメント「Didn't find any major issues」と 👍。Review Summary は Running のまま `bot-wait.sh` が応答とみなしたので完了を待って確認）→ 両 bot 収束。CI green（run 37687656590）。最終報告を記録（final-report.md） |
