@@ -1062,6 +1062,9 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_oauth_not_configured', $response->get_data()['code'] );
+		// R3-2: アダプタの英語の例外メッセージ（`ColorMeOAuth`）ではなく、翻訳できる文言を返す。
+		$this->assertSame( 'Save the Client ID and Client Secret first, then connect.', $response->get_data()['message'] );
 	}
 
 	public function test_get_authorize_url_returns_a_url_once_credentials_are_saved(): void {

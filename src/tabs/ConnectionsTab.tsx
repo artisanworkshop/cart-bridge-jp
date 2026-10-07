@@ -5,14 +5,16 @@ import apiFetch from '../api';
 import ConnectionCard from '../components/ConnectionCard';
 import type { Connection } from '../types';
 
+type OAuthStatus =
+	| { status: 'success'; platform: string }
+	| { status: 'error'; message: string };
+
 /**
  * OAuthコールバック（`/connect/{platform}/callback`）は完了後、このタブへ
  * `?cbjp_connected=` / `?cbjp_connect_error=` を付けてリダイレクトしてくる。
+ * `cbjp_connected` はプラットフォームの ID（`colorme`）なので、表示名は接続一覧を読んでから引く（`oauthNoticeMessage()`）。
  */
-function readAndClearOAuthStatus(): {
-	status: 'success' | 'error';
-	message: string;
-} | null {
+function readAndClearOAuthStatus(): OAuthStatus | null {
 	const params = new URLSearchParams( window.location.search );
 	const connected = params.get( 'cbjp_connected' );
 	const error = params.get( 'cbjp_connect_error' );
@@ -34,14 +36,27 @@ function readAndClearOAuthStatus(): {
 		return { status: 'error', message: error };
 	}
 
-	return {
-		status: 'success',
-		message: sprintf(
-			/* translators: %s: platform id, e.g. "colorme" */
-			__( 'Connected to %s.', 'cart-bridge-jp' ),
-			connected as string
-		),
-	};
+	return { status: 'success', platform: connected as string };
+}
+
+function oauthNoticeMessage(
+	notice: OAuthStatus,
+	connections: Connection[]
+): string {
+	if ( 'error' === notice.status ) {
+		return notice.message;
+	}
+
+	const label =
+		connections.find(
+			( connection ) => connection.platform === notice.platform
+		)?.label ?? notice.platform;
+
+	return sprintf(
+		/* translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop") */
+		__( 'Connected to %s.', 'cart-bridge-jp' ),
+		label
+	);
 }
 
 export default function ConnectionsTab() {
@@ -102,17 +117,12 @@ export default function ConnectionsTab() {
 					status={ oauthNotice.status }
 					onRemove={ () => setOauthNotice( null ) }
 				>
-					{ oauthNotice.message }
+					{ oauthNoticeMessage( oauthNotice, connections ) }
 				</Notice>
 			) }
 
 			{ 0 === connections.length && (
-				<p>
-					{ __(
-						'No platform adapters are registered yet. Adapters ship starting in Phase 1.',
-						'cart-bridge-jp'
-					) }
-				</p>
+				<p>{ __( 'No platforms are available.', 'cart-bridge-jp' ) }</p>
 			) }
 
 			{ connections.map( ( connection ) => (

@@ -1023,8 +1023,14 @@ final class RestController {
 
 		try {
 			$url = $oauth->authorize_url( $redirect_uri, $is_oob ? null : get_current_user_id() );
-		} catch ( RuntimeException $exception ) {
-			return new WP_Error( 'cbjp_oauth_not_configured', $exception->getMessage(), [ 'status' => 400 ] );
+		} catch ( RuntimeException ) {
+			// `authorize_url()` が投げるのは資格情報が未保存のときだけ。例外のメッセージはアダプタの英語の開発者向けの文なので、
+			// 画面に出す文言はここで翻訳する。
+			return new WP_Error(
+				'cbjp_oauth_not_configured',
+				__( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
 		}
 
 		return rest_ensure_response(

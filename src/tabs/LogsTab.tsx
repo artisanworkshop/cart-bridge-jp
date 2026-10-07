@@ -19,6 +19,18 @@ const LEVEL_OPTIONS = [
 	{ label: __( 'Error', 'cart-bridge-jp' ), value: 'error' },
 ];
 
+/**
+ * 表のレベルの列はフィルターと同じ翻訳済みのラベルで出す。知らない値（外部のアダプタが書いた等）はそのまま出す。
+ * @param level
+ */
+function levelLabel( level: string ): string {
+	return (
+		LEVEL_OPTIONS.find(
+			( option ) => '' !== level && option.value === level
+		)?.label ?? level
+	);
+}
+
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
 }
@@ -149,7 +161,7 @@ export default function LogsTab() {
 									<td>
 										{ formatUtcMysqlTime( log.created_at ) }
 									</td>
-									<td>{ log.level }</td>
+									<td>{ levelLabel( log.level ) }</td>
 									<td>{ log.job_id ?? '—' }</td>
 									<td>
 										{ log.message }

@@ -2,6 +2,7 @@ import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Notice, Spinner } from '@wordpress/components';
 import apiFetch from '../api';
+import { displayLocale } from '../i18n';
 import type {
 	EntityType,
 	VerificationEntity,
@@ -19,7 +20,8 @@ function errorMessage( err: unknown ): string {
 
 /**
  * バックエンドは金額を `"1234.00"` 形式の10進文字列で返す（float を避けるため）。
- * 表示だけはブラウザの通貨書式に委ねる（`Intl` が通貨コードを知らない場合は生の値を出す）。
+ * 表示だけは `Intl` の通貨書式に委ねる（言語は WordPress のユーザーの言語〈`displayLocale()`〉。`Intl` が通貨コードを
+ * 知らない場合は生の値を出す）。
  * @param amount
  * @param currency
  */
@@ -31,7 +33,7 @@ export function formatAmount( amount: string, currency: string ): string {
 	}
 
 	try {
-		return new Intl.NumberFormat( undefined, {
+		return new Intl.NumberFormat( displayLocale(), {
 			style: 'currency',
 			currency,
 		} ).format( value );

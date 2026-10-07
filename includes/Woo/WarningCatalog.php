@@ -111,7 +111,8 @@ final class WarningCatalog {
 		$info     = self::SEVERITY_INFO;
 
 		// 文言の `%` の扱い: detail を差し込む文言（第 4 引数）は `sprintf()` に通すので `%%` と書く（`%)` のままだと `ValueError` になり、
-		// detail の無い文言に倒れる）。それ以外は `sprintf()` に通さないので `%` のまま書く。
+		// detail の無い文言に倒れる）。それ以外は `sprintf()` に通さないので `%` のまま書く。ただし `%` の直後に空白と英字を続けない
+		// （`8% for` の `% f` を make-pot が書式〈`php-format`〉と読み、翻訳にも同じ並びを求める。R3-2）。
 		return match ( $code ) {
 			// 共通。
 			WarningCode::ENTITY_NOT_SUPPORTED => self::make(
@@ -179,7 +180,7 @@ final class WarningCatalog {
 			WarningCode::TAX_RATES_NOT_CONFIGURED => self::make(
 				$action,
 				__( 'The item is put in a tax class that has no tax rates (for a reduced-rate item, the default reduced rate class), so WooCommerce charges no tax on it.', 'cart-bridge-jp' ),
-				__( 'If WooCommerce calculates tax, add the correct Japanese tax rate to that tax class in WooCommerce > Settings > Tax (8% for the reduced rate class); you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' )
+				__( 'If WooCommerce calculates tax, add the correct Japanese tax rate to that tax class in WooCommerce > Settings > Tax (for the reduced rate class, 8%); you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' )
 			),
 			WarningCode::REDUCED_TAX_CLASS_NOT_FOUND => self::make(
 				$action,
@@ -190,14 +191,14 @@ final class WarningCatalog {
 				$blocking,
 				__( 'The product’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' ),
 				__( 'Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
-				/* translators: %s: the name of a tax class. */
+				/* translators: %s: the name of a tax class. Write a literal percent sign as %%. */
 				__( 'The tax class “%s” has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported (it would be sold with the wrong tax).', 'cart-bridge-jp' )
 			),
 			WarningCode::VARIATION_TAX_CLASS_UNSUPPORTED => self::make(
 				$blocking,
 				__( 'The tax class of a published variation has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported.', 'cart-bridge-jp' ),
 				__( 'Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
-				/* translators: %s: the WooCommerce ID of a variation. */
+				/* translators: %s: the WooCommerce ID of a variation. Write a literal percent sign as %%. */
 				__( 'The tax class of variation %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported.', 'cart-bridge-jp' )
 			),
 			WarningCode::TAX_STATUS_NOT_TAXABLE => self::make(
@@ -603,7 +604,7 @@ final class WarningCatalog {
 				$blocking,
 				__( 'An order line’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' ),
 				__( 'If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)', 'cart-bridge-jp' ),
-				/* translators: %s: the platform's ID of a product. */
+				/* translators: %s: the platform's ID of a product. Write a literal percent sign as %%. */
 				__( 'The tax class of the order line for the platform’s product %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), or its product is not taxable, so the order is not exported.', 'cart-bridge-jp' )
 			),
 			WarningCode::ORDER_UPDATE_NOT_SUPPORTED => self::make(

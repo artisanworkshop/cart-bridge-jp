@@ -169,7 +169,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 				__( 'Client ID', 'cart-bridge-jp' ),
 				'text',
 				true,
-				__( 'From your ColorMe Shop developer app registration.', 'cart-bridge-jp' )
+				__( 'From your Color Me Shop developer app registration.', 'cart-bridge-jp' )
 			),
 			new ConnectionField(
 				'client_secret',
@@ -180,7 +180,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			),
 			new ConnectionField(
 				'authorize',
-				__( 'Connect to ColorMe Shop', 'cart-bridge-jp' ),
+				__( 'Connect to Color Me Shop', 'cart-bridge-jp' ),
 				'oauth_button',
 				false,
 				null
