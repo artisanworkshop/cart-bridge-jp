@@ -616,7 +616,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   | Platform | プラットフォーム | Link（記録の紐づけ） | 紐づけ（Rebuild links → 紐づけを再構築） |
   | Color Me Shop | カラーミーショップ | Free / Pro version | 無料版 / Pro 版 |
   | Push intent（送信結果が不明な記録） | 送信結果が不明な記録 | Beta | ベータ版 |
-  | WooCommerce > Settings > Tax / General | WooCommerce > 設定 > 税 / 一般 | Taxable / Shipping only / None | 課税 / 送料のみ / なし |
+  | WooCommerce > Settings > Tax / General / Shipping | WooCommerce > 設定 > 税 / 一般 / 配送 | Taxable / Shipping only / None | 課税 / 送料のみ / なし |
+  | Settings > Payments（設定のタブ） | 設定 > 決済（文脈なしの「Payments」の訳「支払い」ではない） | Regular price / Simple product | 標準価格 / 基本的な商品 |
   | On hold（注文ステータス） | 保留中 | Reduced rate（既定の税区分） | 軽減税 |
   | “Any”（バリエーション） | すべての… | Shop manager | ショップ運営者 |
 - **含めなかったもの**（backlog `r3-2-i18n/plan-*`）: サーバーが英語のまま保存・表示する文言（ジョブのエラーの例外メッセージ・Logs のメッセージ・
