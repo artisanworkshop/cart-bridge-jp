@@ -31,14 +31,15 @@ require_build() {
 }
 
 # make-pot をコンテナの中で実行し、監査の警告（翻訳者コメントの食い違い・プレースホルダの番号漏れなど）も失敗にする。
-# 警告は WP-CLI の標準エラーに出るが、wp-env run の標準エラーには自身の表示も混ざるので、コンテナの中の一時ファイルで受ける。
-# 第 2 引数があれば、同じコンテナの中で続けて実行する（check の比較。wp-env run は呼ぶたびにコンテナを作るので /tmp を共有できない）。
+# 警告は WP-CLI の標準エラーに出るが、wp-env run の標準エラーには自身の表示も混ざるので、コンテナの中の一時ファイルで受けて消す。
+# 第 2 引数があれば、同じ bash の中で続けて実行する（check の比較。wp-env run は起動中のコンテナへの docker compose exec）。
 make_pot() {
 	local dest="$1"
 	local after="${2:-}"
 
 	npx wp-env run cli --env-cwd="wp-content/plugins/${DOMAIN}" -- bash -c "
 		err=\$(mktemp)
+		trap 'rm -f \"\$err\"' EXIT
 		if ! wp i18n make-pot . '${dest}' --exclude='${EXCLUDE}' >/dev/null 2>\"\$err\"; then
 			echo 'i18n: make-pot に失敗しました' >&2
 			cat \"\$err\" >&2
@@ -107,8 +108,8 @@ cmd_check() {
 		exit 1
 	fi
 
-	# 作り直した POT はコンテナの /tmp に置く（CI ではコンテナからリポジトリへ書けるとは限らない）。
-	make_pot /tmp/cbjp-check.pot "wp eval-file bin/i18n-check.php /tmp/cbjp-check.pot '${POT}'"
+	# 作り直した POT はリポジトリに書かず、コンテナの /tmp に置いて比べ終わったら消す（作業ツリーに一時ファイルを残さない）。
+	make_pot /tmp/cbjp-check.pot "rc=0; wp eval-file bin/i18n-check.php /tmp/cbjp-check.pot '${POT}' || rc=\$?; rm -f /tmp/cbjp-check.pot; exit \$rc"
 }
 
 case "${1:-}" in

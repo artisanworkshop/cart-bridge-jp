@@ -128,125 +128,125 @@ msgstr "このプラットフォームには商品画像をアップロードで
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:1031
+#: includes/Admin/RestController.php:1034
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:1055
+#: includes/Admin/RestController.php:1058
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:1067
+#: includes/Admin/RestController.php:1070
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1097
+#: includes/Admin/RestController.php:1100
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1160
+#: includes/Admin/RestController.php:1163
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1172
+#: includes/Admin/RestController.php:1175
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1209
-#: includes/Admin/RestController.php:1250
-#: includes/Admin/RestController.php:1320
-#: includes/Admin/RestController.php:1452
+#: includes/Admin/RestController.php:1212
+#: includes/Admin/RestController.php:1253
+#: includes/Admin/RestController.php:1323
+#: includes/Admin/RestController.php:1455
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1334
+#: includes/Admin/RestController.php:1337
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1346
+#: includes/Admin/RestController.php:1349
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1458
+#: includes/Admin/RestController.php:1461
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1512
+#: includes/Admin/RestController.php:1515
 #: build/index.js:33
 msgid "Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup."
 msgstr "インポートで作成した顧客のアカウントは、ユーザーを削除する権限を持つユーザーだけが削除できます。管理者にクリーンアップの実行を依頼してください。"
 
-#: includes/Admin/RestController.php:1541
+#: includes/Admin/RestController.php:1544
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1593
+#: includes/Admin/RestController.php:1596
 msgid "The repair cursor is invalid."
 msgstr "修復の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1626
+#: includes/Admin/RestController.php:1629
 msgid "This platform cannot look up single records, so prefecture repair is not available for it."
 msgstr "このプラットフォームは記録を 1 件ずつ照会できないため、都道府県の修復は使えません。"
 
-#: includes/Admin/RestController.php:1635
+#: includes/Admin/RestController.php:1638
 msgid "The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってから続けてください。止まったところから再開します。"
 
-#: includes/Admin/RestController.php:1640
-#: includes/Admin/RestController.php:1805
+#: includes/Admin/RestController.php:1643
+#: includes/Admin/RestController.php:1808
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
 
-#: includes/Admin/RestController.php:1645
+#: includes/Admin/RestController.php:1648
 msgid "The platform API returned an error. Try again in a moment; it resumes where it stopped."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。止まったところから再開します。"
 
-#: includes/Admin/RestController.php:1673
+#: includes/Admin/RestController.php:1676
 msgid "This platform does not need prefecture repair."
 msgstr "このプラットフォームでは都道府県の修復は不要です。"
 
-#: includes/Admin/RestController.php:1738
+#: includes/Admin/RestController.php:1741
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1783
+#: includes/Admin/RestController.php:1786
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1788
+#: includes/Admin/RestController.php:1791
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1793
+#: includes/Admin/RestController.php:1796
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1798
+#: includes/Admin/RestController.php:1801
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1811
+#: includes/Admin/RestController.php:1814
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1816
+#: includes/Admin/RestController.php:1819
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1826
+#: includes/Admin/RestController.php:1829
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1904
+#: includes/Admin/RestController.php:1907
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1905
+#: includes/Admin/RestController.php:1908
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1917
+#: includes/Admin/RestController.php:1920
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -264,7 +264,7 @@ msgstr "標準"
 #: includes/Woo/WarningCatalog.php:59
 #, php-format
 msgid "Unknown warning (%s)."
-msgstr "不明な警告（%s）"
+msgstr "不明な警告です（%s）。"
 
 #: includes/Woo/WarningCatalog.php:120
 msgid "This kind of data is not supported, so it is skipped."
@@ -448,15 +448,15 @@ msgstr "プラットフォームの商品の価格（%s）が数値でないか�
 
 #: includes/Woo/WarningCatalog.php:233
 msgid "The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store."
-msgstr "商品に有効な価格が無いか、価格を税込価格に換算できないため、この商品はエクスポートしません。シンプルな商品には通常価格が、バリエーションのある商品には、ストアに表示される価格を持つ有効なバリエーションが 1 つ以上必要です。"
+msgstr "商品に有効な価格が無いか、価格を税込価格に換算できないため、この商品はエクスポートしません。基本的な商品には標準価格が、バリエーションのある商品には、ストアに表示される価格を持つ有効なバリエーションが 1 つ以上必要です。"
 
 #: includes/Woo/WarningCatalog.php:234
 msgid "Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes."
-msgstr "通常価格を設定してください。バリエーションのある商品なら、価格のあるバリエーションを有効にしてください。「カタログから在庫のない商品は表示しない」がオンなら、在庫のあるバリエーションが 1 つ以上必要です。価格を税込価格に換算できないという警告も付いている場合は、その警告のとおりに税率を直してください。"
+msgstr "標準価格を設定してください。バリエーションのある商品なら、価格のあるバリエーションを有効にしてください。「カタログから在庫のない商品は表示しない」がオンなら、在庫のあるバリエーションが 1 つ以上必要です。価格を税込価格に換算できないという警告も付いている場合は、その警告のとおりに税率を直してください。"
 
 #: includes/Woo/WarningCatalog.php:238
 msgid "The sale price from the platform is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
-msgstr "プラットフォームのセール価格が正しくない（0 より大きく通常価格より低い必要があります）ため、この商品はセールなしでインポートします。"
+msgstr "プラットフォームのセール価格が正しくない（0 より大きく標準価格より低い必要があります）ため、この商品はセールなしでインポートします。"
 
 #: includes/Woo/WarningCatalog.php:239
 msgid "Correct the sale price on the platform, then import again."
@@ -466,7 +466,7 @@ msgstr "プラットフォームでセール価格を直してから、もう一
 #: includes/Woo/WarningCatalog.php:241
 #, php-format
 msgid "The sale price from the platform (%s) is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
-msgstr "プラットフォームのセール価格（%s）が正しくない（0 より大きく通常価格より低い必要があります）ため、この商品はセールなしでインポートします。"
+msgstr "プラットフォームのセール価格（%s）が正しくない（0 より大きく標準価格より低い必要があります）ため、この商品はセールなしでインポートします。"
 
 #: includes/Woo/WarningCatalog.php:245
 msgid "An image could not be downloaded from the platform, so it is not added. The item’s other images are added."
@@ -522,17 +522,17 @@ msgstr "プラットフォームのバリエーション %s の価格が数値�
 
 #: includes/Woo/WarningCatalog.php:274
 msgid "A variation has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
-msgstr "バリエーションに有効な通常価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
+msgstr "バリエーションに有効な標準価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
 
 #: includes/Woo/WarningCatalog.php:275
 msgid "Set a regular price on the variation, then export again. If its price cannot be converted to a price including tax, the whole product is not exported; fix the tax rate as that warning describes. A variation that was exported before stays on the platform; hide it there if needed."
-msgstr "バリエーションに通常価格を設定してから、もう一度エクスポートしてください。価格を税込価格に換算できない場合は商品全体をエクスポートしないので、その警告のとおりに税率を直してください。以前にエクスポートしたバリエーションはプラットフォームに残ります。必要ならプラットフォームで非表示にしてください。"
+msgstr "バリエーションに標準価格を設定してから、もう一度エクスポートしてください。価格を税込価格に換算できない場合は商品全体をエクスポートしないので、その警告のとおりに税率を直してください。以前にエクスポートしたバリエーションはプラットフォームに残ります。必要ならプラットフォームで非表示にしてください。"
 
 #. translators: %s: the WooCommerce ID of a variation.
 #: includes/Woo/WarningCatalog.php:277
 #, php-format
 msgid "Variation %s has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
-msgstr "ID %s のバリエーションに有効な通常価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
+msgstr "ID %s のバリエーションに有効な標準価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
 
 #: includes/Woo/WarningCatalog.php:281
 msgid "Some variations from the platform could not be read, so variations that no longer exist on the platform are not deleted for this product."
@@ -1313,7 +1313,7 @@ msgstr "WooCommerce がクーポンを保存できなかったため、インポ
 
 #: includes/Woo/WarningCatalog.php:739
 msgid "The product was created on the platform, but sending its remaining details (such as the subcategory and stock) failed for now. They are sent on the next export."
-msgstr "商品はプラットフォームに作成しましたが、残りの情報（サブカテゴリーや在庫など）の送信がいまは失敗しました。次のエクスポートで送ります。"
+msgstr "商品はプラットフォームに作成しましたが、残りの情報（サブカテゴリーや在庫など）の送信が一時的に失敗しました。次のエクスポートで送ります。"
 
 #: includes/Woo/WarningCatalog.php:740
 #: includes/Woo/WarningCatalog.php:750
@@ -1331,7 +1331,7 @@ msgstr "プラットフォームで商品のカテゴリーと在庫を確認し
 
 #: includes/Woo/WarningCatalog.php:749
 msgid "The product was sent, but setting up some of its variations failed for now. They are sent on the next export."
-msgstr "商品は送りましたが、一部のバリエーションの設定がいまは失敗しました。次のエクスポートで送ります。"
+msgstr "商品は送りましたが、一部のバリエーションの設定が一時的に失敗しました。次のエクスポートで送ります。"
 
 #: includes/Woo/WarningCatalog.php:754
 msgid "The product was sent, but some of its variations could not be set up on the platform (for example, two attributes have the same name, a variation has no value for an attribute, or the platform rejected the change)."
@@ -1630,7 +1630,7 @@ msgstr "— マッピングなし —"
 
 #: build/index.js:12
 msgid "No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first."
-msgstr "使える WooCommerce の決済方法がありません。先に WooCommerce > 設定 > 支払いで設定してください。"
+msgstr "使える WooCommerce の決済方法がありません。先に WooCommerce > 設定 > 決済で設定してください。"
 
 #: build/index.js:12
 msgid "Shipping method mapping"
@@ -1739,7 +1739,7 @@ msgstr "マッピングしていない配送方法: %2$d 件中 %1$d 件"
 
 #: build/index.js:18
 msgid "Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report. Set up the mappings before importing. Orders imported while a method was unmapped are updated the next time they are imported."
-msgstr "注文はインポートされますが、マッピングしていない方法を使う注文は、WooCommerce の決済方法・配送方法が空になり、プレビュー（書き込みなし）のレポートに警告が出ます。インポートの前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
+msgstr "注文はインポートされますが、マッピングしていない方法を使う注文は、WooCommerce の決済方法・配送方法が空になり、プレビューのレポートに警告が出ます。インポートの前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
 
 #: build/index.js:18
 msgid "Set up the mappings on the Mappings tab"
@@ -1801,7 +1801,7 @@ msgstr "CSV のレポートに警告だけを含める"
 
 #: build/index.js:21
 msgid "Download full report (CSV)"
-msgstr "すべてのレポートをダウンロード（CSV）"
+msgstr "全体のレポートをダウンロード（CSV）"
 
 #: build/index.js:21
 msgid "Reconciled"
@@ -2087,7 +2087,7 @@ msgstr "マッピングを設定する前に、「接続」タブでプラット
 
 #: build/index.js:29
 msgid "Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set up the mappings before importing orders. Orders imported while a method was unmapped are updated the next time they are imported."
-msgstr "マッピングは、プラットフォームの値を WooCommerce の値に対応させます。決済方法・配送方法・注文ステータスのマッピングは注文のインポートで使い、できる範囲で注文をプラットフォームへエクスポートするときにも同じマッピングを使います。マッピングしていない決済方法・配送方法は、プレビュー（書き込みなし）のレポートに警告として出ます。注文をインポートする前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
+msgstr "マッピングは、プラットフォームの値を WooCommerce の値に対応させます。決済方法・配送方法・注文ステータスのマッピングは注文のインポートで使い、できる範囲で注文をプラットフォームへエクスポートするときにも同じマッピングを使います。マッピングしていない決済方法・配送方法は、プレビューのレポートに警告として出ます。注文をインポートする前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
 
 #: build/index.js:29
 #: build/index.js:32
@@ -2461,3 +2461,7 @@ msgstr "「プラットフォームに無い」記録は、プラットフォー
 #: build/index.js:41
 msgid "“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair."
 msgstr "「スキップ」の記録は変更していません。WooCommerce の記録が無くなった、このプラグインがインポート・更新したものではない、スタッフのアカウント、ゴミ箱か下書きの注文、または保存できなかった、のいずれかです。修復が残っていないかは、もう一度「スキャン」を実行して確認してください。"
+
+#: includes/Admin/RestController.php:1033
+msgid "The saved credentials cannot be read. Click “Clear saved credentials”, then enter the Client ID and Client Secret again and connect."
+msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックしてから、クライアント ID とクライアントシークレットを入力し直して接続してください。"

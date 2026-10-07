@@ -1024,11 +1024,14 @@ final class RestController {
 		try {
 			$url = $oauth->authorize_url( $redirect_uri, $is_oob ? null : get_current_user_id() );
 		} catch ( RuntimeException ) {
-			// `authorize_url()` が投げるのは資格情報が未保存のときだけ。例外のメッセージはアダプタの英語の開発者向けの文なので、
-			// 画面に出す文言はここで翻訳する。
+			// `authorize_url()` が投げるのは資格情報を読めないとき（未保存、または保存した値を復号できない＝要再接続）だけ。
+			// 例外のメッセージはアダプタの英語の開発者向けの文なので、画面に出す文言はここで翻訳する。要再接続では資格情報の保存も
+			// 失敗する（CLAUDE.md）ので、「先に保存して」ではなく、唯一の復旧手段である消去へ案内する。
 			return new WP_Error(
 				'cbjp_oauth_not_configured',
-				__( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ),
+				( new TokenStore( $platform ) )->needs_reconnect()
+					? __( 'The saved credentials cannot be read. Click “Clear saved credentials”, then enter the Client ID and Client Secret again and connect.', 'cart-bridge-jp' )
+					: __( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ),
 				[ 'status' => 400 ]
 			);
 		}
