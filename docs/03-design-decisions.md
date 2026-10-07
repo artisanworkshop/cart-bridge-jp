@@ -584,7 +584,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 |---|---|---|
 | `cart-bridge-jp.pot` | `npm run i18n:pot`（ビルド → `wp i18n make-pot`） | 翻訳の元。`bin/i18n.sh check` が鮮度を確かめる |
 | `cart-bridge-jp-ja.po` | `npm run i18n:po`（`wp i18n update-po`。無ければ `Plural-Forms: nplurals=1` のヘッダから作る）→ 訳す | 人が編集する唯一のファイル |
-| `cart-bridge-jp-ja.mo`・`.l10n.php` | `npm run i18n:compile`（`make-mo`・`make-php`） | PHP（`Plugin::boot()` の `load_plugin_textdomain()`。WP 6.5+ は `.l10n.php` を優先） |
+| `cart-bridge-jp-ja.mo`・`.l10n.php` | `npm run i18n:compile`（`make-mo`・`make-php`） | PHP（メインファイルの `cbjp_load_textdomain()`〈`plugins_loaded`。WooCommerce・オートロードを確かめる `cbjp_bootstrap()` とは別に登録し、前提条件の通知も訳す〉の `load_plugin_textdomain()`。WP 6.5+ は `.l10n.php` を優先） |
 | `cart-bridge-jp-ja-<md5>.json` | 同上（`make-json --no-purge --pretty-print`） | 管理画面の JS（`Admin\Assets::enqueue()` の `wp_set_script_translations()`） |
 
 - **JS の文字列は `build/index.js` から抜く**（WP-CLI 2.12 の make-pot は TypeScript を読まない）。参照が `build/index.js` になるので、JSON の名前

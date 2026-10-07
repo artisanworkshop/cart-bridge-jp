@@ -43,7 +43,16 @@ add_action(
 
 register_activation_hook( CBJP_FILE, array( Core\Activator::class, 'activate' ) );
 
+add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_load_textdomain' );
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_bootstrap' );
+
+/**
+ * 同梱の翻訳（languages/）のパスを登録する。WooCommerce・オートロードの有無を確かめる前に、`cbjp_bootstrap()` とは別に行う
+ * （前提条件が欠けたときの通知も訳すため。WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、言語パックがあればそちらが優先）。
+ */
+function cbjp_load_textdomain(): void {
+	load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
+}
 
 /**
  * プラグインを起動する。WooCommerce未有効時は管理画面通知のみ出しfatalにしない。

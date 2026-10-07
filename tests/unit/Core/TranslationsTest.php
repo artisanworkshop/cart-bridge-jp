@@ -144,7 +144,16 @@ final class TranslationsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `Plugin::boot()` の `load_plugin_textdomain()` が登録したパスから、日本語の訳が読み込まれる（.l10n.php か .mo）。
+	 * 訳のパスは `cbjp_bootstrap()`（WooCommerce・オートロードが無ければ早く戻る）とは別の `plugins_loaded` で登録する。
+	 * ガードの中で登録すると、前提条件が欠けたときの通知（日本語訳を同梱している）が英語のまま出る（PR #109 G1-1）。
+	 */
+	public function test_text_domain_is_registered_outside_the_guarded_bootstrap(): void {
+		$this->assertNotFalse( has_action( 'plugins_loaded', 'CartBridgeJP\\cbjp_load_textdomain' ) );
+		$this->assertNotFalse( has_action( 'plugins_loaded', 'CartBridgeJP\\cbjp_bootstrap' ) );
+	}
+
+	/**
+	 * `cbjp_load_textdomain()` の `load_plugin_textdomain()` が登録したパスから、日本語の訳が読み込まれる（.l10n.php か .mo）。
 	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
 	 */
 	public function test_php_strings_are_translated_when_the_locale_is_japanese(): void {
