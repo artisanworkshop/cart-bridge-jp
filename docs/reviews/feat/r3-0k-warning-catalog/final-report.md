@@ -21,14 +21,17 @@
 - `0a5dde6` docs: record dev-cycle gate round 1
 - `2f46fca` fix: say that an imported coupon keeps working without new restrictions (G2)
 - `bf4fd7c` docs: record dev-cycle gate round 2
-- （この最終報告の記録コミット）
+- `5552c7b` docs: record dev-cycle gate round 3 and the final report
+- `691b2fe` fix: describe a protected customer by the row it is on (G4)
+- `7928291` docs: record dev-cycle gate round 4
+- （この最終報告の更新コミット）
 
 ### 設計ドキュメントからの逸脱
 
 1. CSV に `severity` 列も足した（台帳は `message`・`action` の 2 列。Q1）
 2. 98 個すべてに個別の原因を書いた（台帳は「約 25 種＋残りは汎用文言」。台帳を書いた時点の 52 個から増えていた。Q2）
 3. `docs/03` D22 の小節の項目 4「案内文言は `WarningCode` の docblock に書く。CSV にコードの説明文は無い」をカタログ前提に改めた
-4. カタログを「コード × 向き」で引く（同じコードが取込みとエクスポートで意味が違うため）
+4. カタログを「コード × 向き」で引く（同じコードが取込みとエクスポートで意味が違うため）。`customer_account_protected` だけは行の種別でも分ける（顧客の行は書かないので `blocking`、受注の行はゲスト受注として書くので `action_required`。G4）
 5. CSV をユーザーの言語で書く（従来は翻訳する文字列が無かった）
 6. 不明なコードの重大度は `unknown`（原則 9）
 7. `VARIATION_STOCK_MANAGEMENT_MIXED` は v1.0 の同梱アダプタ（ColorMe）で止まるので `blocking`（バリエーション単位で在庫管理できるアダプタを足すときに見直す。backlog `R1-L3`）
@@ -50,6 +53,7 @@
 | G1 | Copilot | 3（Medium） | 3 | 0 | 未収束 |
 | G2 | Copilot | 1（本文の Previously missed。Medium） | 1 | 0 | 未収束 |
 | G3 | Copilot | 0 | 0 | 0 | 収束（依頼の上限 3 回） |
+| G4 | Codex | 1（P2） | 1 | 0 | 修正済み（最終報告の後にユーザーが依頼した 2 回目。再依頼はしない） |
 
 ### 修正した指摘
 
@@ -59,6 +63,7 @@
 | G1-2 | Copilot | Medium | 取込みの数量の警告を「0 以下」と決めつけていた（欠損・整数でない場合も 1 になる） | `b72a173` | [r4201734181](https://github.com/artisanworkshop/cart-bridge-jp/pull/108#discussion_r4201734181) |
 | G1-3 | Copilot | Medium | `order_status_unknown` は取込みに使えない `checkout-draft` でも出る →「未登録、または取込みに使えない」 | `b72a173` | [r4201734220](https://github.com/artisanworkshop/cart-bridge-jp/pull/108#discussion_r4201734220) |
 | G2-B1 | Copilot | Medium | 取込み済みのクーポンは制限が付いても無効化されず使えるまま残ることを、制限の警告 2 つに明記 | `2f46fca` | なし（[review 5436754905](https://github.com/artisanworkshop/cart-bridge-jp/pull/108#pullrequestreview-5436754905)） |
+| G4-1 | Codex | P2 | `customer_account_protected` を `info` にしていた（顧客の行は書かれないのに、重大度で絞ると隠れる）→ `describe()` に行の種別を渡し、顧客の行は `blocking`・受注の行は `action_required`、種別が分からなければ `blocking` | `691b2fe` | [r4202746450](https://github.com/artisanworkshop/cart-bridge-jp/pull/108#discussion_r4202746450) |
 
 ### 修正しなかった指摘
 
@@ -66,14 +71,15 @@
 
 ## 品質ゲート
 
-- CI: https://github.com/artisanworkshop/cart-bridge-jp/actions/runs/37562118292 green（HEAD `bf4fd7c`。PHPUnit〔wp-env〕・PHP quality 8.2／8.3・JS/TS・Dev tooling）
-- 品質チェック: green（PHPUnit 1703 件〔main から +20〕・Jest 87 件・lint・PHPStan・build）
-- `mutate-check.sh`: 実装 10 種＋R1 3 種がすべて CAUGHT
+- CI: https://github.com/artisanworkshop/cart-bridge-jp/actions/runs/37579073332 green（HEAD `7928291`。G4 の修正を含む。PHPUnit〔wp-env〕・PHP quality 8.2／8.3・JS/TS・Dev tooling）
+- 品質チェック: green（PHPUnit 1705 件〔main から +22〕・Jest 87 件・lint・PHPStan・build）
+- `mutate-check.sh`: 実装 10 種＋R1 3 種＋G4 4 種がすべて CAUGHT
 - 実機: wp-env の dev サイトで mock（`mockv`）の取込み・エクスポートの dry-run → CSV を実 HTTP で取得（列・向き・detail・BOM・ユーザーの言語）→ 撤去して検証前の状態に戻したことを確認
 
 ## マージ前に確認してほしいこと
 
 - **Copilot の総評（G2・G3）**: 「税・価格・クーポン制限を含む 98 警告の対処案内は、業務仕様を把握した担当者による最終確認が必要」。文言は発生元のコードを読んで書き、独立レビュー・ゲートで事実誤りを直したが、店舗向けの言い回しとして適切かは人の目で確かめてほしい（特に `blocking` の警告の対処、税・価格・クーポンの案内）。`includes/Woo/WarningCatalog.php` に全文がある
+- G4 の修正（`describe()` に行の種別を足した）は bot の再レビューを受けていない（Copilot は依頼の上限、Codex は再依頼していない）。必要なら Codex へ再依頼してほしい
 - 文言は英語のみ。日本語訳は次の R3-2（i18n）で `languages/` に入れる
 - backlog に送った既存の挙動のうち、要判断のもの: `plan-X1`（設定次第の警告で checksum を保存する）、`plan-X2`（顧客を含めずに受注をエクスポートするとゲスト受注のまま結べない）、`R1-X1`（再試行対象の警告を持つ受注は取込みのたびに作り直され、手修正が消える）
 

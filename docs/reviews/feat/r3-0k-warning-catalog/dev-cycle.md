@@ -3,7 +3,7 @@
 - タスク: R3-0k — 警告カタログ（`Woo\WarningCatalog`）と dry-run CSV の説明列（severity・message・action）
 - 開始: 2026-10-07
 - PR: #108 https://github.com/artisanworkshop/cart-bridge-jp/pull/108
-- 現在のステップ: 7〜8（G4 の修正を push。CI を待って final-report.md を更新する）
+- 現在のステップ: 8（完了。G4 を反映して final-report.md を更新済み）
 - Copilot: 依頼 3 回（上限）/ 収束（G3 で新規指摘なし。G1 の 3 件・G2 の本文指摘 1 件を修正）
 - Codex: 依頼 2 回 / G1 で指摘なし（自動レビューが応答せず `bot-wait.sh` が再依頼を投稿）。最終報告の後にユーザーが 2 回目を依頼 → G4 で P2 1 件を修正（再依頼はしない）
 
@@ -24,3 +24,4 @@
 | 2026-10-07 11:32 | 6 | G2 反映（本文指摘なので返信・Resolve なし。サマリ）→ push（T=2026-10-07T02:28:00Z）→ CI green → Copilot 依頼 3 回目（T=2026-10-07T02:32:00Z） |
 | 2026-10-07 11:40 | 7〜8 | G3: Copilot はインライン 0 件・Findings: None（総評「98 警告の対処案内は担当者が最終確認を」は最終報告へ）→ 収束。CI green（run 37562118292）。最終報告を記録（final-report.md） |
 | 2026-10-07 14:58 | 7 | G4: 最終報告の後にユーザーが Codex へ review コメントを投稿（12:18）→ 12:23 に P2 1 件（`customer_account_protected` の顧客の行は書かれないのに `info`）。方針はユーザーが「行の種別で分ける」を選択 → `describe()` に `$entity` を足し、顧客の行は `blocking`・受注の行は `action_required`（`691b2fe`）。品質チェック green（PHPUnit 1705・Jest 87）、`mutate-check.sh` 4 種 CAUGHT |
+| 2026-10-07 15:04 | 6〜8 | G4 反映（返信・Resolve 1 件・サマリ・PR 本文の更新）→ push（T=2026-10-07T05:59:18Z）→ CI green（run 37579073332）。push 後の新しい bot のスレッド・本文なし。final-report.md を更新 |
