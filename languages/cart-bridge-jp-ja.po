@@ -2463,5 +2463,5 @@ msgid "“Skipped” records were not changed: the WooCommerce record no longer 
 msgstr "「スキップ」の記録は変更していません。WooCommerce の記録が無くなった、このプラグインがインポート・更新したものではない、スタッフのアカウント、ゴミ箱か下書きの注文、または保存できなかった、のいずれかです。修復が残っていないかは、もう一度「スキャン」を実行して確認してください。"
 
 #: includes/Admin/RestController.php:1033
-msgid "The saved credentials cannot be read. Click “Clear saved credentials”, then enter the Client ID and Client Secret again and connect."
-msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックしてから、クライアント ID とクライアントシークレットを入力し直して接続してください。"
+msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
+msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"

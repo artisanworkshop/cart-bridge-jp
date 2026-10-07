@@ -1069,7 +1069,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	/**
 	 * 要再接続（保存した値を復号できない）でも `authorize_url()` は同じ例外を投げるが、この状態では資格情報の保存も失敗するので、
-	 * 「先に保存して」ではなく消去へ案内する（R3-2 R1-2）。
+	 * 「先に保存して」ではなく消去へ案内する（R3-2 R1-4）。
 	 */
 	public function test_get_authorize_url_points_to_clearing_credentials_that_cannot_be_read(): void {
 		$this->register_colorme_adapter();
@@ -1082,7 +1082,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'cbjp_oauth_not_configured', $response->get_data()['code'] );
 		$this->assertSame(
-			'The saved credentials cannot be read. Click “Clear saved credentials”, then enter the Client ID and Client Secret again and connect.',
+			'The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect.',
 			$response->get_data()['message']
 		);
 	}

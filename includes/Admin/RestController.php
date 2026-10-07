@@ -1030,7 +1030,7 @@ final class RestController {
 			return new WP_Error(
 				'cbjp_oauth_not_configured',
 				( new TokenStore( $platform ) )->needs_reconnect()
-					? __( 'The saved credentials cannot be read. Click “Clear saved credentials”, then enter the Client ID and Client Secret again and connect.', 'cart-bridge-jp' )
+					? __( 'The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect.', 'cart-bridge-jp' )
 					: __( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ),
 				[ 'status' => 400 ]
 			);
