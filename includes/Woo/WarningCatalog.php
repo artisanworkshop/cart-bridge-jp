@@ -174,8 +174,8 @@ final class WarningCatalog {
 			),
 			WarningCode::TAX_RATES_NOT_CONFIGURED => self::make(
 				$action,
-				__( 'The item is put in the reduced rate tax class, but the class has no tax rates, so WooCommerce charges no tax on it.', 'cart-bridge-jp' ),
-				__( 'If WooCommerce calculates tax, add a Japanese tax rate (8%) to the reduced rate tax class in WooCommerce > Settings > Tax; you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' )
+				__( 'The item is put in a tax class that has no tax rates (for a reduced-rate item, the default reduced rate class), so WooCommerce charges no tax on it.', 'cart-bridge-jp' ),
+				__( 'If WooCommerce calculates tax, add the correct Japanese tax rate to that tax class in WooCommerce > Settings > Tax (8% for the reduced rate class); you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed.', 'cart-bridge-jp' )
 			),
 			WarningCode::REDUCED_TAX_CLASS_NOT_FOUND => self::make(
 				$action,
@@ -442,10 +442,10 @@ final class WarningCatalog {
 			WarningCode::ORDER_LINE_QUANTITY_INVALID => $import
 				? self::make(
 					$action,
-					__( 'The quantity of an order line is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' ),
+					__( 'The quantity of an order line is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1.', 'cart-bridge-jp' ),
 					__( 'Check the order on the platform, and correct the quantity in the WooCommerce order after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
 					/* translators: %s: the platform's ID of a product. */
-					__( 'The quantity of the order line for the product %s is zero or negative, so the line is imported with a quantity of 1.', 'cart-bridge-jp' )
+					__( 'The quantity of the order line for the product %s is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1.', 'cart-bridge-jp' )
 				)
 				: self::make(
 					$blocking,
@@ -486,10 +486,10 @@ final class WarningCatalog {
 				),
 			WarningCode::ORDER_STATUS_UNKNOWN => self::make(
 				$action,
-				__( 'The order status is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' ),
-				__( 'In the order status mapping (Mappings tab), choose a status that is registered in WooCommerce before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
+				__( 'The order status is not registered in WooCommerce, or cannot be used for imported orders (such as “checkout-draft”, which WooCommerce deletes after a day), so the order is imported as “On hold”.', 'cart-bridge-jp' ),
+				__( 'In the order status mapping (Mappings tab), choose a regular WooCommerce order status that can be used for imported orders before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten).', 'cart-bridge-jp' ),
 				/* translators: %s: an order status. */
-				__( 'The order status “%s” is not registered in WooCommerce, so the order is imported as “On hold”.', 'cart-bridge-jp' )
+				__( 'The order status “%s” is not registered in WooCommerce, or cannot be used for imported orders, so the order is imported as “On hold”.', 'cart-bridge-jp' )
 			),
 			WarningCode::ORDER_TOTAL_RESIDUAL => self::make(
 				$info,
