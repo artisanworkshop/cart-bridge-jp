@@ -636,14 +636,7 @@ export default function ToolsTab() {
 	}
 
 	if ( 0 === connections.length || null === platform ) {
-		return (
-			<p>
-				{ __(
-					'No platform adapters are registered yet.',
-					'cart-bridge-jp'
-				) }
-			</p>
-		);
+		return <p>{ __( 'No platforms are available.', 'cart-bridge-jp' ) }</p>;
 	}
 
 	const previewTotal = preview
