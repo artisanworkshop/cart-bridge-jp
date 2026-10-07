@@ -3,8 +3,8 @@
 - タスク: R3-0k — 警告カタログ（`Woo\WarningCatalog`）と dry-run CSV の説明列（severity・message・action）
 - 開始: 2026-10-07
 - PR: #108 https://github.com/artisanworkshop/cart-bridge-jp/pull/108
-- 現在のステップ: 6〜7（G3: Copilot 3 回目〔上限〕）
-- Copilot: 依頼 2 回 / 未収束（G1 の 3 件・G2 の本文指摘 1 件を修正）
+- 現在のステップ: 8（完了。final-report.md 記録済み）
+- Copilot: 依頼 3 回（上限）/ 収束（G3 で新規指摘なし。G1 の 3 件・G2 の本文指摘 1 件を修正）
 - Codex: 依頼 1 回 / 収束（G1 で指摘なし。自動レビューが応答せず `bot-wait.sh` が再依頼を投稿）
 
 ## ログ
@@ -21,3 +21,5 @@
 | 2026-10-07 10:45 | 7 | G1: Codex は指摘なしで収束。Copilot は Medium 3 件（カタログの原因が発生元の一部の経路しか書いていない: 税率の無い税区分・数量の欠損・`checkout-draft`）→ ユーザー承認で 3 件とも修正（`b72a173`） |
 | 2026-10-07 10:51 | 6 | G1 反映（返信・Resolve 3 件・サマリ）→ push（T=2026-10-07T01:46:16Z）→ CI green → Copilot 依頼 2 回目（T=2026-10-07T01:51:51Z） |
 | 2026-10-07 11:27 | 7 | G2: Copilot はインライン 0 件・本文の Previously missed 1 件（取込み済みのクーポンは制限が付いても無効化されない）→ ユーザー承認で修正（`2f46fca`）。総評「金銭に関わる案内は担当者が最終確認を」は最終報告へ |
+| 2026-10-07 11:32 | 6 | G2 反映（本文指摘なので返信・Resolve なし。サマリ）→ push（T=2026-10-07T02:28:00Z）→ CI green → Copilot 依頼 3 回目（T=2026-10-07T02:32:00Z） |
+| 2026-10-07 11:40 | 7〜8 | G3: Copilot はインライン 0 件・Findings: None（総評「98 警告の対処案内は担当者が最終確認を」は最終報告へ）→ 収束。CI green（run 37562118292）。最終報告を記録（final-report.md） |
