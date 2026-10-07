@@ -666,8 +666,8 @@ final class WarningCatalog {
 			WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED => $import
 				? self::make(
 					$blocking,
-					__( 'The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported (without them, it could be used more widely).', 'cart-bridge-jp' ),
-					__( 'Create the coupon in WooCommerce by hand with equivalent restrictions.', 'cart-bridge-jp' )
+					__( 'The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported or updated (without them, it could be used more widely). A coupon that was imported before is not changed or disabled, so it stays usable without these restrictions.', 'cart-bridge-jp' ),
+					__( 'Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand with equivalent restrictions. If it was imported before, add the restrictions to it or disable it.', 'cart-bridge-jp' )
 				)
 				: self::make(
 					$blocking,
@@ -676,8 +676,8 @@ final class WarningCatalog {
 				),
 			WarningCode::COUPON_RESTRICTIONS_UNKNOWN => self::make(
 				$blocking,
-				__( 'The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported (to avoid creating it without them).', 'cart-bridge-jp' ),
-				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' )
+				__( 'The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported or updated (to avoid creating it without them). A coupon that was imported before is not changed or disabled, so it stays usable as it was.', 'cart-bridge-jp' ),
+				__( 'Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand. If it was imported before, check its restrictions, or disable it.', 'cart-bridge-jp' )
 			),
 			WarningCode::COUPON_CODE_CONFLICT => self::make(
 				$blocking,
