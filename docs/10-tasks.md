@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）が残る |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は実装済みで、テストショップでの再リハーサル（まとめて 1 回）が残る。R3-2（i18n・日本語訳の同梱）完了 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -622,7 +622,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   一覧が空でも切断用の文言にする・ロックを取れなかった側で文言を渡さない・未接続なら判定を飛ばす）がすべて CAUGHT。wp-env の dev サイト（mock `mockv`）で `rest_do_request()` により、run の開始後の切断が 409・切断用の文言・資格情報が残る、
   キャンセルの後は 200 で資格情報が消えることを確認して撤去した
 - [x] **R3-0k: 警告カタログと CSV の説明列**（2026-09-28 決定。issue は未起票。ブランチ `feat/r3-0k-warning-catalog`）: いま UI に出るのは警告の件数だけで、内訳は dry-run の CSV に警告コード（`WarningCode` の全定数。52 個）がそのまま並ぶ。店舗オーナーが原因と対処を分かるように、
-  `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は `languages/ja.po`。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
+  `Woo\WarningCatalog`（コード → severity〈blocking／要対応／情報〉・原因・対処。英語 `__()`、日本語は R3-2 で `languages/cart-bridge-jp-ja.po` に同梱。`{code}:{detail}` の detail は `%s` に差し込む。外部アダプタの未知のコードは「不明な警告（コード）」にフォールバック）を新設し、
   dry-run の CSV（`Admin\DryRunReportCsv`）の**末尾**に `message`・`action` 列を足す（既存の列・`note` は変えない）。テスト（リフレクション）で「`WarningCode` の全定数にカタログがある」ことを強制し、文言の無い警告コードが出荷されないようにする。
   最初に書くのは、止める警告（`indicates_export_blocking()` と D22 の `VARIATION_STOCK_MANAGEMENT_MIXED`）と対処が要る警告の約 25 種で、残りは汎用文言でよい。**画面での警告要約（案 R3-0l）と実 run の項目別警告の保存は v1.0 に含めない**（DB 書込量とプライバシーの判断が要るため v1.1 以降）。
   UI 文言が増えるため R3-2（i18n）より前に入れる。D22/D23 の対処（在庫管理・在庫状況を揃える／Any を具体値に分ける）の文言は R3-3 の FAQ と共通にする
@@ -717,7 +717,19 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **検証**: PHPUnit 計 1683（main から +52。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 44 種（review-loop R1 の 7 種・ゲート G2 の 1 種を含む）がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
   **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。取込みの標準の商品は常に `''` に入る（`''` に 10% 以外を入れた店舗では誤る。backlog `r3-1de-tax-class-detection/R1-X1`）。
   **テストショップでの確認（`tax-classes mode=ja` での取込み・作成エクスポート、ゼロ税率の商品が止まること）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
-- [ ] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）
+- [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07。ブランチ `feat/r3-2-i18n`）
+  **実装サマリ**: 日本語（`ja`）の訳を `languages/` に同梱した（`cart-bridge-jp.pot`・`cart-bridge-jp-ja.po`〈554 文字列すべて訳済み〉・`.mo`・`.l10n.php`・管理画面の JS 用の JSON）。
+  生成は `bin/i18n.sh pot|po|compile|check`（`npm run i18n:*`。WP-CLI は wp-env の cli コンテナ）。**JS の文字列は `build/index.js` から抜く**（make-pot は TypeScript を読まない。
+  参照が build になるので JSON の名前が `wp_set_script_translations()` の探す md5 と一致する）。**文字列を変える PR は POT と ja.po の更新が必須**（ユーザー決定）で、
+  CI の PHPUnit ジョブと `quality.sh` の `npm run i18n:check` がビルド済みのソースから POT を作り直して比べ、`TranslationsTest` が PO・生成物・実行時の読み込みを確かめる。
+  翻訳の前に、独立の監査で見つかったソースの i18n 不備を直した: OAuth 完了の通知に ID ではなく表示名、文の連結は `joinSentences()`・列挙は翻訳できる区切りの `joinList()`
+  （`src/i18n.ts`）、件数の文の `_n()`（県コード修復の結果は `src/components/repair-messages.ts` へ切り出して Jest）、Logs のレベルの列・標準の税区分の detail の翻訳、
+  日時・金額の書式をユーザーの言語に（`cbjpAdmin.locale`）、資格情報が未保存のときの英語の例外メッセージを翻訳した文言に、`8% for` の書式誤認・存在しないボタン名の案内・
+  「ColorMe Shop」の表記揺れ・開発中の文言。訳語はユーザー決定（Order(s)＝注文、dry run＝書き込みなし）と WooCommerce の日本語訳（言語パックで実測）に合わせた。
+  用語集・含めなかったもの（サーバーが英語で保存する文言ほか）は `docs/03` §6「翻訳（R3-2）」と backlog `r3-2-i18n/plan-*`。
+  確認: `TranslationsTest` 10 件（ミューテーション 8 種がすべて CAUGHT）・Jest 2 ファイル、`i18n:check` が「文字列の追加」「翻訳者コメントの食い違い」で失敗することを実測。
+  dev サイトでサイトの言語を一時的に `ja` にしてフロント・REST・admin-ajax・cron を叩き「too early」通知が出ないこと、管理者のユーザー言語を `ja` にして
+  `Assets::enqueue()` の経路で JS に日本語の訳と `cbjpAdmin.locale` が渡ること・警告カタログが日本語になることを確認した（どちらも元に戻した。管理画面の目視は最終報告の後）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
