@@ -10,6 +10,8 @@ namespace CartBridgeJP\Tests\Admin;
 use CartBridgeJP\Admin\DryRunReportCsv;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\DryRunItemRepository;
+use CartBridgeJP\Sync\JobManager;
+use CartBridgeJP\Woo\WarningCatalog;
 use WP_UnitTestCase;
 
 final class DryRunReportCsvTest extends WP_UnitTestCase {
@@ -45,10 +47,10 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	public function test_item_without_warnings_is_a_single_row_with_empty_warning_columns(): void {
 		$this->items->insert_many( 'run-1', 1, [ $this->row() ] );
 
-		$rows = $this->csv->rows( 'run-1', null, false );
+		$rows = $this->csv->rows( 'run-1', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame(
-			[ [ 'product', 'p1', 'Widget', 'created', '0', '', '', '' ] ],
+			[ [ 'product', 'p1', 'Widget', 'created', '0', '', '', '', '', '', '' ] ],
 			$rows
 		);
 	}
@@ -56,7 +58,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	public function test_only_warnings_flag_omits_rows_without_warnings(): void {
 		$this->items->insert_many( 'run-2', 1, [ $this->row() ] );
 
-		$this->assertSame( [], $this->csv->rows( 'run-2', null, true ) );
+		$this->assertSame( [], $this->csv->rows( 'run-2', null, true, WarningCatalog::IMPORT ) );
 	}
 
 	public function test_multiple_warnings_expand_into_multiple_rows(): void {
@@ -66,7 +68,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			[ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1', 'tax_class_missing:reduced-rate' ] ] ) ]
 		);
 
-		$rows = $this->csv->rows( 'run-3', null, false );
+		$rows = $this->csv->rows( 'run-3', null, false, WarningCatalog::IMPORT );
 
 		$this->assertCount( 2, $rows );
 		$this->assertSame( [ 'sku_duplicate', 'SKU-1' ], [ $rows[0][5], $rows[0][6] ] );
@@ -82,7 +84,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			[ $this->row( [ 'warnings' => [ 'image_download_failed:https://example.test/a.png' ] ] ) ]
 		);
 
-		$rows = $this->csv->rows( 'run-4', null, false );
+		$rows = $this->csv->rows( 'run-4', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( 'image_download_failed', $rows[0][5] );
 		$this->assertSame( 'https://example.test/a.png', $rows[0][6] );
@@ -91,7 +93,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	public function test_reference_pending_warning_is_flagged_in_the_note_column(): void {
 		$this->items->insert_many( 'run-5', 1, [ $this->row( [ 'warnings' => [ 'category_ref_unresolved:10' ] ] ) ] );
 
-		$rows = $this->csv->rows( 'run-5', null, false );
+		$rows = $this->csv->rows( 'run-5', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( 'reference_pending_import', $rows[0][7] );
 	}
@@ -102,7 +104,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	public function test_tax_setup_warnings_are_flagged_in_the_note_column(): void {
 		$this->items->insert_many( 'run-tax', 1, [ $this->row( [ 'warnings' => [ 'reduced_tax_class_not_found', 'tax_rates_not_configured:reduced-rate', 'tax_class_missing:x' ] ] ) ] );
 
-		$rows = $this->csv->rows( 'run-tax', null, false );
+		$rows = $this->csv->rows( 'run-tax', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( [ 'tax_setup_required', 'tax_setup_required', '' ], array_column( $rows, 7 ) );
 	}
@@ -125,7 +127,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			]
 		);
 
-		$rows = $this->csv->rows( 'run-5b', null, false );
+		$rows = $this->csv->rows( 'run-5b', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( 'reference_pending_import', $rows[0][7] );
 	}
@@ -144,7 +146,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			[ $this->row( [ 'warnings' => [ 'order_line_product_not_exported:42' ] ] ) ]
 		);
 
-		$rows = $this->csv->rows( 'run-5c', null, false );
+		$rows = $this->csv->rows( 'run-5c', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( 'reference_pending_export', $rows[0][7] );
 	}
@@ -174,7 +176,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			]
 		);
 
-		$rows = $this->csv->rows( 'run-5d', null, false );
+		$rows = $this->csv->rows( 'run-5d', null, false, WarningCatalog::IMPORT );
 
 		$this->assertCount( 3, $rows );
 		$this->assertSame( [ 'payment_method_unmapped', '1094475', 'mapping_required' ], [ $rows[0][5], $rows[0][6], $rows[0][7] ] );
@@ -201,7 +203,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			]
 		);
 
-		$rows = $this->csv->rows( 'run-5e', null, false );
+		$rows = $this->csv->rows( 'run-5e', null, false, WarningCatalog::IMPORT );
 
 		$this->assertCount( 3, $rows );
 		$this->assertSame( [ 'order_line_product_unresolved', 'p-gone', 'reference_unresolved' ], [ $rows[0][5], $rows[0][6], $rows[0][7] ] );
@@ -212,7 +214,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 	public function test_unrelated_warning_leaves_the_note_column_empty(): void {
 		$this->items->insert_many( 'run-6', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
 
-		$rows = $this->csv->rows( 'run-6', null, false );
+		$rows = $this->csv->rows( 'run-6', null, false, WarningCatalog::IMPORT );
 
 		$this->assertSame( '', $rows[0][7] );
 	}
@@ -237,7 +239,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			]
 		);
 
-		$rows = $this->csv->rows( 'run-7', 'order', false );
+		$rows = $this->csv->rows( 'run-7', 'order', false, WarningCatalog::IMPORT );
 
 		$this->assertCount( 1, $rows );
 		$this->assertSame( 'o1', $rows[0][1] );
@@ -261,7 +263,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			);
 		}
 
-		$rows = $this->csv->rows( 'run-8', null, false );
+		$rows = $this->csv->rows( 'run-8', null, false, WarningCatalog::IMPORT );
 
 		$this->assertCount( count( $payloads ), $rows );
 
@@ -292,7 +294,7 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 			]
 		);
 
-		$rows = $this->csv->rows( 'run-8b', null, false );
+		$rows = $this->csv->rows( 'run-8b', null, false, WarningCatalog::IMPORT );
 
 		$this->assertCount( 1, $rows );
 		$this->assertSame( 'p1', $rows[0][1] );
@@ -309,18 +311,120 @@ final class DryRunReportCsvTest extends WP_UnitTestCase {
 
 		$this->items->insert_many( 'run-9', 1, $rows );
 
-		$this->assertCount( 520, $this->csv->rows( 'run-9', null, false ) );
+		$this->assertCount( 520, $this->csv->rows( 'run-9', null, false, WarningCatalog::IMPORT ) );
+	}
+
+	/**
+	 * R3-0k: 警告の行の末尾 3 列は、その警告の `WarningCatalog` の説明（重大度・原因・対処）。
+	 */
+	public function test_warning_rows_carry_the_catalog_description(): void {
+		$this->items->insert_many( 'run-cat', 1, [ $this->row( [ 'warnings' => [ 'category_ref_unresolved:10' ] ] ) ] );
+
+		$rows        = $this->csv->rows( 'run-cat', null, false, WarningCatalog::IMPORT );
+		$description = WarningCatalog::describe( 'category_ref_unresolved:10', WarningCatalog::IMPORT );
+
+		$this->assertCount( 11, $rows[0] );
+		$this->assertSame( [ $description['severity'], $description['message'], $description['action'] ], array_slice( $rows[0], 8 ) );
+		$this->assertNotSame( '', $rows[0][9] );
+		// 既存の列（コード・detail・note）は変わらない。
+		$this->assertSame( [ 'category_ref_unresolved', '10', 'reference_pending_import' ], array_slice( $rows[0], 5, 3 ) );
+	}
+
+	/**
+	 * 同じ警告コードでも取込みとエクスポートで意味が違う（通貨の不一致は、取込みは保存し、エクスポートは送らない）。
+	 */
+	public function test_the_run_direction_selects_the_description(): void {
+		$this->items->insert_many( 'run-dir', 1, [ $this->row( [ 'warnings' => [ 'currency_mismatch' ] ] ) ] );
+
+		$import = $this->csv->rows( 'run-dir', null, false, WarningCatalog::IMPORT );
+		$export = $this->csv->rows( 'run-dir', null, false, WarningCatalog::EXPORT );
+
+		$this->assertNotSame( WarningCatalog::SEVERITY_BLOCKING, $import[0][8] );
+		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $export[0][8] );
+		$this->assertNotSame( $import[0][9], $export[0][9] );
+	}
+
+	/**
+	 * 同じ警告コードでも行の種別で結果が違う（管理者・スタッフと同じメールの顧客は、顧客を飛ばし、受注はゲストとして書く）。
+	 */
+	public function test_the_row_entity_selects_the_description(): void {
+		$warning = 'customer_account_protected:c-1';
+
+		$this->items->insert_many(
+			'run-entity',
+			1,
+			[
+				$this->row(
+					[
+						'entity'    => 'customer',
+						'remote_id' => 'c-1',
+						'operation' => 'skipped',
+						'warnings'  => [ $warning ],
+					]
+				),
+				$this->row(
+					[
+						'entity'    => 'order',
+						'remote_id' => 'o-1',
+						'warnings'  => [ $warning ],
+					]
+				),
+			]
+		);
+
+		$rows = $this->csv->rows( 'run-entity', null, false, WarningCatalog::IMPORT );
+
+		$this->assertSame( [ 'customer', 'order' ], array_column( $rows, 0 ) );
+		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $rows[0][8] );
+		$this->assertSame( WarningCatalog::SEVERITY_ACTION_REQUIRED, $rows[1][8] );
+		$this->assertSame( WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'order' )['message'], $rows[1][9] );
+	}
+
+	public function test_an_unknown_direction_describes_warnings_as_unknown(): void {
+		$this->items->insert_many( 'run-nodir', 1, [ $this->row( [ 'warnings' => [ 'currency_mismatch' ] ] ) ] );
+
+		$rows = $this->csv->rows( 'run-nodir', null, false, '' );
+
+		$this->assertSame( WarningCatalog::SEVERITY_UNKNOWN, $rows[0][8] );
+	}
+
+	public function test_the_direction_follows_the_job_type(): void {
+		$this->assertSame( WarningCatalog::IMPORT, DryRunReportCsv::direction_for_job_type( JobManager::TYPE_DRY_RUN ) );
+		$this->assertSame( WarningCatalog::IMPORT, DryRunReportCsv::direction_for_job_type( JobManager::TYPE_IMPORT ) );
+		$this->assertSame( WarningCatalog::EXPORT, DryRunReportCsv::direction_for_job_type( JobManager::TYPE_DRY_RUN_EXPORT ) );
+		$this->assertSame( WarningCatalog::EXPORT, DryRunReportCsv::direction_for_job_type( JobManager::TYPE_EXPORT ) );
+		$this->assertSame( '', DryRunReportCsv::direction_for_job_type( 'something_else' ) );
+	}
+
+	/**
+	 * 説明の列も CSV インジェクション対策を通す（翻訳は外部の入力で、detail は ASP 由来の値を含む）。
+	 */
+	public function test_description_columns_are_hardened(): void {
+		add_filter(
+			'gettext',
+			static function ( string $translation, string $text, string $domain ): string {
+				return 'cart-bridge-jp' === $domain ? '=HYPERLINK("x")' : $translation;
+			},
+			10,
+			3
+		);
+
+		$this->items->insert_many( 'run-harden', 1, [ $this->row( [ 'warnings' => [ 'sku_duplicate:SKU-1' ] ] ) ] );
+
+		$rows = $this->csv->rows( 'run-harden', null, false, WarningCatalog::IMPORT );
+
+		$this->assertSame( "'=HYPERLINK(\"x\")", $rows[0][9] );
 	}
 
 	public function test_stream_writes_a_bom_and_header_row(): void {
 		$this->items->insert_many( 'run-10', 1, [ $this->row() ] );
 
 		ob_start();
-		$this->csv->stream( 'run-10', null, false );
+		$this->csv->stream( 'run-10', null, false, WarningCatalog::IMPORT );
 		$output = ob_get_clean();
 
 		$this->assertStringStartsWith( "\xEF\xBB\xBF", $output );
-		$this->assertStringContainsString( 'entity,remote_id,label,operation,existing_local_id,warning_code,warning_detail,note', $output );
-		$this->assertStringContainsString( 'product,p1,Widget,created,0,,,', $output );
+		$this->assertStringContainsString( "entity,remote_id,label,operation,existing_local_id,warning_code,warning_detail,note,severity,message,action\n", $output );
+		$this->assertStringContainsString( "product,p1,Widget,created,0,,,,,,\n", $output );
 	}
 }

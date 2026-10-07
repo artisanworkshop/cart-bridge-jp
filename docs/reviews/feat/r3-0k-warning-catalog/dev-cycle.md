@@ -1,0 +1,27 @@
+# dev-cycle 状態: feat/r3-0k-warning-catalog
+
+- タスク: R3-0k — 警告カタログ（`Woo\WarningCatalog`）と dry-run CSV の説明列（severity・message・action）
+- 開始: 2026-10-07
+- PR: #108 https://github.com/artisanworkshop/cart-bridge-jp/pull/108
+- 現在のステップ: 8（完了。G4 を反映して final-report.md を更新済み）
+- Copilot: 依頼 3 回（上限）/ 収束（G3 で新規指摘なし。G1 の 3 件・G2 の本文指摘 1 件を修正）
+- Codex: 依頼 2 回 / G1 で指摘なし（自動レビューが応答せず `bot-wait.sh` が再依頼を投稿）。最終報告の後にユーザーが 2 回目を依頼 → G4 で P2 1 件を修正（再依頼はしない）
+
+## ログ
+
+| 日時(JST) | ステップ | 内容 |
+|---|---|---|
+| 2026-10-07 08:11 | 1 | 計画承認（`~/.claude/plans/expressive-humming-seahorse.md`）。R3-1e は PR #107 でマージ済み（残りはテストショップの再リハーサルのみ）のため、ユーザー判断で次の未着手タスクへ。台帳の順序（R3-0k は R3-2 より前）どおり R3-0k に着手。ユーザー回答: Q1 CSV に `severity`・`message`・`action` の 3 列を足す（台帳は 2 列。逸脱として記録）、Q2 98 個すべてに個別の原因を書き、対処は店舗が何かできるものだけ |
+| 2026-10-07 08:30 | 2 | 実装コミット 2 件（backend＋tests `b633856`・REST の向きのテスト `8e98350`）。各コードの実際の挙動は発生元のグループごとに 4 つのサブエージェントで調べてから文言を書いた（docblock の誤り 3 件を修正、範囲外の既存の挙動は backlog `r3-0k-warning-catalog/plan-*`）。品質チェック green（PHPUnit 1699 → REST のテスト追加後 1701、Jest 87）。`mutate-check.sh` で 10 種が CAUGHT |
+| 2026-10-07 08:37 | 2 | wp-env の dev サイトで mock（`mockv`）の取込み・エクスポートの dry-run を回し、CSV を実 HTTP で確認（列・向き・detail・BOM、ユーザーの言語で書かれること）→ 撤去して検証前の状態に戻した。docs（`docs/03`・`docs/10`・backlog・`.claude/rules/sync-export-tools.md`） |
+| 2026-10-07 08:56 | 3 | review-loop R1（自己レビュー＋独立サブエージェント）: **APPROVE**（Critical/High 0）。Medium 11 件を修正（文言の事実誤り・`sale_end_date_not_pushed` の重大度・言語のテストの作り直し・detail 付きの文言の書式のテスト。独立レビューの Low のうちテストの欠落 1 件と成果物の文言の事実誤りは Medium に変更）、Low 3 件・対象外 2 件は backlog（`ab094ba`）。品質チェック green（PHPUnit 1703・Jest 87） |
+| 2026-10-07 09:11 | 3 | review-loop R2（独立サブエージェントで検証。ミューテーション・ランダム順込み）: **APPROVE**（R1 の 11 件はすべて解消、新規 Critical/High 0）。新規 Medium 1 件（R2-1 画像の再試行の案内の後退）と Low 3 件（テストの後始末・R1-6 の横展開の漏れ・重大度の基準）を修正（`a8e787f`） |
+| 2026-10-07 09:11 | 4〜5 | PR #108 作成（T=2026-10-07T00:11:13Z）→ CI green（run 37550644331） |
+| 2026-10-07 09:15 | 6 | Copilot 依頼 1 回目（timeline で登録を確認）・Codex は PR 作成時の自動レビューを待つ（`bot-wait.sh --codex-nudge=300`） |
+| 2026-10-07 10:45 | 7 | G1: Codex は指摘なしで収束。Copilot は Medium 3 件（カタログの原因が発生元の一部の経路しか書いていない: 税率の無い税区分・数量の欠損・`checkout-draft`）→ ユーザー承認で 3 件とも修正（`b72a173`） |
+| 2026-10-07 10:51 | 6 | G1 反映（返信・Resolve 3 件・サマリ）→ push（T=2026-10-07T01:46:16Z）→ CI green → Copilot 依頼 2 回目（T=2026-10-07T01:51:51Z） |
+| 2026-10-07 11:27 | 7 | G2: Copilot はインライン 0 件・本文の Previously missed 1 件（取込み済みのクーポンは制限が付いても無効化されない）→ ユーザー承認で修正（`2f46fca`）。総評「金銭に関わる案内は担当者が最終確認を」は最終報告へ |
+| 2026-10-07 11:32 | 6 | G2 反映（本文指摘なので返信・Resolve なし。サマリ）→ push（T=2026-10-07T02:28:00Z）→ CI green → Copilot 依頼 3 回目（T=2026-10-07T02:32:00Z） |
+| 2026-10-07 11:40 | 7〜8 | G3: Copilot はインライン 0 件・Findings: None（総評「98 警告の対処案内は担当者が最終確認を」は最終報告へ）→ 収束。CI green（run 37562118292）。最終報告を記録（final-report.md） |
+| 2026-10-07 14:58 | 7 | G4: 最終報告の後にユーザーが Codex へ review コメントを投稿（12:18）→ 12:23 に P2 1 件（`customer_account_protected` の顧客の行は書かれないのに `info`）。方針はユーザーが「行の種別で分ける」を選択 → `describe()` に `$entity` を足し、顧客の行は `blocking`・受注の行は `action_required`（`691b2fe`）。品質チェック green（PHPUnit 1705・Jest 87）、`mutate-check.sh` 4 種 CAUGHT |
+| 2026-10-07 15:04 | 6〜8 | G4 反映（返信・Resolve 1 件・サマリ・PR 本文の更新）→ push（T=2026-10-07T05:59:18Z）→ CI green（run 37579073332）。push 後の新しい bot のスレッド・本文なし。final-report.md を更新 |

@@ -8,6 +8,8 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Admin;
 
 use CartBridgeJP\Sync\DryRunItemRepository;
+use CartBridgeJP\Sync\JobManager;
+use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 
 /**
@@ -16,6 +18,9 @@ use CartBridgeJP\Woo\WarningCode;
  *
  * 保存結果に依存する警告（`Woo\WarningCode`のdocblock参照。保存失敗・名前衝突の実体解決・
  * 画像ダウンロード等）は dry-run では判定していないため、このCSVには現れない。
+ *
+ * 末尾の `severity`・`message`・`action` は `Woo\WarningCatalog` の説明（R3-0k）。同じ警告コードでも取込みと
+ * エクスポートで意味が違うため、run の種別から向きを決めて渡す（{@see direction_for_job_type()}）。
  */
 final class DryRunReportCsv {
 
@@ -23,17 +28,32 @@ final class DryRunReportCsv {
 
 	/**
 	 * 列見出しは機械可読な安定キー。翻訳しない（表計算ソフトのフィルタ・外部ツールが参照するため）。
+	 * 列は末尾に足す（既存の列の位置を変えない）。`severity` の値も翻訳しない安定キーで、`message`・`action` だけが翻訳される。
 	 *
 	 * @var array<int,string>
 	 */
-	private const HEADER = [ 'entity', 'remote_id', 'label', 'operation', 'existing_local_id', 'warning_code', 'warning_detail', 'note' ];
+	private const HEADER = [ 'entity', 'remote_id', 'label', 'operation', 'existing_local_id', 'warning_code', 'warning_detail', 'note', 'severity', 'message', 'action' ];
 
 	public function __construct( private readonly DryRunItemRepository $items ) {}
 
 	/**
-	 * `php://output`へ直接書き出す（全行をメモリに載せない）。
+	 * run の種別（`cbjp_jobs.type`）から警告を説明する向きを決める。dry-run の明細を書くのは dry-run だけだが、
+	 * 本実行の run を指定された場合も同じ向きにする。知らない種別は空文字列（カタログは `unknown` で説明する）。
 	 */
-	public function stream( string $run_id, ?string $entity, bool $only_warnings ): void {
+	public static function direction_for_job_type( string $type ): string {
+		return match ( $type ) {
+			JobManager::TYPE_DRY_RUN, JobManager::TYPE_IMPORT => WarningCatalog::IMPORT,
+			JobManager::TYPE_DRY_RUN_EXPORT, JobManager::TYPE_EXPORT => WarningCatalog::EXPORT,
+			default => '',
+		};
+	}
+
+	/**
+	 * `php://output`へ直接書き出す（全行をメモリに載せない）。
+	 *
+	 * @param string $direction `WarningCatalog::IMPORT`/`EXPORT`（{@see direction_for_job_type()}）。
+	 */
+	public function stream( string $run_id, ?string $entity, bool $only_warnings, string $direction ): void {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- ファイルシステムではなくHTTPレスポンスのストリーム（php://output）への書込。
 		$handle = fopen( 'php://output', 'w' );
 
@@ -53,6 +73,7 @@ final class DryRunReportCsv {
 			$run_id,
 			$entity,
 			$only_warnings,
+			$direction,
 			static function ( array $row ) use ( $handle ): void {
 				fputcsv( $handle, $row, ',', '"', '' );
 			}
@@ -65,15 +86,17 @@ final class DryRunReportCsv {
 	/**
 	 * テスト用: 全行を配列で返す（`stream()`と同じ行生成ロジックを共有する）。
 	 *
+	 * @param string $direction `WarningCatalog::IMPORT`/`EXPORT`。
 	 * @return array<int,array<int,string>>
 	 */
-	public function rows( string $run_id, ?string $entity, bool $only_warnings ): array {
+	public function rows( string $run_id, ?string $entity, bool $only_warnings, string $direction ): array {
 		$rows = [];
 
 		$this->each_row(
 			$run_id,
 			$entity,
 			$only_warnings,
+			$direction,
 			static function ( array $row ) use ( &$rows ): void {
 				$rows[] = $row;
 			}
@@ -85,7 +108,7 @@ final class DryRunReportCsv {
 	/**
 	 * @param callable(array<int,string>):void $emit
 	 */
-	private function each_row( string $run_id, ?string $entity, bool $only_warnings, callable $emit ): void {
+	private function each_row( string $run_id, ?string $entity, bool $only_warnings, string $direction, callable $emit ): void {
 		$after_id   = 0;
 		$batch_size = self::PAGE_SIZE;
 
@@ -96,7 +119,7 @@ final class DryRunReportCsv {
 			foreach ( $batch as $item ) {
 				$after_id = (int) $item['id'];
 
-				foreach ( $this->rows_for_item( $item, $only_warnings ) as $row ) {
+				foreach ( $this->rows_for_item( $item, $only_warnings, $direction ) as $row ) {
 					$emit( $row );
 				}
 			}
@@ -110,7 +133,7 @@ final class DryRunReportCsv {
 	 * @param array<string,mixed> $item
 	 * @return array<int,array<int,string>>
 	 */
-	private function rows_for_item( array $item, bool $only_warnings ): array {
+	private function rows_for_item( array $item, bool $only_warnings, string $direction ): array {
 		$decoded  = json_decode( (string) $item['warnings_json'], true );
 		$warnings = is_array( $decoded ) ? $decoded : [];
 
@@ -123,7 +146,7 @@ final class DryRunReportCsv {
 		];
 
 		if ( [] === $warnings ) {
-			return $only_warnings ? [] : [ array_map( [ self::class, 'harden' ], array_merge( $base, [ '', '', '' ] ) ) ];
+			return $only_warnings ? [] : [ array_map( [ self::class, 'harden' ], array_merge( $base, [ '', '', '', '', '', '' ] ) ) ];
 		}
 
 		$rows = [];
@@ -144,9 +167,12 @@ final class DryRunReportCsv {
 				default => '',
 			};
 
+			// 同じコードでも行の種別で結果が違うものがある（`customer_account_protected` は顧客を飛ばし、受注はゲストとして書く）。
+			$description = WarningCatalog::describe( $warning, $direction, (string) $item['entity'] );
+
 			$rows[] = array_map(
 				[ self::class, 'harden' ],
-				array_merge( $base, [ $code, $detail ?? '', $note ] )
+				array_merge( $base, [ $code, $detail ?? '', $note, $description['severity'], $description['message'], $description['action'] ] )
 			);
 		}
 

@@ -1238,11 +1238,13 @@ final class RestController {
 	 */
 	public function get_run_report( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$run_id = $this->run_id_param( $request );
+		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
 
-		if ( [] === ( new JobRepository() )->find_by_run( $run_id ) ) {
+		if ( [] === $jobs ) {
 			return new WP_Error( 'cbjp_run_not_found', __( 'Run not found.', 'cart-bridge-jp' ), [ 'status' => 404 ] );
 		}
 
+		$direction     = DryRunReportCsv::direction_for_job_type( (string) $jobs[0]['type'] );
 		$entity        = $this->scalar_query_param( $request, 'entity' );
 		$entity        = is_string( $entity ) && in_array( $entity, self::ENTITY_TYPES, true ) ? $entity : null;
 		$only_warnings = (bool) $request->get_param( 'only_warnings' );
@@ -1270,14 +1272,26 @@ final class RestController {
 		// `WP_HTTP_Response`（`WP_REST_Response`のサブクラスでない）としてここに渡ってくる
 		// ことがありうる。`WP_REST_Response`で型宣言すると、この残留コールバックが無関係な
 		// ルートで発火した際、`!==`比較に達する前に`TypeError`で落ちてしまう。
+		//
+		// 警告の説明（`message`・`action`）はユーザーの言語で書く（R3-0k）。CSV のリンクは `<a href>` の非 JSON の要求で
+		// `_locale=user` が効かず（`determine_locale()`）、そのままではサイトの言語になって管理画面（ユーザーの言語）と食い違う。
 		$callback = null;
-		$callback = static function ( bool $served, WP_HTTP_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $response, &$callback ): bool {
+		$callback = static function ( bool $served, WP_HTTP_Response $result ) use ( $exporter, $run_id, $entity, $only_warnings, $direction, $response, &$callback ): bool {
 			if ( $result !== $response ) {
 				return $served;
 			}
 
 			remove_filter( 'rest_pre_serve_request', $callback );
-			$exporter->stream( $run_id, $entity, $only_warnings );
+
+			$switched = switch_to_user_locale( get_current_user_id() );
+
+			try {
+				$exporter->stream( $run_id, $entity, $only_warnings, $direction );
+			} finally {
+				if ( $switched ) {
+					restore_previous_locale();
+				}
+			}
 
 			return true;
 		};

@@ -10,7 +10,8 @@ namespace CartBridgeJP\Woo;
 /**
  * `WriteResult::$warnings` に積む警告コード定数。`"{code}:{detail}"` 形式の文字列にする
  * （F1-6のdry-run CSV・結果レポートが`:`で分解できる契約）。コード自体はi18nしない安定キーで、
- * 表示文言はUI側で `__()` する。
+ * 店舗向けの説明（重大度・原因・対処）は `Woo\WarningCatalog` に書く（R3-0k）。定数を足したら、取込み・エクスポートの
+ * 両方の向きの説明をカタログに足すこと（`WarningCatalogTest` が全定数について強制する）。
  */
 final class WarningCode {
 
@@ -21,14 +22,17 @@ final class WarningCode {
 	/**
 	 * `Sync\Importer::process_items()`の汎用catch-allが`EntityWriter::write()`/`validate()`の
 	 * 例外を拾った際に積む固定コード（F1-6のdry-run結果レポート用）。`Support\Logger`と同じ
-	 * 個人情報禁止ルールのため、例外メッセージ自体は含めない。
+	 * 個人情報禁止ルールのため、例外メッセージ自体は含めない。`Sync\Exporter::process_items()`も
+	 * `PlatformWriter::write()`の例外で同じコードを積む（dry-run の書き手は例外を投げないので、エクスポートの CSV には実質出ない）。
 	 */
 	public const VALIDATION_EXCEPTION = 'validation_exception';
 
 	/**
-	 * `Woo\Writer\ProductWriter`（インポート方向）専用。`woocommerce_prices_include_tax`が偽のため、
+	 * `Woo\Writer\ProductWriter`（インポート方向）専用。`wc_prices_include_tax()`が偽のため、
 	 * ASPの税込価格をそのまま書くとWoo側でチェックアウト時に税が上乗せされうる（警告のみ・自動変更しない。
-	 * docs/03 §5「税の扱い」）。エクスポート方向は`PRICES_CONVERTED_TO_TAX_INCLUSIVE`。
+	 * docs/03 §5「税の扱い」）。`wc_prices_include_tax()`は税計算 OFF でも偽なので、税計算 OFF の店舗でも付く（その場合は
+	 * 税が上乗せされず、取り込んだ価格がそのまま支払額になる）。店舗全体の設定なので、Writer のインスタンス（ページ）につき最初の 1 商品にだけ付く。
+	 * エクスポート方向は`PRICES_CONVERTED_TO_TAX_INCLUSIVE`。
 	 */
 	public const PRICES_INCLUDE_TAX_DISABLED = 'prices_include_tax_disabled';
 	public const CURRENCY_MISMATCH           = 'currency_mismatch';
@@ -139,8 +143,9 @@ final class WarningCode {
 
 	/**
 	 * エクスポート時、WooCommerceの3軸以上のバリエーション属性のうち3軸目以降を検出した
-	 * （`CanonicalProduct::$variants`のoption1/2規約は2軸まで）。先頭2軸のみを使い、
-	 * 異なる3軸目の値を持つバリエーション同士が同じoption1/2の組に潰れうることを警告する。
+	 * （`CanonicalProduct::$variants`のoption1/2規約は2軸まで。`Woo\Support\VariationAxisResolver`）。
+	 * 異なる3軸目の値を持つバリエーション同士が同じoption1/2の組に潰れるため、`indicates_export_blocking()`の対象にして
+	 * 商品ごと送らない（先頭2軸で送るのではない）。
 	 */
 	public const VARIATION_AXIS_LIMIT_EXCEEDED = 'variation_axis_limit_exceeded';
 
@@ -181,8 +186,8 @@ final class WarningCode {
 	/**
 	 * エクスポート時、Wooの`tax_status`が`taxable`以外（`shipping`/`none`）。`CanonicalProduct`は
 	 * `tax_status`を運ぶフィールドを持たず（`tax_class`のみ）、無警告のまま変換先へ渡すと
-	 * 「送料のみ課税」「非課税」の商品が通常課税として扱われうることを警告する
-	 * （`Woo\Reader\ProductReader`）。
+	 * 「送料のみ課税」「非課税」の商品が通常課税として扱われうる（`Woo\Reader\ProductReader`）。
+	 * `indicates_export_blocking()`の対象で、商品を送らない（店舗の税計算が OFF でも止まる）。
 	 */
 	public const TAX_STATUS_NOT_TAXABLE = 'tax_status_not_taxable';
 
@@ -385,7 +390,7 @@ final class WarningCode {
 	 * (4) 親商品の軸属性が3つ以上
 	 * （`Woo\Support\VariationAxisResolver::axis_attributes()`が`VARIATION_AXIS_LIMIT_EXCEEDED`
 	 * を積む。`CanonicalProduct::$variants`のoption1/2規約は2軸までのため3軸目以降を切り捨てる）。
-	 * `Woo\Reader\ProductReader`はこの(3)を無警告（切り捨てるだけ）で扱うが、受注明細では3軸目の
+	 * `Woo\Reader\ProductReader`はこの(4)の商品を`VARIATION_AXIS_LIMIT_EXCEEDED`で止める。受注明細では3軸目の
 	 * 値が異なる複数のバリエーションがoption1/2の組だけでは区別できず、誤った商品を受注として
 	 * 記録しうる（Copilot指摘, PR #41 G2: 当初は`variation_option_values()`内で
 	 * `VARIATION_AXIS_LIMIT_EXCEEDED`警告を破棄しており受注側へ伝播していなかった）。
@@ -410,8 +415,9 @@ final class WarningCode {
 	 * `'taxable'`以外（送料のみ課税・非課税）。`CanonicalOrder::$line_items[].tax_reduced`は
 	 * bool（標準/軽減税率の2値）しか表現できないため、それ以外の税区分・非課税状態を無警告で
 	 * 標準課税として扱うと税額が誤って計算されうる（`Woo\Reader\ProductReader`の
-	 * `TAX_STATUS_NOT_TAXABLE`と同じ理由。CanonicalOrderに区分自体を運ぶフィールドが無いため
-	 * 警告のみで、値自体は`tax_reduced=false`にフェイルクローズする）。
+	 * `TAX_STATUS_NOT_TAXABLE`と同じ理由）。値は`tax_reduced=false`にフェイルクローズしたうえで、
+	 * `indicates_export_blocking()`の対象にして受注ごと送らない（issue #45）。`get_tax_status()`は受注時点ではなく
+	 * 商品の現在の課税状態を読む。detail は明細の ASP 側の商品 ID（未解決なら無し）。
 	 */
 	public const ORDER_LINE_TAX_CLASS_UNSUPPORTED = 'order_line_tax_class_unsupported';
 
@@ -462,7 +468,9 @@ final class WarningCode {
 
 	/**
 	 * `CanonicalCoupon::$has_unsupported_restrictions` が `true`: ASP側の利用制限のうちWooの
-	 * クーポン設定へ写せないものが残っているため保存を見送った。
+	 * クーポン設定へ写せないものが残っているため保存を見送った。エクスポート方向（`Woo\Reader\CouponReader`）では逆に、
+	 * ASP へ運べない Woo の設定（商品・カテゴリー・メールアドレスの制限、最大利用額、個別利用のみ、`fixed_product` 型、利用済み等）が
+	 * あるため送らない（`indicates_export_blocking()`）。
 	 */
 	public const COUPON_RESTRICTIONS_UNSUPPORTED = 'coupon_restrictions_unsupported';
 

@@ -20,6 +20,7 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\LogRepository;
@@ -27,6 +28,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\Tools\PrefStateRepair;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Coupon;
@@ -61,6 +63,11 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		// 言語の切替は WP のテスト基盤が戻さない。表明の失敗で切り替えたまま残ると、後続のテストが連鎖して落ちる（R3-0k の言語のテスト）。
+		while ( is_locale_switched() ) {
+			restore_previous_locale();
+		}
+
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
 		global $wp_rest_server;
@@ -1329,6 +1336,144 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( '', $output );
 
 		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	/**
+	 * R3-0k: CSV の警告の説明はユーザーの言語で書く（リンクは非 JSON の要求で `_locale=user` が効かず、そのままでは
+	 * サイトの言語になる）。サイトの言語（`ja`）とユーザーの言語（`en_US`。翻訳ファイルが無くても切り替えられる）を変えて、
+	 * 説明の文言が翻訳された時点の言語がユーザーの言語であること・書き終えたら戻ることを確かめる。サイトの言語の
+	 * `locale` フィルターは `WP_Locale_Switcher::filter_locale()`（優先度 10）より先に置き、切替中は切替先が勝つようにする。
+	 */
+	public function test_report_is_streamed_in_the_users_locale(): void {
+		$run_id = $this->start_report_with_a_warning();
+		update_user_meta( get_current_user_id(), 'locale', 'en_US' );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+
+		$seen = $this->stream_report_recording_locales( $run_id );
+
+		$this->assertNotSame( [], $seen );
+		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
+		$this->assertFalse( is_locale_switched() );
+		$this->assertSame( 'ja', get_locale() );
+	}
+
+	/**
+	 * ユーザーの言語が今の言語と同じなら切り替えず、戻しもしない（呼び出し側が先に切り替えていた言語を戻してしまわない）。
+	 */
+	public function test_report_does_not_restore_a_locale_it_did_not_switch(): void {
+		$run_id = $this->start_report_with_a_warning();
+		update_user_meta( get_current_user_id(), 'locale', 'en_US' );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+		$this->assertTrue( switch_to_locale( 'en_US' ) );
+
+		$seen = $this->stream_report_recording_locales( $run_id );
+
+		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
+		$this->assertTrue( is_locale_switched(), 'the outer switch must survive the report' );
+	}
+
+	/**
+	 * dry-run の run を作り、警告の付いた明細を 1 行入れる。
+	 */
+	private function start_report_with_a_warning(): string {
+		$run_id = $this->start_mock_dry_run();
+		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
+		( new DryRunItemRepository() )->insert_many(
+			$run_id,
+			(int) $jobs[0]['id'],
+			[
+				[
+					'entity'            => 'category',
+					'remote_id'         => 'c-locale',
+					'label'             => 'Locale',
+					'operation'         => 'created',
+					'existing_local_id' => 0,
+					'warnings'          => [ 'category_parent_unresolved:9' ],
+				],
+			]
+		);
+
+		return $run_id;
+	}
+
+	/**
+	 * CSV を書き出し、このプラグインの文言が翻訳された時点の言語を集める（書き出しの間だけ）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function stream_report_recording_locales( string $run_id ): array {
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		$seen     = [];
+		$recorder = static function ( string $translation, string $text, string $domain ) use ( &$seen ): string {
+			if ( 'cart-bridge-jp' === $domain ) {
+				$seen[] = determine_locale();
+			}
+
+			return $translation;
+		};
+		add_filter( 'gettext', $recorder, 10, 3 );
+
+		ob_start();
+		$served = apply_filters( 'rest_pre_serve_request', false, $response, $request, $this->server );
+		$output = (string) ob_get_clean();
+
+		remove_filter( 'gettext', $recorder, 10 );
+		remove_all_filters( 'rest_pre_serve_request' );
+
+		$this->assertTrue( $served );
+		$this->assertStringContainsString( 'category_parent_unresolved', $output );
+
+		return $seen;
+	}
+
+	/**
+	 * R3-0k: 警告の説明は run の種別（取込み・エクスポート）の向きで引く。同じコードでも向きで意味が違う
+	 * （通貨の不一致は取込みでは保存し、エクスポートでは送らない）。
+	 *
+	 * @dataProvider report_direction_cases
+	 */
+	public function test_report_describes_warnings_in_the_runs_direction( string $type, string $direction ): void {
+		$run_id = 'run-direction-' . str_replace( '_', '-', $type );
+		$job_id = ( new JobRepository() )->create( $run_id, $type, 'mock', 'order' );
+		( new DryRunItemRepository() )->insert_many(
+			$run_id,
+			$job_id,
+			[
+				[
+					'entity'            => 'order',
+					'remote_id'         => 'o1',
+					'label'             => '#1',
+					'operation'         => 'skipped',
+					'existing_local_id' => 0,
+					'warnings'          => [ 'currency_mismatch:USD' ],
+				],
+			]
+		);
+
+		$request  = new WP_REST_Request( 'GET', "/cbjp/v1/runs/{$run_id}/report" );
+		$response = $this->server->dispatch( $request );
+
+		ob_start();
+		apply_filters( 'rest_pre_serve_request', false, $response, $request, $this->server );
+		$output = (string) ob_get_clean();
+
+		$expected = WarningCatalog::describe( 'currency_mismatch:USD', $direction );
+		$this->assertStringContainsString( $expected['severity'] . ',', $output );
+		$this->assertStringContainsString( $expected['message'], $output );
+
+		remove_all_filters( 'rest_pre_serve_request' );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function report_direction_cases(): array {
+		return [
+			'import dry run' => [ JobManager::TYPE_DRY_RUN, WarningCatalog::IMPORT ],
+			'export dry run' => [ JobManager::TYPE_DRY_RUN_EXPORT, WarningCatalog::EXPORT ],
+		];
 	}
 
 	private function register_mock_adapter(): void {
