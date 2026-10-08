@@ -47,9 +47,9 @@ Color Me Shop cannot create categories through its API, so you map WooCommerce c
 
 The dry run covers all of your data. A real import or export moves a sample, so you can check the result in your own store before the full migration:
 
-* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added until the sample has 10 of each (the products from the orders are kept, up to 50).
+* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added until the sample has 10 of each (the products from the orders are kept, up to 50). An export also adds them when the orders bring no products or no customers (for example, orders placed by guests).
 * Categories and tags are not limited. Stock is limited to the sample products.
-* The limits count every item linked to Color Me Shop, whether it was imported or exported.
+* The limits count every item linked to Color Me Shop, whether it was imported or exported, and every export whose result is still unconfirmed.
 * Tools > Sample data cleanup removes the imported sample from WooCommerce. It deletes nothing in Color Me Shop: exported items stay there, and running the cleanup after an export removes the links to them, so exporting again creates them in Color Me Shop a second time.
 
 = Requirements =
@@ -65,7 +65,7 @@ This plugin connects to the Color Me Shop API (`https://api.shop-pro.jp`), opera
 
 * **What is sent**: your developer app's client ID and client secret, the authorization code, and your site's callback URL (to `https://api.shop-pro.jp/oauth/token`, to connect); the access token with every request; and, when you export, the data you choose to export: products (such as names, prices, descriptions, options, and stock), customers (such as names and their phonetic readings, company names and departments, email addresses, phone numbers, postal addresses, birthdays, notes, and newsletter consent), stock levels, and – if you turn on the Beta features – orders and product images.
 * **What is read**: your shop's settings (plan, tax settings), products, categories, groups, customers, orders (sales), stock, coupons, payment methods, and shipping methods.
-* **Images**: when you import products, the plugin downloads the product images from the image URLs that the Color Me Shop API returns.
+* **Images**: when you import products, categories, and groups, the plugin downloads their images from the image URLs that the Color Me Shop API returns.
 * The plugin sends no data to the plugin's author or to any other service, and has no tracking.
 
 Color Me Shop API terms of use: https://api.shop-pro.jp/developers/tos
