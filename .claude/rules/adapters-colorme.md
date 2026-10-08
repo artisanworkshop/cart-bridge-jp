@@ -59,6 +59,7 @@ paths:
   (1) `PUT /customers/{id}` は swagger では必須項目が無いが、実際は名前と住所（市区町村・番地）が無いと 422（「名前を入力してください」「市区町村・番地を入力してください」）。
   住所の 3 点（都道府県・郵便番号・住所 1）をそろえられない顧客（海外 `pref_id=48` など）の更新は、送る前に止める（R3-1c、issue #100: `CustomerTransformer::to_update_payload()` が
   `null` を返し、`push_customer()` が作成と同じ `CUSTOMER_REQUIRED_FIELD_MISSING` でスキップする。名前が空・50 文字超も同じ）。
+  電話番号は更新では必須でない（`tel` を省いた PUT が成功し、ColorMe の値はそのまま残る。2026-10-08 の再リハーサルで実測）。
   (2) `PUT /products/{id}` に `category_id_small` だけを送ると「指定したカテゴリidが無効です」。`category_id_big` と対で送る（プラグインの更新は対で送る）。
   作成で `category_id_big` を送らないと、ColorMe はショップの既定のカテゴリ（「初期カテゴリー」）に入れる（再取込みで Woo のカテゴリがそれに変わる）。
   (3) バリエーションの `option_market_price`（定価）は管理画面のオプション一覧にもストアフロントの「オプションの値段詳細」にも表示されない（税基準は判定できず、見える影響も無い）。
@@ -68,4 +69,6 @@ paths:
 - **説明などの HTML は `Cast::sanitize_html()`（＝`Woo\Support\HtmlText::sanitize_post_html()`）で浄化する。`wp_kses_post()` を直接使わない**: kses は `<script>`・`<style>` のタグを外すだけで中身の JS・CSS を文字として残し、商品ページに表示される（R3-1 で実測。issue #101）。`sanitize_post_html()` は 2 つの要素を中身ごと除いてから kses を掛ける。新しい ASP アダプタも同じ関数を使う（Woo の `ProductWriter` も保存前に同じ関数を通す）
 - **`CanonicalProduct::$name` は平文で渡す**（HTML・実体参照を含めない。`description` と `extras['short_description']` は HTML）。Woo 側は名前を HTML として保存するので、
   `ProductWriter` が実体参照にし、`ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、R3-1b・issue #99）。ASP が名前を実体参照で返すなら、アダプタの変換層で平文へ戻す
-  （そのまま渡すと二重に符号化されて Woo に `&amp;` が見える）。カラーミーの `name` は平文（R3-1 で `Tom & Jerry <set>` がそのまま返ることを実測）
+  （そのまま渡すと二重に符号化されて Woo に `&amp;` が見える）。カラーミーの `name` は API では平文（R3-1 で `Tom & Jerry <set>` がそのまま返ることを実測）。
+  ただしストアフロントの商品ページ（標準テンプレート）は名前を見出しにエスケープせずに出す（`<set>` は要素として消える。`<title>` はタグを除き、`alt` はエスケープする。
+  2026-10-08 の再リハーサルで実測）。名前の `<…>` の扱いは未決（backlog `r3-1-rerehearsal/F1`）

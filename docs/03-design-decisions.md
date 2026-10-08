@@ -1849,7 +1849,8 @@ D25「実体は作られた向きにだけ更新する」の実装。判定は�
   StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 8 か所〔走査の重複除去・ID でない値の除外を含む〕、複製フィルターの登録、
   受注明細のバリエーション解決〔このプラットフォームの mapping だけ〕）を壊して落ちることを確認（38 種）。サンプル選定の走査は同じ日時の行がページの境目で重複・欠落しないよう
   `orderby => 'date ID'`（HPOS・CPT・`WP_User_Query` とも空白区切りを受け付けることを実ソースで確認）で並べ、ID だけを取得する。
-  テストショップでの再リハーサル（`rehearse-colorme` の手順 2・3）は未実施（2026-10-05 ユーザー判断で後回し。`docs/10-tasks.md` R3-1a）。
+  テストショップでの再リハーサル（`rehearse-colorme` の手順 2・3）は 2026-10-05 のユーザー判断で後回しにし、2026-10-08 に R3-1b〜e とまとめて行った: 取込み直後の往復エクスポートは
+  何も送らず ColorMe の差 0、作成エクスポートの後の再取込みは Woo の差 0（記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」）。
 
 #### 商品名の保存形式（R3-1b、issue #99）
 
@@ -1889,8 +1890,12 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   `ProductReaderTest` で Woo 生まれの名前・取込みの名前の往復・タクソノミー属性、`VariationAxisResolverTest`、`RestControllerTest` の push intent）。
   `mutate-check.sh` で 15 種（Writer の符号化・更新時の符号化・説明の kses 2 か所・制御文字の除去・`ENT_SUBSTITUTE`・バックスラッシュの置換とその順序・二重符号化・
   引用符・復号の範囲・Reader の名前とターム・Resolver・Presenter）がすべて CAUGHT。wp-env の dev サイトでも実際の Writer/Reader で WP-Cron の条件（未ログイン＋`kses_init_filters()`）と管理者の
-  保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの確認（`rehearse-colorme` の `run context=cron|admin` → `check-import`、
-  Woo 生まれの `ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+  保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの再リハーサル（2026-10-08）で、`run context=cron|admin` の取込みがどちらも
+  `check-import` の食い違い 0・Woo の値が全件一致、Woo 生まれの `Fish &amp; Chips &lt;set&gt;` が ColorMe に `Fish & Chips <set>` で作られることを確認した（記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」）。
+- **ColorMe のストアフロントでの名前（2026-10-08 の再リハーサルで判明、対応は未決）**: API の `name` は平文で往復するが、ストアフロントの商品ページ（標準テンプレート）は
+  見出しに名前をエスケープせずに出す（`<set>` は要素として消える。`<title>` はタグを除き、`alt` はエスケープする）。API で直接投入した商品も同じなので ColorMe 側の仕様。
+  取込みでは、名前に装飾のタグを書いた ColorMe の店舗の名前が Woo でタグの文字のまま見え、エクスポートでは Woo で文字として見えている `<…>` が ColorMe で HTML として解釈される
+  （`unfiltered_html` の無い利用者が付けた名前がスクリプトとして動く余地がある）。backlog `r3-1-rerehearsal/F1`。
 
 #### 名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c、issue #100・#101）
 
@@ -1939,7 +1944,8 @@ R3-1 のリハーサル（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md` �
   `ColorMeAdapterTest`〔更新で PUT を送らない・`Exporter` との結合で mapping が残りエラーログが無い〕）。`mutate-check.sh` で除去・顧客の判定の各ガードがすべて CAUGHT（種類と件数は `docs/reviews/feat/r3-1c-customer-update-and-script-strip/R1.md`・`R2.md`）。
   wp-env の dev サイトで、P11 と同じ説明を `Cast::sanitize_html()` と実際の `ProductWriter`（WP-Cron の条件〔未ログイン＋`kses_init_filters()`〕と管理者）に通して JS・CSS の文字が残らず両者が一致すること、
   実アダプタの `push_customer()` が住所の無い顧客の更新で HTTP を一切送らずに警告つきでスキップすることを確認した。テストショップでの確認（`rehearse-colorme` の `check-import`〔script/style の中身が残れば MISMATCH〕と
-  手順 3 の顧客の更新）は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+  手順 3 の顧客の更新）は 2026-10-08 の再リハーサルで行い、P11 の JS・CSS の文字が残らないこと、郵便番号を消した顧客の更新が PUT を送らずにスキップされることを確認した。
+  電話番号だけを消した更新は `updated`（ColorMe は会員の更新で電話番号を必須にしない）なので、更新の判定に電話番号は足さない（記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」）。
 
 #### 税区分の見分け方とエクスポートの止め方（D26、R3-1d/e、issue #102・#78）
 
@@ -1985,7 +1991,8 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
   `mutate-check.sh` で分類の各分岐・候補の順・フォールバック・キャッシュのキー・Reader の判定（商品・バリエーション・`tax_status`・記号への変換・detail）・blocking と CSV の登録・商品だけの checksum 判定・受注の明細・アダプタのスキップと LogicException の 36 種と、review-loop R1 の修正 7 種・ゲート G2 の 1 種〔`TaxInclusivePrice` の非文字列〕がすべて CAUGHT（ほかに等価な置換 1 種〔`OrderItemBuilder` の記号の定数を同じ値の文字列に〕は対象外）。
   wp-env の dev サイトで、`rehearse-colorme` の `tax-classes mode=ja`（日本語インストールの状態）にして、実際の `ProductWriter`（WP-Cron の条件と管理者）で軽減税率の商品が「軽減税」に入り、
   `ProductReader`＋`Exporter` の dry-run（実アダプタ・`DryRunPlatformWriter`）で「軽減税」の商品が軽減の記号で作成対象・「免税」の商品が `tax_class_unsupported:免税` で止まることを確認し、`mode=en` で戻した。
-  テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う（2026-10-06 ユーザー決定）。
+  テストショップでの再リハーサル（2026-10-08、`tax-classes mode=ja`）で、取込みの軽減税率の商品が「軽減税」に入り、作成エクスポートで「軽減税」の商品が `tax_reduced=true` で作られ、
+  「免税」の商品が `tax_class_unsupported` で作られないことを確認した（記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」）。
 
 ### 10.3 Pro本移行時の重複防止・ツール（D16）
 

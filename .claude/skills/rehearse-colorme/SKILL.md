@@ -94,8 +94,9 @@ Woo で作った商品・顧客（`_cbjp_*` メタ無し）を export して Col
 バリエーションの `option_market_price`（定価）の税基準は API の応答に税込の対が無いので、管理画面・ストアフロントの表示で確かめる。
 名前・住所がそろわない顧客の更新（issue #100）: 作成エクスポートした Woo 生まれの顧客の郵便番号を消し（`npx wp-env run cli wp user meta update <user_id> billing_postcode ''`）、
 `type=export` で顧客が `skipped`・`warned` になり、`PlatformWriter threw while pushing a customer item.` のエラーログが出ない（PUT を送らない）ことを確かめてから郵便番号を戻す。
-続けて電話番号だけを消し（`billing_phone`）、`type=export` の結果を記録する（更新で電話番号が必須かは未実測。プラグインは電話番号を省いて送るので、
-`updated` なら必須ではない、422〔`PlatformWriter threw`〕なら必須で、`CustomerTransformer` の更新の判定に電話番号を足す。review-loop R1-6）。
+続けて電話番号だけを消し（`billing_phone`）、`type=export` が `updated` になることを確かめてから戻す（2026-10-08 の再リハーサルで、ColorMe は会員の更新で
+電話番号を必須にしないと実測した。プラグインは空の電話番号を省いて送り、ColorMe の値はそのまま残る。422〔`PlatformWriter threw`〕になったら仕様が変わったので、
+`CustomerTransformer` の更新の判定に電話番号を足す。review-loop R1-6）。
 
 ### 4. mock で確かめるもの
 
