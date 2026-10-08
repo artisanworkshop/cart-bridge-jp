@@ -1,0 +1,145 @@
+=== Cart Bridge JP – Migrate for WooCommerce ===
+Contributors: TODO-set-wporg-username-before-submission
+Tags: migration, import, export, woocommerce, japan
+Requires at least: 6.9
+Tested up to: 7.1
+Requires PHP: 8.2
+Stable tag: 0.1.0
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+
+Migrate between Color Me Shop and WooCommerce: import products, customers, and orders, or export products, customers, and stock.
+
+== Description ==
+
+Cart Bridge JP moves store data between Color Me Shop (カラーミーショップ), a Japanese e-commerce platform, and WooCommerce. Preview the whole migration first with a dry run that writes nothing, read why each item would be skipped or changed, then run it.
+
+It is built for a one-way migration: from Color Me Shop to WooCommerce, or from WooCommerce to Color Me Shop. It is not a sync tool, and moving the same items back and forth with the same shop is not supported. If that happens by mistake, items that were imported from the shop are not exported back to it, and items that were created in the shop by an export are not overwritten by a later import, so neither side's values are damaged.
+
+= Import from Color Me Shop =
+
+* Categories and groups (as product categories and product tags)
+* Products, including options (as variations), prices including tax, the standard and reduced tax rates, and images
+* Customers (members), including addresses
+* Orders, with the shop's payment methods, shipping methods, and order statuses mapped to WooCommerce ones
+* Stock
+* Coupons (coupons whose restrictions WooCommerce cannot represent are skipped)
+
+= Export to Color Me Shop =
+
+* Products (including options), customers, and stock
+* Orders – **Beta**: needs Color Me Shop's premium plan, has not been tested on a real premium-plan shop yet, and is off by default
+* Product image upload – **Beta**: needs the premium plan, has not been tested on a real premium-plan shop yet, and is off by default
+
+Color Me Shop cannot create categories through its API, so you map WooCommerce categories to existing Color Me Shop categories instead.
+
+= Before and after the migration =
+
+* **Dry run**: preview every item, in both directions, without writing anything. The dry run has no limit.
+* **CSV report**: download the dry run's results with a plain-language cause and fix for every warning.
+* **Mappings**: map payment methods, shipping methods, order statuses, and (for export) categories.
+* **Verification report**: after an import, compare item counts and order totals between the two stores.
+* **Tools**: clean up the sample data, rebuild the links between the stores (for example after moving the database), and repair prefecture data saved by earlier versions.
+* Works with WooCommerce's High-Performance Order Storage (HPOS). Orders are written only through WooCommerce's own APIs.
+* Long migrations run in the background with Action Scheduler, wait automatically when the API's rate limit is reached, and can be retried or cancelled.
+
+= Free version limits =
+
+The dry run covers all of your data. A real import or export moves a sample, so you can check the result in your own store before the full migration:
+
+* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10.
+* Categories and tags are not limited. Stock is limited to the sample products.
+* Tools > Sample data cleanup removes the sample from WooCommerce.
+
+= Requirements =
+
+* WooCommerce 10.0 or later
+* A Color Me Shop store, and a developer app that you register yourself in Color Me Shop's developer center (the plugin shows the redirect URI to register)
+
+= External services =
+
+This plugin connects to the Color Me Shop API (`https://api.shop-pro.jp`), operated by GMO Pepabo, Inc., only while you use it: when you connect your shop, test the connection, run a dry run, an import, an export, or a tool that checks data against the shop.
+
+* **What is sent**: your developer app's client ID and client secret and the authorization code (to `https://api.shop-pro.jp/oauth/token`, to connect); the access token with every request; and, when you export, the products (names, prices, descriptions, options, stock), customers (names, email addresses, phone numbers, postal addresses), stock levels, and – if you turn on the Beta features – orders and product images that you choose to export.
+* **What is read**: your shop's settings (plan, tax settings), products, categories, groups, customers, orders (sales), stock, coupons, payment methods, and shipping methods.
+* **Images**: when you import products, the plugin downloads the product images from the image URLs that the Color Me Shop API returns.
+* The plugin sends no data to the plugin's author or to any other service, and has no tracking.
+
+Color Me Shop API terms of use: https://api.shop-pro.jp/developers/tos
+Color Me Shop terms of service: https://shop-pro.jp/terms/colorme-terms/
+GMO Pepabo privacy policy: https://pepabo.com/company/privacy/
+
+= Trademarks =
+
+WooCommerce and its associated designs are trademarks of Automattic Inc. Color Me Shop (カラーミーショップ) is a trademark of GMO Pepabo, Inc. This plugin is not affiliated with or endorsed by Automattic Inc. or GMO Pepabo, Inc.
+
+== Installation ==
+
+1. Install and activate WooCommerce, then install and activate this plugin.
+2. Go to WooCommerce > Cart Bridge JP > Connections. Copy the callback URL shown there.
+3. In Color Me Shop's developer center, register a developer app and set its redirect URI to that callback URL.
+4. Enter the app's client ID and client secret, save the settings, and click "Connect to Color Me Shop".
+5. In the Mappings tab, map payment methods, shipping methods, and order statuses (and categories, if you export).
+6. In the Import or Export tab, choose what to migrate and run a dry run first. Read the warnings in the CSV report, then run the real migration.
+
+== Frequently Asked Questions ==
+
+= Can I keep the two stores in sync, or import and export the same items back and forth? =
+
+No. The plugin is built for a one-way migration. If you import items from a shop and then export to the same shop, the imported items are skipped (warning `linked_by_import_not_exported`). If you export items to a shop and then import from it, the exported items are not overwritten (warning `linked_by_export_not_imported`). This keeps either side's values from being changed by a round trip, but a round trip is not supported in other ways: for example, an item whose link was removed is treated as a new item.
+
+= What does the free version migrate? =
+
+The dry run covers everything. A real import or export moves a sample that starts from the latest 10 orders: those orders, their products (up to 50), their customers (up to 10), and up to 10 coupons. Categories and tags are not limited. Use the sample to check the result in your store before the full migration, and use Tools > Sample data cleanup to remove it.
+
+= What are the Beta features? =
+
+Exporting orders and uploading product images use parts of the Color Me Shop API that are available only on the premium plan. They have been tested with mock data but not yet on a real premium-plan shop, so they are marked Beta and are off by default: the "Orders (Beta)" checkbox is unchecked, and "Upload product images (Beta)" is off. They appear only when the connected shop is on the premium plan. Turning on image upload replaces the shop's existing images at the same positions.
+
+= The export skipped a product, a stock row, or an order with a warning. How do I fix it? =
+
+The dry run's CSV report lists the warning code for each item, with the cause and the fix. These warnings stop an item from being exported:
+
+* `variation_stock_management_mixed` – The variations’ stock settings are mixed: some manage stock and others do not, or variations that do not manage stock differ in stock status (in stock and out of stock). A platform that manages stock per product cannot represent this, so the product and its stock are not exported. **Fix**: Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock).
+* `variation_any_attribute_unsupported` – A variation uses “Any” for an attribute, which the platform cannot represent, so the product is not exported. **Fix**: Replace the “Any” variation with one variation for each value of the attribute.
+* `tax_class_unsupported` – The product’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported (it would be sold with the wrong tax). **Fix**: Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)
+* `variation_tax_class_unsupported` – The tax class of a published variation has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported. **Fix**: Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)
+* `tax_status_not_taxable` – The product’s tax status is “Shipping only” or “None”, which the platform cannot represent, so the product is not exported. **Fix**: If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)
+* `price_tax_basis_unresolved` – The price cannot be converted to a price including tax: the tax class has tax rates, but none of them applies to the store’s address. The product is not exported. **Fix**: Add a tax rate that applies to the store’s address (or to all locations) to the tax class in WooCommerce > Settings > Tax, or correct the store address.
+* `product_price_invalid` – The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store. **Fix**: Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes.
+* `all_variations_excluded` – None of the product’s variations can be exported (they are not enabled or have no valid price, or the product has no variations), so the product is not exported. **Fix**: Enable at least one variation with a valid price. The other warnings for this product show why each variation was left out.
+* `product_price_not_convertible` – The product’s prices cannot be converted to the platform’s prices because the platform’s tax settings cannot be used, so the product is not exported. **Fix**: Check the tax settings on the platform (prices including or excluding tax, the standard and reduced rates, and rounding), then export again.
+* `stock_product_not_exported` – The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock. **Fix**: Include products in the export. If the product or this variation is not exported because of other warnings, fix those first.
+* `currency_mismatch` – The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).
+* `order_refunded` – The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported. **Fix**: Create the order on the platform by hand if you need it.
+* `order_line_variation_unresolved` – The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported. **Fix**: If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand.
+
+= In the CSV report, one warning says an item is exported and another says it is not. Which is right? =
+
+The report has one row for each warning, so an item with several warnings has several rows, and each warning describes only its own check. The item's result is in the `operation` column (`created`, `updated`, or `skipped`), which is the same on all of the item's rows. Warnings whose `severity` is `blocking` are the ones that stop an item; fix those first.
+
+= How are product names with HTML handled? =
+
+Color Me Shop shows product names as HTML on the storefront. When you import, the plugin saves the name as the storefront shows it: tags are removed and character references (such as `&amp;`) are turned back into characters. When you export, the WooCommerce name is sent as it is, so a name that contains `<…>` is shown as HTML by Color Me Shop.
+
+= Does it work with High-Performance Order Storage (HPOS)? =
+
+Yes. The plugin declares HPOS compatibility and reads and writes orders only through WooCommerce's APIs.
+
+= What happens to my data when I uninstall the plugin? =
+
+The products, customers, and orders that were migrated stay in WooCommerce. By default, the plugin's own data (the links between the stores, the job history, the logs, and the saved connection) is also kept, so you can reinstall the plugin and continue.
+
+== Screenshots ==
+
+1. Connections: connect your Color Me Shop with your own developer app.
+2. Import: the dry run's results, with counts and a CSV report for each kind of data.
+3. Mappings: map payment methods, shipping methods, order statuses, and categories.
+4. Export: choose what to export. Order export and image upload are Beta and off by default.
+5. Tools: clean up the sample data, rebuild links, and repair prefecture data.
+
+== Changelog ==
+
+= 1.0.0 =
+* First release on WordPress.org: import from Color Me Shop, and export products, customers, and stock to Color Me Shop. Order export and product image upload are Beta.
+* If you used a 0.x version from GitHub: imported product names are now saved as Color Me Shop's storefront shows them. A previously imported product whose name contains `<` or `&` is updated once by the next import, which also replaces changes you made to that product in WooCommerce with the values from Color Me Shop.
