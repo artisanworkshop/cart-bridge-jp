@@ -1,6 +1,6 @@
 # 実装タスク（WBS）
 
-最終更新: 2026-10-06
+最終更新: 2026-10-08
 
 本ファイルが実装タスクの唯一の管理台帳。各タスクは Opusplan の1セッション（plan → 実装 → 検証）で
 完結する粒度に分割してある。
@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は実装済みで、テストショップでの再リハーサル（まとめて 1 回）が残る。R3-2（i18n・日本語訳の同梱）完了 |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は完了（PR #104〜#107）で、テストショップでの再リハーサル（まとめて 1 回、お試し期限 2026-10-22）が残る。R3-2（i18n・日本語訳の同梱、PR #109）完了。残りは R3-3・R3-4・R3-5 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 無料版上限の解除（プラットフォーム非依存） | — | 別リポジトリ |
@@ -662,10 +662,10 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     ColorMe API の実測（小カテゴリだけの PUT は拒否、会員の PUT の必須項目、誕生日がこのショップでは保存されない）は `.claude/rules/adapters-colorme.md` に記録
   - **mock**（`verify-with-mock-adapter`）: R3-0b の既存 example が ALL PASS。R3-0a 用に `examples/partial-push/` を新設し ALL PASS（`Exporter` を壊すミューテーションで FAIL を確認）。
     プレミアム限定ベータは mock の能力をプレミアム相当／非プレミアム相当に切り替え、画像の設定（200／400）と受注 export のジョブの有無を確認
-- [ ] **R3-1a: 実体は作られた向きにだけ更新する（D25、issue #98）**（取り込んだ商品・顧客・在庫は export しない〔情報の警告〕、export で作った実体は取込みで上書きしない。
+- [x] **R3-1a: 実体は作られた向きにだけ更新する（D25、issue #98）**（取り込んだ商品・顧客・在庫は export しない〔情報の警告〕、export で作った実体は取込みで上書きしない。
   出自の判定は `_cbjp_platform`＋`_cbjp_remote_id` だけでは足りない〔メールで再利用した既存顧客、export で作った実体を再取込みした場合にも付く〕ので、作成の印〔顧客は既存の
   `_cbjp_created_by_import`、商品は新設が要るか〕を計画で決める。`rehearse-colorme` の手順 2・3 を `reset-local` からやり直して確認）
-  **実装サマリ（2026-10-05、ブランチ `feat/r3-1a-direction-of-origin`。実装済み・実機の再リハーサル待ち）**: 計画で、印は新設せず `_cbjp_platform` を「取込みで結ばれた」印に使い、
+  **実装サマリ（2026-10-05、PR #104。ブランチ `feat/r3-1a-direction-of-origin`。テストショップでの確認は下の「R3-1 再リハーサル」）**: 計画で、印は新設せず `_cbjp_platform` を「取込みで結ばれた」印に使い、
   「誰が作ったか」ではなく「誰が紐づけたか」で判定すると決めた（メールで採用した顧客は取込み側、顧客は `_cbjp_created_by_import` も見る。判定は新設 `Woo\Support\EntityOrigin`）。
   エクスポート側は各 Reader が `ReadItem::$linked_by_import` を立て、`Exporter` が `linked_by_import_not_exported` でスキップする（mapping の有無によらず。mapping・無料枠・intent に触れない）。
   インポート側は `WooRepository`/`DryRunRepository` が writer の前で、在庫は `StockWriter` が解決した対象で判定し、`linked_by_export_not_imported` でスキップする（local_id 0。mapping に触れない）。
@@ -678,9 +678,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   リポジトリ 2 つ、実体の有無、保護ロール、空のプラットフォーム、StockWriter の判定と順序、Importer の `unchanged`、サンプル選定 8 か所、複製フィルターの登録、受注明細のバリエーション解決 3 か所〔別プラットフォームの mapping を含めない〕ほか）がすべて CAUGHT。
   `rehearse-colorme` に `seed-woo prefix=`・`diff side=woo`・`check-import` の `LINKED_BY_EXPORT` を追加した。**テストショップでの再リハーサル（手順 2・3）は未実施**（2026-10-05 ユーザー判断で後回し。
   **R3-1b〜e の実装後にまとめて行う**〔2026-10-06 ユーザー決定〕。お試し期限 2026-10-22 まで）
-- [ ] **R3-1b: 商品名を実体参照にして保存し、エクスポートで戻す（issue #99）**（ランナーによらず同じ結果にする。`context=cron`／`admin` の両方で取り込んで確認。
+- [x] **R3-1b: 商品名を実体参照にして保存し、エクスポートで戻す（issue #99）**（ランナーによらず同じ結果にする。`context=cron`／`admin` の両方で取り込んで確認。
   R3-1a〔D25〕で取り込んだ商品はエクスポートしなくなったので、エクスポートで戻す側の対象は Woo 生まれの商品だけになった）
-  **実装サマリ（2026-10-06、ブランチ `feat/r3-1b-product-name-entities`。実装済み・実機の再リハーサル待ち）**: 新設 `Woo\Support\HtmlText` に平文⇔HTML の変換を集約。
+  **実装サマリ（2026-10-06、PR #105。ブランチ `feat/r3-1b-product-name-entities`。テストショップでの確認は下の「R3-1 再リハーサル」）**: 新設 `Woo\Support\HtmlText` に平文⇔HTML の変換を集約。
   取込み（`ProductWriter`）は名前の `&` `<` `>` を実体参照（二重に符号化）・`\` を `&#092;` にして保存し（引用符はそのまま）、説明・短い説明は Writer 自身が `wp_kses_post()` してから保存する。
   エクスポート（`ProductReader`）は名前を `html_entity_decode` で平文へ戻し、WP が常に実体参照で保存するターム名（グローバル属性の値。`VariationAxisResolver`・`ProductReader::options()`）も戻す。
   push intent の一覧の商品名も戻す。計画時のユーザー回答で、issue の対応案（`esc_html()`）から方式を変え、ターム名・説明・push intent の表示を範囲に含めた。
@@ -690,9 +690,9 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **検証**: PHPUnit 追加 32 件（データセット込み。未ログイン〈kses あり〉と管理者で保存した名前・更新・バリエーション名・説明・制御文字の一致、Writer→Reader の往復、ターム名、不正な UTF-8）。
   `mutate-check.sh` で 15 種がすべて CAUGHT。wp-env の dev サイトで実際の Writer/Reader により WP-Cron の条件と管理者の保存結果が一致することを確認した。
   **テストショップでの確認（`run context=cron|admin` → `check-import`、`ZZW-6` の作成エクスポート）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
-- [ ] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい。
+- [x] **R3-1c: 海外会員の更新を警告つきでスキップ（issue #100）＋説明の `<script>`・`<style>` を中身ごと除去（issue #101）**（小さな修正 2 件。1 PR にまとめてよい。
   R3-1a〔D25〕で取り込んだ会員はエクスポートしなくなったので、#100 の対象はエクスポートで作った〔Woo 生まれの〕海外の顧客の更新だけになった）
-  **実装サマリ（2026-10-06、ブランチ `feat/r3-1c-customer-update-and-script-strip`。実装済み・実機の再リハーサル待ち）**: #100 は `CustomerTransformer::to_update_payload()` が名前（空白だけでない・50 文字以内）と
+  **実装サマリ（2026-10-06、PR #106。ブランチ `feat/r3-1c-customer-update-and-script-strip`。テストショップでの確認は下の「R3-1 再リハーサル」）**: #100 は `CustomerTransformer::to_update_payload()` が名前（空白だけでない・50 文字以内）と
   住所 3 点を作成と共有の判定で確かめ、そろわなければ `null`、`ColorMeAdapter::push_customer()` が作成と同じ `customer_required_field_missing` で PUT を送らずにスキップする（既存の mapping は残る）。
   作成側にも名前が空のスキップを足した。理由の見せ方は計画時のユーザー決定で警告コードだけ（ログは足さない。dry-run には出ない既知の限界）。backlog `e2-3-push-customer/G1-name-length-on-update` は解消。
   #101 は新設 `Woo\Support\HtmlText::sanitize_post_html()` が `<script>`・`<style>` を中身ごと除いてから `wp_kses_post()` し、取込みの `Cast::sanitize_html()` と `ProductWriter` の説明・短い説明が使う
@@ -700,12 +700,12 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   `rehearse-colorme` の `check-import` は script/style の中身が Woo の説明に残っていれば MISMATCH にし、手順 3 に顧客の更新のスキップの確認を足した（issue の「C05 で確かめる」は D25 で C05 がエクスポートされなくなったため置き換え）。
   **検証**: PHPUnit 追加 53 件（データセット込み。計 1631）。`mutate-check.sh` で 26 種（除去 18・顧客 8）がすべて CAUGHT。review-loop R1 の独立レビューで、属性値・コメント・CDATA の中の `<script>` という文字から後ろの説明を消す問題を見つけ、開始タグをタグの区切りで見つける形に作り直した（あわせて二乗の探し直しも解消）。R2 の独立レビューで、その作り直しが `容量 < 500ml` のような文字の `<` の後ろの `<style>` を見落とすと分かり、`<` の扱いとコメントの扱いをブラウザ・kses に合わせた。PR #106 のゲートで、除去の前に kses と同じく制御文字を消すようにし（Codex G1-2）、`check-import` の判定を WP の HTML API で作った期待値との完全一致に作り直した（Copilot G1〜G3）。wp-env の dev サイトで実際の `Cast`・`ProductWriter`（WP-Cron の条件と管理者）・`push_customer()` を通して確認した。
   **テストショップでの確認は R3-1b〜e の実装後の再リハーサルでまとめて行う**
-- [ ] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
-  **実装（2026-10-06、R3-1e と 1 つのブランチ `feat/r3-1de-tax-class-detection`。実装済み・実機の再リハーサル待ち）**: 下の R3-1e の実装サマリにまとめた
-- [ ] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する。
+- [x] **R3-1d: 標準・軽減以外の税区分の商品と価格を換算できない商品のエクスポートを止める（issue #78、2026-10-05 に v1.0 へ含めると決定）**（hidden 安全策で作成して後から公開される経路を無くす。D22／D23 と同じ止める警告。**先に R3-1e の方針を決める**: 日本語でインストールした Woo では軽減税率の税区分が `reduced-rate` でないため、そのままでは日本の店舗の軽減税率の商品がすべて止まる）
+  **実装（2026-10-06、PR #107。R3-1e と 1 つのブランチ `feat/r3-1de-tax-class-detection`。テストショップでの確認は下の「R3-1 再リハーサル」）**: 下の R3-1e の実装サマリにまとめた
+- [x] **R3-1e: 軽減税率の税区分の見分け方（issue #102。D26、2026-10-05 決定）**（WooCommerce は既定の税区分を翻訳された名前〔日本語は「軽減税」〕から作るので、スラッグ `reduced-rate` 決め打ちでは日本語でインストールした店舗で外れ、取込みで 8% の商品が 10% になる〔金銭〕。**JP の税率が 8%／10% の税区分を自動判定する**。必要な税率が Woo に無い場合は dry-run で先に税率を作るよう促す。R3-1d と合わせて実装する。
   **R3-1a〜e をすべて実装した後、テストショップで `rehearse-colorme` の再リハーサルをまとめて行う**〔2026-10-06 ユーザー決定。PR ごとには行わない。お試し期限 2026-10-22 まで。
   R3-1a〔D25〕の確認手順は `docs/reviews/feat/r3-1a-direction-of-origin/final-report.md`〕）
-  **実装サマリ（2026-10-06、R3-1d と 1 つのブランチ `feat/r3-1de-tax-class-detection`。実装済み・実機の再リハーサル待ち）**: `Woo\Support\TaxClass` が税区分を **JP の税率**で分類する
+  **実装サマリ（2026-10-06、PR #107。R3-1d と 1 つのブランチ `feat/r3-1de-tax-class-detection`。テストショップでの確認は下の「R3-1 再リハーサル」）**: `Woo\Support\TaxClass` が税区分を **JP の税率**で分類する
   （JP 10% → 標準、8% → 軽減、それ以外〔0% を含む〕→ unsupported、JP の税率が分からない → unconfigured。標準 `''` は JP の税率が無ければ標準〔review-loop R1 のユーザー決定でエクスポートは `''` も税率で分類〕。税率が 1 件も無い既定名〔`reduced-rate`・「軽減税」〕は軽減）。
   正規化モデルの `'reduced-rate'`（`CanonicalProduct::TAX_CLASS_REDUCED`）は Woo のスラッグではなく記号と位置づけ直した（英語でインストールした店舗では checksum が変わらない）。
   取込みは JP 8% の税区分へ入れ、無ければ税率の無い既定名の税区分（`tax_rates_not_configured`）、それも無ければ標準に倒して `reduced_tax_class_not_found`（本実行は止めない。商品だけ checksum を保存しない）。
@@ -717,8 +717,14 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   **検証**: PHPUnit 計 1683（main から +52。hidden 安全策を前提にしたテストは作成・更新しないことの確認に書き換え）。`mutate-check.sh` で 44 種（review-loop R1 の 7 種・ゲート G2 の 1 種を含む）がすべて CAUGHT。wp-env の dev サイトで `tax-classes mode=ja` にして、実際の `ProductWriter`（WP-Cron の条件と管理者）・`ProductReader`＋`Exporter` の dry-run で確認した。
   **既知の限界**: この変更より前に日本語の Woo へ取り込んだ軽減税率の商品は、checksum 保存済みのため再取込みでは直らない。取込みの標準の商品は常に `''` に入る（`''` に 10% 以外を入れた店舗では誤る。backlog `r3-1de-tax-class-detection/R1-X1`）。
   **テストショップでの確認（`tax-classes mode=ja` での取込み・作成エクスポート、ゼロ税率の商品が止まること）は R3-1b〜e の実装後の再リハーサルでまとめて行う**
-- [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07。ブランチ `feat/r3-2-i18n`）
-  **実装サマリ**: 日本語（`ja`）の訳を `languages/` に同梱した（`cart-bridge-jp.pot`・`cart-bridge-jp-ja.po`〈554 文字列すべて訳済み〉・`.mo`・`.l10n.php`・管理画面の JS 用の JSON）。
+- [ ] **R3-1 再リハーサル: R3-1a〜e をテストショップでまとめて確認する**（2026-10-06 ユーザー決定。PR ごとには行わない。**お試し期限 2026-10-22 まで**）
+  `rehearse-colorme` を `reset-local` からやり直し、各タスクの確認をまとめて行う:
+  R3-1a〔D25〕は手順 2・3（確認手順は `docs/reviews/feat/r3-1a-direction-of-origin/final-report.md`）、
+  R3-1b は `run context=cron|admin` → `check-import` と `ZZW-6` の作成エクスポート、
+  R3-1c は説明の script/style の除去（`check-import`）と手順 3 の顧客の更新のスキップ、
+  R3-1d/e は `tax-classes mode=ja` での取込み・作成エクスポートと、ゼロ税率の商品が止まること
+- [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07、PR #109。ブランチ `feat/r3-2-i18n`）
+  **実装サマリ**: 日本語（`ja`）の訳を `languages/` に同梱した（`cart-bridge-jp.pot`・`cart-bridge-jp-ja.po`〈555 文字列すべて訳済み〉・`.mo`・`.l10n.php`・管理画面の JS 用の JSON）。
   生成は `bin/i18n.sh pot|po|compile|check`（`npm run i18n:*`。WP-CLI は wp-env の cli コンテナ）。**JS の文字列は `build/index.js` から抜く**（make-pot は TypeScript を読まない。
   参照が build になるので JSON の名前が `wp_set_script_translations()` の探す md5 と一致する）。**文字列を変える PR は POT と ja.po の更新が必須**（ユーザー決定）で、
   CI の PHPUnit ジョブと `quality.sh` の `npm run i18n:check` がビルド済みのソースから POT を作り直して比べ、`TranslationsTest` が PO・生成物・実行時の読み込みを確かめる。
@@ -727,9 +733,11 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   日時・金額の書式をユーザーの言語に（`cbjpAdmin.locale`）、資格情報が未保存のときの英語の例外メッセージを翻訳した文言に、`8% for` の書式誤認・存在しないボタン名の案内・
   「ColorMe Shop」の表記揺れ・開発中の文言。訳語はユーザー決定（Order(s)＝注文、dry run＝書き込みなし）と WooCommerce の日本語訳（言語パックで実測）に合わせた。
   用語集・含めなかったもの（サーバーが英語で保存する文言ほか）は `docs/03` §6「翻訳（R3-2）」と backlog `r3-2-i18n/plan-*`。
-  確認: `TranslationsTest` 10 件（ミューテーション 8 種がすべて CAUGHT）・Jest 2 ファイル、`i18n:check` が「文字列の追加」「翻訳者コメントの食い違い」で失敗することを実測。
+  PR #109 のゲートで、訳のパスの登録を WooCommerce・オートロードを確かめるガードの外（メインファイルの `cbjp_load_textdomain()`）へ移した（ガードの中だと前提条件の通知が英語のまま出る。Codex G1-1）。
+  確認: `TranslationsTest` 11 件（ミューテーション 8 種がすべて CAUGHT）・Jest 2 ファイル、`i18n:check` が「文字列の追加」「翻訳者コメントの食い違い」で失敗することを実測。
   dev サイトでサイトの言語を一時的に `ja` にしてフロント・REST・admin-ajax・cron を叩き「too early」通知が出ないこと、管理者のユーザー言語を `ja` にして
-  `Assets::enqueue()` の経路で JS に日本語の訳と `cbjpAdmin.locale` が渡ること・警告カタログが日本語になることを確認した（どちらも元に戻した。管理画面の目視は最終報告の後）
+  `Assets::enqueue()` の経路で JS に日本語の訳と `cbjpAdmin.locale` が渡ること・警告カタログが日本語になることを確認した（どちらも元に戻した）。
+  **マージ後に残る確認（ユーザー）**: 日本語の訳の言い回し（とくに用語集と警告カタログの対処の文）と、ユーザー言語を日本語にした管理画面の目視（長い日本語でレイアウトが崩れないか）
 - [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
