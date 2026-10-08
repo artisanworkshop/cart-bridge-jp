@@ -32,6 +32,45 @@ final class HtmlText {
 	private const TAG_NAME_TERMINATORS = " \t\n\f\r/>";
 
 	/**
+	 * {@see self::visible_text()} が空白 1 つにするタグ（`<br>` とブロック要素。ブラウザは前後を改行して表示する）。WP の HTML API の大文字のタグ名。
+	 */
+	private const BREAKING_TAGS = [
+		'BR',
+		'P',
+		'DIV',
+		'LI',
+		'UL',
+		'OL',
+		'DL',
+		'DT',
+		'DD',
+		'HR',
+		'H1',
+		'H2',
+		'H3',
+		'H4',
+		'H5',
+		'H6',
+		'BLOCKQUOTE',
+		'PRE',
+		'TABLE',
+		'CAPTION',
+		'TR',
+		'TD',
+		'TH',
+		'ADDRESS',
+		'ARTICLE',
+		'ASIDE',
+		'FIGURE',
+		'FIGCAPTION',
+		'FOOTER',
+		'HEADER',
+		'MAIN',
+		'NAV',
+		'SECTION',
+	];
+
+	/**
 	 * `<` の直後に来るとタグの始まりになる文字（{@see self::opens_markup()}）。
 	 */
 	private const MARKUP_OPENERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/!?';
@@ -185,10 +224,13 @@ final class HtmlText {
 	 *
 	 * - `<` も `&` も含まない文字列は何も変えずに返す（既存の取込みの checksum を変えない）。
 	 * - それ以外は WP の HTML API（{@see \WP_HTML_Tag_Processor::next_token()}）でブラウザと同じく字句解析し、文字のトークンだけをつなぐ。
-	 *   実体参照は戻り（`Q&amp;A` → `Q&A`）、文字の `<`（`1<2`・`容量 < 500ml`）は残り、`<script>`・`<style>`・`<textarea>`・`<title>` の
-	 *   中身とコメントは出さない。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
-	 * - `<br>` は空白 1 つにする（`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして
-	 *   前後を除く（タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。
+	 *   実体参照は戻り（`Q&amp;A` → `Q&A`。セミコロンの無い古い形〔`&copy2023` → `©2023`〕もブラウザと同じく戻る）、文字の `<`
+	 *   （`1<2`・`容量 < 500ml`）は残る。コメントと、HTML API が中身を文字のトークンとして返さない要素（`<script>`・`<style>`・`<textarea>`・
+	 *   `<title>`・`<xmp>`・`<iframe>`・`<noembed>`・`<noframes>`）の中身は出さない（ブラウザが表示する `<textarea>`・`<xmp>` の中身も出さない。
+	 *   `<plaintext>` から後ろはタグも文字として表示するブラウザと違い、タグを除く）。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
+	 * - `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など。{@see self::BREAKING_TAGS}）の開始・終了タグは空白 1 つにする（ブラウザは改行して表示するので、
+	 *   前後の語をつなげない。`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして前後を除く
+	 *   （タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。
 	 */
 	public static function visible_text( string $html ): string {
 		if ( ! str_contains( $html, '<' ) && ! str_contains( $html, '&' ) ) {
@@ -203,7 +245,7 @@ final class HtmlText {
 
 			if ( '#text' === $type ) {
 				$text .= $processor->get_modifiable_text();
-			} elseif ( '#tag' === $type && 'BR' === $processor->get_tag() ) {
+			} elseif ( '#tag' === $type && in_array( $processor->get_tag(), self::BREAKING_TAGS, true ) ) {
 				$text .= ' ';
 			}
 		}

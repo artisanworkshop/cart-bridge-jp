@@ -24,7 +24,7 @@ if ( function_exists( 'cbjp_rh_args' ) ) {
  *
  * ColorMe のストアフロントは名前を見出しにエスケープせずに出すので、タグは表示されず実体参照は文字になる。プラグインは WP の HTML API で
  * 文字の部分を取り出す（`HtmlText::visible_text()`）ので、ここは別の実装（libxml の HTML パーサーの DOM）で作る: script・style・textarea・title を除き、
- * `<br>` を空白にした body の textContent の、HTML の空白の連続を 1 つにして前後を除く。`<` も `&` も無い名前はそのまま、表示される文字が無い名前
+ * `<br>` を空白にし、ブロック要素（`<p>`・`<div>`・`<li>` など）の前後に空白を置いた body の textContent の、HTML の空白の連続を 1 つにして前後を除く。`<` も `&` も無い名前はそのまま、表示される文字が無い名前
  * （タグだけ）は元の値（プラグインと同じく名前を失わない）。libxml は HTML5 の字句解析と細部が違うので、食い違ったら入力を見て判断する。
  */
 function cbjp_rh_visible_name( string $name ): string {
@@ -43,6 +43,13 @@ function cbjp_rh_visible_name( string $name ): string {
 	$breaks  = $xpath->query( '//body//br' );
 	$removed = false === $hidden ? [] : iterator_to_array( $hidden );
 	$spaced  = false === $breaks ? [] : iterator_to_array( $breaks );
+	$blocks  = [];
+
+	// ブラウザが前後を改行して表示するブロック要素は、前後に空白を置く（語をつなげない）。
+	foreach ( [ 'p', 'div', 'li', 'ul', 'ol', 'dl', 'dt', 'dd', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'table', 'caption', 'tr', 'td', 'th', 'address', 'article', 'aside', 'figure', 'figcaption', 'footer', 'header', 'main', 'nav', 'section' ] as $tag ) {
+		$found  = $dom->getElementsByTagName( $tag );
+		$blocks = array_merge( $blocks, iterator_to_array( $found ) );
+	}
 
 	foreach ( $removed as $node ) {
 		$node->parentNode?->removeChild( $node );
@@ -50,6 +57,11 @@ function cbjp_rh_visible_name( string $name ): string {
 
 	foreach ( $spaced as $node ) {
 		$node->parentNode?->replaceChild( $dom->createTextNode( ' ' ), $node );
+	}
+
+	foreach ( $blocks as $node ) {
+		$node->parentNode?->insertBefore( $dom->createTextNode( ' ' ), $node );
+		$node->parentNode?->insertBefore( $dom->createTextNode( ' ' ), $node->nextSibling );
 	}
 
 	$body = $dom->getElementsByTagName( 'body' )->item( 0 );

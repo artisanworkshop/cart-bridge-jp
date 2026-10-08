@@ -23,6 +23,8 @@ use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
  * 実体参照にし、`Woo\Reader\ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、issue #99）。ASP が名前を
  * 実体参照で返すなら、アダプタが平文へ戻してから渡す（そのまま渡すと二重に符号化され `&amp;` が見える）。ASP が名前を
  * HTML として表示するなら（ColorMe のストアフロント）、アダプタがタグを除き実体参照を戻した表示どおりの文字にしてから渡す（R3-1f）。
+ * ただし表示される文字が無い名前（タグだけ）は、名前を失わないよう元の値（HTML）のまま来ることがある。受け取る側は `name` を常に平文として扱う
+ * （HTML として出力しない。Woo には `from_plain()` で文字として保存される）。
  */
 final readonly class CanonicalProduct implements CanonicalModel {
 
