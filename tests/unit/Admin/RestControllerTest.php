@@ -1062,6 +1062,29 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_oauth_not_configured', $response->get_data()['code'] );
+		// R3-2: アダプタの英語の例外メッセージ（`ColorMeOAuth`）ではなく、翻訳できる文言を返す。
+		$this->assertSame( 'Save the Client ID and Client Secret first, then connect.', $response->get_data()['message'] );
+	}
+
+	/**
+	 * 要再接続（保存した値を復号できない）でも `authorize_url()` は同じ例外を投げるが、この状態では資格情報の保存も失敗するので、
+	 * 「先に保存して」ではなく消去へ案内する（R3-2 R1-4）。
+	 */
+	public function test_get_authorize_url_points_to_clearing_credentials_that_cannot_be_read(): void {
+		$this->register_colorme_adapter();
+		update_option( 'cbjp_token_colorme', 'not-decryptable' );
+		$this->assertTrue( ( new TokenStore( 'colorme' ) )->needs_reconnect() );
+
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'cbjp_oauth_not_configured', $response->get_data()['code'] );
+		$this->assertSame(
+			'The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect.',
+			$response->get_data()['message']
+		);
 	}
 
 	public function test_get_authorize_url_returns_a_url_once_credentials_are_saved(): void {

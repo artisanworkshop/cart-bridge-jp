@@ -574,7 +574,55 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は決済・配送の方法すべてが現行の候補にあった。
   必要になったら、直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して行を足す REST を検討する
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
-- UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）
+- UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）。日本語訳の同梱・生成・検査は次の「翻訳（R3-2）」
+
+### 翻訳（R3-2、2026-10-07）
+
+**同梱する訳は日本語（`ja`）だけ**。UI・dry-run CSV の文字列は英語の `__()` のまま書き、`languages/` に次をコミットする（配布物に入る。`.distignore` は除外しない）:
+
+| ファイル | 作り方 | 読むもの |
+|---|---|---|
+| `cart-bridge-jp.pot` | `npm run i18n:pot`（ビルド → `wp i18n make-pot`） | 翻訳の元。`bin/i18n.sh check` が鮮度を確かめる |
+| `cart-bridge-jp-ja.po` | `npm run i18n:po`（`wp i18n update-po`。無ければ `Plural-Forms: nplurals=1` のヘッダから作る）→ 訳す | 人が編集する唯一のファイル |
+| `cart-bridge-jp-ja.mo`・`.l10n.php` | `npm run i18n:compile`（`make-mo`・`make-php`） | PHP（メインファイルの `cbjp_load_textdomain()`〈`plugins_loaded`。WooCommerce・オートロードを確かめる `cbjp_bootstrap()` とは別に登録し、前提条件の通知も訳す〉の `load_plugin_textdomain()`。WP 6.5+ は `.l10n.php` を優先） |
+| `cart-bridge-jp-ja-<md5>.json` | 同上（`make-json --no-purge --pretty-print`） | 管理画面の JS（`Admin\Assets::enqueue()` の `wp_set_script_translations()`） |
+
+- **JS の文字列は `build/index.js` から抜く**（WP-CLI 2.12 の make-pot は TypeScript を読まない）。参照が `build/index.js` になるので、JSON の名前
+  （`cart-bridge-jp-ja-` + `md5( 'build/index.js' )`）が `wp_set_script_translations()` の探す名前と一致する。`src/*.tsx` を参照にすると名前が食い違い、管理画面が英語のままになる。
+  make-pot の除外は `bin/i18n.sh` の `EXCLUDE` に 1 か所で持つ（`src,tests,docs,.claude,dist,.rehearsal,bin,languages`）。wp-scripts の terser は `translators:` コメントを残す。
+- make-json の既定の `--purge` は PO から JS の文字列を消すので `--no-purge`。JSON は Jed の既定のドメイン `messages` で書かれ、WP の読込みはこれを扱う。
+  make-mo・make-php は複数形の原文を単数形だけのキーで書くが、WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`）。
+- WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）があればそちらが優先される。翻訳ファイルを置くと、
+  `init` より前の `__()` が「too early」通知を出す条件になるが、プラグインの `__()` は `admin_notices` 以降でしか走らない（サイトの言語を `ja` にして実測）。
+  Plugin Check が wordpress.org 向けに `load_plugin_textdomain()` を「不要」と警告するかは R3-4 で確かめる。
+- **検査**: `TranslationsTest`（PHPUnit）が、PO と POT の文字列（msgctxt・msgid・msgid_plural と JS から参照されるか）の一致・訳の漏れと fuzzy・プレースホルダ
+  （`%s`・`%1$s`・`%d`・`%%`）の一致・生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）を確かめる。`bin/i18n.sh check`（CI の PHPUnit ジョブと
+  `quality.sh`）がビルド済みのソースから POT をコンテナの中で作り直し、コミット済みの POT と同じ項目で比べる（行番号・翻訳者コメント・作成日時は比べない）。make-pot の
+  監査の警告（同じ msgid の翻訳者コメントの食い違い・番号の無い複数のプレースホルダ）も失敗にする。**文字列を変える PR は POT と ja.po の更新が必須**（2026-10-07 ユーザー決定）。
+- **書き方の決まり**（`.claude/rules/frontend.md`）: 文をつなぐときは `joinSentences()`（msgid `%1$s %2$s`）、語の列挙は `joinList()`（msgctxt `list of items` の `%1$s, %2$s`）を使う
+  （`' '`・`join( ', ' )` を直に使うと日本語訳で「。 」「, 」が残る）。件数＋複数形の名詞の文は `_n()`。日時・金額は `displayLocale()`（`cbjpAdmin.locale`＝WordPress の
+  ユーザーの言語）で書式化する（`toLocaleString()` はブラウザの言語になる）。PHP の文字列で `%` の直後に空白と英字を続けない（`8% for` の `% f` を make-pot が書式と読む）。
+- **訳語**（ユーザー決定: Order(s)＝**注文**、dry run＝**書き込みなし**）。WooCommerce の画面を引用する文言は WooCommerce の日本語訳に合わせる（言語パックで実測）。
+  全角と半角英数字の間には半角スペースを入れる（WordPress 本体の日本語訳と同じ。「%s 件」「ID %s の」）。値が日本語の文になるプレースホルダ（種類の名前・プラットフォーム名）の前後には入れない。
+  R5-1・R7-1 の再翻訳でもこの表に揃える:
+
+  | 英語 | 日本語 | 英語 | 日本語 |
+  |---|---|---|---|
+  | Order(s) | 注文 | Import / Export | インポート / エクスポート |
+  | Product / Customer | 商品 / 顧客 | Preview | プレビュー |
+  | Category / Tag / Stock | カテゴリー / タグ / 在庫 | dry run / dry-run report | 書き込みなし / プレビューのレポート |
+  | Variation / Attribute | バリエーション / 属性 | Run（名詞） / Job | 実行 / ジョブ |
+  | Tax class / tax status | 税区分 / 課税ステータス | Mapping(s) | マッピング |
+  | Platform | プラットフォーム | Link（記録の紐づけ） | 紐づけ（Rebuild links → 紐づけを再構築） |
+  | Color Me Shop | カラーミーショップ | Free / Pro version | 無料版 / Pro 版 |
+  | Push intent（送信結果が不明な記録） | 送信結果が不明な記録 | Beta | ベータ版 |
+  | WooCommerce > Settings > Tax / General / Shipping | WooCommerce > 設定 > 税 / 一般 / 配送 | Taxable / Shipping only / None | 課税 / 送料のみ / なし |
+  | Settings > Payments（設定のタブ） | 設定 > 決済（文脈なしの「Payments」の訳「支払い」ではない） | Regular price / Simple product | 標準価格 / 基本的な商品 |
+  | On hold（注文ステータス） | 保留中 | Reduced rate（既定の税区分） | 軽減税 |
+  | “Any”（バリエーション） | すべての… | Shop manager | ショップ運営者 |
+- **含めなかったもの**（backlog `r3-2-i18n/plan-*`）: サーバーが英語のまま保存・表示する文言（ジョブのエラーの例外メッセージ・Logs のメッセージ・
+  カラーミーの API のメッセージ・OAuth のトークン交換のエラー）、OAuth コールバックのエラーがサイトの言語になる件、`ActiveRunNotice` の主語の断片、
+  「文＋空白＋リンク」の並び、件数の桁区切り、`PushIntentsPanel` の注文合計の未整形表示、`_x()` の文脈
 
 ## 7. プラグインヘッダー・互換宣言（確定）
 
@@ -606,8 +654,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 `.github/workflows/ci.yml` — push / PR（main宛）で実行:
 
 1. **php-quality**: PHP 8.2/8.3 マトリクスで `composer lint`（PHPCS）+ `composer analyze`（PHPStan level 6）
-2. **php-test**: `wp-env` を起動して `composer test`（PHPUnit）
-3. **js**: `npm ci && npm run lint && npm run build`（tsc型チェック含む）
+2. **php-test**: `wp-env` を起動して `composer test`（PHPUnit）。続けて `npm run i18n:check`（ビルドしてから POT の鮮度を確かめる。§6「翻訳（R3-2）」）
+3. **js**: `npm ci && npm run lint && npm run test:js && npm run build`（tsc型チェック含む）
 
 ## 9. 要検証事項トラッカー（00 §7 の具体化）
 

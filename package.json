@@ -9,7 +9,11 @@
     "build": "wp-scripts build",
     "lint": "wp-scripts lint-js && tsc --noEmit",
     "test:js": "wp-scripts test-unit-js",
-    "format": "wp-scripts format"
+    "format": "wp-scripts format",
+    "i18n:pot": "npm run build && bin/i18n.sh pot",
+    "i18n:po": "bin/i18n.sh po",
+    "i18n:compile": "bin/i18n.sh compile",
+    "i18n:check": "npm run build && bin/i18n.sh check"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

@@ -68,6 +68,11 @@ jobs:
       - name: Run PHPUnit
         run: npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist"
 
+      # ビルド済みの JS と PHP から POT を作り直し、コミット済みの languages/cart-bridge-jp.pot と文字列が同じか確かめる（R3-2）。
+      # PO・生成物（.mo / .l10n.php / JSON）が POT と揃っているかは PHPUnit の TranslationsTest が確かめる。
+      - name: Check that translations are up to date
+        run: npm run i18n:check
+
   js:
     name: JS/TS
     runs-on: ubuntu-latest

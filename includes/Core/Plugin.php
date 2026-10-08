@@ -47,8 +47,6 @@ final class Plugin {
 		}
 		$this->booted = true;
 
-		load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
-
 		// プラグイン更新時はactivation hookが発火しないため、DBスキーマバージョンを比較して
 		// 必要ならマイグレーションする。`admin_init`限定だと、更新後に管理画面を誰も開かないまま
 		// Action Scheduler経由のジョブ・REST（`admin-ajax.php`は`admin_init`を発火しない）が

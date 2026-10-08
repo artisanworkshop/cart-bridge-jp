@@ -1,0 +1,2467 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Cart Bridge JP\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-10-07T12:14:44+00:00\n"
+"PO-Revision-Date: 2026-10-07T12:14:44+00:00\n"
+"Language: ja\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Domain: cart-bridge-jp\n"
+
+#. Plugin Name of the plugin
+#: cart-bridge-jp.php
+msgid "Cart Bridge JP – Migrate for WooCommerce"
+msgstr "Cart Bridge JP – Migrate for WooCommerce"
+
+#. Description of the plugin
+#: cart-bridge-jp.php
+msgid "Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce."
+msgstr "日本のネットショップのサービス（カラーミーショップ、MakeShop、BASE）と WooCommerce の間で、商品・顧客・注文を移行します。"
+
+#. Author of the plugin
+#: cart-bridge-jp.php
+msgid "Artisan Workshop"
+msgstr "Artisan Workshop"
+
+#: cart-bridge-jp.php:74
+msgid "Cart Bridge JP requires WooCommerce to be installed and active."
+msgstr "Cart Bridge JP を使うには、WooCommerce をインストールして有効化してください。"
+
+#: cart-bridge-jp.php:87
+msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
+msgstr "Cart Bridge JP の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:118
+msgid "Color Me Shop"
+msgstr "カラーミーショップ"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:169
+msgid "Client ID"
+msgstr "クライアント ID"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:172
+msgid "From your Color Me Shop developer app registration."
+msgstr "カラーミーショップのデベロッパーアカウントで登録したアプリの情報です。"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:176
+msgid "Client Secret"
+msgstr "クライアントシークレット"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:183
+msgid "Connect to Color Me Shop"
+msgstr "カラーミーショップに接続"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:196
+msgid "Not connected yet."
+msgstr "まだ接続していません。"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:209
+msgid "The platform returned an unexpected response. Please try again."
+msgstr "プラットフォームから想定外の応答がありました。もう一度お試しください。"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:240
+msgid "The connection changed while testing. Please try again."
+msgstr "テスト中に接続が変わりました。もう一度お試しください。"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:326
+msgid "Unpaid"
+msgstr "未入金"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:330
+msgid "Paid (not shipped)"
+msgstr "入金済み（未発送）"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:334
+msgid "Shipped"
+msgstr "発送済み"
+
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:338
+#: build/index.js:18
+msgid "Cancelled"
+msgstr "キャンセル"
+
+#: includes/Admin/Menu.php:20
+#: includes/Admin/Menu.php:21
+#: build/index.js:41
+msgid "Cart Bridge JP"
+msgstr "Cart Bridge JP"
+
+#: includes/Admin/RestController.php:515
+msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
+msgstr "このプラットフォームの実行がまだ終わっていません。先に「ツール」タブ（または「インポート」「エクスポート」タブ）でキャンセルしてから、もう一度お試しください。"
+
+#: includes/Admin/RestController.php:564
+msgid "No recognized connection fields were provided."
+msgstr "認識できる接続の項目がありません。"
+
+#: includes/Admin/RestController.php:574
+msgid "The connection settings changed while saving. Please try again."
+msgstr "保存中に接続の設定が変わりました。もう一度お試しください。"
+
+#. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
+#: includes/Admin/RestController.php:639
+#, php-format
+msgid "\"%s\" must be an object mapping one id to another."
+msgstr "「%s」は ID と ID の対応を表すオブジェクトにしてください。"
+
+#. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
+#: includes/Admin/RestController.php:657
+#, php-format
+msgid "\"%s\" contains an invalid entry."
+msgstr "「%s」に不正な項目があります。"
+
+#: includes/Admin/RestController.php:714
+msgid "\"push_images\" must be true or false."
+msgstr "「push_images」は true か false にしてください。"
+
+#: includes/Admin/RestController.php:722
+msgid "This platform cannot upload product images, so the option cannot be turned on."
+msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
+
+#: includes/Admin/RestController.php:991
+#: build/index.js:4
+msgid "Connection test failed."
+msgstr "接続のテストに失敗しました。"
+
+#: includes/Admin/RestController.php:1034
+msgid "Save the Client ID and Client Secret first, then connect."
+msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
+
+#: includes/Admin/RestController.php:1058
+msgid "Unknown platform."
+msgstr "不明なプラットフォームです。"
+
+#: includes/Admin/RestController.php:1070
+msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
+msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
+
+#: includes/Admin/RestController.php:1100
+msgid "A code (or the authorization URL containing it) is required."
+msgstr "コード（またはコードを含む認可 URL）を入力してください。"
+
+#: includes/Admin/RestController.php:1163
+msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
+msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
+
+#: includes/Admin/RestController.php:1175
+msgid "The run request is invalid."
+msgstr "実行の要求が正しくありません。"
+
+#: includes/Admin/RestController.php:1212
+#: includes/Admin/RestController.php:1253
+#: includes/Admin/RestController.php:1323
+#: includes/Admin/RestController.php:1455
+msgid "Run not found."
+msgstr "実行が見つかりません。"
+
+#: includes/Admin/RestController.php:1337
+msgid "Job not found."
+msgstr "ジョブが見つかりません。"
+
+#: includes/Admin/RestController.php:1349
+msgid "Only failed jobs can be retried."
+msgstr "再試行できるのは失敗したジョブだけです。"
+
+#: includes/Admin/RestController.php:1461
+msgid "The verification report is only available for import runs."
+msgstr "検証レポートはインポートの実行でのみ使えます。"
+
+#: includes/Admin/RestController.php:1515
+#: build/index.js:33
+msgid "Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup."
+msgstr "インポートで作成した顧客のアカウントは、ユーザーを削除する権限を持つユーザーだけが削除できます。管理者にクリーンアップの実行を依頼してください。"
+
+#: includes/Admin/RestController.php:1544
+msgid "The rebuild cursor is invalid."
+msgstr "紐づけの再構築の位置情報が正しくありません。"
+
+#: includes/Admin/RestController.php:1596
+msgid "The repair cursor is invalid."
+msgstr "修復の位置情報が正しくありません。"
+
+#: includes/Admin/RestController.php:1629
+msgid "This platform cannot look up single records, so prefecture repair is not available for it."
+msgstr "このプラットフォームは記録を 1 件ずつ照会できないため、都道府県の修復は使えません。"
+
+#: includes/Admin/RestController.php:1638
+msgid "The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped."
+msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってから続けてください。止まったところから再開します。"
+
+#: includes/Admin/RestController.php:1643
+#: includes/Admin/RestController.php:1808
+msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
+msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
+
+#: includes/Admin/RestController.php:1648
+msgid "The platform API returned an error. Try again in a moment; it resumes where it stopped."
+msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。止まったところから再開します。"
+
+#: includes/Admin/RestController.php:1676
+msgid "This platform does not need prefecture repair."
+msgstr "このプラットフォームでは都道府県の修復は不要です。"
+
+#: includes/Admin/RestController.php:1741
+msgid "A remote_id is required to link this item."
+msgstr "この項目を紐づけるには remote_id が必要です。"
+
+#: includes/Admin/RestController.php:1786
+msgid "Push intent not found."
+msgstr "送信結果が不明な記録が見つかりません。"
+
+#: includes/Admin/RestController.php:1791
+msgid "The given remote_id does not exist on the connected platform."
+msgstr "指定した remote_id は接続したプラットフォームにありません。"
+
+#: includes/Admin/RestController.php:1796
+msgid "The given remote_id is already linked to a different local item."
+msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
+
+#: includes/Admin/RestController.php:1801
+msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
+msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
+
+#: includes/Admin/RestController.php:1814
+msgid "The platform API returned an error. Try again in a moment."
+msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
+
+#: includes/Admin/RestController.php:1819
+msgid "The push intent could not be resolved."
+msgstr "送信結果が不明な記録を解決できませんでした。"
+
+#: includes/Admin/RestController.php:1829
+msgid "The platform API rate limit was reached. Wait a minute, then try again."
+msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
+
+#: includes/Admin/RestController.php:1907
+msgid "Another operation is still in progress for this platform. Try again in a moment."
+msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
+
+#: includes/Admin/RestController.php:1908
+msgid "A run is already in progress for this platform."
+msgstr "このプラットフォームではすでに実行が進行中です。"
+
+#. translators: %s: platform id
+#: includes/Admin/RestController.php:1920
+#, php-format
+msgid "Unknown or unregistered platform \"%s\"."
+msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
+
+#: includes/Core/Plugin.php:138
+msgid "Cart Bridge JP requires the PHP sodium extension to store API credentials securely. Please contact your hosting provider."
+msgstr "Cart Bridge JP が API の認証情報を安全に保存するには、PHP の sodium 拡張が必要です。ホスティング会社にお問い合わせください。"
+
+#. translators: the name WooCommerce shows for its standard tax class.
+#: includes/Woo/Reader/ProductReader.php:197
+msgid "Standard"
+msgstr "標準"
+
+#. translators: %s: the warning code.
+#: includes/Woo/WarningCatalog.php:59
+#, php-format
+msgid "Unknown warning (%s)."
+msgstr "不明な警告です（%s）。"
+
+#: includes/Woo/WarningCatalog.php:120
+msgid "This kind of data is not supported, so it is skipped."
+msgstr "この種類のデータには対応していないため、スキップします。"
+
+#: includes/Woo/WarningCatalog.php:124
+msgid "An unexpected error occurred while processing this item, so it is skipped. The error is recorded in the Logs tab."
+msgstr "この項目の処理中に予期しないエラーが起きたため、スキップします。エラーは「ログ」タブに記録しています。"
+
+#: includes/Woo/WarningCatalog.php:125
+msgid "Check the error in the Logs tab and fix its cause (usually the item’s data or another plugin), then run again."
+msgstr "「ログ」タブでエラーを確認し、原因（多くは項目のデータか、他のプラグイン）を直してから、もう一度実行してください。"
+
+#: includes/Woo/WarningCatalog.php:129
+msgid "This item was imported from the platform, so it is not exported back to it."
+msgstr "この項目はプラットフォームからインポートしたものなので、プラットフォームへはエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:133
+msgid "This item was created in WooCommerce and exported to the platform, so importing does not overwrite it."
+msgstr "この項目は WooCommerce で作成してプラットフォームへエクスポートしたものなので、インポートでは上書きしません。"
+
+#: includes/Woo/WarningCatalog.php:139
+msgid "WooCommerce does not treat entered prices as including tax, while the platform’s prices include tax and are imported as they are. This is a store-wide setting; only one product per batch is flagged."
+msgstr "WooCommerce は入力した価格を税込として扱わない設定ですが、プラットフォームの価格は税込で、そのままインポートします。これはストア全体の設定なので、警告はバッチごとに 1 商品にだけ付けます。"
+
+#: includes/Woo/WarningCatalog.php:140
+msgid "If WooCommerce calculates tax, set “Prices entered with tax” to “Yes, I will enter prices inclusive of tax” in WooCommerce > Settings > Tax. Otherwise tax is added on top at checkout. If tax calculation is turned off, no change is needed."
+msgstr "WooCommerce で税を計算する場合は、WooCommerce > 設定 > 税で「税込価格」を「はい、税込み価格を入力します」にしてください。そうしないと、決済時に税が上乗せされます。税の計算をオフにしている場合は、変更は不要です。"
+
+#: includes/Woo/WarningCatalog.php:145
+msgid "The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency)."
+msgstr "ストアの通貨が日本円ではありません。注文はストアの通貨で、プラットフォームの円の金額のままインポートします（たとえば ¥1,000 はストアの通貨の 1,000 になります）。"
+
+#: includes/Woo/WarningCatalog.php:146
+msgid "Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency."
+msgstr "注文をインポートする前に、WooCommerce > 設定 > 一般でストアの通貨を日本円にしてください。インポート済みの注文の通貨は変わりません。"
+
+#: includes/Woo/WarningCatalog.php:150
+msgid "The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
+msgstr "通貨が日本円ではないため、この項目はエクスポートしません（プラットフォームは金額を円として扱います）。"
+
+#. translators: %s: a currency code, such as USD.
+#: includes/Woo/WarningCatalog.php:153
+#, php-format
+msgid "The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
+msgstr "通貨 %s は日本円ではないため、この項目はエクスポートしません（プラットフォームは金額を円として扱います）。"
+
+#: includes/Woo/WarningCatalog.php:157
+msgid "Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way."
+msgstr "WooCommerce の価格は税抜で入力されているため、ストアの住所の税率で税を加えてエクスポートします。警告は各バッチの最初の商品にだけ付けます。ほかの商品も同じように換算します。"
+
+#: includes/Woo/WarningCatalog.php:161
+msgid "The sale price is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce."
+msgstr "セール価格はエクスポートしますが、セールの終了日は送れないため、WooCommerce でセールが終わった後もプラットフォームではセール価格のままになります。"
+
+#: includes/Woo/WarningCatalog.php:162
+msgid "After the sale ends, export the product again or change the price on the platform."
+msgstr "セールが終わったら、商品をもう一度エクスポートするか、プラットフォームで価格を変えてください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:164
+#, php-format
+msgid "The sale price of variation %s is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce."
+msgstr "ID %s のバリエーションのセール価格はエクスポートしますが、セールの終了日は送れないため、WooCommerce でセールが終わった後もプラットフォームではセール価格のままになります。"
+
+#: includes/Woo/WarningCatalog.php:168
+msgid "The price cannot be converted to a price including tax: the tax class has tax rates, but none of them applies to the store’s address. The product is not exported."
+msgstr "価格を税込価格に換算できません。税区分に税率はありますが、ストアの住所に当てはまるものがありません。この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:169
+msgid "Add a tax rate that applies to the store’s address (or to all locations) to the tax class in WooCommerce > Settings > Tax, or correct the store address."
+msgstr "WooCommerce > 設定 > 税で、ストアの住所（またはすべての地域）に当てはまる税率をその税区分に追加するか、ストアの住所を直してください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:171
+#, php-format
+msgid "The price of variation %s cannot be converted to a price including tax: its tax class has tax rates, but none of them applies to the store’s address. The product is not exported."
+msgstr "ID %s のバリエーションの価格を税込価格に換算できません。税区分に税率はありますが、ストアの住所に当てはまるものがありません。この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:175
+msgid "The tax class given by the platform does not exist in WooCommerce, so the item uses the standard tax class."
+msgstr "プラットフォームが指定した税区分が WooCommerce に無いため、標準の税区分を使います。"
+
+#: includes/Woo/WarningCatalog.php:176
+msgid "Create the tax class in WooCommerce > Settings > Tax and set it on the item. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed."
+msgstr "WooCommerce > 設定 > 税でその税区分を作成し、項目に設定してください。WooCommerce > 設定 > 一般で税の計算をオフにしている場合は、変更は不要です。"
+
+#. translators: %s: the slug of a tax class.
+#: includes/Woo/WarningCatalog.php:178
+#, php-format
+msgid "The tax class “%s” given by the platform does not exist in WooCommerce, so the item uses the standard tax class."
+msgstr "プラットフォームが指定した税区分「%s」が WooCommerce に無いため、標準の税区分を使います。"
+
+#: includes/Woo/WarningCatalog.php:182
+msgid "The item is put in a tax class that has no tax rates (for a reduced-rate item, the default reduced rate class), so WooCommerce charges no tax on it."
+msgstr "税率の無い税区分（軽減税率の項目なら、既定の軽減税率の税区分）に入れたため、WooCommerce はこの項目に税をかけません。"
+
+#: includes/Woo/WarningCatalog.php:183
+msgid "If WooCommerce calculates tax, add the correct Japanese tax rate to that tax class in WooCommerce > Settings > Tax (for the reduced rate class, 8%); you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed."
+msgstr "WooCommerce で税を計算する場合は、WooCommerce > 設定 > 税で、その税区分に正しい日本の税率（軽減税率の税区分なら 8%）を追加してください。もう一度インポートする必要はありません。WooCommerce > 設定 > 一般で税の計算をオフにしている場合は、変更は不要です。"
+
+#: includes/Woo/WarningCatalog.php:187
+msgid "WooCommerce has no tax class with a Japanese rate (8%) for reduced-rate items, so the item uses the standard tax class."
+msgstr "WooCommerce に軽減税率の項目のための日本の税率（8%）を持つ税区分が無いため、標準の税区分を使います。"
+
+#: includes/Woo/WarningCatalog.php:188
+msgid "In WooCommerce > Settings > Tax (shown when tax calculation is turned on in WooCommerce > Settings > General), give a tax class for the reduced rate (such as “Reduced rate”) a Japanese rate of 8%. Then import again: products are corrected, but orders that were already imported keep the standard tax class."
+msgstr "WooCommerce > 設定 > 税（WooCommerce > 設定 > 一般で税の計算をオンにすると表示されます）で、軽減税率用の税区分（「軽減税」など）に日本の税率 8% を設定してください。そのうえでもう一度インポートすると、商品は直りますが、インポート済みの注文は標準の税区分のままです。"
+
+#: includes/Woo/WarningCatalog.php:192
+msgid "The product’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported (it would be sold with the wrong tax)."
+msgstr "商品の税区分に日本の税率 10%（標準）も 8%（軽減）も無いため、この商品はエクスポートしません（誤った税で販売されるため）。"
+
+#: includes/Woo/WarningCatalog.php:193
+msgid "Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
+msgstr "商品の税区分を標準か軽減税率にするか、その税区分に日本の税率 10%（標準）か 8%（軽減）を設定してください。（税の設定と商品の税の項目は、WooCommerce > 設定 > 一般で税の計算をオンにしたときだけ表示されます。）"
+
+#. translators: %s: the name of a tax class. Write a literal percent sign as %%.
+#: includes/Woo/WarningCatalog.php:195
+#, php-format
+msgid "The tax class “%s” has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported (it would be sold with the wrong tax)."
+msgstr "税区分「%s」に日本の税率 10%%（標準）も 8%%（軽減）も無いため、この商品はエクスポートしません（誤った税で販売されるため）。"
+
+#: includes/Woo/WarningCatalog.php:199
+msgid "The tax class of a published variation has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported."
+msgstr "公開しているバリエーションの税区分に日本の税率 10%（標準）も 8%（軽減）も無いため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:200
+msgid "Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
+msgstr "バリエーションの税区分（親と同じ税区分を使うバリエーションなら商品の税区分）を標準か軽減税率にするか、その税区分に日本の税率 10%（標準）か 8%（軽減）を設定してください。（税の設定と商品の税の項目は、WooCommerce > 設定 > 一般で税の計算をオンにしたときだけ表示されます。）"
+
+#. translators: %s: the WooCommerce ID of a variation. Write a literal percent sign as %%.
+#: includes/Woo/WarningCatalog.php:202
+#, php-format
+msgid "The tax class of variation %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported."
+msgstr "ID %s のバリエーションの税区分に日本の税率 10%%（標準）も 8%%（軽減）も無いため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:206
+msgid "The product’s tax status is “Shipping only” or “None”, which the platform cannot represent, so the product is not exported."
+msgstr "商品の課税ステータスが「送料のみ」か「なし」で、プラットフォームでは表せないため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:207
+msgid "If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
+msgstr "商品に税がかかる場合は、課税ステータスを「課税」にしてください。そうでなければ、プラットフォームで商品を手作業で追加してください。（税の設定と商品の税の項目は、WooCommerce > 設定 > 一般で税の計算をオンにしたときだけ表示されます。）"
+
+#: includes/Woo/WarningCatalog.php:211
+msgid "The product’s prices cannot be converted to the platform’s prices because the platform’s tax settings cannot be used, so the product is not exported."
+msgstr "プラットフォームの税の設定を使えないため、商品の価格をプラットフォームの価格に換算できません。この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:212
+msgid "Check the tax settings on the platform (prices including or excluding tax, the standard and reduced rates, and rounding), then export again."
+msgstr "プラットフォームの税の設定（税込か税抜か、標準税率と軽減税率、端数処理）を確認してから、もう一度エクスポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:218
+msgid "The SKU is already used by another product in WooCommerce, so the item is imported without a SKU."
+msgstr "SKU が WooCommerce の別の商品ですでに使われているため、この項目は SKU なしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:219
+msgid "Make the SKU unique (change it on the platform, or change or delete the WooCommerce product that uses it), then enter the SKU on the imported item."
+msgstr "SKU が重ならないようにしてから（プラットフォームで変えるか、その SKU を使っている WooCommerce の商品を変更・削除する）、インポートした項目に SKU を入力してください。"
+
+#. translators: %s: a SKU.
+#: includes/Woo/WarningCatalog.php:221
+#, php-format
+msgid "The SKU “%s” is already used by another product in WooCommerce, so the item is imported without a SKU."
+msgstr "SKU「%s」が WooCommerce の別の商品ですでに使われているため、この項目は SKU なしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:226
+msgid "The product’s price from the platform is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price."
+msgstr "プラットフォームの商品の価格が数値でないか負の値のため、価格を設定しません。新しい商品は価格を設定するまで購入できません。既存の商品は以前の価格のままです。"
+
+#: includes/Woo/WarningCatalog.php:227
+msgid "Correct the price on the platform and import again, or set the price in WooCommerce."
+msgstr "プラットフォームで価格を直してもう一度インポートするか、WooCommerce で価格を設定してください。"
+
+#. translators: %s: the price value received from the platform.
+#: includes/Woo/WarningCatalog.php:229
+#, php-format
+msgid "The product’s price from the platform (%s) is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price."
+msgstr "プラットフォームの商品の価格（%s）が数値でないか負の値のため、価格を設定しません。新しい商品は価格を設定するまで購入できません。既存の商品は以前の価格のままです。"
+
+#: includes/Woo/WarningCatalog.php:233
+msgid "The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store."
+msgstr "商品に有効な価格が無いか、価格を税込価格に換算できないため、この商品はエクスポートしません。基本的な商品には標準価格が、バリエーションのある商品には、ストアに表示される価格を持つ有効なバリエーションが 1 つ以上必要です。"
+
+#: includes/Woo/WarningCatalog.php:234
+msgid "Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes."
+msgstr "標準価格を設定してください。バリエーションのある商品なら、価格のあるバリエーションを有効にしてください。「カタログから在庫のない商品は表示しない」がオンなら、在庫のあるバリエーションが 1 つ以上必要です。価格を税込価格に換算できないという警告も付いている場合は、その警告のとおりに税率を直してください。"
+
+#: includes/Woo/WarningCatalog.php:238
+msgid "The sale price from the platform is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
+msgstr "プラットフォームのセール価格が正しくない（0 より大きく標準価格より低い必要があります）ため、この商品はセールなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:239
+msgid "Correct the sale price on the platform, then import again."
+msgstr "プラットフォームでセール価格を直してから、もう一度インポートしてください。"
+
+#. translators: %s: the sale price value received from the platform.
+#: includes/Woo/WarningCatalog.php:241
+#, php-format
+msgid "The sale price from the platform (%s) is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
+msgstr "プラットフォームのセール価格（%s）が正しくない（0 より大きく標準価格より低い必要があります）ため、この商品はセールなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:245
+msgid "An image could not be downloaded from the platform, so it is not added. The item’s other images are added."
+msgstr "プラットフォームから画像をダウンロードできなかったため、その画像は追加しません。項目のほかの画像は追加します。"
+
+#: includes/Woo/WarningCatalog.php:246
+msgid "Check that the image can be opened from your server, then add it to the item in WooCommerce."
+msgstr "サーバーからその画像を開けるか確認してから、WooCommerce で項目に追加してください。"
+
+#. translators: %s: the URL of an image.
+#: includes/Woo/WarningCatalog.php:248
+#, php-format
+msgid "The image %s could not be downloaded from the platform, so it is not added. The item’s other images are added."
+msgstr "プラットフォームから画像 %s をダウンロードできなかったため、その画像は追加しません。項目のほかの画像は追加します。"
+
+#: includes/Woo/WarningCatalog.php:252
+msgid "An attribute has the same name as one of the product’s variation options, so the attribute is not imported."
+msgstr "属性の名前が商品のバリエーションのオプションの名前と同じため、その属性はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:253
+msgid "Rename the attribute on the platform, then import again."
+msgstr "プラットフォームで属性の名前を変えてから、もう一度インポートしてください。"
+
+#. translators: %s: the name of an attribute.
+#: includes/Woo/WarningCatalog.php:255
+#, php-format
+msgid "The attribute “%s” has the same name as one of the product’s variation options, so it is not imported."
+msgstr "属性「%s」の名前が商品のバリエーションのオプションの名前と同じため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:259
+msgid "A variation that was imported earlier no longer exists on the platform, so it is deleted from WooCommerce."
+msgstr "以前にインポートしたバリエーションがプラットフォームに無くなったため、WooCommerce から削除します。"
+
+#. translators: %s: the platform's ID of a variation.
+#: includes/Woo/WarningCatalog.php:262
+#, php-format
+msgid "The variation %s no longer exists on the platform, so it is deleted from WooCommerce."
+msgstr "バリエーション %s がプラットフォームに無くなったため、WooCommerce から削除します。"
+
+#: includes/Woo/WarningCatalog.php:267
+msgid "A variation’s price from the platform is not a number or is negative, so the variation is not created or updated."
+msgstr "プラットフォームのバリエーションの価格が数値でないか負の値のため、そのバリエーションは作成・更新しません。"
+
+#: includes/Woo/WarningCatalog.php:268
+msgid "Correct the variation’s price on the platform, then import again."
+msgstr "プラットフォームでバリエーションの価格を直してから、もう一度インポートしてください。"
+
+#. translators: %s: the platform's ID of a variation.
+#: includes/Woo/WarningCatalog.php:270
+#, php-format
+msgid "The price of variation %s from the platform is not a number or is negative, so the variation is not created or updated."
+msgstr "プラットフォームのバリエーション %s の価格が数値でないか負の値のため、そのバリエーションは作成・更新しません。"
+
+#: includes/Woo/WarningCatalog.php:274
+msgid "A variation has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
+msgstr "バリエーションに有効な標準価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
+
+#: includes/Woo/WarningCatalog.php:275
+msgid "Set a regular price on the variation, then export again. If its price cannot be converted to a price including tax, the whole product is not exported; fix the tax rate as that warning describes. A variation that was exported before stays on the platform; hide it there if needed."
+msgstr "バリエーションに標準価格を設定してから、もう一度エクスポートしてください。価格を税込価格に換算できない場合は商品全体をエクスポートしないので、その警告のとおりに税率を直してください。以前にエクスポートしたバリエーションはプラットフォームに残ります。必要ならプラットフォームで非表示にしてください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:277
+#, php-format
+msgid "Variation %s has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
+msgstr "ID %s のバリエーションに有効な標準価格が無いか、価格を税込価格に換算できないため、エクスポートから外します。"
+
+#: includes/Woo/WarningCatalog.php:281
+msgid "Some variations from the platform could not be read, so variations that no longer exist on the platform are not deleted for this product."
+msgstr "プラットフォームのバリエーションの一部を読み取れなかったため、この商品ではプラットフォームに無くなったバリエーションを削除しません。"
+
+#: includes/Woo/WarningCatalog.php:282
+msgid "Correct the variations on the platform (usually their prices), then import again."
+msgstr "プラットフォームでバリエーション（多くは価格）を直してから、もう一度インポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:286
+msgid "WooCommerce could not save a variation, so it is not created. The product and its other variations are imported."
+msgstr "WooCommerce がバリエーションを保存できなかったため、そのバリエーションは作成しません。商品とほかのバリエーションはインポートします。"
+
+#: includes/Woo/WarningCatalog.php:287
+msgid "Check the PHP error log for the cause."
+msgstr "PHP のエラーログで原因を確認してください。"
+
+#. translators: %s: the platform's ID of a variation.
+#: includes/Woo/WarningCatalog.php:289
+#, php-format
+msgid "WooCommerce could not save the variation %s, so it is not created. The product and its other variations are imported."
+msgstr "WooCommerce がバリエーション %s を保存できなかったため、作成しません。商品とほかのバリエーションはインポートします。"
+
+#: includes/Woo/WarningCatalog.php:293
+msgid "WooCommerce could not save the product, so it is not imported."
+msgstr "WooCommerce が商品を保存できなかったため、この商品はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:294
+#: includes/Woo/WarningCatalog.php:733
+msgid "Check the PHP error log for the cause, then import again."
+msgstr "PHP のエラーログで原因を確認してから、もう一度インポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:298
+msgid "A category of the product is not mapped to a category on the platform, so the product is exported without it."
+msgstr "商品のカテゴリーがプラットフォームのカテゴリーにマッピングされていないため、そのカテゴリーなしで商品をエクスポートします。"
+
+#: includes/Woo/WarningCatalog.php:299
+msgid "Map the category in the Mappings tab, then export again."
+msgstr "「マッピング」タブでカテゴリーをマッピングしてから、もう一度エクスポートしてください。"
+
+#. translators: %s: the WooCommerce ID of a product category.
+#: includes/Woo/WarningCatalog.php:301
+#, php-format
+msgid "The category (ID %s) is not mapped to a category on the platform, so the product is exported without it."
+msgstr "カテゴリー（ID %s）がプラットフォームのカテゴリーにマッピングされていないため、そのカテゴリーなしで商品をエクスポートします。"
+
+#: includes/Woo/WarningCatalog.php:305
+msgid "A variation is not enabled, so it is left out of the export."
+msgstr "バリエーションが有効になっていないため、エクスポートから外します。"
+
+#: includes/Woo/WarningCatalog.php:306
+msgid "If the variation should be sold, enable it and export again. A variation that was exported before stays on the platform; hide it there if needed."
+msgstr "そのバリエーションを販売する場合は、有効にしてもう一度エクスポートしてください。以前にエクスポートしたバリエーションはプラットフォームに残ります。必要ならプラットフォームで非表示にしてください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:308
+#, php-format
+msgid "Variation %s is not enabled, so it is left out of the export."
+msgstr "ID %s のバリエーションが有効になっていないため、エクスポートから外します。"
+
+#: includes/Woo/WarningCatalog.php:312
+msgid "The product uses three or more attributes for variations, but the platform supports at most two, so the product is not exported."
+msgstr "この商品はバリエーションに 3 つ以上の属性を使っていますが、プラットフォームは 2 つまでしか対応していないため、エクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:313
+msgid "Use at most two attributes for variations (combine attributes, or turn off “Used for variations” on the others)."
+msgstr "バリエーションに使う属性を 2 つまでにしてください（属性をまとめるか、ほかの属性の「バリエーションのために使用」をオフにします）。"
+
+#: includes/Woo/WarningCatalog.php:317
+msgid "None of the product’s variations can be exported (they are not enabled or have no valid price, or the product has no variations), so the product is not exported."
+msgstr "商品のバリエーションを 1 つもエクスポートできない（有効でないか、有効な価格が無いか、バリエーションが無い）ため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:318
+msgid "Enable at least one variation with a valid price. The other warnings for this product show why each variation was left out."
+msgstr "有効な価格を持つバリエーションを 1 つ以上有効にしてください。各バリエーションを外した理由は、この商品のほかの警告に出ています。"
+
+#: includes/Woo/WarningCatalog.php:322
+msgid "A variation uses “Any” for an attribute, which the platform cannot represent, so the product is not exported."
+msgstr "バリエーションの属性に「すべての…」（Any）を使っていて、プラットフォームでは表せないため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:323
+msgid "Replace the “Any” variation with one variation for each value of the attribute."
+msgstr "「すべての…」のバリエーションを、属性の値ごとに 1 つずつのバリエーションに置き換えてください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:325
+#, php-format
+msgid "Variation %s uses “Any” for an attribute, which the platform cannot represent, so the product is not exported."
+msgstr "ID %s のバリエーションが属性に「すべての…」（Any）を使っていて、プラットフォームでは表せないため、この商品はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:329
+msgid "The variations’ stock settings are mixed: some manage stock and others do not, or variations that do not manage stock differ in stock status (in stock and out of stock). A platform that manages stock per product cannot represent this, so the product and its stock are not exported."
+msgstr "バリエーションの在庫の設定がそろっていません。在庫を管理するものとしないものがある、または在庫を管理しないバリエーションの在庫状況（在庫あり・在庫切れ）が違います。商品単位で在庫を管理するプラットフォームではこれを表せないため、この商品と在庫はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:330
+msgid "Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock)."
+msgstr "すべてのバリエーションで在庫管理をオンにするか、すべてオフにして在庫状況をそろえてください（すべて在庫ありか、すべて在庫切れ）。"
+
+#: includes/Woo/WarningCatalog.php:334
+msgid "A variation’s stock is managed by its parent product, and the platform cannot share stock between variations, so the variation is exported as out of stock."
+msgstr "バリエーションの在庫を親の商品で管理していますが、プラットフォームはバリエーションの間で在庫を共有できないため、そのバリエーションは在庫切れとしてエクスポートします。"
+
+#: includes/Woo/WarningCatalog.php:335
+msgid "Turn on “Manage stock” for each variation and give it its own quantity."
+msgstr "各バリエーションで「在庫を管理しますか ?」をオンにして、バリエーションごとに数量を設定してください。"
+
+#: includes/Woo/WarningCatalog.php:341
+msgid "The parent category is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent."
+msgstr "親カテゴリーが WooCommerce に無いため、ひとまずカテゴリーを最上位に置きます。親の後にもう一度インポートすると、親の下へ移ります。"
+
+#: includes/Woo/WarningCatalog.php:342
+msgid "Import categories; parent categories are imported first. If this remains after an import, check why the parent category was not imported."
+msgstr "カテゴリーをインポートしてください（親カテゴリーを先にインポートします）。インポートの後もこの警告が残る場合は、親カテゴリーがインポートされなかった理由を確認してください。"
+
+#. translators: %s: the platform's ID of a category.
+#: includes/Woo/WarningCatalog.php:344
+#, php-format
+msgid "The parent category %s is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent."
+msgstr "親カテゴリー %s が WooCommerce に無いため、ひとまずカテゴリーを最上位に置きます。親の後にもう一度インポートすると、親の下へ移ります。"
+
+#: includes/Woo/WarningCatalog.php:348
+msgid "A category of the product is not found in WooCommerce, so the product is imported without it."
+msgstr "商品のカテゴリーが WooCommerce に無いため、そのカテゴリーなしで商品をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:349
+msgid "Import categories before products (a full import does this). If this remains, the category is not imported, for example because it is hidden on the platform or its name conflicts with an existing category."
+msgstr "商品より先にカテゴリーをインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は、プラットフォームで非表示になっている、既存のカテゴリーと名前が重なっているなどの理由で、カテゴリーがインポートされていません。"
+
+#. translators: %s: the platform's ID of a category.
+#: includes/Woo/WarningCatalog.php:351
+#, php-format
+msgid "The product’s category %s is not found in WooCommerce, so the product is imported without it."
+msgstr "商品のカテゴリー %s が WooCommerce に無いため、そのカテゴリーなしで商品をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:355
+msgid "A tag (group) of the product is not found in WooCommerce, so the product is imported without it."
+msgstr "商品のタグ（グループ）が WooCommerce に無いため、そのタグなしで商品をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:356
+msgid "Import tags before products (a full import does this). If this remains, the tag is not imported, for example because it is not public on the platform or its name conflicts with an existing tag."
+msgstr "商品より先にタグをインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は、プラットフォームで公開されていない、既存のタグと名前が重なっているなどの理由で、タグがインポートされていません。"
+
+#. translators: %s: the platform's ID of a tag (group).
+#: includes/Woo/WarningCatalog.php:358
+#, php-format
+msgid "The product’s tag (group) %s is not found in WooCommerce, so the product is imported without it."
+msgstr "商品のタグ（グループ）%s が WooCommerce に無いため、そのタグなしで商品をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:362
+msgid "A category or tag with the same name under the same parent was imported from this platform before, so it is reused."
+msgstr "同じ親の下に同じ名前のカテゴリーかタグを以前このプラットフォームからインポートしているため、それを使います。"
+
+#: includes/Woo/WarningCatalog.php:363
+msgid "If the platform has two categories with the same name that should stay separate, rename one of them on the platform."
+msgstr "プラットフォームに同じ名前で別々にしておきたいカテゴリーが 2 つある場合は、プラットフォームで片方の名前を変えてください。"
+
+#. translators: %s: the WooCommerce ID of a category or tag.
+#: includes/Woo/WarningCatalog.php:365
+#, php-format
+msgid "A category or tag with the same name (ID %s) under the same parent was imported from this platform before, so it is reused."
+msgstr "同じ親の下に同じ名前のカテゴリーかタグ（ID %s）を以前このプラットフォームからインポートしているため、それを使います。"
+
+#: includes/Woo/WarningCatalog.php:369
+msgid "A category or tag with the same name under the same parent already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it."
+msgstr "同じ親の下に同じ名前のカテゴリーかタグが WooCommerce にすでにあり、このプラットフォームからインポートしたものではないため、インポートしません。そこに属する商品は、そのカテゴリー・タグなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:370
+msgid "Rename or delete the existing WooCommerce category or tag, or rename it on the platform, then import again."
+msgstr "WooCommerce の既存のカテゴリー・タグの名前を変えるか削除する、またはプラットフォームで名前を変えてから、もう一度インポートしてください。"
+
+#. translators: %s: the WooCommerce ID of a category or tag.
+#: includes/Woo/WarningCatalog.php:372
+#, php-format
+msgid "A category or tag with the same name (ID %s) already exists under the same parent in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it."
+msgstr "同じ親の下に同じ名前のカテゴリーかタグ（ID %s）が WooCommerce にすでにあり、このプラットフォームからインポートしたものではないため、インポートしません。そこに属する商品は、そのカテゴリー・タグなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:376
+msgid "WordPress could not update the category or tag, so its name, description or parent may be out of date."
+msgstr "WordPress がカテゴリー・タグを更新できなかったため、名前・説明・親が古いままの可能性があります。"
+
+#: includes/Woo/WarningCatalog.php:377
+msgid "Check that it has a name on the platform and that its parent category exists, then import again."
+msgstr "プラットフォームで名前があることと、親カテゴリーがあることを確認してから、もう一度インポートしてください。"
+
+#. translators: %s: a WordPress error code.
+#: includes/Woo/WarningCatalog.php:379
+#, php-format
+msgid "WordPress could not update the category or tag (%s), so its name, description or parent may be out of date."
+msgstr "WordPress がカテゴリー・タグを更新できなかった（%s）ため、名前・説明・親が古いままの可能性があります。"
+
+#: includes/Woo/WarningCatalog.php:383
+msgid "WordPress could not create the category or tag, so it is not imported. Products in it are imported without it."
+msgstr "WordPress がカテゴリー・タグを作成できなかったため、インポートしません。そこに属する商品は、そのカテゴリー・タグなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:384
+msgid "Check that it has a name on the platform, then import again."
+msgstr "プラットフォームで名前があることを確認してから、もう一度インポートしてください。"
+
+#. translators: %s: a WordPress error code.
+#: includes/Woo/WarningCatalog.php:386
+#, php-format
+msgid "WordPress could not create the category or tag (%s), so it is not imported. Products in it are imported without it."
+msgstr "WordPress がカテゴリー・タグを作成できなかった（%s）ため、インポートしません。そこに属する商品は、そのカテゴリー・タグなしでインポートします。"
+
+#: includes/Woo/WarningCatalog.php:392
+msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
+msgstr "同じメールアドレスの WordPress ユーザーがすでにいるため、新しく作らずにそのアカウントを紐づけ、プラットフォームの情報で更新します。"
+
+#: includes/Woo/WarningCatalog.php:393
+msgid "Check that the existing account belongs to the same person."
+msgstr "既存のアカウントが同じ人のものか確認してください。"
+
+#. translators: %s: the WordPress ID of a user.
+#: includes/Woo/WarningCatalog.php:395
+#, php-format
+msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
+msgstr "同じメールアドレスの WordPress ユーザー（ユーザー ID %s）がすでにいるため、新しく作らずにそのアカウントを紐づけ、プラットフォームの情報で更新します。"
+
+#: includes/Woo/WarningCatalog.php:402
+msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
+msgstr "顧客のメールアドレスが管理者かスタッフ（ショップ運営者など）のアカウントのものなので、この注文はそのアカウントに割り当てず、ゲストの注文としてインポートします。"
+
+#: includes/Woo/WarningCatalog.php:403
+msgid "If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
+msgstr "そのアカウントが本当に購入者のものなら、インポートを終えた後に WooCommerce で注文を手作業で割り当ててください（もう一度インポートした注文は、またゲストの注文になります）。"
+
+#: includes/Woo/WarningCatalog.php:407
+msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+msgstr "顧客のメールアドレスが管理者かスタッフ（ショップ運営者など）のアカウントのものなので、顧客の情報はインポートせず、そのアカウントも変更しません。この顧客の注文はゲストの注文としてインポートします。"
+
+#: includes/Woo/WarningCatalog.php:408
+msgid "If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
+msgstr "そのアカウントが本当に購入者のものなら、インポートを終えた後に WooCommerce で注文を手作業で割り当ててください（もう一度インポートした注文は、またゲストの注文になります）。"
+
+#: includes/Woo/WarningCatalog.php:412
+msgid "The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated."
+msgstr "プラットフォームの顧客のメールアドレスを別の WordPress ユーザーがすでに使っているため、この顧客は更新しません。"
+
+#: includes/Woo/WarningCatalog.php:413
+msgid "Change or remove the email address on the other WordPress user, or correct it on the platform, then import again."
+msgstr "別の WordPress ユーザーのメールアドレスを変えるか消す、またはプラットフォームで直してから、もう一度インポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:417
+msgid "WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported."
+msgstr "WooCommerce が顧客のアカウントを作成できなかった（メールアドレスが正しくない、他のプラグインが登録を止めたなど）ため、この顧客はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:418
+msgid "Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again."
+msgstr "プラットフォームで顧客のメールアドレスを確認してください。登録を止めるプラグイン（CAPTCHA やスパム対策など）があれば、インポートの間はオフにしてください。そのうえでもう一度インポートしてください。"
+
+#. translators: %s: a WordPress error code.
+#: includes/Woo/WarningCatalog.php:420
+#, php-format
+msgid "WooCommerce could not create the customer account (%s), so the customer is not imported."
+msgstr "WooCommerce が顧客のアカウントを作成できなかった（%s）ため、この顧客はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:424
+msgid "The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty."
+msgstr "顧客の住所が日本国外で、プラットフォームが国を示していないため、国と州は空のままにします。"
+
+#: includes/Woo/WarningCatalog.php:425
+msgid "Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce."
+msgstr "WooCommerce で、顧客の請求先住所と配送先住所の国（と州）を設定してください。"
+
+#: includes/Woo/WarningCatalog.php:429
+msgid "The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens)."
+msgstr "プラットフォームが必要とする情報が顧客に足りないため、この顧客はエクスポートしません。必要なのは、50 文字以内の名前と、請求先の郵便番号・都道府県・住所（新しい顧客なら、数字とハイフンだけの電話番号も）です。"
+
+#: includes/Woo/WarningCatalog.php:430
+msgid "Fill in the customer’s name, billing address and phone number in WooCommerce, then export again."
+msgstr "WooCommerce で顧客の名前・請求先住所・電話番号を入力してから、もう一度エクスポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:436
+msgid "The product of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
+msgstr "注文の明細の商品が WooCommerce に無いため、その明細は商品に紐づけずに追加します。商品の後にもう一度インポートすると紐づきます。"
+
+#: includes/Woo/WarningCatalog.php:437
+msgid "Import products before orders (a full import does this). If the product was deleted on the platform, the line stays without a product link."
+msgstr "注文より先に商品をインポートしてください（すべてをインポートすればこの順になります）。プラットフォームで商品が削除されている場合、明細は商品に紐づかないままです。"
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Woo/WarningCatalog.php:439
+#, php-format
+msgid "The product %s of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
+msgstr "注文の明細の商品 %s が WooCommerce に無いため、その明細は商品に紐づけずに追加します。商品の後にもう一度インポートすると紐づきます。"
+
+#: includes/Woo/WarningCatalog.php:443
+msgid "The options of an order line do not identify one variation of the product (the product’s options may have changed after the order), so the line is added without a link to a product."
+msgstr "注文の明細のオプションから商品のバリエーションを 1 つに決められない（注文の後に商品のオプションが変わった可能性があります）ため、その明細は商品に紐づけずに追加します。"
+
+#: includes/Woo/WarningCatalog.php:444
+msgid "While this warning remains, the order’s lines are recreated each time the order is imported, so a line linked by hand is undone. Link the line to the right variation by hand only after you finish importing."
+msgstr "この警告が残っている間は、注文をインポートするたびに明細を作り直すため、手作業で紐づけた明細は元に戻ります。正しいバリエーションへの紐づけは、インポートを終えてから手作業で行ってください。"
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Woo/WarningCatalog.php:446
+#, php-format
+msgid "The options of an order line do not identify one variation of the product %s (the product’s options may have changed after the order), so the line is added without a link to a product."
+msgstr "注文の明細のオプションから商品 %s のバリエーションを 1 つに決められない（注文の後に商品のオプションが変わった可能性があります）ため、その明細は商品に紐づけずに追加します。"
+
+#: includes/Woo/WarningCatalog.php:450
+msgid "The customer of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
+msgstr "この注文の顧客が WooCommerce に無いため、ゲストの注文としてインポートします。顧客の後にもう一度インポートすると紐づきます。"
+
+#: includes/Woo/WarningCatalog.php:451
+msgid "Import customers before orders (a full import does this). If the customer was deleted on the platform, the order stays a guest order."
+msgstr "注文より先に顧客をインポートしてください（すべてをインポートすればこの順になります）。プラットフォームで顧客が削除されている場合、注文はゲストの注文のままです。"
+
+#. translators: %s: the platform's ID of a customer.
+#: includes/Woo/WarningCatalog.php:453
+#, php-format
+msgid "The customer %s of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
+msgstr "この注文の顧客 %s が WooCommerce に無いため、ゲストの注文としてインポートします。顧客の後にもう一度インポートすると紐づきます。"
+
+#: includes/Woo/WarningCatalog.php:458
+msgid "The quantity of an order line is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
+msgstr "注文の明細の数量が無いか、整数でないか、0 以下のため、数量 1 でインポートします。"
+
+#: includes/Woo/WarningCatalog.php:459
+msgid "Check the order on the platform, and correct the quantity in the WooCommerce order after you finish importing (an order that is imported again is rewritten)."
+msgstr "プラットフォームで注文を確認し、インポートを終えてから WooCommerce の注文の数量を直してください（もう一度インポートした注文は書き直されます）。"
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Woo/WarningCatalog.php:461
+#, php-format
+msgid "The quantity of the order line for the product %s is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
+msgstr "商品 %s の注文の明細の数量が無いか、整数でないか、0 以下のため、数量 1 でインポートします。"
+
+#: includes/Woo/WarningCatalog.php:465
+msgid "The quantity of an order line is not a positive whole number, so the order is not exported."
+msgstr "注文の明細の数量が正の整数でないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:466
+msgid "Correct the quantity on the WooCommerce order, or create the order on the platform by hand."
+msgstr "WooCommerce の注文の数量を直すか、プラットフォームで注文を手作業で作成してください。"
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Woo/WarningCatalog.php:468
+#, php-format
+msgid "The quantity of the order line for the platform’s product %s is not a positive whole number, so the order is not exported."
+msgstr "プラットフォームの商品 %s の注文の明細の数量が正の整数でないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:473
+msgid "The platform’s payment method is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
+msgstr "プラットフォームの決済方法が WooCommerce の決済方法にマッピングされていないため、決済方法なしで注文をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:474
+msgid "Map the payment method in the Mappings tab. The order is updated the next time it is imported."
+msgstr "「マッピング」タブで決済方法をマッピングしてください。注文は次にインポートしたときに更新されます。"
+
+#. translators: %s: the platform's ID of a payment method.
+#: includes/Woo/WarningCatalog.php:476
+#, php-format
+msgid "The platform’s payment method %s is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
+msgstr "プラットフォームの決済方法 %s が WooCommerce の決済方法にマッピングされていないため、決済方法なしで注文をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:480
+msgid "The order has no payment method, so it is not exported."
+msgstr "注文に決済方法が無いため、エクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:481
+msgid "In the Mappings tab, map exactly one of the platform’s payment methods to the order’s WooCommerce payment method (set a payment method on the order if it has none), then export again."
+msgstr "「マッピング」タブで、注文の WooCommerce の決済方法に、プラットフォームの決済方法をちょうど 1 つマッピングしてください（注文に決済方法が無ければ設定してください）。そのうえでもう一度エクスポートしてください。"
+
+#. translators: %s: the ID of a WooCommerce payment method, such as bacs.
+#: includes/Woo/WarningCatalog.php:483
+#, php-format
+msgid "The payment method “%s” is not mapped to exactly one of the platform’s payment methods, so the order is not exported."
+msgstr "決済方法「%s」がプラットフォームの決済方法の 1 つだけにマッピングされていないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:488
+msgid "The platform’s delivery method is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
+msgstr "プラットフォームの配送方法が WooCommerce の配送方法にマッピングされていないため、配送方法なしで注文をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:489
+msgid "Map the delivery method in the Mappings tab. The order is updated the next time it is imported."
+msgstr "「マッピング」タブで配送方法をマッピングしてください。注文は次にインポートしたときに更新されます。"
+
+#. translators: %s: the platform's ID of a delivery method.
+#: includes/Woo/WarningCatalog.php:491
+#, php-format
+msgid "The platform’s delivery method %s is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
+msgstr "プラットフォームの配送方法 %s が WooCommerce の配送方法にマッピングされていないため、配送方法なしで注文をインポートします。"
+
+#: includes/Woo/WarningCatalog.php:495
+msgid "The order has no shipping (for example, it has only virtual products), so it is not exported."
+msgstr "注文に配送が無い（バーチャル商品だけの注文など）ため、エクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:496
+msgid "In the Mappings tab, map exactly one of the platform’s delivery methods to the order’s WooCommerce shipping method, then export again. An order without shipping cannot be exported; create it on the platform by hand."
+msgstr "「マッピング」タブで、注文の WooCommerce の配送方法に、プラットフォームの配送方法をちょうど 1 つマッピングしてから、もう一度エクスポートしてください。配送の無い注文はエクスポートできないので、プラットフォームで手作業で作成してください。"
+
+#. translators: %s: the ID of a WooCommerce shipping method, such as flat_rate:3.
+#: includes/Woo/WarningCatalog.php:498
+#, php-format
+msgid "The shipping method “%s” is not mapped to exactly one of the platform’s delivery methods, so the order is not exported."
+msgstr "配送方法「%s」がプラットフォームの配送方法の 1 つだけにマッピングされていないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:502
+msgid "The order status is not registered in WooCommerce, or cannot be used for imported orders (such as “checkout-draft”, which WooCommerce deletes after a day), so the order is imported as “On hold”."
+msgstr "注文のステータスが WooCommerce に登録されていないか、インポートした注文に使えない（WooCommerce が 1 日で削除する「checkout-draft」など）ため、「保留中」としてインポートします。"
+
+#: includes/Woo/WarningCatalog.php:503
+msgid "In the order status mapping (Mappings tab), choose a regular WooCommerce order status that can be used for imported orders before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten)."
+msgstr "インポートの前に、注文ステータスのマッピング（「マッピング」タブ）で、インポートした注文に使える通常の WooCommerce の注文ステータスを選んでください。インポート済みの注文は、インポートを終えてから手作業で直してください（もう一度インポートした注文は書き直されます）。"
+
+#. translators: %s: an order status.
+#: includes/Woo/WarningCatalog.php:505
+#, php-format
+msgid "The order status “%s” is not registered in WooCommerce, or cannot be used for imported orders, so the order is imported as “On hold”."
+msgstr "注文のステータス「%s」が WooCommerce に登録されていないか、インポートした注文に使えないため、「保留中」としてインポートします。"
+
+#: includes/Woo/WarningCatalog.php:509
+msgid "The order total from the platform does not equal the sum of its lines, shipping, fees and discount. The platform’s total is kept."
+msgstr "プラットフォームの注文の合計が、明細・送料・手数料・割引の合計と一致しません。プラットフォームの合計をそのまま使います。"
+
+#: includes/Woo/WarningCatalog.php:510
+msgid "Compare the order with the platform, and correct it in WooCommerce after you finish importing if needed (an order that is imported again is rewritten)."
+msgstr "プラットフォームの注文と見比べ、必要ならインポートを終えてから WooCommerce で直してください（もう一度インポートした注文は書き直されます）。"
+
+#. translators: %s: an amount in yen.
+#: includes/Woo/WarningCatalog.php:512
+#, php-format
+msgid "The order total from the platform differs from the sum of its lines, shipping, fees and discount by %s yen. The platform’s total is kept."
+msgstr "プラットフォームの注文の合計が、明細・送料・手数料・割引の合計と %s 円違います。プラットフォームの合計をそのまま使います。"
+
+#: includes/Woo/WarningCatalog.php:516
+msgid "This order is part of a split order, and the platform does not give the tax for the part, so the order’s tax is recorded as 0."
+msgstr "この注文は分割された注文の一部で、プラットフォームがその部分の税を示していないため、注文の税は 0 として記録します。"
+
+#: includes/Woo/WarningCatalog.php:520
+msgid "The platform does not give an order line’s price before tax, so the line is recorded at its price including tax with a tax of 0. The order total and tax are not affected."
+msgstr "プラットフォームが注文の明細の税抜価格を示していないため、明細は税込価格・税 0 で記録します。注文の合計と税には影響しません。"
+
+#: includes/Woo/WarningCatalog.php:524
+msgid "The platform does not give the tax breakdown for this order (older orders), so the order’s tax includes only the tax on products, not on shipping."
+msgstr "プラットフォームがこの注文の税の内訳を示していない（古い注文）ため、注文の税には商品の税だけを含め、送料の税は含めません。"
+
+#: includes/Woo/WarningCatalog.php:528
+msgid "An order line’s amount including tax is less than its price before tax times the quantity (a discount or rounding on the platform), so the line is recorded at its amount including tax with a tax of 0."
+msgstr "注文の明細の税込金額が税抜価格×数量より少ない（プラットフォームでの割引や端数処理）ため、明細は税込金額・税 0 で記録します。"
+
+#: includes/Woo/WarningCatalog.php:532
+msgid "WooCommerce could not create the order (another plugin may have stopped it while it was being saved), so it is not imported."
+msgstr "WooCommerce が注文を作成できなかった（保存中に他のプラグインが止めた可能性があります）ため、この注文はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:533
+msgid "Check WooCommerce > Status > Logs for the error, fix or turn off the plugin that caused it, then import again."
+msgstr "WooCommerce > ステータス > ログでエラーを確認し、原因のプラグインを直すかオフにしてから、もう一度インポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:538
+msgid "An amount of the order (total, discount, shipping fee or tax) from the platform is missing, not a number, or negative, so the order is not imported."
+msgstr "プラットフォームの注文の金額（合計・割引・送料・税）が無いか、数値でないか、負の値のため、この注文はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:539
+msgid "Correct the order’s amounts on the platform, then import again."
+msgstr "プラットフォームで注文の金額を直してから、もう一度インポートしてください。"
+
+#. translators: %s: the name of an amount field, such as shipping_fee.
+#: includes/Woo/WarningCatalog.php:541
+#, php-format
+msgid "The order’s amount “%s” from the platform is missing, not a number, or negative, so the order is not imported."
+msgstr "プラットフォームの注文の金額「%s」が無いか、数値でないか、負の値のため、この注文はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:545
+msgid "An amount of the order (total, discount, shipping, a fee or tax) is not a number or is negative, so the order is not exported."
+msgstr "注文の金額（合計・割引・送料・手数料・税）が数値でないか負の値のため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:546
+msgid "Correct the amounts on the WooCommerce order (a negative fee is a common cause), or create the order on the platform by hand."
+msgstr "WooCommerce の注文の金額を直す（負の手数料がよくある原因です）か、プラットフォームで注文を手作業で作成してください。"
+
+#. translators: %s: the name of an amount field, such as payment_fee.
+#: includes/Woo/WarningCatalog.php:548
+#, php-format
+msgid "The order’s amount “%s” is not a number or is negative, so the order is not exported."
+msgstr "注文の金額「%s」が数値でないか負の値のため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:553
+msgid "An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0 (for a line’s price before tax, the line’s tax is recorded as 0 instead). The order total from the platform is kept."
+msgstr "プラットフォームの注文の金額（明細の価格・送料・手数料）が数値でないか負の値のため、0 として記録します（明細の税抜価格の場合は、代わりに明細の税を 0 にします）。プラットフォームの注文の合計はそのまま使います。"
+
+#: includes/Woo/WarningCatalog.php:554
+msgid "Compare the order with the platform, and correct the amounts in WooCommerce after you finish importing (an order that is imported again is rewritten)."
+msgstr "プラットフォームの注文と見比べ、インポートを終えてから WooCommerce で金額を直してください（もう一度インポートした注文は書き直されます）。"
+
+#: includes/Woo/WarningCatalog.php:558
+msgid "An order line’s amount or tax is not a number or is negative, so the order is not exported."
+msgstr "注文の明細の金額か税が数値でないか負の値のため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:559
+msgid "Recalculate or correct the line on the WooCommerce order, or create the order on the platform by hand."
+msgstr "WooCommerce の注文で明細を再計算するか直す、またはプラットフォームで注文を手作業で作成してください。"
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Woo/WarningCatalog.php:561
+#, php-format
+msgid "The amount or tax of the order line for the platform’s product %s is not a number or is negative, so the order is not exported."
+msgstr "プラットフォームの商品 %s の注文の明細の金額か税が数値でないか負の値のため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:567
+msgid "A product in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
+msgstr "この注文の商品がまだプラットフォームへエクスポートされていません。注文は商品の後でなければエクスポートできません（すべてをエクスポートすれば、商品を注文より先に送ります）。"
+
+#: includes/Woo/WarningCatalog.php:568
+msgid "Include products in the export, or export them first. If the product is not exported because of its own warnings, fix those first."
+msgstr "エクスポートに商品を含めるか、先に商品をエクスポートしてください。商品が自身の警告でエクスポートされない場合は、先にそれを直してください。"
+
+#. translators: %s: the WooCommerce ID of a product.
+#: includes/Woo/WarningCatalog.php:570
+#, php-format
+msgid "The product %s in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
+msgstr "この注文の商品 %s がまだプラットフォームへエクスポートされていません。注文は商品の後でなければエクスポートできません（すべてをエクスポートすれば、商品を注文より先に送ります）。"
+
+#: includes/Woo/WarningCatalog.php:574
+msgid "The customer of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
+msgstr "この注文の顧客がまだプラットフォームへエクスポートされていません。顧客より先に注文をエクスポートすると、ゲストの注文として作成され、後から顧客に紐づけられません。"
+
+#: includes/Woo/WarningCatalog.php:575
+msgid "Include customers in the export (they are sent before orders), or export them first."
+msgstr "エクスポートに顧客を含める（注文より先に送ります）か、先に顧客をエクスポートしてください。"
+
+#. translators: %s: the WordPress ID of a user.
+#: includes/Woo/WarningCatalog.php:577
+#, php-format
+msgid "The customer (user ID %s) of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
+msgstr "この注文の顧客（ユーザー ID %s）がまだプラットフォームへエクスポートされていません。顧客より先に注文をエクスポートすると、ゲストの注文として作成され、後から顧客に紐づけられません。"
+
+#: includes/Woo/WarningCatalog.php:581
+msgid "A product in this order has been deleted from WooCommerce, so the order is not exported."
+msgstr "この注文の商品が WooCommerce から削除されているため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:582
+#: includes/Woo/WarningCatalog.php:589
+#: includes/Woo/WarningCatalog.php:601
+#: includes/Woo/WarningCatalog.php:623
+msgid "Create the order on the platform by hand if you need it."
+msgstr "必要なら、プラットフォームで注文を手作業で作成してください。"
+
+#. translators: %s: the WooCommerce ID of a deleted product.
+#: includes/Woo/WarningCatalog.php:584
+#, php-format
+msgid "The product %s in this order has been deleted from WooCommerce, so the order is not exported."
+msgstr "この注文の商品 %s が WooCommerce から削除されているため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:588
+msgid "An order line is not linked to any product, so the order is not exported."
+msgstr "注文の明細がどの商品にも紐づいていないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:593
+msgid "The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
+msgstr "注文の明細のバリエーションを特定できない（削除された、属性に「すべての…」を使っている、または商品がバリエーションに 3 つ以上の属性を使っている）ため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:594
+msgid "If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand."
+msgstr "商品がバリエーションに 3 つ以上の属性を使っている場合は、2 つに減らしてください。そうでなければ、プラットフォームで注文を手作業で作成してください。"
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Woo/WarningCatalog.php:596
+#, php-format
+msgid "The variation %s of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
+msgstr "注文の明細のバリエーション %s を特定できない（削除された、属性に「すべての…」を使っている、または商品がバリエーションに 3 つ以上の属性を使っている）ため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:600
+msgid "The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported."
+msgstr "この注文は返金されていて（全額または一部）、返金はプラットフォームへ送れないため、エクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:605
+msgid "An order line’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), or its product is not taxable, so the order is not exported."
+msgstr "注文の明細の税区分に日本の税率 10%（標準）も 8%（軽減）も無いか、その商品が課税されないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:606
+msgid "If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
+msgstr "税区分に日本の税率が無ければ、10%（標準）か 8%（軽減）を追加してください。商品の課税ステータスが「課税」でなければ、変えてください。（税の設定と商品の税の項目は、WooCommerce > 設定 > 一般で税の計算をオンにしたときだけ表示されます。）"
+
+#. translators: %s: the platform's ID of a product. Write a literal percent sign as %%.
+#: includes/Woo/WarningCatalog.php:608
+#, php-format
+msgid "The tax class of the order line for the platform’s product %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), or its product is not taxable, so the order is not exported."
+msgstr "プラットフォームの商品 %s の注文の明細の税区分に日本の税率 10%%（標準）も 8%%（軽減）も無いか、その商品が課税されないため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:612
+msgid "The order was already exported, and the platform cannot update an order’s items, payment or delivery, so it is not sent again (that would create a duplicate)."
+msgstr "この注文はエクスポート済みで、プラットフォームでは注文の商品・決済・配送を更新できないため、もう一度は送りません（送ると重複します）。"
+
+#: includes/Woo/WarningCatalog.php:613
+msgid "If the order changed, update it on the platform by hand."
+msgstr "注文が変わった場合は、プラットフォームで手作業で更新してください。"
+
+#: includes/Woo/WarningCatalog.php:617
+msgid "The order’s delivery address is incomplete (a name, phone number, postcode, prefecture and address are required), so the order is not exported. A partly filled shipping address is not completed from the billing address."
+msgstr "注文の配送先住所が足りない（名前・電話番号・郵便番号・都道府県・住所が必要です）ため、この注文はエクスポートしません。一部だけ入力した配送先住所を請求先住所で補うことはしません。"
+
+#: includes/Woo/WarningCatalog.php:618
+msgid "Complete the shipping address on the WooCommerce order, or clear it so that the billing address is used, then export again."
+msgstr "WooCommerce の注文で配送先住所を埋めるか、請求先住所を使うよう配送先住所を消してから、もう一度エクスポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:622
+msgid "The order has no product lines, and the platform requires at least one, so the order is not exported."
+msgstr "注文に商品の明細が無く、プラットフォームは 1 つ以上必要とするため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:627
+msgid "The unit price of an order line cannot be worked out (the line total does not divide evenly by the quantity, or the platform’s tax setting is unknown), so the order is not exported."
+msgstr "注文の明細の単価を求められない（明細の合計が数量で割り切れない、またはプラットフォームの税の設定が分からない）ため、この注文はエクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:628
+msgid "Check the platform’s tax setting. If a line total does not divide evenly by its quantity, create the order on the platform by hand."
+msgstr "プラットフォームの税の設定を確認してください。明細の合計が数量で割り切れない場合は、プラットフォームで注文を手作業で作成してください。"
+
+#: includes/Woo/WarningCatalog.php:632
+msgid "The order has a discount (such as a coupon), but the platform cannot receive discounts. When the order is sent, it is sent at prices before the discount, so its total on the platform is higher than the amount paid."
+msgstr "この注文には割引（クーポンなど）がありますが、プラットフォームは割引を受け取れません。注文を送ると割引前の価格で送るため、プラットフォームでの合計は支払った金額より高くなります。"
+
+#: includes/Woo/WarningCatalog.php:633
+msgid "Adjust the order’s amount on the platform by hand if needed."
+msgstr "必要なら、プラットフォームで注文の金額を手作業で直してください。"
+
+#: includes/Woo/WarningCatalog.php:637
+msgid "The order’s shipping and other fees cannot be sent. When the order is sent, the platform applies its own fees for the payment and delivery methods, so the totals can differ."
+msgstr "注文の送料やその他の手数料は送れません。注文を送ると、プラットフォームが決済方法と配送方法の手数料を独自に適用するため、合計が違うことがあります。"
+
+#: includes/Woo/WarningCatalog.php:638
+msgid "Check the fees on the platform’s order if needed."
+msgstr "必要なら、プラットフォームの注文の手数料を確認してください。"
+
+#: includes/Woo/WarningCatalog.php:642
+msgid "The platform cannot receive the order date, so the order date on the platform is the date of the export."
+msgstr "プラットフォームは注文日を受け取れないため、プラットフォームの注文日はエクスポートした日になります。"
+
+#: includes/Woo/WarningCatalog.php:648
+msgid "The product or variation for this stock is not found in WooCommerce, so the stock is not imported."
+msgstr "この在庫の商品かバリエーションが WooCommerce に無いため、在庫はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:649
+msgid "Import products before stock (a full import does this). If this remains, the product was not imported, for example because of the free version’s limit."
+msgstr "在庫より先に商品をインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は、無料版の上限などの理由で商品がインポートされていません。"
+
+#. translators: %s: the platform's ID of a product or variation.
+#: includes/Woo/WarningCatalog.php:651
+#, php-format
+msgid "The product or variation %s for this stock is not found in WooCommerce, so the stock is not imported."
+msgstr "この在庫の商品かバリエーション %s が WooCommerce に無いため、在庫はインポートしません。"
+
+#: includes/Woo/WarningCatalog.php:655
+msgid "The stock is for a product that has variations in WooCommerce, and stock is kept on each variation, so it is not imported."
+msgstr "この在庫は WooCommerce でバリエーションのある商品のもので、在庫はバリエーションごとに持つため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:656
+msgid "If the product no longer has variations on the platform, import products again so that the WooCommerce product is updated, then import stock."
+msgstr "プラットフォームで商品にバリエーションが無くなった場合は、商品をもう一度インポートして WooCommerce の商品を更新してから、在庫をインポートしてください。"
+
+#: includes/Woo/WarningCatalog.php:660
+msgid "The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock."
+msgstr "この在庫の商品かバリエーションがまだプラットフォームへエクスポートされていないため、在庫はエクスポートしません。すべてをエクスポートすれば、商品を在庫より先に送ります。"
+
+#: includes/Woo/WarningCatalog.php:661
+msgid "Include products in the export. If the product or this variation is not exported because of other warnings, fix those first."
+msgstr "エクスポートに商品を含めてください。商品やこのバリエーションがほかの警告でエクスポートされない場合は、先にそれを直してください。"
+
+#. translators: %s: the WooCommerce ID of a product or variation.
+#: includes/Woo/WarningCatalog.php:663
+#, php-format
+msgid "The product or variation %s for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock."
+msgstr "この在庫の商品かバリエーション %s がまだプラットフォームへエクスポートされていないため、在庫はエクスポートしません。すべてをエクスポートすれば、商品を在庫より先に送ります。"
+
+#: includes/Woo/WarningCatalog.php:667
+msgid "The variation does not manage stock, and the platform cannot mark a single variation as not managed, so its stock is not sent. The product itself is exported as not managing stock."
+msgstr "このバリエーションは在庫を管理していませんが、プラットフォームでは 1 つのバリエーションだけを在庫管理なしにできないため、在庫は送りません。商品自体は在庫を管理しないものとしてエクスポートします。"
+
+#: includes/Woo/WarningCatalog.php:668
+msgid "To send stock for each variation, turn on stock management for all published variations of the product."
+msgstr "バリエーションごとに在庫を送るには、商品の公開しているバリエーションすべてで在庫管理をオンにしてください。"
+
+#: includes/Woo/WarningCatalog.php:674
+msgid "A coupon with the same code that was imported from this platform before already exists, so it is linked and updated."
+msgstr "以前このプラットフォームからインポートした同じコードのクーポンがすでにあるため、それを紐づけて更新します。"
+
+#. translators: %s: the WooCommerce ID of a coupon.
+#: includes/Woo/WarningCatalog.php:677
+#, php-format
+msgid "A coupon with the same code that was imported from this platform before already exists (coupon ID %s), so it is linked and updated."
+msgstr "以前このプラットフォームからインポートした同じコードのクーポン（クーポン ID %s）がすでにあるため、それを紐づけて更新します。"
+
+#: includes/Woo/WarningCatalog.php:682
+msgid "The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported or updated (without them, it could be used more widely). A coupon that was imported before is not changed or disabled, so it stays usable without these restrictions."
+msgstr "このクーポンには WooCommerce で表せない利用制限があるため、インポート・更新しません（制限なしでは、より広く使えてしまうため）。以前にインポートしたクーポンは変更も無効化もしないので、この制限なしで使えるままです。"
+
+#: includes/Woo/WarningCatalog.php:683
+msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand with equivalent restrictions. If it was imported before, add the restrictions to it or disable it."
+msgstr "プラットフォームでクーポンの制限を確認し、同じ制限で WooCommerce にクーポンを手作業で作成してください。以前にインポートしている場合は、そのクーポンに制限を追加するか、無効にしてください。"
+
+#: includes/Woo/WarningCatalog.php:687
+msgid "The coupon has settings the platform cannot represent (such as product, category or email restrictions, a maximum spend, “Individual use only”, or a fixed product discount), or it has already been used, so it is not exported."
+msgstr "このクーポンにはプラットフォームで表せない設定（商品・カテゴリー・メールアドレスの制限、利用上限額、「併用不可」、商品毎に割引など）があるか、すでに使われているため、エクスポートしません。"
+
+#: includes/Woo/WarningCatalog.php:688
+msgid "Remove those settings, or create the coupon on the platform by hand. For a coupon that has been used, create a new coupon."
+msgstr "その設定を外すか、プラットフォームでクーポンを手作業で作成してください。使われたクーポンの場合は、新しいクーポンを作成してください。"
+
+#: includes/Woo/WarningCatalog.php:692
+msgid "The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported or updated (to avoid creating it without them). A coupon that was imported before is not changed or disabled, so it stays usable as it was."
+msgstr "プラットフォームとの接続部分が、このクーポンに利用制限があるかを示さなかったため、インポート・更新しません（制限なしで作成しないため）。以前にインポートしたクーポンは変更も無効化もしないので、そのまま使えます。"
+
+#: includes/Woo/WarningCatalog.php:693
+msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand. If it was imported before, check its restrictions, or disable it."
+msgstr "プラットフォームでクーポンの制限を確認し、WooCommerce にクーポンを手作業で作成してください。以前にインポートしている場合は、その制限を確認するか、無効にしてください。"
+
+#: includes/Woo/WarningCatalog.php:697
+msgid "Another WooCommerce coupon already uses the same code, so this coupon is not imported or updated."
+msgstr "別の WooCommerce のクーポンがすでに同じコードを使っているため、このクーポンはインポート・更新しません。"
+
+#: includes/Woo/WarningCatalog.php:698
+msgid "Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again."
+msgstr "WooCommerce の既存のクーポンの名前を変えるか削除する、またはプラットフォームでコードを変えてから、もう一度インポートしてください。"
+
+#. translators: %s: the WooCommerce ID of a coupon.
+#: includes/Woo/WarningCatalog.php:700
+#, php-format
+msgid "Another WooCommerce coupon (coupon ID %s) already uses the same code, so this coupon is not imported or updated."
+msgstr "別の WooCommerce のクーポン（クーポン ID %s）がすでに同じコードを使っているため、このクーポンはインポート・更新しません。"
+
+#: includes/Woo/WarningCatalog.php:704
+msgid "The coupon’s discount type is not supported (only a fixed amount or a percentage), so it is not imported."
+msgstr "このクーポンの割引の種類には対応していない（固定額か割合だけに対応）ため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:705
+#: includes/Woo/WarningCatalog.php:719
+msgid "Create the coupon in WooCommerce by hand."
+msgstr "WooCommerce にクーポンを手作業で作成してください。"
+
+#. translators: %s: the discount type received from the platform.
+#: includes/Woo/WarningCatalog.php:707
+#, php-format
+msgid "The coupon’s discount type “%s” is not supported (only a fixed amount or a percentage), so it is not imported."
+msgstr "このクーポンの割引の種類「%s」には対応していない（固定額か割合だけに対応）ため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:711
+msgid "The coupon’s discount is not valid (not a number, negative, or a percentage over 100), so it is not imported."
+msgstr "このクーポンの割引が正しくない（数値でない、負の値、または 100 を超える割合）ため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:712
+msgid "Correct the discount on the platform, or create the coupon in WooCommerce by hand."
+msgstr "プラットフォームで割引を直すか、WooCommerce にクーポンを手作業で作成してください。"
+
+#. translators: %s: the discount value received from the platform.
+#: includes/Woo/WarningCatalog.php:714
+#, php-format
+msgid "The coupon’s discount (%s) is not valid (not a number, negative, or a percentage over 100), so it is not imported."
+msgstr "このクーポンの割引（%s）が正しくない（数値でない、負の値、または 100 を超える割合）ため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:718
+msgid "The coupon’s expiry date cannot be read, so it is not imported."
+msgstr "このクーポンの有効期限を読み取れないため、インポートしません。"
+
+#. translators: %s: the expiry date received from the platform.
+#: includes/Woo/WarningCatalog.php:721
+#, php-format
+msgid "The coupon’s expiry date (%s) cannot be read, so it is not imported."
+msgstr "このクーポンの有効期限（%s）を読み取れないため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:725
+msgid "The coupon’s minimum spend is not a number or is negative, so it is not imported."
+msgstr "このクーポンの最小額が数値でないか負の値のため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:726
+msgid "Correct the minimum spend on the platform, then import again."
+msgstr "プラットフォームで最小額を直してから、もう一度インポートしてください。"
+
+#. translators: %s: the minimum spend received from the platform.
+#: includes/Woo/WarningCatalog.php:728
+#, php-format
+msgid "The coupon’s minimum spend (%s) is not a number or is negative, so it is not imported."
+msgstr "このクーポンの最小額（%s）が数値でないか負の値のため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:732
+msgid "WooCommerce could not save the coupon, so it is not imported."
+msgstr "WooCommerce がクーポンを保存できなかったため、インポートしません。"
+
+#: includes/Woo/WarningCatalog.php:739
+msgid "The product was created on the platform, but sending its remaining details (such as the subcategory and stock) failed for now. They are sent on the next export."
+msgstr "商品はプラットフォームに作成しましたが、残りの情報（サブカテゴリーや在庫など）の送信が一時的に失敗しました。次のエクスポートで送ります。"
+
+#: includes/Woo/WarningCatalog.php:740
+#: includes/Woo/WarningCatalog.php:750
+#: includes/Woo/WarningCatalog.php:780
+msgid "Run the export again."
+msgstr "もう一度エクスポートを実行してください。"
+
+#: includes/Woo/WarningCatalog.php:744
+msgid "The product was created on the platform, but the platform rejected its remaining details (such as the subcategory and stock), so they may be missing."
+msgstr "商品はプラットフォームに作成しましたが、プラットフォームが残りの情報（サブカテゴリーや在庫など）を受け付けなかったため、抜けている可能性があります。"
+
+#: includes/Woo/WarningCatalog.php:745
+msgid "Check the product’s category and stock on the platform and correct them by hand."
+msgstr "プラットフォームで商品のカテゴリーと在庫を確認し、手作業で直してください。"
+
+#: includes/Woo/WarningCatalog.php:749
+msgid "The product was sent, but setting up some of its variations failed for now. They are sent on the next export."
+msgstr "商品は送りましたが、一部のバリエーションの設定が一時的に失敗しました。次のエクスポートで送ります。"
+
+#: includes/Woo/WarningCatalog.php:754
+msgid "The product was sent, but some of its variations could not be set up on the platform (for example, two attributes have the same name, a variation has no value for an attribute, or the platform rejected the change)."
+msgstr "商品は送りましたが、一部のバリエーションをプラットフォームに設定できませんでした（2 つの属性が同じ名前、バリエーションに属性の値が無い、プラットフォームが変更を受け付けなかった、など）。"
+
+#: includes/Woo/WarningCatalog.php:755
+msgid "Give the attributes used for variations different names and set a value for every attribute on each variation. Then change the product so that it is exported again, and check its variations on the platform."
+msgstr "バリエーションに使う属性を別々の名前にし、各バリエーションのすべての属性に値を設定してください。そのうえで商品を変更してもう一度エクスポートし、プラットフォームでバリエーションを確認してください。"
+
+#: includes/Woo/WarningCatalog.php:759
+msgid "The product was sent, but uploading some of its images failed (a network error, or an error on your site or the platform). They are tried again on the next export."
+msgstr "商品は送りましたが、一部の画像のアップロードに失敗しました（ネットワークのエラー、またはサイトかプラットフォームのエラー）。次のエクスポートでもう一度試します。"
+
+#: includes/Woo/WarningCatalog.php:760
+msgid "Run the export again. If this keeps happening, make sure your site can download its own media files (a firewall, a blocked request to the site itself, or an untrusted SSL certificate can stop this)."
+msgstr "もう一度エクスポートを実行してください。繰り返し起きる場合は、サイトが自分のメディアファイルをダウンロードできることを確かめてください（ファイアウォール、サイト自身への要求のブロック、信頼されていない SSL 証明書が原因で止まることがあります）。"
+
+#: includes/Woo/WarningCatalog.php:764
+msgid "The product was sent, but some of its images were rejected (for example, more than 50 images, a missing file, a file your site does not let the plugin download, or an unsupported format)."
+msgstr "商品は送りましたが、一部の画像を受け付けてもらえませんでした（画像が 50 枚を超える、ファイルが無い、サイトがプラグインのダウンロードを許可しないファイル、対応していない形式、など）。"
+
+#: includes/Woo/WarningCatalog.php:765
+msgid "Keep 50 or fewer images per product, fix or replace missing or unsupported images, and make sure your site can download its own media files (basic authentication or a firewall can block this). Add the remaining images on the platform by hand."
+msgstr "画像は 1 商品 50 枚以内にし、無い画像や対応していない画像を直すか差し替え、サイトが自分のメディアファイルをダウンロードできることを確かめてください（ベーシック認証やファイアウォールで止まることがあります）。残りの画像はプラットフォームで手作業で追加してください。"
+
+#: includes/Woo/WarningCatalog.php:769
+msgid "The product was sent without its images (image upload is turned off, or the platform’s plan does not allow it)."
+msgstr "商品は画像なしで送りました（画像のアップロードがオフか、プラットフォームのプランで許可されていません）。"
+
+#: includes/Woo/WarningCatalog.php:770
+msgid "If the platform’s plan allows image upload, turn on “Upload product images (Beta)” in the Export tab and export again. Otherwise, add the images on the platform."
+msgstr "プラットフォームのプランで画像のアップロードが許可されているなら、「エクスポート」タブで「商品画像をアップロードする（ベータ版）」をオンにしてもう一度エクスポートしてください。そうでなければ、プラットフォームで画像を追加してください。"
+
+#: includes/Woo/WarningCatalog.php:774
+msgid "The platform creates every combination of the product’s options, so it now has variations that do not exist in WooCommerce. They are not deleted and can be bought if stock is not managed."
+msgstr "プラットフォームは商品のオプションのすべての組み合わせを作るため、WooCommerce に無いバリエーションができています。それらは削除しないので、在庫を管理していなければ購入できます。"
+
+#: includes/Woo/WarningCatalog.php:775
+msgid "Review the product’s variations on the platform and hide or delete the extra combinations."
+msgstr "プラットフォームで商品のバリエーションを見直し、余分な組み合わせを非表示にするか削除してください。"
+
+#: includes/Woo/WarningCatalog.php:779
+msgid "The item was created on the platform, but the export stopped before it was finished (for example, at the platform’s request limit). It is completed on the next export."
+msgstr "項目はプラットフォームに作成しましたが、終わる前にエクスポートが止まりました（プラットフォームの要求の上限など）。次のエクスポートで仕上げます。"
+
+#: includes/Woo/WarningCatalog.php:784
+msgid "An earlier export of this item ended without confirming whether it was created on the platform, so it is not sent again until you check."
+msgstr "この項目の以前のエクスポートは、プラットフォームに作成されたかを確認できないまま終わったため、確認するまでもう一度は送りません。"
+
+#: includes/Woo/WarningCatalog.php:785
+msgid "In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”."
+msgstr "「エクスポート」タブで、項目がプラットフォームにあるか確認してから、「紐づけて解決」か「未作成として解決」を使ってください。"
+
+#: includes/Woo/Writer/OrderItemBuilder.php:45
+msgid "Unknown product"
+msgstr "不明な商品"
+
+#: includes/Woo/Writer/OrderItemBuilder.php:207
+msgid "Shipping"
+msgstr "送料"
+
+#: includes/Woo/Writer/OrderItemBuilder.php:258
+msgid "Payment fee"
+msgstr "決済手数料"
+
+#: includes/Woo/Writer/OrderItemBuilder.php:268
+msgid "Gift wrapping"
+msgstr "ギフトラッピング"
+
+#: build/index.js:1
+msgid "Your browser blocked the authorization popup. Please allow popups for this site and try again."
+msgstr "ブラウザーが認可のポップアップをブロックしました。このサイトのポップアップを許可してから、もう一度お試しください。"
+
+#: build/index.js:1
+msgid "Connected"
+msgstr "接続済み"
+
+#: build/index.js:1
+msgid "Not connected"
+msgstr "未接続"
+
+#: build/index.js:1
+msgid "Stored credentials could not be decrypted. Please reconnect."
+msgstr "保存した認証情報を復号できませんでした。接続し直してください。"
+
+#: build/index.js:1
+msgid "Callback URL"
+msgstr "コールバック URL"
+
+#: build/index.js:1
+msgid "Register this exact URL as the app's redirect URI in the platform's developer console before connecting."
+msgstr "接続する前に、プラットフォームのデベロッパー向けの管理画面で、この URL をそのままアプリのリダイレクト URI として登録してください。"
+
+#: build/index.js:1
+msgid "Credentials are already saved. The fields below are intentionally left blank for security — fill them in only if you want to replace the saved values."
+msgstr "認証情報は保存済みです。安全のため下の欄は空にしてあります。保存した値を置き換えるときだけ入力してください。"
+
+#: build/index.js:1
+msgid "Settings saved."
+msgstr "設定を保存しました。"
+
+#: build/index.js:1
+msgid "Save settings"
+msgstr "設定を保存"
+
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:2
+#, js-format
+msgid "Reconnect to %s"
+msgstr "%sに接続し直す"
+
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:3
+#, js-format
+msgid "Connect to %s"
+msgstr "%sに接続"
+
+#: build/index.js:3
+msgid "Trouble connecting locally?"
+msgstr "ローカルで接続できませんか ?"
+
+#: build/index.js:3
+msgid "For local development environments where the platform cannot redirect back to this site, authorize manually and paste the resulting code (or the full authorization URL) below."
+msgstr "プラットフォームがこのサイトへ戻れないローカルの開発環境では、手動で認可し、表示されたコード（または認可 URL 全体）を下に貼り付けてください。"
+
+#: build/index.js:3
+msgid "The platform requires the authorization request's redirect URI to match the one registered for the app. Before using this manual link, change the app's registered redirect URI from the callback URL above to urn:ietf:wg:oauth:2.0:oob in the platform's developer console."
+msgstr "プラットフォームは、認可の要求のリダイレクト URI がアプリに登録したものと一致することを求めます。この手動のリンクを使う前に、プラットフォームのデベロッパー向けの管理画面で、アプリに登録したリダイレクト URI を上のコールバック URL から urn:ietf:wg:oauth:2.0:oob に変えてください。"
+
+#: build/index.js:3
+msgid "Get manual authorization link"
+msgstr "手動の認可リンクを取得"
+
+#: build/index.js:3
+msgid "Authorization code (or URL)"
+msgstr "認可コード（または URL）"
+
+#: build/index.js:3
+msgid "Connected."
+msgstr "接続しました。"
+
+#: build/index.js:3
+msgid "Submit code"
+msgstr "コードを送信"
+
+#: build/index.js:3
+msgid "Test connection"
+msgstr "接続をテスト"
+
+#: build/index.js:3
+msgid "Disconnect"
+msgstr "接続を解除"
+
+#: build/index.js:3
+msgid "Clear saved credentials"
+msgstr "保存した認証情報を消去"
+
+#. translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop")
+#: build/index.js:4
+#: build/index.js:5
+#, js-format
+msgid "Connected to %s."
+msgstr "%sに接続しました。"
+
+#: build/index.js:4
+msgid "Connection OK."
+msgstr "接続できました。"
+
+#: build/index.js:5
+#: build/index.js:32
+msgid "No platforms are available."
+msgstr "使えるプラットフォームがありません。"
+
+#. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
+#: build/index.js:6
+#, js-format
+msgid "%1$s %2$s"
+msgstr "%1$s%2$s"
+
+#: build/index.js:6
+msgid "An import preview (dry run)"
+msgstr "インポートのプレビュー（書き込みなし）"
+
+#: build/index.js:6
+msgid "An import"
+msgstr "インポート"
+
+#: build/index.js:6
+msgid "An export preview (dry run)"
+msgstr "エクスポートのプレビュー（書き込みなし）"
+
+#: build/index.js:6
+msgid "An export"
+msgstr "エクスポート"
+
+#: build/index.js:6
+msgid "A run"
+msgstr "処理"
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:7
+#, js-format
+msgid "%1$s stopped because a job failed, but it still blocks new runs and tools on this platform (started %2$s). Retry the failed job or cancel the run."
+msgstr "%1$sはジョブの失敗で止まりましたが、このプラットフォームの新しい実行とツールを止めたままです（%2$s 開始）。失敗したジョブを再試行するか、実行をキャンセルしてください。"
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:8
+#, js-format
+msgid "%1$s is running on this platform (started %2$s)."
+msgstr "このプラットフォームで%1$sを実行しています（%2$s 開始）。"
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:9
+#, js-format
+msgid "%1$s is paused by the platform’s API rate limit and resumes automatically (started %2$s)."
+msgstr "%1$sはプラットフォームの API の利用制限で一時停止しています。自動で再開します（%2$s 開始）。"
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:10
+#, js-format
+msgid "%1$s is waiting to run on this platform (started %2$s)."
+msgstr "このプラットフォームで%1$sの実行を待っています（%2$s 開始）。"
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:11
+#, js-format
+msgid "%1$s is in progress on this platform (started %2$s)."
+msgstr "このプラットフォームで%1$sが進行中です（%2$s 開始）。"
+
+#: build/index.js:11
+msgid "Open the Import tab to see its progress"
+msgstr "「インポート」タブで進捗を見る"
+
+#: build/index.js:11
+msgid "Open the Export tab to see its progress"
+msgstr "「エクスポート」タブで進捗を見る"
+
+#: build/index.js:11
+#: build/index.js:21
+msgid "Cancel run"
+msgstr "実行をキャンセル"
+
+#: build/index.js:11
+msgid "No options available yet. Check the connection and try again."
+msgstr "選べる項目がまだありません。接続を確認してから、もう一度お試しください。"
+
+#. translators: %s: a mapping id that no longer exists among the current options
+#: build/index.js:12
+#, js-format
+msgid "%s (no longer available)"
+msgstr "%s（使えなくなりました）"
+
+#: build/index.js:12
+msgid "Category mapping"
+msgstr "カテゴリーのマッピング"
+
+#: build/index.js:12
+msgid "Used when exporting products. This platform cannot create new categories, so pick an existing platform category for each WooCommerce category you plan to export."
+msgstr "商品をエクスポートするときに使います。このプラットフォームでは新しいカテゴリーを作れないので、エクスポートする WooCommerce のカテゴリーごとに、プラットフォームの既存のカテゴリーを選んでください。"
+
+#: build/index.js:12
+msgid "WooCommerce category"
+msgstr "WooCommerce のカテゴリー"
+
+#: build/index.js:12
+msgid "Platform category"
+msgstr "プラットフォームのカテゴリー"
+
+#: build/index.js:12
+msgid "— No category —"
+msgstr "— カテゴリーなし —"
+
+#: build/index.js:12
+msgid "No platform categories are available to choose from. Check the connection, or create the categories on the platform first."
+msgstr "選べるプラットフォームのカテゴリーがありません。接続を確認するか、先にプラットフォームでカテゴリーを作成してください。"
+
+#: build/index.js:12
+msgid "Payment method mapping"
+msgstr "決済方法のマッピング"
+
+#: build/index.js:12
+msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning."
+msgstr "プラットフォームの決済方法ごとに、WooCommerce の決済方法を対応させます。マッピングしていない決済方法のインポートした注文は、WooCommerce の決済方法が空になり（タイトルにはプラットフォームの名前が残ります）、警告が付きます。"
+
+#: build/index.js:12
+msgid "Platform payment method"
+msgstr "プラットフォームの決済方法"
+
+#: build/index.js:12
+msgid "WooCommerce payment method"
+msgstr "WooCommerce の決済方法"
+
+#: build/index.js:12
+msgid "— Unmapped —"
+msgstr "— マッピングなし —"
+
+#: build/index.js:12
+msgid "No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first."
+msgstr "使える WooCommerce の決済方法がありません。先に WooCommerce > 設定 > 決済で設定してください。"
+
+#: build/index.js:12
+msgid "Shipping method mapping"
+msgstr "配送方法のマッピング"
+
+#: build/index.js:12
+msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning."
+msgstr "プラットフォームの配送方法ごとに、WooCommerce の配送地域の配送方法を対応させます。マッピングしていない配送方法のインポートした注文は、配送の明細にプラットフォームの名前だけが残り、警告が付きます。"
+
+#: build/index.js:12
+msgid "Platform shipping method"
+msgstr "プラットフォームの配送方法"
+
+#: build/index.js:12
+msgid "WooCommerce shipping method"
+msgstr "WooCommerce の配送方法"
+
+#: build/index.js:12
+msgid "No WooCommerce shipping methods are available. Add a shipping zone with a shipping method in WooCommerce > Settings > Shipping first."
+msgstr "使える WooCommerce の配送方法がありません。先に WooCommerce > 設定 > 配送で、配送方法のある配送地域を追加してください。"
+
+#: build/index.js:12
+msgid "Order status mapping"
+msgstr "注文ステータスのマッピング"
+
+#: build/index.js:12
+msgid "Overrides the WooCommerce status an imported order gets for each platform status. Leave it at Default to use the standard status."
+msgstr "プラットフォームのステータスごとに、インポートした注文に付ける WooCommerce のステータスを変えます。標準のステータスを使うなら「既定」のままにしてください。"
+
+#: build/index.js:12
+msgid "Platform order status"
+msgstr "プラットフォームの注文ステータス"
+
+#: build/index.js:12
+msgid "WooCommerce order status"
+msgstr "WooCommerce の注文ステータス"
+
+#: build/index.js:12
+msgid "— Default —"
+msgstr "— 既定 —"
+
+#: build/index.js:12
+msgid "No WooCommerce order statuses are available."
+msgstr "使える WooCommerce の注文ステータスがありません。"
+
+#: build/index.js:12
+msgid "Mapping settings saved."
+msgstr "マッピングの設定を保存しました。"
+
+#: build/index.js:12
+msgid "Save mappings"
+msgstr "マッピングを保存"
+
+#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet
+#: build/index.js:13
+#, js-format
+msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet."
+msgstr "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済み、%4$d 件が未移行です。"
+
+#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price)
+#: build/index.js:14
+#, js-format
+msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reason."
+msgid_plural "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reasons."
+msgstr[0] "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済み、%4$d 件が未移行です。%5$d 件はこのままでは移行できません。理由はプレビューのレポートか「ログ」タブを確認してください。"
+
+#. translators: 1: entity label (stock or reviews), 2: item count found by the preview (dry run), 3: count already migrated
+#: build/index.js:15
+#, js-format
+msgid "%1$s: %2$d found by the preview, %3$d migrated. The free version migrates these only for the sample products."
+msgstr "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済みです。無料版では、サンプルの商品の分だけを移行します。"
+
+#. translators: 1: entity label, 2: free version limit
+#: build/index.js:16
+#, js-format
+msgid "%1$s: reached the free version limit (%2$d). Run a dry-run preview to see the exact remaining count."
+msgstr "%1$s: 無料版の上限（%2$d 件）に達しました。残りの正確な件数は、プレビュー（書き込みなし）を実行すると分かります。"
+
+#: build/index.js:16
+msgid "The free version of Cart Bridge JP migrates a sample of your data. The Pro version also migrates the items not migrated yet."
+msgstr "Cart Bridge JP の無料版は、データのサンプルを移行します。Pro 版では、未移行の項目も移行します。"
+
+#: build/index.js:16
+msgid "Learn about the Pro version"
+msgstr "Pro 版について"
+
+#: build/index.js:16
+msgid "The free version of Cart Bridge JP migrates a sample of your data."
+msgstr "Cart Bridge JP の無料版は、データのサンプルを移行します。"
+
+#: build/index.js:16
+msgid "Some payment or shipping methods on the platform are not mapped to WooCommerce yet."
+msgstr "プラットフォームの決済方法か配送方法に、まだ WooCommerce にマッピングしていないものがあります。"
+
+#. translators: 1: number of unmapped payment methods, 2: number of payment methods on the platform
+#: build/index.js:17
+#, js-format
+msgid "Payment methods not mapped: %1$d of %2$d"
+msgstr "マッピングしていない決済方法: %2$d 件中 %1$d 件"
+
+#. translators: 1: number of unmapped shipping methods, 2: number of shipping methods on the platform
+#: build/index.js:18
+#, js-format
+msgid "Shipping methods not mapped: %1$d of %2$d"
+msgstr "マッピングしていない配送方法: %2$d 件中 %1$d 件"
+
+#: build/index.js:18
+msgid "Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report. Set up the mappings before importing. Orders imported while a method was unmapped are updated the next time they are imported."
+msgstr "注文はインポートされますが、マッピングしていない方法を使う注文は、WooCommerce の決済方法・配送方法が空になり、プレビューのレポートに警告が出ます。インポートの前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
+
+#: build/index.js:18
+msgid "Set up the mappings on the Mappings tab"
+msgstr "「マッピング」タブでマッピングを設定する"
+
+#: build/index.js:18
+msgid "Pending"
+msgstr "待機中"
+
+#: build/index.js:18
+msgid "Running"
+msgstr "実行中"
+
+#: build/index.js:18
+msgid "Paused (rate limit)"
+msgstr "一時停止中（利用制限）"
+
+#: build/index.js:18
+msgid "Completed"
+msgstr "完了"
+
+#: build/index.js:18
+msgid "Failed"
+msgstr "失敗"
+
+#. translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count
+#: build/index.js:19
+#, js-format
+msgid "Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d"
+msgstr "作成: %1$d / 更新: %2$d / スキップ: %3$d / 警告: %4$d"
+
+#. translators: 1: processed count, 2: total count
+#: build/index.js:20
+#, js-format
+msgid "%1$d of %2$d processed"
+msgstr "%2$d 件中 %1$d 件を処理しました"
+
+#. translators: %d: processed count so far
+#: build/index.js:21
+#, js-format
+msgid "%d processed so far…"
+msgstr "%d 件を処理しました…"
+
+#: build/index.js:21
+msgid "Waiting for the rate limit to recover. This will resume automatically."
+msgstr "利用制限の回復を待っています。自動で再開します。"
+
+#: build/index.js:21
+msgid "Retry"
+msgstr "再試行"
+
+#: build/index.js:21
+msgid "Download this entity’s report (CSV)"
+msgstr "この種類のレポートをダウンロード（CSV）"
+
+#: build/index.js:21
+msgid "Only include warnings in the CSV report"
+msgstr "CSV のレポートに警告だけを含める"
+
+#: build/index.js:21
+msgid "Download full report (CSV)"
+msgstr "全体のレポートをダウンロード（CSV）"
+
+#: build/index.js:21
+msgid "Reconciled"
+msgstr "一致"
+
+#: build/index.js:21
+#: build/index.js:22
+msgid "Missing links"
+msgstr "紐づけの欠落"
+
+#: build/index.js:21
+msgid "Fewer in WooCommerce"
+msgstr "WooCommerce の方が少ない"
+
+#: build/index.js:21
+msgid "More in WooCommerce"
+msgstr "WooCommerce の方が多い"
+
+#: build/index.js:21
+msgid "Totals differ"
+msgstr "合計が違う"
+
+#: build/index.js:21
+msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them, or run the sample cleanup to drop the stale links."
+msgstr "紐づけた記録の一部が WooCommerce に無くなっています。もう一度インポートして作り直すか、サンプルのクリーンアップを実行して古い紐づけを消してください。"
+
+#: build/index.js:21
+msgid "Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
+msgstr "プラットフォームから取得した記録の一部が WooCommerce にありません。無料版ではサンプルの上限に達すると当然そうなります。そうでなければ、上の警告とプレビューのレポートを確認してください。紐づけが失われた場合（データベースの移転の後など）は、「ツール」タブで「紐づけを再構築」を実行してください。"
+
+#. translators: 1: platform currency code, 2: store currency code
+#: build/index.js:22
+#, js-format
+msgid "Platform totals are in %1$s but the store currency is %2$s. Order amounts were stored without conversion, so the totals cannot be reconciled."
+msgstr "プラットフォームの合計は %1$s ですが、ストアの通貨は %2$s です。注文の金額は換算せずに保存しているため、合計を照合できません。"
+
+#: build/index.js:22
+msgid "WooCommerce holds more linked records than this run fetched. They were imported by earlier runs (for example records that have since been removed on the platform)."
+msgstr "WooCommerce には、この実行で取得したより多くの紐づけた記録があります。以前の実行でインポートしたものです（その後プラットフォームで削除された記録など）。"
+
+#: build/index.js:22
+msgid "The order totals differ between the platform and WooCommerce even though the counts match. Check the orders with warnings."
+msgstr "件数は一致していますが、プラットフォームと WooCommerce で注文の合計が違います。警告の付いた注文を確認してください。"
+
+#: build/index.js:22
+msgid "Every record fetched in this run exists in WooCommerce and the order totals match."
+msgstr "この実行で取得したすべての記録が WooCommerce にあり、注文の合計も一致しています。"
+
+#: build/index.js:22
+msgid "Every record fetched in this run exists in WooCommerce."
+msgstr "この実行で取得したすべての記録が WooCommerce にあります。"
+
+#: build/index.js:22
+msgid "Verification report"
+msgstr "検証レポート"
+
+#: build/index.js:22
+msgid "Entity"
+msgstr "種類"
+
+#: build/index.js:22
+msgid "Fetched from platform"
+msgstr "プラットフォームから取得"
+
+#: build/index.js:22
+msgid "Written in this run"
+msgstr "この実行で書き込み"
+
+#: build/index.js:22
+#: build/index.js:41
+msgid "Skipped"
+msgstr "スキップ"
+
+#: build/index.js:22
+msgid "In WooCommerce"
+msgstr "WooCommerce 内"
+
+#: build/index.js:22
+msgid "Platform total"
+msgstr "プラットフォームの合計"
+
+#: build/index.js:22
+msgid "WooCommerce total"
+msgstr "WooCommerce の合計"
+
+#: build/index.js:22
+msgid "Status"
+msgstr "状態"
+
+#: build/index.js:22
+msgid "Categories"
+msgstr "カテゴリー"
+
+#: build/index.js:22
+msgid "Tags"
+msgstr "タグ"
+
+#: build/index.js:22
+msgid "Products"
+msgstr "商品"
+
+#: build/index.js:22
+msgid "Customers"
+msgstr "顧客"
+
+#: build/index.js:22
+msgid "Orders"
+msgstr "注文"
+
+#: build/index.js:22
+msgid "Stock"
+msgstr "在庫"
+
+#: build/index.js:22
+msgid "Coupons"
+msgstr "クーポン"
+
+#: build/index.js:22
+msgid "Reviews"
+msgstr "レビュー"
+
+#: build/index.js:22
+msgid "(deleted from WooCommerce since this was recorded)"
+msgstr "（記録した後に WooCommerce から削除されています）"
+
+#. translators: 1: product name, 2: SKU
+#: build/index.js:23
+#, js-format
+msgid "%1$s (SKU: %2$s)"
+msgstr "%1$s（SKU: %2$s）"
+
+#. translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time
+#: build/index.js:24
+#, js-format
+msgid "#%1$s — %2$s %3$s (%4$s)"
+msgstr "#%1$s — %2$s %3$s（%4$s）"
+
+#: build/index.js:24
+msgid "date unknown"
+msgstr "日付不明"
+
+#: build/index.js:24
+msgid "Some items could not be confirmed as created or rejected on the connected platform. They will not be re-sent automatically. Check the platform’s own admin screen to see whether each item actually exists there before resolving it below."
+msgstr "接続したプラットフォームで、作成されたか拒否されたかを確認できなかった項目があります。これらは自動では再送しません。下で解決する前に、プラットフォーム自体の管理画面で、各項目が実際にあるかを確認してください。"
+
+#: build/index.js:24
+msgid "A run is in progress for this platform. Wait for it to finish before resolving these items."
+msgstr "このプラットフォームで実行が進行中です。終わるのを待ってから、これらの項目を解決してください。"
+
+#: build/index.js:24
+msgid "Type"
+msgstr "種類"
+
+#: build/index.js:24
+msgid "Details"
+msgstr "詳細"
+
+#: build/index.js:24
+msgid "Sent at"
+msgstr "送信日時"
+
+#: build/index.js:24
+msgid "Resolve"
+msgstr "解決"
+
+#: build/index.js:24
+msgid "Edit in WooCommerce"
+msgstr "WooCommerce で編集"
+
+#: build/index.js:24
+msgid "Mark as not created"
+msgstr "未作成として解決"
+
+#: build/index.js:24
+msgid "Platform ID"
+msgstr "プラットフォームの ID"
+
+#: build/index.js:24
+msgid "Link and resolve"
+msgstr "紐づけて解決"
+
+#: build/index.js:24
+msgid "Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it."
+msgstr "ベータ版: この機能には接続したショップのプレミアムプランが必要で、実際のプレミアムプランのショップではまだ確認していません。既定ではオフです。試したい場合だけオンにしてください。"
+
+#: build/index.js:24
+msgid "Creates orders (sales) in the connected shop."
+msgstr "接続したショップに注文（売上）を作成します。"
+
+#: build/index.js:24
+msgid "Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting."
+msgstr "WooCommerce の商品画像を接続したショップにアップロードします。オフのときは、エクスポートした後にショップ自体の管理画面で商品画像を追加してください。"
+
+#: build/index.js:24
+msgid "Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images."
+msgstr "オンにすると、次のエクスポートでエクスポート済みの商品をもう一度（更新として）送り、ショップに同じ位置で登録済みの画像は WooCommerce の画像で上書きされます。"
+
+#: build/index.js:24
+msgid "All levels"
+msgstr "すべてのレベル"
+
+#: build/index.js:24
+msgid "Debug"
+msgstr "デバッグ"
+
+#: build/index.js:24
+msgid "Info"
+msgstr "情報"
+
+#: build/index.js:24
+msgid "Warning"
+msgstr "警告"
+
+#: build/index.js:24
+msgid "Error"
+msgstr "エラー"
+
+#. translators: %d: number of records that could not be confirmed or checked
+#: build/index.js:25
+#, js-format
+msgid "%d record could not be confirmed or checked and will be left as it is. See the numbers below."
+msgid_plural "%d records could not be confirmed or checked and will be left as they are. See the numbers below."
+msgstr[0] "%d 件の記録は確認・照会ができなかったため、そのままにします。下の件数を確認してください。"
+
+#: build/index.js:25
+msgid "No records need repair."
+msgstr "修復が必要な記録はありません。"
+
+#. translators: %d: number of records that need repair
+#: build/index.js:26
+#, js-format
+msgid "%d record needs repair. Review the numbers below, then click “Repair”."
+msgid_plural "%d records need repair. Review the numbers below, then click “Repair”."
+msgstr[0] "%d 件の記録の修復が必要です。下の件数を確認してから、「修復」をクリックしてください。"
+
+#. translators: %d: number of records corrected
+#: build/index.js:27
+#, js-format
+msgid "Repair finished. %d record was corrected."
+msgid_plural "Repair finished. %d records were corrected."
+msgstr[0] "修復が終わりました。%d 件の記録を直しました。"
+
+#. translators: %d: number of records that could not be confirmed or checked
+#: build/index.js:28
+#, js-format
+msgid "%d record could not be confirmed or checked and was left unchanged."
+msgid_plural "%d records could not be confirmed or checked and were left unchanged."
+msgstr[0] "%d 件の記録は確認・照会ができなかったため、変更していません。"
+
+#: build/index.js:28
+msgid "Run “Scan” again to confirm that nothing is left."
+msgstr "残りが無いことを確かめるため、もう一度「スキャン」を実行してください。"
+
+#: build/index.js:28
+msgid "Variations"
+msgstr "バリエーション"
+
+#: build/index.js:28
+msgid "Images"
+msgstr "画像"
+
+#. translators: 1: a kind of record, e.g. "Products", 2: how many of them
+#: build/index.js:29
+#, js-format
+msgid "%1$s: %2$d"
+msgstr "%1$s: %2$d 件"
+
+#: build/index.js:29
+msgid "Connections"
+msgstr "接続"
+
+#: build/index.js:29
+msgid "Mappings"
+msgstr "マッピング"
+
+#: build/index.js:29
+msgid "Reconnect the platform on the Connections tab before setting up mappings."
+msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続し直してください。"
+
+#: build/index.js:29
+msgid "Connect a platform on the Connections tab before setting up mappings."
+msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続してください。"
+
+#: build/index.js:29
+msgid "Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set up the mappings before importing orders. Orders imported while a method was unmapped are updated the next time they are imported."
+msgstr "マッピングは、プラットフォームの値を WooCommerce の値に対応させます。決済方法・配送方法・注文ステータスのマッピングは注文のインポートで使い、できる範囲で注文をプラットフォームへエクスポートするときにも同じマッピングを使います。マッピングしていない決済方法・配送方法は、プレビューのレポートに警告として出ます。注文をインポートする前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
+
+#: build/index.js:29
+#: build/index.js:32
+msgid "Platform"
+msgstr "プラットフォーム"
+
+#: build/index.js:29
+msgid "Import"
+msgstr "インポート"
+
+#: build/index.js:29
+msgid "This will write real WooCommerce data (products, orders, customers, etc.) to this site, up to the current plan’s limits. Continue?"
+msgstr "このサイトに WooCommerce の実データ（商品・注文・顧客など）を、現在のプランの上限まで書き込みます。続けますか ?"
+
+#: build/index.js:29
+msgid "Connect a platform on the Connections tab before importing."
+msgstr "インポートする前に、「接続」タブでプラットフォームに接続してください。"
+
+#: build/index.js:29
+msgid "Import setup"
+msgstr "インポートの設定"
+
+#: build/index.js:29
+msgid "Entities to migrate"
+msgstr "移行する種類"
+
+#: build/index.js:29
+msgid "Preview (dry run, no limit)"
+msgstr "プレビュー（書き込みなし・件数の制限なし）"
+
+#: build/index.js:29
+msgid "Run import"
+msgstr "インポートを実行"
+
+#: build/index.js:29
+msgid "Preview results"
+msgstr "プレビューの結果"
+
+#: build/index.js:29
+#: build/index.js:30
+msgid "Clear"
+msgstr "消去"
+
+#: build/index.js:29
+msgid "Import results"
+msgstr "インポートの結果"
+
+#: build/index.js:29
+msgid "Export"
+msgstr "エクスポート"
+
+#: build/index.js:29
+msgid "Connect a platform on the Connections tab before exporting."
+msgstr "エクスポートする前に、「接続」タブでプラットフォームに接続してください。"
+
+#: build/index.js:29
+msgid "Category, payment method, shipping method, and order status mappings are set on the Mappings tab. Map your WooCommerce categories before exporting products, and payment and shipping methods before exporting orders."
+msgstr "カテゴリー・決済方法・配送方法・注文ステータスのマッピングは「マッピング」タブで設定します。商品をエクスポートする前に WooCommerce のカテゴリーを、注文をエクスポートする前に決済方法と配送方法をマッピングしてください。"
+
+#: build/index.js:29
+msgid "Payment method, shipping method, and order status mappings are set on the Mappings tab. Map payment and shipping methods before exporting orders."
+msgstr "決済方法・配送方法・注文ステータスのマッピングは「マッピング」タブで設定します。注文をエクスポートする前に、決済方法と配送方法をマッピングしてください。"
+
+#: build/index.js:29
+msgid "Open the Mappings tab"
+msgstr "「マッピング」タブを開く"
+
+#: build/index.js:29
+msgid "Export setup"
+msgstr "エクスポートの設定"
+
+#: build/index.js:29
+msgid "Entities to export"
+msgstr "エクスポートする種類"
+
+#. translators: %s: entity name, e.g. "Orders"
+#: build/index.js:30
+#, js-format
+msgid "%s (Beta)"
+msgstr "%s（ベータ版）"
+
+#: build/index.js:30
+msgid "Options"
+msgstr "オプション"
+
+#: build/index.js:30
+msgid "Upload product images (Beta)"
+msgstr "商品画像をアップロードする（ベータ版）"
+
+#: build/index.js:30
+msgid "Upload product images"
+msgstr "商品画像をアップロードする"
+
+#: build/index.js:30
+msgid "Running an export is disabled until this setting loads. Reload the page to try again."
+msgstr "この設定を読み込むまで、エクスポートは実行できません。ページを再読み込みしてもう一度お試しください。"
+
+#: build/index.js:30
+msgid "Running an export writes data to the connected shop right away, up to the current plan’s limits. We recommend running this against a test shop first, not your live shop."
+msgstr "エクスポートを実行すると、接続したショップに、現在のプランの上限までデータをすぐ書き込みます。本番のショップではなく、まずテスト用のショップで実行することをおすすめします。"
+
+#: build/index.js:30
+msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
+msgstr "接続したショップに実データを書き込むことを理解しており、実行する準備ができています（できればテスト用のショップで）。"
+
+#: build/index.js:30
+msgid "Preview export (dry run, no writes)"
+msgstr "エクスポートのプレビュー（書き込みなし）"
+
+#: build/index.js:30
+msgid "Run export"
+msgstr "エクスポートを実行"
+
+#: build/index.js:30
+msgid "Preview export results"
+msgstr "エクスポートのプレビューの結果"
+
+#: build/index.js:30
+msgid "Export results"
+msgstr "エクスポートの結果"
+
+#. translators: %s: list of entity labels, e.g. "Products, Customers"
+#: build/index.js:31
+#, js-format
+msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
+msgstr "%sでは何も書き込みませんでした。すべての項目がスキップされたか警告が出ました。理由はプレビューのレポートか「ログ」タブを確認してください。"
+
+#. translators: 1: the items of a list so far, 2: the next item. Example: "Products, Customers".
+#: build/index.js:32
+#, js-format
+msgctxt "list of items"
+msgid "%1$s, %2$s"
+msgstr "%1$s、%2$s"
+
+#: build/index.js:32
+msgid "Logs"
+msgstr "ログ"
+
+#: build/index.js:32
+msgid "Job ID"
+msgstr "ジョブ ID"
+
+#: build/index.js:32
+msgid "Level"
+msgstr "レベル"
+
+#: build/index.js:32
+msgid "No logs found."
+msgstr "ログはありません。"
+
+#: build/index.js:32
+msgid "Time"
+msgstr "日時"
+
+#: build/index.js:32
+msgid "Job"
+msgstr "ジョブ"
+
+#: build/index.js:32
+msgid "Message"
+msgstr "メッセージ"
+
+#: build/index.js:32
+msgid "Context"
+msgstr "詳細情報"
+
+#: build/index.js:32
+msgid "Previous"
+msgstr "前へ"
+
+#: build/index.js:32
+msgid "Next"
+msgstr "次へ"
+
+#: build/index.js:32
+msgid "Tools"
+msgstr "ツール"
+
+#: build/index.js:32
+msgid "The scan paused after the maximum number of batches. Click “Continue scan” to carry on from where it stopped."
+msgstr "処理の回数の上限に達したため、スキャンを一時停止しました。「スキャンを続ける」をクリックすると、止まったところから続けます。"
+
+#: build/index.js:32
+msgid "The repair paused after the maximum number of batches. Click “Continue repair” to carry on from where it stopped."
+msgstr "処理の回数の上限に達したため、修復を一時停止しました。「修復を続ける」をクリックすると、止まったところから続けます。"
+
+#: build/index.js:32
+msgid "Sample data cleanup"
+msgstr "サンプルデータのクリーンアップ"
+
+#. translators: %s: platform label
+#: build/index.js:33
+#, js-format
+msgid "Deletes the WooCommerce data that was imported from %s (products, orders, customers, coupons, categories, tags and images) together with the links between the two stores. Use it to reset the free-version sample before a full migration; the next import selects a fresh sample."
+msgstr "%sからインポートした WooCommerce のデータ（商品・注文・顧客・クーポン・カテゴリー・タグ・画像）を、2 つのストアの間の紐づけと一緒に削除します。本移行の前に無料版のサンプルをリセットするときに使います。次のインポートで新しいサンプルを選びます。"
+
+#: build/index.js:33
+msgid "Customer accounts that already existed before the import are kept and only unlinked."
+msgstr "インポートの前からあった顧客のアカウントは残し、紐づけだけを外します。"
+
+#: build/index.js:33
+msgid "Preview cleanup"
+msgstr "クリーンアップをプレビュー"
+
+#: build/index.js:33
+msgid "A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up."
+msgstr "このプレビューを取る間か取った後に、このプラットフォームで実行が進行していたため、件数が古い可能性があります。クリーンアップの前にもう一度プレビューしてください。"
+
+#: build/index.js:33
+msgid "Nothing is linked any more, but a sample selection is still stored. Clear it so the next import selects a fresh sample."
+msgstr "紐づいているものはもうありませんが、サンプルの選択がまだ保存されています。次のインポートで新しいサンプルを選ぶよう、消去してください。"
+
+#: build/index.js:33
+msgid "Nothing to delete for this platform."
+msgstr "このプラットフォームで削除するものはありません。"
+
+#: build/index.js:33
+msgid "The following records will be deleted:"
+msgstr "次の記録を削除します:"
+
+#: build/index.js:33
+msgid "The following records will only be unlinked (kept):"
+msgstr "次の記録は紐づけだけを外します（記録は残します）:"
+
+#: build/index.js:33
+msgid "Unlinked records are customer accounts that existed before the import, records owned by another platform, or links whose target no longer exists."
+msgstr "紐づけだけを外すのは、インポートの前からあった顧客のアカウント、別のプラットフォームの記録、または紐づけ先が無くなった紐づけです。"
+
+#. translators: %s: platform label
+#: build/index.js:34
+#, js-format
+msgid "Delete every product, order, customer, coupon, category, tag and image imported from %s? This cannot be undone."
+msgstr "%sからインポートした商品・注文・顧客・クーポン・カテゴリー・タグ・画像をすべて削除しますか ? 元に戻せません。"
+
+#: build/index.js:34
+msgid "The cleanup did not finish within the expected number of batches. Run it again to continue."
+msgstr "想定した処理の回数のうちにクリーンアップが終わりませんでした。続けるには、もう一度実行してください。"
+
+#: build/index.js:34
+msgid "Delete sample data"
+msgstr "サンプルデータを削除"
+
+#: build/index.js:34
+msgid "Clear sample selection"
+msgstr "サンプルの選択を消去"
+
+#. translators: %d: number of records removed so far
+#: build/index.js:35
+#, js-format
+msgid "Deleting… %d record removed so far."
+msgid_plural "Deleting… %d records removed so far."
+msgstr[0] "削除中… %d 件の記録を削除しました。"
+
+#: build/index.js:35
+msgid "Cleanup finished. The next import will select a new sample."
+msgstr "クリーンアップが終わりました。次のインポートで新しいサンプルを選びます。"
+
+#: build/index.js:35
+msgid "Deleted"
+msgstr "削除"
+
+#: build/index.js:35
+msgid "Unlinked only (kept)"
+msgstr "紐づけだけ外す（記録は残す）"
+
+#: build/index.js:35
+#: build/index.js:36
+msgid "Rebuild links"
+msgstr "紐づけを再構築"
+
+#. translators: %s: platform label
+#: build/index.js:36
+#, js-format
+msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
+msgstr "%sの記録と、このプラグインが作成した WooCommerce のデータの間の紐づけを復元します（再インストールやデータベースの移転の後など）。インポートのときに書いた所有の情報を走査するだけで、プラットフォームからは何も取得せず、データも変更しません。紐づけた記録は次のインポートで確認し直します。"
+
+#: build/index.js:36
+msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
+msgstr "処理の回数の上限に達したため、紐づけの再構築を一時停止しました。止まったところから続けるには、もう一度「紐づけを再構築」をクリックしてください。"
+
+#. translators: %d: number of links restored so far
+#: build/index.js:37
+#, js-format
+msgid "Scanning… %d link restored so far."
+msgid_plural "Scanning… %d links restored so far."
+msgstr[0] "走査中… %d 件の紐づけを復元しました。"
+
+#. translators: %d: number of links restored
+#: build/index.js:38
+#, js-format
+msgid "Rebuild finished. %d link restored."
+msgid_plural "Rebuild finished. %d links restored."
+msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
+
+#: build/index.js:38
+msgid "Repair prefecture data"
+msgstr "都道府県のデータを修復"
+
+#. translators: %1$s: platform label
+#: build/index.js:39
+#, js-format
+msgid "Earlier versions of this plugin saved the wrong prefecture for some customers and orders imported from %1$s (23 prefectures were affected; for example Akita was saved as Miyagi). This tool compares the imported records with %1$s and corrects only the prefecture of records that were saved with that mistake."
+msgstr "このプラグインの以前の版は、%1$sからインポートした一部の顧客と注文に、誤った都道府県を保存していました（23 の都道府県が該当します。たとえば秋田県が宮城県として保存されました）。このツールはインポートした記録を%1$sと照らし合わせ、その誤りで保存された記録の都道府県だけを直します。"
+
+#: build/index.js:39
+msgid "Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records that this plugin imported are touched, including existing accounts it matched by email and updated. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool. Run this before “Sample data cleanup”: the cleanup removes the links this tool relies on, so accounts it unlinks can no longer be found."
+msgstr "直すのは、郵便番号と住所がプラットフォームと今も一致する記録だけです。手作業で編集した都道府県など、それ以外はそのままにします。対象はこのプラグインがインポートした記録だけで、メールアドレスで一致させて更新した既存のアカウントも含みます。まず「スキャン」をクリックして何が変わるかを確認してください。「修復」をクリックするまで何も書き込みません。WooCommerce アナリティクスの顧客データは、このツールでは更新しません。「サンプルデータのクリーンアップ」より前に実行してください。クリーンアップはこのツールが使う紐づけを消すため、紐づけを外したアカウントは見つけられなくなります。"
+
+#: build/index.js:39
+msgid "Continue scan"
+msgstr "スキャンを続ける"
+
+#: build/index.js:39
+msgid "Scan"
+msgstr "スキャン"
+
+#: build/index.js:39
+msgid "Continue repair"
+msgstr "修復を続ける"
+
+#: build/index.js:39
+msgid "Repair"
+msgstr "修復"
+
+#: build/index.js:39
+msgid "Start over"
+msgstr "最初からやり直す"
+
+#. translators: %d: number of records checked so far
+#: build/index.js:40
+#, js-format
+msgid "Scanning… %d record checked so far."
+msgid_plural "Scanning… %d records checked so far."
+msgstr[0] "スキャン中… %d 件の記録を確認しました。"
+
+#. translators: %d: number of records checked so far
+#: build/index.js:41
+#, js-format
+msgid "Repairing… %d record checked so far."
+msgid_plural "Repairing… %d records checked so far."
+msgstr[0] "修復中… %d 件の記録を確認しました。"
+
+#: build/index.js:41
+msgid "Needs repair"
+msgstr "修復が必要"
+
+#: build/index.js:41
+msgid "Repaired"
+msgstr "修復済み"
+
+#: build/index.js:41
+msgid "Already correct"
+msgstr "すでに正しい"
+
+#: build/index.js:41
+msgid "Could not be confirmed"
+msgstr "確認できない"
+
+#: build/index.js:41
+msgid "Not found on the platform"
+msgstr "プラットフォームに無い"
+
+#: build/index.js:41
+msgid "“Could not be confirmed” records were left unchanged: their prefecture, postal code or address no longer matches the platform, for example because it was edited by hand or changed on the platform."
+msgstr "「確認できない」記録は変更していません。手作業で編集した、プラットフォームで変わったなどの理由で、都道府県・郵便番号・住所がプラットフォームと一致しなくなっています。"
+
+#: build/index.js:41
+msgid "“Not found on the platform” records could not be checked because the platform returned no usable record for them (for example they were deleted there)."
+msgstr "「プラットフォームに無い」記録は、プラットフォームが使える記録を返さなかった（そこで削除されたなど）ため、照会できませんでした。"
+
+#: build/index.js:41
+msgid "“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair."
+msgstr "「スキップ」の記録は変更していません。WooCommerce の記録が無くなった、このプラグインがインポート・更新したものではない、スタッフのアカウント、ゴミ箱か下書きの注文、または保存できなかった、のいずれかです。修復が残っていないかは、もう一度「スキャン」を実行して確認してください。"
+
+#: includes/Admin/RestController.php:1033
+msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
+msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"

@@ -56,6 +56,9 @@ final class Assets {
 			[
 				'restUrl'   => esc_url_raw( rest_url() ),
 				'restNonce' => wp_create_nonce( 'wp_rest' ),
+				// 日時・金額の書式の言語（`src/i18n.ts` の `displayLocale()`）。JS の `toLocaleString()` はブラウザの言語になり、
+				// 翻訳（ユーザーの言語）と食い違うため渡す。BCP 47 に寄せて `_` を `-` にする（不正なタグは JS 側でブラウザの既定へ倒す）。
+				'locale'    => str_replace( '_', '-', determine_locale() ),
 			]
 		);
 	}

@@ -5,6 +5,8 @@ declare global {
 		cbjpAdmin?: {
 			restUrl: string;
 			restNonce: string;
+			/** WordPress のユーザーの言語（`ja`・`en-US`）。日時・金額の書式に使う（`displayLocale()`）。 */
+			locale?: string;
 		};
 	}
 }

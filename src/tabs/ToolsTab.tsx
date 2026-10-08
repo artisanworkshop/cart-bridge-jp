@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __, _n, sprintf } from '@wordpress/i18n';
 import {
 	Button,
 	Card,
@@ -13,6 +13,10 @@ import apiFetch from '../api';
 import { activeRunsSeed } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import { isCleanupBlocked } from '../components/cleanup-gate';
+import {
+	repairResultMessage,
+	scanResultMessage,
+} from '../components/repair-messages';
 import { ENTITY_LABELS } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import type {
@@ -173,7 +177,12 @@ function CountList( {
 		<ul className="cbjp-tools__counts">
 			{ rows.map( ( key ) => (
 				<li key={ key }>
-					{ label( key ) }: { counts[ key ] }
+					{ sprintf(
+						/* translators: 1: a kind of record, e.g. "Products", 2: how many of them */
+						__( '%1$s: %2$d', 'cart-bridge-jp' ),
+						label( key ),
+						counts[ key ]
+					) }
 				</li>
 			) ) }
 		</ul>
@@ -555,11 +564,17 @@ export default function ToolsTab() {
 			}
 
 			setRepairPending( { mode, cursor, counts } );
+			// 案内するボタン名は再開ボタンの表示（「Continue scan」「Continue repair」）と揃える。
 			setRepairError(
-				__(
-					'The run paused after the maximum number of batches. Click “Continue” to carry on from where it stopped.',
-					'cart-bridge-jp'
-				)
+				'scan' === mode
+					? __(
+							'The scan paused after the maximum number of batches. Click “Continue scan” to carry on from where it stopped.',
+							'cart-bridge-jp'
+					  )
+					: __(
+							'The repair paused after the maximum number of batches. Click “Continue repair” to carry on from where it stopped.',
+							'cart-bridge-jp'
+					  )
 			);
 		} catch ( err ) {
 			if ( platformGenerationRef.current === generation ) {
@@ -621,14 +636,7 @@ export default function ToolsTab() {
 	}
 
 	if ( 0 === connections.length || null === platform ) {
-		return (
-			<p>
-				{ __(
-					'No platform adapters are registered yet.',
-					'cart-bridge-jp'
-				) }
-			</p>
-		);
+		return <p>{ __( 'No platforms are available.', 'cart-bridge-jp' ) }</p>;
 	}
 
 	const previewTotal = preview
@@ -840,8 +848,12 @@ export default function ToolsTab() {
 								<p>
 									{ sprintf(
 										/* translators: %d: number of records removed so far */
-										__(
+										_n(
+											'Deleting… %d record removed so far.',
 											'Deleting… %d records removed so far.',
+											sumCounts(
+												cleanupProgress.deleted
+											),
 											'cart-bridge-jp'
 										),
 										sumCounts( cleanupProgress.deleted )
@@ -938,8 +950,10 @@ export default function ToolsTab() {
 								<p>
 									{ sprintf(
 										/* translators: %d: number of links restored so far */
-										__(
+										_n(
+											'Scanning… %d link restored so far.',
 											'Scanning… %d links restored so far.',
+											sumCounts( rebuildCounts ),
 											'cart-bridge-jp'
 										),
 										sumCounts( rebuildCounts )
@@ -953,8 +967,10 @@ export default function ToolsTab() {
 								>
 									{ sprintf(
 										/* translators: %d: number of links restored */
-										__(
+										_n(
+											'Rebuild finished. %d link restored.',
 											'Rebuild finished. %d links restored.',
+											sumCounts( rebuildCounts ),
 											'cart-bridge-jp'
 										),
 										sumCounts( rebuildCounts )
@@ -1053,8 +1069,12 @@ export default function ToolsTab() {
 								<p>
 									{ sprintf(
 										/* translators: %d: number of records checked so far */
-										__(
+										_n(
+											'Scanning… %d record checked so far.',
 											'Scanning… %d records checked so far.',
+											repairBucketTotal(
+												repairView.counts
+											),
 											'cart-bridge-jp'
 										),
 										repairBucketTotal( repairView.counts )
@@ -1065,8 +1085,12 @@ export default function ToolsTab() {
 								<p>
 									{ sprintf(
 										/* translators: %d: number of records checked so far */
-										__(
+										_n(
+											'Repairing… %d record checked so far.',
 											'Repairing… %d records checked so far.',
+											repairBucketTotal(
+												repairView.counts
+											),
 											'cart-bridge-jp'
 										),
 										repairBucketTotal( repairView.counts )
@@ -1078,36 +1102,13 @@ export default function ToolsTab() {
 									status={ scanNoticeStatus }
 									isDismissible={ false }
 								>
-									{ repairNeedsRepair &&
-										sprintf(
-											/* translators: %d: number of records that need repair */
-											__(
-												'%d records need repair. Review the numbers below, then click “Repair”.',
-												'cart-bridge-jp'
-											),
-											repairBucketTotal(
-												repairView.counts,
-												'fixed'
-											)
-										) }
-									{ ! repairNeedsRepair &&
-										0 === repairUnresolved &&
-										__(
-											'No records need repair.',
-											'cart-bridge-jp'
-										) }
-									{ repairUnresolved > 0 && (
-										<>
-											{ repairNeedsRepair ? ' ' : '' }
-											{ sprintf(
-												/* translators: %d: number of records that could not be confirmed or checked */
-												__(
-													'%d records could not be confirmed or checked and will be left as they are. See the numbers below.',
-													'cart-bridge-jp'
-												),
-												repairUnresolved
-											) }
-										</>
+									{ scanResultMessage(
+										repairNeedsRepair,
+										repairBucketTotal(
+											repairView.counts,
+											'fixed'
+										),
+										repairUnresolved
 									) }
 								</Notice>
 							) }
@@ -1121,33 +1122,12 @@ export default function ToolsTab() {
 										}
 										isDismissible={ false }
 									>
-										{ sprintf(
-											/* translators: %d: number of records corrected */
-											__(
-												'Repair finished. %d records were corrected.',
-												'cart-bridge-jp'
-											),
+										{ repairResultMessage(
 											repairBucketTotal(
 												repairView.counts,
 												'fixed'
-											)
-										) }
-										{ repairUnresolved > 0 && (
-											<>
-												{ ' ' }
-												{ sprintf(
-													/* translators: %d: number of records that could not be confirmed or checked */
-													__(
-														'%d records could not be confirmed or checked and were left unchanged.',
-														'cart-bridge-jp'
-													),
-													repairUnresolved
-												) }
-											</>
-										) }{ ' ' }
-										{ __(
-											'Run “Scan” again to confirm that nothing is left.',
-											'cart-bridge-jp'
+											),
+											repairUnresolved
 										) }
 									</Notice>
 								) }

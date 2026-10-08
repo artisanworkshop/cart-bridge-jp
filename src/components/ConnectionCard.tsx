@@ -42,7 +42,7 @@ function testResultMessage( result: TestConnectionResult ): string {
 
 	if ( result.shop_name ) {
 		return sprintf(
-			/* translators: %s: shop name returned by the platform */
+			/* translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop") */
 			__( 'Connected to %s.', 'cart-bridge-jp' ),
 			result.shop_name
 		);

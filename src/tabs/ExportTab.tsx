@@ -24,6 +24,7 @@ import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
 import { parseHash, tabHref } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
+import { joinList, joinSentences } from '../i18n';
 import { useRunAdoption } from '../hooks/useRunAdoption';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
 import { clearStoredRunId, loadStoredRunId, storeRunId } from '../run-storage';
@@ -108,21 +109,6 @@ function isBetaEntity(
 function defaultExportEntities( capabilities: Capabilities ): EntityType[] {
 	return availableExportEntities( capabilities ).filter(
 		( entity ) => ! isBetaEntity( capabilities, entity )
-	);
-}
-
-/**
- * 翻訳済みの文を 2 つ連結する。半角スペースを直に挟むと日本語訳で「。 」のように不自然な空白が入るため、
- * 区切りは翻訳者が決められるよう 1 つの文字列（`%1$s %2$s`）にする。
- * @param first
- * @param second
- */
-function joinSentences( first: string, second: string ): string {
-	return sprintf(
-		/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
-		__( '%1$s %2$s', 'cart-bridge-jp' ),
-		first,
-		second
 	);
 }
 
@@ -1192,17 +1178,17 @@ export default function ExportTab() {
 									isDismissible={ false }
 								>
 									{ sprintf(
-										/* translators: %s: comma-separated list of entity labels */
+										/* translators: %s: list of entity labels, e.g. "Products, Customers" */
 										__(
 											'Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why.',
 											'cart-bridge-jp'
 										),
-										zeroWrittenExportEntities
-											.map(
+										joinList(
+											zeroWrittenExportEntities.map(
 												( entity ) =>
 													ENTITY_LABELS[ entity ]
 											)
-											.join( ', ' )
+										)
 									) }
 								</Notice>
 							) }

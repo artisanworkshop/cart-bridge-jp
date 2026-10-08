@@ -184,8 +184,8 @@ final class ProductReader implements EntityReader {
 	}
 
 	/**
-	 * 警告の detail に載せる税区分の名前（日本語の税区分のスラッグは URL エンコードで読めないため）。標準の税区分は「Standard」、
-	 * 名前が引けなければスラッグ（文字列でなければ空）。
+	 * 警告の detail に載せる税区分の名前（日本語の税区分のスラッグは URL エンコードで読めないため）。標準の税区分は翻訳した「Standard」
+	 * （CSV の説明の文言に差し込まれるため。ほかの税区分は店舗が付けた名前のまま）、名前が引けなければスラッグ（文字列でなければ空）。
 	 */
 	private static function tax_class_label( mixed $tax_class ): string {
 		if ( ! is_string( $tax_class ) ) {
@@ -193,7 +193,8 @@ final class ProductReader implements EntityReader {
 		}
 
 		if ( '' === $tax_class ) {
-			return 'Standard';
+			/* translators: the name WooCommerce shows for its standard tax class. */
+			return __( 'Standard', 'cart-bridge-jp' );
 		}
 
 		$row = WC_Tax::get_tax_class_by( 'slug', $tax_class );
