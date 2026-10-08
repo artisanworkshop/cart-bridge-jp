@@ -288,7 +288,7 @@ final class ProductTransformer {
 		[ $price, $sale_price ] = $this->prices( $raw );
 
 		return new CanonicalProduct(
-			Cast::to_string_or_null( $raw['name'] ?? null ) ?? '',
+			Cast::product_name( $raw['name'] ?? null ),
 			self::sku( $raw, $remote_id ),
 			$price,
 			$sale_price,

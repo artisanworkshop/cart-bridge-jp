@@ -180,6 +180,38 @@ final class HtmlText {
 	}
 
 	/**
+	 * HTML の断片を、ブラウザが表示する文字にする（タグを除き、実体参照を戻す）。ASP が名前を HTML として表示する場合に、
+	 * アダプタが平文の Canonical の名前を作るのに使う（ColorMe のストアフロントは商品名を見出しにエスケープせずに出す。R3-1f）。
+	 *
+	 * - `<` も `&` も含まない文字列は何も変えずに返す（既存の取込みの checksum を変えない）。
+	 * - それ以外は WP の HTML API（{@see \WP_HTML_Tag_Processor::next_token()}）でブラウザと同じく字句解析し、文字のトークンだけをつなぐ。
+	 *   実体参照は戻り（`Q&amp;A` → `Q&A`）、文字の `<`（`1<2`・`容量 < 500ml`）は残り、`<script>`・`<style>`・`<textarea>`・`<title>` の
+	 *   中身とコメントは出さない。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
+	 * - `<br>` は空白 1 つにする（`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして
+	 *   前後を除く（タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。
+	 */
+	public static function visible_text( string $html ): string {
+		if ( ! str_contains( $html, '<' ) && ! str_contains( $html, '&' ) ) {
+			return $html;
+		}
+
+		$processor = new \WP_HTML_Tag_Processor( $html );
+		$text      = '';
+
+		while ( $processor->next_token() ) {
+			$type = $processor->get_token_type();
+
+			if ( '#text' === $type ) {
+				$text .= $processor->get_modifiable_text();
+			} elseif ( '#tag' === $type && 'BR' === $processor->get_tag() ) {
+				$text .= ' ';
+			}
+		}
+
+		return trim( (string) preg_replace( '/[ \t\n\f\r]+/', ' ', $text ), " \t\n\f\r" );
+	}
+
+	/**
 	 * HTML の文字列を表示どおりの平文にする（{@see self::from_plain()} の逆。除いた制御文字と U+FFFD にした不正な
 	 * UTF-8、保存時の `title_save_pre` の前後の空白の trim は戻らない）。
 	 *

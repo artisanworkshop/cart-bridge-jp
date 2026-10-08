@@ -21,7 +21,8 @@ use CartBridgeJP\Canonical\Concerns\RemoteIdFromExtrasTrait;
  * 文字列の契約: `name` は**平文**（HTML・実体参照を含めない。`&` はそのまま `&`）。`description` と
  * `extras['short_description']` は HTML。Woo 側は名前を HTML として保存するので、`Woo\Writer\ProductWriter` が
  * 実体参照にし、`Woo\Reader\ProductReader` が平文へ戻す（`Woo\Support\HtmlText`、issue #99）。ASP が名前を
- * 実体参照で返すなら、アダプタが平文へ戻してから渡す（そのまま渡すと二重に符号化され `&amp;` が見える）。
+ * 実体参照で返すなら、アダプタが平文へ戻してから渡す（そのまま渡すと二重に符号化され `&amp;` が見える）。ASP が名前を
+ * HTML として表示するなら（ColorMe のストアフロント）、アダプタがタグを除き実体参照を戻した表示どおりの文字にしてから渡す（R3-1f）。
  */
 final readonly class CanonicalProduct implements CanonicalModel {
 

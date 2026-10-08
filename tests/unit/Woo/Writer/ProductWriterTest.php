@@ -7,8 +7,10 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Writer;
 
+use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Support\HtmlText;
 use CartBridgeJP\Woo\Support\MediaImporter;
@@ -955,6 +957,37 @@ final class ProductWriterTest extends WooTestCase {
 
 		$this->assertSame( $titles['admin'], $titles['cron'] );
 		$this->assertSame( $name, HtmlText::to_plain( $titles['cron'] ), '表示どおりの文字が元の名前' );
+	}
+
+	/**
+	 * 変換層から Writer まで通す（R3-1f）: ColorMe の名前のタグは除かれ、表示どおりの文字が実体参照で保存される（どちらのランナーでも同じ）。
+	 */
+	public function test_colorme_name_markup_is_removed_before_saving_by_both_runners(): void {
+		$raw = current(
+			array_filter(
+				FixtureLoader::load( 'colorme', 'products' )['products'],
+				static fn ( array $row ): bool => 192616831 === $row['id']
+			)
+		);
+		$this->assertIsArray( $raw, '前提: フィクスチャの単純商品' );
+		$raw['name'] = '<span style="color:red">送料無料</span> Tom &amp; Jerry <set>';
+		$titles      = [];
+
+		foreach ( [ 'cron', 'admin' ] as $index => $runner ) {
+			$this->act_as_runner( $runner );
+			$raw['id'] = 990001 + $index;
+			$result    = $this->make_writer()->write( ( new ProductTransformer() )->transform( $raw ), null );
+
+			$titles[ $runner ] = $this->stored_post_field( $result->local_id, 'post_title' );
+		}
+
+		$this->assertSame(
+			[
+				'cron'  => '送料無料 Tom &amp; Jerry',
+				'admin' => '送料無料 Tom &amp; Jerry',
+			],
+			$titles
+		);
 	}
 
 	/**

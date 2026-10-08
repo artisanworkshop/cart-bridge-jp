@@ -232,6 +232,54 @@ final class HtmlTextTest extends WP_UnitTestCase {
 		$this->assertLessThan( 3.0, microtime( true ) - $started );
 	}
 
+	/**
+	 * ブラウザが表示する文字（ColorMe のストアフロントは商品名を見出しにエスケープせずに出す。R3-1f）。
+	 *
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function visible_texts(): array {
+		return [
+			'unknown tag'                => [ 'Tom & Jerry <set>', 'Tom & Jerry' ],
+			'decoration'                 => [ '<span style="color:red">【送料無料】</span>Tシャツ', '【送料無料】Tシャツ' ],
+			'line break'                 => [ '商品名<br>サブタイトル', '商品名 サブタイトル' ],
+			'self-closing line break'    => [ 'A<br />B', 'A B' ],
+			'closing line break'         => [ 'A</br>B', 'A B' ],
+			'spaces around a line break' => [ "A \t<BR>\n B", 'A B' ],
+			'named entity'               => [ 'Q&amp;A &hearts;', 'Q&A ♥' ],
+			'numeric entities'           => [ '&#9829;&#x2665;', '♥♥' ],
+			'no-break spaces are kept'   => [ 'A&nbsp;&nbsp;B', "A\u{00A0}\u{00A0}B" ],
+			'lone ampersand'             => [ 'AT&T', 'AT&T' ],
+			'less-than before a digit'   => [ '1<2', '1<2' ],
+			'less-than before a space'   => [ '容量 < 500ml', '容量 < 500ml' ],
+			'script contents'            => [ 'A<script>alert(1)</script>B', 'AB' ],
+			'style contents'             => [ 'A<style>.x{color:red}</style>B', 'AB' ],
+			'comment'                    => [ 'A<!-- note -->B', 'AB' ],
+			'unclosed tag'               => [ 'A <b', 'A' ],
+			'whitespace left by tags'    => [ " <b> A </b>\t\n<i>B</i>  C ", 'A B C' ],
+			'tags only'                  => [ '<b></b>', '' ],
+		];
+	}
+
+	/**
+	 * @dataProvider visible_texts
+	 */
+	public function test_visible_text_is_what_a_browser_displays( string $html, string $expected ): void {
+		$this->assertSame( $expected, HtmlText::visible_text( $html ) );
+	}
+
+	/**
+	 * `<` も `&` も無い文字列は何も変えない（空白の連続・前後の空白も。既存の取込みの checksum を変えないため）。
+	 */
+	public function test_visible_text_leaves_text_without_markup_untouched(): void {
+		foreach ( [ '', '  A  B  ', "A\tB\nC", 'x > y', '【限定】Ｔシャツ' ] as $text ) {
+			$this->assertSame( $text, HtmlText::visible_text( $text ) );
+		}
+	}
+
+	public function test_visible_text_keeps_invalid_utf8_text_instead_of_failing(): void {
+		$this->assertStringContainsString( '(y z', HtmlText::visible_text( "x\xC3(y <i>z</i>" ) );
+	}
+
 	public function test_allowed_html_and_entities_are_kept_as_kses_leaves_them(): void {
 		$html = '<p class="x">A &amp; B <a href="https://example.com/">link</a> <strong>強調</strong></p><!-- note -->';
 
