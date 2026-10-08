@@ -162,12 +162,13 @@ foreach ( $cbjp_snap['colorme']['products'] as $cbjp_id => $cbjp_cm ) {
 		continue;
 	}
 
-	// 商品名は実体参照で保存する（issue #99）。表示どおりの文字が ColorMe と一致し、保存値が kses で変わらない形（生の `<` `>` `\`・
-	// 実体参照でない `&` が無い）であることを確かめる。後者が崩れると、取り込んだランナー（WP-Cron／管理画面）で保存値が変わる。
-	// 実装（`Woo\Support\HtmlText`）は呼ばず、PHP の関数と正規表現で独立に判定する。
+	// 商品名は実体参照で保存する（issue #99）。表示どおりの文字が ColorMe のストアフロントに表示される文字（タグを除き実体参照を戻したもの。R3-1f）と一致し、
+	// 保存値が kses で変わらない形（生の `<` `>` `\`・実体参照でない `&` が無い）であることを確かめる。後者が崩れると、取り込んだランナー（WP-Cron／管理画面）で保存値が変わる。
+	// 実装（`Woo\Support\HtmlText`）は呼ばず、DOM・PHP の関数・正規表現で独立に判定する。
 	$cbjp_woo_name = (string) $cbjp_woo['name'];
-	if ( html_entity_decode( $cbjp_woo_name, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) !== ( $cbjp_cm['name'] ?? null ) ) {
-		$cbjp_report( 'MISMATCH', $cbjp_where, 'name ' . $cbjp_s( $cbjp_woo['name'] ) );
+	$cbjp_cm_name  = cbjp_rh_visible_name( is_string( $cbjp_cm['name'] ?? null ) ? $cbjp_cm['name'] : '' );
+	if ( html_entity_decode( $cbjp_woo_name, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) !== $cbjp_cm_name ) {
+		$cbjp_report( 'MISMATCH', $cbjp_where, 'name ' . $cbjp_s( $cbjp_woo['name'] ) . ' vs the storefront text ' . $cbjp_s( $cbjp_cm_name ) );
 	} elseif ( 1 === preg_match( '/[<>\\\\]|&(?![A-Za-z][A-Za-z0-9]*;|#[0-9]+;|#[xX][0-9A-Fa-f]+;)/', $cbjp_woo_name ) ) {
 		$cbjp_report( 'MISMATCH', $cbjp_where, 'name is stored without entity encoding (the result depends on the runner, issue #99): ' . $cbjp_s( $cbjp_woo['name'] ) );
 	}

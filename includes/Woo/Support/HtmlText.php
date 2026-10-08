@@ -32,6 +32,45 @@ final class HtmlText {
 	private const TAG_NAME_TERMINATORS = " \t\n\f\r/>";
 
 	/**
+	 * {@see self::visible_text()} が空白 1 つにするタグ（`<br>` とブロック要素。ブラウザは前後を改行して表示する）。WP の HTML API の大文字のタグ名。
+	 */
+	private const BREAKING_TAGS = [
+		'BR',
+		'P',
+		'DIV',
+		'LI',
+		'UL',
+		'OL',
+		'DL',
+		'DT',
+		'DD',
+		'HR',
+		'H1',
+		'H2',
+		'H3',
+		'H4',
+		'H5',
+		'H6',
+		'BLOCKQUOTE',
+		'PRE',
+		'TABLE',
+		'CAPTION',
+		'TR',
+		'TD',
+		'TH',
+		'ADDRESS',
+		'ARTICLE',
+		'ASIDE',
+		'FIGURE',
+		'FIGCAPTION',
+		'FOOTER',
+		'HEADER',
+		'MAIN',
+		'NAV',
+		'SECTION',
+	];
+
+	/**
 	 * `<` の直後に来るとタグの始まりになる文字（{@see self::opens_markup()}）。
 	 */
 	private const MARKUP_OPENERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/!?';
@@ -177,6 +216,58 @@ final class HtmlText {
 
 		// `ENT_SUBSTITUTE`: 不正な UTF-8 を U+FFFD にする（無いと `htmlspecialchars()` が空文字列を返し、名前が消える）。
 		return str_replace( '\\', '&#092;', htmlspecialchars( $text, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8', true ) );
+	}
+
+	/**
+	 * HTML の断片を、ブラウザが表示する文字にする（タグを除き、実体参照を戻す）。ASP が名前を HTML として表示する場合に、
+	 * アダプタが平文の Canonical の名前を作るのに使う（ColorMe のストアフロントは商品名を見出しにエスケープせずに出す。R3-1f）。
+	 *
+	 * - `<` も `&` も含まない文字列は何も変えずに返す（既存の取込みの checksum を変えない）。
+	 * - それ以外は WP の HTML API（{@see \WP_HTML_Tag_Processor::next_token()}）でブラウザと同じく字句解析し、文字のトークンだけをつなぐ。
+	 *   実体参照は戻り（`Q&amp;A` → `Q&A`。セミコロンの無い古い形〔`&copy2023` → `©2023`〕もブラウザと同じく戻る）、文字の `<`
+	 *   （`1<2`・`容量 < 500ml`）は残る。コメントと、HTML API が中身を文字のトークンとして返さない要素（`<script>`・`<style>`・`<textarea>`・
+	 *   `<title>`・`<xmp>`・`<iframe>`・`<noembed>`・`<noframes>`）の中身は出さない（ブラウザが表示する `<textarea>`・`<xmp>` の中身も出さない。
+	 *   `<plaintext>` から後ろはタグも文字として表示するブラウザと違い、タグを除く）。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
+	 * - ブラウザが表示しない要素の中は、HTML API が文字のトークンとして返しても出さない（CSS の `hidden` 属性・`display:none` は評価しない）。
+	 *   `<noscript>` はスクリプトが有効なブラウザ（ストアフロントの通常の閲覧）では生のテキストなので、最初の `</noscript>` までを中のタグによらず出さない。
+	 *   `<template>` は入れ子を数え、`</template>` でだけ閉じる（`</noscript>` など別の要素の閉じタグでは閉じない。ブラウザも対応しない閉じタグを無視する。
+	 *   PR #110 G2）。どちらも閉じタグが無ければ後ろを全て出さない。
+	 * - `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など。{@see self::BREAKING_TAGS}）の開始・終了タグは空白 1 つにする（ブラウザは改行して表示するので、
+	 *   前後の語をつなげない。`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして前後を除く
+	 *   （タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。`<pre>` の中の空白も 1 つにする
+	 *   （ブラウザは保つが、Woo も商品名を HTML として表示するので空白の連続は 1 つに見え、改行を名前に残さないため）。
+	 */
+	public static function visible_text( string $html ): string {
+		if ( ! str_contains( $html, '<' ) && ! str_contains( $html, '&' ) ) {
+			return $html;
+		}
+
+		$processor   = new \WP_HTML_Tag_Processor( $html );
+		$text        = '';
+		$templates   = 0;
+		$in_noscript = false;
+
+		while ( $processor->next_token() ) {
+			$type   = $processor->get_token_type();
+			$tag    = '#tag' === $type ? $processor->get_tag() : null;
+			$closer = null !== $tag && $processor->is_tag_closer();
+
+			if ( $in_noscript ) {
+				$in_noscript = ! ( 'NOSCRIPT' === $tag && $closer );
+			} elseif ( 'NOSCRIPT' === $tag ) {
+				$in_noscript = ! $closer;
+			} elseif ( 'TEMPLATE' === $tag ) {
+				$templates = $closer ? max( 0, $templates - 1 ) : $templates + 1;
+			} elseif ( $templates > 0 ) {
+				continue;
+			} elseif ( '#text' === $type ) {
+				$text .= $processor->get_modifiable_text();
+			} elseif ( in_array( $tag, self::BREAKING_TAGS, true ) ) {
+				$text .= ' ';
+			}
+		}
+
+		return trim( (string) preg_replace( '/[ \t\n\f\r]+/', ' ', $text ), " \t\n\f\r" );
 	}
 
 	/**

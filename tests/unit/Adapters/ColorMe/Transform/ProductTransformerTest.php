@@ -59,6 +59,33 @@ final class ProductTransformerTest extends WP_UnitTestCase {
 		$this->assertSame( 'スマホ説明', $product->extras['smartphone_description'] );
 	}
 
+	/**
+	 * ColorMe のストアフロントは商品名を見出しにエスケープせずに出すので、名前はタグを除き実体参照を戻した表示どおりの文字にする（R3-1f）。
+	 */
+	public function test_name_becomes_the_text_the_storefront_displays(): void {
+		$raw         = $this->product_fixture( 192616831 );
+		$raw['name'] = '<span style="color:red">送料無料</span><br>Tom &amp; Jerry <set> &hearts;';
+
+		$this->assertSame( '送料無料 Tom & Jerry ♥', $this->transformer->transform( $raw )->name );
+	}
+
+	public function test_name_without_markup_is_kept_as_is(): void {
+		$raw         = $this->product_fixture( 192616831 );
+		$raw['name'] = ' 【限定】  Ｔシャツ > 1 ';
+
+		$this->assertSame( ' 【限定】  Ｔシャツ > 1 ', $this->transformer->transform( $raw )->name );
+	}
+
+	/**
+	 * 表示される文字が無い名前（タグだけ）は、名前を失わないよう元の値のまま渡す。
+	 */
+	public function test_name_made_only_of_tags_falls_back_to_the_raw_value(): void {
+		$raw         = $this->product_fixture( 192616831 );
+		$raw['name'] = '<b></b>';
+
+		$this->assertSame( '<b></b>', $this->transformer->transform( $raw )->name );
+	}
+
 	public function test_unmanaged_stock_is_not_treated_as_out_of_stock(): void {
 		// `stock_managed: false`の商品は在庫管理をしていないため、rawの`stocks`値は在庫切れ判定に
 		// 使わない。stockをnullにし、Importerに「無制限＝在庫あり」と判断させる

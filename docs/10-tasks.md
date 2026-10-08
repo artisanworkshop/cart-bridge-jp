@@ -727,9 +727,21 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   P11 の `<script>`・`<style>` は中身ごと除かれ、郵便番号を消した Woo 生まれの顧客の更新は PUT を送らずスキップ（R3-1c）。取込み直後の往復エクスポートは何も送らず ColorMe の差 0、
   作成エクスポートの後の再取込みは Woo の差 0（R3-1a）。日本語の税区分で軽減税率の商品が「軽減税」に入り、「軽減税」の商品は軽減税率で作成、「免税」の商品は `tax_class_unsupported` で止まった（R3-1d/e）。
   ほかに、**ColorMe は会員の更新で電話番号を必須にしない**（電話番号だけを消した更新が `updated`。review-loop R1-6 の要実測。コードの変更は不要）と、
-  **ColorMe のストアフロントは商品名を見出しにエスケープせず出す**（API の値は平文の `Fish & Chips <set>` だが、`<set>` が要素として消える。所見 F。対応は未決で backlog `r3-1-rerehearsal/F1`）を記録した。
+  **ColorMe のストアフロントは商品名を見出しにエスケープせず出す**（API の値は平文の `Fish & Chips <set>` だが、`<set>` が要素として消える。所見 F。ユーザー決定で取込みでタグを除く〔R3-1f〕）を記録した。
   テストショップに前回の往復で書き換わった P11・P12・P08・P09 は、使い捨てのスクリプトで投入時の値に戻してから始めた。記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」。
   テストショップ・開発サイトの後片付けはユーザーが判断する（ZZR・ZZW・ZZU の商品・会員、ゲスト注文 3 件、開発サイトの取り込んだ実体）
+- [x] **R3-1f: ColorMe の商品名のタグを取込みで除く（backlog `r3-1-rerehearsal/F1`。2026-10-08 ユーザー決定）**（ColorMe のストアフロントは商品名を見出しにエスケープせずに出すので、
+  名前に書いた装飾のタグは表示されず、実体参照は文字として表示される。取込みはそのまま Canonical に渡していたので、Woo ではタグが文字として見えた）
+  **実装サマリ（2026-10-08、ブランチ `feat/r3-1f-strip-name-markup`）**: 新設 `HtmlText::visible_text()` が WP の HTML API（`WP_HTML_Tag_Processor::next_token()`）で文字のトークンだけをつなぎ
+  （実体参照は戻る・文字の `<` は残る・コメントと HTML API が中身を文字として返さない要素〔`<script>`・`<style>`・`<textarea>`・`<title>` など〕とブラウザが表示しない `<template>`・`<noscript>` の中身は出ない・閉じていないタグから後ろは出ない）、
+  `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など）の境目を空白にして空白の連続を 1 つ・前後を除く。
+  `<` も `&` も無い名前は何も変えない（既存の取込みの checksum を変えない）。ColorMe の `ProductTransformer` は新設 `Cast::product_name()` で名前を通し、表示される文字が無い名前（タグだけ）は元の値を使う。
+  Canonical の契約（`name` は平文）は変えない。計画時のユーザー回答: 実体参照も表示どおりの文字に戻す、警告は出さない。対象外: エクスポート（Woo の名前の `<…>` は ColorMe で HTML になる。既知の限界）、
+  受注の明細名（注文時の値。Woo も明細名を HTML として表示する）、オプション名・値とカテゴリ名（ストアフロントの出力を確かめていない）。詳細は `docs/03` §10.2「商品名の保存形式（R3-1b）」。
+  `rehearse-colorme` の `check-import` は商品名をストアフロントの表示どおりの文字（libxml の DOM で作る `cbjp_rh_visible_name()`）と比べ、`seed-shop` に装飾タグ・`<br>`・実体参照の名前の P56 を足した。
+  **検証**: PHPUnit（`HtmlTextTest` の表示どおりの文字のデータセット・近道・不正な UTF-8、`ProductTransformerTest` 3 件、変換層から `ProductWriter` まで通す結合〔未ログイン〈kses あり〉と管理者〕）。
+  テストショップで P56 を投入し、dry-run と本取込み（管理者の条件で差分取込み → `reset-local` → WP-Cron の条件で全件）で P12 が `Tom &amp; Jerry`・P56 が `送料無料 Tシャツ ♥` で保存され、
+  他の商品は `unchanged`、`check-import` の食い違い 0、再取込みは全件 `unchanged` を確認した
 - [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07、PR #109。ブランチ `feat/r3-2-i18n`）
   **実装サマリ**: 日本語（`ja`）の訳を `languages/` に同梱した（`cart-bridge-jp.pot`・`cart-bridge-jp-ja.po`〈555 文字列すべて訳済み〉・`.mo`・`.l10n.php`・管理画面の JS 用の JSON）。
   生成は `bin/i18n.sh pot|po|compile|check`（`npm run i18n:*`。WP-CLI は wp-env の cli コンテナ）。**JS の文字列は `build/index.js` から抜く**（make-pot は TypeScript を読まない。
@@ -745,7 +757,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   dev サイトでサイトの言語を一時的に `ja` にしてフロント・REST・admin-ajax・cron を叩き「too early」通知が出ないこと、管理者のユーザー言語を `ja` にして
   `Assets::enqueue()` の経路で JS に日本語の訳と `cbjpAdmin.locale` が渡ること・警告カタログが日本語になることを確認した（どちらも元に戻した）。
   **マージ後に残る確認（ユーザー）**: 日本語の訳の言い回し（とくに用語集と警告カタログの対処の文）と、ユーザー言語を日本語にした管理画面の目視（長い日本語でレイアウトが崩れないか）
-- [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕）
+- [ ] **R3-3: readme.txt + アセット + 説明文のv1.0化**（スクリーンショット、商標表記: WooCommerce is a trademark of Automattic / ASP名は本文でのみ言及。**プラグインヘッダーと `composer.json` の Description を「Color Me Shop」のみに改める**（現状は3ASP併記。03 §7）。BASE/MakeShop の対応予定を readme に載せるかは公開時に判断。**受注エクスポートと商品画像アップロードがベータ版（プレミアムプラン限定・実店舗で未検証・既定オフ）であることを機能一覧と FAQ に明記する**〔D24〕。**エクスポートが止まる警告の対処（D22 の在庫管理・在庫状況を揃える、D23 の Any を具体値に分ける、ほか）も FAQ に載せる。文言は R3-0k のカタログと共通にする**。**一方向の移行に特化し、往復〔取り込んだショップへのエクスポート・エクスポートしたショップからの取込み〕は想定しないこと、誤って往復した場合は取り込んだ実体を送らず・エクスポートで作った実体を上書きしない〔D25〕ことも明記する**〔2026-10-06 ユーザー決定〕。**商品名の扱い（R3-1f）も書く**: 取込みは ColorMe の名前のタグを除き実体参照を戻す〔ストアフロントの表示どおり〕、エクスポートは Woo の名前の `<…>` をそのまま送るので ColorMe では HTML として解釈される。changelog には、`<` か `&` を含む名前の取込み済み商品が次の取込みで一度だけ書き直されることを書く）
 - [ ] **R3-4: wordpress.org 申請**（スラッグ `cart-bridge-jp`、Plugin Check通過、バージョン 1.0.0。参考スキル: wp-org-release。**公開時に `AbstractPlatformAdapterTest` を2箇所凍結する（D20・issue #49）**: (1) `v1_method_names()` の実装をその時点の `array_keys( self::BASELINE )` を書き写したリテラル配列に置き換える（`BASELINE`との動的連動をやめる。これを忘れると公開後に追加したメソッドの既定実装削除が検出できなくなる）。(2) これ以降 `PlatformAdapter` の既存シグネチャ変更は禁止、新メソッドは `AbstractPlatformAdapter` に既定実装を添えて追加する運用に切り替える。凍結前に判断するとしていた `PlatformAdapter` 契約拡張前提の保留項目は 2026-09-26 に判断済み: `e2-3-push-*/G1-duplicate-on-retry` は D21（R3-0a/b。シグネチャを変えない方式のため凍結とは独立）、`fix-46-pref-state-repair/L-unavailable-not-split` は見送り（代替は issue #71）（03 §2 D20 規則7））
 - [ ] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル）
 

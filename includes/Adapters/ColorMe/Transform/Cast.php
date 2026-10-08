@@ -163,6 +163,18 @@ final class Cast {
 	}
 
 	/**
+	 * 商品名を、ストアフロントに表示される平文にする（`CanonicalProduct::$name` は平文）。ColorMe のストアフロントは商品名を
+	 * 見出しにエスケープせずに出すので（2026-10-08 に実測）、名前に書いた装飾のタグは表示されず、実体参照は文字として表示される。
+	 * `HtmlText::visible_text()` でタグを除き実体参照を戻す（R3-1f）。タグだけの名前のように表示される文字が無いときは、名前を失わないよう元の値を使う。
+	 */
+	public static function product_name( mixed $value ): string {
+		$name = self::to_string_or_null( $value ) ?? '';
+		$text = HtmlText::visible_text( $name );
+
+		return '' === $text ? $name : $text;
+	}
+
+	/**
 	 * 値の配列を文字列配列へ変換する。`null`/空文字のみを除外し、`'0'` のような
 	 * falsyな文字列は保持する（`array_filter()` をコールバック無しで使うと
 	 * `'0'` も除去されてしまうため、この用途では使わないこと）。
