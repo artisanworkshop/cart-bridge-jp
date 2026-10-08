@@ -58,7 +58,7 @@ npm run test:js              # 管理画面 UI の純粋関数の単体テスト
 ## コーディング規約
 
 - WordPress Coding Standards（PHPCS: `WordPress` ruleset + PSR-4クラス構成）
-- UI文字列は英語で書き、`__( 'Text', 'cart-bridge-jp' )` で必ずi18n化。日本語訳は `languages/cart-bridge-jp-ja.po` に同梱している。**文字列を足す・変えたら同じ PR で** `npm run i18n:pot`（ビルドしてから POT。JS は `build/index.js` から抜く）→ `npm run i18n:po` → 足された項目を訳す（用語集は `docs/03` §6「翻訳（R3-2）」）→ `npm run i18n:compile`。CI（`npm run i18n:check`）と `TranslationsTest` が、POT の鮮度・訳の漏れ・プレースホルダの食い違いを止める
+- UI文字列は英語で書き、`__( 'Text', 'cart-bridge-jp' )` で必ずi18n化。日本語訳は `languages/cart-bridge-jp-ja.po` に同梱している。**文字列を足す・変えたら同じ PR で** `npm run i18n:pot`（ビルドしてから POT。JS は `build/index.js` から抜く）→ `npm run i18n:po` → 足された項目を訳す（用語集は `docs/03` §6「翻訳（R3-2）」）→ `npm run i18n:compile`。CI（`npm run i18n:check`）と `TranslationsTest` が、POT の鮮度・訳の漏れ・プレースホルダの食い違いを止める。訳のパスの登録（メインファイルの `cbjp_load_textdomain()`）は、WooCommerce・オートロードを確かめる `cbjp_bootstrap()` のガードの外に置く（中に置くと前提条件の通知が英語のまま出る。PR #109 G1-1）
 - コードコメントは日本語可
 - 入力は必ずサニタイズ、出力は必ずエスケープ、DB操作は `$wpdb->prepare()`
 - APIトークン等の機密情報は暗号化して保存（`Support\TokenStore` 経由。オプションテーブルに平文保存禁止）
