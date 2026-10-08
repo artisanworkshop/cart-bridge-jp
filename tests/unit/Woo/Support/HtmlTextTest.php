@@ -266,6 +266,11 @@ final class HtmlTextTest extends WP_UnitTestCase {
 			'unclosed template'           => [ 'A<template>rest', 'A' ],
 			'noscript contents'           => [ 'A<noscript>B</noscript>C', 'AC' ],
 			'stray template closer'       => [ 'A</template>B<template>C</template>D', 'ABD' ],
+			'mismatched hidden closer'    => [ 'A<template>x</noscript>y</template>B', 'AB' ],
+			'noscript is raw text'        => [ 'A<noscript><template>x</noscript>y</template>z</noscript>B', 'AyzB' ],
+			'noscript inside template'    => [ 'A<template><noscript>x</template>y</noscript>z</template>B', 'AB' ],
+			'closers inside noscript'     => [ 'A<noscript>x</b>y</noscript>B', 'AB' ],
+			'unclosed noscript'           => [ 'A<noscript>rest', 'A' ],
 			'spaces in pre are collapsed' => [ "<pre>A  B\nC</pre>", 'A B C' ],
 			'tags only'                   => [ '<b></b>', '' ],
 		];

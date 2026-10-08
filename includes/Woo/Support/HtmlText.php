@@ -71,12 +71,6 @@ final class HtmlText {
 	];
 
 	/**
-	 * {@see self::visible_text()} が中身を出さない要素（ブラウザが表示しない。HTML API は中身を普通のトークンとして返す）。
-	 * `<noscript>` はスクリプトが有効なブラウザ（ストアフロントの通常の閲覧）では表示されない。
-	 */
-	private const UNRENDERED_TAGS = [ 'TEMPLATE', 'NOSCRIPT' ];
-
-	/**
 	 * `<` の直後に来るとタグの始まりになる文字（{@see self::opens_markup()}）。
 	 */
 	private const MARKUP_OPENERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/!?';
@@ -234,8 +228,10 @@ final class HtmlText {
 	 *   （`1<2`・`容量 < 500ml`）は残る。コメントと、HTML API が中身を文字のトークンとして返さない要素（`<script>`・`<style>`・`<textarea>`・
 	 *   `<title>`・`<xmp>`・`<iframe>`・`<noembed>`・`<noframes>`）の中身は出さない（ブラウザが表示する `<textarea>`・`<xmp>` の中身も出さない。
 	 *   `<plaintext>` から後ろはタグも文字として表示するブラウザと違い、タグを除く）。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
-	 * - ブラウザが表示しない要素（{@see self::UNRENDERED_TAGS}: `<template>`、スクリプトが有効なときの `<noscript>`）の中は、HTML API が文字のトークンとして返しても出さない
-	 *   （入れ子は数える。閉じタグが無ければ後ろを全て出さない）。CSS（`hidden` 属性・`display:none`）は評価しない。
+	 * - ブラウザが表示しない要素の中は、HTML API が文字のトークンとして返しても出さない（CSS の `hidden` 属性・`display:none` は評価しない）。
+	 *   `<noscript>` はスクリプトが有効なブラウザ（ストアフロントの通常の閲覧）では生のテキストなので、最初の `</noscript>` までを中のタグによらず出さない。
+	 *   `<template>` は入れ子を数え、`</template>` でだけ閉じる（`</noscript>` など別の要素の閉じタグでは閉じない。ブラウザも対応しない閉じタグを無視する。
+	 *   PR #110 G2）。どちらも閉じタグが無ければ後ろを全て出さない。
 	 * - `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など。{@see self::BREAKING_TAGS}）の開始・終了タグは空白 1 つにする（ブラウザは改行して表示するので、
 	 *   前後の語をつなげない。`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして前後を除く
 	 *   （タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。`<pre>` の中の空白も 1 つにする
@@ -246,17 +242,23 @@ final class HtmlText {
 			return $html;
 		}
 
-		$processor = new \WP_HTML_Tag_Processor( $html );
-		$text      = '';
-		$hidden    = 0;
+		$processor   = new \WP_HTML_Tag_Processor( $html );
+		$text        = '';
+		$templates   = 0;
+		$in_noscript = false;
 
 		while ( $processor->next_token() ) {
-			$type = $processor->get_token_type();
-			$tag  = '#tag' === $type ? $processor->get_tag() : null;
+			$type   = $processor->get_token_type();
+			$tag    = '#tag' === $type ? $processor->get_tag() : null;
+			$closer = null !== $tag && $processor->is_tag_closer();
 
-			if ( in_array( $tag, self::UNRENDERED_TAGS, true ) ) {
-				$hidden = $processor->is_tag_closer() ? max( 0, $hidden - 1 ) : $hidden + 1;
-			} elseif ( $hidden > 0 ) {
+			if ( $in_noscript ) {
+				$in_noscript = ! ( 'NOSCRIPT' === $tag && $closer );
+			} elseif ( 'NOSCRIPT' === $tag ) {
+				$in_noscript = ! $closer;
+			} elseif ( 'TEMPLATE' === $tag ) {
+				$templates = $closer ? max( 0, $templates - 1 ) : $templates + 1;
+			} elseif ( $templates > 0 ) {
 				continue;
 			} elseif ( '#text' === $type ) {
 				$text .= $processor->get_modifiable_text();
