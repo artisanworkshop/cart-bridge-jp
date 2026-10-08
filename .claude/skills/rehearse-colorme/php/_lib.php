@@ -20,6 +20,45 @@ if ( function_exists( 'cbjp_rh_args' ) ) {
 }
 
 /**
+ * ColorMe の商品名がストアフロントに表示される文字（R3-1f）。取り込んだ Woo の名前（の表示どおりの文字）と比べる期待値。
+ *
+ * ColorMe のストアフロントは名前を見出しにエスケープせずに出すので、タグは表示されず実体参照は文字になる。プラグインは WP の HTML API で
+ * 文字の部分を取り出す（`HtmlText::visible_text()`）ので、ここは別の実装（libxml の HTML パーサーの DOM）で作る: script・style・textarea・title を除き、
+ * `<br>` を空白にした body の textContent の、HTML の空白の連続を 1 つにして前後を除く。`<` も `&` も無い名前はそのまま、表示される文字が無い名前
+ * （タグだけ）は元の値（プラグインと同じく名前を失わない）。libxml は HTML5 の字句解析と細部が違うので、食い違ったら入力を見て判断する。
+ */
+function cbjp_rh_visible_name( string $name ): string {
+	if ( ! str_contains( $name, '<' ) && ! str_contains( $name, '&' ) ) {
+		return $name;
+	}
+
+	$dom      = new DOMDocument();
+	$previous = libxml_use_internal_errors( true );
+	$dom->loadHTML( '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $name . '</body></html>', LIBXML_NONET );
+	libxml_clear_errors();
+	libxml_use_internal_errors( $previous );
+
+	$xpath   = new DOMXPath( $dom );
+	$hidden  = $xpath->query( '//body//script | //body//style | //body//textarea | //body//title' );
+	$breaks  = $xpath->query( '//body//br' );
+	$removed = false === $hidden ? [] : iterator_to_array( $hidden );
+	$spaced  = false === $breaks ? [] : iterator_to_array( $breaks );
+
+	foreach ( $removed as $node ) {
+		$node->parentNode?->removeChild( $node );
+	}
+
+	foreach ( $spaced as $node ) {
+		$node->parentNode?->replaceChild( $dom->createTextNode( ' ' ), $node );
+	}
+
+	$body = $dom->getElementsByTagName( 'body' )->item( 0 );
+	$text = trim( (string) preg_replace( '/[ \t\n\f\r]+/', ' ', null === $body ? '' : $body->textContent ), " \t\n\f\r" );
+
+	return '' === $text ? $name : $text;
+}
+
+/**
  * ColorMe の説明（`$from`）の `<script>`・`<style>` の中身が、取り込んだ Woo の説明（`$stored`）に文字として残っていないか（issue #101）。
  *
  * 期待値はプラグインの除去とは別に作る: WP の HTML API（`WP_HTML_Tag_Processor`。ブラウザと同じ字句解析で、属性値・コメント・文字の `<` を

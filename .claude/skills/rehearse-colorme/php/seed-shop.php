@@ -301,6 +301,16 @@ for ( $cbjp_i = 20; $cbjp_i <= 55; $cbjp_i++ ) {
 	];
 }
 
+// 名前に装飾のタグ・改行・実体参照を書いた商品（ColorMe のストアフロントは名前を HTML として表示する。取込みは表示どおりの文字にする。R3-1f）。
+// 埋め草の後に置く（既存のテストショップに足しても、埋め草のカテゴリの割り当てを変えない）。
+$cbjp_products['P56 <span style="color:red">送料無料</span><br>Tシャツ &hearts;'] = [
+	'create' => [
+		'model_number'  => 'ZZR-SKU-56',
+		'sales_price'   => 1560,
+		'stock_managed' => false,
+	],
+];
+
 if ( 'customers' !== $cbjp_part ) {
 	echo '== products (' . count( $cbjp_products ) . ") ==\n";
 	$cbjp_index = 0;
