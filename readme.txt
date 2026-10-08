@@ -47,7 +47,7 @@ Color Me Shop cannot create categories through its API, so you map WooCommerce c
 
 The dry run covers all of your data. A real import or export moves a sample, so you can check the result in your own store before the full migration:
 
-* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added so that the sample has up to 10 of each.
+* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added until the sample has 10 of each (the products from the orders are kept, up to 50).
 * Categories and tags are not limited. Stock is limited to the sample products.
 * The limits count every item linked to Color Me Shop, whether it was imported or exported.
 * Tools > Sample data cleanup removes the imported sample from WooCommerce. It deletes nothing in Color Me Shop: exported items stay there, and running the cleanup after an export removes the links to them, so exporting again creates them in Color Me Shop a second time.
