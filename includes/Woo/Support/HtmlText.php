@@ -71,6 +71,12 @@ final class HtmlText {
 	];
 
 	/**
+	 * {@see self::visible_text()} が中身を出さない要素（ブラウザが表示しない。HTML API は中身を普通のトークンとして返す）。
+	 * `<noscript>` はスクリプトが有効なブラウザ（ストアフロントの通常の閲覧）では表示されない。
+	 */
+	private const UNRENDERED_TAGS = [ 'TEMPLATE', 'NOSCRIPT' ];
+
+	/**
 	 * `<` の直後に来るとタグの始まりになる文字（{@see self::opens_markup()}）。
 	 */
 	private const MARKUP_OPENERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/!?';
@@ -228,9 +234,12 @@ final class HtmlText {
 	 *   （`1<2`・`容量 < 500ml`）は残る。コメントと、HTML API が中身を文字のトークンとして返さない要素（`<script>`・`<style>`・`<textarea>`・
 	 *   `<title>`・`<xmp>`・`<iframe>`・`<noembed>`・`<noframes>`）の中身は出さない（ブラウザが表示する `<textarea>`・`<xmp>` の中身も出さない。
 	 *   `<plaintext>` から後ろはタグも文字として表示するブラウザと違い、タグを除く）。閉じていないタグ（`a <b`）から後ろも出さない（ブラウザも表示しない）。
+	 * - ブラウザが表示しない要素（{@see self::UNRENDERED_TAGS}: `<template>`、スクリプトが有効なときの `<noscript>`）の中は、HTML API が文字のトークンとして返しても出さない
+	 *   （入れ子は数える。閉じタグが無ければ後ろを全て出さない）。CSS（`hidden` 属性・`display:none`）は評価しない。
 	 * - `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など。{@see self::BREAKING_TAGS}）の開始・終了タグは空白 1 つにする（ブラウザは改行して表示するので、
 	 *   前後の語をつなげない。`</br>` もブラウザと同じく `<br>`）。最後に HTML の空白（space・tab・LF・FF・CR）の連続を空白 1 つにして前後を除く
-	 *   （タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。
+	 *   （タグを除いた跡と改行。ブラウザも空白の連続を 1 つに表示する）。`&nbsp;` の U+00A0 はそのまま残す。`<pre>` の中の空白も 1 つにする
+	 *   （ブラウザは保つが、Woo も商品名を HTML として表示するので空白の連続は 1 つに見え、改行を名前に残さないため）。
 	 */
 	public static function visible_text( string $html ): string {
 		if ( ! str_contains( $html, '<' ) && ! str_contains( $html, '&' ) ) {
@@ -239,13 +248,19 @@ final class HtmlText {
 
 		$processor = new \WP_HTML_Tag_Processor( $html );
 		$text      = '';
+		$hidden    = 0;
 
 		while ( $processor->next_token() ) {
 			$type = $processor->get_token_type();
+			$tag  = '#tag' === $type ? $processor->get_tag() : null;
 
-			if ( '#text' === $type ) {
+			if ( in_array( $tag, self::UNRENDERED_TAGS, true ) ) {
+				$hidden = $processor->is_tag_closer() ? max( 0, $hidden - 1 ) : $hidden + 1;
+			} elseif ( $hidden > 0 ) {
+				continue;
+			} elseif ( '#text' === $type ) {
 				$text .= $processor->get_modifiable_text();
-			} elseif ( '#tag' === $type && in_array( $processor->get_tag(), self::BREAKING_TAGS, true ) ) {
+			} elseif ( in_array( $tag, self::BREAKING_TAGS, true ) ) {
 				$text .= ' ';
 			}
 		}

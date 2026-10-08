@@ -261,6 +261,12 @@ final class HtmlTextTest extends WP_UnitTestCase {
 			'comment'                     => [ 'A<!-- note -->B', 'AB' ],
 			'unclosed tag'                => [ 'A <b', 'A' ],
 			'whitespace left by tags'     => [ " <b> A </b>\t\n<i>B</i>  C ", 'A B C' ],
+			'template contents'           => [ 'A<template>internal</template>B', 'AB' ],
+			'nested templates'            => [ 'A<template><b>x</b><template>y</template>z</template>B', 'AB' ],
+			'unclosed template'           => [ 'A<template>rest', 'A' ],
+			'noscript contents'           => [ 'A<noscript>B</noscript>C', 'AC' ],
+			'stray template closer'       => [ 'A</template>B<template>C</template>D', 'ABD' ],
+			'spaces in pre are collapsed' => [ "<pre>A  B\nC</pre>", 'A B C' ],
 			'tags only'                   => [ '<b></b>', '' ],
 		];
 	}

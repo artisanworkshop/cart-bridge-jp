@@ -733,13 +733,13 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [x] **R3-1f: ColorMe の商品名のタグを取込みで除く（backlog `r3-1-rerehearsal/F1`。2026-10-08 ユーザー決定）**（ColorMe のストアフロントは商品名を見出しにエスケープせずに出すので、
   名前に書いた装飾のタグは表示されず、実体参照は文字として表示される。取込みはそのまま Canonical に渡していたので、Woo ではタグが文字として見えた）
   **実装サマリ（2026-10-08、ブランチ `feat/r3-1f-strip-name-markup`）**: 新設 `HtmlText::visible_text()` が WP の HTML API（`WP_HTML_Tag_Processor::next_token()`）で文字のトークンだけをつなぎ
-  （実体参照は戻る・文字の `<` は残る・コメントと HTML API が中身を文字として返さない要素〔`<script>`・`<style>`・`<textarea>`・`<title>` など〕の中身は出ない・閉じていないタグから後ろは出ない）、
+  （実体参照は戻る・文字の `<` は残る・コメントと HTML API が中身を文字として返さない要素〔`<script>`・`<style>`・`<textarea>`・`<title>` など〕とブラウザが表示しない `<template>`・`<noscript>` の中身は出ない・閉じていないタグから後ろは出ない）、
   `<br>` とブロック要素（`<p>`・`<div>`・`<li>` など）の境目を空白にして空白の連続を 1 つ・前後を除く。
   `<` も `&` も無い名前は何も変えない（既存の取込みの checksum を変えない）。ColorMe の `ProductTransformer` は新設 `Cast::product_name()` で名前を通し、表示される文字が無い名前（タグだけ）は元の値を使う。
   Canonical の契約（`name` は平文）は変えない。計画時のユーザー回答: 実体参照も表示どおりの文字に戻す、警告は出さない。対象外: エクスポート（Woo の名前の `<…>` は ColorMe で HTML になる。既知の限界）、
   受注の明細名（注文時の値。Woo も明細名を HTML として表示する）、オプション名・値とカテゴリ名（ストアフロントの出力を確かめていない）。詳細は `docs/03` §10.2「商品名の保存形式（R3-1b）」。
   `rehearse-colorme` の `check-import` は商品名をストアフロントの表示どおりの文字（libxml の DOM で作る `cbjp_rh_visible_name()`）と比べ、`seed-shop` に装飾タグ・`<br>`・実体参照の名前の P56 を足した。
-  **検証**: PHPUnit（`HtmlTextTest` の表示どおりの文字 18 種・近道・不正な UTF-8、`ProductTransformerTest` 3 件、変換層から `ProductWriter` まで通す結合〔未ログイン〈kses あり〉と管理者〕）。
+  **検証**: PHPUnit（`HtmlTextTest` の表示どおりの文字のデータセット・近道・不正な UTF-8、`ProductTransformerTest` 3 件、変換層から `ProductWriter` まで通す結合〔未ログイン〈kses あり〉と管理者〕）。
   テストショップで P56 を投入し、dry-run と本取込み（管理者の条件で差分取込み → `reset-local` → WP-Cron の条件で全件）で P12 が `Tom &amp; Jerry`・P56 が `送料無料 Tシャツ ♥` で保存され、
   他の商品は `unchanged`、`check-import` の食い違い 0、再取込みは全件 `unchanged` を確認した
 - [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07、PR #109。ブランチ `feat/r3-2-i18n`）
