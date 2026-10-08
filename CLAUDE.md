@@ -49,6 +49,7 @@ composer test                # PHPUnit（wp-envコンテナ内で直接実行す
 composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
 # 特定のテストだけ走らせる: `composer test:wpenv -- --filter X` は引数が PHPUnit に渡らず**全件が走る**（実測）。直接呼ぶこと:
 #   npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist --filter 'ClassA|ClassB'"
+#   この出力をパイプ（`| tr -d '\000-\010\016-\037'` 等）に通して mutate-check.sh の --test-cmd にするときは先頭に `set -o pipefail;`（無いと終了コードがパイプ末尾の 0 になり、全変異が NOT CAUGHT と出る。PR #110）
 npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）。permalink_structure が空（新規 wp-env 等）だと flush だけでは直らず、先に `wp rewrite structure '/%postname%/' --hard` が必要（rest_url() が /wp-json/ ではなく ?rest_route= 形式にフォールバックし、OAuth コールバック URL の登録値と食い違う）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド

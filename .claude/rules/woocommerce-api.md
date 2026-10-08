@@ -62,6 +62,10 @@ paths:
   文字列全体を正規表現で探すと属性値・コメント・CDATA の中の `<script>` という文字から後ろの説明を消し（review-loop R1）、区切りだけ真似ると文字の `<` の後ろのタグを見落とし（R2）、
   制御文字を消さないと `<script\0>` を見落とす（PR #106 Codex G1）。区切りは `strpos()` で探す（遅延一致の正規表現は約 1MB で PCRE の上限に達し、閉じタグの無い開始タグが多いと二乗になる）。
   `Woo\Support\HtmlText::sanitize_post_html()` 参照
+- **`WP_HTML_Tag_Processor` で「表示される文字」を取り出すときは、表示されない要素を自分で追う**（R3-1f、PR #110）。`next_token()` は SCRIPT・STYLE・TEXTAREA・TITLE・XMP・IFRAME・NOEMBED・NOFRAMES の中身を
+  `#text` に出さないが、TEMPLATE と NOSCRIPT の中身は普通のトークンとして返す（G1 で中身が名前に漏れた）。2 つは閉じ方が違う: NOSCRIPT（スクリプト有効のブラウザ）は生のテキストで自分の `</noscript>` でしか閉じず、
+  TEMPLATE は入れ子になる。1 つの深さカウンタで追うと `</noscript>` が `<template>` を閉じる（G2）。`<br>`・ブロック要素の境目は空白を足さないと語がつながる（R1）。
+  `get_modifiable_text()` は実体参照を戻す（`;` の無い旧来の `&copy` も）。属性値の中の `</noscript>`・SVG の CDATA（WP 6.9 は `#comment` で返す）は未対処（backlog `r3-1f-strip-name-markup/G3-1`・`G3-2`）。`HtmlText::visible_text()` 参照
 - **WooCommerce の既定の税区分は、インストール時のサイトの言語で翻訳された名前から作られる**（`WC_Tax::create_tax_class( __( 'Reduced rate', 'woocommerce' ) )`、`class-wc-install.php`）。
   日本語では「軽減税」「免税」で、スラッグは `sanitize_title()` の URL エンコード（`%e8%bb%bd%e6%b8%9b%e7%a8%8e` など）になり、`reduced-rate`・`zero-rate` は無い。
   スラッグ `reduced-rate` を決め打ちで判定すると、日本語でインストールした店舗の軽減税率を見失う（issue #102。開発サイトは英語でインストールしたので表に出ない）。
