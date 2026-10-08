@@ -1892,10 +1892,16 @@ R3-1 のリハーサルで、取込みの商品名の保存結果が Action Sche
   引用符・復号の範囲・Reader の名前とターム・Resolver・Presenter）がすべて CAUGHT。wp-env の dev サイトでも実際の Writer/Reader で WP-Cron の条件（未ログイン＋`kses_init_filters()`）と管理者の
   保存結果が一致し、読み戻した名前が元どおりになることを確認した。テストショップでの再リハーサル（2026-10-08）で、`run context=cron|admin` の取込みがどちらも
   `check-import` の食い違い 0・Woo の値が全件一致、Woo 生まれの `Fish &amp; Chips &lt;set&gt;` が ColorMe に `Fish & Chips <set>` で作られることを確認した（記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」）。
-- **ColorMe のストアフロントでの名前（2026-10-08 の再リハーサルで判明、対応は未決）**: API の `name` は平文で往復するが、ストアフロントの商品ページ（標準テンプレート）は
+- **ColorMe のストアフロントでの名前（2026-10-08 の再リハーサルで判明。取込みは R3-1f で対応）**: API の `name` は平文で往復するが、ストアフロントの商品ページ（標準テンプレート）は
   見出しに名前をエスケープせずに出す（`<set>` は要素として消える。`<title>` はタグを除き、`alt` はエスケープする）。API で直接投入した商品も同じなので ColorMe 側の仕様。
-  取込みでは、名前に装飾のタグを書いた ColorMe の店舗の名前が Woo でタグの文字のまま見え、エクスポートでは Woo で文字として見えている `<…>` が ColorMe で HTML として解釈される
-  （`unfiltered_html` の無い利用者が付けた名前がスクリプトとして動く余地がある）。backlog `r3-1-rerehearsal/F1`。
+  2026-10-08 のユーザー決定で、**取込みは名前をストアフロントに表示される文字にする**（R3-1f）: ColorMe の `ProductTransformer` が `Cast::product_name()`（＝`HtmlText::visible_text()`）で
+  タグを除き実体参照を戻してから Canonical に渡す（Canonical の `name` は平文のまま）。抽出は WP の HTML API（`WP_HTML_Tag_Processor::next_token()`）の文字のトークンで、
+  ブラウザと同じく文字の `<`（`1<2`）は残り、`<script>`・`<style>`・`<textarea>`・`<title>` の中身とコメントは出ず、閉じていないタグから後ろも出ない。`<br>` は空白にし、
+  空白の連続を 1 つにして前後を除く。`<` も `&` も無い名前は何も変えない（既存の取込みの checksum を変えない）。表示される文字が無い名前（タグだけ）は元の値を使う（名前を失わない）。
+  タグ・実体参照を含む名前の取込み済み商品は、次の取込みで一度だけ「更新」になる。計画時のユーザー回答: 実体参照も戻す（ColorMe の `<title>` のようにタグだけ除くのではなく、見出しの見え方に合わせる）、警告は出さない。
+  **対象外**: エクスポート（Woo で文字として見えている `<…>` は ColorMe で HTML として解釈される。`unfiltered_html` の無い利用者が付けた名前がスクリプトとして動く余地がある。
+  既知の限界としてユーザー決定）、受注の明細名（注文時の値〔D10〕。Woo も明細名を HTML として kses して表示するので ColorMe と同じ見え方になる）、
+  オプション名・値とカテゴリ名（ストアフロントでの出力を確かめていない）。backlog `r3-1-rerehearsal/F1`。
 
 #### 名前・住所がそろわない顧客の更新と説明の `<script>`・`<style>`（R3-1c、issue #100・#101）
 

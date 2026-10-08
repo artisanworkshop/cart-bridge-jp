@@ -727,9 +727,20 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   P11 の `<script>`・`<style>` は中身ごと除かれ、郵便番号を消した Woo 生まれの顧客の更新は PUT を送らずスキップ（R3-1c）。取込み直後の往復エクスポートは何も送らず ColorMe の差 0、
   作成エクスポートの後の再取込みは Woo の差 0（R3-1a）。日本語の税区分で軽減税率の商品が「軽減税」に入り、「軽減税」の商品は軽減税率で作成、「免税」の商品は `tax_class_unsupported` で止まった（R3-1d/e）。
   ほかに、**ColorMe は会員の更新で電話番号を必須にしない**（電話番号だけを消した更新が `updated`。review-loop R1-6 の要実測。コードの変更は不要）と、
-  **ColorMe のストアフロントは商品名を見出しにエスケープせず出す**（API の値は平文の `Fish & Chips <set>` だが、`<set>` が要素として消える。所見 F。対応は未決で backlog `r3-1-rerehearsal/F1`）を記録した。
+  **ColorMe のストアフロントは商品名を見出しにエスケープせず出す**（API の値は平文の `Fish & Chips <set>` だが、`<set>` が要素として消える。所見 F。ユーザー決定で取込みでタグを除く〔R3-1f〕）を記録した。
   テストショップに前回の往復で書き換わった P11・P12・P08・P09 は、使い捨てのスクリプトで投入時の値に戻してから始めた。記録は `docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`「再リハーサル」。
   テストショップ・開発サイトの後片付けはユーザーが判断する（ZZR・ZZW・ZZU の商品・会員、ゲスト注文 3 件、開発サイトの取り込んだ実体）
+- [x] **R3-1f: ColorMe の商品名のタグを取込みで除く（backlog `r3-1-rerehearsal/F1`。2026-10-08 ユーザー決定）**（ColorMe のストアフロントは商品名を見出しにエスケープせずに出すので、
+  名前に書いた装飾のタグは表示されず、実体参照は文字として表示される。取込みはそのまま Canonical に渡していたので、Woo ではタグが文字として見えた）
+  **実装サマリ（2026-10-08、ブランチ `feat/r3-1f-strip-name-markup`）**: 新設 `HtmlText::visible_text()` が WP の HTML API（`WP_HTML_Tag_Processor::next_token()`）で文字のトークンだけをつなぎ
+  （実体参照は戻る・文字の `<` は残る・`<script>`・`<style>`・`<textarea>`・`<title>` の中身とコメントは出ない・閉じていないタグから後ろは出ない）、`<br>` を空白にして空白の連続を 1 つ・前後を除く。
+  `<` も `&` も無い名前は何も変えない（既存の取込みの checksum を変えない）。ColorMe の `ProductTransformer` は新設 `Cast::product_name()` で名前を通し、表示される文字が無い名前（タグだけ）は元の値を使う。
+  Canonical の契約（`name` は平文）は変えない。計画時のユーザー回答: 実体参照も表示どおりの文字に戻す、警告は出さない。対象外: エクスポート（Woo の名前の `<…>` は ColorMe で HTML になる。既知の限界）、
+  受注の明細名（注文時の値。Woo も明細名を HTML として表示する）、オプション名・値とカテゴリ名（ストアフロントの出力を確かめていない）。詳細は `docs/03` §10.2「商品名の保存形式（R3-1b）」。
+  `rehearse-colorme` の `check-import` は商品名をストアフロントの表示どおりの文字（libxml の DOM で作る `cbjp_rh_visible_name()`）と比べ、`seed-shop` に装飾タグ・`<br>`・実体参照の名前の P56 を足した。
+  **検証**: PHPUnit（`HtmlTextTest` の表示どおりの文字 18 種・近道・不正な UTF-8、`ProductTransformerTest` 3 件、変換層から `ProductWriter` まで通す結合〔未ログイン〈kses あり〉と管理者〕）。
+  テストショップで P56 を投入し、dry-run と本取込み（管理者の条件で差分取込み → `reset-local` → WP-Cron の条件で全件）で P12 が `Tom &amp; Jerry`・P56 が `送料無料 Tシャツ ♥` で保存され、
+  他の商品は `unchanged`、`check-import` の食い違い 0、再取込みは全件 `unchanged` を確認した
 - [x] **R3-2: i18n**（POT生成、languages/ja.po 翻訳、make-json。参考スキル: wp-i18n）（2026-10-07、PR #109。ブランチ `feat/r3-2-i18n`）
   **実装サマリ**: 日本語（`ja`）の訳を `languages/` に同梱した（`cart-bridge-jp.pot`・`cart-bridge-jp-ja.po`〈555 文字列すべて訳済み〉・`.mo`・`.l10n.php`・管理画面の JS 用の JSON）。
   生成は `bin/i18n.sh pot|po|compile|check`（`npm run i18n:*`。WP-CLI は wp-env の cli コンテナ）。**JS の文字列は `build/index.js` から抜く**（make-pot は TypeScript を読まない。
