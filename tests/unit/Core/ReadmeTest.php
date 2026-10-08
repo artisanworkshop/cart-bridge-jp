@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Core;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use ReflectionClassConstant;
@@ -21,8 +22,9 @@ use WP_UnitTestCase;
 final class ReadmeTest extends WP_UnitTestCase {
 
 	/**
-	 * FAQ「エクスポートが止まる警告」に載せる警告コード（`docs/10` R3-3: D22・D23 ほか）。FAQ の箇条書きはこの一覧と過不足なく一致し、
-	 * 各行は `WarningCatalog` のエクスポートの説明（原因と対処）をそのまま使う。
+	 * FAQ「エクスポートが止まる警告」に載せる警告コード（`docs/10` R3-3: D22・D23 ほか。止める警告の全種ではなく出会いやすいもの。
+	 * 全種は CSV に出る）。FAQ の箇条書きはこの一覧と過不足なく同じ順で一致し、各行は `WarningCatalog` のエクスポートの説明
+	 * （原因と対処）をそのまま使う。
 	 */
 	private const FAQ_EXPORT_BLOCKING_CODES = [
 		WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED,
@@ -33,8 +35,10 @@ final class ReadmeTest extends WP_UnitTestCase {
 		WarningCode::PRICE_TAX_BASIS_UNRESOLVED,
 		WarningCode::PRODUCT_PRICE_INVALID,
 		WarningCode::ALL_VARIATIONS_EXCLUDED,
+		WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED,
 		WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE,
 		WarningCode::STOCK_PRODUCT_NOT_EXPORTED,
+		WarningCode::PUSH_OUTCOME_UNCONFIRMED,
 		WarningCode::CURRENCY_MISMATCH,
 		WarningCode::ORDER_REFUNDED,
 		WarningCode::ORDER_LINE_VARIATION_UNRESOLVED,
@@ -81,6 +85,11 @@ final class ReadmeTest extends WP_UnitTestCase {
 			version_compare( $headers['Tested up to'], $headers['Requires at least'], '>=' ),
 			'Tested up to must not be older than Requires at least.'
 		);
+
+		// Contributors は wordpress.org のユーザー名に差し替えるまで仮の値（R3-4）。1.0.0 へ上げる時点で残っていれば止める。
+		if ( version_compare( CBJP_VERSION, '1.0.0', '>=' ) ) {
+			$this->assertStringNotContainsString( 'TODO', $headers['Contributors'] );
+		}
 	}
 
 	/**
@@ -126,23 +135,42 @@ final class ReadmeTest extends WP_UnitTestCase {
 	 * カタログの文言を変えたら、readme の FAQ も同じ PR で直す。
 	 */
 	public function test_export_blocking_faq_uses_the_warning_catalog_text(): void {
-		$answer = $this->faq_answer( self::FAQ_EXPORT_BLOCKING_QUESTION );
-
-		preg_match_all( '/^\* `([a-z_]+)` – /m', $answer, $listed );
-		$this->assertSame( self::FAQ_EXPORT_BLOCKING_CODES, $listed[1] );
+		$expected = [];
 
 		foreach ( self::FAQ_EXPORT_BLOCKING_CODES as $code ) {
 			$description = WarningCatalog::describe( $code, WarningCatalog::EXPORT );
-			$expected    = "* `{$code}` – {$description['message']}";
+			$line        = "* `{$code}` – {$description['message']}";
 
 			if ( '' !== $description['action'] ) {
-				$expected .= " **Fix**: {$description['action']}";
+				$line .= " **Fix**: {$description['action']}";
 			}
 
-			// 「These warnings stop an item from being exported」と書くので、止める警告だけを載せる。
+			// 「warnings that stop an item from being exported」と書くので、止める警告だけを載せる。
 			$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $description['severity'], $code );
-			$this->assertContains( $expected, explode( "\n", $answer ), $code );
+			$expected[] = $line;
 		}
+
+		// 答えの箇条書きはすべてカタログから作った行と一致する（形の違う行・古い文言の行を残さない）。
+		$bullets = array_values( preg_grep( '/^\* /', explode( "\n", $this->faq_answer( self::FAQ_EXPORT_BLOCKING_QUESTION ) ) ) );
+		$this->assertSame( $expected, $bullets );
+	}
+
+	/**
+	 * 無料版の上限（D15）を readme に書いた数字は、`LimitPolicy` の既定値と同じ（Pro 版のフィルターで変わる前の値）。
+	 */
+	public function test_free_version_limits_match_the_limit_policy(): void {
+		$limits = ( new ReflectionClassConstant( LimitPolicy::class, 'DEFAULT_LIMITS' ) )->getValue();
+
+		$this->assertIsArray( $limits );
+
+		foreach ( [ $this->subsection( 'Description', 'Free version limits' ), $this->faq_answer( 'What does the free version migrate?' ) ] as $text ) {
+			$this->assertStringContainsString( "from the latest {$limits['order']} orders", $text );
+			$this->assertStringContainsString( "their products (up to {$limits['product']})", $text );
+			$this->assertStringContainsString( "their customers (up to {$limits['customer']})", $text );
+		}
+
+		$this->assertStringContainsString( "Coupons are limited to {$limits['coupon']}.", $this->subsection( 'Description', 'Free version limits' ) );
+		$this->assertStringContainsString( "up to {$limits['coupon']} coupons", $this->faq_answer( 'What does the free version migrate?' ) );
 	}
 
 	/**
@@ -211,10 +239,12 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * タイトルの段落（タイトルの行とヘッダーの行）だけを読む。短い説明の「…: …」をヘッダーと取り違えない。
+	 *
 	 * @return array<string,string>
 	 */
 	private function readme_headers(): array {
-		preg_match_all( '/^([A-Za-z][A-Za-z ]*):[ \t]*(.*)$/m', $this->preamble(), $matches, PREG_SET_ORDER );
+		preg_match_all( '/^([A-Za-z][A-Za-z ]*):[ \t]*(.*)$/m', $this->preamble_paragraphs()[0] ?? '', $matches, PREG_SET_ORDER );
 		$headers = [];
 
 		foreach ( $matches as $match ) {
@@ -228,9 +258,14 @@ final class ReadmeTest extends WP_UnitTestCase {
 	 * ヘッダーの後の最初の段落。
 	 */
 	private function short_description(): string {
-		$paragraphs = preg_split( '/\n\s*\n/', trim( $this->preamble() ) );
+		return trim( $this->preamble_paragraphs()[1] ?? '' );
+	}
 
-		return trim( (string) ( $paragraphs[1] ?? '' ) );
+	/**
+	 * @return array<int,string> 1 つ目の `== … ==` より前を空行で区切った段落（0: タイトルとヘッダー、1: 短い説明）
+	 */
+	private function preamble_paragraphs(): array {
+		return array_map( 'strval', (array) preg_split( '/\n\s*\n/', trim( $this->preamble() ) ) );
 	}
 
 	private function section( string $name ): string {
