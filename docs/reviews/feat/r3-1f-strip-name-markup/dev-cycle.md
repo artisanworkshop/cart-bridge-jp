@@ -3,9 +3,9 @@
 - タスク: R3-1f — ColorMe の商品名のタグを取込みで除く（backlog `r3-1-rerehearsal/F1`。2026-10-08 ユーザー決定）
 - 開始: 2026-10-08
 - PR: #110 https://github.com/artisanworkshop/cart-bridge-jp/pull/110
-- 現在のステップ: 7（ゲート G3・依頼待ち）
-- Copilot: 依頼 2 回 / 未収束
-- Codex: 依頼 2 回 / 未収束
+- 現在のステップ: 8（完了。final-report.md 記録済み）
+- Copilot: 依頼 3 回（上限）/ G3 の 1 件は保留
+- Codex: 依頼 3 回（上限）/ G3 の 1 件は保留
 
 ## ログ
 
@@ -18,3 +18,5 @@
 | 2026-10-08 19:34 | 4〜6 | PR #110 作成（T=2026-10-08T10:28:38Z）→ CI green → Copilot 依頼 1 回目（timeline で登録を確認）・Codex は PR 作成時の自動レビューを待つ |
 | 2026-10-08 19:49 | 7 | G1（T=2026-10-08T10:28:38Z）: Copilot 2（リハーサルの期待値で xmp などの中身を残す・docs の件数）・Codex 2（`<template>` の中身・`<pre>` の空白）→ ユーザー承認で 3 件を修正（`6558557`）、`<pre>` は対応不要（理由を注記しテストで固定）。品質チェック green（PHPUnit 1752）。`mutate-check.sh` 4 種が CAUGHT |
 | 2026-10-08 20:03 | 7 | G2（T=2026-10-08T10:54:45Z）: Codex 1・Copilot 1（同じ指摘: 別の要素の閉じタグで template が閉じて中身が出る）→ ユーザー承認で修正（`9a71b70`。noscript は生のテキスト、template は自分の閉じタグでだけ閉じる）。品質チェック green（PHPUnit 1757）。`mutate-check.sh` 5 種が CAUGHT |
+| 2026-10-08 20:34 | 7 | G3（T=2026-10-08T11:09:09Z。両 bot とも 3 回目）: Codex 1（noscript の中の属性値の `</noscript>`）・Copilot 本文 1（SVG・MathML の中の CDATA）→ ユーザー確認で 2 件とも保留して backlog へ（見える文字を落とす側・商品名に現れにくい形・最終ラウンド）。コードの変更なし |
+| 2026-10-08 20:34 | 8 | 最終報告を記録（final-report.md）。両 bot とも依頼上限。マージはユーザーが行う |
