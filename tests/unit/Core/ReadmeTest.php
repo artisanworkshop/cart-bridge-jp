@@ -22,9 +22,9 @@ use WP_UnitTestCase;
 final class ReadmeTest extends WP_UnitTestCase {
 
 	/**
-	 * FAQ「エクスポートが止まる警告」に載せる警告コード（`docs/10` R3-3: D22・D23 ほか。止める警告の全種ではなく出会いやすいもの。
-	 * 全種は CSV に出る）。FAQ の箇条書きはこの一覧と過不足なく同じ順で一致し、各行は `WarningCatalog` のエクスポートの説明
-	 * （原因と対処）をそのまま使う。
+	 * FAQ「エクスポートが止まる警告」に載せる警告コード（`docs/10` R3-3: D22・D23 ほか。止める警告の全種ではなく、dry-run の CSV に
+	 * 出て出会いやすいもの。送信時にだけ出る警告〔`product_price_not_convertible` など。dry-run は `push_*()` を呼ばない〕は載せない）。
+	 * FAQ の箇条書きはこの一覧と過不足なく同じ順で一致し、各行は `WarningCatalog` のエクスポートの説明（原因と対処）をそのまま使う。
 	 */
 	private const FAQ_EXPORT_BLOCKING_CODES = [
 		WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED,
@@ -36,7 +36,6 @@ final class ReadmeTest extends WP_UnitTestCase {
 		WarningCode::PRODUCT_PRICE_INVALID,
 		WarningCode::ALL_VARIATIONS_EXCLUDED,
 		WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED,
-		WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE,
 		WarningCode::STOCK_PRODUCT_NOT_EXPORTED,
 		WarningCode::PUSH_OUTCOME_UNCONFIRMED,
 		WarningCode::CURRENCY_MISMATCH,

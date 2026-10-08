@@ -47,7 +47,7 @@ Color Me Shop cannot create categories through its API, so you map WooCommerce c
 
 The dry run covers all of your data. A real import or export moves a sample, so you can check the result in your own store before the full migration:
 
-* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are no orders, or orders are not migrated, the sample is up to 10 items of each kind of data.
+* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added so that the sample has up to 10 of each.
 * Categories and tags are not limited. Stock is limited to the sample products.
 * The limits count every item linked to Color Me Shop, whether it was imported or exported.
 * Tools > Sample data cleanup removes the imported sample from WooCommerce. It deletes nothing in Color Me Shop: exported items stay there, and running the cleanup after an export removes the links to them, so exporting again creates them in Color Me Shop a second time.
@@ -89,7 +89,7 @@ WooCommerce and its associated designs are trademarks of Automattic Inc. Color M
 
 = Can I keep the two stores in sync, or import and export the same items back and forth? =
 
-No. The plugin is built for a one-way migration. Items imported from Color Me Shop are skipped when you export to Color Me Shop (warning `linked_by_import_not_exported`), and items exported to Color Me Shop are not overwritten when you import from it (warning `linked_by_export_not_imported`). This is decided per platform, not per shop. It keeps values from being changed by a round trip in the usual cases, but a round trip is not supported otherwise: for example, if the link to an exported item is removed, importing creates the product, order, or coupon again in WooCommerce, and a customer is matched by email address and updated.
+No. The plugin is built for a one-way migration. Items imported from Color Me Shop are skipped when you export to Color Me Shop (warning `linked_by_import_not_exported`), and items exported to Color Me Shop are not overwritten when you import from it (warning `linked_by_export_not_imported`). This is decided per platform, not per shop. It keeps values from being changed by a round trip in the usual cases, but a round trip is not supported otherwise: for example, if the link to an exported item is removed, importing creates the product or order again in WooCommerce, and a customer is matched by email address and updated.
 
 = What does the free version migrate? =
 
@@ -101,7 +101,7 @@ Exporting orders and uploading product images use parts of the Color Me Shop API
 
 = The export skipped a product, a stock row, or an order with a warning. How do I fix it? =
 
-The dry run's CSV report lists every warning for each item, with its cause and, where possible, a fix. These are the most common warnings that stop an item from being exported:
+The dry run's CSV report lists the warnings it finds for each item, with the cause and, where possible, a fix. These are the most common warnings that stop an item from being exported:
 
 * `variation_stock_management_mixed` – The variations’ stock settings are mixed: some manage stock and others do not, or variations that do not manage stock differ in stock status (in stock and out of stock). A platform that manages stock per product cannot represent this, so the product and its stock are not exported. **Fix**: Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock).
 * `variation_any_attribute_unsupported` – A variation uses “Any” for an attribute, which the platform cannot represent, so the product is not exported. **Fix**: Replace the “Any” variation with one variation for each value of the attribute.
@@ -112,7 +112,6 @@ The dry run's CSV report lists every warning for each item, with its cause and, 
 * `product_price_invalid` – The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store. **Fix**: Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes.
 * `all_variations_excluded` – None of the product’s variations can be exported (they are not enabled or have no valid price, or the product has no variations), so the product is not exported. **Fix**: Enable at least one variation with a valid price. The other warnings for this product show why each variation was left out.
 * `variation_axis_limit_exceeded` – The product uses three or more attributes for variations, but the platform supports at most two, so the product is not exported. **Fix**: Use at most two attributes for variations (combine attributes, or turn off “Used for variations” on the others).
-* `product_price_not_convertible` – The product’s prices cannot be converted to the platform’s prices because the platform’s tax settings cannot be used, so the product is not exported. **Fix**: Check the tax settings on the platform (prices including or excluding tax, the standard and reduced rates, and rounding), then export again.
 * `stock_product_not_exported` – The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock. **Fix**: Include products in the export. If the product or this variation is not exported because of other warnings, fix those first.
 * `push_outcome_unconfirmed` – An earlier export of this item ended without confirming whether it was created on the platform, so it is not sent again until you check. **Fix**: In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”.
 * `currency_mismatch` – The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).
