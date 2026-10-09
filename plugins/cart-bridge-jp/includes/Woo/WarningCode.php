@@ -7,6 +7,9 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Entities\WarningFlag;
+
 /**
  * `WriteResult::$warnings` に積む警告コード定数。`"{code}:{detail}"` 形式の文字列にする
  * （F1-6のdry-run CSV・結果レポートが`:`で分解できる契約）。コード自体はi18nしない安定キーで、
@@ -592,6 +595,25 @@ final class WarningCode {
 	public const LINKED_BY_EXPORT_NOT_IMPORTED = 'linked_by_export_not_imported';
 
 	/**
+	 * `indicates_unresolved_reference()` の無料版のコード（参照先が後から解決しうる警告）。
+	 *
+	 * @var array<int,string>
+	 */
+	private const UNRESOLVED_REFERENCE_CODES = [
+		self::CATEGORY_PARENT_UNRESOLVED,
+		self::CATEGORY_REF_UNRESOLVED,
+		self::TAG_REF_UNRESOLVED,
+		self::CATEGORY_MAP_UNRESOLVED,
+		// `ColorMeAdapter::push_product()`: 商品本体は作成済みだが追加詳細/バリエーション/画像の
+		// サブリクエストが未完了。次回exportで自動的に再試行される（定数のdocblock参照）。
+		self::PRODUCT_DETAILS_PUSH_INCOMPLETE,
+		self::PRODUCT_VARIANT_PUSH_INCOMPLETE,
+		self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
+		// 作成が確定した後に処理が止まった場合の警告（Exporterが部分完了の例外から組み立てる）。
+		self::PUSH_INTERRUPTED_AFTER_CREATE,
+	];
+
+	/**
 	 * `"{code}:{detail}"` 形式の警告文字列を組み立てる。
 	 */
 	public static function with_detail( string $code, string $detail ): string {
@@ -619,6 +641,9 @@ final class WarningCode {
 	 * remote側の既存バリエーションが失われる。Copilot指摘, PR #40 G3）。該当時はpushせず
 	 * フェイルクローズでskipped扱いにする。
 	 *
+	 * 無料版のコードはここの一覧で、登録された実体の種類のコード（顧客・受注・クーポン）は種類が付けた印
+	 * （`Entities\WarningFlag::EXPORT_BLOCKING`。R3-6b1）で判定する。
+	 *
 	 * @param array<int,string> $warnings
 	 */
 	public static function indicates_export_blocking( array $warnings ): bool {
@@ -628,13 +653,6 @@ final class WarningCode {
 			// `CanonicalProduct::$variants`で表現できず、黙って送るとAnyのバリエーションだけ欠けた商品が
 			// 作られる（D23）。プラットフォーム非依存。
 			self::VARIATION_ANY_ATTRIBUTE_UNSUPPORTED,
-			// `Woo\Reader\CouponReader`: ASP側へ運べないWooネイティブのクーポン制限
-			// （商品/カテゴリ/メールアドレス制限・maximum_amount・fixed_product型）が残っている。
-			// `has_unsupported_restrictions=true`のまま`push_coupon()`（E2-3）へ渡すと、制限が
-			// 落ちた無制限クーポンとして保存されうる金銭的リスクがあるため、pushせずフェイル
-			// クローズする（`Canonical\CanonicalCoupon`のdocblockが定める契約、importの
-			// `Woo\Writer\CouponWriter`と同じ判断をexport側でも読出時点から適用する）。
-			self::COUPON_RESTRICTIONS_UNSUPPORTED,
 			// `Woo\Reader\StockReader`: 対象商品/バリエーションがまだASP側へエクスポートされて
 			// おらず、`CanonicalStock::$product_ref`（非nullable string）へ入れる有効な値が無い。
 			// `CanonicalOrder::$line_items[].remote_product_id`/`$customer_ref`（いずれもnullable）
@@ -643,12 +661,6 @@ final class WarningCode {
 			// エクスポートされ次第この行は自動的に再試行される（`indicates_unresolved_reference()`
 			// への追加は不要）。
 			self::STOCK_PRODUCT_NOT_EXPORTED,
-			// `Woo\Reader\OrderReader`: 注文全体の合計（discount/shipping_fee/tax/total）が
-			// 数値として不正（非数値・負値）なため`0`へフェイルクローズ済み。importの
-			// `Woo\Writer\OrderWriter::validate_totals()`が同じ状況で注文全体の書込みを見送る
-			// （`WC_Order`に一切触れる前に注文自体をskipする）のと対称に、exportも壊れた合計を
-			// 実際の明細と一緒に「¥0の注文」としてpushしない。
-			self::ORDER_TOTALS_INVALID,
 			// `Woo\Reader\OrderReader`: 注文の通貨（`WC_Order::get_currency()`）が対応ASPの前提
 			// 通貨（`Support\Money::PLATFORM_CURRENCY`=JPY）と異なる。importのCURRENCY_
 			// MISMATCH（店舗通貨とASP前提通貨が異なる場合の警告のみ、注文自体は保存する）とは
@@ -657,27 +669,6 @@ final class WarningCode {
 			// 実際の金額と大きく乖離した注文が作成されてしまう（例: USD 100の注文がJPY 100として
 			// 送信される）金銭的リスクが質的に異なるため。
 			self::CURRENCY_MISMATCH,
-			// `Woo\Reader\OrderReader`: 受注明細が参照していた商品/バリエーションが削除済みで
-			// `remote_product_id`を恒久的に特定できない。対応ASPの受注作成APIは明細ごとの商品参照を
-			// 必須とするため、参照を持たない行と区別せずpushしない（詳細は定数のdocblock参照）。
-			self::ORDER_LINE_PRODUCT_DELETED,
-			// `Woo\Reader\OrderReader`: 受注明細が一度も商品リンクを持たない（詳細は定数の
-			// docblock参照）。
-			self::ORDER_LINE_PRODUCT_MISSING,
-			// `Woo\Reader\OrderReader`: バリエーション明細の親商品は解決できたが、バリエーション
-			// 自体の識別に失敗した（削除済み、「Any」の軸を持つ〔D23〕、または軸3つ以上でoption1/2だけ
-			// では区別不能。詳細は定数のdocblock参照）。
-			self::ORDER_LINE_VARIATION_UNRESOLVED,
-			// `Woo\Reader\OrderReader`: 受注が一部/全額返金済み。返金額を運ぶフィールドが無い
-			// ため、返金前の金額のまま全額回収済みとしてpushしない（詳細は定数のdocblock参照）。
-			self::ORDER_REFUNDED,
-			// `Woo\Reader\OrderReader`: 明細の`tax_class`が標準/軽減税率以外（非課税・送料のみ
-			// 課税・zero-rate・カスタム税区分）。`CanonicalOrder::$line_items[].tax_reduced`は
-			// bool（標準/軽減税率の2値）しか運べずこの状態自体を伝えられないため、無警告のまま
-			// pushすると`ColorMeAdapter::push_order()`がマップ先商品の現在の税設定（標準/軽減の
-			// いずれか）で課税された受注を恒久的に作成してしまう（例: 実際は非課税だった受注が
-			// 通常課税として記録される。Codexレビュー指摘、金銭的リスク）。
-			self::ORDER_LINE_TAX_CLASS_UNSUPPORTED,
 			// `Woo\Reader\ProductReader`: 課税商品・公開バリエーションの税区分が、JP の税率で標準・軽減のどちらとも判定できない
 			// （R3-1d、issue #78）。正規化モデルは標準・軽減しか運べないため、送ると誤った税区分で販売される。以前は ColorMe の
 			// 作成時だけ非公開にしていたが、更新で課税商品として公開されていた。標準の税区分（`''`）は JP の税率が無ければ標準とみなすので、
@@ -711,21 +702,12 @@ final class WarningCode {
 			// 異なる複数のバリエーションが同じ組に潰れ、誤ったSKU/価格/在庫が別バリエーションへ
 			// 入れ替わってpushされうる（R3レビュー指摘, Copilot）。
 			self::VARIATION_AXIS_LIMIT_EXCEEDED,
-			// `Woo\Reader\OrderReader::line_item_amounts()`: 明細の小計/税額が数値として不正
-			// （非数値・負値）なため`0`へフェイルクローズ済み。`ColorMeAdapter::push_order()`の
-			// `sale.details[].price`は明示指定するとColorMeに実際の金額として恒久的に記録される
-			// ため、`PRODUCT_PRICE_INVALID`と同じ理由（金銭的リスク。CLAUDE.mdアーキテクチャ
-			// 原則9）で無警告のままpushしない（E2-3 PR-Cレビュー指摘）。
-			self::ORDER_LINE_AMOUNT_INVALID,
-			// `Woo\Reader\OrderReader::line_items()`: 明細の数量が欠損・非整数・0以下のため
-			// `max(1, ...)`で捏造した数量にフェイルクローズ済み（import方向の`OrderTransformer::
-			// transform()`は同じ状況を例外で弾く、より厳しい既存方針と対称）。捏造した数量を
-			// ColorMeへ恒久的な受注数量として送らない（E2-3 PR-Cレビュー指摘）。
-			self::ORDER_LINE_QUANTITY_INVALID,
 		];
 
 		foreach ( $warnings as $warning ) {
-			if ( in_array( self::split( $warning )[0], $blocking_codes, true ) ) {
+			$code = self::split( $warning )[0];
+
+			if ( in_array( $code, $blocking_codes, true ) || self::has_flag( $code, WarningFlag::EXPORT_BLOCKING ) ) {
 				return true;
 			}
 		}
@@ -774,37 +756,17 @@ final class WarningCode {
 	 * ケースと、決済/配送方法のマッピングが後から設定されうるケース（R3-0m）。
 	 * `CUSTOMER_ACCOUNT_PROTECTED`（管理者アカウントとの衝突）のように解決される見込みが
 	 * ない終端状態はここに含めない（含めると、解決される可能性が無いのに毎回無駄に再処理される）。
+	 * 無料版のコードは `UNRESOLVED_REFERENCE_CODES`、登録された種類のコード（受注の商品・顧客の参照、決済/配送方法の未マッピング〔R3-0m〕）は
+	 * 種類が付けた印（`Entities\WarningFlag::UNRESOLVED_REFERENCE`）で判定する。
 	 *
 	 * @param array<int,string> $warnings
 	 */
 	public static function indicates_unresolved_reference( array $warnings ): bool {
-		$retry_worthy_codes = [
-			self::CATEGORY_PARENT_UNRESOLVED,
-			self::CATEGORY_REF_UNRESOLVED,
-			self::TAG_REF_UNRESOLVED,
-			self::ORDER_CUSTOMER_UNRESOLVED,
-			self::ORDER_LINE_PRODUCT_UNRESOLVED,
-			self::ORDER_LINE_VARIATION_UNMATCHED,
-			self::CATEGORY_MAP_UNRESOLVED,
-			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
-			self::ORDER_CUSTOMER_NOT_EXPORTED,
-			// `ColorMeAdapter::push_product()`: 商品本体は作成済みだが追加詳細/バリエーション/画像の
-			// サブリクエストが未完了。次回exportで自動的に再試行される（定数のdocblock参照）。
-			self::PRODUCT_DETAILS_PUSH_INCOMPLETE,
-			self::PRODUCT_VARIANT_PUSH_INCOMPLETE,
-			self::PRODUCT_IMAGE_PUSH_INCOMPLETE,
-			// 作成が確定した後に処理が止まった場合の警告（Exporterが部分完了の例外から組み立てる）。
-			self::PUSH_INTERRUPTED_AFTER_CREATE,
-			// R3-0m: 決済/配送方法が未マッピングのまま取り込んだ受注。checksum をキャッシュすると、後から
-			// マッピングを設定しても checksum 一致で飛ばされ、受注は空の決済/配送方法のまま直らない（再 dry-run も
-			// 検証を飛ばして警告だけが消える）。キャッシュせず、次回のインポートで付け直させる。エクスポート方向では
-			// 未マッピングの受注は送信されない（`ColorMeAdapter::order_skip_warnings()`）ため、この判定に届かない。
-			self::PAYMENT_METHOD_UNMAPPED,
-			self::SHIPPING_METHOD_UNMAPPED,
-		];
 
 		foreach ( $warnings as $warning ) {
-			if ( in_array( self::split( $warning )[0], $retry_worthy_codes, true ) ) {
+			$code = self::split( $warning )[0];
+
+			if ( in_array( $code, self::UNRESOLVED_REFERENCE_CODES, true ) || self::has_flag( $code, WarningFlag::UNRESOLVED_REFERENCE ) ) {
 				return true;
 			}
 		}
@@ -828,12 +790,19 @@ final class WarningCode {
 	 * ASP側で削除済みかバリエーションの不一致のどちらかで、どれも先にインポートしても消えなかった。
 	 */
 	public static function indicates_pending_import( string $warning ): bool {
-		return ! self::indicates_mapping_required( $warning )
+		$code = self::split( $warning )[0];
+
+		// 無料版のコードは `UNRESOLVED_REFERENCE_CODES` から導く。登録された種類のコードは、`indicates_unresolved_reference()` の印から
+		// 導かず `PENDING_IMPORT` の印を付けたものだけにする（受注の商品・顧客の参照と `ORDER_LINE_VARIATION_UNMATCHED` は
+		// checksum をキャッシュしないが、先にインポートしても消えない。R3-0n）。
+		$candidate = in_array( $code, self::UNRESOLVED_REFERENCE_CODES, true )
+			|| self::STOCK_PRODUCT_UNRESOLVED === $code
+			|| self::has_flag( $code, WarningFlag::PENDING_IMPORT );
+
+		return $candidate
+			&& ! self::indicates_mapping_required( $warning )
 			&& ! self::indicates_pending_export( $warning )
-			&& ! self::indicates_order_reference_unresolved( $warning )
-			&& self::ORDER_LINE_VARIATION_UNMATCHED !== self::split( $warning )[0]
-			&& ( self::indicates_unresolved_reference( [ $warning ] )
-				|| self::STOCK_PRODUCT_UNRESOLVED === self::split( $warning )[0] );
+			&& ! self::indicates_order_reference_unresolved( $warning );
 	}
 
 	/**
@@ -846,9 +815,10 @@ final class WarningCode {
 	 * 消えないのに`reference_pending_import`（「先にインポートすれば消える」）が付いていた。そのため
 	 * `indicates_pending_import()`から外し、両方の可能性を含む中立の注記にする。checksumキャッシュの判定
 	 * （{@see indicates_unresolved_reference()}）は変えない（未インポートなら後から解決しうるため）。
+	 * どちらのコードも受注の種類が持つので、種類が付けた印（`Entities\WarningFlag::REFERENCE_UNRESOLVED`。R3-6b1）で判定する。
 	 */
 	public static function indicates_order_reference_unresolved( string $warning ): bool {
-		return in_array( self::split( $warning )[0], [ self::ORDER_LINE_PRODUCT_UNRESOLVED, self::ORDER_CUSTOMER_UNRESOLVED ], true );
+		return self::has_flag( self::split( $warning )[0], WarningFlag::REFERENCE_UNRESOLVED );
 	}
 
 	/**
@@ -862,13 +832,10 @@ final class WarningCode {
 	 * 区別されるべき理由は`indicates_pending_import()`の同種コメントと同じ）。
 	 */
 	public static function indicates_pending_export( string $warning ): bool {
-		$codes = [
-			self::ORDER_LINE_PRODUCT_NOT_EXPORTED,
-			self::ORDER_CUSTOMER_NOT_EXPORTED,
-			self::STOCK_PRODUCT_NOT_EXPORTED,
-		];
+		$code = self::split( $warning )[0];
 
-		return in_array( self::split( $warning )[0], $codes, true );
+		// 受注の 2 コードは受注の種類の印（`Entities\WarningFlag::PENDING_EXPORT`。R3-6b1）。
+		return self::STOCK_PRODUCT_NOT_EXPORTED === $code || self::has_flag( $code, WarningFlag::PENDING_EXPORT );
 	}
 
 	/**
@@ -891,13 +858,10 @@ final class WarningCode {
 	 *   `indicates_pending_import()`より先にこちらで決まる。
 	 */
 	public static function indicates_mapping_required( string $warning ): bool {
-		$codes = [
-			self::CATEGORY_MAP_UNRESOLVED,
-			self::PAYMENT_METHOD_UNMAPPED,
-			self::SHIPPING_METHOD_UNMAPPED,
-		];
+		$code = self::split( $warning )[0];
 
-		return in_array( self::split( $warning )[0], $codes, true );
+		// 決済/配送方法の 2 コードは受注の種類の印（`Entities\WarningFlag::MAPPING_REQUIRED`。R3-6b1）。
+		return self::CATEGORY_MAP_UNRESOLVED === $code || self::has_flag( $code, WarningFlag::MAPPING_REQUIRED );
 	}
 
 	/**
@@ -924,5 +888,12 @@ final class WarningCode {
 		}
 
 		return false;
+	}
+
+	/**
+	 * 登録された実体の種類がこのコードに付けた印か（`Entities\EntityTypeRegistry::warning_flags()`。無料版のコードには付かない）。
+	 */
+	private static function has_flag( string $code, string $flag ): bool {
+		return isset( EntityTypeRegistry::warning_flags( $code )[ $flag ] );
 	}
 }

@@ -15,6 +15,7 @@ use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Reader\EntityReader;
@@ -150,5 +151,13 @@ final class OrderType extends EntityType {
 			new ShippingMappingKind(),
 			new OrderStatusMappingKind(),
 		];
+	}
+
+	public function warning_flags(): array {
+		return OrderWarnings::flags();
+	}
+
+	public function describe_warning( string $code, bool $import, string $row_entity ): ?WarningText {
+		return OrderWarnings::describe( $code, $import, $row_entity );
 	}
 }

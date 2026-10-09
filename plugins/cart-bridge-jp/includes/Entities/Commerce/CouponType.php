@@ -14,6 +14,7 @@ use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Woo\Reader\CouponReader;
 use CartBridgeJP\Woo\Reader\EntityReader;
@@ -111,5 +112,13 @@ final class CouponType extends EntityType {
 
 	public function dry_run_label( CanonicalModel $item ): string {
 		return $item instanceof CanonicalCoupon ? $item->code : '';
+	}
+
+	public function warning_flags(): array {
+		return CouponWarnings::flags();
+	}
+
+	public function describe_warning( string $code, bool $import, string $row_entity ): ?WarningText {
+		return CouponWarnings::describe( $code, $import, $row_entity );
 	}
 }

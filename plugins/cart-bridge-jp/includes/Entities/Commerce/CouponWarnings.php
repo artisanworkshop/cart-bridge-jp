@@ -1,0 +1,128 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Entities\Commerce;
+
+use CartBridgeJP\Entities\WarningFlag;
+use CartBridgeJP\Entities\WarningText;
+use CartBridgeJP\Woo\WarningCatalog;
+use CartBridgeJP\Woo\WarningCode;
+
+// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- 向き・行の種類を使わない説明もある（`describe()` のシグネチャは共通）。
+
+/**
+ * クーポンの警告コードの判定の印と店舗向けの説明（`CouponType`。R3-6b1 で `Woo\WarningCode`・`Woo\WarningCatalog` から移した）。
+ * **R3-6c で Pro アドオンへ移す**（`Entities/Commerce/` ごと）。文言を変えたら dry-run の CSV の説明も変わる（`WarningCatalogTest`）。
+ */
+final class CouponWarnings {
+
+	private function __construct() {}
+
+	/**
+	 * コード => 判定の印（`EntityType::warning_flags()`）。印の無いコードも、説明があるので載せる。
+	 *
+	 * @return array<string,array<int,string>>
+	 */
+	public static function flags(): array {
+		return [
+			WarningCode::COUPON_REUSED_EXISTING          => [],
+			// `Woo\Reader\CouponReader`: ASP側へ運べないWooネイティブのクーポン制限
+			// （商品/カテゴリ/メールアドレス制限・maximum_amount・fixed_product型）が残っている。
+			// `has_unsupported_restrictions=true`のまま`push_coupon()`（E2-3）へ渡すと、制限が
+			// 落ちた無制限クーポンとして保存されうる金銭的リスクがあるため、pushせずフェイル
+			// クローズする（`Canonical\CanonicalCoupon`のdocblockが定める契約、importの
+			// `Woo\Writer\CouponWriter`と同じ判断をexport側でも読出時点から適用する）。
+			WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED => [ WarningFlag::EXPORT_BLOCKING ],
+			WarningCode::COUPON_RESTRICTIONS_UNKNOWN     => [],
+			WarningCode::COUPON_CODE_CONFLICT            => [],
+			WarningCode::COUPON_TYPE_UNKNOWN             => [],
+			WarningCode::COUPON_AMOUNT_INVALID           => [],
+			WarningCode::COUPON_EXPIRES_AT_INVALID       => [],
+			WarningCode::COUPON_MIN_AMOUNT_INVALID       => [],
+			WarningCode::COUPON_SAVE_FAILED              => [],
+		];
+	}
+
+	/**
+	 * 文言の書き方は `Woo\WarningCatalog::entry()` と同じ（detail を差し込む文言は `%` を `%%` と書く）。
+	 */
+	public static function describe( string $code, bool $import, string $row_entity ): ?WarningText {
+		$blocking = WarningCatalog::SEVERITY_BLOCKING;
+		$info     = WarningCatalog::SEVERITY_INFO;
+
+		return match ( $code ) {
+			WarningCode::COUPON_REUSED_EXISTING => self::make(
+				$info,
+				__( 'A coupon with the same code that was imported from this platform before already exists, so it is linked and updated.', 'cart-bridge-jp' ),
+				'',
+				/* translators: %s: the WooCommerce ID of a coupon. */
+				__( 'A coupon with the same code that was imported from this platform before already exists (coupon ID %s), so it is linked and updated.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED => $import
+				? self::make(
+					$blocking,
+					__( 'The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported or updated (without them, it could be used more widely). A coupon that was imported before is not changed or disabled, so it stays usable without these restrictions.', 'cart-bridge-jp' ),
+					__( 'Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand with equivalent restrictions. If it was imported before, add the restrictions to it or disable it.', 'cart-bridge-jp' )
+				)
+				: self::make(
+					$blocking,
+					__( 'The coupon has settings the platform cannot represent (such as product, category or email restrictions, a maximum spend, “Individual use only”, or a fixed product discount), or it has already been used, so it is not exported.', 'cart-bridge-jp' ),
+					__( 'Remove those settings, or create the coupon on the platform by hand. For a coupon that has been used, create a new coupon.', 'cart-bridge-jp' )
+				),
+			WarningCode::COUPON_RESTRICTIONS_UNKNOWN => self::make(
+				$blocking,
+				__( 'The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported or updated (to avoid creating it without them). A coupon that was imported before is not changed or disabled, so it stays usable as it was.', 'cart-bridge-jp' ),
+				__( 'Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand. If it was imported before, check its restrictions, or disable it.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_CODE_CONFLICT => self::make(
+				$blocking,
+				__( 'Another WooCommerce coupon already uses the same code, so this coupon is not imported or updated.', 'cart-bridge-jp' ),
+				__( 'Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the WooCommerce ID of a coupon. */
+				__( 'Another WooCommerce coupon (coupon ID %s) already uses the same code, so this coupon is not imported or updated.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_TYPE_UNKNOWN => self::make(
+				$blocking,
+				__( 'The coupon’s discount type is not supported (only a fixed amount or a percentage), so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the discount type received from the platform. */
+				__( 'The coupon’s discount type “%s” is not supported (only a fixed amount or a percentage), so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_AMOUNT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s discount is not valid (not a number, negative, or a percentage over 100), so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Correct the discount on the platform, or create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the discount value received from the platform. */
+				__( 'The coupon’s discount (%s) is not valid (not a number, negative, or a percentage over 100), so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_EXPIRES_AT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s expiry date cannot be read, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Create the coupon in WooCommerce by hand.', 'cart-bridge-jp' ),
+				/* translators: %s: the expiry date received from the platform. */
+				__( 'The coupon’s expiry date (%s) cannot be read, so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_MIN_AMOUNT_INVALID => self::make(
+				$blocking,
+				__( 'The coupon’s minimum spend is not a number or is negative, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Correct the minimum spend on the platform, then import again.', 'cart-bridge-jp' ),
+				/* translators: %s: the minimum spend received from the platform. */
+				__( 'The coupon’s minimum spend (%s) is not a number or is negative, so it is not imported.', 'cart-bridge-jp' )
+			),
+			WarningCode::COUPON_SAVE_FAILED => self::make(
+				$blocking,
+				__( 'WooCommerce could not save the coupon, so it is not imported.', 'cart-bridge-jp' ),
+				__( 'Check the PHP error log for the cause, then import again.', 'cart-bridge-jp' )
+			),
+			default => null,
+		};
+	}
+
+	private static function make( string $severity, string $message, string $action = '', string $detail_message = '' ): WarningText {
+		return new WarningText( $severity, $message, $action, $detail_message );
+	}
+}

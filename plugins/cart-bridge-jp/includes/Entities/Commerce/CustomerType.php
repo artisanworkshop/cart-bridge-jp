@@ -14,6 +14,7 @@ use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Woo\Reader\CustomerReader;
 use CartBridgeJP\Woo\Reader\EntityReader;
@@ -113,5 +114,13 @@ final class CustomerType extends EntityType {
 
 	public function existing_local_ids( array $local_ids ): array {
 		return ( new LocalEntityLookup() )->existing_users( $local_ids );
+	}
+
+	public function warning_flags(): array {
+		return CustomerWarnings::flags();
+	}
+
+	public function describe_warning( string $code, bool $import, string $row_entity ): ?WarningText {
+		return CustomerWarnings::describe( $code, $import, $row_entity );
 	}
 }
