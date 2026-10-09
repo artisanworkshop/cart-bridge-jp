@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-08T21:34:40+00:00\n"
+"POT-Creation-Date: 2026-10-09T14:03:03+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -37,221 +37,195 @@ msgstr ""
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:118
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:105
 msgid "Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:169
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:156
 msgid "Client ID"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:172
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:159
 msgid "From your Color Me Shop developer app registration."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:176
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:163
 msgid "Client Secret"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:183
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:170
 msgid "Connect to Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:196
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:183
 msgid "Not connected yet."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:209
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:196
 msgid "The platform returned an unexpected response. Please try again."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:240
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:227
 msgid "The connection changed while testing. Please try again."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:326
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:313
 msgid "Unpaid"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:330
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:317
 msgid "Paid (not shipped)"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:334
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:321
 msgid "Shipped"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:338
-#: build/index.js:18
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:325
+#: build/index.js:14
 msgid "Cancelled"
 msgstr ""
 
 #: includes/Admin/Menu.php:20
 #: includes/Admin/Menu.php:21
-#: build/index.js:41
+#: build/index.js:27
 msgid "Cart Bridge JP"
 msgstr ""
 
-#: includes/Admin/RestController.php:515
+#: includes/Admin/RestController.php:442
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:564
+#: includes/Admin/RestController.php:491
 msgid "No recognized connection fields were provided."
 msgstr ""
 
-#: includes/Admin/RestController.php:574
+#: includes/Admin/RestController.php:501
 msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:639
+#: includes/Admin/RestController.php:566
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:657
+#: includes/Admin/RestController.php:584
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:714
+#: includes/Admin/RestController.php:641
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:722
+#: includes/Admin/RestController.php:649
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:991
+#: includes/Admin/RestController.php:918
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1033
+#: includes/Admin/RestController.php:960
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1034
+#: includes/Admin/RestController.php:961
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1058
+#: includes/Admin/RestController.php:985
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1070
+#: includes/Admin/RestController.php:997
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1100
+#: includes/Admin/RestController.php:1027
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1163
+#: includes/Admin/RestController.php:1090
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1175
+#: includes/Admin/RestController.php:1102
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1212
-#: includes/Admin/RestController.php:1253
-#: includes/Admin/RestController.php:1323
-#: includes/Admin/RestController.php:1455
+#: includes/Admin/RestController.php:1139
+#: includes/Admin/RestController.php:1180
+#: includes/Admin/RestController.php:1250
+#: includes/Admin/RestController.php:1342
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1337
+#: includes/Admin/RestController.php:1264
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1349
+#: includes/Admin/RestController.php:1276
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1461
+#: includes/Admin/RestController.php:1348
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1515
-#: build/index.js:33
-msgid "Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup."
-msgstr ""
-
-#: includes/Admin/RestController.php:1544
+#: includes/Admin/RestController.php:1375
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1596
-msgid "The repair cursor is invalid."
-msgstr ""
-
-#: includes/Admin/RestController.php:1629
-msgid "This platform cannot look up single records, so prefecture repair is not available for it."
-msgstr ""
-
-#: includes/Admin/RestController.php:1638
-msgid "The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped."
-msgstr ""
-
-#: includes/Admin/RestController.php:1643
-#: includes/Admin/RestController.php:1808
-msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
-msgstr ""
-
-#: includes/Admin/RestController.php:1648
-msgid "The platform API returned an error. Try again in a moment; it resumes where it stopped."
-msgstr ""
-
-#: includes/Admin/RestController.php:1676
-msgid "This platform does not need prefecture repair."
-msgstr ""
-
-#: includes/Admin/RestController.php:1741
+#: includes/Admin/RestController.php:1443
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1786
+#: includes/Admin/RestController.php:1488
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1791
+#: includes/Admin/RestController.php:1493
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1796
+#: includes/Admin/RestController.php:1498
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1801
+#: includes/Admin/RestController.php:1503
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1814
+#: includes/Admin/RestController.php:1509
+msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
+msgstr ""
+
+#: includes/Admin/RestController.php:1515
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1819
+#: includes/Admin/RestController.php:1520
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1829
+#: includes/Admin/RestController.php:1530
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1907
+#: includes/Admin/RestController.php:1608
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1908
+#: includes/Admin/RestController.php:1609
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1920
+#: includes/Admin/RestController.php:1621
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -261,7 +235,7 @@ msgid "Cart Bridge JP requires the PHP sodium extension to store API credentials
 msgstr ""
 
 #. translators: the name WooCommerce shows for its standard tax class.
-#: includes/Woo/Reader/ProductReader.php:197
+#: includes/Woo/Reader/ProductReader.php:194
 msgid "Standard"
 msgstr ""
 
@@ -1506,7 +1480,7 @@ msgid "Connection OK."
 msgstr ""
 
 #: build/index.js:5
-#: build/index.js:32
+#: build/index.js:24
 msgid "No platforms are available."
 msgstr ""
 
@@ -1575,7 +1549,7 @@ msgid "Open the Export tab to see its progress"
 msgstr ""
 
 #: build/index.js:11
-#: build/index.js:21
+#: build/index.js:17
 msgid "Cancel run"
 msgstr ""
 
@@ -1689,698 +1663,527 @@ msgstr ""
 msgid "Save mappings"
 msgstr ""
 
-#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet
-#: build/index.js:13
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet."
-msgstr ""
-
-#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price)
-#: build/index.js:14
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reason."
-msgid_plural "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reasons."
-msgstr[0] ""
-msgstr[1] ""
-
-#. translators: 1: entity label (stock or reviews), 2: item count found by the preview (dry run), 3: count already migrated
-#: build/index.js:15
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated. The free version migrates these only for the sample products."
-msgstr ""
-
-#. translators: 1: entity label, 2: free version limit
-#: build/index.js:16
-#, js-format
-msgid "%1$s: reached the free version limit (%2$d). Run a dry-run preview to see the exact remaining count."
-msgstr ""
-
-#: build/index.js:16
-msgid "The free version of Cart Bridge JP migrates a sample of your data. The Pro version also migrates the items not migrated yet."
-msgstr ""
-
-#: build/index.js:16
-msgid "Learn about the Pro version"
-msgstr ""
-
-#: build/index.js:16
-msgid "The free version of Cart Bridge JP migrates a sample of your data."
-msgstr ""
-
-#: build/index.js:16
+#: build/index.js:12
 msgid "Some payment or shipping methods on the platform are not mapped to WooCommerce yet."
 msgstr ""
 
 #. translators: 1: number of unmapped payment methods, 2: number of payment methods on the platform
-#: build/index.js:17
+#: build/index.js:13
 #, js-format
 msgid "Payment methods not mapped: %1$d of %2$d"
 msgstr ""
 
 #. translators: 1: number of unmapped shipping methods, 2: number of shipping methods on the platform
-#: build/index.js:18
+#: build/index.js:14
 #, js-format
 msgid "Shipping methods not mapped: %1$d of %2$d"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report. Set up the mappings before importing. Orders imported while a method was unmapped are updated the next time they are imported."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Set up the mappings on the Mappings tab"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Pending"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Running"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Paused (rate limit)"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Completed"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Failed"
 msgstr ""
 
 #. translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count
-#: build/index.js:19
+#: build/index.js:15
 #, js-format
 msgid "Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d"
 msgstr ""
 
 #. translators: 1: processed count, 2: total count
-#: build/index.js:20
+#: build/index.js:16
 #, js-format
 msgid "%1$d of %2$d processed"
 msgstr ""
 
 #. translators: %d: processed count so far
-#: build/index.js:21
+#: build/index.js:17
 #, js-format
 msgid "%d processed so far…"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Waiting for the rate limit to recover. This will resume automatically."
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Retry"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Download this entity’s report (CSV)"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Only include warnings in the CSV report"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Download full report (CSV)"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Reconciled"
 msgstr ""
 
-#: build/index.js:21
-#: build/index.js:22
+#: build/index.js:17
+#: build/index.js:18
 msgid "Missing links"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Fewer in WooCommerce"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "More in WooCommerce"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Totals differ"
 msgstr ""
 
-#: build/index.js:21
-msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them, or run the sample cleanup to drop the stale links."
+#: build/index.js:17
+msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them."
 msgstr ""
 
-#: build/index.js:21
-msgid "Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
+#: build/index.js:17
+msgid "Some records fetched from the platform are not in WooCommerce. Check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
 msgstr ""
 
 #. translators: 1: platform currency code, 2: store currency code
-#: build/index.js:22
+#: build/index.js:18
 #, js-format
 msgid "Platform totals are in %1$s but the store currency is %2$s. Order amounts were stored without conversion, so the totals cannot be reconciled."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "WooCommerce holds more linked records than this run fetched. They were imported by earlier runs (for example records that have since been removed on the platform)."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "The order totals differ between the platform and WooCommerce even though the counts match. Check the orders with warnings."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Every record fetched in this run exists in WooCommerce and the order totals match."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Every record fetched in this run exists in WooCommerce."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Verification report"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Entity"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Fetched from platform"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Written in this run"
 msgstr ""
 
-#: build/index.js:22
-#: build/index.js:41
+#: build/index.js:18
 msgid "Skipped"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "In WooCommerce"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Platform total"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "WooCommerce total"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Status"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Categories"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Tags"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Products"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Customers"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Orders"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Stock"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Coupons"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Reviews"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "(deleted from WooCommerce since this was recorded)"
 msgstr ""
 
 #. translators: 1: product name, 2: SKU
-#: build/index.js:23
+#: build/index.js:19
 #, js-format
 msgid "%1$s (SKU: %2$s)"
 msgstr ""
 
 #. translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time
-#: build/index.js:24
+#: build/index.js:20
 #, js-format
 msgid "#%1$s — %2$s %3$s (%4$s)"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "date unknown"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Some items could not be confirmed as created or rejected on the connected platform. They will not be re-sent automatically. Check the platform’s own admin screen to see whether each item actually exists there before resolving it below."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "A run is in progress for this platform. Wait for it to finish before resolving these items."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Type"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Details"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Sent at"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Resolve"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Edit in WooCommerce"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Mark as not created"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Platform ID"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Link and resolve"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Creates orders (sales) in the connected shop."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images."
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "All levels"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Debug"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Info"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Warning"
 msgstr ""
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Error"
 msgstr ""
 
-#. translators: %d: number of records that could not be confirmed or checked
-#: build/index.js:25
-#, js-format
-msgid "%d record could not be confirmed or checked and will be left as it is. See the numbers below."
-msgid_plural "%d records could not be confirmed or checked and will be left as they are. See the numbers below."
-msgstr[0] ""
-msgstr[1] ""
-
-#: build/index.js:25
-msgid "No records need repair."
-msgstr ""
-
-#. translators: %d: number of records that need repair
-#: build/index.js:26
-#, js-format
-msgid "%d record needs repair. Review the numbers below, then click “Repair”."
-msgid_plural "%d records need repair. Review the numbers below, then click “Repair”."
-msgstr[0] ""
-msgstr[1] ""
-
-#. translators: %d: number of records corrected
-#: build/index.js:27
-#, js-format
-msgid "Repair finished. %d record was corrected."
-msgid_plural "Repair finished. %d records were corrected."
-msgstr[0] ""
-msgstr[1] ""
-
-#. translators: %d: number of records that could not be confirmed or checked
-#: build/index.js:28
-#, js-format
-msgid "%d record could not be confirmed or checked and was left unchanged."
-msgid_plural "%d records could not be confirmed or checked and were left unchanged."
-msgstr[0] ""
-msgstr[1] ""
-
-#: build/index.js:28
-msgid "Run “Scan” again to confirm that nothing is left."
-msgstr ""
-
-#: build/index.js:28
+#: build/index.js:20
 msgid "Variations"
 msgstr ""
 
-#: build/index.js:28
-msgid "Images"
-msgstr ""
-
 #. translators: 1: a kind of record, e.g. "Products", 2: how many of them
-#: build/index.js:29
+#: build/index.js:21
 #, js-format
 msgid "%1$s: %2$d"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connections"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Mappings"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Reconnect the platform on the Connections tab before setting up mappings."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before setting up mappings."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set up the mappings before importing orders. Orders imported while a method was unmapped are updated the next time they are imported."
 msgstr ""
 
-#: build/index.js:29
-#: build/index.js:32
+#: build/index.js:21
+#: build/index.js:24
 msgid "Platform"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import"
 msgstr ""
 
-#: build/index.js:29
-msgid "This will write real WooCommerce data (products, orders, customers, etc.) to this site, up to the current plan’s limits. Continue?"
+#: build/index.js:21
+msgid "This will write real WooCommerce data (products, orders, customers, etc.) to this site. Continue?"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before importing."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import setup"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Entities to migrate"
 msgstr ""
 
-#: build/index.js:29
-msgid "Preview (dry run, no limit)"
+#: build/index.js:21
+msgid "Preview (dry run)"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Run import"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Preview results"
 msgstr ""
 
-#: build/index.js:29
-#: build/index.js:30
+#: build/index.js:21
+#: build/index.js:22
 msgid "Clear"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import results"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Export"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before exporting."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Category, payment method, shipping method, and order status mappings are set on the Mappings tab. Map your WooCommerce categories before exporting products, and payment and shipping methods before exporting orders."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Payment method, shipping method, and order status mappings are set on the Mappings tab. Map payment and shipping methods before exporting orders."
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Open the Mappings tab"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Export setup"
 msgstr ""
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Entities to export"
 msgstr ""
 
 #. translators: %s: entity name, e.g. "Orders"
-#: build/index.js:30
+#: build/index.js:22
 #, js-format
 msgid "%s (Beta)"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Options"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Upload product images (Beta)"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Upload product images"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Running an export is disabled until this setting loads. Reload the page to try again."
 msgstr ""
 
-#: build/index.js:30
-msgid "Running an export writes data to the connected shop right away, up to the current plan’s limits. We recommend running this against a test shop first, not your live shop."
+#: build/index.js:22
+msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Preview export (dry run, no writes)"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Run export"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Preview export results"
 msgstr ""
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Export results"
 msgstr ""
 
 #. translators: %s: list of entity labels, e.g. "Products, Customers"
-#: build/index.js:31
+#: build/index.js:23
 #, js-format
 msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
 msgstr ""
 
 #. translators: 1: the items of a list so far, 2: the next item. Example: "Products, Customers".
-#: build/index.js:32
+#: build/index.js:24
 #, js-format
 msgctxt "list of items"
 msgid "%1$s, %2$s"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Logs"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Job ID"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Level"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "No logs found."
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Time"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Job"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Message"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Context"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Previous"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Next"
 msgstr ""
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Tools"
 msgstr ""
 
-#: build/index.js:32
-msgid "The scan paused after the maximum number of batches. Click “Continue scan” to carry on from where it stopped."
-msgstr ""
-
-#: build/index.js:32
-msgid "The repair paused after the maximum number of batches. Click “Continue repair” to carry on from where it stopped."
-msgstr ""
-
-#: build/index.js:32
-msgid "Sample data cleanup"
-msgstr ""
-
-#. translators: %s: platform label
-#: build/index.js:33
-#, js-format
-msgid "Deletes the WooCommerce data that was imported from %s (products, orders, customers, coupons, categories, tags and images) together with the links between the two stores. Use it to reset the free-version sample before a full migration; the next import selects a fresh sample."
-msgstr ""
-
-#: build/index.js:33
-msgid "Customer accounts that already existed before the import are kept and only unlinked."
-msgstr ""
-
-#: build/index.js:33
-msgid "Preview cleanup"
-msgstr ""
-
-#: build/index.js:33
-msgid "A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up."
-msgstr ""
-
-#: build/index.js:33
-msgid "Nothing is linked any more, but a sample selection is still stored. Clear it so the next import selects a fresh sample."
-msgstr ""
-
-#: build/index.js:33
-msgid "Nothing to delete for this platform."
-msgstr ""
-
-#: build/index.js:33
-msgid "The following records will be deleted:"
-msgstr ""
-
-#: build/index.js:33
-msgid "The following records will only be unlinked (kept):"
-msgstr ""
-
-#: build/index.js:33
-msgid "Unlinked records are customer accounts that existed before the import, records owned by another platform, or links whose target no longer exists."
-msgstr ""
-
-#. translators: %s: platform label
-#: build/index.js:34
-#, js-format
-msgid "Delete every product, order, customer, coupon, category, tag and image imported from %s? This cannot be undone."
-msgstr ""
-
-#: build/index.js:34
-msgid "The cleanup did not finish within the expected number of batches. Run it again to continue."
-msgstr ""
-
-#: build/index.js:34
-msgid "Delete sample data"
-msgstr ""
-
-#: build/index.js:34
-msgid "Clear sample selection"
-msgstr ""
-
-#. translators: %d: number of records removed so far
-#: build/index.js:35
-#, js-format
-msgid "Deleting… %d record removed so far."
-msgid_plural "Deleting… %d records removed so far."
-msgstr[0] ""
-msgstr[1] ""
-
-#: build/index.js:35
-msgid "Cleanup finished. The next import will select a new sample."
-msgstr ""
-
-#: build/index.js:35
-msgid "Deleted"
-msgstr ""
-
-#: build/index.js:35
-msgid "Unlinked only (kept)"
-msgstr ""
-
-#: build/index.js:35
-#: build/index.js:36
+#: build/index.js:24
+#: build/index.js:25
 msgid "Rebuild links"
 msgstr ""
 
 #. translators: %s: platform label
-#: build/index.js:36
+#: build/index.js:25
 #, js-format
 msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
 msgstr ""
 
-#: build/index.js:36
+#: build/index.js:25
 msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
 msgstr ""
 
 #. translators: %d: number of links restored so far
-#: build/index.js:37
+#: build/index.js:26
 #, js-format
 msgid "Scanning… %d link restored so far."
 msgid_plural "Scanning… %d links restored so far."
@@ -2388,91 +2191,9 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of links restored
-#: build/index.js:38
+#: build/index.js:27
 #, js-format
 msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] ""
 msgstr[1] ""
-
-#: build/index.js:38
-msgid "Repair prefecture data"
-msgstr ""
-
-#. translators: %1$s: platform label
-#: build/index.js:39
-#, js-format
-msgid "Earlier versions of this plugin saved the wrong prefecture for some customers and orders imported from %1$s (23 prefectures were affected; for example Akita was saved as Miyagi). This tool compares the imported records with %1$s and corrects only the prefecture of records that were saved with that mistake."
-msgstr ""
-
-#: build/index.js:39
-msgid "Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records that this plugin imported are touched, including existing accounts it matched by email and updated. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool. Run this before “Sample data cleanup”: the cleanup removes the links this tool relies on, so accounts it unlinks can no longer be found."
-msgstr ""
-
-#: build/index.js:39
-msgid "Continue scan"
-msgstr ""
-
-#: build/index.js:39
-msgid "Scan"
-msgstr ""
-
-#: build/index.js:39
-msgid "Continue repair"
-msgstr ""
-
-#: build/index.js:39
-msgid "Repair"
-msgstr ""
-
-#: build/index.js:39
-msgid "Start over"
-msgstr ""
-
-#. translators: %d: number of records checked so far
-#: build/index.js:40
-#, js-format
-msgid "Scanning… %d record checked so far."
-msgid_plural "Scanning… %d records checked so far."
-msgstr[0] ""
-msgstr[1] ""
-
-#. translators: %d: number of records checked so far
-#: build/index.js:41
-#, js-format
-msgid "Repairing… %d record checked so far."
-msgid_plural "Repairing… %d records checked so far."
-msgstr[0] ""
-msgstr[1] ""
-
-#: build/index.js:41
-msgid "Needs repair"
-msgstr ""
-
-#: build/index.js:41
-msgid "Repaired"
-msgstr ""
-
-#: build/index.js:41
-msgid "Already correct"
-msgstr ""
-
-#: build/index.js:41
-msgid "Could not be confirmed"
-msgstr ""
-
-#: build/index.js:41
-msgid "Not found on the platform"
-msgstr ""
-
-#: build/index.js:41
-msgid "“Could not be confirmed” records were left unchanged: their prefecture, postal code or address no longer matches the platform, for example because it was edited by hand or changed on the platform."
-msgstr ""
-
-#: build/index.js:41
-msgid "“Not found on the platform” records could not be checked because the platform returned no usable record for them (for example they were deleted there)."
-msgstr ""
-
-#: build/index.js:41
-msgid "“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair."
-msgstr ""

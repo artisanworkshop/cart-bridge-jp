@@ -9,7 +9,6 @@ namespace CartBridgeJP\Tests\Core;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use ReflectionClassConstant;
@@ -155,21 +154,14 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 無料版の上限（D15）を readme に書いた数字は、`LimitPolicy` の既定値と同じ（Pro 版のフィルターで変わる前の値）。
+	 * D27（R3-6a）: 無料版に件数の上限は無い。readme に上限の節・数字の上限を書かない（ガイドライン 5。
+	 * 上限の節が残っていると、審査で「使用量の上限に達した後に機能を止める」と読まれる）。
 	 */
-	public function test_free_version_limits_match_the_limit_policy(): void {
-		$limits = ( new ReflectionClassConstant( LimitPolicy::class, 'DEFAULT_LIMITS' ) )->getValue();
+	public function test_readme_describes_no_count_limits(): void {
+		$description = $this->section( 'Description' );
 
-		$this->assertIsArray( $limits );
-
-		foreach ( [ $this->subsection( 'Description', 'Free version limits' ), $this->faq_answer( 'What does the free version migrate?' ) ] as $text ) {
-			$this->assertStringContainsString( "from the latest {$limits['order']} orders", $text );
-			$this->assertStringContainsString( "their products (up to {$limits['product']})", $text );
-			$this->assertStringContainsString( "their customers (up to {$limits['customer']})", $text );
-		}
-
-		$this->assertStringContainsString( "Coupons are limited to {$limits['coupon']}.", $this->subsection( 'Description', 'Free version limits' ) );
-		$this->assertStringContainsString( "up to {$limits['coupon']} coupons", $this->faq_answer( 'What does the free version migrate?' ) );
+		$this->assertArrayNotHasKey( 'Free version limits', $this->split_by_headings( $description, '/^= (.+) =$/m' ) );
+		$this->assertDoesNotMatchRegularExpression( '/\(up to \d+\)|limited to \d+/i', self::readme() );
 	}
 
 	/**

@@ -35,22 +35,13 @@ Color Me Shop cannot create categories through its API, so you map WooCommerce c
 
 = Before and after the migration =
 
-* **Dry run**: preview every item, in both directions, without writing anything. The dry run has no limit.
+* **Dry run**: preview every item, in both directions, without writing anything.
 * **CSV report**: download the dry run's results, with a plain-language cause for each warning and, where possible, a fix.
 * **Mappings**: map payment methods, shipping methods, order statuses, and (for export) categories.
 * **Verification report**: after an import, compare item counts and order totals between the two stores.
-* **Tools**: clean up the imported sample data, rebuild the links to the data that this plugin imported (for example after moving the database), and repair prefecture data saved by earlier versions.
+* **Tools**: rebuild the links to the data that this plugin imported (for example after moving the database).
 * Works with WooCommerce's High-Performance Order Storage (HPOS). Orders are written only through WooCommerce's own APIs.
 * Long migrations run in the background with Action Scheduler, wait automatically when the API's rate limit is reached, and can be retried or cancelled.
-
-= Free version limits =
-
-The dry run covers all of your data. A real import or export moves a sample, so you can check the result in your own store before the full migration:
-
-* The sample starts from the latest 10 orders: those orders, their products (up to 50), and their customers (up to 10). Coupons are limited to 10. If there are fewer than 10 orders, other products and customers are added until the sample has 10 of each (the products from the orders are kept, up to 50). An export also adds them when the orders bring no products or no customers (for example, orders placed by guests).
-* Categories and tags are not limited. Stock is limited to the sample products.
-* The limits count every item linked to Color Me Shop, whether it was imported or exported, and every export whose result is still unconfirmed.
-* Tools > Sample data cleanup removes the imported sample from WooCommerce. It deletes nothing in Color Me Shop: exported items stay there, and running the cleanup after an export removes the links to them, so exporting again creates them in Color Me Shop a second time.
 
 = Requirements =
 
@@ -90,10 +81,6 @@ WooCommerce and its associated designs are trademarks of Automattic Inc. Color M
 = Can I keep the two stores in sync, or import and export the same items back and forth? =
 
 No. The plugin is built for a one-way migration. Items imported from Color Me Shop are skipped when you export to Color Me Shop (warning `linked_by_import_not_exported`), and items exported to Color Me Shop are not overwritten when you import from it (warning `linked_by_export_not_imported`). This is decided per platform, not per shop. It keeps values from being changed by a round trip in the usual cases, but a round trip is not supported otherwise: for example, if the link to an exported item is removed, importing creates the product or order again in WooCommerce, and a customer is matched by email address and updated.
-
-= What does the free version migrate? =
-
-The dry run covers everything. A real import or export moves a sample that starts from the latest 10 orders: those orders, their products (up to 50), their customers (up to 10), and up to 10 coupons. Categories and tags are not limited. Use the sample to check the result in your store before the full migration. Tools > Sample data cleanup removes an imported sample from WooCommerce; it does not delete anything in Color Me Shop, so delete exported sample items in Color Me Shop's admin if you do not need them. Do not run the cleanup between exports: it removes the links to the exported items, and the next export creates them in Color Me Shop again.
 
 = What are the Beta features? =
 
@@ -140,7 +127,7 @@ The products, customers, and orders that were migrated stay in WooCommerce. By d
 2. Import: the dry run's results, with counts and a CSV report for each kind of data.
 3. Mappings: map payment methods, shipping methods, order statuses, and categories.
 4. Export: choose what to export. Order export and image upload are Beta and off by default.
-5. Tools: clean up the sample data, rebuild links, and repair prefecture data.
+5. Tools: rebuild the links to the data that this plugin imported.
 
 == Changelog ==
 
