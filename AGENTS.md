@@ -14,7 +14,7 @@ is split by topic into [`.claude/rules/`](./.claude/rules/). They carry the same
 weight as `CLAUDE.md`. **Claude Code loads them automatically when it reads a matching
 file; other tools do not, so open the ones that match the files you change or review:**
 
-| Rule file | Applies to |
+| Rule file | Applies to (paths under `plugins/*/`, e.g. `plugins/cart-bridge-jp/includes/...`) |
 |---|---|
 | [`adapters-colorme.md`](./.claude/rules/adapters-colorme.md) | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
 | [`woocommerce-api.md`](./.claude/rules/woocommerce-api.md) | `includes/Woo/**` |

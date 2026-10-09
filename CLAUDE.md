@@ -2,7 +2,7 @@
 
 日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。無料版は挙動確認用サンプル移行、Pro版（別プラグイン）で無制限化する（`docs/03-design-decisions.md` D14）。**D27（2026-10-09）で改訂**: wordpress.org のガイドライン 5（トライアルウェアの禁止）のため、無料版は商品関連を件数無制限で移し、顧客・受注・クーポンは Pro アドオンへ移す（ライセンスが無い間は Pro 側の試用で各 100 件まで）。切り替えは R3-6（R3-4 の前）で、それまでのコードは D15 のサンプル上限のまま（`docs/03` §10.0）。アダプタの顧客・受注・クーポンの処理も Pro へ移し、Pro は v1.0 と同時に公開する（2026-10-09 決定）。
 
-**D29（2026-10-09）: 無料版と Pro アドオンをこのリポジトリで一緒に開発する（モノレポ）**。配置は `plugins/cart-bridge-jp/`（無料版）と `plugins/cart-bridge-jp-pro/`（Pro）で、開発ツールはルート。構成の変更は R3-7（R3-6 の前）で、それまではルートが無料版のまま（下の「コマンド」もルート前提）。依存は Pro から無料版への一方向にし、無料版の配布物に Pro のコードを入れない。
+**D29（2026-10-09）: 無料版と Pro アドオンをこのリポジトリで一緒に開発する（モノレポ）**。配置は `plugins/cart-bridge-jp/`（無料版）と `plugins/cart-bridge-jp-pro/`（Pro）で、開発ツールはルート。R3-7 で構成を変えた（`docs/03` §10.6）。**ルール・docs に書いた `includes/`・`src/`・`tests/`・`languages/`・`readme.txt` などのパスは、断りが無ければ無料版のディレクトリ（`plugins/cart-bridge-jp/`）からの相対パス**（R3-7 より前の記録も同じ読み方をする）。依存は Pro から無料版への一方向にし、無料版の配布物に Pro のコードを入れない。
 
 リリースは1ASPずつ: **v1.0=カラーミーショップのみ（インポート＋エクスポート）、v2.0=BASE追加、v3.0=MakeShop追加**（D18、2026-09-05）。v1.0 完了前に BASE/MakeShop のアダプタ実装へ着手しない。3ASP対応を前提に実装済みの基盤（TokenStoreのリフレッシュ構造、`canFetchCustomers` 等）は削除しない。
 
@@ -30,6 +30,7 @@
 | 関数・フック接頭辞 | `cbjp_` / フィルターは `cbjp/{domain}/{action}` 形式 |
 | 定数接頭辞 | `CBJP_` |
 | DBテーブル接頭辞 | `{$wpdb->prefix}cbjp_` |
+| Pro アドオン（D29） | スラッグ・テキストドメイン `cart-bridge-jp-pro`、名前空間 `CartBridgeJP\Pro\`（`plugins/cart-bridge-jp-pro/includes/`）、接頭辞 `cbjp_pro_`・`CBJP_PRO_`、フック `cbjp/pro/...` |
 
 ## 技術スタック・要件
 
@@ -44,18 +45,19 @@
 ```bash
 wp-env start                 # 開発環境起動 (http://localhost:10010, admin/password。tests は 10011。ポートは dev-env スキルの台帳でスロット 01 に固定)
 wp-env run cli wp ...        # WP-CLI実行
-composer install             # PHP依存
-composer lint                # PHPCS (WordPress Coding Standards)
-composer analyze             # PHPStan (level 6+)
-composer test                # PHPUnit（wp-envコンテナ内で直接実行する場合。ホストからは動かない）
-composer test:wpenv          # PHPUnit（ホストから wp-env 経由で実行。通常はこちらを使う）
-# 特定のテストだけ走らせる: `composer test:wpenv -- --filter X` は引数が PHPUnit に渡らず**全件が走る**（実測）。直接呼ぶこと:
-#   npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist --filter 'ClassA|ClassB'"
-#   この出力をパイプ（`| tr -d '\000-\010\016-\037'` 等）に通して mutate-check.sh の --test-cmd にするときは先頭に `set -o pipefail;`（無いと終了コードがパイプ末尾の 0 になり、全変異が NOT CAUGHT と出る。PR #110）
+composer install             # PHP依存（ルートの開発ツール。post-install で無料版・Pro の vendor/autoload.php も作る）
+composer lint                # PHPCS (WordPress Coding Standards)。無料版と Pro（テキストドメインを替えて別に検査）
+composer analyze             # PHPStan (level 6+)。無料版だけの解析（Pro を参照すると失敗）と Pro の解析
+composer test:wpenv          # PHPUnit（ホストから wp-env 経由。無料版 → Pro の順。:free / :pro で片方だけ）
+# 特定のテストだけ走らせる: `composer test:wpenv:free -- --filter 'ClassA|ClassB'`（引数は PHPUnit に渡る。R3-7 で直した）
+#   テストはプラグインのマウント（wp-content/plugins/<slug>）を cwd にして、ルートの PHPUnit（../../cbjp-dev/vendor/bin/phpunit）で走る。別のパスから起動するとブートストラップが止める
+#   `composer test:wpenv:*` の出力をパイプ（`| tr -d '\000-\010\016-\037'` 等）に通して mutate-check.sh の --test-cmd にするときは先頭に `set -o pipefail;`（無いと終了コードがパイプ末尾の 0 になり、全変異が NOT CAUGHT と出る。PR #110）
 npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSON response」になり /wp-json/ が Apache 404 のとき（.htaccess 欠落の再生成）。permalink_structure が空（新規 wp-env 等）だと flush だけでは直らず、先に `wp rewrite structure '/%postname%/' --hard` が必要（rest_url() が /wp-json/ ではなく ?rest_route= 形式にフォールバックし、OAuth コールバック URL の登録値と食い違う）
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
-npm run test:js              # 管理画面 UI の純粋関数の単体テスト（wp-scripts 同梱の Jest。`src/**/test/*.test.ts`。型は `@jest/globals` から import）
+npm run test:js              # 管理画面 UI の純粋関数の単体テスト（wp-scripts 同梱の Jest。`plugins/cart-bridge-jp/src/**/test/*.test.ts`。型は `@jest/globals` から import）
+bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中身を検査する（許可した最上位だけ・追跡しているファイルだけ・--no-dev・Pro の識別子なし。CI・release と同じ）
+bin/check-dev-mount.sh       # wp-env がルートをマウントした wp-content/cbjp-dev が HTTP で 403 か（quality.sh・CI）
 npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_header_fields,trademarks   # readme・プラグインヘッダー・商標の検査（R3-3）
 ```
 
@@ -74,7 +76,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - DBマイグレーション（`Activator::maybe_upgrade()`等）は `admin_init` 限定のフックに登録しないこと。プラグイン更新後に誰も管理画面を開かないまま Action Scheduler・REST（`admin-ajax.php` も `admin_init` を発火しない）が先に走ると、新テーブルがまだ無いまま処理が進み、依存する書込みが黙って失敗・スキップされうる（issue #73 G3-2）。`Plugin::boot()` 自体が `plugins_loaded` から呼ばれる設計なら、そこで直接（別フックを介さず）呼ぶこと
 - フィクスチャの匿名化で実ドメイン（例: `shop-pro.jp`）を部分置換（サブドメイン名だけ変更）すると、ドメイン全体が予約済みexampleドメインでないため匿名化ルール違反になる。ドメインは丸ごと `example.com`/`example.jp` に置き換えること。自由入力欄（`note`/`other`/`answer_free_form*`等）は中身が無害に見えても内容に関わらず必ずプレースホルダーへ置換する
 - 実店舗の調査で得た値（商品・顧客・受注のID、ホスティング先、店舗の業務上の件数）は、フィクスチャ以外（テストの値・コード／テストのコメント・docs・レビュー記録・PR本文・コミットメッセージ）にも書かない。店舗は「ちくわ実店舗」「クラフト実店舗」と呼び、店舗名・ドメインを書かない。混入を洗うときは数字の表記揺れ（`1,234`/`1234`・`(12)`・`3+2 種` のような形）まで grep する（R3-1 後の掃除で `WarningCode.php` の docblock に受注件数が残っていた）。混入に気付いたら**push前に**コミットを作り直す（PRのコミット一覧はsquash後も残る。PR #90 R1-1・PR #92 R1-S7 で2回発生）
-- プラグインディレクトリ内のローカル出力（gitignore 済みの `dist/`・`.live-verify/`・`.rehearsal/`）も wp-env が HTTP で配信する（`0.0.0.0` で待ち受けるので同じネットワークから読める。`.rehearsal/` は実測 200）。実店舗・会員・受注のデータを置くなら `Require all denied` の `.htaccess` を置いて HTTP で読めないことを確かめるか、プラグインディレクトリの外に置く（PR #103 G3-1）
+- wp-env がマウントしたディレクトリは HTTP で配信される（`0.0.0.0` で待ち受けるので同じネットワークから読める）。プラグインのディレクトリ（`plugins/*/`）はそのまま配信されるので、データ・資格情報・ローカル出力を置かない（R3-7 より前はルートがプラグインとしてマウントされ、gitignore 済みの `colorme.env` が実測 200 で読めた）。ルートは `wp-content/cbjp-dev` にマウントされ（テスト・i18n・スキルの `wp eval-file` 用）、ルートの `.htaccess`（`Require all denied`）で拒否する。`bin/check-dev-mount.sh` が 403 を確かめる。ローカル出力（`dist/`・`.live-verify/`・`.rehearsal/`）はルートに置く（PR #103 G3-1・R3-7）
 - PHPの`??`（null合体）演算子はベースがnullの配列アクセス（例: `$possiblyNull['key'] ?? $default`）でも警告を出さない。Copilotレビューはこのパターンを誤って「null配列アクセス警告」と指摘することがあるため、同種の指摘は鵜呑みにせず`php -r`等で実際に検証すること。ただし**ベースが配列でもnullでもないオブジェクト**（壊れた option の `stdClass` 等）は `??` でも `Error: Cannot use object of type stdClass as array` になる（実測。PR #80 G3-2 は独立レビューが「`??` の isset 意味論で安全」と断定して見落とし、Copilot の指摘が正しかった）。外部由来の値（option・フィルター戻り値）のキーを読む前は `is_array()` で守る
 - `wpdb::get_var()` は値が空文字列の行でも null を返す（`'' !== $value` で判定している）。「行が無い」と「値が空」を区別する必要がある読み（ロック・CAS の現在値など）は `get_row( …, ARRAY_A )` を使うこと（PR #96: 空の値のロック行を「解放済み」と誤認し、永久に塞いでいた。テストで検出）
 - 1 リクエストの中だけのメモ化（フィルターを通した結果など）を `wp_cache_set()` で書くときは、グループを `wp_cache_add_non_persistent_groups()` で永続しない設定にすること。Redis・Memcached のサイトでは独自のグループもリクエスト・cron をまたいで残り、フィルターの結果が固定される（既定のキャッシュでは何もしない関数なのでテストでは気付けない。`Woo\Support\TaxClass::classify()`、PR #107 G3-B1）
@@ -120,7 +122,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 長い落とし穴集はパス指定ルールへ分割してある（Claude Code は**該当ファイルを Read したときだけ**読み込む）。CLAUDE.md にある規約と同格の**必須ルール**で、
 触るファイルに対応するものは実装・レビューの前に必ず読むこと（Codex/Copilot など Claude Code 以外のツールやサブエージェントは自動では読み込まないため、明示的に開くこと。`AGENTS.md` も参照）。
 
-| ファイル | 内容 | 対象パス |
+| ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/` はルート） |
 |---|---|---|
 | `.claude/rules/adapters-colorme.md` | ASP アダプタ共通の基準（境界データ・`Page::$total`・push の部分失敗・税込換算）とカラーミー API の癖（クーポン・画像・税・`pref_id`・受注明細ほか） | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
 | `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
@@ -133,7 +135,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - ユニットテスト: 正規化モデル変換・マッピングロジックを重点的に
 - APIクライアントはHTTPレイヤーをモック（実APIを叩くテストは `tests/integration/` に分離し、環境変数でトークン注入時のみ実行）
 - 受注・商品変換はフィクスチャJSON（実APIレスポンスのサンプル）ベースで検証
-- フィクスチャのコミット前に `tests/fixtures/README.md` の匿名化ルールを必ず適用（publicリポジトリのため個人情報・トークン厳禁）
+- フィクスチャのコミット前に `plugins/cart-bridge-jp/tests/fixtures/README.md` の匿名化ルールを必ず適用（publicリポジトリのため個人情報・トークン厳禁）
 - WPテストスイートは各テストクラス終了時（`tear_down_after_class()` → `_delete_all_data()`）に、term_id=1 以外の全ターム・投稿・ユーザーを削除して COMMIT する（テストごとの ROLLBACK では戻らず、**options は消さない**）。そのため bootstrap 直後の状態（例: WooCommerce の既定カテゴリのタームが実在する）で走るのは**プロセス最初のテストクラスだけ**で、CI（デフォルト順。先頭は `AbstractPlatformAdapterTest`）とランダム順で結果が変わるテストが生じうる（issue #63。既定カテゴリの詳細は `.claude/rules/woocommerce-api.md`）。この種の順序依存は `phpunit <テストファイル>` で1クラスずつ単独実行すると（＝各クラスが先頭になる）決定的に洗い出せる。全体を `--order-by=random` で回してもクラスは全体でフラットにシャッフルされ、特定クラスが先頭になるのは約 1/クラス数（60クラスで約 1/60）と稀なので、seed 探しには向かない（`--filter` で2クラスに絞ると seed 単位で再現できる）。実行順は `--list-tests` ではなく `--debug` の `Test '…' started` 行で見ること（`--list-tests` は `--order-by=random` を反映しない。独立レビューのサブエージェントもこれで誤認した）
 - フェイルクローズ分岐のテストは、入力が**本当にその分岐に入るか**（別の分岐でも同じ結果にならないか）を確認し、分岐を一時的に壊して落ちること（ミューテーション）まで確かめる。「税設定不能の店舗で実売価格だけ換算不能」のテストは通常価格も換算不能になり、狙った分岐を通らないトートロジーだった（独立レビューで検出。PR #61 R1-1）。テストの補助（`$keep` のようなコールバック・フィクスチャ）がガードと同じ条件で値を落としていると、ガードを外しても通る（PR #104 R2-2）
 - 例外を期待するテストで `try { …; $this->fail(); } catch ( RuntimeException $e )` と書くと、PHPUnit の `fail()`（`AssertionFailedError` は `RuntimeException` の子孫）まで捕まえて合格してしまう。具体的なクラス（`\Error` など）か `expectException()` で受けること（PR #92 で `write()` が例外を投げていないのに合格しかけた）
@@ -158,6 +160,6 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
 - カラーミーのテストショップと開発サイトの間で全件リハーサル（インポート全般 → 同じショップへの往復エクスポート → Woo 生まれの作成エクスポート。ColorMe 側のスナップショットを往復の前後で比べる）を回す手順はプロジェクトスキル `/rehearse-colorme`（`.claude/skills/rehearse-colorme/`。R3-1 で作成。店舗の login_id が一致しなければ何もしない）
 - wordpress.org 用のスクリーンショット（`.wordpress-org/screenshot-N.png`）を撮り直す手順はプロジェクトスキル `/wporg-screenshots`（`.claude/skills/wporg-screenshots/`。tests サイトで、実 API に出ず匿名化済みフィクスチャから画面を作る。撮る画面は `shots.json`）
-- 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
+- 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）

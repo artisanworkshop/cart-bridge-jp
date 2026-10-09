@@ -37,7 +37,7 @@
 | D26 | 軽減税率・標準税率の税区分の見分け方（issue #102、R3-1e） | WooCommerce は既定の税区分をインストール時の言語で翻訳した名前から作るため（日本語は「軽減税」「免税」。スラッグは URL エンコード）、スラッグ `reduced-rate` の決め打ちでは日本語でインストールした店舗の軽減税率を見失い、取込みで 8% の商品が 10% の税区分に入る。**税率から自動判定することを優先する**: JP の税率が `shop.reduce_tax_rate`（8%）の税区分を軽減税率、`shop.tax`（10%）を標準税率とみなす。**必要な税率が Woo に設定されていない場合は、dry-run で先に税率を作るよう促す**（警告の文言・本実行を止めるか・候補が複数あるときの扱いは R3-1e の計画で決める）。R3-1d（issue #78。標準・軽減以外の税区分のエクスポートを止める）はこの判定を前提にする。**計画で決定（2026-10-06）**: 判定の税率は日本の法定税率の定数（10%／8%。Woo 層は店舗設定を持たないため）、取込みは 8% の税区分が無くても止めずに警告（標準に倒した商品は checksum を保存しない）、候補が複数なら既定の名前の税区分を先に選ぶ（どれも 8% で税額は同じ）、税率の無い既定名の税区分は軽減とみなす。review-loop R1（同日ユーザー決定）: エクスポートでは標準の税区分 `''` も JP の税率があれば税率で分類する（JP の税率が無ければ標準）。詳細は §10.2「税区分の見分け方とエクスポートの止め方（D26、R3-1d/e）」 |
 | D27 | 無料版と Pro の境目（wordpress.org ガイドライン 5。R3-3 からの申し送り） | 無料版に件数の上限を置き、Pro がフィルター（`cbjp/limits/*`）で外す D15 の作りは、ガイドライン 5（「試用期間や使用量の上限〔quota〕に達した後に機能を止めてはならない」）に当たるため、**境目を件数から機能に改める**。**無料版**（wordpress.org）: 商品関連（カテゴリ・タグ・商品・バリエーション・在庫・画像）の取込み・エクスポート・dry-run を件数無制限で提供し、顧客・受注・クーポンのコードは同梱しない。**Pro アドオン**（自社サイトで配布。wordpress.org の外）: 顧客・受注・クーポンの dry-run・取込み・エクスポート、パスワード設定メール（D28）、301 リダイレクト CSV（D17）。ライセンスが無い間は顧客・受注・クーポンを各 100 件まで試用でき、ライセンスで無制限にする（上限は Pro のコードだけが持つ。ガイドラインは wordpress.org で配るプラグインにだけ掛かる）。無料版に受注・顧客の上限を 100 件で置く案も検討したが、件数を増やしても同じく当たるため採らない。D14 のライセンス形態・価格は変えず、D15 は廃止する。実装は R3-6（R3-4 の前。`PlatformAdapter` の凍結〔D20〕より前に済ませる）。詳細・採らなかった案・決め残しは §10.0 |
 | D28 | 取り込んだ顧客へのパスワード設定メール（Pro） | 取込みは顧客をランダムなパスワードで作り、通知メールを送らない（§5「受注インポートの詳細（D10）」6 の副作用の抑止、`01-plan-colorme.md` の顧客の項）ため、顧客は自分でパスワードを設定し直すしかない。**Pro アドオンに、取込みで作った顧客へパスワード設定の案内を一斉に送る機能を付ける**。移行の後に管理者が別の操作として始めるので、移行の副作用でメールを出さない方針とは両立する（取込み自体は引き続きメールを送らない）。詳細は §10.5 |
-| D29 | 無料版と Pro を同じリポジトリで開発する（モノレポ） | D27 で顧客・受注・クーポンのコードを Pro へ移すにあたり、Pro を別リポジトリで作る前提（D14・D27 の「別プラグイン」の開発場所）を改め、**このリポジトリで無料版と Pro アドオンを一緒に開発する**。配置は `plugins/cart-bridge-jp/`（無料版。wordpress.org）と `plugins/cart-bridge-jp-pro/`（Pro アドオン。自社サイト）で、開発ツール（composer・npm・phpcs・phpstan・phpunit・wp-env・CI）はルートに置く（saai-knowledge と同じ形）。配布物は今までどおり別々のプラグイン。理由: R3-6 で移すコードの履歴・テスト・CI・レビューの仕組みをそのまま使える。Pro は Canonical・`JobManager`・Woo の補助クラスなど無料版に広く依存するので、両方を 1 つの PR で変えて CI で一緒に確かめられる。公開（R3-4）と `PlatformAdapter` の凍結（D20）の前なので移す費用が最も小さい。守ること: (1) 依存は Pro から無料版への一方向（無料版は Pro を参照せず、無料版だけで静的解析・テストが通る）。(2) 無料版の配布物に Pro のコードを入れない（ビルドした zip を CI で調べ、入っているべきものと入っていてはいけないものの両方を確かめる。ガイドライン 5 と Pro の販売の両方に関わる）。(3) Pro が使ってよい無料版のクラス・フックの範囲（公開後に互換を保つ範囲。D20 の考え方を広げる）は R3-6 の計画で決める。リポジトリは public のまま（Pro のソースも公開される。GPL。ライセンスの価値はアップデートとサポート〔D14〕）。構成の変更は R3-7（動作を変えない PR。R3-6 の前）。同じ日に §10.0 の決め残し 1（アダプタの顧客・受注・クーポンの処理は Pro へ移す）と 6（Pro は v1.0 と同時に出す）も決めた |
+| D29 | 無料版と Pro を同じリポジトリで開発する（モノレポ） | D27 で顧客・受注・クーポンのコードを Pro へ移すにあたり、Pro を別リポジトリで作る前提（D14・D27 の「別プラグイン」の開発場所）を改め、**このリポジトリで無料版と Pro アドオンを一緒に開発する**。配置は `plugins/cart-bridge-jp/`（無料版。wordpress.org）と `plugins/cart-bridge-jp-pro/`（Pro アドオン。自社サイト）で、開発ツール（composer・npm・phpcs・phpstan・phpunit・wp-env・CI）はルートに置く（saai-knowledge と同じ形）。配布物は今までどおり別々のプラグイン。理由: R3-6 で移すコードの履歴・テスト・CI・レビューの仕組みをそのまま使える。Pro は Canonical・`JobManager`・Woo の補助クラスなど無料版に広く依存するので、両方を 1 つの PR で変えて CI で一緒に確かめられる。公開（R3-4）と `PlatformAdapter` の凍結（D20）の前なので移す費用が最も小さい。守ること: (1) 依存は Pro から無料版への一方向（無料版は Pro を参照せず、無料版だけで静的解析・テストが通る）。(2) 無料版の配布物に Pro のコードを入れない（ビルドした zip を CI で調べ、入っているべきものと入っていてはいけないものの両方を確かめる。ガイドライン 5 と Pro の販売の両方に関わる）。(3) Pro が使ってよい無料版のクラス・フックの範囲（公開後に互換を保つ範囲。D20 の考え方を広げる）は R3-6 の計画で決める。リポジトリは public のまま（Pro のソースも公開される。GPL。ライセンスの価値はアップデートとサポート〔D14〕）。構成の変更は R3-7（動作を変えない PR。R3-6 の前）で、実装の細部は §10.6。同じ日に §10.0 の決め残し 1（アダプタの顧客・受注・クーポンの処理は Pro へ移す）と 6（Pro は v1.0 と同時に出す）も決めた |
 
 ## 2. PlatformAdapter インターフェース（確定版）
 
@@ -699,7 +699,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 
 **カラーミー顧客APIの補足（F1-0で判明、要検証事項外）**: `customers.json` レスポンスには法人名`hojin`・部署`busho`フィールドが存在し実データでも値が入る場合があるが、管理画面の標準「顧客登録」フォームにはこの2項目の入力欄がない（CSV一括登録等の別経路でのみ設定可能と推測）。F1-3のCustomerTransformer実装時に、hojin/bushoがnullでも異常とせず正しくマッピングすること。
 
-## 10. 無料版制限・Pro版ライセンス設計（D14〜D17・D27・D28）
+## 10. 無料版制限・Pro版ライセンス設計（D14〜D17・D27〜D29）
 
 ### 10.0 無料版と Pro の境目（D27・2026-10-09）
 
@@ -2289,3 +2289,31 @@ Pro アドオンに、取込みで作った顧客へパスワード設定の案�
 3. **送る時期**: 新しいストアに切り替えた後に管理者が手動で始める。先に管理者宛てのテスト送信と文面の確認ができるようにする。
 4. **送り方**: Action Scheduler で少しずつ送り、失敗した宛先を記録する。レンタルサーバーの送信数の上限に当たりやすいので、SMTP プラグインの利用を案内する。
 5. **文面**: ストアの移転とパスワード設定の案内だけにし、宣伝を混ぜない（宣伝を含むと特定電子メール法の対象になりうる）。デザインは WooCommerce のメールのテンプレートに揃える。
+
+### 10.6 モノレポの構成（D29・R3-7）
+
+D29 の実装（R3-7）で決めた細部。プラグインの動作は変えていない（main の旧手順で作った zip と比べ、ファイルと中身は Composer の autoloader のクラス名の接尾辞と webpack のモジュール番号を除いて同じ）。
+
+**配置**: 無料版は `plugins/cart-bridge-jp/`、Pro アドオンは `plugins/cart-bridge-jp-pro/`、開発ツール（composer・npm・phpcs・phpstan・CI・`bin/`・`.claude/`・docs）はルート。
+docs・ルールに書いた `includes/`・`src/`・`tests/` などのパスは、断りが無ければ無料版のディレクトリからの相対パス（R3-7 より前の記録も同じ）。
+
+**Composer**: 無料版は今までどおり同梱の `vendor/autoload.php` で読み込むので、プラグインごとに実行時の `composer.json`（require は php・ext、`autoload` → `includes/`、`autoload-dev` → `tests/unit/`）と `composer.lock` を置く。
+ルートの `composer.json` は開発ツールだけを持ち、`post-install-cmd` で各プラグインの `composer install` を実行する。`autoload-dev` を残すのは、dev サイトの mock アダプタ（`verify-with-mock-adapter`）がテストの `MockPlatformAdapter` を使うため。
+Pro の `composer.json` の `name` は無料版と別にする（同じだと autoloader のクラス名が同じになり、両方を読み込んだときに二重宣言になる）。
+
+**wp-env**: 2 つのプラグインを `./plugins/<slug>` でマウントする（コンテナ内のパス `wp-content/plugins/cart-bridge-jp` とポートは変わらない。Pro は無料版の後に並べ、両サイトで有効になる）。
+テスト・i18n・スキルの `wp eval-file` がルートのファイル（PHPUnit・`bin/`・`.claude/skills/**/php`）を使うので、ルートを `wp-content/cbjp-dev` にマウントする。wp-env は `0.0.0.0` で待ち受け、ルートには資格情報（`colorme.env`）とリハーサルの出力があるので、ルートの `.htaccess`（`Require all denied`）で拒否し、`bin/check-dev-mount.sh`（`quality.sh`・CI）が両サイトで 403 を確かめる。
+R3-7 より前はルートをプラグインとしてマウントしていたため、`colorme.env` が `wp-content/plugins/cart-bridge-jp/colorme.env` で HTTP 200 で読めた（実測。R3-7 で 404 になった）。
+
+**品質ツール**:
+- PHPUnit: プラグインのマウントを cwd にして、ルートの PHPUnit で実行する（`composer test:wpenv:free`/`:pro`。引数は PHPUnit に渡る）。別のパスから起動すると、プラグインとテストが 2 つのパスから読まれ `CBJP_URL` もずれるので、ブートストラップが止める。
+  無料版のブートストラップは WooCommerce と無料版だけを読み込み、Pro のブートストラップは WooCommerce → 無料版 → Pro の順に読み込む。
+- PHPStan: 無料版の設定は無料版だけを解析・走査する（無料版が Pro を参照すると「不明なクラス」で失敗する。依存は Pro から無料版への一方向）。Pro の設定（`phpstan-pro.neon.dist`）は独立したファイルで、無料版を走査に含める（NEON の includes は paths を連結するので include しない）。
+- PHPCS: ruleset は 1 つ（無料版・`bin`・`.claude`。テキストドメイン `cart-bridge-jp`）。Pro は `--runtime-set text_domain cart-bridge-jp-pro` で別に検査する（コマンドラインのファイル指定が ruleset の `<file>` より優先される）。
+- JS: ルートの `package.json` のまま（依存・lock は変えない）。`wp-scripts` に `--source-path`・`--output-path` を渡す。`bin/i18n.sh` はプラグインのディレクトリで POT を作り（参照パスと JSON の名前は R3-7 の前と同じ）、`npx wp-env` だけはルートから呼ぶ（wp-env は呼び出したディレクトリから `.wp-env.json` を探す）。
+
+**配布物の検査**（`bin/build-zip.sh`。CI の Distribution ジョブと `release.yml` が使う）: 無料版を `vendor/` 抜きで一時ディレクトリへ写し、そこで `composer install --no-dev -o`（開発用の vendor を壊さない。`.distignore` が `composer.json` を除くので、除く前の写しで実行する）→ `.distignore` で写して検査 → zip。
+検査: 最上位は許可したものだけ（本体・`uninstall.php`・`readme.txt`・`includes/`・`build/`・`languages/`・`vendor/`）、`includes/`・`languages/` は git が追跡しているファイルと一致、`vendor/` は autoload だけでテストの名前空間を含まない、Pro のコード上の識別子（`CartBridgeJP\Pro`・`CBJP_PRO_`・`cbjp_pro_`・`cbjp/pro/`・`cart-bridge-jp-pro`）が PHP・JS・JSON に無い。readme などの文章は対象にしない（Pro への案内のリンクを書ける。ガイドライン 11）。
+
+**Pro アドオンの骨組み**: `Requires Plugins: woocommerce, cart-bridge-jp`、`plugins_loaded` の優先度 20（無料版の 10 の後）で WooCommerce と無料版を確かめ、無ければ管理画面に通知を出して起動しない（fatal にしない）。HPOS 互換を宣言する。
+名前空間 `CartBridgeJP\Pro\`、接頭辞 `cbjp_pro_`・`CBJP_PRO_`、フック `cbjp/pro/...`、テキストドメイン `cart-bridge-jp-pro`。配布物（zip）・翻訳・ライセンス・リリースのタグは Pro の公開準備で決める。
