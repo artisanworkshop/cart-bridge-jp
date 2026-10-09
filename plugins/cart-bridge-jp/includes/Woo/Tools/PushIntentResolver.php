@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo\Tools;
 
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\MappingRepository;
@@ -58,21 +59,15 @@ final class PushIntentResolver {
 		}
 
 		$entity_type = $intent['entity_type'];
-
-		if ( 'coupon' === $entity_type ) {
-			// `PlatformAdapter`にクーポンのID指定取得メソッドが無い（クーポンはColorMe側が
-			// 読取専用のため元々非対応。`docs/03` §10.2「エクスポートの重複作成防止」参照）ため、
-			// 実在を確認できない。
-			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
-		}
+		$type        = EntityTypeRegistry::get( $entity_type );
 
 		try {
-			$remote_entity = match ( $entity_type ) {
-				'product' => $adapter->fetch_product_by_remote_id( $remote_id ),
-				'customer' => $adapter->fetch_customer_by_remote_id( $remote_id ),
-				'order' => $adapter->fetch_order_by_remote_id( $remote_id ),
-				default => null,
-			};
+			// ID 指定取得は実体の種類が持つ（`Entities\EntityType::fetch_by_remote_id()`。R3-6b1）。取得できない種類（クーポンは
+			// ColorMe 側が読取専用で元々非対応。`docs/03` §10.2「エクスポートの重複作成防止」参照）は既定の
+			// `UnsupportedOperationException` で LINK_UNSUPPORTED になる。登録の無い種類は今までどおり「リモートに無い」扱い。
+			$remote_entity = null === $type ? null : $type->fetch_by_remote_id( $adapter, $remote_id );
+			// 返ってきたモデルの ID も同じ例外の境界の中で読む（外部の種類のモデルの `remote_id()` が例外を投げても 500 にしない）。
+			$fetched_id = $remote_entity?->remote_id();
 		} catch ( UnsupportedOperationException ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
 		} catch ( RateLimitExhaustedException ) {
@@ -90,7 +85,7 @@ final class PushIntentResolver {
 		// あたかも実在するかのように見え、無関係な別のローカル実体へ紐付いてしまう
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
 		// `$remote_id`と一致することまで確認する。
-		if ( null === $remote_entity || $remote_entity->remote_id() !== $remote_id ) {
+		if ( null === $remote_entity || $fetched_id !== $remote_id ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
 		}
 

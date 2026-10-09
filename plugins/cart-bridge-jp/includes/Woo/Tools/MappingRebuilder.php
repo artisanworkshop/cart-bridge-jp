@@ -7,11 +7,12 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Tools;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Entities\LinkSource;
 use CartBridgeJP\Support\Logger;
-use Automattic\WooCommerce\Utilities\OrderUtil;
 use CartBridgeJP\Sync\MappingRepository;
 use InvalidArgumentException;
-use WC_Order;
+use Throwable;
 
 /**
  * リンク再構築ツール（D16 / `docs/03-design-decisions.md` §10.3）。
@@ -28,17 +29,14 @@ use WC_Order;
  *
  * 1回の `run()` は予算（`$budget` 件）まで走査して cursor を返し、呼び出し側がループする。
  * upsert は走査結果を変えないため offset ページングで安定に継続できる。
+ *
+ * 走査する実体は実体の種類が持つ（`Entities\EntityType::link_sources()`。R3-6b1）。走査順は `LinkSource::position()`
+ * （category・tag・product・variant・coupon・customer・order）。cursor は `{entity, offset}` で、entity は走査中の LinkSource のキー。
+ * 1 つの LinkSource の走査が例外を投げたら、記録してその種類を飛ばす（外部の種類が、ほかの種類の復元を止めないように）。
  */
 final class MappingRebuilder {
 
 	public const DEFAULT_BUDGET = 200;
-
-	/**
-	 * 走査順（cursor の `entity` に使う）。
-	 *
-	 * @var array<int,string>
-	 */
-	public const SOURCES = [ 'category', 'tag', 'product', 'variant', 'coupon', 'customer', 'order' ];
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
@@ -51,18 +49,46 @@ final class MappingRebuilder {
 	 * @throws InvalidArgumentException cursor が不正な場合。
 	 */
 	public function run( string $platform, ?string $cursor = null, int $budget = self::DEFAULT_BUDGET ): array {
-		[ $index, $offset ] = $this->decode_cursor( $cursor );
+		$sources            = EntityTypeRegistry::link_sources();
+		$keys               = array_map( static fn ( LinkSource $source ): string => $source->key(), $sources );
+		[ $index, $offset ] = $this->decode_cursor( $cursor, $keys );
 
-		$counts    = array_fill_keys( self::SOURCES, 0 );
+		$counts    = array_fill_keys( $keys, 0 );
 		$remaining = max( 1, $budget );
-		$sources   = count( self::SOURCES );
+		$count     = count( $sources );
 
-		while ( $index < $sources && $remaining > 0 ) {
-			$entity                                    = self::SOURCES[ $index ];
-			[ 'scanned' => $scanned, 'rows' => $rows ] = $this->scan( $platform, $entity, $offset, $remaining );
+		while ( $index < $count && $remaining > 0 ) {
+			$entity = $keys[ $index ];
+
+			try {
+				$result = $sources[ $index ]->scan( $platform, $offset, $remaining );
+			} catch ( Throwable $exception ) {
+				$result = $exception::class;
+			}
+
+			$scanned = is_array( $result ) ? ( $result['scanned'] ?? null ) : null;
+			$rows    = is_array( $result ) ? ( $result['rows'] ?? null ) : null;
+
+			// 外部の LinkSource の戻り値は信用しない（原則 8）。例外・形の違う結果・ありえない件数（求めた件数より多く走査した、
+			// 走査した件数より多くの行を返した）は記録してその種類を飛ばす。件数を信じると、予算を超えたり、保存する offset が
+			// まだ見ていない実体を追い越して、以後の再構築がそれらを飛ばし続けたりする。
+			if ( ! is_int( $scanned ) || $scanned < 0 || $scanned > $remaining || ! is_array( $rows ) || count( $rows ) > $scanned ) {
+				$this->logger->error(
+					'Mapping rebuild skipped a source that failed to scan.',
+					[
+						'platform'  => $platform,
+						'entity'    => $entity,
+						'exception' => is_string( $result ) ? $result : null,
+					]
+				);
+
+				++$index;
+				$offset = 0;
+				continue;
+			}
 
 			foreach ( $rows as $local_id => $remote_id ) {
-				if ( '' === $remote_id ) {
+				if ( ! is_int( $local_id ) || ! is_string( $remote_id ) || '' === $remote_id ) {
 					continue;
 				}
 
@@ -83,7 +109,7 @@ final class MappingRebuilder {
 			$remaining -= $scanned;
 		}
 
-		$next_cursor = $index < $sources ? $this->encode_cursor( $index, $offset ) : null;
+		$next_cursor = $index < $count ? $this->encode_cursor( $keys[ $index ], $offset ) : null;
 
 		$this->logger->info(
 			'Mapping rebuild batch finished.',
@@ -101,201 +127,12 @@ final class MappingRebuilder {
 	}
 
 	/**
-	 * @return array{scanned:int,rows:array<int,string>} `scanned` はクエリが返した件数（cursor 用）、
-	 *   `rows` は所有権を確認できた local_id => remote_id（未設定は ''）。
-	 */
-	private function scan( string $platform, string $entity, int $offset, int $limit ): array {
-		return match ( $entity ) {
-			'category' => $this->scan_terms( 'product_cat', $platform, $offset, $limit ),
-			'tag'      => $this->scan_terms( 'product_tag', $platform, $offset, $limit ),
-			'product'  => $this->scan_posts( 'product', $platform, $offset, $limit ),
-			'variant'  => $this->scan_posts( 'product_variation', $platform, $offset, $limit ),
-			'coupon'   => $this->scan_posts( 'shop_coupon', $platform, $offset, $limit ),
-			'customer' => $this->scan_users( $platform, $offset, $limit ),
-			'order'    => $this->scan_orders( $platform, $offset, $limit ),
-			default    => [
-				'scanned' => 0,
-				'rows'    => [],
-			],
-		};
-	}
-
-	/**
-	 * @return array{scanned:int,rows:array<int,string>}
-	 */
-	private function scan_terms( string $taxonomy, string $platform, int $offset, int $limit ): array {
-		$terms = get_terms(
-			[
-				'taxonomy'   => $taxonomy,
-				'hide_empty' => false,
-				'number'     => $limit,
-				'offset'     => $offset,
-				'orderby'    => 'term_id',
-				'order'      => 'ASC',
-				'fields'     => 'ids',
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
-				'meta_query' => $this->ownership_meta_query( $platform ),
-			]
-		);
-
-		if ( ! is_array( $terms ) ) {
-			return [
-				'scanned' => 0,
-				'rows'    => [],
-			];
-		}
-
-		$ids = array_map( 'intval', $terms );
-		update_termmeta_cache( $ids );
-
-		$rows = [];
-
-		foreach ( $ids as $term_id ) {
-			$rows[ $term_id ] = $this->meta_string( get_term_meta( $term_id, '_cbjp_remote_id', true ) );
-		}
-
-		return [
-			'scanned' => count( $ids ),
-			'rows'    => $rows,
-		];
-	}
-
-	/**
-	 * @return array{scanned:int,rows:array<int,string>}
-	 */
-	private function scan_posts( string $post_type, string $platform, int $offset, int $limit ): array {
-		$ids = get_posts(
-			[
-				'post_type'      => $post_type,
-				// ゴミ箱は対象外（リンクを戻すと次回 import が更新経路でゴミ箱の実体を復活させてしまう）。
-				'post_status'    => 'any',
-				'posts_per_page' => $limit,
-				'offset'         => $offset,
-				'orderby'        => 'ID',
-				'order'          => 'ASC',
-				'fields'         => 'ids',
-				'no_found_rows'  => true,
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
-				'meta_query'     => $this->ownership_meta_query( $platform ),
-			]
-		);
-
-		$ids = array_map( 'intval', $ids );
-		update_meta_cache( 'post', $ids );
-
-		$rows = [];
-
-		foreach ( $ids as $post_id ) {
-			$rows[ $post_id ] = $this->meta_string( get_post_meta( $post_id, '_cbjp_remote_id', true ) );
-		}
-
-		return [
-			'scanned' => count( $ids ),
-			'rows'    => $rows,
-		];
-	}
-
-	/**
-	 * @return array{scanned:int,rows:array<int,string>}
-	 */
-	private function scan_users( string $platform, int $offset, int $limit ): array {
-		$ids = get_users(
-			[
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
-				'meta_key'   => '_cbjp_platform',
-				'meta_value' => $platform,
-				'number'     => $limit,
-				'offset'     => $offset,
-				'orderby'    => 'ID',
-				'order'      => 'ASC',
-				'fields'     => 'ID',
-			]
-		);
-
-		$ids = array_map( 'intval', $ids );
-		update_meta_cache( 'user', $ids );
-
-		$rows = [];
-
-		foreach ( $ids as $user_id ) {
-			$rows[ $user_id ] = $this->meta_string( get_user_meta( $user_id, '_cbjp_remote_id', true ) );
-		}
-
-		return [
-			'scanned' => count( $ids ),
-			'rows'    => $rows,
-		];
-	}
-
-	/**
-	 * 受注は要件どおり WooCommerce CRUD 経由。`meta_query` を解釈するのは HPOS の `OrdersTableQuery` だけで、
-	 * レガシー（投稿型）ストレージでは WC 9.2+ が「非対応引数」として無視し `doing_it_wrong` を出す
-	 * （`WC_Order_Data_Store_CPT::query()`）。そのため絞り込みは HPOS 有効時の最適化としてのみ付け、
-	 * どちらの構成でも取得後に `_cbjp_platform` を検証したものだけを upsert 対象にする（レガシー構成では
-	 * 全受注を offset ページングで走査することになるが、他プラットフォーム由来の受注を誤って紐付けない）。
-	 *
-	 * @return array{scanned:int,rows:array<int,string>}
-	 */
-	private function scan_orders( string $platform, int $offset, int $limit ): array {
-		$args = [
-			'type'    => 'shop_order',
-			'limit'   => $limit,
-			'offset'  => $offset,
-			'orderby' => 'ID',
-			'order'   => 'ASC',
-			'return'  => 'objects',
-		];
-
-		if ( OrderUtil::custom_orders_table_usage_is_enabled() ) {
-			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- 管理者が明示的に実行する一回限りのツールで、所有メタ以外に出自を判定する手段が無い。
-			$args['meta_query'] = $this->ownership_meta_query( $platform );
-		}
-
-		$orders  = wc_get_orders( $args );
-		$scanned = 0;
-		$rows    = [];
-
-		foreach ( (array) $orders as $order ) {
-			if ( ! $order instanceof WC_Order ) {
-				continue;
-			}
-
-			++$scanned;
-
-			if ( $order->get_meta( '_cbjp_platform' ) === $platform ) {
-				$rows[ $order->get_id() ] = $this->meta_string( $order->get_meta( '_cbjp_remote_order_number' ) );
-			}
-		}
-
-		return [
-			'scanned' => $scanned,
-			'rows'    => $rows,
-		];
-	}
-
-	/**
-	 * @return array<int,array<string,string>>
-	 */
-	private function ownership_meta_query( string $platform ): array {
-		return [
-			[
-				'key'     => '_cbjp_platform',
-				'value'   => $platform,
-				'compare' => '=',
-			],
-		];
-	}
-
-	private function meta_string( mixed $value ): string {
-		return is_scalar( $value ) ? (string) $value : '';
-	}
-
-	/**
+	 * @param array<int,string> $keys 走査順の LinkSource のキー。
 	 * @return array{0:int,1:int} [走査順のインデックス, offset]
 	 *
 	 * @throws InvalidArgumentException
 	 */
-	private function decode_cursor( ?string $cursor ): array {
+	private function decode_cursor( ?string $cursor, array $keys ): array {
 		if ( null === $cursor || '' === $cursor ) {
 			return [ 0, 0 ];
 		}
@@ -303,7 +140,7 @@ final class MappingRebuilder {
 		$decoded = json_decode( $cursor, true );
 		$entity  = is_array( $decoded ) ? ( $decoded['entity'] ?? null ) : null;
 		$offset  = is_array( $decoded ) ? ( $decoded['offset'] ?? null ) : null;
-		$index   = is_string( $entity ) ? array_search( $entity, self::SOURCES, true ) : false;
+		$index   = is_string( $entity ) ? array_search( $entity, $keys, true ) : false;
 
 		if ( false === $index || ! is_int( $offset ) || $offset < 0 ) {
 			throw new InvalidArgumentException( 'Invalid rebuild cursor.' );
@@ -312,10 +149,10 @@ final class MappingRebuilder {
 		return [ $index, $offset ];
 	}
 
-	private function encode_cursor( int $index, int $offset ): string {
+	private function encode_cursor( string $entity, int $offset ): string {
 		return (string) wp_json_encode(
 			[
-				'entity' => self::SOURCES[ $index ],
+				'entity' => $entity,
 				'offset' => $offset,
 			]
 		);

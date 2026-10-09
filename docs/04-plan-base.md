@@ -151,7 +151,7 @@ BASEは**明細単位**の `status` と注文単位の `dispatch_status` を持�
 4. [ ] 接続ウィザードUI（client_id/secret入力 → 認可 → callback → `/1/users/me` 接続テスト）
 5. [ ] Transformer（Product / Order / CustomerExtractor / Category）+ フィクスチャベースのユニットテスト
 6. [ ] `BaseAdapter.fetch*` 実装（カーソル=offset、受注は一覧→詳細の2段取得）→ Importer結合でBASE→Wooインポート成立（プラットフォーム固有分岐をアダプタ外に持ち込まずに成立することを確認するアーキテクチャ検証マイルストーン=D18。ただし下記の顧客永続化フックのような、プラットフォーム非依存のコア拡張点の追加は許容範囲）。
-   **既知の設計課題**: 現状の `Sync\JobManager::filter_and_order_entities()` は `can_fetch_customers=false` の場合に顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()` は既存 `mappings` の解決のみで新規顧客作成は行わない。そのため `CustomerExtractor`（D12）が生成する `CanonicalCustomer` を永続化する経路が現状のImporter/JobManagerには無い。B4-5着手時に、受注インポートパイプライン内で抽出した顧客を書き込む一般的な拡張点（Importer側のフックまたはJobManagerの受注エンティティ処理への統合）をプラットフォーム非依存の形で設計すること（D18が許容するコア拡張点。プラットフォーム固有分岐はアダプタ外に書かない原則自体は維持する）
+   **既知の設計課題**: 現状の顧客の種類（`Entities\Commerce\CustomerType::supports_import()`。R3-6b1 より前は `Sync\JobManager::filter_and_order_entities()`。D27 で顧客は Pro へ移る）は `can_fetch_customers=false` の場合に顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()` は既存 `mappings` の解決のみで新規顧客作成は行わない。そのため `CustomerExtractor`（D12）が生成する `CanonicalCustomer` を永続化する経路が現状のImporter/JobManagerには無い。B4-5着手時に、受注インポートパイプライン内で抽出した顧客を書き込む一般的な拡張点（Importer側のフックまたはJobManagerの受注エンティティ処理への統合）をプラットフォーム非依存の形で設計すること（D18が許容するコア拡張点。プラットフォーム固有分岐はアダプタ外に書かない原則自体は維持する）
 7. [ ] テストショップで実データインポートE2E
 8. [ ] `push*` 実装（Phase 5 / E5-1）: カテゴリ自動作成 → 商品upsert → 画像add_image → 在庫edit_stock（1日1,000件制御）
 

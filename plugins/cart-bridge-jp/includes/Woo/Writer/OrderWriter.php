@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Writer;
 use Automattic\WooCommerce\Caches\OrderCountCache;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\Support\AddressMapper;
@@ -40,11 +41,10 @@ final class OrderWriter implements EntityWriter {
 	) {}
 
 	/**
-	 * 対応 ASP（カラーミー / BASE / MakeShop）の金額はすべて日本円。店舗通貨がこれと異なる場合、
-	 * 金額は換算せずそのまま保存し `CURRENCY_MISMATCH` 警告を出す（移行後検証レポートも同じ前提で
-	 * 通貨不一致を報告する）。
+	 * 対応 ASP の金額の通貨（`Support\Money::PLATFORM_CURRENCY`。日本円）。店舗通貨がこれと異なる場合、
+	 * 金額は換算せずそのまま保存し `CURRENCY_MISMATCH` 警告を出す。
 	 */
-	public const PLATFORM_CURRENCY = 'JPY';
+	public const PLATFORM_CURRENCY = Money::PLATFORM_CURRENCY;
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
 		if ( ! $item instanceof CanonicalOrder ) {

@@ -1,11 +1,13 @@
 ---
 paths:
   - "plugins/*/includes/Sync/**"
+  - "plugins/*/includes/Entities/**"
   - "plugins/*/includes/Woo/Tools/**"
   - "plugins/*/includes/Woo/Export/**"
   - "plugins/*/includes/Woo/Reader/**"
   - "plugins/*/includes/Woo/WarningCode.php"
   - "plugins/*/tests/unit/Sync/**"
+  - "plugins/*/tests/unit/Entities/**"
   - "plugins/*/tests/unit/Woo/Tools/**"
   - "plugins/*/tests/unit/Woo/Reader/**"
 ---
@@ -16,7 +18,7 @@ paths:
 > CLAUDE.md の「コーディング規約」「アーキテクチャ原則」と併せて守る。ここは**触るファイルに対応するときだけ読み込まれる**パス指定ルール（`paths` frontmatter）で、内容は CLAUDE.md にあった項目をそのまま移したもの（issue/PR の番号は各項目に残してある）。
 
 - `Sync\Importer::process_items()` は per-itemの警告を**dry-runのときしか永続化しない**（`$is_dry_run` ガード内の `DryRunItemRepository::insert_many()` が唯一の書込経路）。実移行の結果レポートに個別の警告は残らないため、「警告に情報を足せばユーザーが気付ける」という前提の設計は成立しない。またdry-run行は `existing_local_id` 列（`Admin\DryRunReportCsv::HEADER`）を持つので、`WarningCode::with_detail()` を足す前にその情報が既に行に載っていないか確認すること（PR #37 でdetailを追加→冗長と判明し取り消した）
-- `Sync\JobManager::filter_and_order_entities()`は`can_fetch_customers=false`のアダプタ（BASE等）では顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()`も既存`mappings`の解決のみで新規顧客作成は行わない。受注インポート時に抽出した顧客（`CustomerExtractor`等、D12）を永続化する経路は現状存在しないため、そのようなアダプタを実装する際はImporter/JobManager側にプラットフォーム非依存の新しい拡張点を設計する必要がある（`docs/04-plan-base.md` B4-5参照。issue #26）
+- 顧客の種類（`Entities\Commerce\CustomerType::supports_import()`。R3-6b1 より前は `Sync\JobManager::filter_and_order_entities()`）は`can_fetch_customers=false`のアダプタ（BASE等）では顧客エンティティのジョブ自体を除外し、`Woo\Writer\OrderWriter::apply_customer()`も既存`mappings`の解決のみで新規顧客作成は行わない。受注インポート時に抽出した顧客（`CustomerExtractor`等、D12）を永続化する経路は現状存在しないため、そのようなアダプタを実装する際はImporter/JobManager側にプラットフォーム非依存の新しい拡張点を設計する必要がある（`docs/04-plan-base.md` B4-5参照。issue #26）
 - `Sync\JobManager`は`RateLimitExhaustedException`を固定`PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装で、日次上限のような長時間（翌日まで等）の再試行遅延を指定する仕組みが無い。1日◯件のような上限を持つASP（BASE等）のexport実装時は、再試行遅延を可変にする拡張点をJobManagerに追加する必要がある（`docs/10-tasks.md` E5-1参照。issue #26）
 - 破壊的操作（サンプルクリーンアップ等）のプレビュー件数は、実行側と**同じ判定関数**で算出すること。mapping 行数をそのまま出すと、他プラットフォーム所有・削除済み・親削除でカスケードする variation・共有画像の分が実行結果とズレる（PR #34 のボットゲートで G1-3/12・G2-2・G3-2 と 3 ラウンド連続で同種の指摘を受けた。R3-6a で削除した `SampleCleanup::can_delete_entity()` を preview/run で共用する構成で対処した。git の履歴を参照）
 - `_cbjp_platform` は email 突合による採用で別プラットフォームに書き換わる**可変**の所有メタ。「誰が作成したか」の判定にはこれを使わず、作成時にのみ書く不変マーカー `_cbjp_created_by_import`（値は作成プラットフォームID）を使うこと。可変メタで判定すると採用→リンク解除の後に作成元が削除できなくなる（G1-4/G2-1/G3-1）。**逆に「インポートが書いたデータを補正・更新するツール」の所有判定には `_cbjp_platform`（最後に書いたプラットフォーム）を使う**: `CustomerWriter` は採用した既存アカウントにも住所を書くため、不変マーカーで絞ると採用アカウントの誤りが直らない（R3-6a で削除した `PrefStateRepair`。Codex/Copilot が不変マーカーへの絞り込みを繰り返し誤提案した。issue #46）。
@@ -45,3 +47,10 @@ paths:
 - `PlatformAdapter` のメソッドを `JobManager`/`Importer` の「高速経路」（R3-6a で削除した無料版サンプルのID指定取得のような）へ無条件で配線する前に、そのメソッドのdocblockが `UnsupportedOperationException` を許容しているかを確認すること。許容されている場合、対象エンティティが別の経路（`can_fetch_customers` によるcustomerのentity除外等）で完全にガードされていない限り、呼び出し側は例外を捕捉して元の経路（カーソル走査等）へフォールバックする必要がある。`fetch_order_by_remote_id()` は `fetch_orders()` 自体が全アダプタ必須で代替経路が無いにもかかわらず単一ID取得だけ `UnsupportedOperationException` を許容するという非対称な契約を持っており、`Importer::run_sample_page()`/`JobManager::SAMPLE_ID_FETCH_ENTITIES` に `order` を追加した際にこのフォールバックを最初は実装し忘れていた（issue #38、PR #86。Codex/Copilotが独立に同一箇所を指摘）
 - `SampleSelector`（R3-6a で削除）のような、外部アダプタの戻り値を検証・正規化（重複排除・上限・型チェック等）した上で永続化するロジックに新しい検証を追加する場合、その値への**全ての**入口（新規選定 `select_and_persist()`・永続化済みデータの読込み `load()`・下流の消費側）に同じ検証を適用すること。新規選定側だけに追加すると、その変更が入る前に保存された、または契約違反アダプタが過去に保存した永続データが `load()` 経由でそのまま消費されてしまう（`SampleSet::from_array()` が保存された `null` を `strval(null) === ''` で空文字列に変換する経路も含む）。1回の指摘対応では入口を洗い出しきれず、`order_remote_ids` の正規化だけで3ラウンド（新規選定時の重複排除・上限 → 読込み時の同処理 → 空文字列の除去と要素の型検証）を要した（issue #38、PR #86 G1〜G3、Copilot指摘）
 - `totals.unchanged` は `skipped` の内訳で、checksum 一致（変更なし）で書かなかった件数と、D25 の往復の向きで送らない／上書きしなかった件数のうち mapping があるもの（既に結ばれている）だけを数える。dry-run の `created + updated + unchanged` が「移行できる件数」になるので、blocking・例外・契約違反のスキップで数えると「移行できない」件数が消え、逆に「変更なしで書かない」新しい経路を足して数え忘れると「移行できない」が過大になる（issue #55、R3-0h。R3-6a で削除した無料版の Pro 案内〔`LimitsUpsellNotice`〕がこの内訳を使っていた。今は画面で使っていないが、Pro の試用の集計で使いうるので意味を保つ）
+- **実体ごとの振る舞いは実体の種類（`Entities\EntityType`）に置き、実体の名前（`'order'` など）で分岐するコードを足さない**（R3-6b1。`docs/03` §10.0「実体の種類の拡張点」）。
+  取込み・エクスポート・push intent・D25・リンク再構築・検証レポート・CSV のラベル・警告の印とカタログ・マッピングの種類は、`EntityTypeRegistry` から種類を引いて呼ぶ。
+  新しい種類ごとの処理は `EntityType` に**既定実装つき**で足し（Pro が継承する。既定は「その種類では扱わない」を、正常な結果と区別できる形で返す）、`EntityTypeContractTest` の BASELINE を更新する。
+  一覧・レポートを組み立てる箇所（`/connections`・`start_run`・CSV・リンク再構築・検証レポート・push intent の一覧）は、外部の種類の例外・形の違う戻り値で全体を落とさない。
+  **レジストリは静的キャッシュ**で、WP のテスト基盤はフックを戻しても静的変数を戻さない。種類を登録するテストは `Tests\Fixtures\RegistersEntityTypes` を使い、`tear_down()` で
+  `parent::tear_down()` の前後に `reset_cache()` する。REST の report の `entity` の enum はルートを登録した時点（`rest_api_init`）のレジストリから作るので、テストでは種類を登録してから
+  `rest_api_init` を発火する。振る舞いを変えないリファクタの証拠には `tests/unit/Entities/DispatchCharacterizationTest`（実行順・能力・警告の印・CSV の note・カタログの文言のハッシュ）を使う

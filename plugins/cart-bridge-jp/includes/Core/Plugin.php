@@ -14,6 +14,8 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Admin\Assets;
 use CartBridgeJP\Admin\Menu;
 use CartBridgeJP\Admin\RestController;
+use CartBridgeJP\Entities\Commerce\CommerceEntityTypes;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\LogCleanup;
 use CartBridgeJP\Sync\LogRepository;
@@ -79,6 +81,11 @@ final class Plugin {
 		// 登録前の結果がキャッシュに固定され、ColorMeがこのリクエストの間ずっと
 		// 見えなくなる。登録後にキャッシュを破棄して再評価させる。
 		AdapterRegistry::reset_cache();
+
+		// 顧客・受注・クーポンの種類（R3-6b1）。Pro アドオンと同じ公開の口から登録する。R3-6c でこの登録ごと Pro へ移す（D27）。
+		// 登録後にキャッシュを捨てるのは AdapterRegistry と同じ理由。
+		add_filter( EntityTypeRegistry::FILTER, [ CommerceEntityTypes::class, 'register' ] );
+		EntityTypeRegistry::reset_cache();
 
 		$menu = new Menu();
 		add_action( 'admin_menu', [ $menu, 'register' ] );

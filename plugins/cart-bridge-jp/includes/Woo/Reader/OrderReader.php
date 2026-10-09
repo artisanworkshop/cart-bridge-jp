@@ -15,7 +15,6 @@ use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\WarningCode;
-use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_DateTime;
 use WC_Order;
 use WC_Order_Item_Fee;
@@ -145,11 +144,11 @@ final class OrderReader implements EntityReader {
 	private function to_read_item( WC_Order $order ): ReadItem {
 		$warnings = [];
 
-		// 対応ASPの金額はすべて日本円（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`）。店舗通貨が
+		// 対応ASPの金額はすべて日本円（`Support\Money::PLATFORM_CURRENCY`）。店舗通貨が
 		// これと異なる場合、`totals`/`line_items`の金額は換算せずそのまま運ぶ（`OrderWriter`の
 		// インポート方向と同じ前提）ため、E2-3の`push_order()`が誤って日本円として送信しないよう
 		// ここで検知できるようにする（`extras['currency']`に実際の通貨コードも積む）。
-		if ( OrderWriter::PLATFORM_CURRENCY !== $order->get_currency() ) {
+		if ( Money::PLATFORM_CURRENCY !== $order->get_currency() ) {
 			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, $order->get_currency() );
 		}
 

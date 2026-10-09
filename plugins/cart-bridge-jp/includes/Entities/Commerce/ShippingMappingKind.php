@@ -1,0 +1,42 @@
+<?php
+/**
+ * @package CartBridgeJP
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Entities\Commerce;
+
+use CartBridgeJP\Entities\MappingKind;
+use CartBridgeJP\Woo\Support\MappingCandidates;
+
+/**
+ * 配送方法（`shipping_map`: ASP の配送方法 → Woo の配送方法〔ゾーンのインスタンス〕）。受注の取込みとエクスポート（逆引き）が使う。
+ *
+ * **R3-6c で Pro アドオンへ移す**（受注の種類と一緒に）。
+ */
+final class ShippingMappingKind extends MappingKind {
+
+	public function key(): string {
+		return 'shipping';
+	}
+
+	public function position(): int {
+		return 20;
+	}
+
+	public function source_side(): string {
+		return self::SOURCE_ASP;
+	}
+
+	public function woo_candidates(): array {
+		return MappingCandidates::shipping_methods();
+	}
+
+	/**
+	 * 未設定の受注は空の値と警告で取り込まれるので、取込みの前に未設定の数を案内する（R3-0m）。
+	 */
+	public function import_notice(): bool {
+		return true;
+	}
+}

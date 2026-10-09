@@ -7,19 +7,17 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo;
 
-use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Entities\WooServices;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Sync\WooReader;
 use CartBridgeJP\Sync\WooReaderFactory;
-use CartBridgeJP\Woo\Reader\CouponReader;
-use CartBridgeJP\Woo\Reader\CustomerReader;
-use CartBridgeJP\Woo\Reader\OrderReader;
-use CartBridgeJP\Woo\Reader\ProductReader;
-use CartBridgeJP\Woo\Reader\StockReader;
-use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Reader\EntityReader;
+use Throwable;
 
 /**
  * platformごとに `WooReaderRepository`（Exporterの読出元）を組み立てる既定のファクトリ
- * （`WooRepositoryFactory` の読出側対称形）。
+ * （`WooRepositoryFactory` の読出側対称形）。Reader は実体の種類（`Entities\EntityType::reader()`）が作る。
  */
 final class WooReaderRepositoryFactory implements WooReaderFactory {
 
@@ -28,17 +26,33 @@ final class WooReaderRepositoryFactory implements WooReaderFactory {
 	}
 
 	/**
-	 * @return array<string,\CartBridgeJP\Woo\Reader\EntityReader>
+	 * @return array<string,EntityReader>
 	 */
 	private function readers( string $platform ): array {
-		$mappings = new MappingRepository();
+		$services = new WooServices( $platform );
+		$readers  = [];
 
-		return [
-			'product'  => new ProductReader( $platform, new MethodMap( $platform ), $mappings ),
-			'customer' => new CustomerReader( $platform ),
-			'order'    => new OrderReader( $platform, $mappings ),
-			'stock'    => new StockReader( $platform, $mappings ),
-			'coupon'   => new CouponReader( $platform ),
-		];
+		foreach ( EntityTypeRegistry::all() as $key => $type ) {
+			try {
+				$reader = $type->reader( $platform, $services );
+			} catch ( Throwable $exception ) {
+				( new Logger() )->error(
+					'Entity type failed to build its Woo reader.',
+					[
+						'platform'  => $platform,
+						'entity'    => $key,
+						'exception' => $exception::class,
+					]
+				);
+
+				continue;
+			}
+
+			if ( $reader instanceof EntityReader ) {
+				$readers[ $key ] = $reader;
+			}
+		}
+
+		return $readers;
 	}
 }

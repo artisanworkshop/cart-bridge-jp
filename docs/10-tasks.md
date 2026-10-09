@@ -782,6 +782,18 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     旧上限を超える件数を全件処理するテストと、旧版のフィルターで絞られないテストを足した。顧客・受注・クーポンは R3-6c まで無料版で件数無制限のまま。詳細は `docs/03` §10.0「R3-6a の実装」
   - [ ] **R3-6b: 拡張点を作り、顧客・受注・クーポンを拡張点経由の登録に作り替える**（上の (3)。動作は変えない。実体の種類のレジストリ〔取得・送信・Writer・Reader・実行順・能力の判定・D25・リンク再構築〕、
     警告コードの登録、マッピング項目の登録、Import/Export の選択肢を REST から、Pro が ColorMe の認証済みクライアントを使う口、Pro が使ってよい API の一覧〔決め残し 2・8〕。大きければ backend/frontend で分ける）
+    → **2 PR に分けた**（2026-10-10。全実体を同じレジストリに載せる・`ColorMeApi` を切り出す・画面は REST の宣言から描く〔Pro は JS を持たない〕もユーザーが決定）
+    - [x] **R3-6b1: backend**（レジストリ・警告とマッピングの登録・REST の宣言・ColorMe の口・Pro が使ってよい API の一覧）
+      **実装サマリ（2026-10-10。ブランチ `feat/r3-6b1-entity-type-registry`）**: `CartBridgeJP\Entities\`（`EntityType`・`EntityTypeRegistry`・`WooServices`・`LinkSource`・`MappingKind`・
+      `WarningText`・`WarningFlag`）を足し、無料版の商品系を内部で、顧客・受注・クーポンを `Entities/Commerce/`（R3-6c で Pro へ移す単位）から `cbjp/entity_types/register` で登録した。
+      `JobManager`・`Importer`・`Exporter`・ファクトリ・`AdapterPlatformWriter`・`EntityOrigin`・ツール・検証レポート・`DryRunLabel` は種類に問い合わせる。顧客・受注・クーポンの警告の印と
+      カタログの文言を種類へ移した（定数は R3-6c まで `WarningCode`）。REST は `/connections` の `entities`・`/settings/mappings` の `kinds`（PUT は登録の無いキーを残す）・report の
+      `entity` の検証、管理画面に `entityLabels` を足した（画面はまだ使わない）。`ColorMeAdapter::api()`（`ColorMeApi`）・`is_premium_plan()` を公開し、通貨を `Support\Money::PLATFORM_CURRENCY` へ移した。
+      既存テストは変えずに通り、特性テスト（実行順・能力・警告の印・CSV の note・カタログの文言のハッシュ）と外部の種類の通しのテスト・例外の隔離・契約テストを足した。
+      dev サイトで main と同じ結果（新しい項目を除く）になることを mock アダプタで確かめた。詳細は `docs/03` §10.0「実体の種類の拡張点」
+    - [ ] **R3-6b2: frontend**（画面を `GET /connections` の `entities`・`entityLabels`・`/settings/mappings` の `kinds` から組み立てる。Import/Export の選択肢・ベータ表示、
+      Mappings タブの節、Tools タブの件数、送信結果が未確認の一覧、検証レポートの金額、実行中の表示。文言のフィールド〔マッピングの節の見出し・説明、push intent の要約、
+      エクスポートの説明〕のサーバー側もここで足す。`src/types.ts` の `ENTITY_ORDER` と `active-runs.ts` の絞り込み〔知らない種類を落とす〕を外す）
   - [ ] **R3-6c: 顧客・受注・クーポンを Pro へ移す**（上の (2)。`git mv`、`PlatformAdapter`/`Capabilities` から外す、警告コード・カタログ、テスト・フィクスチャ、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` 原則 7 の書き換え）
   - [ ] **R3-6d: readme・スクリーンショット・i18n を新しい範囲に書き直す**（上の (4)。Pro への案内〔決め残し 5〕、0.1.0 のサイト向けの changelog〔決め残し 7: 取込みの上限が無くなったこと・顧客・受注・クーポンが Pro へ移ったこと・
     0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること〕。スクリーンショットは Pro を無効にして全部撮り直す）

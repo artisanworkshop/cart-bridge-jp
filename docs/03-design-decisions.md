@@ -448,7 +448,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 
 | Method | Route | 用途 |
 |---|---|---|
-| GET | `/connections` | 全プラットフォームの接続状態一覧 |
+| GET | `/connections` | 全プラットフォームの接続状態一覧。各接続に、取り込める・エクスポートできる実体の種類 `entities: { import: [{key,label}], export: [{key,label,beta}] }`（R3-6b1。`POST /runs` と同じ判定。§10.0「実体の種類の拡張点」） |
 | PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme・base: client_id+secret） |
 | DELETE | `/connections/{platform}` | 接続解除（トークン・client_id/secret の削除）。run・ツールの実行中は 409（R3-0p。下記） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
@@ -459,10 +459,11 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 | GET | `/runs?platform=&status=active` | プラットフォームで進行中の run の一覧（`{ platform, runs }`。run_id を控えていない run の発見。R3-0i・issue #70。下の「進行中 run の発見」） |
 | GET | `/runs/{run_id}` | 進捗（per-entityジョブのstatus/totals。UIが2秒間隔でポーリング） |
 | POST | `/runs/{run_id}/cancel` | キャンセル |
-| GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4） |
+| GET | `/runs/{run_id}/verification` | 移行後検証レポート（件数・受注合計の ASP/Woo 突合。`type=import` の run のみ。D17/§10.4）。実在の確認・金額は実体の種類が持つ（確かめられない種類は `existing`/`missing` が null。R3-6b1） |
+| GET | `/runs/{run_id}/report?entity=&only_warnings=` | dry-run の CSV（F1-6）。`entity` は登録された実体の種類のキー（ルートを登録した時点のレジストリ。知らない値は 400） |
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
-| GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する |
+| GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する。キーは登録されたマッピングの種類（`Entities\MappingKind`）から決まり、GET は `kinds: [{key,map_key,source_side,applies,import_notice}]` も返す。PUT は登録の無いキーの保存済みの値を消さない（R3-6b1） |
 | ~~GET~~ | ~~`/limits?platform={platform}`~~ | **R3-6a で削除（D27）**。~~無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」）~~ |
 | ~~GET~~ | ~~`/tools/sample-cleanup?platform=`~~ | **R3-6a で削除（D27）**。~~サンプルクリーンアップの削除件数プレビュー（D16/§10.3）~~ |
 | ~~POST~~ | ~~`/tools/sample-cleanup`~~ | **R3-6a で削除（D27）**。~~無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3）~~ |
@@ -747,6 +748,10 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
    → **決定（2026-10-09）: Pro へ移す**。`PlatformAdapter` から顧客・受注・クーポンのメソッドを外し、`ColorMeAdapter` の顧客・受注・クーポンの変換器も Pro へ移す。
    Pro が ASP の API を呼ぶための拡張点（認証済みのクライアントの渡し方など）を無料版に設ける。形は R3-6 の計画で決める（凍結の前）。v2.0・v3.0 の BASE・MakeShop の顧客・受注・クーポンも Pro で実装する。
 2. Pro が実体の種類を足す拡張点の形（Woo の Writer・Reader の登録、ジョブの実体一覧、Import/Export タブの選択肢）。
+   → **決定（2026-10-10、R3-6b の計画）**: 実体の種類（`Entities\EntityType`）のレジストリと `cbjp/entity_types/register` フィルター。商品系も含め
+   全実体を同じレジストリに載せる（無料版の商品系は内部で登録し、顧客・受注・クーポンは無料版自身もこのフィルターから登録する）。
+   画面は REST の宣言（`GET /connections` の `entities`、`GET /settings/mappings` の `kinds` 等）から描き、Pro は JS を持たない。
+   Pro が ColorMe の API を呼ぶ口は `ColorMeAdapter::api()`（`ColorMeApi`）。詳細は下の「R3-6b1 の実装」。
 3. 無料版に残すもの・Pro へ移すものの振り分け: ツール（サンプルのクリーンアップ、リンク再構築〔商品は SKU・顧客は email・受注は注文番号〕、県コード修復〔顧客・受注の住所〕）、
    Mappings タブ（決済・配送・注文ステータスは受注用）、検証レポートの受注金額の突合、D25 の顧客・受注・クーポンの判定（`EntityOrigin`）、エクスポートのベータ（受注は Pro、商品画像は無料版）。
    サンプルのクリーンアップ後の再エクスポートで重複する件（backlog `r3-3-readme-v1/R1-X1`）は、クリーンアップをどちらに置くかで扱いが変わる。
@@ -754,6 +759,10 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
    backlog `r3-3-readme-v1/R1-X1` は機能ごと無くなり解消。Pro の試用で要るかは Pro の設計で決める）。**県コード修復は廃止する**（対象は v0.1.0〜2026-09-15 に取り込んだ
    検証サイトだけで、どのリリースにも含まれていない。該当サイトは R3-6a より前の main で修復しておく。Pro へ移す手間を省く）。どちらも R3-6a で削除した。
    リンク再構築の顧客・受注・クーポン、Mappings タブ、検証レポートの受注金額、`EntityOrigin`、受注エクスポートのベータは R3-6b/c の計画で決める。
+   → **決定（2026-10-10、R3-6b の計画）**: リンク再構築の顧客・受注・クーポン（`link_sources()`）、Mappings タブの決済・配送・注文ステータス（`mapping_kinds()`）、
+   検証レポートの受注金額（`remote_amount()`・`local_amount_summary()`）、D25 の顧客・受注・クーポンの判定（`is_linked_by_export()`）、受注エクスポートのベータ
+   （`is_export_beta()`）は**すべて実体の種類に付けて Pro へ移す**（R3-6c で `Entities/Commerce/` ごと）。カテゴリのマッピング（エクスポートの `category_map`）・
+   商品画像のベータは無料版に残る。
 4. 試用 100 件の数え方と選び方（エンティティごとの累計か、最新の受注から選ぶか）。Pro の設計で決める。
 5. Pro への案内（リンクの置き場所と文言。`cbjp/limits/pro_url` を残すか）。
    → **一部決定（2026-10-09）**: `cbjp/limits/pro_url` は上限の案内（`LimitsUpsellNotice`）と一緒に R3-6a で削除した。置き場所と文言は R3-6d で決める。
@@ -763,6 +772,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
    パスワード設定メール（D28）と 301 リダイレクト CSV（D17）は公開の後に出す。
 7. 0.1.0（GitHub Release）で顧客・受注を取り込んだサイトが無料版を更新したときの扱い（取り込んだデータは Woo に残るが、無料版からは再取込みもツールも使えなくなる）。
 8. Pro が使ってよい無料版のクラス・フックの範囲（D29）。公開後に互換を保つ範囲になる。
+   → **決定（2026-10-10、R3-6b の計画）**: 下の「Pro が使ってよい無料版の API」。R3-6c で Pro へ移すファイルが参照する無料版のクラスから洗い出した。
 9. ~~無料版が要求する OAuth のスコープ: 受注・顧客・クーポンにだけ使うスコープを無料版が要求し続けるか、Pro が足す形にするか。~~
    → **決定（2026-10-09、R3-6 の計画）**: 無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す
    （要求したスコープを記録し、足りない接続には再接続を促す）。使わない個人情報への権限を無料版が求めない。R3-6c で実装する。
@@ -772,7 +782,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 | PR | 内容 |
 |---|---|
 | R3-6a | 無料版から件数の上限・サンプル・Pro 案内と、役目を終えたツール（サンプルのクリーンアップ・県コード修復）を外す。全実体が件数無制限になる（顧客・受注・クーポンも R3-6c まで一時的に無制限。未公開の main なので許容） |
-| R3-6b | 無料版の中で拡張点を作り、顧客・受注・クーポンを拡張点経由の登録に作り替える（動作は変えない）。決め残し 2・8 と 3 の残りを決める |
+| R3-6b | 無料版の中で拡張点を作り、顧客・受注・クーポンを拡張点経由の登録に作り替える（動作は変えない）。決め残し 2・8 と 3 の残りを決める。**2 PR に分けた**（2026-10-10）: R3-6b1＝backend（レジストリ・警告とマッピングの登録・REST の宣言・ColorMe の口・API の一覧）、R3-6b2＝frontend（画面を REST の宣言から組み立て、文言のフィールドをサーバーへ移す） |
 | R3-6c | 顧客・受注・クーポンを Pro へ `git mv` する（`PlatformAdapter`・`Capabilities` から外す、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` の原則 7 の書き換え） |
 | R3-6d | readme・スクリーンショット・i18n を新しい範囲に書き直す。Pro への案内（決め残し 5）、0.1.0 のサイト向けの changelog（決め残し 7。取込みの上限が無くなったこと、顧客・受注・クーポンが Pro へ移ったこと、0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること） |
 
@@ -798,6 +808,75 @@ R3-6 の後に Pro の公開準備（試用・ライセンス・更新配信・P
   旧版の `cbjp/limits/*` を足しても絞られないこと（上限を再び足す退行の検出）を `JobManagerTest`・`JobManagerExportTest` に足した。
 - **確認**: 品質チェック一式、dev サイトで mock アダプタ（`mockv`）の import（顧客・受注 12 件ずつ）と export（商品 74 件）が全件書かれ・送られること、削除したルートが 404 になること。
   検証スキルの `partial-push` の例は、サンプルの固定の代わりに「ほかの商品を先に仮の remote_id で結んで更新経路に回す」形に書き換えて通した。
+
+#### 実体の種類の拡張点（R3-6b1、2026-10-10。ブランチ `feat/r3-6b1-entity-type-registry`）
+
+**目的**: 顧客・受注・クーポンを Pro へ移す（R3-6c）前に、実体ごとの分岐（以前は `JobManager::ENTITY_ORDER`・`Importer::fetch_page()`・`AdapterPlatformWriter`・
+Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalEntityLookup`・`PushIntentResolver/Presenter`・`VerificationReport`・`DryRunLabel`・
+`Exporter::PUSH_INTENT_ENTITIES`・`RestController::ENTITY_TYPES`/`SETTINGS_MAP_KEYS`・`WarningCode`/`WarningCatalog` の約 20 箇所）を 1 つの登録の口に寄せる。**動作は変えない**
+（既存のテストを 1 行も変えずに通し、dev サイトで main と同じ結果になることを確かめた）。
+
+**形**（`includes/Entities/`）:
+- `EntityType`（abstract class。Pro が継承）: 抽象は `key()`・`label()`・`position()` だけ。ほかは既定実装つき（取込み〔`supports_import`・`fetch_page`・`writer`〕、
+  エクスポート〔`supports_export`・`is_export_beta`・`reader`・`push`・`records_push_intent`〕、push intent〔`fetch_by_remote_id`・`describe_local`〕、
+  D25〔`is_linked_by_export`〕、ツール・検証〔`link_sources`・`existing_local_ids`・`remote_amount`・`local_amount_summary`・`dry_run_label`〕、
+  警告〔`warning_flags`・`describe_warning`〕、マッピング〔`mapping_kinds`〕）。既定は「その種類では扱わない」で、`push()` は以前の既定のアームと同じ
+  `ENTITY_NOT_SUPPORTED` のスキップ。`fetch_by_remote_id()` は `UnsupportedOperationException`（push intent の解除は LINK_UNSUPPORTED。以前は登録の無い種類が
+  REMOTE_NOT_FOUND で、LINK_UNSUPPORTED はクーポンだけだった。今も登録の無い種類は REMOTE_NOT_FOUND で、LINK_UNSUPPORTED になるのは上書きしない登録済みの種類
+  〔category・tag・stock・review。push intent を残さないので実害なし〕）。`existing_local_ids()` は null（確かめられない）。null・空配列など正常な結果と区別できない値を
+  既定にしない（D20 と同じ）。`LocalEntityLookup::existing_ids()` は種類の `existing_local_ids()` を呼ぶ形になり、種類でない `variant` には空を返す（呼び出し元なし）。
+- `EntityTypeRegistry`: 無料版の種類（category 10・tag 20・product 30・stock 60・review 80）＋ `cbjp/entity_types/register` の登録（顧客 40・受注 50・クーポン 70。
+  **位置は公開の契約**。参照先を先に移すため）。フィルターの戻り値は検証する（原則 8）: `EntityType` でない要素・キーの形が違うもの〔DB の varchar(20) に入る
+  `^[a-z][a-z0-9_]{0,19}$`〕・無料版のキーと `variant`〔商品の mapping が使う〕は外し、キーは配列のキーではなく `key()` で付け直す。重複は先勝ち。外したものは
+  `_doing_it_wrong()`。`plugins_loaded` の途中に呼ばれた結果はキャッシュしない（Pro は優先度 20 で登録する）。登録した側は `reset_cache()` を呼ぶ。
+  `importable()`/`exportable()` は外部の種類が例外を投げても「非対応」に倒す（`JobManager::start_run()` と `GET /connections` が共用。アダプタの `capabilities()` の
+  失敗は、`start_run()` が絞り込みの前に読んで従来どおり run を始めない）。`is_export_beta()` の例外はベータ（既定で選ばない）に倒す。組み立て中に一覧を引かれたら
+  （登録のコールバックが `has()` を呼ぶ等）無料版の種類だけを返す。警告の印の索引も、一覧と同じく `plugins_loaded` の後だけ保持する。
+  LinkSource・MappingKind のキーは無料版の種類のものを先に確定し、外部の種類の同じキー・形の違うキー（LinkSource は種類のキーと同じ形）を外す。
+- `WooServices`: Writer/Reader のファクトリの 1 回の組み立て（1 ページ）で種類をまたいで共有する依存（`MediaImporter` のページ内の記憶などを保つ）。
+- `LinkSource`（abstract class）: リンク再構築が走査する Woo の実体。走査順は `position()`（category 10・tag 20・product 30・variant 40・coupon 50・customer 60・order 70）。
+  1 つの LinkSource の走査が例外・形の違う結果を返したら、記録してその種類を飛ばす。取込み・エクスポートのページの中では、外部の種類の `remote_amount()`・
+  `dry_run_label()` の例外を握って 0・空にし（1 件の異常でページを止めない）、Writer/Reader の組み立ての例外は記録してその種類を外す。
+- `MappingKind`（abstract class）: `cbjp_settings_{platform}` の `{key}_map`。カテゴリは商品の種類、決済・配送・注文ステータスは受注の種類が持つ。
+  ASP 側の候補は今は `PlatformAdapter::mapping_candidates()` を REST が 1 回だけ呼んで kind のキーで引く（kind が ASP の候補を持つ形は R3-6c で決める）。
+- `WarningText`・`WarningFlag`: 顧客・受注・クーポンの警告コードの判定の印（`export_blocking`・`unresolved_reference`・`mapping_required`・`pending_export`・
+  `reference_unresolved`・`pending_import`）とカタログの文言は種類が持つ（`Entities/Commerce/*Warnings`）。`WarningCode` の判定は無料版の一覧と登録された印の和。
+  **無料版のカタログが説明するコードへの外部の印は無視する**（外部の種類が無料版の警告の扱いを変えない）。CSV の `note` の `reference_pending_import` は、無料版のコードは
+  一覧から導き、登録されたコードは `pending_import` の印があるものだけ（受注の `ORDER_LINE_VARIATION_UNMATCHED` に注記を付けない R3-0n の扱いを保つ）。
+  カタログは「行の種類 → 無料版 → ほかの種類」の順に引き、説明を保持しない（CSV はユーザーの言語に切り替えて書くため）。例外を投げる種類は「説明なし」。
+  定数は R3-6c まで `WarningCode` に残す。
+
+**登録**: 無料版の顧客・受注・クーポンは `Entities/Commerce/`（`CustomerType`・`OrderType`・`CouponType`、その警告・LinkSource・MappingKind）にまとめ、
+`Core\Plugin::boot()` が `CommerceEntityTypes::register` を `cbjp/entity_types/register` に足す。**R3-6c でこのディレクトリと登録を Pro へ移す。**
+今は `PlatformAdapter` の `fetch_customers()` 等と既存の Writer/Reader を呼ぶ。
+
+**ColorMe の口**: `ColorMeAdapter::api()` が返す `ColorMeApi`（認証済みのクライアントと、一覧のエンベロープ・`meta.total`・カーソル・ID 指定取得〔404→null〕・
+行ごとの変換失敗の記録）。アダプタ自身もこれを通す（本体は移しただけ）。`client()` は呼ぶたびにトークンを読む。`ColorMeAdapter::is_premium_plan()` も public にした
+（Pro が受注のエクスポートの可否を決めるのに使う）。受注の変換器・`HISTORY_FLOOR` はアダプタに残る（R3-6c で Pro へ）。
+
+**通貨**: 対応 ASP の金額の通貨は `Support\Money::PLATFORM_CURRENCY`（JPY）。無料版の検証レポートが受注の Writer に依存しないよう `OrderWriter` から移した
+（`OrderWriter::PLATFORM_CURRENCY` は別名として残す）。
+
+**REST・画面のデータ**（R3-6b1 は文言でないフィールドだけ。既存のフィールドは変えない）: §6 の表の `GET /connections` の `entities`、`/settings/mappings` の `kinds`
+と登録の無いキーの保持、`/runs/{run_id}/report` の `entity` の検証。管理画面の `cbjpAdmin.entityLabels`（種類と LinkSource の表示名）。
+画面がこれらを使うのは R3-6b2。
+
+**互換方針**: `EntityType`・`MappingKind`・`LinkSource` は Pro が継承する。v1.0.0 公開後はシグネチャを変えず、新しいメソッドは既定実装つきで足す（D20 と同じ）。
+`EntityTypeContractTest` が公開シグネチャ（継承する基底クラスは protected も）と抽象メソッドの一覧を BASELINE で固定する（`WooServices`・`ColorMeApi` も）。
+R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す。
+
+**Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲）:
+- 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、
+  `Entities\EntityType`・`MappingKind`・`LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
+  `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
+- 型・契約: `Canonical\*`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException, UnsupportedOperationException}`、
+  `Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
+- 補助: `Sync\MappingRepository`、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`）・`Woo\WarningCatalog`（`SEVERITY_*`）、
+  `Support\{Money, Logger, ApiException, RateLimitExhaustedException}`、`Woo\Support\{AddressMapper, Value, MethodMap, ExtrasMeta, EntityOrigin, TaxClass, VariationAxisResolver,
+  ProductResolver, PlatformOwnership, MappingCandidates, HtmlText}`、`Woo\Tools\LocalEntityLookup`（`existing_*()`・`summarize_orders()`）
+- ColorMe: `ColorMeAdapter::api()`・`is_premium_plan()`、`ColorMeApi`、`ColorMeClient`、`Adapters\ColorMe\Transform\Cast`
+- R3-6c で決めること: Pro が無料版の最低バージョンを確かめる方法（今の `cbjp_pro_bootstrap()` はクラスの有無だけを見る）、ColorMe の OAuth スコープを Pro が足す口（決め残し 9）、
+  この一覧に無いクラスを Pro が参照していないことの機械的な確認
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 

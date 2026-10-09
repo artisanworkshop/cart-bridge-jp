@@ -28,9 +28,9 @@ final class WooReaderRepository implements WooReader {
 		$reader = $this->readers[ $entity ] ?? null;
 
 		if ( null === $reader ) {
-			// `JobManager::filter_and_order_export_entities()`が未実装entityを弾く（PR-A時点は
-			// product以外を要求しない）ため、通常はここに到達しない。到達した場合は
-			// Reader未実装という実装バグであり、空ページ（skippedにもならない）で
+			// エクスポートできる種類（`Entities\EntityType::supports_export()`。`JobManager::start_run()`が絞り込む）は
+			// Reader を持つ契約なので、通常はここに到達しない。到達した場合は種類の実装の誤り（Reader を返さない・
+			// 組み立てに失敗した。後者は`WooReaderRepositoryFactory`が記録する）であり、空ページ（skippedにもならない）で
 			// 誤魔化さずここで気付けるようにする。
 			throw new RuntimeException( "No Woo reader registered for entity \"{$entity}\"." );
 		}

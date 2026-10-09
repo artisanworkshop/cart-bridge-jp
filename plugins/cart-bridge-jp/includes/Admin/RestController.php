@@ -11,6 +11,10 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Entities\MappingKind;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
@@ -23,7 +27,6 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
-use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
 use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
@@ -50,15 +53,6 @@ use WP_REST_Response;
 final class RestController {
 
 	private const NAMESPACE = 'cbjp/v1';
-
-	private const ENTITY_TYPES = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
-
-	/**
-	 * `Woo\Support\MethodMap`が読む`cbjp_settings_{platform}`オプションのトップレベルキー。
-	 * `category_map`のみカラーミー側の作成不可制約により向きが逆（Woo側カテゴリID→ASP側カテゴリID）
-	 * だが、保存・検証ロジックは向きに依存しないため同じキー集合として扱える（03 §6 / E2-1）。
-	 */
-	private const SETTINGS_MAP_KEYS = [ 'category_map', 'payment_map', 'shipping_map', 'status_map' ];
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -209,9 +203,10 @@ final class RestController {
 						'required'          => true,
 						'sanitize_callback' => 'sanitize_text_field',
 					],
+					// 登録済みの実体の種類（`rest_api_init` の時点。Pro アドオンの種類も入る）。知らない値は 400。
 					'entity'        => [
 						'type'     => 'string',
-						'enum'     => self::ENTITY_TYPES,
+						'enum'     => EntityTypeRegistry::keys(),
 						'required' => false,
 					],
 					'only_warnings' => [
@@ -396,6 +391,8 @@ final class RestController {
 				'has_settings'      => [] !== $token_store->settings(),
 				'masked_token'      => $token_store->masked_access_token(),
 				'capabilities'      => $adapter->capabilities()->to_array(),
+				// この接続先で取り込める・エクスポートできる実体の種類（R3-6b1。`JobManager::start_run()` と同じ判定）。
+				'entities'          => $this->entity_options( $adapter ),
 				// OAuth型アダプタ向け: ASP側アプリ登録フォームに入力するコールバックURI。
 				// client_id/secretの有無に関わらず算出できる静的な値のため、認可URL取得
 				// （認証情報必須）より前の、アプリ登録の段階から提示できるようにする。
@@ -507,9 +504,10 @@ final class RestController {
 
 	/**
 	 * カテゴリ/決済/配送/注文ステータスのマッピング設定を返す（`Woo\Support\MethodMap`が読む
-	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は4種とも空マップを返す。
+	 * `cbjp_settings_{platform}`オプション。03 §6）。未設定時は空マップを返す。
 	 * `asp_candidates`/`woo_candidates`（E2-1・D19）はUIが選択肢を描画するための候補一覧で、
-	 * 保存済みマップ本体とは独立に毎回最新を取得する。
+	 * 保存済みマップ本体とは独立に毎回最新を取得する。マッピングの種類は実体の種類が持つ
+	 * （`Entities\MappingKind`。R3-6b1）。`kinds` はその一覧（画面が節を組み立てる）。
 	 */
 	public function get_settings_mappings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
@@ -518,9 +516,11 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
+		$kinds                      = EntityTypeRegistry::mapping_kinds();
 		$response                   = $this->settings_mappings_response( $this->read_settings_mappings( $platform ) );
-		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform );
-		$response['woo_candidates'] = $this->woo_mapping_candidates();
+		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform, $kinds );
+		$response['woo_candidates'] = $this->woo_mapping_candidates( $kinds );
+		$response['kinds']          = $this->mapping_kind_descriptions( $platform, $kinds );
 
 		return rest_ensure_response( $response );
 	}
@@ -545,7 +545,7 @@ final class RestController {
 		$current = $this->read_settings_mappings( $platform );
 		$updated = $current;
 
-		foreach ( self::SETTINGS_MAP_KEYS as $map_key ) {
+		foreach ( $this->settings_map_keys() as $map_key ) {
 			if ( ! array_key_exists( $map_key, $body ) ) {
 				continue;
 			}
@@ -588,7 +588,11 @@ final class RestController {
 			$updated[ $map_key ] = $validated;
 		}
 
-		update_option( "cbjp_settings_{$platform}", $updated, false );
+		// 登録の無いマッピングの種類（Pro アドオンを止めている間の決済・配送など）の保存済みの値は消さずに残す（R3-6b1）。
+		$stored = get_option( "cbjp_settings_{$platform}", [] );
+		$stored = is_array( $stored ) ? $stored : [];
+
+		update_option( "cbjp_settings_{$platform}", array_merge( $stored, $updated ), false );
 
 		// candidates（ASP/Woo双方の選択肢一覧）はここでは返さない。GET同様に含めるとColorMe側は
 		// 保存のたびに`categories.json`/`payments.json`/`deliveries.json`の3リクエストが追加され、
@@ -674,11 +678,12 @@ final class RestController {
 	 * （候補が空でもUIは「未接続かもしれない」と気付けるが、保存済みマッピングの表示・編集は
 	 * 妨げない）。失敗時は例外クラス名のみ（個人情報禁止ルール）を`Logger`に記録し、原因不明のまま
 	 * 「候補が空」だけがUIに残るのを避ける。`PlatformAdapter::mapping_candidates()`の契約上、
-	 * 非対応キーは省略されうるため常に4キー（category/payment/shipping/status）を揃えて返す。
+	 * 非対応キーは省略されうるため、登録されたマッピングの種類のキーを常に揃えて返す。
 	 *
+	 * @param array<int,MappingKind> $kinds
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
-	private function asp_mapping_candidates( string $platform ): array {
+	private function asp_mapping_candidates( string $platform, array $kinds ): array {
 		$adapter = AdapterRegistry::get( $platform );
 
 		try {
@@ -697,7 +702,8 @@ final class RestController {
 
 		$normalized = [];
 
-		foreach ( [ 'category', 'payment', 'shipping', 'status' ] as $key ) {
+		foreach ( $kinds as $kind ) {
+			$key                = $kind->key();
 			$normalized[ $key ] = self::normalized_candidate_list( $candidates[ $key ] ?? null );
 		}
 
@@ -754,17 +760,109 @@ final class RestController {
 	}
 
 	/**
-	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。
+	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。候補は種類が作る（`MappingKind::woo_candidates()`）。
+	 * ASP 側の候補と同じ正規化（`normalized_candidate_list()`。保存時の `validate_settings_map()` と同じ形）を通す。外部の種類が
+	 * 空白・制御文字を含む ID を返しても、選んだ値が保存で別のキーになったり拒否されたりしない。例外は空の候補に倒す。
 	 *
+	 * @param array<int,MappingKind> $kinds
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
-	private function woo_mapping_candidates(): array {
-		return [
-			'category' => MappingCandidates::categories(),
-			'payment'  => MappingCandidates::payment_gateways(),
-			'shipping' => MappingCandidates::shipping_methods(),
-			'status'   => MappingCandidates::order_statuses(),
+	private function woo_mapping_candidates( array $kinds ): array {
+		$candidates = [];
+
+		foreach ( $kinds as $kind ) {
+			try {
+				$list = $kind->woo_candidates();
+			} catch ( Throwable ) {
+				$list = [];
+			}
+
+			$candidates[ $kind->key() ] = self::normalized_candidate_list( $list );
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * 画面がマッピングの節を組み立てるための種類の一覧（R3-6b1。文言は R3-6b2 で足す）。`applies` はこの接続先で使うか
+	 * （カテゴリはカテゴリを作れない接続先だけ）。外部の種類が例外を投げたら、その項目は使わない扱いにする。
+	 *
+	 * @param array<int,MappingKind> $kinds
+	 * @return array<int,array{key:string,map_key:string,source_side:string,applies:bool,import_notice:bool}>
+	 */
+	private function mapping_kind_descriptions( string $platform, array $kinds ): array {
+		$adapter      = AdapterRegistry::get( $platform );
+		$descriptions = [];
+
+		foreach ( $kinds as $kind ) {
+			try {
+				$source_side   = $kind->source_side();
+				$applies       = null !== $adapter && $kind->applies_to( $adapter );
+				$import_notice = $kind->import_notice();
+			} catch ( Throwable ) {
+				$source_side   = MappingKind::SOURCE_ASP;
+				$applies       = false;
+				$import_notice = false;
+			}
+
+			$descriptions[] = [
+				'key'           => $kind->key(),
+				'map_key'       => $kind->map_key(),
+				'source_side'   => MappingKind::SOURCE_WOO === $source_side ? MappingKind::SOURCE_WOO : MappingKind::SOURCE_ASP,
+				'applies'       => $applies,
+				'import_notice' => $import_notice,
+			];
+		}
+
+		return $descriptions;
+	}
+
+	/**
+	 * `cbjp_settings_{platform}` のうち、登録されたマッピングの種類のキー（`{key}_map`）。`category_map`だけ向きが逆
+	 * （Woo側カテゴリID→ASP側カテゴリID）だが、保存・検証は向きに依存しないので同じ扱いにする（03 §6 / E2-1）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function settings_map_keys(): array {
+		return array_map( static fn ( MappingKind $kind ): string => $kind->map_key(), EntityTypeRegistry::mapping_kinds() );
+	}
+
+	/**
+	 * 接続先ごとの取込み・エクスポートの選択肢（`GET /connections` の `entities`）。判定は `JobManager::start_run()` と同じ
+	 * （`EntityTypeRegistry::importable()`/`exportable()`）。`beta` はエクスポートが既定で選ばれない種類（D24）。
+	 *
+	 * @return array{import:array<int,array{key:string,label:string}>,export:array<int,array{key:string,label:string,beta:bool}>}
+	 */
+	private function entity_options( PlatformAdapter $adapter ): array {
+		$keys       = EntityTypeRegistry::keys();
+		$options    = [
+			'import' => [],
+			'export' => [],
 		];
+		$importable = EntityTypeRegistry::importable( $adapter, $keys );
+		$exportable = EntityTypeRegistry::exportable( $adapter, $keys );
+
+		foreach ( EntityTypeRegistry::all() as $key => $type ) {
+			$label = EntityTypeRegistry::label( $type );
+
+			if ( in_array( $key, $importable, true ) ) {
+				$options['import'][] = [
+					'key'   => $key,
+					'label' => $label,
+				];
+			}
+
+			if ( in_array( $key, $exportable, true ) ) {
+				$options['export'][] = [
+					'key'   => $key,
+					'label' => $label,
+					// 例外のときはベータ（既定で選ばない）に倒す（原則 9）。
+					'beta'  => EntityTypeRegistry::is_export_beta( $type, $adapter ),
+				];
+			}
+		}
+
+		return $options;
 	}
 
 	/**
@@ -801,15 +899,15 @@ final class RestController {
 	 * `Record<string,string>`として一貫した型を期待できない）。空でも常にJSONオブジェクトで
 	 * 返すよう`stdClass`へキャストする（内部の配列表現はマージ処理のため`array`のまま保つ）。
 	 *
-	 * @param array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>} $mappings
-	 * @return array{category_map:object,payment_map:object,shipping_map:object,status_map:object}
+	 * @param array<string,array<string,string>> $mappings
+	 * @return array<string,object>
 	 */
 	private function settings_mappings_response( array $mappings ): array {
 		return array_map( static fn ( array $map ): object => (object) $map, $mappings );
 	}
 
 	/**
-	 * @return array{category_map:array<string,string>,payment_map:array<string,string>,shipping_map:array<string,string>,status_map:array<string,string>}
+	 * @return array<string,array<string,string>> 登録されたマッピングの種類のキー => マップ。
 	 */
 	private function read_settings_mappings( string $platform ): array {
 		$stored = get_option( "cbjp_settings_{$platform}", [] );
@@ -817,7 +915,7 @@ final class RestController {
 
 		$result = [];
 
-		foreach ( self::SETTINGS_MAP_KEYS as $map_key ) {
+		foreach ( $this->settings_map_keys() as $map_key ) {
 			$result[ $map_key ] = $this->sanitize_settings_map( $stored[ $map_key ] ?? null );
 		}
 
@@ -1181,7 +1279,7 @@ final class RestController {
 
 		$direction     = DryRunReportCsv::direction_for_job_type( (string) $jobs[0]['type'] );
 		$entity        = $this->scalar_query_param( $request, 'entity' );
-		$entity        = is_string( $entity ) && in_array( $entity, self::ENTITY_TYPES, true ) ? $entity : null;
+		$entity        = is_string( $entity ) && EntityTypeRegistry::has( $entity ) ? $entity : null;
 		$only_warnings = (bool) $request->get_param( 'only_warnings' );
 
 		$response = new WP_REST_Response( null, 200 );

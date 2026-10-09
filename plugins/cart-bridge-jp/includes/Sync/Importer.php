@@ -8,12 +8,11 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Adapters\Cursor;
-use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
-use CartBridgeJP\Canonical\CanonicalOrder;
+use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\Logger;
-use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -103,15 +102,15 @@ final class Importer {
 		);
 		$existing   = $this->mappings->find_many( $platform, $entity, array_filter( $remote_ids, static fn ( ?string $id ): bool => null !== $id ) );
 
+		// 種類ごとの部分（検証レポートの金額・dry-run のラベル）はページごとに 1 回だけ引く。
+		$type = EntityTypeRegistry::get( $entity );
+
 		foreach ( $items as $index => $item ) {
 			++$totals['processed'];
 
-			if ( $item instanceof CanonicalOrder ) {
-				// 移行後検証レポート（D17）用: この run で ASP から取得した受注の合計金額を、書込の成否・
-				// スキップに関わらず全 processed 分で累積する（Woo側の「リンク済み受注の合計」と並べ、
-				// 警告・例外で取り込めなかった分も金額で可視化するため。`JobRepository::empty_totals()`）。
-				$totals['remote_amount'] += Money::to_minor_units( $item->totals['total'] ?? null ) ?? 0;
-			}
+			// 移行後検証レポート（D17）用: この run で ASP から取得したアイテムの金額（受注の種類だけが返す）を、書込の成否・
+			// スキップに関わらず全 processed 分で累積する（`JobRepository::empty_totals()`）。
+			$totals['remote_amount'] += $this->remote_amount_of( $type, $item, $entity, $job_id );
 
 			$remote_id = $remote_ids[ $index ];
 
@@ -144,7 +143,7 @@ final class Importer {
 					$dry_run_rows[] = [
 						'entity'            => $entity,
 						'remote_id'         => $remote_id,
-						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'label'             => DryRunLabel::for_type( $type, $item ),
 						'operation'         => WriteResult::OPERATION_SKIPPED,
 						'existing_local_id' => $existing_local_id ?? 0,
 						'warnings'          => [],
@@ -188,7 +187,7 @@ final class Importer {
 					$dry_run_rows[] = [
 						'entity'            => $entity,
 						'remote_id'         => $remote_id,
-						'label'             => DryRunLabel::for_entity( $entity, $item ),
+						'label'             => DryRunLabel::for_type( $type, $item ),
 						'operation'         => WriteResult::OPERATION_SKIPPED,
 						'existing_local_id' => $existing_local_id ?? 0,
 						'warnings'          => [ WarningCode::VALIDATION_EXCEPTION ],
@@ -255,7 +254,7 @@ final class Importer {
 				$dry_run_rows[] = [
 					'entity'            => $entity,
 					'remote_id'         => $remote_id,
-					'label'             => DryRunLabel::for_entity( $entity, $item ),
+					'label'             => DryRunLabel::for_type( $type, $item ),
 					'operation'         => $operation,
 					'existing_local_id' => $existing_local_id ?? 0,
 					'warnings'          => $result->warnings,
@@ -274,24 +273,35 @@ final class Importer {
 	 * @return array{0:array<int,CanonicalModel>,1:?Cursor,2:?int}
 	 */
 	private function fetch_page( PlatformAdapter $adapter, string $entity, Cursor $cursor ): array {
-		return match ( $entity ) {
-			'category' => [ $adapter->fetch_categories(), null, null ],
-			'tag'      => [ $adapter->fetch_tags(), null, null ],
-			'product'  => $this->unwrap_page( $adapter->fetch_products( $cursor ) ),
-			'customer' => $this->unwrap_page( $adapter->fetch_customers( $cursor ) ),
-			'order'    => $this->unwrap_page( $adapter->fetch_orders( $cursor ) ),
-			'stock'    => $this->unwrap_page( $adapter->fetch_stocks( $cursor ) ),
-			'coupon'   => $this->unwrap_page( $adapter->fetch_coupons( $cursor ) ),
-			'review'   => $this->unwrap_page( $adapter->fetch_reviews( $cursor ) ),
-			default    => throw new RuntimeException( "Entity \"{$entity}\" is not a cursor-walk entity." ),
-		};
+		$type = EntityTypeRegistry::get( $entity );
+
+		if ( null === $type ) {
+			throw new RuntimeException( "Entity \"{$entity}\" is not a cursor-walk entity." );
+		}
+
+		$page = $type->fetch_page( $adapter, $cursor );
+
+		return [ $page->items, $page->next_cursor, $page->total ];
 	}
 
 	/**
-	 * @return array{0:array<int,CanonicalModel>,1:?Cursor,2:?int}
+	 * 外部の種類の戻り値・例外は信用しない（原則 8）。1 件の金額が読めなくても、ページ全体を止めず 0 として数える
+	 * （例外クラスは記録する。`Support\Logger` の個人情報禁止ルールに従い、メッセージは記録しない）。
 	 */
-	private function unwrap_page( Page $page ): array {
-		return [ $page->items, $page->next_cursor, $page->total ];
+	private function remote_amount_of( ?EntityType $type, CanonicalModel $item, string $entity, ?int $job_id ): int {
+		if ( null === $type ) {
+			return 0;
+		}
+
+		try {
+			$amount = $type->remote_amount( $item );
+		} catch ( Throwable $exception ) {
+			$this->logger->error( "Entity type failed to report the amount of a {$entity} item.", [ 'exception' => $exception::class ], $job_id );
+
+			return 0;
+		}
+
+		return is_int( $amount ) ? $amount : 0;
 	}
 
 	private function remote_id_of( CanonicalModel $item ): ?string {
