@@ -48,7 +48,7 @@ export function formatAmount( amount: string, currency: string ): string {
  * - `missing`: mapping はあるが Woo 側の実体が無い（要 Rebuild links / 再 import）
  * - `fewer`: 取得件数より Woo 側が少ない（スキップ・警告）
  * - `more`: 取得件数より Woo 側が多い（過去の run で取り込んだ分。ASP 側で減った場合など）
- * - `amount`: 件数は一致するが受注合計が一致しない
+ * - `amount`: 件数は一致するが合計金額が一致しない（金額を突合する種類〈受注など〉だけ）
  * - `reconciled`: 件数・金額とも一致し missing も無い
  * @param row
  */
@@ -82,10 +82,11 @@ export function rowStatus(
 }
 
 /**
- * 金額の突合が成立した受注行があるか（旧ジョブは ASP 側合計が null、通貨不一致時は比較不能）。
+ * 金額の突合が成立した行があるか（金額を突合しない種類・旧ジョブは ASP 側合計が null、通貨不一致時は比較不能）。
+ * 文言は種類の名前を出さない（金額を突合する種類はサーバーが決める。R3-6b2）。
  * @param report
  */
-function hasComparedOrderTotals( report: VerificationReportData ): boolean {
+function hasComparedTotals( report: VerificationReportData ): boolean {
 	return (
 		! report.currency_mismatch &&
 		report.entities.some( ( row ) => null !== row.remote_amount )
@@ -139,7 +140,7 @@ function buildNotices(
 			message: sprintf(
 				/* translators: 1: platform currency code, 2: store currency code */
 				__(
-					'Platform totals are in %1$s but the store currency is %2$s. Order amounts were stored without conversion, so the totals cannot be reconciled.',
+					'Platform totals are in %1$s but the store currency is %2$s. Amounts were stored without conversion, so the totals cannot be reconciled.',
 					'cart-bridge-jp'
 				),
 				report.platform_currency,
@@ -162,7 +163,7 @@ function buildNotices(
 		notices.push( {
 			status: 'warning',
 			message: __(
-				'The order totals differ between the platform and WooCommerce even though the counts match. Check the orders with warnings.',
+				'The totals differ between the platform and WooCommerce even though the counts match. Check the records with warnings.',
 				'cart-bridge-jp'
 			),
 		} );
@@ -171,9 +172,9 @@ function buildNotices(
 	if ( 0 === notices.length ) {
 		notices.push( {
 			status: 'success',
-			message: hasComparedOrderTotals( report )
+			message: hasComparedTotals( report )
 				? __(
-						'Every record fetched in this run exists in WooCommerce and the order totals match.',
+						'Every record fetched in this run exists in WooCommerce and the totals match.',
 						'cart-bridge-jp'
 				  )
 				: __(

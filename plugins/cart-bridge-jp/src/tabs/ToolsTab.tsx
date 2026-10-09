@@ -12,28 +12,10 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import { ENTITY_LABELS } from '../entity-labels';
+import { entityLabel } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
+import { joinList } from '../i18n';
 import type { Connection, RebuildResult } from '../types';
-
-/**
- * リンク再構築の件数の表示順（`Woo\Tools\MappingRebuilder::SOURCES` の種類。R3-6a で削除したサンプルのクリーンアップと
- * 共有していた並びのうち、再構築が返すもの）。
- */
-const REBUILD_KEYS = [
-	'category',
-	'tag',
-	'product',
-	'variant',
-	'customer',
-	'order',
-	'coupon',
-] as const;
-
-const TOOL_LABELS: Record< string, string > = {
-	...ENTITY_LABELS,
-	variant: __( 'Variations', 'cart-bridge-jp' ),
-};
 
 /**
  * バックエンドが `cursor` を返し続けても管理画面が無限にリクエストを打たない
@@ -45,10 +27,6 @@ type Counts = Record< string, number >;
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
-}
-
-function label( key: string ): string {
-	return TOOL_LABELS[ key ] ?? key;
 }
 
 function mergeCounts( into: Counts, add: Counts ): Counts {
@@ -68,14 +46,40 @@ function sumCounts( counts: Counts ): number {
 	);
 }
 
-function CountList( {
-	counts,
-	keys,
-}: {
-	counts: Counts;
-	keys: readonly string[];
-} ) {
-	const rows = keys.filter( ( key ) => ( counts[ key ] ?? 0 ) > 0 );
+/**
+ * 応答の `skipped`（走査に失敗して飛ばした種類のキー）を、重複を除いて前のバッチの分に足す。形の違う値は読み飛ばす。
+ * @param into
+ * @param value
+ */
+function mergeSkipped( into: string[], value: unknown ): string[] {
+	if ( ! Array.isArray( value ) ) {
+		return into;
+	}
+
+	const merged = [ ...into ];
+
+	for ( const key of value as unknown[] ) {
+		if (
+			'string' === typeof key &&
+			'' !== key &&
+			! merged.includes( key )
+		) {
+			merged.push( key );
+		}
+	}
+
+	return merged;
+}
+
+/**
+ * 件数の一覧。並びは応答の `counts` のキーの順（サーバーの走査順。Pro アドオンが足す種類も入る。R3-6b2）。
+ * @param root0
+ * @param root0.counts
+ */
+function CountList( { counts }: { counts: Counts } ) {
+	const rows = Object.keys( counts ).filter(
+		( key ) => ( counts[ key ] ?? 0 ) > 0
+	);
 
 	if ( 0 === rows.length ) {
 		return null;
@@ -88,7 +92,7 @@ function CountList( {
 					{ sprintf(
 						/* translators: 1: a kind of record, e.g. "Products", 2: how many of them */
 						__( '%1$s: %2$d', 'cart-bridge-jp' ),
-						label( key ),
+						entityLabel( key ),
 						counts[ key ]
 					) }
 				</li>
@@ -117,6 +121,8 @@ export default function ToolsTab() {
 	);
 	const [ rebuildDone, setRebuildDone ] = useState( false );
 	const [ rebuildError, setRebuildError ] = useState< string | null >( null );
+	// 走査に失敗して飛ばした種類（R3-6b2。backlog r3-6b1/R1-L6）。理由はサーバーのログ（Logs タブ）にある。
+	const [ rebuildSkipped, setRebuildSkipped ] = useState< string[] >( [] );
 	// バッチ上限やエラーで止まった再構築を、先頭からやり直さずに続きから再開するための cursor。
 	const [ rebuildCursor, setRebuildCursor ] = useState< string | null >(
 		null
@@ -157,6 +163,7 @@ export default function ToolsTab() {
 		setRebuildCounts( null );
 		setRebuildDone( false );
 		setRebuildError( null );
+		setRebuildSkipped( [] );
 		setRebuildCursor( null );
 	}
 
@@ -191,11 +198,13 @@ export default function ToolsTab() {
 		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let counts: Counts = {};
+		let skipped: string[] = [];
 		let cursor: string | null = rebuildCursor;
 
 		setRebuilding( true );
 		setRebuildError( null );
 		setRebuildDone( false );
+		setRebuildSkipped( skipped );
 		setRebuildCounts( counts );
 
 		try {
@@ -215,6 +224,8 @@ export default function ToolsTab() {
 
 				counts = mergeCounts( counts, result.counts );
 				setRebuildCounts( counts );
+				skipped = mergeSkipped( skipped, result.skipped );
+				setRebuildSkipped( skipped );
 				cursor = result.cursor;
 				setRebuildCursor( cursor );
 
@@ -354,10 +365,26 @@ export default function ToolsTab() {
 									) }
 								</Notice>
 							) }
-							<CountList
-								counts={ rebuildCounts }
-								keys={ REBUILD_KEYS }
-							/>
+							{ rebuildSkipped.length > 0 && (
+								<Notice
+									status="warning"
+									isDismissible={ false }
+								>
+									{ sprintf(
+										/* translators: %s: list of kinds of records, e.g. "Products, Orders" */
+										__(
+											'Some kinds of records could not be scanned, so their links were not restored: %s. Check the Logs tab for the reason.',
+											'cart-bridge-jp'
+										),
+										joinList(
+											rebuildSkipped.map( ( key ) =>
+												entityLabel( key )
+											)
+										)
+									) }
+								</Notice>
+							) }
+							<CountList counts={ rebuildCounts } />
 						</div>
 					) }
 				</CardBody>

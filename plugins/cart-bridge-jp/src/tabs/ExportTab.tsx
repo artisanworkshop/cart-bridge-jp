@@ -15,7 +15,8 @@ import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
-import { ENTITY_LABELS } from '../entity-labels';
+import { entityLabel, entityLabels } from '../entity-labels';
+import { defaultExportSelection, exportEntityOptions } from '../entity-options';
 import { parseHash, tabHref } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { joinList, joinSentences } from '../i18n';
@@ -36,73 +37,12 @@ function errorMessage( err: unknown ): string {
 }
 
 /**
- * `Sync\JobManager::EXPORT_ENTITIES_WITH_READER`（category/tag/reviewはexportエンティティ化しない。
- * categoryは`category_map`が担う。CLAUDE.md/`docs/03-design-decisions.md` §10.2「カテゴリ」）。
- */
-const EXPORT_ENTITIES: EntityType[] = [
-	'product',
-	'customer',
-	'order',
-	'stock',
-	'coupon',
-];
-
-/**
- * `Sync\JobManager::filter_and_order_export_entities()`と同じ条件をミラーする
- * （product/stockは常時対象、customer/order/couponはcapabilityでゲート）。
- * @param capabilities
- */
-function availableExportEntities( capabilities: Capabilities ): EntityType[] {
-	return EXPORT_ENTITIES.filter( ( entity ) => {
-		switch ( entity ) {
-			case 'customer':
-				return capabilities.can_update_customer;
-			case 'order':
-				return capabilities.can_create_order;
-			case 'coupon':
-				return (
-					capabilities.has_coupons && capabilities.can_create_coupon
-				);
-			default:
-				return true;
-		}
-	} );
-}
-
-/**
- * D24: エクスポートがベータ扱い（`Capabilities::$beta_features`）になるエンティティ。ベータの受注は接続先に
- * 受注（売上）を作るため、Beta 表示にして既定では選択しない。
- */
-const BETA_FEATURE_BY_ENTITY: Partial< Record< EntityType, string > > = {
-	order: 'order_export',
-};
-
-/**
  * D24: 商品画像のアップロード（`Capabilities::BETA_IMAGE_PUSH`）。
  */
 const BETA_IMAGE_PUSH = 'image_push';
 
 function isBetaFeature( capabilities: Capabilities, feature: string ): boolean {
 	return ( capabilities.beta_features ?? [] ).includes( feature );
-}
-
-function isBetaEntity(
-	capabilities: Capabilities,
-	entity: EntityType
-): boolean {
-	const feature = BETA_FEATURE_BY_ENTITY[ entity ];
-
-	return undefined !== feature && isBetaFeature( capabilities, feature );
-}
-
-/**
- * 実行対象の既定の選択。ベータ機能のエンティティは、店舗が明示的に選んだときだけ動かすため既定では外す（D24）。
- * @param capabilities
- */
-function defaultExportEntities( capabilities: Capabilities ): EntityType[] {
-	return availableExportEntities( capabilities ).filter(
-		( entity ) => ! isBetaEntity( capabilities, entity )
-	);
 }
 
 /**
@@ -116,18 +56,19 @@ function betaNote(): string {
 	);
 }
 
-function betaEntityHelp( entity: EntityType ): string {
-	if ( 'order' === entity ) {
-		return joinSentences(
-			__(
-				'Creates orders (sales) in the connected shop.',
-				'cart-bridge-jp'
-			),
-			betaNote()
-		);
+/**
+ * 選択肢の説明。説明（サーバーの宣言。例: 受注は「接続先に売上を作る」）に、ベータならベータの注意書きを続ける（R3-6b2）。
+ * @param description
+ * @param beta
+ */
+function entityHelp( description: string, beta: boolean ): string | undefined {
+	if ( beta ) {
+		return '' !== description
+			? joinSentences( description, betaNote() )
+			: betaNote();
 	}
 
-	return betaNote();
+	return '' !== description ? description : undefined;
 }
 
 /**
@@ -276,6 +217,11 @@ export default function ExportTab() {
 			connectedPlatforms.find( ( c ) => c.platform === platform ) ?? null,
 		[ connectedPlatforms, platform ]
 	);
+	// 選べる実体の種類（サーバーの宣言。並びは実行順。R3-6b2）。
+	const entityOptions = useMemo(
+		() => exportEntityOptions( currentConnection ),
+		[ currentConnection ]
+	);
 
 	// D24: エクスポート設定（画像アップロード）の取得。プラットフォームの選択が変わるたびに走る唯一の
 	// 非同期取得なので、ここで`platformGenerationRef`を進める（R3-0m でマッピング取得effectを Mappings タブへ
@@ -322,7 +268,7 @@ export default function ExportTab() {
 		}
 
 		setSelectedExportEntities(
-			new Set( defaultExportEntities( currentConnection.capabilities ) )
+			new Set( defaultExportSelection( entityOptions ) )
 		);
 		setAcknowledgeProductionWrite( false );
 		setRunStartError( null );
@@ -745,17 +691,11 @@ export default function ExportTab() {
 			<Card>
 				<CardBody>
 					<p>
-						{ /* カテゴリのマッピングは、カテゴリを作れないプラットフォームでだけ Mappings タブに出る（`MappingsTab.tsx`）。 */ }
-						{ false ===
-						currentConnection?.capabilities.can_create_category
-							? __(
-									'Category, payment method, shipping method, and order status mappings are set on the Mappings tab. Map your WooCommerce categories before exporting products, and payment and shipping methods before exporting orders.',
-									'cart-bridge-jp'
-							  )
-							: __(
-									'Payment method, shipping method, and order status mappings are set on the Mappings tab. Map payment and shipping methods before exporting orders.',
-									'cart-bridge-jp'
-							  ) }
+						{ /* どのマッピングがあるかは接続先と登録された種類で決まる（Mappings タブがサーバーの宣言から並べる。R3-6b2）。 */ }
+						{ __(
+							'Mappings between platform values and WooCommerce values are set on the Mappings tab. Set them up before exporting.',
+							'cart-bridge-jp'
+						) }
 					</p>
 					<p>
 						<a href={ tabHref( 'mappings', platform ) }>
@@ -799,52 +739,38 @@ export default function ExportTab() {
 					</p>
 
 					<div className="cbjp-export__entities">
-						{ currentConnection &&
-							availableExportEntities(
-								currentConnection.capabilities
-							).map( ( entity ) => {
-								const beta = isBetaEntity(
-									currentConnection.capabilities,
-									entity
-								);
-
-								return (
-									<CheckboxControl
-										key={ entity }
-										label={
-											beta
-												? sprintf(
-														/* translators: %s: entity name, e.g. "Orders" */
-														__(
-															'%s (Beta)',
-															'cart-bridge-jp'
-														),
-														ENTITY_LABELS[ entity ]
-												  )
-												: ENTITY_LABELS[ entity ]
-										}
-										help={
-											beta
-												? betaEntityHelp( entity )
-												: undefined
-										}
-										checked={ selectedExportEntities.has(
-											entity
-										) }
-										disabled={
-											dryRunExportBusy ||
-											exportBusy ||
-											blockedByOtherRun
-										}
-										onChange={ ( checked ) =>
-											toggleExportEntity(
-												entity,
-												checked
-											)
-										}
-									/>
-								);
-							} ) }
+						{ entityOptions.map( ( option ) => (
+							<CheckboxControl
+								key={ option.key }
+								label={
+									option.beta
+										? sprintf(
+												/* translators: %s: entity name, e.g. "Orders" */
+												__(
+													'%s (Beta)',
+													'cart-bridge-jp'
+												),
+												option.label
+										  )
+										: option.label
+								}
+								help={ entityHelp(
+									option.description,
+									option.beta
+								) }
+								checked={ selectedExportEntities.has(
+									option.key
+								) }
+								disabled={
+									dryRunExportBusy ||
+									exportBusy ||
+									blockedByOtherRun
+								}
+								onChange={ ( checked ) =>
+									toggleExportEntity( option.key, checked )
+								}
+							/>
+						) ) }
 					</div>
 
 					{ currentConnection?.capabilities.can_push_images && (
@@ -1013,7 +939,7 @@ export default function ExportTab() {
 						{ dryRunExportPolling.run && (
 							<RunProgress
 								run={ dryRunExportPolling.run }
-								entityLabels={ ENTITY_LABELS }
+								entityLabels={ entityLabels() }
 								onRetry={ ( jobId ) =>
 									retryExportJob( 'dry_run_export', jobId )
 								}
@@ -1091,7 +1017,7 @@ export default function ExportTab() {
 										joinList(
 											zeroWrittenExportEntities.map(
 												( entity ) =>
-													ENTITY_LABELS[ entity ]
+													entityLabel( entity )
 											)
 										)
 									) }
@@ -1100,7 +1026,7 @@ export default function ExportTab() {
 						{ exportPolling.run && (
 							<RunProgress
 								run={ exportPolling.run }
-								entityLabels={ ENTITY_LABELS }
+								entityLabels={ entityLabels() }
 								onRetry={ ( jobId ) =>
 									retryExportJob( 'export', jobId )
 								}

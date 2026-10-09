@@ -27,6 +27,31 @@ export interface ConnectionField {
 	help: string | null;
 }
 
+/**
+ * 取込みの選択肢（`GET /connections` の `entities.import`。R3-6b1・R3-6b2）。並びは実行順。
+ */
+export interface ImportEntityOption {
+	key: EntityType;
+	label: string;
+	/** この種類が、取込みの前に未設定の数を案内するマッピングを持つ（Import タブが候補を取得して数える）。 */
+	mapping_notice: boolean;
+}
+
+/**
+ * エクスポートの選択肢（`entities.export`）。`beta` は既定で選ばない（D24）。`description` は空なら出さない。
+ */
+export interface ExportEntityOption {
+	key: EntityType;
+	label: string;
+	beta: boolean;
+	description: string;
+}
+
+export interface EntityOptions {
+	import: ImportEntityOption[];
+	export: ExportEntityOption[];
+}
+
 export interface Connection {
 	platform: string;
 	label: string;
@@ -35,6 +60,8 @@ export interface Connection {
 	has_settings: boolean;
 	masked_token: string | null;
 	capabilities: Capabilities;
+	/** この接続先で取り込める・エクスポートできる実体の種類（`POST /runs` と同じ判定）。 */
+	entities: EntityOptions;
 	callback_url: string | null;
 	connection_fields: ConnectionField[];
 }
@@ -51,20 +78,10 @@ export interface TestConnectionResult {
 }
 
 /**
- * `Sync\JobManager::ENTITY_ORDER` と同じ並び順（実行順）。
+ * 実体の種類のキー（`Entities\EntityType::key()`）。Pro アドオンが種類を足すので、画面は特定のキーを知らない（R3-6b2）。
+ * 選択肢・表示名・並びはサーバーの宣言（`Connection.entities`・`cbjpAdmin.entityLabels`）から得る。
  */
-export const ENTITY_ORDER = [
-	'category',
-	'tag',
-	'product',
-	'customer',
-	'order',
-	'stock',
-	'coupon',
-	'review',
-] as const;
-
-export type EntityType = ( typeof ENTITY_ORDER )[ number ];
+export type EntityType = string;
 
 export type RunType = 'dry_run' | 'import' | 'dry_run_export' | 'export';
 
@@ -145,23 +162,6 @@ export interface ActiveRun {
 }
 
 /**
- * `Woo\Tools\PushIntentPresenter::describe()`が種別ごとに返す手がかり（D21-B）。
- * 全フィールド任意なのは、`entity_type`ごとに異なるサブセットしか埋まらないため
- * （product: name/sku、customer: email、order: number/total/currency/date_created、
- * coupon: code）。実体が削除済み（`exists === false`）の場合は空になる。
- */
-export interface PushIntentDetails {
-	name?: string;
-	sku?: string | null;
-	email?: string;
-	number?: string;
-	total?: string;
-	currency?: string;
-	date_created?: string | null;
-	code?: string;
-}
-
-/**
  * `GET /push-intents/{platform}`の1行（`Sync\PushIntentRepository::find_unresolved()`の行に
  * `PushIntentPresenter::describe()`の結果をmergeしたもの）。D21-B（issue #73）: 作成結果が
  * 不明なままの実体を表す「送信中の印」。
@@ -177,7 +177,11 @@ export interface PushIntent {
 	updated_at: string;
 	exists: boolean;
 	edit_url: string | null;
-	details: PushIntentDetails;
+	/**
+	 * 店舗が ASP の管理画面で実体を探す手がかりの 1 行（`Entities\EntityType::describe_local()`。R3-6b2）。実体が無いときは空。
+	 * 元の値の `details` も返るが、画面は使わない（種類ごとに形が違う）。
+	 */
+	summary: string;
 }
 
 /**
@@ -197,13 +201,16 @@ export interface LogEntry {
  * `POST /tools/rebuild-mappings` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
  */
 export interface RebuildResult {
+	/** 種類のキー => 結び直した件数。キーの順はサーバーの走査順。 */
 	counts: Record< string, number >;
+	/** 走査に失敗して飛ばした種類のキー（理由は Logs タブ。R3-6b2）。 */
+	skipped?: string[];
 	cursor: string | null;
 }
 
 /**
  * `GET /runs/{run_id}/verification` の1行（`Sync\VerificationReport`）。金額は `"1234.00"` 形式の
- * 10進文字列で、受注以外は null。
+ * 10進文字列で、金額を突合しない種類は null。
  */
 export interface VerificationEntity {
 	entity: EntityType;
@@ -232,34 +239,49 @@ export interface VerificationReport {
 	entities: VerificationEntity[];
 }
 
-export type MappingKey = 'category' | 'payment' | 'shipping' | 'status';
-
 export interface MappingCandidate {
 	id: string;
 	name: string;
 }
 
 /**
- * `GET/PUT /settings/mappings/{platform}`の応答本体（`Admin\RestController`）。`category_map`/
- * `payment_map`/`shipping_map`/`status_map`は保存済みマッピング（キー・値とも不透明な文字列ID）。
- * `category`のみ向きがWoo→ASPで他3キーはASP→Wooだが、型としては同じ形。
+ * マッピングの 1 種類（`GET /settings/mappings` の `kinds`。`Entities\MappingKind`。R3-6b1・R3-6b2）。文言はサーバーが翻訳して返す。
+ * `source_side` は行に並べる側（`woo`: Woo の値ごとに ASP の値を選ぶ。`asp`: その逆）。`applies` が偽の種類は節を出さない。
  */
-export interface SettingsMappingValues {
-	category_map: Record< string, string >;
-	payment_map: Record< string, string >;
-	shipping_map: Record< string, string >;
-	status_map: Record< string, string >;
+export interface MappingKindInfo {
+	key: string;
+	/** 保存済みのマップのキー（`{key}_map`）。 */
+	map_key: string;
+	/** このマッピングを持つ実体の種類。 */
+	entity: EntityType;
+	source_side: 'asp' | 'woo';
+	applies: boolean;
+	/** 取込みの前に未設定の数を案内する（Import タブ）。 */
+	import_notice: boolean;
+	label: string;
+	description: string;
+	source_heading: string;
+	target_heading: string;
+	unmapped_label: string;
+	no_targets_help: string;
 }
 
 /**
- * `GET /settings/mappings/{platform}`のみが追加で返す、UIが選択肢を描画するための候補一覧
- * （E2-1・D19）。`PUT`は候補一覧を返さない（保存操作そのものでは候補が変化しないうえ、
- * ColorMe側は候補取得のたびに`categories.json`等への追加APIコールが発生し、実行中のジョブと
- * レート制限を奪い合うため。`RestController::save_settings_mappings()`参照）。
+ * `GET/PUT /settings/mappings/{platform}`の応答本体（`Admin\RestController`）。登録されたマッピングの種類ごとに `{key}_map`
+ * （保存済みのマッピング。キー・値とも不透明な文字列ID）を返す。向き（`category` は Woo→ASP、ほかは ASP→Woo）は `MappingKindInfo`。
  */
-export interface SettingsMappings extends SettingsMappingValues {
-	asp_candidates: Record< MappingKey, MappingCandidate[] >;
-	woo_candidates: Record< MappingKey, MappingCandidate[] >;
+export type SettingsMappingValues = Record< string, Record< string, string > >;
+
+/**
+ * `GET /settings/mappings/{platform}`の応答（E2-1・D19）。保存済みのマップに加えて、UIが選択肢を描画するための候補一覧と種類の一覧を返す。
+ * `PUT`は候補一覧を返さない（保存操作そのものでは候補が変化しないうえ、ColorMe側は候補取得のたびに`categories.json`等への追加APIコールが
+ * 発生し、実行中のジョブとレート制限を奪い合うため。`RestController::save_settings_mappings()`参照）。
+ */
+export interface SettingsMappings {
+	asp_candidates: Record< string, MappingCandidate[] >;
+	woo_candidates: Record< string, MappingCandidate[] >;
+	kinds: MappingKindInfo[];
+	[ mapKey: string ]: unknown;
 }
 
 /**

@@ -12,10 +12,11 @@ import {
 import apiFetch from '../api';
 import type {
 	MappingCandidate,
-	MappingKey,
+	MappingKindInfo,
 	SettingsMappings,
 	SettingsMappingValues,
 } from '../types';
+import { parseMappingKinds, savedMap } from './mapping-status';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
@@ -23,29 +24,29 @@ function errorMessage( err: unknown ): string {
 
 const UNMAPPED = '';
 
-export type MapKey =
-	| 'category_map'
-	| 'payment_map'
-	| 'shipping_map'
-	| 'status_map';
+/**
+ * 編集中のマップ（`map_key` => 行の ID => 対応先の ID）。登録された全種類の分を持ち、節を出さない種類の値も保存時にそのまま送り返す。
+ */
+type EditableMappings = Record< string, Record< string, string > >;
 
-type EditableMappings = Record< MapKey, Record< string, string > >;
+function toEditable(
+	data: unknown,
+	kinds: MappingKindInfo[]
+): EditableMappings {
+	const editable: EditableMappings = {};
 
-function toEditable( data: SettingsMappingValues ): EditableMappings {
-	return {
-		category_map: { ...data.category_map },
-		payment_map: { ...data.payment_map },
-		shipping_map: { ...data.shipping_map },
-		status_map: { ...data.status_map },
-	};
+	for ( const kind of kinds ) {
+		editable[ kind.map_key ] = savedMap( data, kind.map_key );
+	}
+
+	return editable;
 }
 
 /**
- * 1 種類のマップの表示設定。`category_map` だけ向きが Woo → ASP で、他の 3 つは ASP → Woo
- * （`SettingsMappingValues` 参照）。向きは「どちら側の候補を行（source）にし、どちら側から選ばせるか（target）」で表す。
+ * 1 種類のマップの表示設定（R3-6b2 でサーバーの宣言〈`kinds`〉から組み立てる形にした）。向きは「どちら側の候補を行（source）にし、
+ * どちら側から選ばせるか（target）」で表す（カテゴリは Woo → ASP、決済などは ASP → Woo）。文言はサーバーが翻訳して返す。
  */
 interface MapSectionConfig {
-	candidateKey: MappingKey;
 	sourceSide: 'asp' | 'woo';
 	title: string;
 	help: string;
@@ -56,92 +57,29 @@ interface MapSectionConfig {
 	noTargetsHelp: string;
 }
 
-function sectionConfig( key: MapKey ): MapSectionConfig {
-	switch ( key ) {
-		case 'category_map':
-			return {
-				candidateKey: 'category',
-				sourceSide: 'woo',
-				title: __( 'Category mapping', 'cart-bridge-jp' ),
-				help: __(
-					'Used when exporting products. This platform cannot create new categories, so pick an existing platform category for each WooCommerce category you plan to export.',
-					'cart-bridge-jp'
-				),
-				sourceHeading: __( 'WooCommerce category', 'cart-bridge-jp' ),
-				targetHeading: __( 'Platform category', 'cart-bridge-jp' ),
-				unmappedLabel: __( '— No category —', 'cart-bridge-jp' ),
-				noTargetsHelp: __(
-					'No platform categories are available to choose from. Check the connection, or create the categories on the platform first.',
-					'cart-bridge-jp'
-				),
-			};
-		case 'payment_map':
-			return {
-				candidateKey: 'payment',
-				sourceSide: 'asp',
-				title: __( 'Payment method mapping', 'cart-bridge-jp' ),
-				help: __(
-					'Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning.',
-					'cart-bridge-jp'
-				),
-				sourceHeading: __(
-					'Platform payment method',
-					'cart-bridge-jp'
-				),
-				targetHeading: __(
-					'WooCommerce payment method',
-					'cart-bridge-jp'
-				),
-				unmappedLabel: __( '— Unmapped —', 'cart-bridge-jp' ),
-				noTargetsHelp: __(
-					'No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first.',
-					'cart-bridge-jp'
-				),
-			};
-		case 'shipping_map':
-			return {
-				candidateKey: 'shipping',
-				sourceSide: 'asp',
-				title: __( 'Shipping method mapping', 'cart-bridge-jp' ),
-				help: __(
-					'Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning.',
-					'cart-bridge-jp'
-				),
-				sourceHeading: __(
-					'Platform shipping method',
-					'cart-bridge-jp'
-				),
-				targetHeading: __(
-					'WooCommerce shipping method',
-					'cart-bridge-jp'
-				),
-				unmappedLabel: __( '— Unmapped —', 'cart-bridge-jp' ),
-				noTargetsHelp: __(
-					'No WooCommerce shipping methods are available. Add a shipping zone with a shipping method in WooCommerce > Settings > Shipping first.',
-					'cart-bridge-jp'
-				),
-			};
-		case 'status_map':
-			return {
-				candidateKey: 'status',
-				sourceSide: 'asp',
-				title: __( 'Order status mapping', 'cart-bridge-jp' ),
-				help: __(
-					'Overrides the WooCommerce status an imported order gets for each platform status. Leave it at Default to use the standard status.',
-					'cart-bridge-jp'
-				),
-				sourceHeading: __( 'Platform order status', 'cart-bridge-jp' ),
-				targetHeading: __(
-					'WooCommerce order status',
-					'cart-bridge-jp'
-				),
-				unmappedLabel: __( '— Default —', 'cart-bridge-jp' ),
-				noTargetsHelp: __(
-					'No WooCommerce order statuses are available.',
-					'cart-bridge-jp'
-				),
-			};
-	}
+function sectionConfig( kind: MappingKindInfo ): MapSectionConfig {
+	return {
+		sourceSide: kind.source_side,
+		title: kind.label || kind.key,
+		help: kind.description,
+		sourceHeading: kind.source_heading,
+		targetHeading: kind.target_heading,
+		unmappedLabel:
+			kind.unmapped_label || __( '— Unmapped —', 'cart-bridge-jp' ),
+		noTargetsHelp: kind.no_targets_help,
+	};
+}
+
+function candidateList(
+	candidates: Record< string, MappingCandidate[] > | undefined,
+	key: string
+): MappingCandidate[] {
+	const list =
+		candidates && Object.prototype.hasOwnProperty.call( candidates, key )
+			? candidates[ key ]
+			: undefined;
+
+	return Array.isArray( list ) ? list : [];
 }
 
 interface MappingSectionProps {
@@ -154,8 +92,7 @@ interface MappingSectionProps {
 }
 
 /**
- * カテゴリ/決済/配送/注文ステータスの 4 つの表はどれも「片側の候補を 1 行ずつ並べ、もう片側から選ばせる」
- * 同じ形なので 1 つのコンポーネントにまとめる。
+ * マッピングの表はどれも「片側の候補を 1 行ずつ並べ、もう片側から選ばせる」同じ形なので 1 つのコンポーネントにまとめる。
  * @param root0
  * @param root0.config
  * @param root0.sourceCandidates
@@ -178,7 +115,7 @@ function MappingSection( {
 				<strong>{ config.title }</strong>
 			</CardHeader>
 			<CardBody>
-				<p>{ config.help }</p>
+				{ '' !== config.help && <p>{ config.help }</p> }
 				{ 0 === sourceCandidates.length ? (
 					<p>
 						{ __(
@@ -188,9 +125,10 @@ function MappingSection( {
 					</p>
 				) : (
 					<>
-						{ 0 === targetCandidates.length && (
-							<p>{ config.noTargetsHelp }</p>
-						) }
+						{ 0 === targetCandidates.length &&
+							'' !== config.noTargetsHelp && (
+								<p>{ config.noTargetsHelp }</p>
+							) }
 						<div className="cbjp-mappings__scroll">
 							<table className="cbjp-mappings__table">
 								<thead>
@@ -286,26 +224,24 @@ function MappingSection( {
 
 interface MappingSettingsProps {
 	platform: string;
-	/** 表示するマップ（表示順）。表示しないマップも保存時は取得した値のまま送り返す。 */
-	mapKeys: MapKey[];
 	disabled?: boolean;
 }
 
 /**
  * `GET/PUT /settings/mappings/{platform}` のマッピング設定（取得・編集・保存）。Mappings タブが使う（R3-0m）。
+ * 節は応答の `kinds` のうち、この接続先で使うもの（`applies`）だけを並べる（R3-6b2）。
  * @param root0
  * @param root0.platform
- * @param root0.mapKeys
  * @param root0.disabled
  */
 export default function MappingSettings( {
 	platform,
-	mapKeys,
 	disabled = false,
 }: MappingSettingsProps ) {
 	const [ mappings, setMappings ] = useState< SettingsMappings | null >(
 		null
 	);
+	const [ kinds, setKinds ] = useState< MappingKindInfo[] >( [] );
 	const [ mappingsError, setMappingsError ] = useState< string | null >(
 		null
 	);
@@ -325,6 +261,7 @@ export default function MappingSettings( {
 		const requestId = ++generationRef.current;
 
 		setMappings( null );
+		setKinds( [] );
 		setEdited( null );
 		setMappingsError( null );
 		setSaveError( null );
@@ -340,8 +277,11 @@ export default function MappingSettings( {
 					return;
 				}
 
+				const parsed = parseMappingKinds( data?.kinds );
+
 				setMappings( data );
-				setEdited( toEditable( data ) );
+				setKinds( parsed );
+				setEdited( toEditable( data, parsed ) );
 			} )
 			.catch( ( err: unknown ) => {
 				if ( generationRef.current !== requestId ) {
@@ -352,13 +292,13 @@ export default function MappingSettings( {
 			} );
 	}, [ platform ] );
 
-	function updateMap( key: MapKey, sourceId: string, targetId: string ) {
+	function updateMap( mapKey: string, sourceId: string, targetId: string ) {
 		setEdited( ( current ) => {
 			if ( null === current ) {
 				return current;
 			}
 
-			const next = { ...current[ key ] };
+			const next = { ...current[ mapKey ] };
 
 			if ( UNMAPPED === targetId ) {
 				delete next[ sourceId ];
@@ -366,7 +306,7 @@ export default function MappingSettings( {
 				next[ sourceId ] = targetId;
 			}
 
-			return { ...current, [ key ]: next };
+			return { ...current, [ mapKey ]: next };
 		} );
 		setSaved( false );
 	}
@@ -404,7 +344,7 @@ export default function MappingSettings( {
 			setMappings( ( current ) =>
 				null === current ? current : { ...current, ...data }
 			);
-			setEdited( toEditable( data ) );
+			setEdited( toEditable( data, kinds ) );
 			setSaved( true );
 		} catch ( err ) {
 			if ( generationRef.current !== requestId ) {
@@ -432,18 +372,36 @@ export default function MappingSettings( {
 		return <Spinner />;
 	}
 
+	const sections = kinds.filter( ( kind ) => kind.applies );
+
+	if ( 0 === sections.length ) {
+		// 無料版だけで ColorMe につないだときなど（カテゴリを作れる接続先は、カテゴリのマッピングも要らない）。
+		return (
+			<p>
+				{ __(
+					'There are no mappings to set up for this platform.',
+					'cart-bridge-jp'
+				) }
+			</p>
+		);
+	}
+
 	return (
 		<div className="cbjp-mappings__settings">
-			{ mapKeys.map( ( key ) => {
-				const config = sectionConfig( key );
-				const aspCandidates =
-					mappings.asp_candidates[ config.candidateKey ];
-				const wooCandidates =
-					mappings.woo_candidates[ config.candidateKey ];
+			{ sections.map( ( kind ) => {
+				const config = sectionConfig( kind );
+				const aspCandidates = candidateList(
+					mappings.asp_candidates,
+					kind.key
+				);
+				const wooCandidates = candidateList(
+					mappings.woo_candidates,
+					kind.key
+				);
 
 				return (
 					<MappingSection
-						key={ key }
+						key={ kind.key }
 						config={ config }
 						sourceCandidates={
 							'woo' === config.sourceSide
@@ -455,9 +413,9 @@ export default function MappingSettings( {
 								? aspCandidates
 								: wooCandidates
 						}
-						map={ edited[ key ] }
+						map={ edited[ kind.map_key ] ?? {} }
 						onChange={ ( sourceId, targetId ) =>
-							updateMap( key, sourceId, targetId )
+							updateMap( kind.map_key, sourceId, targetId )
 						}
 						disabled={ disabled || saving }
 					/>

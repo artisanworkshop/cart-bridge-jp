@@ -84,18 +84,29 @@ describe( 'parseActiveRuns', () => {
 		expect( run.created_at ).toBe( '' );
 	} );
 
-	it( 'keeps only known entities and treats only true as a failed job', () => {
+	it( 'keeps well-formed entity keys in server order and treats only true as a failed job', () => {
+		// 画面は特定の種類を知らない（Pro アドオンが足す種類も残す。R3-6b2）。形の違う値と重複だけを捨てる。
 		const [ run ] = parseActiveRuns( [
 			{
 				run_id: 'run-a',
 				type: 'dry_run',
 				status: 'pending',
-				entities: [ 'order', 'nope', 3, 'product' ],
+				entities: [
+					'product',
+					'gizmo_v2',
+					3,
+					'Order',
+					'',
+					'a'.repeat( 21 ),
+					'1abc',
+					'product',
+					'order',
+				],
 				has_failed_job: 'true',
 			},
 		] );
 
-		expect( run.entities ).toEqual( [ 'product', 'order' ] );
+		expect( run.entities ).toEqual( [ 'product', 'gizmo_v2', 'order' ] );
 		expect( run.has_failed_job ).toBe( false );
 	} );
 } );
