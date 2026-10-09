@@ -123,7 +123,8 @@ final class VerificationReport {
 	}
 
 	/**
-	 * 外部の種類が返す値は信用しない（原則 8）。形が違えば金額は突合しない。
+	 * 外部の種類が返す値は信用しない（原則 8）。形が違えば金額は突合しない。通貨の一覧に空でない文字列以外が 1 つでもあれば、
+	 * 直さずに集計ごと捨てる（不正な要素を捨てて残りで判定すると、通貨の不一致を見逃して金額を突合できるように見せてしまう）。
 	 *
 	 * @param array<int,int> $existing
 	 * @return array{total_minor:int,currencies:array<int,string>}|null
@@ -139,9 +140,15 @@ final class VerificationReport {
 			return null;
 		}
 
+		foreach ( $summary['currencies'] as $currency ) {
+			if ( ! is_string( $currency ) || '' === $currency ) {
+				return null;
+			}
+		}
+
 		return [
 			'total_minor' => $summary['total_minor'],
-			'currencies'  => array_values( array_filter( $summary['currencies'], 'is_string' ) ),
+			'currencies'  => array_values( $summary['currencies'] ),
 		];
 	}
 

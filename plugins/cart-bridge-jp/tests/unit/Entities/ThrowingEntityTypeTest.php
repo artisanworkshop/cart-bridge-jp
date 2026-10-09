@@ -437,4 +437,51 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 			$this->assertSame( \CartBridgeJP\Woo\Tools\PushIntentResolutionException::REMOTE_UNAVAILABLE, $exception->reason() );
 		}
 	}
+
+	/**
+	 * 外部の種類の金額の集計が、通貨の一覧に不正な要素を含んでいたら、要素を捨てて突合せずに集計ごと捨てる（通貨の不一致を見逃さない）。
+	 */
+	public function test_an_amount_summary_with_a_malformed_currency_is_not_compared(): void {
+		$real  = self::factory()->post->create();
+		$mixed = new class( $real ) extends \CartBridgeJP\Entities\EntityType {
+
+			public function __construct( private readonly int $real ) {}
+
+			public function key(): string {
+				return 'mixed';
+			}
+
+			public function label(): string {
+				return 'Mixed';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function existing_local_ids( array $local_ids ): ?array {
+				return [ $this->real ];
+			}
+
+			public function local_amount_summary( array $local_ids ): ?array {
+				return [
+					'total_minor' => 100,
+					'currencies'  => [ 'JPY', 5 ],
+				];
+			}
+		};
+		$this->register_entity_types( [ $mixed ] );
+		$jobs   = new JobRepository();
+		$job_id = $jobs->create( 'run-mixed', JobManager::TYPE_IMPORT, 'mock', 'mixed' );
+		$jobs->update_status( $job_id, JobRepository::STATUS_COMPLETED );
+		$mappings = new MappingRepository();
+		$mappings->upsert( 'mock', 'mixed', 'm1', $real, null );
+
+		$report = ( new VerificationReport( $jobs, $mappings ) )->build( 'run-mixed' );
+
+		$this->assertNull( $report['entities'][0]['local_amount'] );
+		$this->assertNull( $report['entities'][0]['remote_amount'] );
+		$this->assertFalse( $report['currency_mismatch'] );
+		$this->assertSame( 1, $report['entities'][0]['existing'] );
+	}
 }
