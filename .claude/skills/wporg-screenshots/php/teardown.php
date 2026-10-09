@@ -13,7 +13,9 @@
  * 3. 開いたままの `colorme` の run をキャンセルする（残ったアクションは閉じたジョブに対して何もせずに終わる）。
  * 4. 偽のトークンを消す。トークンが無ければ何もしない。
  *
- * プラグインが無効（PHPUnit の後はオプションが戻り、無効になる。偽のトークンもオプションごと消えている）なら何もしない。
+ * プラグインか WooCommerce が無効なら、片付けられないので、`colorme` のトークンか開いた `colorme` のジョブが残っていれば失敗する
+ * （無効化はデータを消さない。モックを消した後で有効に戻すと、残った run が実 API へ出うる。PR #112 G3）。何も残っていなければ何もしない
+ * （PHPUnit の後はオプションが戻ってプラグインが無効になり、トークンもオプションごと消えている）。
  * 失敗したら終了コード 1。`capture.sh` は mu-plugin を残して止まる。
  *
  * @package CartBridgeJP
@@ -31,7 +33,21 @@ if ( '' === $cbjp_teardown_expected || home_url() !== $cbjp_teardown_expected ) 
 	$cbjp_teardown_fail( 'home_url ' . home_url() . " is not the tests site '{$cbjp_teardown_expected}'. Refusing to touch this site." );
 }
 if ( ! class_exists( TokenStore::class ) || ! function_exists( 'WC' ) ) {
-	echo "teardown: the plugin is not active on the tests site; nothing to tear down\n";
+	// 無効化はオプションもテーブルも消さない。トークンか開いた run が残ったままモックを消すと、後で有効に戻したときに
+	// 残った run が偽のトークンで実 API へ出うる（PR #112 G3）。片付けられないので、残っていれば失敗して mu-plugin を残す。
+	global $wpdb;
+	$cbjp_teardown_raw   = get_option( 'cbjp_token_colorme', null );
+	$cbjp_teardown_table = $wpdb->prefix . 'cbjp_jobs';
+	$cbjp_teardown_open  = $cbjp_teardown_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $cbjp_teardown_table ) ) )
+		? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cbjp_teardown_table} WHERE platform = 'colorme' AND status IN ('pending', 'running', 'paused')" )
+		: 0;
+	if ( ( null !== $cbjp_teardown_raw && '' !== $cbjp_teardown_raw ) || $cbjp_teardown_open > 0 ) {
+		$cbjp_teardown_fail(
+			'the plugin or WooCommerce is inactive on the tests site, but a colorme token or ' . $cbjp_teardown_open . ' open colorme job(s) remain.'
+			. ' Activate them (npx wp-env run tests-cli wp plugin activate woocommerce cart-bridge-jp) while the mu-plugin is still installed, then run capture.sh cleanup again.'
+		);
+	}
+	echo "teardown: the plugin is not active and no colorme token or open job remains; nothing to tear down\n";
 	return;
 }
 if ( ! user_can( 1, 'manage_woocommerce' ) ) {

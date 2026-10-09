@@ -58,7 +58,7 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
 | `scripts/capture.sh` | 前提の確認（キャプションの数・Playwright）→ `npm run build` → tests サイトの応答の確認 → mu-plugin を tests サイトへ置く → WooCommerce と本プラグインを有効化・パーマリンクを `/%postname%/` に → `php/setup.php` → `scripts/shoot.cjs` で一時ディレクトリへ撮り、全部撮れたら出力先へ写す（余った番号の画像があれば警告）→ `php/teardown.php` → mu-plugin と Cookie を消す（後片付けに失敗したら mu-plugin を残し、消せなければ終了コード 1）。最後まで走ったことは `DONE` で確かめ、途中で止まれば終了コード 1 |
 | `templates/mu-plugin-screenshot-fixtures.php` | `pre_http_request` で `api.shop-pro.jp` への GET を、URL のファイル名と同じフィクスチャで返す（一覧の 2 ページ目以降は空、GET 以外はエラー）。撮影向けに、顧客を会員に・グループを表示中で `Sale` に・ショップをプレミアムプランにする（Export タブにベータの機能を出す）。Action Scheduler の過去の予定の通知を止める。PHPCS の対象（`composer lint`） |
 | `php/setup.php` | 前提を肯定形で確かめる（home_url が tests サイト／mu-plugin が読み込まれている／`colorme` が実 `ColorMeAdapter`／`colorme` のトークンが無いか撮影用の偽物。別のトークンなら何も変えずに止まる）。サイト名・通貨・国・ストアの公開・ユーザー 1 の言語（英語）、偽のトークン（`TokenStore`）、銀行振込と代引き、配送（撮影用ゾーン `Japan` とその定額配送。名前で探して無ければ作る）を用意し、Mappings の対応を REST の候補一覧から作って保存する（フィクスチャの ID を書き写さない。決済は名前で対応させる）。開いたままの `colorme` の run をキャンセルしてから dry-run を始め、ジョブをその場で処理する（claim はフック名だけで取り、job_id で自分の run か見分ける。paused の再開は最大 5 分待つ）。全エンティティの完了を確かめてから `RUN_ID=` と `COOKIES=`（1 時間で切れる管理者のログイン Cookie）を出す。途中で止まるときは自分の run をキャンセルする |
-| `php/teardown.php` | home_url が tests サイトであることと、`colorme` のトークンが無いか撮影用の偽物（`screenshot-dummy-token`）であることを確かめてから（別のトークン・復号できない値なら何も変えずに失敗）、開いたままの `colorme` の run をキャンセルし、偽のトークンを消す。プラグインが無効（PHPUnit の後）なら何もしない |
+| `php/teardown.php` | home_url が tests サイトであることと、`colorme` のトークンが無いか撮影用の偽物（`screenshot-dummy-token`）であることを確かめてから（別のトークン・復号できない値なら何も変えずに失敗）、開いたままの `colorme` の run をキャンセルし、偽のトークンを消す。プラグインか WooCommerce が無効なら片付けられないので、トークンか開いた `colorme` のジョブが残っていれば失敗する（有効にしてから `cleanup`）。何も残っていなければ何もしない（PHPUnit の後など） |
 | `scripts/shoot.cjs` | Cookie でログインし、Import タブが開く run を localStorage（`cbjp_run_dry_run_colorme`）に入れてから、`shots.json` の順に各タブを幅 1280 の全体で撮る。タブごとに `wait_for` の文言が出るまで待ち（30 秒）、`uncheck` のチェックを外し、エラーの通知があれば撮らずに失敗する。フォーカスの枠とホバーは写さない |
 | `shots.json` | `dry_run_entities`（dry-run するエンティティ）と `shots`（`tab`・`wait_for`・任意の `uncheck`）。`shots[i]` が `screenshot-(i+1).png` |
 
@@ -88,5 +88,6 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
 - `the dry run did not complete for every entity: …`: 止まらなかったエンティティと状態（`product=failed` など）と、止まった理由（ジョブの失敗・5 分の期限・アクションを失ったジョブ）を出す。直前に出るエンティティごとの状態と `wp_cbjp_logs` を見る。run はキャンセル済みなので、原因を直してそのまま撮り直せる。
 - `no job was created for: …`: `dry_run_entities` に、アダプタが受け付けないエンティティがある。
 - `a colorme token other than the screenshot dummy …`（setup・teardown）: tests サイトに撮影用でないトークンが保存されている。誰かが tests サイトを店舗につないだので、撮影も後片付けも何も変えずに止まる（後片付けが止まると mu-plugin は残る）。そのトークンをどうするか決めてから撮り直す・`cleanup` を実行する。
+- `the plugin or WooCommerce is inactive … remain`: プラグインが無効のまま、撮影のトークンか開いた run が残っている。mu-plugin が残っている間に tests サイトで両方を有効にしてから（`npx wp-env run tests-cli wp plugin activate woocommerce cart-bridge-jp`）`cleanup` を実行する。
 - `teardown failed; keeping the mu-plugin`: 後片付けが失敗した。原因を直して `cleanup` を実行する。
 - `Unsupported chromium channel` / Chrome が無い: `npx playwright install chromium` の後に `CBJP_SHOTS_CHANNEL= $S/scripts/capture.sh shoot`。
