@@ -18,7 +18,11 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   `|| true` を付けてよいのは、失敗しても結論が変わらない取得だけ（アーキテクチャ原則 9「フェイルクローズ」のスクリプト版）
 - **`set -e` 下で `out=$(cmd)` を単独の代入文にしない**。`cmd` が失敗した時点でスクリプトごと終了し、次行で出力を表示する前に
   エラー本文が消える（終了コードだけが残る）。`if out=$(cmd); then rc=0; else rc=$?; fi` で受けてから出力し、`return "$rc"` する
-  （`mock-adapter.sh` の `wp()` 参照）。新しく書く**テストスクリプトにも同じ規約を適用する**（`test-gate-bodies.sh` の `load` ヘルパー参照。PR #64 で、この規約を追加したばかりの PR のテスト自身が違反し、Codex に P1 で指摘された）
+  （`mock-adapter.sh` の `wp()` 参照）。新しく書く**テストスクリプトにも同じ規約を適用する**（`test-gate-bodies.sh` の `load` ヘルパー参照。PR #64 で、この規約を追加したばかりの PR のテスト自身が違反し、Codex に P1 で指摘された）。
+  出力を `>/dev/null`・`--quiet` で捨てるのも同じで、CI・release のログにエラー本文が残らない。受けておき、失敗したときだけ全文を出す（`bin/build-zip.sh`。PR #113 R1-3）
+- **`npx wp-env` はリポジトリのルートで実行する**（カレントの `.wp-env.json` を探すので、プラグインのディレクトリで走らせると `docker-compose.yml` が無いという無関係に見えるエラーになる）。
+  プラグインのディレクトリへ `cd` するスクリプトは `(cd "$ROOT" && npx wp-env "$@")` を通す（`bin/i18n.sh` の `wp_env()`）。リポジトリのファイルを `wp eval-file` で使うときは
+  `--env-cwd=wp-content/cbjp-dev`（ルートのマウント。プラグインのマウントからは `../../cbjp-dev/…`）。R3-7
 - **`f || rc=1` の形で呼ぶ関数の中では `set -e` が効かない**（`||` の左辺は errexit が外れる）。関数の中の失敗は `cmd || return 1` で明示的に返す。
   逆に EXIT トラップの中では `set -e` が効くので、片付けを並べると最初の失敗で残りが走らない。1 つずつ `|| rc=1` で受けて最後まで続ける
   （`wporg-screenshots` の `capture.sh` の `remove_mu`・`finish`。`rm` が失敗しても「removed」と 0 を返していた。PR #112 R1-2）

@@ -2,7 +2,7 @@
 
 日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。無料版は挙動確認用サンプル移行、Pro版（別プラグイン）で無制限化する（`docs/03-design-decisions.md` D14）。**D27（2026-10-09）で改訂**: wordpress.org のガイドライン 5（トライアルウェアの禁止）のため、無料版は商品関連を件数無制限で移し、顧客・受注・クーポンは Pro アドオンへ移す（ライセンスが無い間は Pro 側の試用で各 100 件まで）。切り替えは R3-6（R3-4 の前）で、それまでのコードは D15 のサンプル上限のまま（`docs/03` §10.0）。アダプタの顧客・受注・クーポンの処理も Pro へ移し、Pro は v1.0 と同時に公開する（2026-10-09 決定）。
 
-**D29（2026-10-09）: 無料版と Pro アドオンをこのリポジトリで一緒に開発する（モノレポ）**。配置は `plugins/cart-bridge-jp/`（無料版）と `plugins/cart-bridge-jp-pro/`（Pro）で、開発ツールはルート。R3-7 で構成を変えた（`docs/03` §10.6）。**ルール・docs に書いた `includes/`・`src/`・`tests/`・`languages/`・`readme.txt` などのパスは、断りが無ければ無料版のディレクトリ（`plugins/cart-bridge-jp/`）からの相対パス**（R3-7 より前の記録も同じ読み方をする）。依存は Pro から無料版への一方向にし、無料版の配布物に Pro のコードを入れない。
+**D29（2026-10-09）: 無料版と Pro アドオンをこのリポジトリで一緒に開発する（モノレポ）**。配置は `plugins/cart-bridge-jp/`（無料版）と `plugins/cart-bridge-jp-pro/`（Pro）で、開発ツールはルート。R3-7 で構成を変えた（`docs/03` §10.6）。**ルール・docs に書いた `includes/`・`src/`・`tests/`・`languages/`・`readme.txt` などのパスは、断りが無ければ無料版のディレクトリ（`plugins/cart-bridge-jp/`）からの相対パス**（R3-7 より前の記録も同じ読み方をする）。依存は Pro から無料版への一方向にし、無料版の配布物に Pro のコードを入れない。Pro は WooCommerce と無料版を確かめてから Pro のクラスに触れる（`class_exists()` もオートロードを起こし、無料版の型を継承したクラスは無料版が無いと fatal になる。`cbjp_pro_bootstrap()`、PR #113 R2）。
 
 リリースは1ASPずつ: **v1.0=カラーミーショップのみ（インポート＋エクスポート）、v2.0=BASE追加、v3.0=MakeShop追加**（D18、2026-09-05）。v1.0 完了前に BASE/MakeShop のアダプタ実装へ着手しない。3ASP対応を前提に実装済みの基盤（TokenStoreのリフレッシュ構造、`canFetchCustomers` 等）は削除しない。
 
@@ -65,7 +65,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 
 - WordPress Coding Standards（PHPCS: `WordPress` ruleset + PSR-4クラス構成）
 - UI文字列は英語で書き、`__( 'Text', 'cart-bridge-jp' )` で必ずi18n化。日本語訳は `languages/cart-bridge-jp-ja.po` に同梱している。**文字列を足す・変えたら同じ PR で** `npm run i18n:pot`（ビルドしてから POT。JS は `build/index.js` から抜く）→ `npm run i18n:po` → 足された項目を訳す（用語集は `docs/03` §6「翻訳（R3-2）」）→ `npm run i18n:compile`。CI（`npm run i18n:check`）と `TranslationsTest` が、POT の鮮度・訳の漏れ・プレースホルダの食い違いを止める。訳のパスの登録（メインファイルの `cbjp_load_textdomain()`）は、WooCommerce・オートロードを確かめる `cbjp_bootstrap()` のガードの外に置く（中に置くと前提条件の通知が英語のまま出る。PR #109 G1-1）
-- `readme.txt` は配布物。事実の記述（サンプル・上限・取り込む／送るデータ・外部への接続）は実装を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー・`LimitPolicy` の既定値・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合するので、これらを変えたら同じ PR で readme も直す
+- `readme.txt` は配布物。事実の記述（サンプル・上限・取り込む／送るデータ・外部への接続）は実装を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー（Description は `plugins/cart-bridge-jp/composer.json` の `description` とも）・`LimitPolicy` の既定値・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合するので、これらを変えたら同じ PR で readme も直す
 - コードコメントは日本語可
 - 入力は必ずサニタイズ、出力は必ずエスケープ、DB操作は `$wpdb->prepare()`
 - APIトークン等の機密情報は暗号化して保存（`Support\TokenStore` 経由。オプションテーブルに平文保存禁止）
