@@ -9,9 +9,9 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCoupon;
+use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\WarningCode;
-use CartBridgeJP\Woo\Writer\OrderWriter;
 use WC_Coupon;
 use WC_DateTime;
 use WP_Query;
@@ -161,7 +161,7 @@ final class CouponReader implements EntityReader {
 		// 理由・同じコードを再利用する）。
 		$amount_is_currency_denominated = 'percent' !== $coupon->get_discount_type();
 
-		if ( ( $amount_is_currency_denominated || null !== $canonical->min_amount ) && OrderWriter::PLATFORM_CURRENCY !== get_woocommerce_currency() ) {
+		if ( ( $amount_is_currency_denominated || null !== $canonical->min_amount ) && Money::PLATFORM_CURRENCY !== get_woocommerce_currency() ) {
 			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
 		}
 

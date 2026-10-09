@@ -9,7 +9,6 @@ namespace CartBridgeJP\Sync;
 
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Tools\LocalEntityLookup;
-use CartBridgeJP\Woo\Writer\OrderWriter;
 
 /**
  * 移行後検証レポート（D17 / `docs/03-design-decisions.md` §10.4）。
@@ -88,8 +87,8 @@ final class VerificationReport {
 			'currency'          => $currency,
 			// ASP 側の金額の通貨。受注側の通貨と異なる（または受注間で通貨が混在する）場合、`OrderWriter` は
 			// 数値をそのまま保存しているため両者は数値上一致しても同じ金額ではない（UI は金額突合を「不可」として扱う）。
-			'platform_currency' => OrderWriter::PLATFORM_CURRENCY,
-			'currency_mismatch' => [] !== $currencies && [ OrderWriter::PLATFORM_CURRENCY ] !== $currencies,
+			'platform_currency' => Money::PLATFORM_CURRENCY,
+			'currency_mismatch' => [] !== $currencies && [ Money::PLATFORM_CURRENCY ] !== $currencies,
 			'entities'          => $entities,
 		];
 	}

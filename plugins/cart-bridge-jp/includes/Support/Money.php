@@ -18,6 +18,13 @@ namespace CartBridgeJP\Support;
 final class Money {
 
 	/**
+	 * 対応 ASP（カラーミー / BASE / MakeShop）の金額の通貨。どれも日本円だけを扱う。店舗通貨がこれと異なる場合、取込みは金額を換算せずに
+	 * 保存して `CURRENCY_MISMATCH` を出し、エクスポートは送らない。移行後検証レポートも同じ前提で通貨の不一致を報告する。
+	 * 受注・クーポン（R3-6c で Pro へ移す）と無料版の検証レポートが共有するので、ここに置く（R3-6b1。以前は `Woo\Writer\OrderWriter`）。
+	 */
+	public const PLATFORM_CURRENCY = 'JPY';
+
+	/**
 	 * 整数部として受け付ける最大桁数（16桁）。1/100単位に変換しても PHP_INT_MAX（約9.2e18）に収まる。
 	 */
 	private const MAX_MAJOR_DIGITS = 16;

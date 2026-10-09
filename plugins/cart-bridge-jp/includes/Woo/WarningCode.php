@@ -650,7 +650,7 @@ final class WarningCode {
 			// 実際の明細と一緒に「¥0の注文」としてpushしない。
 			self::ORDER_TOTALS_INVALID,
 			// `Woo\Reader\OrderReader`: 注文の通貨（`WC_Order::get_currency()`）が対応ASPの前提
-			// 通貨（`Woo\Writer\OrderWriter::PLATFORM_CURRENCY`=JPY）と異なる。importのCURRENCY_
+			// 通貨（`Support\Money::PLATFORM_CURRENCY`=JPY）と異なる。importのCURRENCY_
 			// MISMATCH（店舗通貨とASP前提通貨が異なる場合の警告のみ、注文自体は保存する）とは
 			// 非対称にblockingへ倒す: import方向の不一致は内部記録上のズレに留まるのに対し、
 			// export方向でJPY以外の金額をそのままpushすると、ASP側がその数値をJPYとして解釈し
