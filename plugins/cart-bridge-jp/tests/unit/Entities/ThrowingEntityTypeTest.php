@@ -132,13 +132,25 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 	 */
 	public static function broken_scans(): array {
 		return [
-			'throws'         => [ static fn (): array => throw new \RuntimeException( 'scan' ) ],
-			'not an array'   => [ static fn (): string => 'nope' ],
-			'missing rows'   => [ static fn (): array => [ 'scanned' => 1 ] ],
-			'negative count' => [
+			'throws'                 => [ static fn (): array => throw new \RuntimeException( 'scan' ) ],
+			'not an array'           => [ static fn (): string => 'nope' ],
+			'missing rows'           => [ static fn (): array => [ 'scanned' => 1 ] ],
+			'negative count'         => [
 				static fn (): array => [
 					'scanned' => -1,
 					'rows'    => [],
+				],
+			],
+			'beyond the limit'       => [
+				static fn (): array => [
+					'scanned' => 10000,
+					'rows'    => [],
+				],
+			],
+			'more rows than scanned' => [
+				static fn (): array => [
+					'scanned' => 0,
+					'rows'    => [ 5 => 'b1' ],
 				],
 			],
 		];
@@ -368,5 +380,61 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $row['existing'] );
 		$this->assertSame( 1, $row['missing'] );
 		$this->assertSame( [ $real ], $liar->summarized );
+	}
+
+	/**
+	 * push intent の解除で、外部の種類が返したモデルの `remote_id()` が例外を投げても、500 ではなく REMOTE_UNAVAILABLE で返す。
+	 */
+	public function test_a_fetched_model_that_cannot_report_its_id_is_reported_as_unavailable(): void {
+		$odd = new class() extends \CartBridgeJP\Entities\EntityType {
+
+			public function key(): string {
+				return 'odd';
+			}
+
+			public function label(): string {
+				return 'Odd';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function fetch_by_remote_id( \CartBridgeJP\Adapters\PlatformAdapter $adapter, string $remote_id ): ?\CartBridgeJP\Canonical\CanonicalModel {
+				return new class() implements \CartBridgeJP\Canonical\CanonicalModel {
+
+					public function to_array(): array {
+						return [];
+					}
+
+					public static function from_array( array $data ): self {
+						return new self();
+					}
+
+					public function canonical_json(): string {
+						return '{}';
+					}
+
+					public function checksum(): string {
+						return '';
+					}
+
+					public function remote_id(): ?string {
+						throw new \RuntimeException( 'remote_id' );
+					}
+				};
+			}
+		};
+		$this->register_entity_types( [ $odd ] );
+		$intents = new \CartBridgeJP\Sync\PushIntentRepository();
+		$intents->begin( 'mock', 'odd', 404, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		try {
+			( new \CartBridgeJP\Woo\Tools\PushIntentResolver( $intents, new MappingRepository() ) )->resolve_link( 'mock', $id, new MockPlatformAdapter(), 'o1' );
+			$this->fail( '例外が出ませんでした。' );
+		} catch ( \CartBridgeJP\Woo\Tools\PushIntentResolutionException $exception ) {
+			$this->assertSame( \CartBridgeJP\Woo\Tools\PushIntentResolutionException::REMOTE_UNAVAILABLE, $exception->reason() );
+		}
 	}
 }

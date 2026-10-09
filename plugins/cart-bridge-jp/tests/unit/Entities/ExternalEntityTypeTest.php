@@ -395,4 +395,19 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$this->assertContains( 'Entity type failed to report the amount of a gizmo item.', $errors );
 		$this->assertContains( 'Entity type failed to build a dry-run label.', array_column( ( new LogRepository() )->list( null, 'error' ), 'message' ) );
 	}
+
+	/**
+	 * 外部の種類の `records_push_intent()` が例外を投げても、ページを止めず、push intent を残す側に倒す（作成の結果が不明なまま
+	 * 印が無いと、次の export が同じ実体をもう一度作りうる）。
+	 */
+	public function test_a_failing_push_intent_check_keeps_the_intent(): void {
+		$local                               = $this->local_gizmo( 'Unsure' );
+		$this->gizmo->create_failure         = new ApiException( 'upstream', 503 );
+		$this->gizmo->explode_on_push_intent = true;
+
+		$run_id = $this->run_entities( JobManager::TYPE_EXPORT, [ 'gizmo' ] );
+
+		$this->assertSame( JobRepository::STATUS_COMPLETED, ( new JobRepository() )->find_by_run( $run_id )[0]['status'] );
+		$this->assertTrue( ( new PushIntentRepository() )->has_unresolved( 'mock', 'gizmo', $local ) );
+	}
 }

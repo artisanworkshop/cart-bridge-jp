@@ -66,6 +66,8 @@ final class PushIntentResolver {
 			// ColorMe 側が読取専用で元々非対応。`docs/03` §10.2「エクスポートの重複作成防止」参照）は既定の
 			// `UnsupportedOperationException` で LINK_UNSUPPORTED になる。登録の無い種類は今までどおり「リモートに無い」扱い。
 			$remote_entity = null === $type ? null : $type->fetch_by_remote_id( $adapter, $remote_id );
+			// 返ってきたモデルの ID も同じ例外の境界の中で読む（外部の種類のモデルの `remote_id()` が例外を投げても 500 にしない）。
+			$fetched_id = $remote_entity?->remote_id();
 		} catch ( UnsupportedOperationException ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
 		} catch ( RateLimitExhaustedException ) {
@@ -83,7 +85,7 @@ final class PushIntentResolver {
 		// あたかも実在するかのように見え、無関係な別のローカル実体へ紐付いてしまう
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
 		// `$remote_id`と一致することまで確認する。
-		if ( null === $remote_entity || $remote_entity->remote_id() !== $remote_id ) {
+		if ( null === $remote_entity || $fetched_id !== $remote_id ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
 		}
 

@@ -56,6 +56,11 @@ final class GizmoType extends EntityType {
 	 */
 	public bool $explode_on_item = false;
 
+	/**
+	 * 真にすると `records_push_intent()` が例外を投げる（push intent を残す側に倒れることの確認用）。
+	 */
+	public bool $explode_on_push_intent = false;
+
 	private int $next_remote_id = 900;
 
 	public function key(): string {
@@ -117,6 +122,10 @@ final class GizmoType extends EntityType {
 	}
 
 	public function records_push_intent(): bool {
+		if ( $this->explode_on_push_intent ) {
+			throw new RuntimeException( 'push intent' );
+		}
+
 		return true;
 	}
 

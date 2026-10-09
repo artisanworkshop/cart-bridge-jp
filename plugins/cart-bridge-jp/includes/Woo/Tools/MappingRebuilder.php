@@ -69,8 +69,10 @@ final class MappingRebuilder {
 			$scanned = is_array( $result ) ? ( $result['scanned'] ?? null ) : null;
 			$rows    = is_array( $result ) ? ( $result['rows'] ?? null ) : null;
 
-			// 外部の LinkSource の戻り値は信用しない（原則 8）。例外・形の違う結果は記録してその種類を飛ばす。
-			if ( ! is_int( $scanned ) || $scanned < 0 || ! is_array( $rows ) ) {
+			// 外部の LinkSource の戻り値は信用しない（原則 8）。例外・形の違う結果・ありえない件数（求めた件数より多く走査した、
+			// 走査した件数より多くの行を返した）は記録してその種類を飛ばす。件数を信じると、予算を超えたり、保存する offset が
+			// まだ見ていない実体を追い越して、以後の再構築がそれらを飛ばし続けたりする。
+			if ( ! is_int( $scanned ) || $scanned < 0 || $scanned > $remaining || ! is_array( $rows ) || count( $rows ) > $scanned ) {
 				$this->logger->error(
 					'Mapping rebuild skipped a source that failed to scan.',
 					[

@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\ExportOptions;
@@ -142,7 +143,7 @@ final class Exporter {
 		// 分岐する送信（D21-B「作成を伴う push」）を持つ種類だけが push intent を残す（`EntityType::records_push_intent()`。
 		// 在庫は既存実体への更新のみで冪等なため対象外）。
 		$type               = EntityTypeRegistry::get( $entity );
-		$push_intent_entity = null !== $type && $type->records_push_intent();
+		$push_intent_entity = null !== $type && $this->records_push_intent( $type );
 
 		foreach ( $items as $read_item ) {
 			++$totals['processed'];
@@ -576,6 +577,18 @@ final class Exporter {
 	 */
 	public static function export_checksum( CanonicalModel $item, string $salt = '' ): string {
 		return hash( 'sha256', self::CHECKSUM_NAMESPACE . $salt . $item->canonical_json() );
+	}
+
+	/**
+	 * 種類が push intent を残すか。外部の種類が例外を投げたら残す側に倒す（作成の結果が分からないまま印を残さないと、
+	 * 再開時に同じ実体をもう一度作りうる。D21-B。ページ全体も落とさない。原則 8・9）。
+	 */
+	private function records_push_intent( EntityType $type ): bool {
+		try {
+			return false !== $type->records_push_intent();
+		} catch ( Throwable ) {
+			return true;
+		}
 	}
 
 	/**
