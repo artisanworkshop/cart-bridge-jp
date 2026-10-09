@@ -7,6 +7,8 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Admin;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
+
 /**
  * 管理画面React アプリのアセット読み込み。
  */
@@ -54,11 +56,13 @@ final class Assets {
 			self::HANDLE,
 			'cbjpAdmin',
 			[
-				'restUrl'   => esc_url_raw( rest_url() ),
-				'restNonce' => wp_create_nonce( 'wp_rest' ),
+				'restUrl'      => esc_url_raw( rest_url() ),
+				'restNonce'    => wp_create_nonce( 'wp_rest' ),
 				// 日時・金額の書式の言語（`src/i18n.ts` の `displayLocale()`）。JS の `toLocaleString()` はブラウザの言語になり、
 				// 翻訳（ユーザーの言語）と食い違うため渡す。BCP 47 に寄せて `_` を `-` にする（不正なタグは JS 側でブラウザの既定へ倒す）。
-				'locale'    => str_replace( '_', '-', determine_locale() ),
+				'locale'       => str_replace( '_', '-', determine_locale() ),
+				// 実体の種類（とリンク再構築の対象）の表示名（R3-6b1。キー => 名前）。Pro アドオンが足す種類も入る。
+				'entityLabels' => EntityTypeRegistry::labels(),
 			]
 		);
 	}

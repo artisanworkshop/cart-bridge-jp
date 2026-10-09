@@ -76,6 +76,54 @@ final class EntityTypeRegistry {
 		return self::all()[ $key ] ?? null;
 	}
 
+	public static function has( string $key ): bool {
+		return isset( self::all()[ $key ] );
+	}
+
+	/**
+	 * 種類の表示名。外部の種類が例外を投げる・空を返すときはキーを使う（一覧を落とさない）。
+	 */
+	public static function label( EntityType $type ): string {
+		try {
+			$label = $type->label();
+		} catch ( Throwable ) {
+			$label = '';
+		}
+
+		return '' !== $label ? $label : $type->key();
+	}
+
+	/**
+	 * 画面に出す名前（種類と、リンク再構築の対象〔`variant` など〕）。キー => 名前。
+	 *
+	 * @return array<string,string>
+	 */
+	public static function labels(): array {
+		$labels = [];
+
+		foreach ( self::all() as $key => $type ) {
+			$labels[ $key ] = self::label( $type );
+		}
+
+		foreach ( self::link_sources() as $source ) {
+			$key = $source->key();
+
+			if ( isset( $labels[ $key ] ) ) {
+				continue;
+			}
+
+			try {
+				$label = $source->label();
+			} catch ( Throwable ) {
+				$label = '';
+			}
+
+			$labels[ $key ] = '' !== $label ? $label : $key;
+		}
+
+		return $labels;
+	}
+
 	/**
 	 * @return array<int,string> 実行順のキー。
 	 */
