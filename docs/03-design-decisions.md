@@ -24,7 +24,7 @@
 | D13 | 有効期限付きトークン対応 | BASEのアクセストークン1時間+リフレッシュトークン30日ローテーションに対応するため、**TokenStoreはPhase 0から構造化ペイロード（access/refresh/expires_at）+リフレッシュ排他ロックを前提に設計**する（§4参照。カラーミー/MakeShopは単一トークンとして同構造に格納） |
 | D14 | ビジネスモデル | ~~無料版=挙動確認用（**dry-runは全量無料**+実移行はサンプルのみ）~~ → **D27 で無料版と Pro の境目を改訂**（無料版=商品関連の移行を件数無制限、Pro版=顧客・受注・クーポンの移行〔ライセンスが無い間は試用で各 100 件まで〕・パスワード設定メール〔D28〕・301 リダイレクト CSV）。Pro版=買切り**「移行プロジェクトライセンス」**: サイト数無制限・**初回アクティベーションから3ヶ月**のアップデート&サポート・認証済みサイトは期限後も永続動作（新規サイト認証と更新のみ不可）・価格 ¥19,800 前後・自社サイト直販（**WooCommerce API Manager**）・返金保証なし（~~無料版で~~ 事前検証可能なことを明記。D27 以後、顧客・受注・クーポンは Pro の試用で事前検証する）。**継続同期（Pro同期）は販売しない**。詳細は §10.1。ライセンス形態・価格は D27 でも変えない |
 | D15 | 無料版の実行上限 | **D27 で廃止**（無料版に件数の上限を置かない。wordpress.org ガイドライン 5。以下は D27 より前の決定で、仕組みは Pro の試用の候補として Pro へ移す）。~~**最新受注10件起点のサンプル移行**: サンプル受注に紐づく商品（ハードキャップ50件）・顧客（最大10件）・受注10件のみ実インポート/エクスポート可。カテゴリ/タグは全量無料。上限はサーバーサイド（JobManager）で強制し、`cbjp/limits/{entity}` フィルター（総称表記: `cbjp/limits/*`）でPro版が解除~~。詳細は §10.2 |
-| D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**（**v1.0 では選択式を実装しない**: checksum が変わった分だけ更新・同じならスキップ〔2026-10-05 決定、R3-1〕。§10.3）。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と**サンプルクリーンアップツール**を提供。詳細は §10.3 |
+| D16 | Pro本移行時の重複防止 | mappings による冪等 upsert + 本移行はカーソル先頭から全走査。取込済みデータの扱いは**開始時に選択式（更新/スキップ、デフォルト更新）**（**v1.0 では選択式を実装しない**: checksum が変わった分だけ更新・同じならスキップ〔2026-10-05 決定、R3-1〕。§10.3）。mappings欠損時の**リンク再構築ツール**（SKU/email/注文番号突合）と~~**サンプルクリーンアップツール**~~（R3-6a で削除。D27）を提供。詳細は §10.3 |
 | D17 | 付帯機能 | dry-runレポートCSVダウンロード / 移行後検証レポート（件数・金額突合）/ 301リダイレクトCSV（Pro）/ エクスポート実行前の本番書込み警告 を実装する。期限切れ後の再購入導線（リピート割引等）は**実装しない**。詳細は §10.4 |
 | D18 | リリース計画の改訂（1ASPずつ公開） | **v1.0はカラーミーショップのみ**（インポート＋エクスポート）で公開し、**v2.0でBASE**、**v3.0でMakeShop**を追加する（各バージョンでインポート＋エクスポートを揃える）。D11のフェーズ構成と「v1.0公開はBASE込み」は本決定で置き換え、MakeShop/BASEの順序も入れ替える（新フェーズ構成: 0基盤→1カラーミーインポート→2カラーミーエクスポート→3 v1.0公開→4 BASEインポート→5 BASEエクスポート+v2.0公開→6 MakeShopインポート→7 MakeShopエクスポート+v3.0公開）。3ASP対応を前提に設計・実装済みのアーキテクチャ（PlatformAdapter・Canonical・Capabilities・TokenStoreのリフレッシュ構造=D13・HttpClientのレート制限判定フック・`canFetchCustomers` 等）は**そのまま維持し削除しない**。v2.0以降は、プラットフォーム固有のコードをアダプタ外に書かない（アーキテクチャ原則1）ことを維持しつつ、プラットフォーム非依存のコア拡張点（例: 受注インポート時に抽出した顧客をImporterが永続化するフック=B4-5、レート制限超過時の再試行遅延をアダプタ側から指定できるJobManagerの拡張点=E5-1）の追加は許容し、Importer/Exporter本体にプラットフォーム固有の分岐を持ち込まないことを検証観点とする（旧計画でMakeShopが担っていた観点はBASEへ）。v1.0 完了前に Phase 4 以降へ着手しない。フェーズ再編・タスクID採番は `10-tasks.md` 冒頭を参照 |
 | D19 | マッピング候補一覧の取得方式（E2-1） | `PlatformAdapter`（§2「確定版」）に `mappingCandidates(): array` を追加する。`/settings/mappings/{platform}` のマッピングUI（カテゴリ/決済/配送/注文ステータス）が選択肢を動的に描画するための自己記述スキーマで、既存の `connectionFields()` と同じ設計思想。外部アドオンによるカスタムアダプタ実装は現時点で存在しないため、確定版インターフェースへの追加による後方互換リスクは低いと判断した（該当メソッドが無いカスタムアダプタは致命的エラーになるため、将来外部アダプタが増えた場合はこの追加を周知する）。あわせて `cbjp_settings_{platform}` に `category_map`（キー: Woo側カテゴリID、値: ASP側カテゴリID）を追加。カラーミーがカテゴリ作成不可なため、既存の `payment_map`/`shipping_map`/`status_map`（ASP側ID→Woo側ID）とは向きが逆になる。**E2-2/E2-3への申し送り**: `payment_map`/`shipping_map`はASP→Wooの単射とは限らない（複数のASP決済/配送方法が同じWooゲートウェイ/配送方法へ寄せられうる）ため、エクスポート時にWoo側の値からASP側の値へ機械的に逆引きすることはできない。E2-3の`push_order`実装時にこの逆引きの曖昧性をどう解決するか（例: 最初に一致した1件を使う、複数一致時は警告付きでフェイルクローズする等）を設計すること |
@@ -70,11 +70,11 @@ interface PlatformAdapter {
     public function fetchCoupons( Cursor $cursor ): Page;    // Page<CanonicalCoupon>
     public function fetchReviews( Cursor $cursor ): Page;    // Page<CanonicalReview>（makeshopのみ）
 
-    // 無料版サンプル選定・ID指定取得（D15。詳細は§10.2。API対応可否は要検証#14/#15）
-    public function fetchLatestOrders( int $limit ): array;                          // CanonicalOrder[]（新しい順）
+    // ID指定取得（送信の結果が不明な実体の確定〔push intent の解除。D21-B〕が使う。API対応可否は要検証#15）
+    // ~~public function fetchLatestOrders( int $limit ): array;~~                    // R3-6a で削除（D27。無料版のサンプル選定〔D15〕専用だった）
     public function fetchProductByRemoteId( string $remoteId ): ?CanonicalProduct;   // 404はnull
     public function fetchCustomerByRemoteId( string $remoteId ): ?CanonicalCustomer; // base: UnsupportedOperationException（D12）
-    public function fetchOrderByRemoteId( string $remoteId ): ?CanonicalOrder;       // 404はnull。県コード修復（issue #46）で追加。ID指定の単一取得は日付窓（colorme: 直近7日）の影響を受けない
+    public function fetchOrderByRemoteId( string $remoteId ): ?CanonicalOrder;       // 404はnull。県コード修復（issue #46。R3-6a で削除）のときに追加。ID指定の単一取得は日付窓（colorme: 直近7日）の影響を受けない
 
     // 書き込み（capabilityで不可のものは UnsupportedOperationException）
     public function pushProduct( CanonicalProduct $p, ?string $remoteId ): PushResult;
@@ -463,11 +463,11 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する |
-| GET | `/limits?platform={platform}` | 無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」） |
-| GET | `/tools/sample-cleanup?platform=` | サンプルクリーンアップの削除件数プレビュー（D16/§10.3） |
-| POST | `/tools/sample-cleanup` | 無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3） |
+| ~~GET~~ | ~~`/limits?platform={platform}`~~ | **R3-6a で削除（D27）**。~~無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」）~~ |
+| ~~GET~~ | ~~`/tools/sample-cleanup?platform=`~~ | **R3-6a で削除（D27）**。~~サンプルクリーンアップの削除件数プレビュー（D16/§10.3）~~ |
+| ~~POST~~ | ~~`/tools/sample-cleanup`~~ | **R3-6a で削除（D27）**。~~無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3）~~ |
 | POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3） |
-| GET / POST | `/tools/repair-states?platform=&cursor=` | 県コード修復（issue #46/§10.3）。GET=Scan（読取専用。補正が必要な件数を数える）、POST=Repair（`state` のみ補正）。1バッチ分を処理し `cursor` を返す。ASP への照会に失敗した場合は 503（レート制限。`Retry-After`）/409（未接続・認証切れ）/502 で、処理済みの `counts` と再開用 `cursor` をボディに含めて返す |
+| ~~GET / POST~~ | ~~`/tools/repair-states?platform=&cursor=`~~ | **R3-6a で削除（2026-10-09 決定。§10.0）**。以下は削除前の記録: 県コード修復（issue #46/§10.3）。GET=Scan（読取専用。補正が必要な件数を数える）、POST=Repair（`state` のみ補正）。1バッチ分を処理し `cursor` を返す。ASP への照会に失敗した場合は 503（レート制限。`Retry-After`）/409（未接続・認証切れ）/502 で、処理済みの `counts` と再開用 `cursor` をボディに含めて返す |
 
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
 ASPからの外部リダイレクトで叩かれるためnonce・capabilityを課さず、代わりに `state` ワンタイムトークンで検証する。
@@ -553,7 +553,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 ### React アプリ（src/）
 
 - `@wordpress/scripts` ビルド、TypeScript strict、`@wordpress/components` + `@wordpress/api-fetch`
-- ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはサンプルクリーンアップ / リンク再構築（D16）/ 県コード修復（issue #46）（`/tools/*` ルート）を配置
+- ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはリンク再構築（D16。`/tools/*` ルート）を配置（サンプルクリーンアップと県コード修復〔issue #46〕は R3-6a で削除）
 - **Mappings タブ（`#/mappings`、R3-0m）**: `GET/PUT /settings/mappings/{platform}` の編集 UI。E2-1 で Export タブに作ったものを共有コンポーネント
   `src/components/MappingSettings.tsx` に切り出して移した（GET と PUT は同じ世代カウンタを共有する）。決済方法・配送方法・注文ステータスを常に、
   カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は R3-0i で UI 側だけ止めた（`GET /runs?platform=` で進行中の run を
@@ -739,6 +739,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 
 **D14・D15 への影響**: D14 のライセンス形態（移行プロジェクトライセンス・価格・期限）は変えない。「dry-run は全量無料」「返金保証なし（無料版で事前検証可能）」は、顧客・受注・クーポンについては Pro の試用で事前検証する形に変わる。
 D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`LimitPolicy`・`SampleSelector`・`ExportSampleSelector`・サンプルのクリーンアップ）は Pro の試用の仕組みの候補として Pro へ移す（使うかは Pro の設計で決める）。
+→ **R3-6a で無料版から削除した**（Pro へは移していない。Pro の試用で要るなら git の履歴〔R3-6a より前の `plugins/cart-bridge-jp/includes/Sync/`〕から戻す）。
 
 **決め残し（R3-6 の計画で決める）**:
 1. ~~アダプタの顧客・受注・クーポンの読取り・変換・送信（`PlatformAdapter` の `fetch_customers`・`fetch_orders`・`fetch_coupons`・`fetch_latest_orders`・`fetch_*_by_remote_id`・`push_customer`・`push_order`・`push_coupon` と `ColorMeAdapter` の変換器）を、
@@ -749,13 +750,54 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 3. 無料版に残すもの・Pro へ移すものの振り分け: ツール（サンプルのクリーンアップ、リンク再構築〔商品は SKU・顧客は email・受注は注文番号〕、県コード修復〔顧客・受注の住所〕）、
    Mappings タブ（決済・配送・注文ステータスは受注用）、検証レポートの受注金額の突合、D25 の顧客・受注・クーポンの判定（`EntityOrigin`）、エクスポートのベータ（受注は Pro、商品画像は無料版）。
    サンプルのクリーンアップ後の再エクスポートで重複する件（backlog `r3-3-readme-v1/R1-X1`）は、クリーンアップをどちらに置くかで扱いが変わる。
+   → **一部決定（2026-10-09、R3-6 の計画）**: **サンプルのクリーンアップは無料版から削除する**（サンプルが無くなり、本移行前のリセット・サンプルの選び直しという役目が無い。
+   backlog `r3-3-readme-v1/R1-X1` は機能ごと無くなり解消。Pro の試用で要るかは Pro の設計で決める）。**県コード修復は廃止する**（対象は v0.1.0〜2026-09-15 に取り込んだ
+   検証サイトだけで、どのリリースにも含まれていない。該当サイトは R3-6a より前の main で修復しておく。Pro へ移す手間を省く）。どちらも R3-6a で削除した。
+   リンク再構築の顧客・受注・クーポン、Mappings タブ、検証レポートの受注金額、`EntityOrigin`、受注エクスポートのベータは R3-6b/c の計画で決める。
 4. 試用 100 件の数え方と選び方（エンティティごとの累計か、最新の受注から選ぶか）。Pro の設計で決める。
 5. Pro への案内（リンクの置き場所と文言。`cbjp/limits/pro_url` を残すか）。
+   → **一部決定（2026-10-09）**: `cbjp/limits/pro_url` は上限の案内（`LimitsUpsellNotice`）と一緒に R3-6a で削除した。置き場所と文言は R3-6d で決める。
 6. ~~Pro の公開時期: 無料版 v1.0 だけでは顧客・受注を移せないため、v1.0 と同時に Pro を出すか。~~
    → **決定（2026-10-09）: v1.0 と同時に出す**。公開に必須とする Pro の範囲（試用・ライセンス〔WooCommerce API Manager〕・販売サイト・パスワード設定メール〔D28〕・301 リダイレクト CSV）は R3-6 の計画で決める。
+   → **決定（2026-10-09、R3-6 の計画）**: 公開に必須とするのは、顧客・受注・クーポンの移行・試用（各 100 件）・ライセンスと更新配信（と販売サイト）。
+   パスワード設定メール（D28）と 301 リダイレクト CSV（D17）は公開の後に出す。
 7. 0.1.0（GitHub Release）で顧客・受注を取り込んだサイトが無料版を更新したときの扱い（取り込んだデータは Woo に残るが、無料版からは再取込みもツールも使えなくなる）。
 8. Pro が使ってよい無料版のクラス・フックの範囲（D29）。公開後に互換を保つ範囲になる。
-9. 無料版が要求する OAuth のスコープ: 受注・顧客・クーポンにだけ使うスコープを無料版が要求し続けるか、Pro が足す形にするか。
+9. ~~無料版が要求する OAuth のスコープ: 受注・顧客・クーポンにだけ使うスコープを無料版が要求し続けるか、Pro が足す形にするか。~~
+   → **決定（2026-10-09、R3-6 の計画）**: 無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す
+   （要求したスコープを記録し、足りない接続には再接続を促す）。使わない個人情報への権限を無料版が求めない。R3-6c で実装する。
+
+#### R3-6 の分け方（2026-10-09、R3-6 の計画で決定）
+
+| PR | 内容 |
+|---|---|
+| R3-6a | 無料版から件数の上限・サンプル・Pro 案内と、役目を終えたツール（サンプルのクリーンアップ・県コード修復）を外す。全実体が件数無制限になる（顧客・受注・クーポンも R3-6c まで一時的に無制限。未公開の main なので許容） |
+| R3-6b | 無料版の中で拡張点を作り、顧客・受注・クーポンを拡張点経由の登録に作り替える（動作は変えない）。決め残し 2・8 と 3 の残りを決める |
+| R3-6c | 顧客・受注・クーポンを Pro へ `git mv` する（`PlatformAdapter`・`Capabilities` から外す、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` の原則 7 の書き換え） |
+| R3-6d | readme・スクリーンショット・i18n を新しい範囲に書き直す。Pro への案内（決め残し 5）、0.1.0 のサイト向けの changelog（決め残し 7。取込みの上限が無くなったこと、顧客・受注・クーポンが Pro へ移ったこと、0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること） |
+
+R3-6 の後に Pro の公開準備（試用・ライセンス・更新配信・Pro の翻訳・`Update URI`・販売サイト）のタスクを `docs/10` に起こす（中身は R3-6c の後に計画する）。
+
+#### R3-6a の実装（2026-10-09。ブランチ `feat/r3-6a-remove-free-limits`）
+
+- **削除したもの**: `Sync\LimitPolicy`・`SampleSelector`・`SampleSet`・`ExportSampleSelector`・`ExportSampleSet`、`Woo\Tools\SampleCleanup`・`CleanupNotPermittedException`・
+  `PrefStateRepair`・`RepairInterruptedException`、REST の `GET /limits`・`GET|POST /tools/sample-cleanup`・`GET|POST /tools/repair-states`、フィルター `cbjp/limits/{entity}`・`cbjp/limits/pro_url`、
+  `PlatformAdapter::fetch_latest_orders()`（と `ColorMeAdapter` の実装・探索窓の補助。D20 の凍結前なので `AbstractPlatformAdapterTest::BASELINE` からも外した）、
+  `AddressMapper::uses_pref_id_scheme()`（県コード修復だけが使っていた）、管理画面の `LimitsUpsellNotice`・`upsell-breakdown`・`cleanup-gate`・`repair-messages`、Tools タブのクリーンアップと県コード修復のカード。
+- **変えたもの**: `JobManager` は全エンティティをカーソル走査する（サンプルの ID 指定取得・サンプル商品からの在庫の導出・review の絞り込みが無くなった）。コンストラクタから `LimitPolicy` を外した。
+  `Importer::run_page()` から `$limit_policy`・`$sample`、`Exporter::run_page()` から `$limit_policy`・`$only_local_ids`、`Sync\WooReader::read()` から `$only_local_ids` を外した
+  （位置引数が詰まる。外部コードは呼んでいない）。`Woo\Reader\EntityReader::query()` の ID 指定は、テストがフィクスチャを絞るのに使う汎用の絞り込みとして残した（`WooReader` は常に null を渡す）。
+- **残したもの**（汎用。Pro の試用が使いうる）: `MappingRepository::count()`・`find_page()`・`delete_for_platform()`、`PushIntentRepository::count()`・`delete_for_platform()`、totals の `unchanged`
+  （`skipped` のうち既に移行済みで書かなかった件数。画面では今は使っていない）、`WarningCode::indicates_kept_by_link_direction()`、`ProductReader::EXPORTABLE_*`、
+  `PlatformLock::TTL_LONG`（3600 秒。根拠を残る区間で書き直し、値は変えない）。
+- **旧版が残すデータ**: option `cbjp_sample_{platform}`・`cbjp_export_sample_{platform}` と、県コード修復が書いた監査用のメタ `_cbjp_state_repaired`（顧客の user meta と受注の order meta）は消さない（害が無く、データを消す設定〔`cbjp_delete_data_on_uninstall`。UI は R3-5〕でアンインストールすれば `cbjp_%` の option は消える。メタはアンインストールでも残る既存の扱いと同じ）。
+- **画面の文言**: Import タブの「Preview (dry run, no limit)」→「Preview (dry run)」、実行の確認と Export タブの警告から「up to the current plan's limits」を外した。検証レポートの案内から無料版の上限とサンプルのクリーンアップに触れる文を外した。
+- **readme**: 「Free version limits」の節と FAQ「What does the free version migrate?」を外し、Tools の箇条・dry run の「no limit」・スクリーンショット 5 のキャプションを直した。
+  `ReadmeTest` は上限の照合をやめ、上限の節・「(up to N)」「limited to N」が readme に戻ったら落ちるようにした。スクリーンショット 2・4・5 を撮り直した（文言・Tools タブが変わったため）。
+- **テスト**: 上限・サンプル・クリーンアップ・県コード修復のテストを外し、旧上限を超える件数（商品 55・顧客 12・受注 12、エクスポートの商品 51・クーポン 12）を全件処理することと、
+  旧版の `cbjp/limits/*` を足しても絞られないこと（上限を再び足す退行の検出）を `JobManagerTest`・`JobManagerExportTest` に足した。
+- **確認**: 品質チェック一式、dev サイトで mock アダプタ（`mockv`）の import（顧客・受注 12 件ずつ）と export（商品 74 件）が全件書かれ・送られること、削除したルートが 404 になること。
+  検証スキルの `partial-push` の例は、サンプルの固定の代わりに「ほかの商品を先に仮の remote_id で結んで更新経路に回す」形に書き換えて通した。
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 
@@ -778,7 +820,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 
 ### 10.2 無料版の実行上限とサンプリング（D15）
 
-> **D27（§10.0）で廃止**: 無料版に件数の上限を置かない。以下は D27 より前の決定と、R3-6 で外すまでの現行コードの記録。仕組みは Pro の試用の候補として Pro へ移す。
+> **D27（§10.0）で廃止**: 無料版に件数の上限を置かない。以下は D27 より前の決定の記録で、仕組み（`LimitPolicy`・サンプル・クリーンアップ）は **R3-6a で削除した**（Pro の試用で要るなら git の履歴から戻す。§10.0）。
 
 **エンティティ別上限**（インポート/エクスポート共通。dry-run は全量無料）:
 
@@ -2090,11 +2132,11 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
     になることを実データで確認した（`docs/reviews/feat/r3-1-e2e-rehearsal/rehearsal.md`）
 - **リンク再構築ツール**（`POST /tools/rebuild-mappings`）: 再インストール・DB移設等で mappings が失われた場合に、
   SKU（商品）/ email（顧客）/ `_cbjp_remote_order_number` メタ（受注）で既存Wooデータと突合して mappings を再構築
-- **サンプルクリーンアップツール**（`POST /tools/sample-cleanup`）: 無料版サンプル由来のWooデータと対応 mappings を一括削除。
+- ~~**サンプルクリーンアップツール**（`POST /tools/sample-cleanup`）~~（**R3-6a で削除**。§10.0）: 無料版サンプル由来のWooデータと対応 mappings を一括削除。
   対象は mappings の記録に基づき、実行前に削除件数を表示して確認を取る（本移行前のリセット・サンプル再選定に使用）
-- **県コード修復ツール**（`GET/POST /tools/repair-states`。issue #46）: PR #44 より前にインポートした顧客・受注の都道府県（`state`）の是正。
+- ~~**県コード修復ツール**（`GET/POST /tools/repair-states`。issue #46）~~（**R3-6a で削除**。2026-10-09 決定。§10.0）: PR #44 より前にインポートした顧客・受注の都道府県（`state`）の是正。
   Scan（読取専用）で補正が必要な件数を確認してから Repair を実行する。詳細は下記「県コード修復ツール（issue #46）」
-- **アップセル表示**（**D27 で無料版から外す**。R3-6。以下は現行コードの記録）: dry-run で総数が判明するため、上限到達時に
+- **アップセル表示**（**D27 で無料版から外し、R3-6a で削除した**。以下は削除前の記録）: dry-run で総数が判明するため、上限到達時に
   「移行対象◯件のうち10件を無料版で移行済み。残り◯件は Pro 版で移行できます」と具体数で表示（`GET /limits`）
   - **件数の内訳と Pro への言及の切替（2026-09-26 決定、issue #55）**: 当初は dry-run の `processed` と移行済み件数（`used`）の差を
     「Pro 版で移行できる残数」としていたが、差には価格未設定・blocking 警告等で **Pro 版でも移行できない件数**が含まれ、上限未到達でも
@@ -2143,7 +2185,7 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
 
 #### ツールの実装詳細（F1-7）
 
-- **サンプルクリーンアップ**（`Woo\Tools\SampleCleanup`、`GET/POST /tools/sample-cleanup`）: `cbjp_mappings`（platform単位）を正とし、
+- **サンプルクリーンアップ**（`Woo\Tools\SampleCleanup`、`GET/POST /tools/sample-cleanup`。**R3-6a で削除**。以下は削除前の記録）: `cbjp_mappings`（platform単位）を正とし、
   指す先の実体が `_cbjp_platform` メタで自プラットフォーム所有と確認できるものだけ削除する。所有権が無い・実体が既に無い行は
   mapping 行だけ外す（`unlinked`）。削除順は order → stock/review（mapping行のみ）→ product（`VariationWriter::find_owned_variation_remote_ids()`
   + `remove_all()` で所有 variation を先に削除）→ variant → coupon → customer → tag → category → 所有添付（`_cbjp_platform` + `_cbjp_source_url` 付き
@@ -2175,6 +2217,8 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
   予算 200 件/リクエストで `{entity, offset}` の cursor を返し、管理画面がループする（upsert は走査結果を変えないため offset ページングで安定）
 
 #### 県コード修復ツール（issue #46）
+
+> **R3-6a で削除した**（2026-10-09 決定。§10.0「決め残し」3）。以下は削除前の記録。
 
 PR #44 より前のコードは ColorMe の `pref_id` をそのまま `JP%02d` にしていた（恒等変換）ため、それ以前にインポートした
 顧客・受注の `billing_state`/`shipping_state` は 23 県で誤っている（§「E2-3 PR-B」）。是正手段は次の理由で「ASP を正として再取得し、

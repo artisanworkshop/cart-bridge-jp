@@ -76,19 +76,17 @@ final class PushIntentResolver {
 		} catch ( UnsupportedOperationException ) {
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
 		} catch ( RateLimitExhaustedException ) {
-			// `Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分（クライアント側
-			// スロットル。待てば再開できる）。
+			// クライアント側スロットル。待てば再開できる（`classify_api_failure()`のASP側429と同じ区分）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::RATE_LIMITED );
 		} catch ( ApiException $exception ) {
 			throw new PushIntentResolutionException( $this->classify_api_failure( $exception ) );
 		} catch ( Throwable $exception ) {
 			// 200応答でも想定した形でない等、アダプタの契約違反。個人情報を含みうるメッセージは
-			// 記録せず、REST層へは理由コードのみ渡す（`PrefStateRepair`と同じ方針）。
+			// 記録せず、REST層へは理由コードのみ渡す。
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 
-		// 外部アダプタの戻り値は信用しない（アーキテクチャ原則8。`Woo\Tools\PrefStateRepair`と
-		// 同じ理由）。契約違反のアダプタが要求と異なる実体を返すと、要求した`remote_id`が
+		// 外部アダプタの戻り値は信用しない（アーキテクチャ原則8）。契約違反のアダプタが要求と異なる実体を返すと、要求した`remote_id`が
 		// あたかも実在するかのように見え、無関係な別のローカル実体へ紐付いてしまう
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
 		// `$remote_id`と一致することまで確認する。
@@ -129,8 +127,7 @@ final class PushIntentResolver {
 	}
 
 	/**
-	 * `Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分（再接続が必要 / レート制限 /
-	 * その他のAPIエラー）。status 0 だけでは「未接続」「通信断」「JSON破損」を区別できないため、
+	 * APIエラーの区分（再接続が必要 / レート制限 / その他のAPIエラー）。status 0 だけでは「未接続」「通信断」「JSON破損」を区別できないため、
 	 * `context['not_connected'] === true`（アダプタが明示。`ColorMeAdapter::client()`）または
 	 * 401/403のときだけ再接続案内にする（`.claude/rules/adapters-colorme.md`）。
 	 */

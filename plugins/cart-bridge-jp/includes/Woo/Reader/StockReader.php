@@ -24,7 +24,7 @@ use WC_Product_Variation;
  * `get_visible_children()`は在庫切れバリエーションも除外しうるため使わない。実装ノート参照）で
  * 公開バリエーションのみを1件ずつ展開する。1商品が0〜N件の`CanonicalStock`に展開されるため
  * `ReadPage::$total`は常にnull（CLAUDE.md: Transformerが行を展開・除外しうるエンティティは
- * totalをnullにする規約。`Sync\Importer::stocks_for_sample_product()`と同じ理由）。
+ * totalをnullにする規約）。
  * ページ内の全商品をスキャンしてから`MappingRepository::find_many_by_local_ids()`で一括解決する
  * （アイテム毎のSELECTを避けるため。`ProductReader::variants()`と同じ理由）。
  */

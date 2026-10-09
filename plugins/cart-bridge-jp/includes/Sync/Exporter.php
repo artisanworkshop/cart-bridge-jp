@@ -33,8 +33,8 @@ use Throwable;
  * 共有する（`docs/03-design-decisions.md` §10.2「import/export共有」）。しかし
  * `Importer`が書くchecksumはASP側`CanonicalModel`のハッシュ、`Exporter`が書くのはWoo側
  * `CanonicalModel`のハッシュであり、同じ実体でも一致しない別物である。素朴に同じ値として
- * 比較すると、一度でも同じ行を両方向が触った実体（例: importで作られWooで購入されたため
- * exportのサンプルにも選ばれた商品）で、以後のimportが「ASP側は変わっていないのに
+ * 比較すると、一度でも同じ行を両方向が触った実体（例: importで作られ、その後exportでも
+ * 送られた商品）で、以後のimportが「ASP側は変わっていないのに
  * checksum不一致」と誤判定し、`ProductWriter::write()`がユーザーのWoo側手動編集を無条件に
  * 上書きし続けてしまう（逆方向も同様）。`cbjp_mappings.checksum`は`CHAR(64)`固定長
  * （生のsha256 hex digest専用でマイグレーション無しに拡張できない）のため、`Importer`の
@@ -82,11 +82,8 @@ final class Exporter {
 	) {}
 
 	/**
-	 * カーソル走査エンティティを1ページ処理する。`$only_local_ids`が渡された場合は
-	 * そのWooローカルIDのみを対象にする（無料版サンプル選定。D15 §10.2 #8。
-	 * 呼び出し側=JobManagerがサンプル対象を解決する）。
+	 * カーソル走査エンティティを1ページ処理する。
 	 *
-	 * @param array<int,int>|null $only_local_ids
 	 * @return array{next_cursor:?Cursor,total:?int,totals:array<string,int>}
 	 */
 	public function run_page(
@@ -96,14 +93,12 @@ final class Exporter {
 		string $entity,
 		Cursor $cursor,
 		bool $is_dry_run,
-		?LimitPolicy $limit_policy = null,
-		?array $only_local_ids = null,
 		?int $job_id = null,
 		?string $run_id = null
 	): array {
-		$page = $reader->read( $entity, $cursor, $only_local_ids );
+		$page = $reader->read( $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $page->items, $is_dry_run, $limit_policy, $job_id, $run_id );
+		$totals = $this->process_items( $adapter, $writer, $entity, $page->items, $is_dry_run, $job_id, $run_id );
 
 		return [
 			'next_cursor' => $page->next_cursor,
@@ -122,7 +117,6 @@ final class Exporter {
 		string $entity,
 		array $items,
 		bool $is_dry_run,
-		?LimitPolicy $limit_policy,
 		?int $job_id = null,
 		?string $run_id = null
 	): array {
@@ -148,9 +142,6 @@ final class Exporter {
 		$local_ids = array_map( static fn ( ReadItem $read_item ): int => $read_item->local_id, $items );
 		$existing  = $this->mappings->find_many_by_local_ids( $platform, $entity, $local_ids );
 
-		// 残枠はページ開始時に一度だけ解決する（`Importer`と同じ理由）。
-		$remaining = ( null !== $limit_policy ) ? $limit_policy->remaining( $platform, $entity ) : null;
-
 		// D22: `Capabilities::$supports_per_variant_stock_management`は在庫管理が混在する警告が最初に付いた
 		// アイテムで1回だけ解決し、ページ内で使い回す（警告が無いページでは`capabilities()`を呼ばない）。
 		$supports_per_variant_stock = null;
@@ -169,29 +160,18 @@ final class Exporter {
 			// （`Woo\Tools\PushIntentResolver`）がmappingを結んだ直後に何らかの理由で印が
 			// 消せなかった場合、以後この実体は`existing_remote_id`が非nullになり
 			// `$creates_remote_entity`がfalseになるため、印を再検査・削除する経路が二度と
-			// 無くなり孤立した印が恒久的に残る（一覧に出続け、無料枠も占有し続ける）。
+			// 無くなり孤立した印が恒久的に残る（一覧に出続ける）。
 			// mappingが既にある実体を処理する機会（このアイテム）で自己修復する。
 			if ( ! $is_dry_run && null !== $existing_remote_id && $push_intent_entity && $this->push_intents->has_unresolved( $platform, $entity, $local_id ) ) {
 				$this->push_intents->delete( $platform, $entity, $local_id );
-
-				// レビュー指摘（Codex, G3）: ページ開始時に一度だけ計算した`$remaining`は
-				// mappingsと未解決intentの両方を数える`LimitPolicy::used()`に基づくため、この実体を
-				// 二重に数えていた（mapping1件＋intent1件）。`LimitPolicy::remaining()`は負の値を
-				// 0へクランプするため、複数のstale intentが同時に存在し使用数が上限を超えている
-				// 場合、単純に`++$remaining`を繰り返すとクランプで隠れていた超過分まで枠として
-				// 復活してしまう（G2時点の`++$remaining`はこの多重発生ケースを見落としていた）。
-				// 都度`$limit_policy`から再計算し、常にDBの実状態と一致させる。
-				if ( null !== $remaining && null !== $limit_policy ) {
-					$remaining = $limit_policy->remaining( $platform, $entity );
-				}
 			}
 
 			// D25（issue #98）: このプラットフォームからの取込みで結ばれた実体は送らない（実体は作られた向きにだけ更新する。
 			// 往復で送ると、取込みで変換した値〔仮 SKU・会員限定販売の公開・在庫未設定の 0 等〕がリモートに書き戻される）。
 			// mapping の有無によらず止める（mapping を失った取込み品を作成し直して、リモートに重複を作らない）。mapping・
-			// 無料枠・push intent には触れず、取込みが書いた checksum もそのまま残す。読出時の警告（止める警告を含む）は
+			// push intent には触れず、取込みが書いた checksum もそのまま残す。読出時の警告（止める警告を含む）は
 			// 送らない行には意味が無いので、dry-run 行には D25 のコードだけを載せる。mapping がある実体は既に結ばれている
-			// （`LimitPolicy::used()`にも数えられている）ので`unchanged`にも数え、Pro 案内の「未移行」を過小にしない。
+			// ので`unchanged`（`skipped`のうち、既に結ばれていて送らなかった件数）にも数える。
 			if ( $read_item->linked_by_import ) {
 				++$totals['skipped'];
 				++$totals['warned'];
@@ -263,7 +243,7 @@ final class Exporter {
 
 			if ( null !== $row && null !== $row['checksum'] && self::export_checksum( $item, $checksum_salt ) === $row['checksum'] ) {
 				++$totals['skipped'];
-				// `skipped`の内訳（`JobRepository::empty_totals()`）。dry-runでは「移行できる件数」に数える（issue #55）。
+				// unchanged は skipped の内訳で、既に移行済みで変更が無い件数（JobRepository の empty_totals を参照）。
 				// 止める実体（上の`$is_blocked`）はこの判定より前に抜けるため、ここには来ない。
 				++$totals['unchanged'];
 
@@ -284,18 +264,6 @@ final class Exporter {
 				continue;
 			}
 
-			$consumed_quota_slot = false;
-
-			if ( ! $is_dry_run && null === $existing_remote_id && null !== $remaining ) {
-				if ( $remaining <= 0 ) {
-					++$totals['skipped'];
-					continue;
-				}
-
-				--$remaining;
-				$consumed_quota_slot = true;
-			}
-
 			// D21-B: 作成経路の送信直前に印を書く（dry-runでは書かない）。既に行があれば
 			// （直前の`has_unresolved()`確認後、他run/他プロセスが同時に開始した稀な競合。
 			// `UNIQUE KEY`で検知する。#57の部分緩和）今回はpushしない。
@@ -303,10 +271,6 @@ final class Exporter {
 
 			if ( ! $is_dry_run && $creates_remote_entity ) {
 				if ( ! $this->push_intents->begin( $platform, $entity, $local_id, $run_id, $job_id ) ) {
-					if ( $consumed_quota_slot ) {
-						++$remaining;
-					}
-
 					++$totals['skipped'];
 					++$totals['warned'];
 					continue;
@@ -390,14 +354,6 @@ final class Exporter {
 				// PR-A時点のColorMeは`push_*`が全てこの例外を投げるため、実行(非dry-run)の
 				// exportジョブは全件がここを通りskipped/warned扱いで完了する（ジョブ自体は
 				// STATUS_FAILEDにならない）のが現状の期待動作（E2-3で解消）。
-				// D21-Bレビュー指摘: 印を残す（`mark_ambiguous`）場合、そのローカルIDは
-				// `LimitPolicy::used()`（mappings＋未解決intent）上は引き続き枠を占有したままになる。
-				// 無条件に`$consumed_quota_slot`を解放すると、この1ページの残り処理で別アイテムが
-				// 同じ枠を二重に使ってしまい、ページ内に限って無料版上限を実質的に超過しうる
-				// （原則7: 未解決intentは枠を空けない）。印を削除できた場合（未送信/拒否が確定）だけ
-				// 解放する。
-				$intent_kept_ambiguous = false;
-
 				if ( $push_intent_pending ) {
 					// D21-B表: capability未対応・4xx（429を含む）は「拒否/未対応が確定」で印を消す。
 					// 5xx・status 0（通信断/タイムアウト）・その他の例外・契約違反の再スロー
@@ -406,8 +362,7 @@ final class Exporter {
 					// 「通信断」「JSON破損」のいずれでも使われ、status 0**だけ**では判別できない。
 					// アダプタが`context['not_connected'] === true`で明示した場合（`ColorMeAdapter::
 					// client()`が送信前に投げる）のみ「未送信が確定」と扱う（`is_bool()`ではなく
-					// 既存コード〔`PrefStateRepair::classify_api_failure()`〕と同じ`true ===`の
-					// 厳密比較。CLAUDE.mdの`(bool)`キャスト回避ルールと同じ理由）。
+					// `true ===`の厳密比較。CLAUDE.mdの`(bool)`キャスト回避ルールと同じ理由）。
 					$confirmed_not_sent = ! $contract_violation_after_create && (
 						$exception instanceof UnsupportedOperationException
 						|| ( $exception instanceof ApiException && $exception->status_code() >= 400 && $exception->status_code() < 500 )
@@ -418,12 +373,7 @@ final class Exporter {
 						$this->push_intents->delete( $platform, $entity, $local_id );
 					} else {
 						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
-						$intent_kept_ambiguous = true;
 					}
-				}
-
-				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
-					++$remaining;
 				}
 
 				++$totals['skipped'];
@@ -503,8 +453,7 @@ final class Exporter {
 				// `upsert()`のユニークキー（platform, entity_type, remote_id）は新remote_idで
 				// 別行をINSERTするだけで、旧remote_idの行は孤児として残る。
 				// `find_many_by_local_ids()`/`find_remote_id()`はid昇順の最初の行（＝古い方）を
-				// 採用するため、以後のエクスポートは永久に削除済みのremote_idへ再送し続け、
-				// 重複行が無料版の累計カウント（`LimitPolicy`）も押し上げてしまう。
+				// 採用するため、以後のエクスポートは永久に削除済みのremote_idへ再送し続ける。
 				// 新しいremote_idをupsertする前に旧行を削除する。
 				if ( null !== $existing_remote_id && $existing_remote_id !== $result->remote_id ) {
 					$this->mappings->delete_one( $platform, $entity, $existing_remote_id );
@@ -578,23 +527,14 @@ final class Exporter {
 				// 「2xxだがid欠損」と同型の契約違反）や、未知のoperation文字列（正規化で`skipped`に
 				// 倒れるだけで「送信していない」ことの合図ではない）を、安全側＝印を残す側に倒すため
 				// （原則8: 信頼境界の戻り値は肯定形でしか安全側に倒さない。原則9）。
-				$confirmed_not_sent    = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
-				$intent_kept_ambiguous = false;
+				$confirmed_not_sent = PushResult::OPERATION_SKIPPED === $result->operation && '' === $result->remote_id;
 
 				if ( $push_intent_pending ) {
 					if ( $confirmed_not_sent ) {
 						$this->push_intents->delete( $platform, $entity, $local_id );
 					} else {
 						$this->push_intents->mark_ambiguous( $platform, $entity, $local_id );
-						$intent_kept_ambiguous = true;
 					}
-				}
-
-				// R1-2と同じ理由: 印を残した（`mark_ambiguous`）分は`LimitPolicy::used()`上
-				// 引き続き枠を占有するため、無条件に解放すると同じページの後続アイテムが
-				// 同じ枠を二重に使いうる（原則7）。
-				if ( $consumed_quota_slot && ! $intent_kept_ambiguous ) {
-					++$remaining;
 				}
 
 				// dry-runを除き、実際にpushされなかった結果はtotals集計上もskipped扱いに倒す

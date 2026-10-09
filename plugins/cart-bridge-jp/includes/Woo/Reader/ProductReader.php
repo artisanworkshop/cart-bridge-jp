@@ -37,10 +37,7 @@ final class ProductReader implements EntityReader {
 	private const PAGE_SIZE = 20;
 
 	/**
-	 * このReaderが対象にする商品ステータス/タイプ。`Sync\ExportSampleSelector`が
-	 * 受注明細から抽出した商品IDをサンプル枠として消費する前に、この条件で絞り込む
-	 * 必要がある（合わない商品はこの`query()`のページに現れず、サンプル枠だけを
-	 * 消費して結果に反映されない「消えた枠」になるため）。
+	 * このReaderが対象にする商品ステータス/タイプ。
 	 */
 	public const EXPORTABLE_STATUSES = [ 'publish', 'private', 'draft' ];
 	public const EXPORTABLE_TYPES    = [ 'simple', 'variable' ];
@@ -75,7 +72,7 @@ final class ProductReader implements EntityReader {
 			}
 
 			$args['include'] = $only_local_ids;
-			// サンプルモードはID指定取得であり `include` がそのまま対象総数を決めるため、
+			// ID指定では `include` がそのまま対象総数を決めるため、
 			// ページングは不要（1ページで確定する）。
 			unset( $args['page'] );
 			$args['limit'] = count( $only_local_ids );

@@ -77,7 +77,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertContains( 'customer', $user->roles );
 		$this->assertSame( 'Yamada', $user->first_name );
 		// email突合で採用した既存アカウントには「本プラグインが作成した」マーカーを付けない
-		// （サンプルクリーンアップが誤って削除しないため）。
+		// （このプラグインが作ったアカウントと区別するため。R3-6a で削除したサンプルクリーンアップが削除の判定に使っていた）。
 		$this->assertSame( '', get_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
 	}
 

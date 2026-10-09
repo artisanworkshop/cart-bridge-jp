@@ -88,8 +88,8 @@ export interface JobTotals {
 	updated: number;
 	skipped: number;
 	/**
-	 * `skipped` の内訳: checksum 一致（変更なし）で書かなかった件数（issue #55）。dry-run の
-	 * `created + updated + unchanged` が「移行できる件数」になる（`upsell-breakdown.ts`）。
+	 * `skipped` の内訳: 既に移行済みで、今回は書かなかった・送らなかった件数（checksum 一致など。issue #55）。
+	 * R3-6a で削除した無料版の Pro 案内が使っていた。画面では今は使っていない。
 	 * 導入前に完了したジョブの `totals_json` には無い（`get_run()` は生の JSON を返す）。
 	 */
 	unchanged?: number;
@@ -144,23 +144,6 @@ export interface ActiveRun {
 	updated_at: string;
 }
 
-export interface LimitEntity {
-	limit: number | null;
-	unlocked: boolean;
-	used: number | null;
-	remaining: number | null;
-}
-
-export interface Limits {
-	unlocked: boolean;
-	entities: Record< EntityType, LimitEntity >;
-	/**
-	 * Pro 版の案内先（`Sync\LimitPolicy::pro_url()` が検証した http/https URL か `''`）。
-	 * 空なら Pro 版に触れない（`docs/03` §10.3「アップセル表示」、issue #55）。
-	 */
-	pro_url: string;
-}
-
 /**
  * `Woo\Tools\PushIntentPresenter::describe()`が種別ごとに返す手がかり（D21-B）。
  * 全フィールド任意なのは、`entity_type`ごとに異なるサブセットしか埋まらないため
@@ -211,64 +194,10 @@ export interface LogEntry {
 }
 
 /**
- * `GET /tools/sample-cleanup?platform=` の応答（`Woo\Tools\SampleCleanup::preview()`）。
- * `delete` / `unlink` のキーは `SampleCleanup::RESULT_KEYS`（`attachment` は `delete` のみ意味を持つ）。
- * `requires_delete_users` が true で `can_delete_users` が false のとき、実行は 403 で拒否される。
- */
-export interface CleanupPreview {
-	platform: string;
-	run_in_progress: boolean;
-	delete: Record< string, number >;
-	unlink: Record< string, number >;
-	requires_delete_users: boolean;
-	can_delete_users: boolean;
-	sample_selected: boolean;
-}
-
-/**
- * `POST /tools/sample-cleanup` の応答（1バッチ分）。`has_more` が true の間は繰り返し呼ぶ。
- */
-export interface CleanupResult {
-	deleted: Record< string, number >;
-	unlinked: Record< string, number >;
-	has_more: boolean;
-}
-
-/**
  * `POST /tools/rebuild-mappings` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
  */
 export interface RebuildResult {
 	counts: Record< string, number >;
-	cursor: string | null;
-}
-
-/**
- * 県コード修復（`Woo\Tools\PrefStateRepair`）の判定区分。エンティティ（顧客1人・受注1件）単位で数える。
- * Scan（GET）では `fixed` が「補正が必要な件数」、Repair（POST）では「補正した件数」を表す。
- */
-export type StateRepairBucket =
-	| 'fixed'
-	| 'already_correct'
-	| 'unverified'
-	| 'unavailable'
-	| 'skipped';
-
-export type StateRepairEntity = 'customer' | 'order';
-
-export type StateRepairCounts = Record<
-	StateRepairEntity,
-	Record< StateRepairBucket, number >
->;
-
-/**
- * `GET|POST /tools/repair-states` の応答（1バッチ分）。`cursor` が null になるまで繰り返し呼ぶ。
- * ASP への照会に失敗して中断した場合（503/409/502）は、エラー応答の `data` に処理済みの `counts` と
- * 失敗した行を指す `cursor`（`interruption` = 理由）が入り、同じ位置から再開できる（処理は冪等）。
- */
-export interface StateRepairResult {
-	platform: string;
-	apply: boolean;
-	counts: StateRepairCounts;
 	cursor: string | null;
 }
 

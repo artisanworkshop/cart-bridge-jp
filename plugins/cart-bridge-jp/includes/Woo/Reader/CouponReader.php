@@ -61,11 +61,9 @@ final class CouponReader implements EntityReader {
 		$args = [
 			'post_type'      => 'shop_coupon',
 			'post_status'    => 'publish',
-			// D15 §10.2「クーポン: 最新10件」＝新しい順（`docs/03-design-decisions.md`
-			// 「APIが新しい順ソートを指定できる場合のみ新しい順」）。無料版は`LimitPolicy`が
-			// カーソル走査で最初に出会った10件だけを新規pushの対象にするため、'ID'昇順（＝作成日
-			// 昇順）のままだと店を長く運営しているほど古い（期限切れの可能性が高い）クーポンだけが
-			// 無料枠を占有してしまう。`'date' => 'DESC'`単独だと`post_date`が同一秒（`CouponWriter`
+			// 新しい順（`docs/03-design-decisions.md`「APIが新しい順ソートを指定できる場合のみ新しい順」。
+			// D15 の無料版の上限〔最新10件〕のために選んだ順序で、R3-6a で上限を外した後もそのまま残している）。
+			// `'date' => 'DESC'`単独だと`post_date`が同一秒（`CouponWriter`
 			// による一括作成等）のクーポン間の順序がMySQL実装依存になりページ跨ぎで重複/欠落しうる
 			// ため、`ID`を副ソートキーとして明示し決定的にする（R2レビュー指摘）。
 			'orderby'        => [

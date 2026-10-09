@@ -21,7 +21,6 @@ use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\Exporter;
 use CartBridgeJP\Sync\DryRunItemRepository;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PlatformWriter;
@@ -147,41 +146,12 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( Exporter::export_checksum( $product ), $this->mappings->find_checksum( 'mock', 'product', 'remote-1' ) );
 	}
 
-	public function test_free_tier_quota_blocks_new_items_but_allows_updates(): void {
-		$this->mappings->upsert( 'mock', 'product', 'remote-existing', 999, null );
+	public function test_dry_run_never_persists_mappings(): void {
+		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
+		$writer   = new InMemoryPlatformWriter();
+		$exporter = new Exporter( $this->mappings );
 
-		$new_item      = new ReadItem( 101, $this->product( 'New' ) );
-		$existing_item = new ReadItem( 999, $this->product( 'Existing (changed)' ) );
-
-		$reader       = new FixedWooReader( [ $new_item, $existing_item ] );
-		$writer       = new InMemoryPlatformWriter();
-		$exporter     = new Exporter( $this->mappings );
-		$limit_policy = new LimitPolicy( $this->mappings );
-
-		add_filter( 'cbjp/limits/product', static fn () => 1 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		// 残枠は0（上限1件 - 既存1件）のため新規（local_id=101）は作られず、既存（local_id=999）の
-		// 更新のみ行われる。
-		$this->assertCount( 1, $writer->writes );
-		$this->assertSame( 'remote-existing', $writer->writes[0]['remote_id'] );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
-		$this->assertSame( 1, $result['totals']['updated'] );
-		$this->assertSame( 1, $result['totals']['skipped'] );
-	}
-
-	public function test_dry_run_never_persists_mappings_even_with_a_limit_policy(): void {
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
-		$writer       = new InMemoryPlatformWriter();
-		$exporter     = new Exporter( $this->mappings );
-		$limit_policy = new LimitPolicy( $this->mappings );
-
-		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, $limit_policy );
+		$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true );
 
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'product' ) );
 	}
@@ -361,22 +331,6 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 'remote-new', $this->mappings->find_remote_id( 'mock', 'product', 101 ) );
 		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'remote-old' ), '旧remote_idの行が孤児として残っていないこと' );
 		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ), 'local_id当たり1行だけが残ること' );
-	}
-
-	public function test_only_local_ids_restricts_the_reader_to_the_sample(): void {
-		$reader   = new FixedWooReader(
-			[
-				new ReadItem( 101, $this->product( 'A' ) ),
-				new ReadItem( 102, $this->product( 'B' ) ),
-			]
-		);
-		$writer   = new InMemoryPlatformWriter();
-		$exporter = new Exporter( $this->mappings );
-
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, null, [ 102 ] );
-
-		$this->assertCount( 1, $writer->writes );
-		$this->assertSame( 1, $result['totals']['processed'] );
 	}
 
 	/**
@@ -597,7 +551,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$writer   = $this->partial_push_writer( 'P', '501', new RuntimeException( 'boom' ) );
 		$exporter = new Exporter( $this->mappings );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, null, null, 9102 );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, 9102 );
 
 		$this->assertSame( 2, $result['totals']['created'] );
 		$this->assertSame( 0, $result['totals']['skipped'] );
@@ -644,7 +598,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
 		$exporter = new Exporter( $this->mappings );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $this->partial_push_writer( 'P', '', new RuntimeException( 'boom' ) ), $reader, 'product', Cursor::start(), false, null, null, 9101 );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $this->partial_push_writer( 'P', '', new RuntimeException( 'boom' ) ), $reader, 'product', Cursor::start(), false, 9101 );
 
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 1, $result['totals']['warned'] );
@@ -671,32 +625,6 @@ final class ExporterTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'product' ) );
-	}
-
-	/**
-	 * 中断した作成もリモートに実体を作っているため、無料版の枠は戻さない（mappingが
-	 * `LimitPolicy`の累計に数えられる）。枠が1件のとき、中断した1件目で枠を使い切り、2件目は
-	 * 送信されずskippedになる。
-	 */
-	public function test_interrupted_create_keeps_its_free_tier_quota_slot(): void {
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product() ), new ReadItem( 102, $this->product( 'Second' ) ) ] );
-		$writer       = $this->partial_push_writer( 'P', '501', new RuntimeException( 'boom' ) );
-		$exporter     = new Exporter( $this->mappings );
-		$limit_policy = new LimitPolicy( $this->mappings );
-
-		add_filter( 'cbjp/limits/product', static fn () => 1 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertSame( [ null ], $writer->calls );
-		$this->assertSame( 1, $result['totals']['created'] );
-		$this->assertSame( 1, $result['totals']['skipped'] );
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
 	}
 
 	// ---- D21-B（issue #73）: push intent ----------------------------------------------------
@@ -743,7 +671,7 @@ final class ExporterTest extends WP_UnitTestCase {
 
 		$before_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_push_intents" );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9201, 'run-9201' );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, 9201, 'run-9201' );
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['skipped'] );
@@ -983,95 +911,6 @@ final class ExporterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `LimitPolicy::used()`は未解決intent自体を累積カウントに含める（D21-Bの意図どおり。上限2件の
-	 * うち101の未解決intent1件分は既に消費済みで残り枠は1件）。ブロックされた101はこの1ページの
-	 * 処理中に**追加で**枠を消費しない（quota判定より前に`continue`する）ため、残り1件の枠は
-	 * 102の作成にそのまま使える。ブロック判定がquota判定より後になる退行が起きると、101が
-	 * 残り1件の枠を消費してしまい102が作成されなくなる。
-	 */
-	public function test_a_blocked_intent_does_not_consume_an_additional_free_tier_quota_slot(): void {
-		$this->push_intents->begin( 'mock', 'product', 101, null, null );
-
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Blocked' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
-		$writer       = new InMemoryPlatformWriter();
-		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
-		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
-
-		add_filter( 'cbjp/limits/product', static fn () => 2 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertCount( 1, $writer->writes );
-		$this->assertSame( 1, $result['totals']['created'] );
-		$this->assertSame( 1, $result['totals']['skipped'] );
-		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), 'ブロックされた1件目が残り1件の枠を余分に消費しないため2件目が作成される' );
-	}
-
-	/**
-	 * レビュー指摘: 5xx等で印を`mark_ambiguous`のまま残した（＝`used()`上は引き続き枠を占有する）
-	 * アイテムの分まで`$consumed_quota_slot`を無条件に解放すると、同じページ内の後続アイテムが
-	 * 同じ枠を二重に使い、ページ内に限って無料版上限を実質的に超過しうる（原則7）。
-	 * 上限2件のうち1件は既存mapping（使用済み）、101が5xxで印を残す（2件目の使用扱い）ため
-	 * 残り枠は0。この状態で102は作成されてはならない。
-	 */
-	public function test_an_intent_kept_ambiguous_does_not_free_up_its_quota_slot_within_the_same_page(): void {
-		$this->mappings->upsert( 'mock', 'product', 'remote-existing', 999, null );
-
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Ambiguous' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
-		$writer       = $this->writer_failing_on_create( 'Ambiguous', new ApiException( 'server error', 500 ) );
-		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
-		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
-
-		add_filter( 'cbjp/limits/product', static fn () => 2 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
-		$this->assertSame( 2, $result['totals']['skipped'], '101は印を残してskip、102は枠が無く追加でskip' );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), '101の印が枠を占有したままなので102は作成されない' );
-	}
-
-	/**
-	 * 上と同じ理由だが、例外経路ではなく`PushResult`が`created`＋空remote_idを主張する契約違反
-	 * 経路（`$did_push`の`else`節）でも同じ解放漏れが起きないことを確認する。
-	 */
-	public function test_a_push_result_kept_ambiguous_does_not_free_up_its_quota_slot_within_the_same_page(): void {
-		$this->mappings->upsert( 'mock', 'product', 'remote-existing', 999, null );
-
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Ambiguous' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
-		$writer       = new class() implements PlatformWriter {
-			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
-				if ( null === $existing_remote_id && 'Ambiguous' === $item->name ) {
-					return new PushResult( '', PushResult::OPERATION_CREATED );
-				}
-
-				return new PushResult( 'ok', PushResult::OPERATION_CREATED );
-			}
-		};
-		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
-		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
-
-		add_filter( 'cbjp/limits/product', static fn () => 2 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertTrue( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ), '101の印が枠を占有したままなので102は作成されない' );
-	}
-
-	/**
 	 * D21-A（`PartialPushException`、remote_idあり）の成功に近い経路でも、mapping書込み後に
 	 * push intentが消えることを確認する（`$did_push`の通常経路だけでなく、この経路も
 	 * `push_intent_pending`の解放を通ることの裏取り）。
@@ -1140,7 +979,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$writer   = new InMemoryPlatformWriter();
 		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9301, 'run-9301' );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, 9301, 'run-9301' );
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['skipped'] );
@@ -1149,77 +988,6 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $rows );
 		$this->assertStringContainsString( WarningCode::ALL_VARIATIONS_EXCLUDED, $rows[0]['warnings_json'] );
 		$this->assertStringContainsString( WarningCode::PUSH_OUTCOME_UNCONFIRMED, $rows[0]['warnings_json'] );
-	}
-
-	/**
-	 * レビュー指摘（Codex/Copilot, G2）: ページ開始時に一度だけ計算する`$remaining`は、
-	 * mapping+未解決intentの両方を持つ実体を二重に数えている（`LimitPolicy::used()`が両方を
-	 * 加算するため）。自己修復（上のテスト）で印を消した分、このページの残り処理のために枠を
-	 * 1つ戻さないと、本来pushしてよい別の新規アイテムが不要にskipされる。
-	 */
-	public function test_reconciling_a_stale_intent_restores_the_free_tier_quota_slot_it_was_holding(): void {
-		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, 'stale-checksum' );
-		$this->push_intents->begin( 'mock', 'product', 101, null, null );
-
-		$reader       = new FixedWooReader( [ new ReadItem( 101, $this->product( 'Updated' ) ), new ReadItem( 102, $this->product( 'New' ) ) ] );
-		$writer       = new InMemoryPlatformWriter();
-		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
-		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
-
-		// 上限2件のうち、101のmapping1件＋stale intent1件で「使用済み2件」に見えるため、
-		// 修正前は残り枠0で102がskipされてしまう。
-		add_filter( 'cbjp/limits/product', static fn () => 2 );
-
-		try {
-			$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
-		$this->assertSame( 1, $result['totals']['created'], '101の自己修復で戻った枠を使い102が作成される' );
-		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
-	}
-
-	/**
-	 * レビュー指摘（Codex, G3）: `LimitPolicy::remaining()`は負の値を0へクランプするため、
-	 * 複数のstale intent（mapping+未解決intentの組）が同時に存在し使用数が既に上限を超えている
-	 * 場合、単純な`++$remaining`を繰り返すとクランプで隠れていた超過分まで枠として復活し、
-	 * 上限を超えて新規アイテムが作成されうる。上限1件・101と102がそれぞれmapping+stale
-	 * intentを持つ（実使用数2、既に上限超過）状態で、両方を自己修復した後も103（新規）は
-	 * 作成されないことを確認する。
-	 */
-	public function test_reconciling_multiple_stale_intents_does_not_restore_quota_beyond_the_true_usage(): void {
-		$this->mappings->upsert( 'mock', 'product', 'remote-101', 101, 'stale-checksum' );
-		$this->push_intents->begin( 'mock', 'product', 101, null, null );
-		$this->mappings->upsert( 'mock', 'product', 'remote-102', 102, 'stale-checksum' );
-		$this->push_intents->begin( 'mock', 'product', 102, null, null );
-
-		// 3件を1ページにまとめて処理させる（`FixedWooReader`の既定ページサイズ2件だと
-		// 103が次ページへ回り、本テストが検証したい「同一ページ内での相互作用」を再現できない）。
-		$reader       = new FixedWooReader(
-			[
-				new ReadItem( 101, $this->product( 'Updated101' ) ),
-				new ReadItem( 102, $this->product( 'Updated102' ) ),
-				new ReadItem( 103, $this->product( 'New' ) ),
-			],
-			3
-		);
-		$writer       = new InMemoryPlatformWriter();
-		$exporter     = new Exporter( $this->mappings, push_intents: $this->push_intents );
-		$limit_policy = new LimitPolicy( $this->mappings, $this->push_intents );
-
-		add_filter( 'cbjp/limits/product', static fn () => 1 );
-
-		try {
-			$exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, $limit_policy );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-
-		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 101 ) );
-		$this->assertFalse( $this->push_intents->has_unresolved( 'mock', 'product', 102 ) );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', 103 ), '実使用数が既に上限を超えているため103は作成されない' );
 	}
 
 	/**
@@ -1309,7 +1077,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		ExportOptions::save_push_images( 'mock', true );
 
 		$writer = new InMemoryPlatformWriter();
-		$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), true, null, null, 9401, 'run-9401' );
+		$result = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), true, 9401, 'run-9401' );
 
 		$this->assertSame( 0, $result['totals']['skipped'], '「変更なし」とせず、実際のexportと同じく更新として扱う' );
 
@@ -1406,7 +1174,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$writer   = new InMemoryPlatformWriter();
 		$exporter = new Exporter( $this->mappings );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, null, null, 9301, 'run-9301' );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), true, 9301, 'run-9301' );
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['skipped'] );
@@ -1435,8 +1203,8 @@ final class ExporterTest extends WP_UnitTestCase {
 
 	/**
 	 * issue #55: `unchanged`（`skipped`の内訳）はchecksum一致スキップだけを数える。dry-runの
-	 * `created + updated + unchanged` を「移行できる件数」とするため（Pro 案内）、止めた実体
-	 * （export-blocking警告）まで数えると「どの版でも移行できない」件数が消える。
+	 * `created + updated + unchanged` が「移行できる件数」になるため、止めた実体
+	 * （export-blocking警告）まで数えると「移行できない」件数が消える。
 	 */
 	public function test_unchanged_counts_only_checksum_matched_skips_in_a_dry_run(): void {
 		$unchanged = $this->product( 'Unchanged' );
@@ -1479,7 +1247,7 @@ final class ExporterTest extends WP_UnitTestCase {
 
 	/**
 	 * D25（issue #98）: 書き出し先と同じプラットフォームからの取込みで結ばれた実体（`ReadItem::$linked_by_import`）は送らない。
-	 * mapping には取込みの checksum が残り、無料枠も使わない。既に結ばれているので`unchanged`にも数える。
+	 * mapping には取込みの checksum が残る。既に結ばれているので`unchanged`にも数える。
 	 */
 	public function test_an_item_linked_by_import_is_not_pushed_and_its_mapping_is_left_untouched(): void {
 		$product = $this->product();
@@ -1489,7 +1257,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$writer   = new InMemoryPlatformWriter();
 		$exporter = new Exporter( $this->mappings );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['processed'] );
@@ -1503,14 +1271,14 @@ final class ExporterTest extends WP_UnitTestCase {
 
 	/**
 	 * D25: mapping を失った取込み品も送らない（作成し直してリモートに重複を作らない）。結ばれていないので`unchanged`には数えない
-	 * （Pro 案内では「どの版でも移行できない」側）。push intent も書かない。
+	 * （「移行できない」側）。push intent も書かない。
 	 */
 	public function test_an_item_linked_by_import_without_a_mapping_is_not_created(): void {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [], true, [], true ) ] );
 		$writer   = new InMemoryPlatformWriter();
 		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
+		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false );
 
 		$this->assertSame( [], $writer->writes );
 		$this->assertSame( 1, $result['totals']['skipped'] );
@@ -1529,7 +1297,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product(), [ WarningCode::ALL_VARIATIONS_EXCLUDED ], true, [], true ) ] );
 		$exporter = new Exporter( $this->mappings );
 
-		$result = $exporter->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, null, null, 9501, 'run-9501' );
+		$result = $exporter->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, 9501, 'run-9501' );
 
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 1, $result['totals']['unchanged'] );
@@ -1539,32 +1307,6 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->assertSame( 'skipped', $rows[0]['operation'] );
 		$this->assertSame( 'remote-1', $rows[0]['remote_id'] );
 		$this->assertSame( [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ], json_decode( $rows[0]['warnings_json'], true ) );
-	}
-
-	/**
-	 * D25: 取込み品は無料枠を使わないので、同じページの Woo 生まれの実体は枠どおり作成される（枠 1、取込み品が先頭）。
-	 */
-	public function test_an_item_linked_by_import_does_not_consume_the_free_tier_slot_of_the_page(): void {
-		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
-
-		$reader   = new FixedWooReader(
-			[
-				new ReadItem( 101, $this->product( 'Imported' ), [], true, [], true ),
-				new ReadItem( 102, $this->product( 'Woo born' ) ),
-			],
-			2
-		);
-		$writer   = new InMemoryPlatformWriter();
-		$exporter = new Exporter( $this->mappings );
-
-		$result = $exporter->run_page( new MockPlatformAdapter(), $writer, $reader, 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
-
-		remove_all_filters( 'cbjp/limits/product' );
-
-		$this->assertCount( 1, $writer->writes );
-		$this->assertSame( 'Woo born', $writer->writes[0]['item']->name );
-		$this->assertSame( 1, $result['totals']['created'] );
-		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', 102 ) );
 	}
 
 	/**
@@ -1643,13 +1385,13 @@ final class ExporterTest extends WP_UnitTestCase {
 			/** @param array<string,int> $ids */
 			public function __construct( private readonly array $ids ) {}
 
-			public function read( string $entity, Cursor $cursor, ?array $only_local_ids = null ): ReadPage {
+			public function read( string $entity, Cursor $cursor ): ReadPage {
 				return ( new ProductReader( 'mock', new MethodMap( 'mock' ), new MappingRepository() ) )
 					->query( Cursor::start(), array_values( $this->ids ) );
 			}
 		};
 
-		$dry_run = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, null, null, 9401, 'run-9401' );
+		$dry_run = ( new Exporter( $this->mappings ) )->run_page( new MockPlatformAdapter(), new DryRunPlatformWriter(), $reader, 'product', Cursor::start(), true, 9401, 'run-9401' );
 
 		$this->assertSame( 1, $dry_run['totals']['created'] );
 		$this->assertSame( 1, $dry_run['totals']['skipped'] );

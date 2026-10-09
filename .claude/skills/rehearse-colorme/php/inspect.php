@@ -1,6 +1,6 @@
 <?php
 /**
- * 店舗（税設定・プラン・件数）とローカル（mapping・ジョブ・Woo の実体・上限の差し替え）の現状を出す。読み取りのみ。
+ * 店舗（税設定・プラン・件数）とローカル（mapping・ジョブ・Woo の実体・`cbjp_*` オプション）の現状を出す。読み取りのみ。
  * 引数: shop=<login_id>
  *
  * @package CartBridgeJP
@@ -118,4 +118,3 @@ echo '  products: ' . count(
 		]
 	) . "\n";
 echo '  cbjp_* options: ' . implode( ' ', $wpdb->get_col( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE 'cbjp\\_%' ORDER BY option_name" ) ) . "\n";
-echo '  cbjp_rehearsal_limits: ' . wp_json_encode( get_option( 'cbjp_rehearsal_limits', null ) ) . "\n";

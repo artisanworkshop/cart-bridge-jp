@@ -5,6 +5,6 @@
 		{ "tab": "import", "wait_for": "Download full report", "uncheck": [ "Stock", "Coupons" ] },
 		{ "tab": "mappings", "wait_for": "Payment method mapping" },
 		{ "tab": "export", "wait_for": "Upload product images (Beta)" },
-		{ "tab": "tools", "wait_for": "Repair prefecture data" }
+		{ "tab": "tools", "wait_for": "Rebuild links" }
 	]
 }

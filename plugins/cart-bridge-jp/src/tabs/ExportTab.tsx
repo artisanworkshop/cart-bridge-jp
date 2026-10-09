@@ -13,12 +13,6 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
-import {
-	dryRunEntityTotals,
-	withoutDryRunTotals,
-	type DryRunTotals,
-} from '../components/upsell-breakdown';
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { ENTITY_LABELS } from '../entity-labels';
@@ -35,7 +29,6 @@ import type {
 	EntityType,
 	ExportOptions,
 	Job,
-	Limits,
 } from '../types';
 
 function errorMessage( err: unknown ): string {
@@ -190,11 +183,9 @@ function initialExportRunSectionState(): ExportRunSectionState {
  * `warned===processed`（＝1件も書けず全件に警告が付いた）に絞ることで、この種の偽陽性を減らす
  * （完全な排除ではない: 全件が同じ残留警告を持つ場合は理論上なお誤検出しうるが、`Sync\Importer`
  * と同じ既存方針が対象とする「実質的に何も進まなかった」ケースにより近い判定になる）。
- * この絞り込みはトレードオフでもある: 「一部は警告付きでskip・残りは警告なしでskip
- * （無料版上限到達等。`Exporter.php`のクォータ枯渇分岐参照）」のように`warned < processed`と
- * なる部分的な失敗は検出できなくなる（偽陰性）。クォータ枯渇のケースは`LimitsUpsellNotice`が
- * 別途表示するため実害は小さいと判断した（R2レビューで指摘、`docs/review-backlog.md`の
- * `e2-4-export-ui-e2e/R2-L1`参照）。
+ * この絞り込みはトレードオフでもある: 「一部は警告付きでskip・残りは警告なしでskip」のように
+ * `warned < processed`となる部分的な失敗は検出できなくなる（偽陰性。R2レビューで指摘、
+ * `docs/review-backlog.md`の`e2-4-export-ui-e2e/R2-L1`参照。当時の主な例だった無料版の上限は R3-6a で外した）。
  * @param jobs
  */
 function zeroWrittenWarnedEntities( jobs: Job[] ): EntityType[] {
@@ -218,7 +209,7 @@ export default function ExportTab() {
 	);
 	const [ platform, setPlatform ] = useState< string | null >( null );
 	// プラットフォーム名だけでは同じプラットフォームへ短時間で戻った場合（A→B→A）を区別できない。
-	// 画像設定のGET/PUT・run開始・Retry・キャンセル・limits取得の応答が遅れて届いたとき、
+	// 画像設定のGET/PUT・run開始・Retry・キャンセルの応答が遅れて届いたとき、
 	// プラットフォーム名の一致チェックだけでは「新しい応答」と誤認して今の選択の状態を上書きしてしまう。
 	// これらはすべて同じ世代カウンタを参照し、「このリクエストが発行された時点のプラットフォーム選択が
 	// まだ現在のものか」を判定する（`.claude/rules/frontend.md`）。世代を進めるのは画像設定の取得effectだけ
@@ -238,10 +229,6 @@ export default function ExportTab() {
 	const [ exportState, setExportState ] = useState< ExportRunSectionState >(
 		initialExportRunSectionState()
 	);
-	const [ dryRunTotals, setDryRunTotals ] = useState< DryRunTotals | null >(
-		null
-	);
-	const [ limits, setLimits ] = useState< Limits | null >( null );
 	// D24: プラットフォーム単位のエクスポート設定（画像アップロードのオン/オフ）。`null`は取得前または取得失敗。
 	// 取得・保存とも`platformGenerationRef`で古い応答を捨てる（下のeffectと`setPushImages()`）。
 	const [ exportOptions, setExportOptions ] =
@@ -250,18 +237,11 @@ export default function ExportTab() {
 		string | null
 	>( null );
 	const [ exportOptionsSaving, setExportOptionsSaving ] = useState( false );
-	// `startRun()`/`limits`取得effectが応答を受け取った時点でまだ同じプラットフォーム選択かも、
+	// `startRun()`が応答を受け取った時点でまだ同じプラットフォーム選択かも、
 	// 同じ`platformGenerationRef`で判定する（frontend.md:「同じ状態を更新しうる複数の非同期処理は
 	// 同じ世代カウンタを共有する必要がある」）。
 	const dryRunExportRetryConfirmPendingRef = useRef( false );
 	const exportRetryConfirmPendingRef = useRef( false );
-	// limits取得effectが応答を受け取った時点でまだ同じexport runを指しているかを判定するための
-	// 参照（`useRunPolling`の`runIdRef`と同じ役割）。`platformGenerationRef`は同一platform内で
-	// 新しいrunが始まった場合には変化しないため、そのケースの古い応答を弾けない
-	// （Codexレビュー指摘, G3: runA完了時の`/limits`取得中にrunBを開始し`setLimits(null)`で
-	// クリアした後、runAの応答が遅れて届くと`limits`を古い使用状況で上書きしてしまう）。
-	const exportRunIdRef = useRef< string | null >( null );
-	exportRunIdRef.current = exportState.runId;
 
 	useEffect( () => {
 		apiFetch< Connection[] >( { path: '/cbjp/v1/connections' } )
@@ -300,7 +280,7 @@ export default function ExportTab() {
 	// D24: エクスポート設定（画像アップロード）の取得。プラットフォームの選択が変わるたびに走る唯一の
 	// 非同期取得なので、ここで`platformGenerationRef`を進める（R3-0m でマッピング取得effectを Mappings タブへ
 	// 移すまではあちらが進めていた）。**世代を読む他のeffect・関数はこのeffectの後で動く**
-	// （run開始等はユーザー操作、limits取得effectはこのeffectより後ろに宣言してある）。
+	// （run開始等はユーザー操作）。
 	useEffect( () => {
 		if ( null === platform ) {
 			return;
@@ -346,8 +326,6 @@ export default function ExportTab() {
 		);
 		setAcknowledgeProductionWrite( false );
 		setRunStartError( null );
-		setDryRunTotals( null );
-		setLimits( null );
 		setDryRunExportState( {
 			...initialExportRunSectionState(),
 			runId: loadStoredRunId( platform, 'dry_run_export' ),
@@ -368,68 +346,6 @@ export default function ExportTab() {
 		isRunTerminal( dryRunExportPolling.run );
 	const exportTerminal =
 		null !== exportPolling.run && isRunTerminal( exportPolling.run );
-
-	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」と「移行できる件数」をキャッシュする
-	// （`ImportTab.tsx`と同じロジック。サンプリングを行わない全量走査なのでprocessedが
-	// そのまま総数になる。内訳は`dryRunEntityTotals()`。issue #55）。
-	useEffect( () => {
-		if ( ! dryRunExportPolling.run || ! dryRunExportTerminal ) {
-			return;
-		}
-
-		const totals: DryRunTotals = {};
-
-		for ( const job of dryRunExportPolling.run.jobs ) {
-			if ( 'completed' === job.status ) {
-				totals[ job.entity ] = dryRunEntityTotals( job.totals );
-			}
-		}
-
-		setDryRunTotals( ( prev ) => ( { ...prev, ...totals } ) );
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ dryRunExportPolling.run, dryRunExportTerminal ] );
-
-	// 実エクスポートが完了したら上限使用状況を取得し、Pro案内に使う（`ImportTab.tsx`と同じ）。
-	useEffect( () => {
-		if ( ! exportTerminal || null === platform ) {
-			return;
-		}
-
-		const requestedPlatform = platform;
-		const requestId = platformGenerationRef.current;
-		// この取得を発生させたrunのIDを閉じ込める。`platformGenerationRef`は同一platform内で
-		// 新しいrunが始まっただけでは変化しないため、応答が届いた時点でまだ「この取得の
-		// きっかけになったrun」がexportStateの現在値か（＝新しいrunに置き換わっていないか）も
-		// 別途確認する（`exportRunIdRef`参照）。
-		const requestedRunId = exportPolling.run?.run_id ?? null;
-
-		apiFetch< Limits >( {
-			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
-				requestedPlatform
-			) }`,
-		} )
-			.then( ( data ) => {
-				if (
-					platformGenerationRef.current !== requestId ||
-					exportRunIdRef.current !== requestedRunId
-				) {
-					return;
-				}
-
-				setLimits( data );
-			} )
-			.catch( () => {
-				if (
-					platformGenerationRef.current !== requestId ||
-					exportRunIdRef.current !== requestedRunId
-				) {
-					return;
-				}
-
-				setLimits( null );
-			} );
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ exportPolling.run, exportTerminal, platform ] );
 
 	useEffect( () => {
 		if ( ! dryRunExportRetryConfirmPendingRef.current ) {
@@ -595,28 +511,17 @@ export default function ExportTab() {
 	 * セクションで run の表示を始める（開始が成功したとき・進行中の run を見つけて取り込んだときの共通処理）。
 	 * @param type
 	 * @param runId
-	 * @param entities この run のエンティティ（前回の dry-run 件数を捨てる対象）
 	 */
 	function beginTrackingExportRun(
 		type: 'dry_run_export' | 'export',
-		runId: string,
-		entities: EntityType[]
+		runId: string
 	) {
 		if ( 'export' === type ) {
-			setLimits( null );
 			// 実行のたびに再確認させる（`ImportTab.tsx`の`window.confirm()`は
 			// クリックの都度出るのに対し、このチェックボックスは状態として残り続けるため、
 			// 開始できたら明示的に外す。D17の「実行前に確認」を1回のみで弱めない）。
 			// 見つけた export run を取り込んだときも、その run の前に付けた確認を次の実行へ持ち越さない。
 			setAcknowledgeProductionWrite( false );
-		}
-
-		// 新しいdry-runの対象エンティティは前回の件数を捨てる（`ImportTab.tsx`と同じ。
-		// `withoutDryRunTotals()`参照。PR #87 G1-1）。
-		if ( 'dry_run_export' === type ) {
-			setDryRunTotals( ( prev ) =>
-				withoutDryRunTotals( prev, entities )
-			);
 		}
 
 		( 'dry_run_export' === type ? setDryRunExportState : setExportState )(
@@ -642,7 +547,7 @@ export default function ExportTab() {
 		}
 
 		storeRunId( platform, type, run.run_id );
-		beginTrackingExportRun( type, run.run_id, run.entities );
+		beginTrackingExportRun( type, run.run_id );
 	}
 
 	async function startExportRun( type: 'dry_run_export' | 'export' ) {
@@ -688,7 +593,7 @@ export default function ExportTab() {
 				return;
 			}
 
-			beginTrackingExportRun( type, response.run_id, requestedEntities );
+			beginTrackingExportRun( type, response.run_id );
 			// 一覧に残っている前の run を、新しい run を始めたことで案内・取り込みし直さないよう取り直す（R2-2）。
 			activeRuns.refresh();
 		} catch ( err ) {
@@ -720,7 +625,7 @@ export default function ExportTab() {
 				: exportRetryConfirmPendingRef;
 		// このリクエストを発行した時点のプラットフォーム世代を閉じ込める。応答が届くまでの間に
 		// ユーザーが別プラットフォームへ切り替えていた場合、そちらの状態（platform-change時に
-		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`/limits取得effectと
+		// 読み込み直し済み）をこの古い応答で上書きしない（`startExportRun()`と
 		// 同じ`platformGenerationRef`を使う）。
 		const requestId = platformGenerationRef.current;
 		const selection = activeRuns.selectionRef.current;
@@ -1009,7 +914,7 @@ export default function ExportTab() {
 
 					<Notice status="warning" isDismissible={ false }>
 						{ __(
-							'Running an export writes data to the connected shop right away, up to the current plan’s limits. We recommend running this against a test shop first, not your live shop.',
+							'Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop.',
 							'cart-bridge-jp'
 						) }
 					</Notice>
@@ -1192,14 +1097,6 @@ export default function ExportTab() {
 									) }
 								</Notice>
 							) }
-						{ exportTerminal && limits && exportPolling.run && (
-							<LimitsUpsellNotice
-								jobs={ exportPolling.run.jobs }
-								limits={ limits }
-								entityLabels={ ENTITY_LABELS }
-								dryRunTotals={ dryRunTotals }
-							/>
-						) }
 						{ exportPolling.run && (
 							<RunProgress
 								run={ exportPolling.run }

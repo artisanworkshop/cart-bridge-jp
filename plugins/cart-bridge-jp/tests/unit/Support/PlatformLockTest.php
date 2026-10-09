@@ -198,8 +198,8 @@ final class PlatformLockTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `TTL_LONG` は、ロックの中で ASP を呼ぶ区間が最も長引く場合より長い（PR #96 G1-1・G2-1）。`HttpClient` の再試行・待ち、
-	 * `RateLimiter::wait()` の上限、県コード修復の時間予算のどれかを延ばしたら、ここが落ちて期限の見直しを促す。
+	 * `TTL_LONG` は、ロックの中で ASP を呼ぶ区間が最も長引く場合（push intent の解除の照会 1 件）より長い（PR #96 G1-1・G2-1）。
+	 * `HttpClient` の再試行・待ち、`RateLimiter::wait()` の上限のどれかを延ばしたら、ここが落ちて期限の見直しを促す。
 	 */
 	public function test_the_long_ttl_outlasts_the_slowest_locked_section(): void {
 		$client_constant = static fn ( string $name ): int => (int) ( new \ReflectionClassConstant( \CartBridgeJP\Support\HttpClient::class, $name ) )->getValue();
@@ -212,10 +212,7 @@ final class PlatformLockTest extends WP_UnitTestCase {
 		$slowest_lookup = 3 * $per_http;
 
 		$this->assertSame( 540, $per_http, 'HttpClient/RateLimiter の上限が変わった。TTL_LONG の見積もり（docblock）を見直す' );
-		$this->assertGreaterThan(
-			\CartBridgeJP\Woo\Tools\PrefStateRepair::TIME_BUDGET_SECONDS + $slowest_lookup,
-			PlatformLock::TTL_LONG
-		);
+		$this->assertGreaterThan( $slowest_lookup, PlatformLock::TTL_LONG );
 	}
 
 	public function test_run_returns_the_callback_value_and_releases_the_lock(): void {

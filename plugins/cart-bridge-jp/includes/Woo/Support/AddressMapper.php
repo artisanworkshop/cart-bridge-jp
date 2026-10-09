@@ -137,18 +137,8 @@ final class AddressMapper {
 	}
 
 	/**
-	 * `pref_id`スキームを解釈するプラットフォームか（`state_code()`/`is_overseas()`が対象とするもの）。
-	 * `Woo\Tools\PrefStateRepair`のように、そもそも県コードの解釈自体が成立しないプラットフォームを
-	 * 事前に弾きたい呼び出し側が使う。
-	 */
-	public static function uses_pref_id_scheme( string $platform ): bool {
-		return in_array( $platform, self::PREF_ID_SCHEME_PLATFORMS, true );
-	}
-
-	/**
-	 * Woo の `state`（`JP01`〜`JP47`）。`to_woo()` がインポート時に書く値と同じ関数で、
-	 * 県コード修復ツール（`Woo\Tools\PrefStateRepair`）が「今のコードなら何が書かれるか」を
-	 * 得るために公開している（Writer と別ロジックを持たせると食い違うため）。
+	 * Woo の `state`（`JP01`〜`JP47`）。`to_woo()` がインポート時に書く値と同じ関数（対応表をテストで
+	 * 直接確かめるため公開している）。
 	 *
 	 * @param array<string,mixed> $address
 	 */

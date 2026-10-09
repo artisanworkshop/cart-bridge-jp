@@ -11,10 +11,8 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
-use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WriteResult;
@@ -38,7 +36,7 @@ final class ImporterTest extends WP_UnitTestCase {
 	/**
 	 * 移行後検証レポート（D17）用の `remote_amount` は、書込の成否・checksum一致スキップに
 	 * 関わらず、この run で ASP から取得した全受注の合計になる（Woo側の「リンク済み受注の合計」と
-	 * 並べて、無料版の上限で取り込めなかった分も金額で見せるため）。
+	 * 並べて、警告・例外で取り込めなかった分も金額で見せるため）。
 	 */
 	public function test_remote_amount_accumulates_the_total_of_every_processed_order(): void {
 		$skipped = new CanonicalOrder( '1001', 'processing', null, [], [], [], [ 'total' => '1500.5' ], '2026-07-01 00:00:00', null );
@@ -476,82 +474,6 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'product', $logged_message );
 	}
 
-	/**
-	 * 無料版サンプル上限（`$remaining`）は新規作成の直前に1件消費するが、その後writerが
-	 * 例外を投げて実体が何も作られなかった場合は枠を返却しないと、無効な1件が枠を
-	 * 無駄に食い潰し、本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう。
-	 */
-	public function test_quota_slot_is_restored_when_write_throws(): void {
-		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
-
-		try {
-			$adapter = new MockPlatformAdapter(
-				products: [
-					CanonicalFactory::product( 'p1', 'SKU-1' ),
-					CanonicalFactory::product( 'p2', 'SKU-2' ),
-				]
-			);
-			$writer  = new class() implements WooWriter {
-				public array $seen = [];
-
-				public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
-					$this->seen[] = $item->remote_id();
-
-					if ( 'p1' === $item->remote_id() ) {
-						throw new \RuntimeException( 'simulated failure' );
-					}
-
-					return new WriteResult( 42, WriteResult::OPERATION_CREATED );
-				}
-			};
-
-			$importer     = new Importer( $this->mappings );
-			$limit_policy = new LimitPolicy( $this->mappings );
-			$result       = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false, $limit_policy );
-
-			// 上限1件でも、p1の例外で消費した枠が返却されるためp2まで到達し作成できる。
-			$this->assertSame( [ 'p1', 'p2' ], $writer->seen );
-			$this->assertSame( 1, $result['totals']['created'] );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-	}
-
-	/**
-	 * writerがlocal_id=0（実体を作成できなかった）を返した場合も、例外と同じ理由で
-	 * 消費した枠を返却することを確認する。
-	 */
-	public function test_quota_slot_is_restored_when_write_returns_zero_local_id(): void {
-		add_filter( 'cbjp/limits/product', static fn (): int => 1 );
-
-		try {
-			$adapter = new MockPlatformAdapter(
-				products: [
-					CanonicalFactory::product( 'p1', 'SKU-1' ),
-					CanonicalFactory::product( 'p2', 'SKU-2' ),
-				]
-			);
-			$writer  = new class() implements WooWriter {
-				public function write( string $entity, CanonicalModel $item, ?int $existing_local_id ): WriteResult {
-					if ( 'p1' === $item->remote_id() ) {
-						return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [] );
-					}
-
-					return new WriteResult( 42, WriteResult::OPERATION_CREATED );
-				}
-			};
-
-			$importer     = new Importer( $this->mappings );
-			$limit_policy = new LimitPolicy( $this->mappings );
-			$result       = $importer->run_page( $adapter, $writer, 'product', Cursor::start(), false, $limit_policy );
-
-			$this->assertSame( 1, $result['totals']['created'] );
-			$this->assertSame( 42, $this->mappings->find_local_id( $adapter->id(), 'product', 'p2' ) );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-	}
-
 	public function test_nonzero_local_id_persists_mapping(): void {
 		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
 		$writer  = new class() implements WooWriter {
@@ -566,138 +488,6 @@ final class ImporterTest extends WP_UnitTestCase {
 		$this->assertSame( 99, $this->mappings->find_local_id( $adapter->id(), 'product', 'p1' ) );
 	}
 
-	/**
-	 * `run_sample_stock_page()`は無料版のサンプル在庫取込経路（§10.2 #4）。バリエーションを持つ
-	 * 商品を親レベル1件のCanonicalStockに丸めると、`Woo\Writer\StockWriter`が書込対象を
-	 * `WC_Product_Variable`（親）と判定して書込をスキップしてしまい、サンプル在庫が
-	 * 実質書き込まれなくなる。バリエーション単位に展開されることを確認する。
-	 */
-	public function test_sample_stock_page_expands_variants_instead_of_targeting_the_parent(): void {
-		$product = CanonicalFactory::product(
-			'p1',
-			'SKU-1',
-			5,
-			[
-				[
-					'remote_id' => 'v1',
-					'sku'       => 'SKU-1-V1',
-					'stock'     => 3,
-				],
-				[
-					'remote_id' => 'v2',
-					'sku'       => 'SKU-1-V2',
-					'stock'     => null,
-				],
-			]
-		);
-		$adapter = new MockPlatformAdapter( products: [ $product ] );
-		$writer  = new InMemoryWriter();
-
-		$importer = new Importer( $this->mappings );
-		$result   = $importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
-
-		$this->assertCount( 2, $writer->writes );
-		// 進捗率の分母はサンプル商品数（1件）ではなく、バリエーション展開後の実処理件数（2件）。
-		// 商品数のまま報告すると`JobManager`側でprocessedがtotalを超えてしまう。
-		$this->assertSame( 2, $result['total'] );
-
-		$stocks = array_map( static fn ( array $write ): CanonicalStock => $write['item'], $writer->writes );
-
-		$this->assertSame( 'v1', $stocks[0]->variant_ref );
-		$this->assertSame( 'SKU-1-V1', $stocks[0]->sku );
-		$this->assertSame( 3, $stocks[0]->quantity );
-		$this->assertTrue( $stocks[0]->in_stock );
-
-		$this->assertSame( 'v2', $stocks[1]->variant_ref );
-		$this->assertNull( $stocks[1]->quantity );
-		$this->assertTrue( $stocks[1]->in_stock );
-	}
-
-	public function test_sample_stock_page_fails_closed_when_variant_stock_is_present_but_unparseable(): void {
-		// `variants`はCanonicalModelコンストラクタ同様、外部アダプタ拡張点の信頼境界（ドキュメント上の
-		// 契約のみで型は強制されない）。キー欠損/nullは「在庫管理外」という正当な契約だが、値が
-		// 存在するのに配列等でパースできない場合にnullへ丸めると「在庫あり」に誤判定してしまうため、
-		// 0（在庫切れ）にフェイルクローズすることを確認する。
-		$product = CanonicalFactory::product(
-			'p1',
-			'SKU-1',
-			5,
-			[
-				[
-					'remote_id' => 'v1',
-					'sku'       => 'SKU-1-V1',
-					'stock'     => [ 'unexpected' => 'shape' ],
-				],
-			]
-		);
-		$adapter = new MockPlatformAdapter( products: [ $product ] );
-		$writer  = new InMemoryWriter();
-
-		$importer = new Importer( $this->mappings );
-		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
-
-		$stock = $writer->writes[0]['item'];
-		$this->assertSame( 0, $stock->quantity );
-		$this->assertFalse( $stock->in_stock );
-	}
-
-	public function test_sample_stock_page_skips_a_non_array_variant_entry_instead_of_failing_the_job(): void {
-		// `$variant`はアダプタ拡張点の信頼境界（アーキテクチャ原則8）。要素自体が配列でない
-		// 場合にオフセットアクセスするとTypeError/Errorになりジョブ全体が失敗してしまうため、
-		// この1件だけをスキップし、他の正当なバリエーションの在庫は書き込まれることを確認する。
-		$product = CanonicalFactory::product(
-			'p1',
-			'SKU-1',
-			5,
-			[
-				'not-an-array',
-				[
-					'remote_id' => 'v1',
-					'sku'       => 'SKU-1-V1',
-					'stock'     => 3,
-				],
-			]
-		);
-		$adapter = new MockPlatformAdapter( products: [ $product ] );
-		$writer  = new InMemoryWriter();
-
-		$importer = new Importer( $this->mappings );
-		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
-
-		$this->assertCount( 1, $writer->writes );
-		$this->assertSame( 'v1', $writer->writes[0]['item']->variant_ref );
-	}
-
-	public function test_sample_stock_page_skips_a_product_whose_returned_id_does_not_match_the_requested_id(): void {
-		// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
-		// 要求IDと異なる商品を返した場合（契約違反アダプタのバグ）、要求ID（正しい商品への参照）と
-		// 返却された別商品の在庫・SKUを組み合わせてしまうと、誤った商品の在庫データが
-		// 正しい商品に書き込まれてしまう。IDが一致しない場合は取得失敗と同様にスキップする。
-		$mismatched_product = CanonicalFactory::product( 'p2', 'SKU-2', 99 );
-		$adapter            = new MockPlatformAdapter( product_by_remote_id_override: $mismatched_product );
-		$writer             = new InMemoryWriter();
-
-		$importer = new Importer( $this->mappings );
-		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
-
-		$this->assertCount( 0, $writer->writes );
-	}
-
-	public function test_sample_stock_page_targets_the_product_when_it_has_no_variants(): void {
-		$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1', 5 ) ] );
-		$writer  = new InMemoryWriter();
-
-		$importer = new Importer( $this->mappings );
-		$importer->run_sample_stock_page( $adapter, $writer, [ 'p1' ], false );
-
-		$this->assertCount( 1, $writer->writes );
-
-		$stock = $writer->writes[0]['item'];
-		$this->assertNull( $stock->variant_ref );
-		$this->assertSame( 'p1', $stock->product_ref );
-		$this->assertSame( 5, $stock->quantity );
-	}
-
 	public function test_dry_run_records_one_row_per_item_with_its_warnings(): void {
 		$adapter = new MockPlatformAdapter( categories: [ CanonicalFactory::category( 'c1', 'Category 1' ) ] );
 		$writer  = new class() implements WooWriter {
@@ -707,7 +497,7 @@ final class ImporterTest extends WP_UnitTestCase {
 		};
 
 		$importer = new Importer( $this->mappings );
-		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-1' );
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, 1, 'run-dry-1' );
 
 		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-dry-1', 0, 10 );
 
@@ -723,7 +513,7 @@ final class ImporterTest extends WP_UnitTestCase {
 		$writer   = new InMemoryWriter();
 		$importer = new Importer( $this->mappings );
 
-		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), false, null, null, 1, 'run-real-1' );
+		$importer->run_page( $adapter, $writer, 'category', Cursor::start(), false, 1, 'run-real-1' );
 
 		$rows = ( new \CartBridgeJP\Sync\DryRunItemRepository() )->list_after( 'run-real-1', 0, 10 );
 		$this->assertSame( [], $rows );
@@ -744,7 +534,7 @@ final class ImporterTest extends WP_UnitTestCase {
 		};
 
 		$importer = new Importer( $this->mappings );
-		$result   = $importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-throw' );
+		$result   = $importer->run_page( $adapter, $writer, 'category', Cursor::start(), true, 1, 'run-dry-throw' );
 
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 1, $result['totals']['warned'] );
@@ -782,7 +572,7 @@ final class ImporterTest extends WP_UnitTestCase {
 			}
 		};
 
-		$result = $importer->run_page( $adapter, $dry_writer, 'category', Cursor::start(), true, null, null, 1, 'run-dry-checksum' );
+		$result = $importer->run_page( $adapter, $dry_writer, 'category', Cursor::start(), true, 1, 'run-dry-checksum' );
 
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 0, $result['totals']['warned'] );
@@ -832,25 +622,8 @@ final class ImporterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * issue #55: 無料版の上限で見送った新規アイテムは「変更なし」ではない（`unchanged`に数えない）。
-	 */
-	public function test_unchanged_does_not_count_items_skipped_by_the_free_limit(): void {
-		add_filter( 'cbjp/limits/product', static fn (): int => 0 );
-
-		try {
-			$adapter = new MockPlatformAdapter( products: [ CanonicalFactory::product( 'p1', 'SKU-1' ) ] );
-			$result  = ( new Importer( $this->mappings ) )->run_page( $adapter, new InMemoryWriter(), 'product', Cursor::start(), false, new LimitPolicy( $this->mappings ) );
-
-			$this->assertSame( 1, $result['totals']['skipped'] );
-			$this->assertSame( 0, $result['totals']['unchanged'] );
-		} finally {
-			remove_all_filters( 'cbjp/limits/product' );
-		}
-	}
-
-	/**
 	 * D25（issue #98）: エクスポートで結ばれた実体を上書きしなかった結果（`LINKED_BY_EXPORT_NOT_IMPORTED`）は、mapping がある実体なら
-	 * 既に結ばれている（`LimitPolicy::used()`にも数えられている）ので`unchanged`にも数え、mapping（エクスポートの checksum）には触れない。
+	 * 既に結ばれているので`unchanged`にも数え、mapping（エクスポートの checksum）には触れない。
 	 * mapping が無い結果（在庫は商品の mapping で届く）は`unchanged`に数えない。実書込み・dry-run の両方。
 	 */
 	public function test_a_result_kept_by_link_direction_counts_as_unchanged_only_with_a_mapping(): void {

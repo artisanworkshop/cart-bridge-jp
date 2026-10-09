@@ -52,16 +52,9 @@ final class AddressMapperTest extends WP_UnitTestCase {
 		$this->assertSame( 'JP18', $fukui['state'] );
 	}
 
-	public function test_uses_pref_id_scheme_only_for_colorme(): void {
-		$this->assertTrue( AddressMapper::uses_pref_id_scheme( 'colorme' ) );
-		$this->assertFalse( AddressMapper::uses_pref_id_scheme( 'makeshop' ) );
-		$this->assertFalse( AddressMapper::uses_pref_id_scheme( 'mock' ) );
-	}
-
 	/**
-	 * 県コード修復ツール（`Woo\Tools\PrefStateRepair`。issue #46）は、旧バグ（恒等変換）の出力と新しい出力が
-	 * 異なる県を `state_code()` から導出する。その前提（表が 1..47 の全単射で、恒等でない県がちょうど23件）を
-	 * 固定する。全単射でなければ、旧出力と別の県の正しい出力が衝突して補正の判定が曖昧になる。
+	 * `state_code()` の対応表が 1..47 の全単射で、恒等（旧バグ。issue #44）でない県がちょうど23件であることを固定する
+	 * （全単射でなければ、2 つの `pref_id` が同じ県に写る）。
 	 */
 	public function test_state_code_is_a_bijection_and_exactly_23_prefectures_differ_from_the_legacy_identity(): void {
 		$states  = [];

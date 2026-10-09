@@ -123,7 +123,6 @@
 }
 
 .cbjp-tools__actions,
-.cbjp-tools__preview,
 .cbjp-tools__result {
 	margin-top: 1em;
 }
@@ -202,10 +201,6 @@
 
 .cbjp-export__options {
 	margin: 1.5em 0 1em;
-}
-
-.cbjp-tools__repair-table {
-	margin-top: 0.5em;
 }
 
 /*

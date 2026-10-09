@@ -646,7 +646,7 @@ final class WarningCatalog {
 			WarningCode::STOCK_PRODUCT_UNRESOLVED => self::make(
 				$blocking,
 				__( 'The product or variation for this stock is not found in WooCommerce, so the stock is not imported.', 'cart-bridge-jp' ),
-				__( 'Import products before stock (a full import does this). If this remains, the product was not imported, for example because of the free version’s limit.', 'cart-bridge-jp' ),
+				__( 'Import products before stock (a full import does this). If this remains, the product was not imported; check the warnings for that product in the preview (dry-run) report.', 'cart-bridge-jp' ),
 				/* translators: %s: the platform's ID of a product or variation. */
 				__( 'The product or variation %s for this stock is not found in WooCommerce, so the stock is not imported.', 'cart-bridge-jp' )
 			),

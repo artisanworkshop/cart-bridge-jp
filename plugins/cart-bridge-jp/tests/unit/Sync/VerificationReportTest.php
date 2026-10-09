@@ -35,7 +35,6 @@ final class VerificationReportTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
-		delete_option( 'cbjp_sample_mock' );
 		parent::tear_down();
 	}
 

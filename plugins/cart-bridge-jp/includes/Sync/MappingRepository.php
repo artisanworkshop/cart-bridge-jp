@@ -8,7 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 /**
- * `cbjp_mappings` テーブルへのアクセス。冪等性・差分検出・無料版上限カウントの正。
+ * `cbjp_mappings` テーブルへのアクセス。冪等性・差分検出の正。
  */
 final class MappingRepository {
 
@@ -184,8 +184,8 @@ final class MappingRepository {
 
 	/**
 	 * platform + entity_type の mapping 行を id 昇順で最大 $limit 件返す（remote_id => local_id）。
-	 * サンプルクリーンアップ（`Woo\Tools\SampleCleanup`）が「削除しては先頭から再取得」を繰り返す
-	 * 反復用で、offset は取らない。
+	 * 「削除しては先頭から再取得」を繰り返す反復用で、offset は取らない（R3-6a で削除したサンプルの
+	 * クリーンアップが使っていた。Pro の試用が使いうる汎用の読出しとして残している）。
 	 *
 	 * @return array<string,int>
 	 */
@@ -214,7 +214,7 @@ final class MappingRepository {
 
 	/**
 	 * platform + entity_type の mapping が指すローカルIDの一覧（重複除去・昇順）。
-	 * 移行後検証レポート（`VerificationReport`）とクリーンアップのプレビューが Woo 側の実在確認に使う。
+	 * 移行後検証レポート（`VerificationReport`）が Woo 側の実在確認に使う。
 	 *
 	 * @return array<int,int>
 	 */
@@ -234,7 +234,8 @@ final class MappingRepository {
 	}
 
 	/**
-	 * 無料版上限強制の正となる累積カウント（D15/§10.2）。
+	 * platform + entity_type の mapping の件数（R3-6a で削除した無料版の上限〔D15〕が累積カウントに使っていた。
+	 * Pro の試用が使いうる汎用の読出しとして残している）。
 	 */
 	public function count( string $platform, string $entity_type ): int {
 		global $wpdb;

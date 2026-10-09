@@ -115,9 +115,9 @@ final class PushIntentRepository {
 	}
 
 	/**
-	 * `Woo\Tools\SampleCleanup` が対象platformの mappings を全て処理し終えた（全量完了）タイミングで
-	 * 呼ぶ。mappingsを持たない未解決intent（＝定義上そのもの）は個別バッチの mapping 駆動ループでは
-	 * 検出できないため、全量完了時に一括で消す。
+	 * 対象platformの未解決intentを一括で消す（R3-6a で削除したサンプルのクリーンアップが、mappings を
+	 * 全て処理し終えた時点で呼んでいた。mappingsを持たない未解決intentは mapping 駆動のループでは検出
+	 * できないため）。
 	 */
 	public function delete_for_platform( string $platform ): int {
 		global $wpdb;
@@ -126,8 +126,8 @@ final class PushIntentRepository {
 	}
 
 	/**
-	 * `Sync\LimitPolicy` の無料版上限カウント用。未解決intentは「作成済みかもしれない実体」として
-	 * 累積カウントに含める（D21-B「無料版の上限」）。
+	 * platform + entity_type の未解決intentの件数。未解決intentは「作成済みかもしれない実体」として、
+	 * 件数を数える側（D21-B。R3-6a で削除した無料版の上限〔`LimitPolicy`〕が使っていた）は mappings に足す。
 	 */
 	public function count( string $platform, string $entity_type ): int {
 		global $wpdb;

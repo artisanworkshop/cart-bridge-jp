@@ -3,8 +3,8 @@
 // rest_do_request() で通し、各ステップを PASS/FAIL で出す。失敗が1つでもあれば非ゼロで終了する（seed は不要。push の切替は下で自分で行う）。
 //
 // 前提:
-//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping・上限に触れないため colorme では登録しない）
-//   - dev サイトに export できる Woo 商品が 1 件以上ある（どれがサンプルに選ばれるかは `ExportSampleSelector` 次第。実 platform の
+//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping に触れないため colorme では登録しない）
+//   - dev サイトに export できる Woo 商品が 1 件以上ある（export できる商品はすべて対象になる。実 platform の
 //     mapping が付いていても、mockv 側は空なので未 export 扱いになる）
 //   - 前回の残りが無い（あれば cleanup.php を先に流す。残りがあると結果が変わるので、この先頭で中止する）
 // 実行: mock-adapter.sh run .claude/skills/verify-with-mock-adapter/examples/push-intent-resolution/verify-rest.php
@@ -64,7 +64,7 @@ $intents_now = static function () use ( $call, $platform ): array {
 //   - `cbjp_process_job`（Action Scheduler）は CLI では自走しないので、pending を自分で処理する。**この run のジョブだけ**を job_id で引いて処理する
 //     （サイト全体の pending を流すと、他 platform〔colorme 等〕のジョブを同期実行して実 API を叩きかねない）。20 回で処理し切れなければエラーにする
 $run_export = static function ( array $seed ) use ( $call, $platform ): array {
-	// `cbjp_verify_seed` は prefecture-repair の example と共有する（customers/orders）ので、丸ごと上書きせず `push` キーだけを差し替える。
+	// `cbjp_verify_seed` は他の example と共有する（customers/orders など）ので、丸ごと上書きせず `push` キーだけを差し替える。
 	$current = get_option( 'cbjp_verify_seed', [] );
 	$current = is_array( $current ) ? $current : [];
 	unset( $current['push'] );
@@ -188,7 +188,7 @@ if ( [] === $intents ) {
 $initial = count( $intents );
 
 // ---- 3) 印が残る実体は、再送が成功する状況でも送られない ----
-// warned は「ブロックされた」証拠（PUSH_OUTCOME_UNCONFIRMED の警告）。無料版の上限で作成されなかっただけの場合は warned が増えないので、created 0 だけでは区別できない。
+// warned は「ブロックされた」証拠（PUSH_OUTCOME_UNCONFIRMED の警告）。警告なしで作成されなかった場合（R3-6a より前は無料版の上限がそうだった）は warned が増えないので、created 0 だけでは区別できない。
 // 限界: warned は他の警告（商品データの品質など）も数えるので、それが印の数以上ある環境ではブロックが外れても通りうる。厳密には印のある local_id ごとに確かめる必要がある。
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] ); // 5xx を止める。ブロックが無ければここで作成される。
 $check( '3 印が残る実体は再 export でブロックされる（作成 0、印の数以上の警告）', 0 === (int) ( $r['created'] ?? -1 ) && (int) ( $r['warned'] ?? 0 ) >= $initial, wp_json_encode( $r ) );

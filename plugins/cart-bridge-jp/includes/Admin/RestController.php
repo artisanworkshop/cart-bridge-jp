@@ -11,7 +11,6 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
-use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
@@ -20,20 +19,15 @@ use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Woo\Support\MappingCandidates;
-use CartBridgeJP\Woo\Tools\CleanupNotPermittedException;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
-use CartBridgeJP\Woo\Tools\PrefStateRepair;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
 use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
 use CartBridgeJP\Woo\Tools\PushIntentResolver;
-use CartBridgeJP\Woo\Tools\RepairInterruptedException;
-use CartBridgeJP\Woo\Tools\SampleCleanup;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -45,12 +39,13 @@ use WP_REST_Response;
 /**
  * REST API（namespace: `cbjp/v1`）。`docs/03-design-decisions.md` §6 のルート定義。
  *
- * connections/runs/logs/limits/settings/mappings はSync/Support層と接続済み。
+ * connections/runs/logs/settings/mappings はSync/Support層と接続済み。
  * `GET /runs?platform=` は進行中 run の発見（R3-0i・issue #70。409 `cbjp_run_in_progress` の `active_runs` も同じ形）。
  * 同時実行の判定とその後の状態変更は、プラットフォーム単位のロック（`Support\PlatformLock`。issue #57）で囲む
  * （接続の解除も囲む。R3-0p）。
- * ツール系（sample-cleanup/rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
- * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。
+ * ツール系（rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
+ * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。R3-6a で無料版の上限（`/limits`）・サンプルの
+ * クリーンアップ（`/tools/sample-cleanup`）・県コード修復（`/tools/repair-states`）を外した。
  */
 final class RestController {
 
@@ -306,42 +301,6 @@ final class RestController {
 
 		register_rest_route(
 			self::NAMESPACE,
-			'/limits',
-			[
-				'methods'             => 'GET',
-				'callback'            => [ $this, 'get_limits' ],
-				'permission_callback' => [ $this, 'check_permission' ],
-				// `?platform[]=x` を REST 層で 400 にする（`sanitize_callback` を付けないので既定の
-				// `rest_parse_request_arg` が型を検証する。CLAUDE.md）。
-				'args'                => [
-					'platform' => [
-						'type' => 'string',
-					],
-				],
-			]
-		);
-
-		register_rest_route(
-			self::NAMESPACE,
-			'/tools/sample-cleanup',
-			[
-				[
-					'methods'             => 'GET',
-					'callback'            => [ $this, 'preview_sample_cleanup' ],
-					'permission_callback' => [ $this, 'check_permission' ],
-					'args'                => $platform_arg,
-				],
-				[
-					'methods'             => 'POST',
-					'callback'            => [ $this, 'run_sample_cleanup' ],
-					'permission_callback' => [ $this, 'check_permission' ],
-					'args'                => $platform_arg,
-				],
-			]
-		);
-
-		register_rest_route(
-			self::NAMESPACE,
 			'/tools/rebuild-mappings',
 			[
 				'methods'             => 'POST',
@@ -361,39 +320,6 @@ final class RestController {
 				),
 			]
 		);
-		// 県コード修復ツール（issue #46）。Scan（GET・読取専用）と Repair（POST）をメソッドで分け、
-		// 「書き込むか」を真偽値パラメータにしない（欠損・型違いが書込み側に倒れるのを構造的に防ぐ。
-		// `sample-cleanup` の preview/run と同じ流儀）。
-		$repair_args = array_merge(
-			$platform_arg,
-			[
-				'cursor' => [
-					'type'              => [ 'string', 'null' ],
-					'required'          => false,
-					'validate_callback' => 'rest_validate_request_arg',
-				],
-			]
-		);
-
-		register_rest_route(
-			self::NAMESPACE,
-			'/tools/repair-states',
-			[
-				[
-					'methods'             => 'GET',
-					'callback'            => [ $this, 'scan_state_repair' ],
-					'permission_callback' => [ $this, 'check_permission' ],
-					'args'                => $repair_args,
-				],
-				[
-					'methods'             => 'POST',
-					'callback'            => [ $this, 'run_state_repair' ],
-					'permission_callback' => [ $this, 'check_permission' ],
-					'args'                => $repair_args,
-				],
-			]
-		);
-
 		// D21-B（issue #73）: 作成結果が不明な実体（push intent）の一覧・解除。`platform`/`id`は
 		// URLパスが名指しするリソース識別子のため、コールバック側では必ず`get_url_params()`
 		// 経由で読む（CLAUDE.mdのパスパラメータ規約）。
@@ -696,7 +622,7 @@ final class RestController {
 	 *   能力の無い店舗で先にオンを保存しておくと、後でプランが変わった時に誰も選ばないまま画像が送られ始める。
 	 *   オフ（false）はいつでも保存できる。
 	 * - 進行中の run があるときは 409。実行の途中で設定が変わると、同じ run の中で商品ごとに画像の扱いが割れる
-	 *   （`SampleCleanup` 等のツールと同じガード。UI も実行中は操作を止めるが、サーバー側でも担保する）。
+	 *   （リンク再構築などのツールと同じガード。UI も実行中は操作を止めるが、サーバー側でも担保する）。
 	 */
 	public function save_export_options( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		$platform = $this->platform_param( $request );
@@ -1152,7 +1078,7 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: 無料版のサンプル10件でも
+		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: エクスポートは
 		// ASP本番環境へ実際に書き込むため、UI（E2-4の確認ダイアログ）が確認を得たことを示す
 		// フラグを必須にする。dry-run（`dry_run_export`）は何も書き込まないため対象外。
 		// プラットフォーム存在チェックの後に置く: 不正なplatform + type=exportのリクエストが
@@ -1404,46 +1330,6 @@ final class RestController {
 	}
 
 	/**
-	 * 無料版上限・使用状況・Pro解除状態（アップセル表示用、D15/§10.2）。
-	 * `platform` は任意: 指定時は使用状況（mappings累積カウント）と残数を含める。
-	 * `pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。`LimitPolicy::pro_url()`、§10.3）。
-	 */
-	public function get_limits( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = (string) ( $request->get_param( 'platform' ) ?? '' );
-
-		if ( '' !== $platform && ! AdapterRegistry::has( $platform ) ) {
-			return $this->unknown_platform_error( $platform );
-		}
-
-		$mappings = new MappingRepository();
-		$limits   = new LimitPolicy( $mappings );
-
-		$entities = [];
-
-		foreach ( self::ENTITY_TYPES as $entity ) {
-			$limit = $limits->limit_for( $entity );
-
-			$entities[ $entity ] = [
-				'limit'     => $limit,
-				'unlocked'  => null === $limit,
-				'used'      => '' !== $platform ? $limits->used( $platform, $entity ) : null,
-				'remaining' => '' !== $platform ? $limits->remaining( $platform, $entity ) : null,
-			];
-		}
-
-		// 全エンティティが解除済み＝Pro解除状態。
-		$all_unlocked = ! in_array( false, array_column( $entities, 'unlocked' ), true );
-
-		return rest_ensure_response(
-			[
-				'unlocked' => $all_unlocked,
-				'entities' => $entities,
-				'pro_url'  => $limits->pro_url(),
-			]
-		);
-	}
-
-	/**
 	 * `GET /runs/{run_id}/verification`: 移行後検証レポート（D17）。import の run のみ対象
 	 * （dry-run は Woo 側に何も書かないため突合対象が無い）。
 	 */
@@ -1464,62 +1350,6 @@ final class RestController {
 		}
 
 		return rest_ensure_response( $report );
-	}
-
-	/**
-	 * `GET /tools/sample-cleanup?platform=`: 削除件数のプレビュー（§10.3「実行前に削除件数を表示して確認を取る」）。
-	 */
-	public function preview_sample_cleanup( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = $this->tool_platform( $request );
-
-		if ( $platform instanceof WP_Error ) {
-			return $platform;
-		}
-
-		$preview = ( new SampleCleanup( new MappingRepository() ) )->preview( $platform );
-
-		// 読むだけなのでロックは取らない（実行の `run_sample_cleanup()` がロックの中で判定し直す）。
-		return rest_ensure_response(
-			array_merge(
-				[
-					'platform'        => $platform,
-					'run_in_progress' => ( new JobRepository() )->is_platform_busy( $platform ),
-				],
-				$preview
-			)
-		);
-	}
-
-	/**
-	 * `POST /tools/sample-cleanup`: 1バッチ分の削除。`has_more` が true の間、UI が繰り返し呼ぶ。
-	 */
-	public function run_sample_cleanup( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$platform = $this->tool_platform( $request );
-
-		if ( $platform instanceof WP_Error ) {
-			return $platform;
-		}
-
-		// 実行中の import と同時に削除すると、mappings を消した直後に Importer が同じ remote_id を
-		// 「未作成」とみなして作り直す等の競合が起きるため、進行中のジョブがある間は拒否する。
-		// このバッチの間はロックを持ち、判定の後に run が始まらないようにする。
-		return $this->run_exclusively(
-			$platform,
-			PlatformLock::TTL_LONG,
-			static function () use ( $platform ): WP_REST_Response|WP_Error {
-				try {
-					$result = ( new SampleCleanup( new MappingRepository() ) )->run( $platform );
-				} catch ( CleanupNotPermittedException ) {
-					return new WP_Error(
-						'cbjp_cleanup_forbidden',
-						__( 'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.', 'cart-bridge-jp' ),
-						[ 'status' => 403 ]
-					);
-				}
-
-				return rest_ensure_response( $result );
-			}
-		);
 	}
 
 	/**
@@ -1546,135 +1376,6 @@ final class RestController {
 
 				return rest_ensure_response( $result );
 			}
-		);
-	}
-
-	/**
-	 * `GET /tools/repair-states?platform=&cursor=`: 県コード修復の Scan（読取専用）。補正が必要な件数を数える。
-	 * `cursor` が null になるまで UI が繰り返し呼ぶ。
-	 */
-	public function scan_state_repair( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		return $this->repair_states( $request, false );
-	}
-
-	/**
-	 * `POST /tools/repair-states`: 県コード修復の実行（`state` のみ補正）。`cursor` が null になるまで UI が繰り返し呼ぶ。
-	 */
-	public function run_state_repair( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		return $this->repair_states( $request, true );
-	}
-
-	private function repair_states( WP_REST_Request $request, bool $apply ): WP_REST_Response|WP_Error {
-		$platform = $this->tool_platform( $request );
-
-		if ( $platform instanceof WP_Error ) {
-			return $platform;
-		}
-
-		// 進行中のジョブとは ASP のレート制限（プラットフォーム単位で共有）を奪い合い、import が同じ
-		// 実体を書いている最中に補正すると競合しうるため、Scan（読取専用）も含めて拒否する。
-		// このバッチの間はロックを持ち、判定の後に run が始まらないようにする。
-		return $this->run_exclusively(
-			$platform,
-			PlatformLock::TTL_LONG,
-			fn (): WP_REST_Response|WP_Error => $this->repair_states_batch( $request, $platform, $apply )
-		);
-	}
-
-	private function repair_states_batch( WP_REST_Request $request, string $platform, bool $apply ): WP_REST_Response|WP_Error {
-		$adapter = AdapterRegistry::get( $platform );
-
-		if ( null === $adapter ) {
-			return $this->unknown_platform_error( $platform );
-		}
-
-		$cursor = $request->get_param( 'cursor' );
-
-		try {
-			$result = ( new PrefStateRepair( new MappingRepository(), $adapter ) )->run( $platform, $apply, is_string( $cursor ) ? $cursor : null );
-		} catch ( InvalidArgumentException ) {
-			return new WP_Error( 'cbjp_invalid_cursor', __( 'The repair cursor is invalid.', 'cart-bridge-jp' ), [ 'status' => 400 ] );
-		} catch ( UnsupportedOperationException ) {
-			return $this->repair_not_applicable_error();
-		}
-
-		if ( null !== $result['interruption'] ) {
-			return $this->repair_interrupted_response( $result );
-		}
-
-		return rest_ensure_response(
-			[
-				'platform' => $platform,
-				'apply'    => $apply,
-				'counts'   => $result['counts'],
-				'cursor'   => $result['cursor'],
-			]
-		);
-	}
-
-	/**
-	 * ASP への照会に失敗して中断した場合の応答。エラーとして返しつつ、処理済みの件数と失敗した行を指す
-	 * cursor をボディに含める（UI は件数を失わず、同じ位置から再開できる。処理は冪等）。
-	 *
-	 * @param array{counts:array<string,array<string,int>>,cursor:?string,interruption:?string} $result
-	 */
-	private function repair_interrupted_response( array $result ): WP_REST_Response|WP_Error {
-		$reason = (string) $result['interruption'];
-
-		// アダプタが単一 ID 取得に対応していない（走査の途中で判明）。「修復が不要」ではなく「実行できない」で、
-		// 再開しても同じ結果になるため、再開用の cursor は返さない。
-		if ( RepairInterruptedException::UNSUPPORTED === $reason ) {
-			return new WP_Error(
-				'cbjp_repair_unsupported',
-				__( 'This platform cannot look up single records, so prefecture repair is not available for it.', 'cart-bridge-jp' ),
-				[ 'status' => 501 ]
-			);
-		}
-
-		[ $code, $status, $message ] = match ( $reason ) {
-			RepairInterruptedException::RATE_LIMITED  => [
-				'cbjp_rate_limited',
-				503,
-				__( 'The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped.', 'cart-bridge-jp' ),
-			],
-			RepairInterruptedException::NOT_CONNECTED => [
-				'cbjp_not_connected',
-				409,
-				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
-			],
-			default                                   => [
-				'cbjp_platform_api_error',
-				502,
-				__( 'The platform API returned an error. Try again in a moment; it resumes where it stopped.', 'cart-bridge-jp' ),
-			],
-		};
-
-		$response = new WP_REST_Response(
-			[
-				'code'    => $code,
-				'message' => $message,
-				'data'    => [
-					'status'       => $status,
-					'counts'       => $result['counts'],
-					'cursor'       => $result['cursor'],
-					'interruption' => $reason,
-				],
-			],
-			$status
-		);
-
-		if ( RepairInterruptedException::RATE_LIMITED === $reason ) {
-			$response->header( 'Retry-After', '60' );
-		}
-
-		return $response;
-	}
-
-	private function repair_not_applicable_error(): WP_Error {
-		return new WP_Error(
-			'cbjp_repair_not_applicable',
-			__( 'This platform does not need prefecture repair.', 'cart-bridge-jp' ),
-			[ 'status' => 400 ]
 		);
 	}
 
@@ -1801,8 +1502,7 @@ final class RestController {
 				__( 'This item type cannot be looked up by remote_id, so it can only be resolved as not created.', 'cart-bridge-jp' ),
 				[ 'status' => 422 ]
 			),
-			// 以下3件は`Woo\Tools\PrefStateRepair`が`repair_interrupted_response()`で返す
-			// コード・ステータス・文言と揃える（同じ「ASPへの照会に失敗して中断」という状況）。
+			// 以下3件は「ASPへの照会に失敗して中断」の応答（R3-6a で削除した県コード修復と揃えていたコード・ステータス・文言）。
 			PushIntentResolutionException::NOT_CONNECTED     => new WP_Error(
 				'cbjp_not_connected',
 				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),

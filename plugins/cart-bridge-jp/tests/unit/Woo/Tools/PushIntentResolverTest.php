@@ -21,8 +21,8 @@ use RuntimeException;
 use WP_UnitTestCase;
 
 /**
- * D21-B（issue #73）: `resolve_link()`が`fetch_*_by_remote_id()`からの例外を、`Woo\Tools\
- * PrefStateRepair::classify_api_failure()`と同じ理由コードへ変換することを確認する
+ * D21-B（issue #73）: `resolve_link()`が`fetch_*_by_remote_id()`からの例外を、理由コード
+ * （`PushIntentResolutionException`）へ変換することを確認する
  * （レビュー指摘: `UnsupportedOperationException`しか捕まえておらず、他の例外がREST層の
  * 外へ抜けてPHPの致命的エラーになりうる問題への対応）。
  */
@@ -98,8 +98,8 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * レビュー指摘（Copilot/Codex）: 外部アダプタの戻り値は信用しない（アーキテクチャ原則8。
-	 * `Woo\Tools\PrefStateRepair`と同じ理由）。契約違反アダプタが要求と異なる実体を返した場合、
+	 * レビュー指摘（Copilot/Codex）: 外部アダプタの戻り値は信用しない（アーキテクチャ原則8）。
+	 * 契約違反アダプタが要求と異なる実体を返した場合、
 	 * 実在確認をすり抜けて無関係な別のローカル実体へ紐付けてしまわないことを確認する。
 	 */
 	public function test_resolve_link_rejects_a_remote_entity_whose_remote_id_does_not_match_the_request(): void {

@@ -12,48 +12,31 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import { isCleanupBlocked } from '../components/cleanup-gate';
-import {
-	repairResultMessage,
-	scanResultMessage,
-} from '../components/repair-messages';
 import { ENTITY_LABELS } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
-import type {
-	CleanupPreview,
-	CleanupResult,
-	Connection,
-	RebuildResult,
-	StateRepairBucket,
-	StateRepairCounts,
-	StateRepairEntity,
-	StateRepairResult,
-} from '../types';
+import type { Connection, RebuildResult } from '../types';
 
 /**
- * `Woo\Tools\SampleCleanup::RESULT_KEYS` と同じ並び（表示順）。
+ * リンク再構築の件数の表示順（`Woo\Tools\MappingRebuilder::SOURCES` の種類。R3-6a で削除したサンプルのクリーンアップと
+ * 共有していた並びのうち、再構築が返すもの）。
  */
-const CLEANUP_KEYS = [
+const REBUILD_KEYS = [
 	'category',
 	'tag',
 	'product',
 	'variant',
 	'customer',
 	'order',
-	'stock',
 	'coupon',
-	'review',
-	'attachment',
 ] as const;
 
 const TOOL_LABELS: Record< string, string > = {
 	...ENTITY_LABELS,
 	variant: __( 'Variations', 'cart-bridge-jp' ),
-	attachment: __( 'Images', 'cart-bridge-jp' ),
 };
 
 /**
- * バックエンドが `has_more` / `cursor` を返し続けても管理画面が無限にリクエストを打たない
+ * バックエンドが `cursor` を返し続けても管理画面が無限にリクエストを打たない
  * ための上限。予算 100〜200 件/回なので、この回数で終わらないデータ量は想定していない。
  */
 const MAX_BATCHES = 1000;
@@ -83,81 +66,6 @@ function sumCounts( counts: Counts ): number {
 		( total, value ) => total + value,
 		0
 	);
-}
-
-const REPAIR_ENTITIES: readonly StateRepairEntity[] = [ 'customer', 'order' ];
-
-/**
- * 県コード修復のエラーのうち、同じ位置から再開しても結果が変わらないもの（`RestController` のエラーコード）。
- */
-const NON_RESUMABLE_REPAIR_ERRORS: readonly string[] = [
-	'cbjp_invalid_cursor',
-	'cbjp_repair_not_applicable',
-	'cbjp_repair_unsupported',
-];
-
-const REPAIR_BUCKETS: readonly StateRepairBucket[] = [
-	'fixed',
-	'already_correct',
-	'unverified',
-	'unavailable',
-	'skipped',
-];
-
-function emptyRepairCounts(): StateRepairCounts {
-	const empty = (): Record< StateRepairBucket, number > => ( {
-		fixed: 0,
-		already_correct: 0,
-		unverified: 0,
-		unavailable: 0,
-		skipped: 0,
-	} );
-
-	return { customer: empty(), order: empty() };
-}
-
-function mergeRepairCounts(
-	into: StateRepairCounts,
-	add: StateRepairCounts
-): StateRepairCounts {
-	const merged = emptyRepairCounts();
-
-	for ( const entity of REPAIR_ENTITIES ) {
-		for ( const bucket of REPAIR_BUCKETS ) {
-			merged[ entity ][ bucket ] =
-				( into[ entity ]?.[ bucket ] ?? 0 ) +
-				( add[ entity ]?.[ bucket ] ?? 0 );
-		}
-	}
-
-	return merged;
-}
-
-function repairBucketTotal(
-	counts: StateRepairCounts,
-	bucket?: StateRepairBucket
-): number {
-	return REPAIR_ENTITIES.reduce(
-		( total, entity ) =>
-			total +
-			( bucket
-				? counts[ entity ][ bucket ]
-				: REPAIR_BUCKETS.reduce(
-						( sum, key ) => sum + counts[ entity ][ key ],
-						0
-				  ) ),
-		0
-	);
-}
-
-/**
- * 中断（レート制限・接続切れ等）した県コード修復を、先頭からやり直さず続きから再開するための状態。
- * `cursor` は失敗した行を指す（サーバーがエラー応答に含める）。処理は冪等なので同じ行から再開してよい。
- */
-interface RepairPending {
-	mode: 'scan' | 'repair';
-	cursor: string | null;
-	counts: StateRepairCounts;
 }
 
 function CountList( {
@@ -203,19 +111,6 @@ export default function ToolsTab() {
 	);
 	const [ platform, setPlatform ] = useState< string | null >( null );
 
-	const [ preview, setPreview ] = useState< CleanupPreview | null >( null );
-	const [ previewing, setPreviewing ] = useState( false );
-	const [ cleaning, setCleaning ] = useState( false );
-	const [ cleanupProgress, setCleanupProgress ] = useState< {
-		deleted: Counts;
-		unlinked: Counts;
-	} | null >( null );
-	const [ cleanupDone, setCleanupDone ] = useState( false );
-	const [ cleanupError, setCleanupError ] = useState< string | null >( null );
-	// プレビューを取ったあとに進行中の run を見たか。その run が書いたデータは件数に入っていないので、
-	// 取り直すまで削除させない（`isCleanupBlocked()`。R3-0i R1-1）。
-	const [ previewOutdated, setPreviewOutdated ] = useState( false );
-
 	const [ rebuilding, setRebuilding ] = useState( false );
 	const [ rebuildCounts, setRebuildCounts ] = useState< Counts | null >(
 		null
@@ -227,28 +122,10 @@ export default function ToolsTab() {
 		null
 	);
 
-	const [ repairMode, setRepairMode ] = useState< 'scan' | 'repair' | null >(
-		null
-	);
-	const [ repairView, setRepairView ] = useState< {
-		mode: 'scan' | 'repair';
-		counts: StateRepairCounts;
-		done: boolean;
-	} | null >( null );
-	// 最後に完了した Scan の集計。Repair はこれが「要補正 1件以上」のときだけ実行できる
-	// （Scan 結果が確認ステップを兼ねる。ネイティブの confirm は使わない）。
-	const [ scanTotals, setScanTotals ] = useState< StateRepairCounts | null >(
-		null
-	);
-	const [ repairPending, setRepairPending ] =
-		useState< RepairPending | null >( null );
-	const [ repairError, setRepairError ] = useState< string | null >( null );
-
 	// 実行中にプラットフォームを切り替えた場合、遅れて届いた応答で別プラットフォームの表示を
 	// 上書きしないためのカウンタ。値の一致（プラットフォーム名）で判定すると A→B→A と戻ったときに
 	// 古い応答を最新と誤認するため、切替のたびに単調増加させる。同じ状態を更新しうる全ての非同期処理
-	// （サンプル削除・リンク再構築・県コード修復の Scan/Repair）が同じカウンタを共有する
-	// （ExportTab の platformGenerationRef と同じ流儀）。
+	// （リンク再構築）が同じカウンタを共有する（ExportTab の platformGenerationRef と同じ流儀）。
 	const platformGenerationRef = useRef( 0 );
 
 	useEffect( () => {
@@ -277,26 +154,16 @@ export default function ToolsTab() {
 	function handlePlatformChange( value: string ) {
 		platformGenerationRef.current += 1;
 		setPlatform( value );
-		setPreview( null );
-		setPreviewOutdated( false );
-		setCleanupProgress( null );
-		setCleanupDone( false );
-		setCleanupError( null );
 		setRebuildCounts( null );
 		setRebuildDone( false );
 		setRebuildError( null );
 		setRebuildCursor( null );
-		setRepairMode( null );
-		setRepairView( null );
-		setScanTotals( null );
-		setRepairPending( null );
-		setRepairError( null );
 	}
 
 	const currentConnection =
 		connections?.find( ( c ) => c.platform === platform ) ?? null;
 	const platformLabel = currentConnection?.label ?? platform ?? '';
-	const busy = previewing || cleaning || rebuilding || null !== repairMode;
+	const busy = rebuilding;
 	// 進行中の run の発見（R3-0i・issue #70）。どのツールも進行中の run がある間はサーバーが 409 で拒否するため、
 	// 先にボタンを止め、どのタブでその run を確認・キャンセルできるかを案内する。
 	const activeRuns = useActiveRuns( platform, NO_TRACKED_RUNS );
@@ -312,129 +179,6 @@ export default function ToolsTab() {
 
 		if ( undefined !== seed ) {
 			activeRuns.refresh( seed );
-		}
-	}
-
-	// プレビューを表示している間に進行中の run を見たら、そのプレビューは古いものとして扱う。一覧の取り直し中
-	// （プレビューのたびに取り直す）は判定しない: 直前に終わった run が古い一覧に残っていると、run の後に取った
-	// 新しいプレビューまで古いと誤判定するため（R2-4。取り直した一覧に run が残っていれば、その時点で印を付ける）。
-	useEffect( () => {
-		if ( runInProgress && ! activeRuns.stale && null !== preview ) {
-			setPreviewOutdated( true );
-		}
-	}, [ runInProgress, activeRuns.stale, preview ] );
-
-	async function loadPreview() {
-		if ( null === platform ) {
-			return;
-		}
-
-		const requested = platform;
-		const generation = platformGenerationRef.current;
-		setPreviewing( true );
-		setCleanupError( null );
-		setCleanupDone( false );
-		setCleanupProgress( null );
-		// プレビューと同じ時点の一覧にそろえる（run が始まっていれば、すぐ上の案内とボタンの停止に反映する）。
-		activeRuns.refresh();
-
-		try {
-			const data = await apiFetch< CleanupPreview >( {
-				path: `/cbjp/v1/tools/sample-cleanup?platform=${ encodeURIComponent(
-					requested
-				) }`,
-			} );
-
-			if ( platformGenerationRef.current === generation ) {
-				setPreview( data );
-				// 「古い」の印は取り直せたときだけ下ろす。失敗したら前のプレビュー（古いかもしれない）が残るので、
-				// 印もそのまま残して削除を止め続ける（R2-1）。
-				setPreviewOutdated( false );
-			}
-		} catch ( err ) {
-			if ( platformGenerationRef.current === generation ) {
-				setCleanupError( errorMessage( err ) );
-			}
-		} finally {
-			if ( platformGenerationRef.current === generation ) {
-				setPreviewing( false );
-			}
-		}
-	}
-
-	async function runCleanup() {
-		if ( null === platform || null === preview ) {
-			return;
-		}
-
-		const confirmed =
-			0 === previewTotal ||
-			// eslint-disable-next-line no-alert -- 破壊的操作の確認。ImportTab の実行前確認と同じ流儀。
-			window.confirm(
-				sprintf(
-					/* translators: %s: platform label */
-					__(
-						'Delete every product, order, customer, coupon, category, tag and image imported from %s? This cannot be undone.',
-						'cart-bridge-jp'
-					),
-					platformLabel
-				)
-			);
-
-		if ( ! confirmed ) {
-			return;
-		}
-
-		const requested = platform;
-		const selection = activeRuns.selectionRef.current;
-		const generation = platformGenerationRef.current;
-		let deleted: Counts = {};
-		let unlinked: Counts = {};
-
-		setCleaning( true );
-		setCleanupError( null );
-		setCleanupDone( false );
-		setCleanupProgress( { deleted, unlinked } );
-
-		try {
-			for ( let batch = 0; batch < MAX_BATCHES; batch++ ) {
-				const result = await apiFetch< CleanupResult >( {
-					path: '/cbjp/v1/tools/sample-cleanup',
-					method: 'POST',
-					data: { platform: requested },
-				} );
-
-				if ( platformGenerationRef.current !== generation ) {
-					return;
-				}
-
-				deleted = mergeCounts( deleted, result.deleted );
-				unlinked = mergeCounts( unlinked, result.unlinked );
-				setCleanupProgress( { deleted, unlinked } );
-
-				if ( ! result.has_more ) {
-					setCleanupDone( true );
-					setPreview( null );
-
-					return;
-				}
-			}
-
-			setCleanupError(
-				__(
-					'The cleanup did not finish within the expected number of batches. Run it again to continue.',
-					'cart-bridge-jp'
-				)
-			);
-		} catch ( err ) {
-			if ( platformGenerationRef.current === generation ) {
-				setCleanupError( errorMessage( err ) );
-				showActiveRunsFrom( selection, err );
-			}
-		} finally {
-			if ( platformGenerationRef.current === generation ) {
-				setCleaning( false );
-			}
 		}
 	}
 
@@ -499,130 +243,6 @@ export default function ToolsTab() {
 		}
 	}
 
-	async function runRepair( mode: 'scan' | 'repair' ) {
-		if ( null === platform ) {
-			return;
-		}
-
-		const requested = platform;
-		const selection = activeRuns.selectionRef.current;
-		const generation = platformGenerationRef.current;
-		// 中断した同じ種類の実行があれば続きから再開し、そうでなければ先頭から始める。
-		const resume = repairPending?.mode === mode ? repairPending : null;
-		let counts: StateRepairCounts = resume?.counts ?? emptyRepairCounts();
-		let cursor: string | null = resume?.cursor ?? null;
-
-		setRepairMode( mode );
-		setRepairError( null );
-		setRepairPending( null );
-		setRepairView( { mode, counts, done: false } );
-
-		if ( 'scan' === mode ) {
-			setScanTotals( null );
-		}
-
-		try {
-			for ( let batch = 0; batch < MAX_BATCHES; batch++ ) {
-				const result: StateRepairResult =
-					await apiFetch< StateRepairResult >(
-						'scan' === mode
-							? {
-									path: `/cbjp/v1/tools/repair-states?platform=${ encodeURIComponent(
-										requested
-									) }${
-										null === cursor
-											? ''
-											: `&cursor=${ encodeURIComponent(
-													cursor
-											  ) }`
-									}`,
-							  }
-							: {
-									path: '/cbjp/v1/tools/repair-states',
-									method: 'POST',
-									data:
-										null === cursor
-											? { platform: requested }
-											: { platform: requested, cursor },
-							  }
-					);
-
-				if ( platformGenerationRef.current !== generation ) {
-					return;
-				}
-
-				counts = mergeRepairCounts( counts, result.counts );
-				cursor = result.cursor;
-				setRepairView( { mode, counts, done: null === cursor } );
-
-				if ( null === cursor ) {
-					// Repair の後は状態が変わっているため、確認のために Scan をやり直させる。
-					setScanTotals( 'scan' === mode ? counts : null );
-
-					return;
-				}
-			}
-
-			setRepairPending( { mode, cursor, counts } );
-			// 案内するボタン名は再開ボタンの表示（「Continue scan」「Continue repair」）と揃える。
-			setRepairError(
-				'scan' === mode
-					? __(
-							'The scan paused after the maximum number of batches. Click “Continue scan” to carry on from where it stopped.',
-							'cart-bridge-jp'
-					  )
-					: __(
-							'The repair paused after the maximum number of batches. Click “Continue repair” to carry on from where it stopped.',
-							'cart-bridge-jp'
-					  )
-			);
-		} catch ( err ) {
-			if ( platformGenerationRef.current === generation ) {
-				// ASP への照会に失敗して中断した応答（レート制限・接続切れ等）は、処理済みの件数と
-				// 失敗した行を指す cursor を含む。件数を失わず、同じ位置から再開できる（処理は冪等）。
-				const failure = err as {
-					code?: string;
-					data?: {
-						counts?: StateRepairCounts;
-						cursor?: string | null;
-						interruption?: string;
-					};
-				};
-
-				if ( failure.data?.counts ) {
-					counts = mergeRepairCounts( counts, failure.data.counts );
-
-					if ( 'string' === typeof failure.data.interruption ) {
-						cursor = failure.data.cursor ?? null;
-					}
-				}
-
-				setRepairView( { mode, counts, done: false } );
-
-				// 不正な cursor・修復の対象外・アダプタが単一取得に非対応、は再開しても同じ結果になるため
-				// 保持しない（「Start over」で先頭からやり直す）。
-				if (
-					! NON_RESUMABLE_REPAIR_ERRORS.includes( failure.code ?? '' )
-				) {
-					setRepairPending( { mode, cursor, counts } );
-				}
-
-				setRepairError( errorMessage( err ) );
-				showActiveRunsFrom( selection, err );
-			}
-		} finally {
-			if ( platformGenerationRef.current === generation ) {
-				setRepairMode( null );
-			}
-		}
-	}
-
-	function startRepairOver() {
-		setRepairPending( null );
-		setRepairError( null );
-		setRepairView( null );
-	}
-
 	if ( connectionsError ) {
 		return (
 			<Notice status="error" isDismissible={ false }>
@@ -637,31 +257,6 @@ export default function ToolsTab() {
 
 	if ( 0 === connections.length || null === platform ) {
 		return <p>{ __( 'No platforms are available.', 'cart-bridge-jp' ) }</p>;
-	}
-
-	const previewTotal = preview
-		? sumCounts( preview.delete ) + sumCounts( preview.unlink )
-		: 0;
-	const cleanupBlocked = isCleanupBlocked(
-		preview,
-		runInProgress,
-		previewOutdated
-	);
-	const repairNeedsRepair =
-		null !== scanTotals && repairBucketTotal( scanTotals, 'fixed' ) > 0;
-	const canRepair = repairNeedsRepair || 'repair' === repairPending?.mode;
-	// 「確認できなかった」（unverified）と「ASP から使える記録が返らなかった」（unavailable）は、直っていない
-	// 可能性が残る件数。完了通知を緑の成功にせず、警告として表に誘導する。
-	const repairUnresolved = repairView
-		? repairBucketTotal( repairView.counts, 'unverified' ) +
-		  repairBucketTotal( repairView.counts, 'unavailable' )
-		: 0;
-	let scanNoticeStatus: 'success' | 'info' | 'warning' = 'success';
-
-	if ( repairUnresolved > 0 ) {
-		scanNoticeStatus = 'warning';
-	} else if ( repairNeedsRepair ) {
-		scanNoticeStatus = 'info';
 	}
 
 	return (
@@ -689,224 +284,6 @@ export default function ToolsTab() {
 					onChanged={ () => activeRuns.refresh() }
 				/>
 			) }
-
-			<Card className="cbjp-tools__card">
-				<CardHeader>
-					<strong>
-						{ __( 'Sample data cleanup', 'cart-bridge-jp' ) }
-					</strong>
-				</CardHeader>
-				<CardBody>
-					<p>
-						{ sprintf(
-							/* translators: %s: platform label */
-							__(
-								'Deletes the WooCommerce data that was imported from %s (products, orders, customers, coupons, categories, tags and images) together with the links between the two stores. Use it to reset the free-version sample before a full migration; the next import selects a fresh sample.',
-								'cart-bridge-jp'
-							),
-							platformLabel
-						) }
-					</p>
-					<p>
-						{ __(
-							'Customer accounts that already existed before the import are kept and only unlinked.',
-							'cart-bridge-jp'
-						) }
-					</p>
-
-					{ cleanupError && (
-						<Notice
-							status="error"
-							onRemove={ () => setCleanupError( null ) }
-						>
-							{ cleanupError }
-						</Notice>
-					) }
-
-					<div className="cbjp-tools__actions">
-						<Button
-							variant="secondary"
-							isBusy={ previewing }
-							disabled={ busy }
-							onClick={ () => void loadPreview() }
-						>
-							{ __( 'Preview cleanup', 'cart-bridge-jp' ) }
-						</Button>
-					</div>
-
-					{ preview && (
-						<div className="cbjp-tools__preview">
-							{ /* 今進行中の run は上の `ActiveRunNotice` が案内する。ここでは、プレビューが run と重なって
-							     件数が古いことだけを知らせる（`isCleanupBlocked()`）。 */ }
-							{ ! runInProgress &&
-								( preview.run_in_progress ||
-									previewOutdated ) && (
-									<Notice
-										status="warning"
-										isDismissible={ false }
-									>
-										{ __(
-											'A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up.',
-											'cart-bridge-jp'
-										) }
-									</Notice>
-								) }
-							{ preview.requires_delete_users &&
-								! preview.can_delete_users && (
-									<Notice
-										status="warning"
-										isDismissible={ false }
-									>
-										{ __(
-											'Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup.',
-											'cart-bridge-jp'
-										) }
-									</Notice>
-								) }
-							{ 0 === previewTotal ? (
-								<p>
-									{ preview.sample_selected
-										? __(
-												'Nothing is linked any more, but a sample selection is still stored. Clear it so the next import selects a fresh sample.',
-												'cart-bridge-jp'
-										  )
-										: __(
-												'Nothing to delete for this platform.',
-												'cart-bridge-jp'
-										  ) }
-								</p>
-							) : (
-								<>
-									{ sumCounts( preview.delete ) > 0 && (
-										<>
-											<p>
-												<strong>
-													{ __(
-														'The following records will be deleted:',
-														'cart-bridge-jp'
-													) }
-												</strong>
-											</p>
-											<CountList
-												counts={ preview.delete }
-												keys={ CLEANUP_KEYS }
-											/>
-										</>
-									) }
-									{ sumCounts( preview.unlink ) > 0 && (
-										<>
-											<p>
-												<strong>
-													{ __(
-														'The following records will only be unlinked (kept):',
-														'cart-bridge-jp'
-													) }
-												</strong>
-											</p>
-											<CountList
-												counts={ preview.unlink }
-												keys={ CLEANUP_KEYS }
-											/>
-											<p>
-												{ __(
-													'Unlinked records are customer accounts that existed before the import, records owned by another platform, or links whose target no longer exists.',
-													'cart-bridge-jp'
-												) }
-											</p>
-										</>
-									) }
-								</>
-							) }
-							{ ( previewTotal > 0 ||
-								preview.sample_selected ) && (
-								<div className="cbjp-tools__actions">
-									<Button
-										variant="primary"
-										isDestructive={ previewTotal > 0 }
-										isBusy={ cleaning }
-										disabled={ busy || cleanupBlocked }
-										onClick={ () => void runCleanup() }
-									>
-										{ previewTotal > 0
-											? __(
-													'Delete sample data',
-													'cart-bridge-jp'
-											  )
-											: __(
-													'Clear sample selection',
-													'cart-bridge-jp'
-											  ) }
-									</Button>
-								</div>
-							) }
-						</div>
-					) }
-
-					{ cleanupProgress && (
-						<div className="cbjp-tools__result">
-							{ cleaning && (
-								<p>
-									{ sprintf(
-										/* translators: %d: number of records removed so far */
-										_n(
-											'Deleting… %d record removed so far.',
-											'Deleting… %d records removed so far.',
-											sumCounts(
-												cleanupProgress.deleted
-											),
-											'cart-bridge-jp'
-										),
-										sumCounts( cleanupProgress.deleted )
-									) }
-								</p>
-							) }
-							{ cleanupDone && (
-								<Notice
-									status="success"
-									isDismissible={ false }
-								>
-									{ __(
-										'Cleanup finished. The next import will select a new sample.',
-										'cart-bridge-jp'
-									) }
-								</Notice>
-							) }
-							{ sumCounts( cleanupProgress.deleted ) > 0 && (
-								<>
-									<p>
-										<strong>
-											{ __(
-												'Deleted',
-												'cart-bridge-jp'
-											) }
-										</strong>
-									</p>
-									<CountList
-										counts={ cleanupProgress.deleted }
-										keys={ CLEANUP_KEYS }
-									/>
-								</>
-							) }
-							{ sumCounts( cleanupProgress.unlinked ) > 0 && (
-								<>
-									<p>
-										<strong>
-											{ __(
-												'Unlinked only (kept)',
-												'cart-bridge-jp'
-											) }
-										</strong>
-									</p>
-									<CountList
-										counts={ cleanupProgress.unlinked }
-										keys={ CLEANUP_KEYS }
-									/>
-								</>
-							) }
-						</div>
-					) }
-				</CardBody>
-			</Card>
 
 			<Card className="cbjp-tools__card">
 				<CardHeader>
@@ -979,253 +356,8 @@ export default function ToolsTab() {
 							) }
 							<CountList
 								counts={ rebuildCounts }
-								keys={ CLEANUP_KEYS }
+								keys={ REBUILD_KEYS }
 							/>
-						</div>
-					) }
-				</CardBody>
-			</Card>
-
-			<Card className="cbjp-tools__card">
-				<CardHeader>
-					<strong>
-						{ __( 'Repair prefecture data', 'cart-bridge-jp' ) }
-					</strong>
-				</CardHeader>
-				<CardBody>
-					<p>
-						{ sprintf(
-							/* translators: %1$s: platform label */
-							__(
-								'Earlier versions of this plugin saved the wrong prefecture for some customers and orders imported from %1$s (23 prefectures were affected; for example Akita was saved as Miyagi). This tool compares the imported records with %1$s and corrects only the prefecture of records that were saved with that mistake.',
-								'cart-bridge-jp'
-							),
-							platformLabel
-						) }
-					</p>
-					<p>
-						{ __(
-							'Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records that this plugin imported are touched, including existing accounts it matched by email and updated. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool. Run this before “Sample data cleanup”: the cleanup removes the links this tool relies on, so accounts it unlinks can no longer be found.',
-							'cart-bridge-jp'
-						) }
-					</p>
-
-					{ repairError && (
-						<Notice
-							status="error"
-							onRemove={ () => setRepairError( null ) }
-						>
-							{ repairError }
-						</Notice>
-					) }
-
-					<div className="cbjp-tools__actions">
-						<Button
-							variant="secondary"
-							isBusy={ 'scan' === repairMode }
-							disabled={
-								busy ||
-								runInProgress ||
-								'repair' === repairPending?.mode
-							}
-							onClick={ () => void runRepair( 'scan' ) }
-						>
-							{ 'scan' === repairPending?.mode
-								? __( 'Continue scan', 'cart-bridge-jp' )
-								: __( 'Scan', 'cart-bridge-jp' ) }
-						</Button>{ ' ' }
-						<Button
-							variant="primary"
-							isBusy={ 'repair' === repairMode }
-							disabled={
-								busy ||
-								runInProgress ||
-								! canRepair ||
-								'scan' === repairPending?.mode
-							}
-							onClick={ () => void runRepair( 'repair' ) }
-						>
-							{ 'repair' === repairPending?.mode
-								? __( 'Continue repair', 'cart-bridge-jp' )
-								: __( 'Repair', 'cart-bridge-jp' ) }
-						</Button>
-						{ null !== repairPending && (
-							<>
-								{ ' ' }
-								<Button
-									variant="tertiary"
-									disabled={ busy }
-									onClick={ startRepairOver }
-								>
-									{ __( 'Start over', 'cart-bridge-jp' ) }
-								</Button>
-							</>
-						) }
-					</div>
-
-					{ repairView && (
-						<div className="cbjp-tools__result">
-							{ 'scan' === repairMode && (
-								<p>
-									{ sprintf(
-										/* translators: %d: number of records checked so far */
-										_n(
-											'Scanning… %d record checked so far.',
-											'Scanning… %d records checked so far.',
-											repairBucketTotal(
-												repairView.counts
-											),
-											'cart-bridge-jp'
-										),
-										repairBucketTotal( repairView.counts )
-									) }
-								</p>
-							) }
-							{ 'repair' === repairMode && (
-								<p>
-									{ sprintf(
-										/* translators: %d: number of records checked so far */
-										_n(
-											'Repairing… %d record checked so far.',
-											'Repairing… %d records checked so far.',
-											repairBucketTotal(
-												repairView.counts
-											),
-											'cart-bridge-jp'
-										),
-										repairBucketTotal( repairView.counts )
-									) }
-								</p>
-							) }
-							{ repairView.done && 'scan' === repairView.mode && (
-								<Notice
-									status={ scanNoticeStatus }
-									isDismissible={ false }
-								>
-									{ scanResultMessage(
-										repairNeedsRepair,
-										repairBucketTotal(
-											repairView.counts,
-											'fixed'
-										),
-										repairUnresolved
-									) }
-								</Notice>
-							) }
-							{ repairView.done &&
-								'repair' === repairView.mode && (
-									<Notice
-										status={
-											repairUnresolved > 0
-												? 'warning'
-												: 'success'
-										}
-										isDismissible={ false }
-									>
-										{ repairResultMessage(
-											repairBucketTotal(
-												repairView.counts,
-												'fixed'
-											),
-											repairUnresolved
-										) }
-									</Notice>
-								) }
-							<table className="widefat striped cbjp-tools__repair-table">
-								<thead>
-									<tr>
-										<th />
-										<th>
-											{ 'scan' === repairView.mode
-												? __(
-														'Needs repair',
-														'cart-bridge-jp'
-												  )
-												: __(
-														'Repaired',
-														'cart-bridge-jp'
-												  ) }
-										</th>
-										<th>
-											{ __(
-												'Already correct',
-												'cart-bridge-jp'
-											) }
-										</th>
-										<th>
-											{ __(
-												'Could not be confirmed',
-												'cart-bridge-jp'
-											) }
-										</th>
-										<th>
-											{ __(
-												'Not found on the platform',
-												'cart-bridge-jp'
-											) }
-										</th>
-										<th>
-											{ __(
-												'Skipped',
-												'cart-bridge-jp'
-											) }
-										</th>
-									</tr>
-								</thead>
-								<tbody>
-									{ REPAIR_ENTITIES.map( ( entity ) => (
-										<tr key={ entity }>
-											<th scope="row">
-												{ label( entity ) }
-											</th>
-											{ REPAIR_BUCKETS.map(
-												( bucket ) => (
-													<td key={ bucket }>
-														{
-															repairView.counts[
-																entity
-															][ bucket ]
-														}
-													</td>
-												)
-											) }
-										</tr>
-									) ) }
-								</tbody>
-							</table>
-							{ repairBucketTotal(
-								repairView.counts,
-								'unverified'
-							) > 0 && (
-								<p>
-									{ __(
-										'“Could not be confirmed” records were left unchanged: their prefecture, postal code or address no longer matches the platform, for example because it was edited by hand or changed on the platform.',
-										'cart-bridge-jp'
-									) }
-								</p>
-							) }
-							{ repairBucketTotal(
-								repairView.counts,
-								'unavailable'
-							) > 0 && (
-								<p>
-									{ __(
-										'“Not found on the platform” records could not be checked because the platform returned no usable record for them (for example they were deleted there).',
-										'cart-bridge-jp'
-									) }
-								</p>
-							) }
-							{ repairBucketTotal(
-								repairView.counts,
-								'skipped'
-							) > 0 && (
-								<p>
-									{ __(
-										'“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair.',
-										'cart-bridge-jp'
-									) }
-								</p>
-							) }
 						</div>
 					) }
 				</CardBody>

@@ -31,217 +31,191 @@ msgstr "Cart Bridge JP を使うには、WooCommerce をインストールして
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:118
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:105
 msgid "Color Me Shop"
 msgstr "カラーミーショップ"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:169
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:156
 msgid "Client ID"
 msgstr "クライアント ID"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:172
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:159
 msgid "From your Color Me Shop developer app registration."
 msgstr "カラーミーショップのデベロッパーアカウントで登録したアプリの情報です。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:176
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:163
 msgid "Client Secret"
 msgstr "クライアントシークレット"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:183
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:170
 msgid "Connect to Color Me Shop"
 msgstr "カラーミーショップに接続"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:196
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:183
 msgid "Not connected yet."
 msgstr "まだ接続していません。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:209
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:196
 msgid "The platform returned an unexpected response. Please try again."
 msgstr "プラットフォームから想定外の応答がありました。もう一度お試しください。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:240
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:227
 msgid "The connection changed while testing. Please try again."
 msgstr "テスト中に接続が変わりました。もう一度お試しください。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:326
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:313
 msgid "Unpaid"
 msgstr "未入金"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:330
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:317
 msgid "Paid (not shipped)"
 msgstr "入金済み（未発送）"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:334
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:321
 msgid "Shipped"
 msgstr "発送済み"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:338
-#: build/index.js:18
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:325
+#: build/index.js:14
 msgid "Cancelled"
 msgstr "キャンセル"
 
 #: includes/Admin/Menu.php:20
 #: includes/Admin/Menu.php:21
-#: build/index.js:41
+#: build/index.js:27
 msgid "Cart Bridge JP"
 msgstr "Cart Bridge JP"
 
-#: includes/Admin/RestController.php:515
+#: includes/Admin/RestController.php:441
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr "このプラットフォームの実行がまだ終わっていません。先に「ツール」タブ（または「インポート」「エクスポート」タブ）でキャンセルしてから、もう一度お試しください。"
 
-#: includes/Admin/RestController.php:564
+#: includes/Admin/RestController.php:490
 msgid "No recognized connection fields were provided."
 msgstr "認識できる接続の項目がありません。"
 
-#: includes/Admin/RestController.php:574
+#: includes/Admin/RestController.php:500
 msgid "The connection settings changed while saving. Please try again."
 msgstr "保存中に接続の設定が変わりました。もう一度お試しください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:639
+#: includes/Admin/RestController.php:565
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr "「%s」は ID と ID の対応を表すオブジェクトにしてください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:657
+#: includes/Admin/RestController.php:583
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr "「%s」に不正な項目があります。"
 
-#: includes/Admin/RestController.php:714
+#: includes/Admin/RestController.php:640
 msgid "\"push_images\" must be true or false."
 msgstr "「push_images」は true か false にしてください。"
 
-#: includes/Admin/RestController.php:722
+#: includes/Admin/RestController.php:648
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
 
-#: includes/Admin/RestController.php:991
+#: includes/Admin/RestController.php:917
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:1034
+#: includes/Admin/RestController.php:960
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:1058
+#: includes/Admin/RestController.php:984
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:1070
+#: includes/Admin/RestController.php:996
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1100
+#: includes/Admin/RestController.php:1026
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1163
+#: includes/Admin/RestController.php:1089
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1175
+#: includes/Admin/RestController.php:1101
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1212
-#: includes/Admin/RestController.php:1253
-#: includes/Admin/RestController.php:1323
-#: includes/Admin/RestController.php:1455
+#: includes/Admin/RestController.php:1138
+#: includes/Admin/RestController.php:1179
+#: includes/Admin/RestController.php:1249
+#: includes/Admin/RestController.php:1341
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1337
+#: includes/Admin/RestController.php:1263
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1349
+#: includes/Admin/RestController.php:1275
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1461
+#: includes/Admin/RestController.php:1347
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1515
-#: build/index.js:33
-msgid "Customer accounts created by the import can only be deleted by a user who is allowed to delete users. Ask an administrator to run the cleanup."
-msgstr "インポートで作成した顧客のアカウントは、ユーザーを削除する権限を持つユーザーだけが削除できます。管理者にクリーンアップの実行を依頼してください。"
-
-#: includes/Admin/RestController.php:1544
+#: includes/Admin/RestController.php:1374
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1596
-msgid "The repair cursor is invalid."
-msgstr "修復の位置情報が正しくありません。"
-
-#: includes/Admin/RestController.php:1629
-msgid "This platform cannot look up single records, so prefecture repair is not available for it."
-msgstr "このプラットフォームは記録を 1 件ずつ照会できないため、都道府県の修復は使えません。"
-
-#: includes/Admin/RestController.php:1638
-msgid "The platform API rate limit was reached. Wait a minute, then continue; it resumes where it stopped."
-msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってから続けてください。止まったところから再開します。"
-
-#: includes/Admin/RestController.php:1643
-#: includes/Admin/RestController.php:1808
+#: includes/Admin/RestController.php:1508
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
 
-#: includes/Admin/RestController.php:1648
-msgid "The platform API returned an error. Try again in a moment; it resumes where it stopped."
-msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。止まったところから再開します。"
-
-#: includes/Admin/RestController.php:1676
-msgid "This platform does not need prefecture repair."
-msgstr "このプラットフォームでは都道府県の修復は不要です。"
-
-#: includes/Admin/RestController.php:1741
+#: includes/Admin/RestController.php:1442
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1786
+#: includes/Admin/RestController.php:1487
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1791
+#: includes/Admin/RestController.php:1492
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1796
+#: includes/Admin/RestController.php:1497
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1801
+#: includes/Admin/RestController.php:1502
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1814
+#: includes/Admin/RestController.php:1514
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1819
+#: includes/Admin/RestController.php:1519
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1829
+#: includes/Admin/RestController.php:1529
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1907
+#: includes/Admin/RestController.php:1607
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1908
+#: includes/Admin/RestController.php:1608
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1920
+#: includes/Admin/RestController.php:1620
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -251,7 +225,7 @@ msgid "Cart Bridge JP requires the PHP sodium extension to store API credentials
 msgstr "Cart Bridge JP が API の認証情報を安全に保存するには、PHP の sodium 拡張が必要です。ホスティング会社にお問い合わせください。"
 
 #. translators: the name WooCommerce shows for its standard tax class.
-#: includes/Woo/Reader/ProductReader.php:197
+#: includes/Woo/Reader/ProductReader.php:194
 msgid "Standard"
 msgstr "標準"
 
@@ -1161,10 +1135,6 @@ msgstr "プラットフォームは注文日を受け取れないため、プラ
 msgid "The product or variation for this stock is not found in WooCommerce, so the stock is not imported."
 msgstr "この在庫の商品かバリエーションが WooCommerce に無いため、在庫はインポートしません。"
 
-#: includes/Woo/WarningCatalog.php:649
-msgid "Import products before stock (a full import does this). If this remains, the product was not imported, for example because of the free version’s limit."
-msgstr "在庫より先に商品をインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は、無料版の上限などの理由で商品がインポートされていません。"
-
 #. translators: %s: the platform's ID of a product or variation.
 #: includes/Woo/WarningCatalog.php:651
 #, php-format
@@ -1496,7 +1466,7 @@ msgid "Connection OK."
 msgstr "接続できました。"
 
 #: build/index.js:5
-#: build/index.js:32
+#: build/index.js:24
 msgid "No platforms are available."
 msgstr "使えるプラットフォームがありません。"
 
@@ -1565,7 +1535,7 @@ msgid "Open the Export tab to see its progress"
 msgstr "「エクスポート」タブで進捗を見る"
 
 #: build/index.js:11
-#: build/index.js:21
+#: build/index.js:17
 msgid "Cancel run"
 msgstr "実行をキャンセル"
 
@@ -1679,785 +1649,520 @@ msgstr "マッピングの設定を保存しました。"
 msgid "Save mappings"
 msgstr "マッピングを保存"
 
-#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet
-#: build/index.js:13
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet."
-msgstr "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済み、%4$d 件が未移行です。"
-
-#. translators: 1: entity label, 2: item count found by the preview (dry run), 3: count already migrated, 4: count that can be migrated but was not migrated yet, 5: count of items that cannot be migrated in any version (for example, a missing price)
-#: build/index.js:14
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reason."
-msgid_plural "%1$s: %2$d found by the preview, %3$d migrated, %4$d not migrated yet. %5$d cannot be migrated as is. See the preview (dry-run) report or the Logs tab for the reasons."
-msgstr[0] "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済み、%4$d 件が未移行です。%5$d 件はこのままでは移行できません。理由はプレビューのレポートか「ログ」タブを確認してください。"
-
-#. translators: 1: entity label (stock or reviews), 2: item count found by the preview (dry run), 3: count already migrated
-#: build/index.js:15
-#, js-format
-msgid "%1$s: %2$d found by the preview, %3$d migrated. The free version migrates these only for the sample products."
-msgstr "%1$s: プレビューで %2$d 件見つかり、%3$d 件を移行済みです。無料版では、サンプルの商品の分だけを移行します。"
-
-#. translators: 1: entity label, 2: free version limit
-#: build/index.js:16
-#, js-format
-msgid "%1$s: reached the free version limit (%2$d). Run a dry-run preview to see the exact remaining count."
-msgstr "%1$s: 無料版の上限（%2$d 件）に達しました。残りの正確な件数は、プレビュー（書き込みなし）を実行すると分かります。"
-
-#: build/index.js:16
-msgid "The free version of Cart Bridge JP migrates a sample of your data. The Pro version also migrates the items not migrated yet."
-msgstr "Cart Bridge JP の無料版は、データのサンプルを移行します。Pro 版では、未移行の項目も移行します。"
-
-#: build/index.js:16
-msgid "Learn about the Pro version"
-msgstr "Pro 版について"
-
-#: build/index.js:16
-msgid "The free version of Cart Bridge JP migrates a sample of your data."
-msgstr "Cart Bridge JP の無料版は、データのサンプルを移行します。"
-
-#: build/index.js:16
+#: build/index.js:12
 msgid "Some payment or shipping methods on the platform are not mapped to WooCommerce yet."
 msgstr "プラットフォームの決済方法か配送方法に、まだ WooCommerce にマッピングしていないものがあります。"
 
 #. translators: 1: number of unmapped payment methods, 2: number of payment methods on the platform
-#: build/index.js:17
+#: build/index.js:13
 #, js-format
 msgid "Payment methods not mapped: %1$d of %2$d"
 msgstr "マッピングしていない決済方法: %2$d 件中 %1$d 件"
 
 #. translators: 1: number of unmapped shipping methods, 2: number of shipping methods on the platform
-#: build/index.js:18
+#: build/index.js:14
 #, js-format
 msgid "Shipping methods not mapped: %1$d of %2$d"
 msgstr "マッピングしていない配送方法: %2$d 件中 %1$d 件"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Orders are still imported, but an order that uses an unmapped method gets an empty WooCommerce payment or shipping method and a warning in the preview (dry run) report. Set up the mappings before importing. Orders imported while a method was unmapped are updated the next time they are imported."
 msgstr "注文はインポートされますが、マッピングしていない方法を使う注文は、WooCommerce の決済方法・配送方法が空になり、プレビューのレポートに警告が出ます。インポートの前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Set up the mappings on the Mappings tab"
 msgstr "「マッピング」タブでマッピングを設定する"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Pending"
 msgstr "待機中"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Running"
 msgstr "実行中"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Paused (rate limit)"
 msgstr "一時停止中（利用制限）"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Completed"
 msgstr "完了"
 
-#: build/index.js:18
+#: build/index.js:14
 msgid "Failed"
 msgstr "失敗"
 
 #. translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count
-#: build/index.js:19
+#: build/index.js:15
 #, js-format
 msgid "Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d"
 msgstr "作成: %1$d / 更新: %2$d / スキップ: %3$d / 警告: %4$d"
 
 #. translators: 1: processed count, 2: total count
-#: build/index.js:20
+#: build/index.js:16
 #, js-format
 msgid "%1$d of %2$d processed"
 msgstr "%2$d 件中 %1$d 件を処理しました"
 
 #. translators: %d: processed count so far
-#: build/index.js:21
+#: build/index.js:17
 #, js-format
 msgid "%d processed so far…"
 msgstr "%d 件を処理しました…"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Waiting for the rate limit to recover. This will resume automatically."
 msgstr "利用制限の回復を待っています。自動で再開します。"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Retry"
 msgstr "再試行"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Download this entity’s report (CSV)"
 msgstr "この種類のレポートをダウンロード（CSV）"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Only include warnings in the CSV report"
 msgstr "CSV のレポートに警告だけを含める"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Download full report (CSV)"
 msgstr "全体のレポートをダウンロード（CSV）"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Reconciled"
 msgstr "一致"
 
-#: build/index.js:21
-#: build/index.js:22
+#: build/index.js:17
+#: build/index.js:18
 msgid "Missing links"
 msgstr "紐づけの欠落"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Fewer in WooCommerce"
 msgstr "WooCommerce の方が少ない"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "More in WooCommerce"
 msgstr "WooCommerce の方が多い"
 
-#: build/index.js:21
+#: build/index.js:17
 msgid "Totals differ"
 msgstr "合計が違う"
 
-#: build/index.js:21
-msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them, or run the sample cleanup to drop the stale links."
-msgstr "紐づけた記録の一部が WooCommerce に無くなっています。もう一度インポートして作り直すか、サンプルのクリーンアップを実行して古い紐づけを消してください。"
-
-#: build/index.js:21
-msgid "Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
-msgstr "プラットフォームから取得した記録の一部が WooCommerce にありません。無料版ではサンプルの上限に達すると当然そうなります。そうでなければ、上の警告とプレビューのレポートを確認してください。紐づけが失われた場合（データベースの移転の後など）は、「ツール」タブで「紐づけを再構築」を実行してください。"
-
 #. translators: 1: platform currency code, 2: store currency code
-#: build/index.js:22
+#: build/index.js:18
 #, js-format
 msgid "Platform totals are in %1$s but the store currency is %2$s. Order amounts were stored without conversion, so the totals cannot be reconciled."
 msgstr "プラットフォームの合計は %1$s ですが、ストアの通貨は %2$s です。注文の金額は換算せずに保存しているため、合計を照合できません。"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "WooCommerce holds more linked records than this run fetched. They were imported by earlier runs (for example records that have since been removed on the platform)."
 msgstr "WooCommerce には、この実行で取得したより多くの紐づけた記録があります。以前の実行でインポートしたものです（その後プラットフォームで削除された記録など）。"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "The order totals differ between the platform and WooCommerce even though the counts match. Check the orders with warnings."
 msgstr "件数は一致していますが、プラットフォームと WooCommerce で注文の合計が違います。警告の付いた注文を確認してください。"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Every record fetched in this run exists in WooCommerce and the order totals match."
 msgstr "この実行で取得したすべての記録が WooCommerce にあり、注文の合計も一致しています。"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Every record fetched in this run exists in WooCommerce."
 msgstr "この実行で取得したすべての記録が WooCommerce にあります。"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Verification report"
 msgstr "検証レポート"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Entity"
 msgstr "種類"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Fetched from platform"
 msgstr "プラットフォームから取得"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Written in this run"
 msgstr "この実行で書き込み"
 
-#: build/index.js:22
-#: build/index.js:41
+#: build/index.js:18
 msgid "Skipped"
 msgstr "スキップ"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "In WooCommerce"
 msgstr "WooCommerce 内"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Platform total"
 msgstr "プラットフォームの合計"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "WooCommerce total"
 msgstr "WooCommerce の合計"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Status"
 msgstr "状態"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Categories"
 msgstr "カテゴリー"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Tags"
 msgstr "タグ"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Products"
 msgstr "商品"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Customers"
 msgstr "顧客"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Orders"
 msgstr "注文"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Stock"
 msgstr "在庫"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Coupons"
 msgstr "クーポン"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "Reviews"
 msgstr "レビュー"
 
-#: build/index.js:22
+#: build/index.js:18
 msgid "(deleted from WooCommerce since this was recorded)"
 msgstr "（記録した後に WooCommerce から削除されています）"
 
 #. translators: 1: product name, 2: SKU
-#: build/index.js:23
+#: build/index.js:19
 #, js-format
 msgid "%1$s (SKU: %2$s)"
 msgstr "%1$s（SKU: %2$s）"
 
 #. translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time
-#: build/index.js:24
+#: build/index.js:20
 #, js-format
 msgid "#%1$s — %2$s %3$s (%4$s)"
 msgstr "#%1$s — %2$s %3$s（%4$s）"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "date unknown"
 msgstr "日付不明"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Some items could not be confirmed as created or rejected on the connected platform. They will not be re-sent automatically. Check the platform’s own admin screen to see whether each item actually exists there before resolving it below."
 msgstr "接続したプラットフォームで、作成されたか拒否されたかを確認できなかった項目があります。これらは自動では再送しません。下で解決する前に、プラットフォーム自体の管理画面で、各項目が実際にあるかを確認してください。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "A run is in progress for this platform. Wait for it to finish before resolving these items."
 msgstr "このプラットフォームで実行が進行中です。終わるのを待ってから、これらの項目を解決してください。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Type"
 msgstr "種類"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Details"
 msgstr "詳細"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Sent at"
 msgstr "送信日時"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Resolve"
 msgstr "解決"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Edit in WooCommerce"
 msgstr "WooCommerce で編集"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Mark as not created"
 msgstr "未作成として解決"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Platform ID"
 msgstr "プラットフォームの ID"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Link and resolve"
 msgstr "紐づけて解決"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it."
 msgstr "ベータ版: この機能には接続したショップのプレミアムプランが必要で、実際のプレミアムプランのショップではまだ確認していません。既定ではオフです。試したい場合だけオンにしてください。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Creates orders (sales) in the connected shop."
 msgstr "接続したショップに注文（売上）を作成します。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting."
 msgstr "WooCommerce の商品画像を接続したショップにアップロードします。オフのときは、エクスポートした後にショップ自体の管理画面で商品画像を追加してください。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images."
 msgstr "オンにすると、次のエクスポートでエクスポート済みの商品をもう一度（更新として）送り、ショップに同じ位置で登録済みの画像は WooCommerce の画像で上書きされます。"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "All levels"
 msgstr "すべてのレベル"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Debug"
 msgstr "デバッグ"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Info"
 msgstr "情報"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Warning"
 msgstr "警告"
 
-#: build/index.js:24
+#: build/index.js:20
 msgid "Error"
 msgstr "エラー"
 
-#. translators: %d: number of records that could not be confirmed or checked
-#: build/index.js:25
-#, js-format
-msgid "%d record could not be confirmed or checked and will be left as it is. See the numbers below."
-msgid_plural "%d records could not be confirmed or checked and will be left as they are. See the numbers below."
-msgstr[0] "%d 件の記録は確認・照会ができなかったため、そのままにします。下の件数を確認してください。"
-
-#: build/index.js:25
-msgid "No records need repair."
-msgstr "修復が必要な記録はありません。"
-
-#. translators: %d: number of records that need repair
-#: build/index.js:26
-#, js-format
-msgid "%d record needs repair. Review the numbers below, then click “Repair”."
-msgid_plural "%d records need repair. Review the numbers below, then click “Repair”."
-msgstr[0] "%d 件の記録の修復が必要です。下の件数を確認してから、「修復」をクリックしてください。"
-
-#. translators: %d: number of records corrected
-#: build/index.js:27
-#, js-format
-msgid "Repair finished. %d record was corrected."
-msgid_plural "Repair finished. %d records were corrected."
-msgstr[0] "修復が終わりました。%d 件の記録を直しました。"
-
-#. translators: %d: number of records that could not be confirmed or checked
-#: build/index.js:28
-#, js-format
-msgid "%d record could not be confirmed or checked and was left unchanged."
-msgid_plural "%d records could not be confirmed or checked and were left unchanged."
-msgstr[0] "%d 件の記録は確認・照会ができなかったため、変更していません。"
-
-#: build/index.js:28
-msgid "Run “Scan” again to confirm that nothing is left."
-msgstr "残りが無いことを確かめるため、もう一度「スキャン」を実行してください。"
-
-#: build/index.js:28
+#: build/index.js:20
 msgid "Variations"
 msgstr "バリエーション"
 
-#: build/index.js:28
-msgid "Images"
-msgstr "画像"
-
 #. translators: 1: a kind of record, e.g. "Products", 2: how many of them
-#: build/index.js:29
+#: build/index.js:21
 #, js-format
 msgid "%1$s: %2$d"
 msgstr "%1$s: %2$d 件"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connections"
 msgstr "接続"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Mappings"
 msgstr "マッピング"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Reconnect the platform on the Connections tab before setting up mappings."
 msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続し直してください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before setting up mappings."
 msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続してください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set up the mappings before importing orders. Orders imported while a method was unmapped are updated the next time they are imported."
 msgstr "マッピングは、プラットフォームの値を WooCommerce の値に対応させます。決済方法・配送方法・注文ステータスのマッピングは注文のインポートで使い、できる範囲で注文をプラットフォームへエクスポートするときにも同じマッピングを使います。マッピングしていない決済方法・配送方法は、プレビューのレポートに警告として出ます。注文をインポートする前にマッピングを設定してください。マッピングしていない間にインポートした注文は、次にインポートしたときに更新されます。"
 
-#: build/index.js:29
-#: build/index.js:32
+#: build/index.js:21
+#: build/index.js:24
 msgid "Platform"
 msgstr "プラットフォーム"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import"
 msgstr "インポート"
 
-#: build/index.js:29
-msgid "This will write real WooCommerce data (products, orders, customers, etc.) to this site, up to the current plan’s limits. Continue?"
-msgstr "このサイトに WooCommerce の実データ（商品・注文・顧客など）を、現在のプランの上限まで書き込みます。続けますか ?"
-
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before importing."
 msgstr "インポートする前に、「接続」タブでプラットフォームに接続してください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import setup"
 msgstr "インポートの設定"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Entities to migrate"
 msgstr "移行する種類"
 
-#: build/index.js:29
-msgid "Preview (dry run, no limit)"
-msgstr "プレビュー（書き込みなし・件数の制限なし）"
-
-#: build/index.js:29
+#: build/index.js:21
 msgid "Run import"
 msgstr "インポートを実行"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Preview results"
 msgstr "プレビューの結果"
 
-#: build/index.js:29
-#: build/index.js:30
+#: build/index.js:21
+#: build/index.js:22
 msgid "Clear"
 msgstr "消去"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Import results"
 msgstr "インポートの結果"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Export"
 msgstr "エクスポート"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before exporting."
 msgstr "エクスポートする前に、「接続」タブでプラットフォームに接続してください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Category, payment method, shipping method, and order status mappings are set on the Mappings tab. Map your WooCommerce categories before exporting products, and payment and shipping methods before exporting orders."
 msgstr "カテゴリー・決済方法・配送方法・注文ステータスのマッピングは「マッピング」タブで設定します。商品をエクスポートする前に WooCommerce のカテゴリーを、注文をエクスポートする前に決済方法と配送方法をマッピングしてください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Payment method, shipping method, and order status mappings are set on the Mappings tab. Map payment and shipping methods before exporting orders."
 msgstr "決済方法・配送方法・注文ステータスのマッピングは「マッピング」タブで設定します。注文をエクスポートする前に、決済方法と配送方法をマッピングしてください。"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Open the Mappings tab"
 msgstr "「マッピング」タブを開く"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Export setup"
 msgstr "エクスポートの設定"
 
-#: build/index.js:29
+#: build/index.js:21
 msgid "Entities to export"
 msgstr "エクスポートする種類"
 
 #. translators: %s: entity name, e.g. "Orders"
-#: build/index.js:30
+#: build/index.js:22
 #, js-format
 msgid "%s (Beta)"
 msgstr "%s（ベータ版）"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Options"
 msgstr "オプション"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Upload product images (Beta)"
 msgstr "商品画像をアップロードする（ベータ版）"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Upload product images"
 msgstr "商品画像をアップロードする"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Running an export is disabled until this setting loads. Reload the page to try again."
 msgstr "この設定を読み込むまで、エクスポートは実行できません。ページを再読み込みしてもう一度お試しください。"
 
-#: build/index.js:30
-msgid "Running an export writes data to the connected shop right away, up to the current plan’s limits. We recommend running this against a test shop first, not your live shop."
-msgstr "エクスポートを実行すると、接続したショップに、現在のプランの上限までデータをすぐ書き込みます。本番のショップではなく、まずテスト用のショップで実行することをおすすめします。"
-
-#: build/index.js:30
+#: build/index.js:22
 msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
 msgstr "接続したショップに実データを書き込むことを理解しており、実行する準備ができています（できればテスト用のショップで）。"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Preview export (dry run, no writes)"
 msgstr "エクスポートのプレビュー（書き込みなし）"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Run export"
 msgstr "エクスポートを実行"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Preview export results"
 msgstr "エクスポートのプレビューの結果"
 
-#: build/index.js:30
+#: build/index.js:22
 msgid "Export results"
 msgstr "エクスポートの結果"
 
 #. translators: %s: list of entity labels, e.g. "Products, Customers"
-#: build/index.js:31
+#: build/index.js:23
 #, js-format
 msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
 msgstr "%sでは何も書き込みませんでした。すべての項目がスキップされたか警告が出ました。理由はプレビューのレポートか「ログ」タブを確認してください。"
 
 #. translators: 1: the items of a list so far, 2: the next item. Example: "Products, Customers".
-#: build/index.js:32
+#: build/index.js:24
 #, js-format
 msgctxt "list of items"
 msgid "%1$s, %2$s"
 msgstr "%1$s、%2$s"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Logs"
 msgstr "ログ"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Job ID"
 msgstr "ジョブ ID"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Level"
 msgstr "レベル"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "No logs found."
 msgstr "ログはありません。"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Time"
 msgstr "日時"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Job"
 msgstr "ジョブ"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Message"
 msgstr "メッセージ"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Context"
 msgstr "詳細情報"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Previous"
 msgstr "前へ"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Next"
 msgstr "次へ"
 
-#: build/index.js:32
+#: build/index.js:24
 msgid "Tools"
 msgstr "ツール"
 
-#: build/index.js:32
-msgid "The scan paused after the maximum number of batches. Click “Continue scan” to carry on from where it stopped."
-msgstr "処理の回数の上限に達したため、スキャンを一時停止しました。「スキャンを続ける」をクリックすると、止まったところから続けます。"
-
-#: build/index.js:32
-msgid "The repair paused after the maximum number of batches. Click “Continue repair” to carry on from where it stopped."
-msgstr "処理の回数の上限に達したため、修復を一時停止しました。「修復を続ける」をクリックすると、止まったところから続けます。"
-
-#: build/index.js:32
-msgid "Sample data cleanup"
-msgstr "サンプルデータのクリーンアップ"
-
-#. translators: %s: platform label
-#: build/index.js:33
-#, js-format
-msgid "Deletes the WooCommerce data that was imported from %s (products, orders, customers, coupons, categories, tags and images) together with the links between the two stores. Use it to reset the free-version sample before a full migration; the next import selects a fresh sample."
-msgstr "%sからインポートした WooCommerce のデータ（商品・注文・顧客・クーポン・カテゴリー・タグ・画像）を、2 つのストアの間の紐づけと一緒に削除します。本移行の前に無料版のサンプルをリセットするときに使います。次のインポートで新しいサンプルを選びます。"
-
-#: build/index.js:33
-msgid "Customer accounts that already existed before the import are kept and only unlinked."
-msgstr "インポートの前からあった顧客のアカウントは残し、紐づけだけを外します。"
-
-#: build/index.js:33
-msgid "Preview cleanup"
-msgstr "クリーンアップをプレビュー"
-
-#: build/index.js:33
-msgid "A run was in progress for this platform while or after this preview was taken, so these counts may be out of date. Preview again before cleaning up."
-msgstr "このプレビューを取る間か取った後に、このプラットフォームで実行が進行していたため、件数が古い可能性があります。クリーンアップの前にもう一度プレビューしてください。"
-
-#: build/index.js:33
-msgid "Nothing is linked any more, but a sample selection is still stored. Clear it so the next import selects a fresh sample."
-msgstr "紐づいているものはもうありませんが、サンプルの選択がまだ保存されています。次のインポートで新しいサンプルを選ぶよう、消去してください。"
-
-#: build/index.js:33
-msgid "Nothing to delete for this platform."
-msgstr "このプラットフォームで削除するものはありません。"
-
-#: build/index.js:33
-msgid "The following records will be deleted:"
-msgstr "次の記録を削除します:"
-
-#: build/index.js:33
-msgid "The following records will only be unlinked (kept):"
-msgstr "次の記録は紐づけだけを外します（記録は残します）:"
-
-#: build/index.js:33
-msgid "Unlinked records are customer accounts that existed before the import, records owned by another platform, or links whose target no longer exists."
-msgstr "紐づけだけを外すのは、インポートの前からあった顧客のアカウント、別のプラットフォームの記録、または紐づけ先が無くなった紐づけです。"
-
-#. translators: %s: platform label
-#: build/index.js:34
-#, js-format
-msgid "Delete every product, order, customer, coupon, category, tag and image imported from %s? This cannot be undone."
-msgstr "%sからインポートした商品・注文・顧客・クーポン・カテゴリー・タグ・画像をすべて削除しますか ? 元に戻せません。"
-
-#: build/index.js:34
-msgid "The cleanup did not finish within the expected number of batches. Run it again to continue."
-msgstr "想定した処理の回数のうちにクリーンアップが終わりませんでした。続けるには、もう一度実行してください。"
-
-#: build/index.js:34
-msgid "Delete sample data"
-msgstr "サンプルデータを削除"
-
-#: build/index.js:34
-msgid "Clear sample selection"
-msgstr "サンプルの選択を消去"
-
-#. translators: %d: number of records removed so far
-#: build/index.js:35
-#, js-format
-msgid "Deleting… %d record removed so far."
-msgid_plural "Deleting… %d records removed so far."
-msgstr[0] "削除中… %d 件の記録を削除しました。"
-
-#: build/index.js:35
-msgid "Cleanup finished. The next import will select a new sample."
-msgstr "クリーンアップが終わりました。次のインポートで新しいサンプルを選びます。"
-
-#: build/index.js:35
-msgid "Deleted"
-msgstr "削除"
-
-#: build/index.js:35
-msgid "Unlinked only (kept)"
-msgstr "紐づけだけ外す（記録は残す）"
-
-#: build/index.js:35
-#: build/index.js:36
+#: build/index.js:24
+#: build/index.js:25
 msgid "Rebuild links"
 msgstr "紐づけを再構築"
 
 #. translators: %s: platform label
-#: build/index.js:36
+#: build/index.js:25
 #, js-format
 msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
 msgstr "%sの記録と、このプラグインが作成した WooCommerce のデータの間の紐づけを復元します（再インストールやデータベースの移転の後など）。インポートのときに書いた所有の情報を走査するだけで、プラットフォームからは何も取得せず、データも変更しません。紐づけた記録は次のインポートで確認し直します。"
 
-#: build/index.js:36
+#: build/index.js:25
 msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
 msgstr "処理の回数の上限に達したため、紐づけの再構築を一時停止しました。止まったところから続けるには、もう一度「紐づけを再構築」をクリックしてください。"
 
 #. translators: %d: number of links restored so far
-#: build/index.js:37
+#: build/index.js:26
 #, js-format
 msgid "Scanning… %d link restored so far."
 msgid_plural "Scanning… %d links restored so far."
 msgstr[0] "走査中… %d 件の紐づけを復元しました。"
 
 #. translators: %d: number of links restored
-#: build/index.js:38
+#: build/index.js:27
 #, js-format
 msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
 
-#: build/index.js:38
-msgid "Repair prefecture data"
-msgstr "都道府県のデータを修復"
-
-#. translators: %1$s: platform label
-#: build/index.js:39
-#, js-format
-msgid "Earlier versions of this plugin saved the wrong prefecture for some customers and orders imported from %1$s (23 prefectures were affected; for example Akita was saved as Miyagi). This tool compares the imported records with %1$s and corrects only the prefecture of records that were saved with that mistake."
-msgstr "このプラグインの以前の版は、%1$sからインポートした一部の顧客と注文に、誤った都道府県を保存していました（23 の都道府県が該当します。たとえば秋田県が宮城県として保存されました）。このツールはインポートした記録を%1$sと照らし合わせ、その誤りで保存された記録の都道府県だけを直します。"
-
-#: build/index.js:39
-msgid "Records are corrected only when their postal code and address still match the platform. Anything else, such as a prefecture you edited by hand, is left as it is. Only records that this plugin imported are touched, including existing accounts it matched by email and updated. Click “Scan” first to see what would change; nothing is written until you click “Repair”. WooCommerce Analytics customer data is not updated by this tool. Run this before “Sample data cleanup”: the cleanup removes the links this tool relies on, so accounts it unlinks can no longer be found."
-msgstr "直すのは、郵便番号と住所がプラットフォームと今も一致する記録だけです。手作業で編集した都道府県など、それ以外はそのままにします。対象はこのプラグインがインポートした記録だけで、メールアドレスで一致させて更新した既存のアカウントも含みます。まず「スキャン」をクリックして何が変わるかを確認してください。「修復」をクリックするまで何も書き込みません。WooCommerce アナリティクスの顧客データは、このツールでは更新しません。「サンプルデータのクリーンアップ」より前に実行してください。クリーンアップはこのツールが使う紐づけを消すため、紐づけを外したアカウントは見つけられなくなります。"
-
-#: build/index.js:39
-msgid "Continue scan"
-msgstr "スキャンを続ける"
-
-#: build/index.js:39
-msgid "Scan"
-msgstr "スキャン"
-
-#: build/index.js:39
-msgid "Continue repair"
-msgstr "修復を続ける"
-
-#: build/index.js:39
-msgid "Repair"
-msgstr "修復"
-
-#: build/index.js:39
-msgid "Start over"
-msgstr "最初からやり直す"
-
-#. translators: %d: number of records checked so far
-#: build/index.js:40
-#, js-format
-msgid "Scanning… %d record checked so far."
-msgid_plural "Scanning… %d records checked so far."
-msgstr[0] "スキャン中… %d 件の記録を確認しました。"
-
-#. translators: %d: number of records checked so far
-#: build/index.js:41
-#, js-format
-msgid "Repairing… %d record checked so far."
-msgid_plural "Repairing… %d records checked so far."
-msgstr[0] "修復中… %d 件の記録を確認しました。"
-
-#: build/index.js:41
-msgid "Needs repair"
-msgstr "修復が必要"
-
-#: build/index.js:41
-msgid "Repaired"
-msgstr "修復済み"
-
-#: build/index.js:41
-msgid "Already correct"
-msgstr "すでに正しい"
-
-#: build/index.js:41
-msgid "Could not be confirmed"
-msgstr "確認できない"
-
-#: build/index.js:41
-msgid "Not found on the platform"
-msgstr "プラットフォームに無い"
-
-#: build/index.js:41
-msgid "“Could not be confirmed” records were left unchanged: their prefecture, postal code or address no longer matches the platform, for example because it was edited by hand or changed on the platform."
-msgstr "「確認できない」記録は変更していません。手作業で編集した、プラットフォームで変わったなどの理由で、都道府県・郵便番号・住所がプラットフォームと一致しなくなっています。"
-
-#: build/index.js:41
-msgid "“Not found on the platform” records could not be checked because the platform returned no usable record for them (for example they were deleted there)."
-msgstr "「プラットフォームに無い」記録は、プラットフォームが使える記録を返さなかった（そこで削除されたなど）ため、照会できませんでした。"
-
-#: build/index.js:41
-msgid "“Skipped” records were not changed: the WooCommerce record no longer exists, was not imported or updated by this plugin, is a staff account, is a trashed or draft order, or could not be saved. Run “Scan” again to see whether anything is left to repair."
-msgstr "「スキップ」の記録は変更していません。WooCommerce の記録が無くなった、このプラグインがインポート・更新したものではない、スタッフのアカウント、ゴミ箱か下書きの注文、または保存できなかった、のいずれかです。修復が残っていないかは、もう一度「スキャン」を実行して確認してください。"
-
-#: includes/Admin/RestController.php:1033
+#: includes/Admin/RestController.php:959
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
 
@@ -2465,3 +2170,27 @@ msgstr "保存した認証情報を読み取れません。「保存した認証
 #: cart-bridge-jp.php
 msgid "Migrate products, customers, and orders between Color Me Shop and WooCommerce."
 msgstr "カラーミーショップと WooCommerce の間で、商品・顧客・注文を移行します。"
+
+#: build/index.js:17
+msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them."
+msgstr "紐づけた記録の一部が WooCommerce に無くなっています。もう一度インポートして作り直してください。"
+
+#: build/index.js:17
+msgid "Some records fetched from the platform are not in WooCommerce. Check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
+msgstr "プラットフォームから取得した記録の一部が WooCommerce にありません。上の警告とプレビューのレポートを確認してください。紐づけが失われた場合（データベースの移転の後など）は、「ツール」タブで「紐づけを再構築」を実行してください。"
+
+#: build/index.js:21
+msgid "This will write real WooCommerce data (products, orders, customers, etc.) to this site. Continue?"
+msgstr "このサイトに WooCommerce の実データ（商品・注文・顧客など）を書き込みます。続けますか ?"
+
+#: build/index.js:21
+msgid "Preview (dry run)"
+msgstr "プレビュー（書き込みなし）"
+
+#: build/index.js:22
+msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
+msgstr "エクスポートを実行すると、接続したショップにデータをすぐ書き込みます。本番のショップではなく、まずテスト用のショップで実行することをおすすめします。"
+
+#: includes/Woo/WarningCatalog.php:649
+msgid "Import products before stock (a full import does this). If this remains, the product was not imported; check the warnings for that product in the preview (dry-run) report."
+msgstr "在庫より先に商品をインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は商品がインポートされていません。プレビューのレポートでその商品の警告を確認してください。"

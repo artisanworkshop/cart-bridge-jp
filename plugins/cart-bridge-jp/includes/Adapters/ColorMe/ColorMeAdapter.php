@@ -44,8 +44,7 @@ use Throwable;
 /**
  * カラーミーショップアダプタ（`01-plan-colorme.md`）。
  *
- * fetch系メソッドは`docs/03-design-decisions.md` §10.2 の無料版サンプル選定〜Pro版の全量走査
- * 双方から呼ばれる。push系はE2-3（エクスポート）で`push_product`/`push_customer`/`push_order`/
+ * fetch系メソッドは全量のカーソル走査（`Sync\Importer`）と、ツールのID指定取得から呼ばれる。push系はE2-3（エクスポート）で`push_product`/`push_customer`/`push_order`/
  * `push_stock`を実装済み。`push_category`/`push_coupon`はE2-3未着手ではなく、`capabilities()`が
  * 宣言するとおりColorMe側の制約（カテゴリ作成不可・クーポン読取専用）により恒久的に
  * `UnsupportedOperationException`のまま。`mapping_candidates()`はE2-1で実装済み。
@@ -63,21 +62,9 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	private const PAGE_SIZE = 50;
 
 	/**
-	 * `GET /sales.json` の全量走査・`fetchLatestOrders` の探索終端に使う日付
-	 * （カラーミーのサービス開始より確実に前）。
+	 * `GET /sales.json` の全量走査の起点に使う日付（カラーミーのサービス開始より確実に前）。
 	 */
 	private const HISTORY_FLOOR = '2000-01-01';
-
-	/**
-	 * `fetchLatestOrders` の初回探索窓（日数）。`after`/`before` 省略時のAPIデフォルトと同じ
-	 * 直近7日間から開始し、不足していれば4倍ずつ過去へ広げる（03 §9 #14 / §10.2 #1）。
-	 */
-	private const LATEST_ORDERS_INITIAL_WINDOW_DAYS = 7;
-
-	/**
-	 * `GET /sales.json` の `limit` 上限（swagger）。`fetchLatestOrders` が要求件数を広げる際の上限に使う。
-	 */
-	private const SALES_MAX_REQUEST_LIMIT = 100;
 
 	/**
 	 * `payments.json`/`deliveries.json` から組み立てた名称マップを持つ`OrderTransformer`。
@@ -383,7 +370,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	/**
-	 * 全量走査（Pro版・dry-run用）。`after`未指定だと直近7日間しか検索されないため
+	 * 全量走査。`after`未指定だと直近7日間しか検索されないため
 	 * （03 §9 #14）、`HISTORY_FLOOR`を明示して全履歴を対象にする。
 	 */
 	public function fetch_orders( Cursor $cursor ): Page {
@@ -409,8 +396,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	/**
-	 * §10.2 #4: 無料版の在庫取込はサンプル商品のID指定取得結果から導出するため、この全量走査は
-	 * dry-run・Pro版のみで使われる。`GET /stocks.json` はバリエーションIDを返さず
+	 * 商品一覧（`GET /products.json`）から在庫を導出する全量走査。`GET /stocks.json` はバリエーションIDを返さず
 	 * `CanonicalStock::remote_id()` が衝突するため使わない（`StockTransformer` docblock参照）。
 	 */
 	public function fetch_stocks( Cursor $cursor ): Page {
@@ -449,60 +435,6 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 	public function fetch_reviews( Cursor $cursor ): Page {
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
-	}
-
-	/**
-	 * 無料版サンプル選定用（D15）。`GET /sales.json` は`after`/`before`省略時に直近7日間しか
-	 * 検索しない（03 §9 #14）ため、不足していれば探索窓を4倍ずつ過去へ広げて再取得する。
-	 * 各リクエストは前回より広い窓での取得（常に現在時刻を`before`側の起点とする上位集合）に
-	 * なるため、レスポンスのマージは不要で最後の取得結果をそのまま使う。
-	 *
-	 * 探索窓を広げるだけでは、APIが新しい順に返す上位`$limit`件の中に変換失敗行（id/make_date/
-	 * total_price欠損）が永続的に含まれるケース（その行がどれだけ過去へ遡っても同じ上位集合の
-	 * 一部であり続ける）を救えない。不足件数の分だけ要求`limit`自体も広げ、より多くの候補の中から
-	 * 有効な受注を拾えるようにする（API上限=100まで）。
-	 *
-	 * @return array<int,CanonicalOrder>
-	 */
-	public function fetch_latest_orders( int $limit ): array {
-		// `order_transformer()`をループの外・行単位のtry節の外で一度だけ解決する
-		// （`fetch_order_by_remote_id()`と同じ理由）。インスタンス単位でメモ化されるため
-		// ループ内で毎回呼んでも実際のI/Oは初回のみだが、失敗時は毎回再試行を繰り返し
-		// 行の変換失敗として握りつぶされてしまう。
-		$transformer   = $this->order_transformer();
-		$request_limit = $limit;
-		$orders        = $this->transform_rows( $this->fetch_sales_raw( [ 'limit' => $request_limit ] ), static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ), 'order' );
-		$orders_count  = count( $orders );
-		$window_days   = self::LATEST_ORDERS_INITIAL_WINDOW_DAYS;
-
-		// 取得件数ではなく変換に成功した件数で判定する。行欠損（id/make_date/total_price欠損）で
-		// `transform_rows()`が一部の行を落とした場合、取得件数だけを見ていると`$limit`件揃った
-		// ように誤認して探索を打ち切ってしまい、より過去に遡れば集まったはずの有効な受注を
-		// 取りこぼす。
-		while ( $orders_count < $limit ) {
-			$window_days  *= 4;
-			$after         = $this->history_floor_or_days_ago( $window_days );
-			$request_limit = min( self::SALES_MAX_REQUEST_LIMIT, $request_limit + ( $limit - $orders_count ) );
-			$orders        = $this->transform_rows(
-				$this->fetch_sales_raw(
-					[
-						'limit' => $request_limit,
-						'after' => $after,
-					]
-				),
-				static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ),
-				'order'
-			);
-			$orders_count  = count( $orders );
-
-			if ( self::HISTORY_FLOOR === $after ) {
-				break;
-			}
-		}
-
-		usort( $orders, static fn ( CanonicalOrder $a, CanonicalOrder $b ): int => $b->placed_at <=> $a->placed_at );
-
-		return array_slice( $orders, 0, $limit );
 	}
 
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct {
@@ -591,7 +523,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 *
 	 * 送れない商品（標準・軽減以外の税区分、価格を 1 件も換算できない。`ProductTransformer::push_blocker()`）は、
 	 * 作成も更新もせず remote_id を空にした`skipped`で返す（R3-1d、issue #78。`push_customer()`の必須項目の欠けと同じ形。
-	 * `Sync\Exporter`は作成なら intent を消して無料枠を返し、更新なら既存の mapping・checksum に触れず次回に再試行する）。
+	 * `Sync\Exporter`は作成なら intent を消し、更新なら既存の mapping・checksum に触れず次回に再試行する）。
 	 * 以前は作成時だけ hidden にしていたが、更新では効かず次のエクスポートで課税商品として公開されていた。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
@@ -1493,29 +1425,10 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 		// 200応答でも envelope キー自体が欠損、またはその中身が期待した配列でない場合
 		// （スキーマ変更・プロキシ異常等）を無言でnullにすると、404（=正当な削除済み）と
-		// 区別が付かなくなる。`run_sample_page()`はnullを「対象が存在しない」として黙って
-		// スキップするため、そのままだとサンプル対象が診断もリトライも無く欠落したまま
-		// ジョブが「完了」してしまう。例外を投げ`JobManager`の`catch(Throwable)`でジョブを
-		// 失敗させる（`list_from()`と同じ方針）。
+		// 区別が付かなくなる。呼び出し側（`Woo\Tools\PushIntentResolver`）はnullを「リモートに実体が
+		// 無い」と解釈するため、そのままだと実在する実体を無いものとして扱ってしまう。例外を投げて
+		// 呼び出し側に失敗として知らせる（`list_from()`と同じ方針）。
 		throw new RuntimeException( "ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was missing or not an array." );
-	}
-
-	/**
-	 * @param array<string,mixed> $query
-	 * @return array<int,array<string,mixed>>
-	 */
-	private function fetch_sales_raw( array $query ): array {
-		return $this->list_from( $this->client()->get( 'sales.json', $query ), 'sales' );
-	}
-
-	/**
-	 * `$window_days`日前の日付が`HISTORY_FLOOR`より過去になったら`HISTORY_FLOOR`に丸める
-	 * （探索の終端を明示するため）。
-	 */
-	private function history_floor_or_days_ago( int $window_days ): string {
-		$candidate = gmdate( 'Y-m-d', time() - $window_days * DAY_IN_SECONDS );
-
-		return $candidate < self::HISTORY_FLOOR ? self::HISTORY_FLOOR : $candidate;
 	}
 
 	private function order_transformer(): OrderTransformer {
@@ -1775,7 +1688,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
 
 		if ( '' === $access_token ) {
-			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（県コード修復ツール等）が
+			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（push intent の解除・`Sync\Exporter` 等）が
 			// 「再接続が必要」と区別できるよう、未接続であることを文脈で明示する。
 			throw new ApiException( 'ColorMe adapter is not connected.', 0, [ 'not_connected' => true ] );
 		}

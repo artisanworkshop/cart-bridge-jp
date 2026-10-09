@@ -535,13 +535,13 @@ final class ProductTransformer {
 
 	/**
 	 * `stock_managed: false`（在庫管理しない設定）の場合、`stocks`の値は在庫切れ判定に使わない。
-	 * `Importer::run_sample_stock_page()`はstockがnullの商品を「在庫あり」として扱うため
-	 * （`includes/Sync/Importer.php`参照）、管理外の商品に `stocks: 0` 等をそのまま渡すと
+	 * Woo の Writer は stock が null の商品を「在庫管理しない＝在庫あり」として扱うため
+	 * （`.claude/rules/adapters-colorme.md`）、管理外の商品に `stocks: 0` 等をそのまま渡すと
 	 * 購入可能な商品を誤って在庫切れにしてしまう。
 	 *
 	 * 逆に `stock_managed: true`（在庫管理する設定）で `stocks` が欠損・非数値の場合、
 	 * `Cast::to_int_or_null()` は `null` を返すが、それをそのまま返すと上記と同じ
-	 * `Importer` の「stock=nullは在庫あり」判定に乗ってしまい、実際は売り切れかもしれない
+	 * 「stock=nullは在庫あり」の扱いに乗ってしまい、実際は売り切れかもしれない
 	 * 在庫管理商品を無条件に購入可能にしてしまう。在庫管理対象なのに実数が不明な場合は
 	 * `0`（在庫切れ）にフェイルクローズする。
 	 *
@@ -562,7 +562,7 @@ final class ProductTransformer {
 	 * バリエーションの在庫可否も、この商品レベルの設定に従わせる。
 	 *
 	 * 欠損・非数値の場合は「管理外（在庫あり扱い）」ではなく「管理中（実数不明）」とみなす。
-	 * 前者に倒すと`stock()`が`null`を返し、`Importer::run_sample_stock_page()`がそれを
+	 * 前者に倒すと`stock()`が`null`を返し、Woo の Writer がそれを
 	 * 「在庫あり」と解釈するため、実際は管理対象で売り切れかもしれない商品が無条件に
 	 * 購入可能になってしまう。`stock()`側の0（在庫切れ）フェイルクローズに委ねる。
 	 *

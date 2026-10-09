@@ -11,7 +11,7 @@ use RuntimeException;
 
 /**
  * `PushIntentResolver::resolve_link()`/`resolve_not_created()` が投げる、理由コードを運ぶ例外
- * （`Woo\Tools\RepairInterruptedException`と同じ「1クラス+理由定数」スタイル）。
+ * （「1クラス+理由定数」スタイル）。
  * `Admin\RestController` が理由ごとにHTTPステータス・エラーコードへ変換する。
  */
 final class PushIntentResolutionException extends RuntimeException {
@@ -41,7 +41,7 @@ final class PushIntentResolutionException extends RuntimeException {
 
 	/**
 	 * `link`: プラットフォームへの接続が切れている（401/403、または`ApiException::context()`の
-	 * `not_connected`が明示された場合。`Woo\Tools\PrefStateRepair::classify_api_failure()`と同じ区分）。
+	 * `not_connected`が明示された場合。`PushIntentResolver::classify_api_failure()`）。
 	 */
 	public const NOT_CONNECTED = 'not_connected';
 
