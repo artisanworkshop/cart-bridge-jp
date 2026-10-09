@@ -228,13 +228,22 @@ $cbjp_shot_store    = ActionScheduler::store();
 $cbjp_shot_runner   = ActionScheduler::runner();
 $cbjp_shot_deadline = time() + 5 * MINUTE_IN_SECONDS;
 $cbjp_shot_orphaned = 0;
+// 止めるときはループを抜けてから、エンティティごとの状態を出して判定する（どのジョブが止まったか分かるように。run.php と同じ）。
+$cbjp_shot_stopped = '';
 while ( true ) {
-	$cbjp_shot_open = array_filter( $cbjp_shot_jobs_of_run(), static fn( array $job ): bool => in_array( $job['status'] ?? null, [ 'pending', 'running', 'paused' ], true ) );
+	$cbjp_shot_current = $cbjp_shot_jobs_of_run();
+	$cbjp_shot_open    = array_filter( $cbjp_shot_current, static fn( array $job ): bool => in_array( $job['status'] ?? null, [ 'pending', 'running', 'paused' ], true ) );
 	if ( [] === $cbjp_shot_open ) {
 		break;
 	}
+	// 1 つのジョブが失敗すると、後ろのジョブはアクションの無い pending のまま進まない（JobManager は完了したときだけ次へ進める）。
+	if ( [] !== array_filter( $cbjp_shot_current, static fn( array $job ): bool => 'failed' === ( $job['status'] ?? null ) ) ) {
+		$cbjp_shot_stopped = 'a job failed, so the jobs after it cannot start';
+		break;
+	}
 	if ( time() > $cbjp_shot_deadline ) {
-		$cbjp_shot_fail( 'the dry run did not finish within 5 minutes.' );
+		$cbjp_shot_stopped = 'it did not finish within 5 minutes';
+		break;
 	}
 
 	$cbjp_shot_claim     = $cbjp_shot_store->stake_claim( 20, null, [ JobManager::ACTION_HOOK ] );
@@ -280,7 +289,8 @@ while ( true ) {
 		}
 		$cbjp_shot_orphaned = 0 === $cbjp_shot_live ? $cbjp_shot_orphaned + 1 : 0;
 		if ( $cbjp_shot_orphaned >= 3 ) {
-			$cbjp_shot_fail( 'the dry run has open jobs but no pending or running action, so it cannot progress.' );
+			$cbjp_shot_stopped = 'open jobs have no pending or running action, so the run cannot progress';
+			break;
 		}
 		sleep( 5 );
 	}
@@ -299,8 +309,8 @@ $cbjp_shot_missing      = array_diff( $cbjp_shot_entities, $cbjp_shot_job_entiti
 if ( [] !== $cbjp_shot_missing ) {
 	$cbjp_shot_fail( 'no job was created for: ' . implode( ', ', $cbjp_shot_missing ) . ' (requested: ' . implode( ', ', $cbjp_shot_entities ) . '). Check dry_run_entities in shots.json.' );
 }
-if ( [] !== $cbjp_shot_not_done ) {
-	$cbjp_shot_fail( 'the dry run did not complete for every entity: ' . implode( ', ', $cbjp_shot_not_done ) . '.' );
+if ( [] !== $cbjp_shot_not_done || '' !== $cbjp_shot_stopped ) {
+	$cbjp_shot_fail( 'the dry run did not complete for every entity: ' . implode( ', ', $cbjp_shot_not_done ) . ( '' !== $cbjp_shot_stopped ? " ({$cbjp_shot_stopped})" : '' ) . '.' );
 }
 
 // 6. 撮影に使う値を出す。

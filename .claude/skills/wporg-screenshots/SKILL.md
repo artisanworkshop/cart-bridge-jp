@@ -81,6 +81,6 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
 - `waitFor` のタイムアウト: `wait_for` の文言が UI と違う。画面が開けていない（Cookie が通らない・PHP のエラー）こともある。失敗した回の画像は出力先に写さないので、tests サイトに管理者でログインして同じタブを開いて確かめる。
 - `the … tab shows an error notice`: そのタブの API 呼び出しが失敗している。フィクスチャの無い API を呼んでいないか、`npx wp-env run tests-cli wp db query "SELECT level, message FROM wp_cbjp_logs ORDER BY id DESC LIMIT 10"` を見る。
 - `setup: … would be empty`: フィクスチャの決済・配送・カテゴリ・状態の候補が変わった。`setup.php` の対応の作り方を合わせる。
-- `the dry run did not complete`・`did not finish within 5 minutes`: ジョブが失敗・保留になった。出力の各エンティティの状態と `wp_cbjp_logs` を見る。run はキャンセル済みなので、原因を直してそのまま撮り直せる。
+- `the dry run did not complete for every entity: …`: 止まらなかったエンティティと状態（`product=failed` など）と、止まった理由（ジョブの失敗・5 分の期限・アクションを失ったジョブ）を出す。直前に出るエンティティごとの状態と `wp_cbjp_logs` を見る。run はキャンセル済みなので、原因を直してそのまま撮り直せる。
 - `no job was created for: …`: `dry_run_entities` に、アダプタが受け付けないエンティティがある。
 - `Unsupported chromium channel` / Chrome が無い: `npx playwright install chromium` の後に `CBJP_SHOTS_CHANNEL= $S/scripts/capture.sh shoot`。
