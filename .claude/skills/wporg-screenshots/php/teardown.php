@@ -8,9 +8,10 @@
  * mu-plugin（Color Me Shop API へのモック）を消した後に、撮影の run の残りのアクションや偽のトークンで管理画面・WP-Cron が
  * 動くと、実 API に通信が出うる（PR #112 G1-2）。そこで mu-plugin がまだある間に次を行う。
  * 1. home_url が引数と一致する（＝ tests サイト）ことを確かめる。
- * 2. 開いたままの `colorme` の run をキャンセルする（残ったアクションは閉じたジョブに対して何もせずに終わる）。
- * 3. 撮影用の偽のトークン（`setup.php` が保存する `screenshot-dummy-token`）だけを消す。トークンが無ければ何もしない。
- *    別のトークンが保存されていれば消さずに失敗する（tests サイトを誰かが本物の店舗につないだ。人が判断する）。
+ * 2. `colorme` のトークンが無いか、撮影用の偽のトークン（`setup.php` が保存する `screenshot-dummy-token`）であることを確かめる。
+ *    別のトークン・復号できない値なら、何も変えずに失敗する（tests サイトを誰かが店舗につないだ。その run も止めない。人が判断する）。
+ * 3. 開いたままの `colorme` の run をキャンセルする（残ったアクションは閉じたジョブに対して何もせずに終わる）。
+ * 4. 偽のトークンを消す。トークンが無ければ何もしない。
  *
  * プラグインが無効（PHPUnit の後はオプションが戻り、無効になる。偽のトークンもオプションごと消えている）なら何もしない。
  * 失敗したら終了コード 1。`capture.sh` は mu-plugin を残して止まる。
@@ -35,6 +36,14 @@ if ( ! class_exists( TokenStore::class ) || ! function_exists( 'WC' ) ) {
 }
 if ( ! user_can( 1, 'manage_woocommerce' ) ) {
 	$cbjp_teardown_fail( 'user 1 cannot manage WooCommerce on the tests site.' );
+}
+// run をキャンセルする前に、トークンの持ち主を確かめる（PR #112 G2-3）。無いか、このスキルの偽のトークンのときだけ進める。
+// 復号できない値は `TokenStore::get()` が null を返すので、オプションの有無を生の値で見る。
+$cbjp_teardown_store = new TokenStore( 'colorme' );
+$cbjp_teardown_raw   = get_option( 'cbjp_token_colorme', null );
+$cbjp_teardown_ours  = null !== $cbjp_teardown_raw && '' !== $cbjp_teardown_raw;
+if ( $cbjp_teardown_ours && 'screenshot-dummy-token' !== ( $cbjp_teardown_store->get()['access_token'] ?? null ) ) {
+	$cbjp_teardown_fail( 'a colorme token other than the screenshot dummy (or one that cannot be decrypted) is saved on the tests site. Not cancelling runs or deleting it.' );
 }
 wp_set_current_user( 1 );
 
@@ -64,14 +73,9 @@ foreach ( $cbjp_teardown_active['data']['runs'] as $cbjp_teardown_run ) {
 	echo "teardown: cancelled the open run {$cbjp_teardown_run_id}\n";
 }
 
-$cbjp_teardown_store = new TokenStore( 'colorme' );
-$cbjp_teardown_token = $cbjp_teardown_store->get();
-if ( null === $cbjp_teardown_token ) {
+if ( ! $cbjp_teardown_ours ) {
 	echo "teardown: no saved token\n";
 	return;
-}
-if ( 'screenshot-dummy-token' !== ( $cbjp_teardown_token['access_token'] ?? null ) ) {
-	$cbjp_teardown_fail( 'a token other than the screenshot dummy is saved for colorme on the tests site; not deleting it.' );
 }
 $cbjp_teardown_store->delete();
 if ( null !== ( new TokenStore( 'colorme' ) )->get() ) {

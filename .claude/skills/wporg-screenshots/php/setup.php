@@ -5,8 +5,10 @@
  * 引数: <tests サイトの home_url> <dry-run するエンティティ（カンマ区切り）>
  *
  * 1. 前提を肯定形で確かめる: home_url が引数と一致する（＝ tests サイト）／撮影用 mu-plugin が読み込まれている（＝ Color Me Shop API へは
- *    出ていかずフィクスチャが返る）／`colorme` が実 `ColorMeAdapter` で登録されている／ユーザー 1 が `manage_woocommerce` を持つ。
- * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す。
+ *    出ていかずフィクスチャが返る）／`colorme` が実 `ColorMeAdapter` で登録されている／ユーザー 1 が `manage_woocommerce` を持つ／
+ *    `colorme` のトークンが無いか、このスキルの偽のトークンである（別のトークンなら何も変えずに止まる。上書きすると元の接続が失われる）。
+ * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す、
+ *    ユーザー 1 の言語を英語にする（`wait_for` は英語の文言）。
  * 3. 偽のトークンで `colorme` に接続した状態にし（`TokenStore`。tests サイトだけ）、決済（銀行振込・代引き）と配送（日本・定額）を有効にする。
  * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。Woo のカテゴリ `Apparel`・
  *    `Accessories` を作って Color Me Shop の先頭 2 つに、決済は名前（代引き → cod、振込 → bacs）で、配送は Color Me Shop の先頭を
@@ -75,6 +77,16 @@ if ( [] === $cbjp_shot_entities ) {
 if ( ! user_can( 1, 'manage_woocommerce' ) ) {
 	$cbjp_shot_fail( 'user 1 cannot manage WooCommerce on the tests site.' );
 }
+// 何かを変える前に `colorme` のトークンの持ち主を確かめる。無いか、このスキルの偽のトークンのときだけ進める（PR #112 G2-1・G2-2）。
+// 別のトークン（誰かが tests サイトを店舗につないだ）を上書きすると元の接続が失われ、その run までキャンセルしてしまう。
+// 復号できない値は `TokenStore::get()` が null を返すので、オプションの有無を生の値で見る。
+$cbjp_shot_raw_token = get_option( 'cbjp_token_colorme', null );
+if ( null !== $cbjp_shot_raw_token && '' !== $cbjp_shot_raw_token ) {
+	$cbjp_shot_saved = ( new TokenStore( 'colorme' ) )->get();
+	if ( 'screenshot-dummy-token' !== ( $cbjp_shot_saved['access_token'] ?? null ) ) {
+		$cbjp_shot_fail( 'a colorme token other than the screenshot dummy (or one that cannot be decrypted) is saved on the tests site. Refusing to cancel its runs or overwrite it.' );
+	}
+}
 wp_set_current_user( 1 );
 
 // 前回の撮影が途中で止まって開いたままの run を閉じる（tests サイトだけ。上のガードを通った後）。
@@ -98,6 +110,8 @@ update_option( 'woocommerce_default_country', 'JP:JP13' );
 update_option( 'woocommerce_onboarding_profile', [ 'skipped' => true ] );
 update_option( 'woocommerce_coming_soon', 'no' );
 update_option( 'woocommerce_store_pages_only', 'no' );
+// 管理画面の言語はユーザー 1 の設定で決まる（ブラウザの言語ではない）。`wait_for` は英語なので英語に固定する（PR #112 G2-B1）。
+update_user_meta( 1, 'locale', 'en_US' );
 
 // 3. 偽のトークンで接続した状態にし、決済と配送を有効にする。
 ( new TokenStore( 'colorme' ) )->save(
