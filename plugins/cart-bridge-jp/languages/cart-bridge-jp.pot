@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-09T22:44:01+00:00\n"
+"POT-Creation-Date: 2026-10-09T23:13:38+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -124,108 +124,108 @@ msgstr ""
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:1063
+#: includes/Admin/RestController.php:1066
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1105
+#: includes/Admin/RestController.php:1108
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1106
+#: includes/Admin/RestController.php:1109
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1130
+#: includes/Admin/RestController.php:1133
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1142
+#: includes/Admin/RestController.php:1145
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1172
+#: includes/Admin/RestController.php:1175
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1235
+#: includes/Admin/RestController.php:1238
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1247
+#: includes/Admin/RestController.php:1250
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1284
-#: includes/Admin/RestController.php:1325
-#: includes/Admin/RestController.php:1395
-#: includes/Admin/RestController.php:1487
+#: includes/Admin/RestController.php:1287
+#: includes/Admin/RestController.php:1328
+#: includes/Admin/RestController.php:1398
+#: includes/Admin/RestController.php:1490
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1409
+#: includes/Admin/RestController.php:1412
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1421
+#: includes/Admin/RestController.php:1424
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1493
+#: includes/Admin/RestController.php:1496
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1520
+#: includes/Admin/RestController.php:1523
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1588
+#: includes/Admin/RestController.php:1591
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1633
+#: includes/Admin/RestController.php:1636
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1638
+#: includes/Admin/RestController.php:1641
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1643
+#: includes/Admin/RestController.php:1646
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1648
+#: includes/Admin/RestController.php:1651
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1654
+#: includes/Admin/RestController.php:1657
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1660
+#: includes/Admin/RestController.php:1663
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1665
+#: includes/Admin/RestController.php:1668
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1675
+#: includes/Admin/RestController.php:1678
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1753
+#: includes/Admin/RestController.php:1756
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1754
+#: includes/Admin/RestController.php:1757
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1766
+#: includes/Admin/RestController.php:1769
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -826,7 +826,7 @@ msgid "Payment method mapping"
 msgstr ""
 
 #: includes/Entities/Commerce/PaymentMappingKind.php:29
-msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning."
+msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning. When exporting orders, the same mapping is used, where possible, to choose the platform payment method."
 msgstr ""
 
 #: includes/Entities/Commerce/PaymentMappingKind.php:33
@@ -846,7 +846,7 @@ msgid "Shipping method mapping"
 msgstr ""
 
 #: includes/Entities/Commerce/ShippingMappingKind.php:29
-msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning."
+msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning. When exporting orders, the same mapping is used, where possible, to choose the platform shipping method."
 msgstr ""
 
 #: includes/Entities/Commerce/ShippingMappingKind.php:33

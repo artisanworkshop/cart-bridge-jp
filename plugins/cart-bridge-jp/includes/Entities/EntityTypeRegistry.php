@@ -232,9 +232,10 @@ final class EntityTypeRegistry {
 	}
 
 	/**
-	 * `mapping_kinds()` と同じ一覧を、それを持つ実体の種類のキーと組にしたもの（R3-6b2。Import タブが、選んだ種類の持つマッピングだけを案内する）。
+	 * `mapping_kinds()` と同じ一覧を、確定したキーと、それを持つ実体の種類のキーと組にしたもの（R3-6b2。Import タブが、選んだ種類の持つ
+	 * マッピングだけを案内する）。`key` は組み立てたときに読んだ値（呼び出し側が `key()` を呼び直さずに済む）。
 	 *
-	 * @return array<int,array{entity:string,kind:MappingKind}>
+	 * @return array<int,array{entity:string,key:string,kind:MappingKind}>
 	 */
 	public static function mapping_kind_entries(): array {
 		$entries = [];
@@ -257,6 +258,7 @@ final class EntityTypeRegistry {
 		return array_map(
 			static fn ( array $entry ): array => [
 				'entity' => $entry[5] ?? '',
+				'key'    => $entry[2],
 				'kind'   => $entry[3],
 			],
 			self::claim_keys( $entries, '/^[a-z][a-z0-9_]{0,30}\z/', 'mapping kind' )
@@ -272,18 +274,18 @@ final class EntityTypeRegistry {
 	public static function link_sources(): array {
 		$entries = [];
 
-		foreach ( self::all() as $type ) {
+		foreach ( self::all() as $key => $type ) {
 			try {
 				foreach ( $type->link_sources() as $source ) {
 					if ( ! $source instanceof LinkSource ) {
-						self::reject( "The link sources of entity type \"{$type->key()}\" must be LinkSource instances." );
+						self::reject( "The link sources of entity type \"{$key}\" must be LinkSource instances." );
 						continue;
 					}
 
 					$entries[] = [ 0, $source->position(), $source->key(), $source, self::is_core( $type ) ];
 				}
 			} catch ( Throwable ) {
-				self::reject( "The link sources of entity type \"{$type->key()}\" could not be read." );
+				self::reject( "The link sources of entity type \"{$key}\" could not be read." );
 			}
 		}
 
@@ -444,11 +446,11 @@ final class EntityTypeRegistry {
 	private static function build_flag_index(): array {
 		$index = [];
 
-		foreach ( self::all() as $type ) {
+		foreach ( self::all() as $key => $type ) {
 			try {
 				$flags = $type->warning_flags();
 			} catch ( Throwable ) {
-				self::reject( "The warning flags of entity type \"{$type->key()}\" could not be read." );
+				self::reject( "The warning flags of entity type \"{$key}\" could not be read." );
 				continue;
 			}
 
@@ -458,7 +460,7 @@ final class EntityTypeRegistry {
 				}
 
 				if ( WarningCatalog::is_core_code( $code ) ) {
-					self::reject( "The warning code \"{$code}\" belongs to the free plugin; flags from entity type \"{$type->key()}\" are ignored." );
+					self::reject( "The warning code \"{$code}\" belongs to the free plugin; flags from entity type \"{$key}\" are ignored." );
 					continue;
 				}
 

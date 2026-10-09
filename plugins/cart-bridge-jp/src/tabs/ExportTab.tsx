@@ -16,7 +16,11 @@ import ActiveRunNotice from '../components/ActiveRunNotice';
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { entityLabel, entityLabels } from '../entity-labels';
-import { defaultExportSelection, exportEntityOptions } from '../entity-options';
+import {
+	defaultExportSelection,
+	exportEntityOptions,
+	exportOptionHelp,
+} from '../entity-options';
 import { parseHash, tabHref } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { joinList, joinSentences } from '../i18n';
@@ -54,21 +58,6 @@ function betaNote(): string {
 		'Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it.',
 		'cart-bridge-jp'
 	);
-}
-
-/**
- * 選択肢の説明。説明（サーバーの宣言。例: 受注は「接続先に売上を作る」）に、ベータならベータの注意書きを続ける（R3-6b2）。
- * @param description
- * @param beta
- */
-function entityHelp( description: string, beta: boolean ): string | undefined {
-	if ( beta ) {
-		return '' !== description
-			? joinSentences( description, betaNote() )
-			: betaNote();
-	}
-
-	return '' !== description ? description : undefined;
 }
 
 /**
@@ -754,10 +743,7 @@ export default function ExportTab() {
 										  )
 										: option.label
 								}
-								help={ entityHelp(
-									option.description,
-									option.beta
-								) }
+								help={ exportOptionHelp( option, betaNote() ) }
 								checked={ selectedExportEntities.has(
 									option.key
 								) }

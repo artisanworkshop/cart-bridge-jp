@@ -26,7 +26,7 @@ final class ShippingMappingKind extends MappingKind {
 	}
 
 	public function description(): string {
-		return __( 'Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning.', 'cart-bridge-jp' );
+		return __( 'Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning. When exporting orders, the same mapping is used, where possible, to choose the platform shipping method.', 'cart-bridge-jp' );
 	}
 
 	public function source_heading(): string {

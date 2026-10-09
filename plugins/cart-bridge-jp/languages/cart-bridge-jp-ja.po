@@ -118,104 +118,104 @@ msgstr "「push_images」は true か false にしてください。"
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
 
-#: includes/Admin/RestController.php:1063
+#: includes/Admin/RestController.php:1066
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:1106
+#: includes/Admin/RestController.php:1109
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:1130
+#: includes/Admin/RestController.php:1133
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:1142
+#: includes/Admin/RestController.php:1145
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1172
+#: includes/Admin/RestController.php:1175
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1235
+#: includes/Admin/RestController.php:1238
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1247
+#: includes/Admin/RestController.php:1250
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1284
-#: includes/Admin/RestController.php:1325
-#: includes/Admin/RestController.php:1395
-#: includes/Admin/RestController.php:1487
+#: includes/Admin/RestController.php:1287
+#: includes/Admin/RestController.php:1328
+#: includes/Admin/RestController.php:1398
+#: includes/Admin/RestController.php:1490
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1409
+#: includes/Admin/RestController.php:1412
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1421
+#: includes/Admin/RestController.php:1424
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1493
+#: includes/Admin/RestController.php:1496
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1520
+#: includes/Admin/RestController.php:1523
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1654
+#: includes/Admin/RestController.php:1657
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
 
-#: includes/Admin/RestController.php:1588
+#: includes/Admin/RestController.php:1591
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1633
+#: includes/Admin/RestController.php:1636
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1638
+#: includes/Admin/RestController.php:1641
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1643
+#: includes/Admin/RestController.php:1646
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1648
+#: includes/Admin/RestController.php:1651
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1660
+#: includes/Admin/RestController.php:1663
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1665
+#: includes/Admin/RestController.php:1668
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1675
+#: includes/Admin/RestController.php:1678
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1753
+#: includes/Admin/RestController.php:1756
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1754
+#: includes/Admin/RestController.php:1757
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1766
+#: includes/Admin/RestController.php:1769
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -1577,10 +1577,6 @@ msgstr "選べるプラットフォームのカテゴリーがありません。
 msgid "Payment method mapping"
 msgstr "決済方法のマッピング"
 
-#: includes/Entities/Commerce/PaymentMappingKind.php:29
-msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning."
-msgstr "プラットフォームの決済方法ごとに、WooCommerce の決済方法を対応させます。マッピングしていない決済方法のインポートした注文は、WooCommerce の決済方法が空になり（タイトルにはプラットフォームの名前が残ります）、警告が付きます。"
-
 #: includes/Entities/Commerce/PaymentMappingKind.php:33
 msgid "Platform payment method"
 msgstr "プラットフォームの決済方法"
@@ -1601,10 +1597,6 @@ msgstr "使える WooCommerce の決済方法がありません。先に WooComm
 #: includes/Entities/Commerce/ShippingMappingKind.php:25
 msgid "Shipping method mapping"
 msgstr "配送方法のマッピング"
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:29
-msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning."
-msgstr "プラットフォームの配送方法ごとに、WooCommerce の配送地域の配送方法を対応させます。マッピングしていない配送方法のインポートした注文は、配送の明細にプラットフォームの名前だけが残り、警告が付きます。"
 
 #: includes/Entities/Commerce/ShippingMappingKind.php:33
 msgid "Platform shipping method"
@@ -2120,7 +2112,7 @@ msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
 
-#: includes/Admin/RestController.php:1105
+#: includes/Admin/RestController.php:1108
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
 
@@ -2214,3 +2206,11 @@ msgstr "プラットフォームの値と WooCommerce の値のマッピング�
 #, js-format
 msgid "Some kinds of records could not be scanned, so their links were not restored: %s. Check the Logs tab for the reason."
 msgstr "一部の種類の記録を走査できなかったため、紐づけを復元していません: %s。理由は「ログ」タブで確認してください。"
+
+#: includes/Entities/Commerce/PaymentMappingKind.php:29
+msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning. When exporting orders, the same mapping is used, where possible, to choose the platform payment method."
+msgstr "プラットフォームの決済方法ごとに、WooCommerce の決済方法を対応させます。マッピングしていない決済方法のインポートした注文は、WooCommerce の決済方法が空になり（タイトルにはプラットフォームの名前が残ります）、警告が付きます。注文をエクスポートするときも、できる範囲で同じマッピングを使ってプラットフォームの決済方法を選びます。"
+
+#: includes/Entities/Commerce/ShippingMappingKind.php:29
+msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning. When exporting orders, the same mapping is used, where possible, to choose the platform shipping method."
+msgstr "プラットフォームの配送方法ごとに、WooCommerce の配送地域の配送方法を対応させます。マッピングしていない配送方法のインポートした注文は、配送の明細にプラットフォームの名前だけが残り、警告が付きます。注文をエクスポートするときも、できる範囲で同じマッピングを使ってプラットフォームの配送方法を選びます。"

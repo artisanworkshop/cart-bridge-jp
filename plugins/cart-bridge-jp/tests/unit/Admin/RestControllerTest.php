@@ -1936,7 +1936,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * SKU の無い商品は名前だけ、日時の無い受注は「date unknown」（R3-6b2）。
+	 * SKU の無い商品の要約は名前だけ（R3-6b2）。
 	 */
 	public function test_list_push_intents_summarizes_without_the_optional_details(): void {
 		$this->register_mock_adapter();

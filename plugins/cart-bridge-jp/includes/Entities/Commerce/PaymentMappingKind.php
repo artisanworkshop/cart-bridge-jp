@@ -26,7 +26,7 @@ final class PaymentMappingKind extends MappingKind {
 	}
 
 	public function description(): string {
-		return __( 'Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning.', 'cart-bridge-jp' );
+		return __( 'Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning. When exporting orders, the same mapping is used, where possible, to choose the platform payment method.', 'cart-bridge-jp' );
 	}
 
 	public function source_heading(): string {

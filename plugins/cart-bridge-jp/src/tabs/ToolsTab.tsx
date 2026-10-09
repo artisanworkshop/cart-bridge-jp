@@ -15,6 +15,7 @@ import ActiveRunNotice from '../components/ActiveRunNotice';
 import { entityLabel } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { joinList } from '../i18n';
+import { type Counts, mergeCounts, mergeSkipped } from '../rebuild-result';
 import type { Connection, RebuildResult } from '../types';
 
 /**
@@ -23,20 +24,8 @@ import type { Connection, RebuildResult } from '../types';
  */
 const MAX_BATCHES = 1000;
 
-type Counts = Record< string, number >;
-
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
-}
-
-function mergeCounts( into: Counts, add: Counts ): Counts {
-	const merged = { ...into };
-
-	for ( const [ key, value ] of Object.entries( add ) ) {
-		merged[ key ] = ( merged[ key ] ?? 0 ) + value;
-	}
-
-	return merged;
 }
 
 function sumCounts( counts: Counts ): number {
@@ -44,31 +33,6 @@ function sumCounts( counts: Counts ): number {
 		( total, value ) => total + value,
 		0
 	);
-}
-
-/**
- * 応答の `skipped`（走査に失敗して飛ばした種類のキー）を、重複を除いて前のバッチの分に足す。形の違う値は読み飛ばす。
- * @param into
- * @param value
- */
-function mergeSkipped( into: string[], value: unknown ): string[] {
-	if ( ! Array.isArray( value ) ) {
-		return into;
-	}
-
-	const merged = [ ...into ];
-
-	for ( const key of value as unknown[] ) {
-		if (
-			'string' === typeof key &&
-			'' !== key &&
-			! merged.includes( key )
-		) {
-			merged.push( key );
-		}
-	}
-
-	return merged;
 }
 
 /**

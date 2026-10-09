@@ -245,6 +245,41 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertNull( $row['local_amount'] );
 	}
 
+	/**
+	 * 実体が無いと答えた種類の要約は出さない（画面は「削除済み」と書く。R3-6b2）。外部の種類が `exists:false` に要約を添えても使わない。
+	 */
+	public function test_a_missing_entity_has_no_summary_even_if_the_type_gives_one(): void {
+		$ghost = new class() extends \CartBridgeJP\Entities\EntityType {
+
+			public function key(): string {
+				return 'ghost';
+			}
+
+			public function label(): string {
+				return 'Ghosts';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function describe_local( int $local_id ): array {
+				return [
+					'exists'   => false,
+					'edit_url' => null,
+					'summary'  => 'Ghost #' . $local_id,
+					'details'  => [],
+				];
+			}
+		};
+		$this->register_entity_types( [ $ghost ] );
+
+		$description = ( new PushIntentPresenter() )->describe( 'ghost', 7 );
+
+		$this->assertFalse( $description['exists'] );
+		$this->assertSame( '', $description['summary'] );
+	}
+
 	public function test_push_intents_describe_the_type_as_missing(): void {
 		$this->assertSame(
 			[
@@ -337,6 +372,42 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 			public function woo_candidates(): array {
 				return [];
 			}
+
+			// 案内の判定そのものは読めても、文言を読めない kind は `kinds` で使わない扱いになるので、案内の印も立てない（R1-L5）。
+			public function import_notice(): bool {
+				return true;
+			}
+		};
+		$inapplicable = new class() extends \CartBridgeJP\Entities\MappingKind {
+
+			public function key(): string {
+				return 'shaky_inapplicable';
+			}
+
+			public function label(): string {
+				return 'Shaky inapplicable';
+			}
+
+			public function position(): int {
+				return 30;
+			}
+
+			public function source_side(): string {
+				return self::SOURCE_ASP;
+			}
+
+			public function woo_candidates(): array {
+				return [];
+			}
+
+			public function import_notice(): bool {
+				return true;
+			}
+
+			// この接続先では使わない kind は案内しない。
+			public function applies_to( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				return false;
+			}
 		};
 		$notice_fails = new class() extends \CartBridgeJP\Entities\MappingKind {
 
@@ -364,7 +435,7 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 				throw new \RuntimeException( 'notice' );
 			}
 		};
-		$shaky        = new class( [ $label_fails, $notice_fails ] ) extends \CartBridgeJP\Entities\EntityType {
+		$shaky        = new class( [ $label_fails, $notice_fails, $inapplicable ] ) extends \CartBridgeJP\Entities\EntityType {
 
 			/**
 			 * @param array<int,\CartBridgeJP\Entities\MappingKind> $kinds
@@ -428,6 +499,9 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 'shaky', $kinds['shaky_label']['entity'] );
 		$this->assertFalse( $kinds['shaky_notice']['applies'] );
 		$this->assertFalse( $kinds['shaky_notice']['import_notice'] );
+		$this->assertFalse( $kinds['shaky_label']['import_notice'] );
+		$this->assertTrue( $kinds['shaky_inapplicable']['import_notice'] );
+		$this->assertFalse( $kinds['shaky_inapplicable']['applies'] );
 		$this->assertTrue( $kinds['payment']['applies'], 'ほかの kind は影響を受けない' );
 		$this->assertSame( 'Payment method mapping', $kinds['payment']['label'] );
 	}

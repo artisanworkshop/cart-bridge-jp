@@ -16,7 +16,7 @@ import type {
 	SettingsMappings,
 	SettingsMappingValues,
 } from '../types';
-import { parseMappingKinds, savedMap } from './mapping-status';
+import { editableMaps, parseMappingKinds } from './mapping-status';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
@@ -25,22 +25,10 @@ function errorMessage( err: unknown ): string {
 const UNMAPPED = '';
 
 /**
- * 編集中のマップ（`map_key` => 行の ID => 対応先の ID）。登録された全種類の分を持ち、節を出さない種類の値も保存時にそのまま送り返す。
+ * 編集中のマップ（`map_key` => 行の ID => 対応先の ID）。登録された全種類の分を持ち、節を出さない種類の値も保存時にそのまま送り返す
+ * （`editableMaps()`）。
  */
 type EditableMappings = Record< string, Record< string, string > >;
-
-function toEditable(
-	data: unknown,
-	kinds: MappingKindInfo[]
-): EditableMappings {
-	const editable: EditableMappings = {};
-
-	for ( const kind of kinds ) {
-		editable[ kind.map_key ] = savedMap( data, kind.map_key );
-	}
-
-	return editable;
-}
 
 /**
  * 1 種類のマップの表示設定（R3-6b2 でサーバーの宣言〈`kinds`〉から組み立てる形にした）。向きは「どちら側の候補を行（source）にし、
@@ -281,7 +269,7 @@ export default function MappingSettings( {
 
 				setMappings( data );
 				setKinds( parsed );
-				setEdited( toEditable( data, parsed ) );
+				setEdited( editableMaps( data, parsed ) );
 			} )
 			.catch( ( err: unknown ) => {
 				if ( generationRef.current !== requestId ) {
@@ -344,7 +332,7 @@ export default function MappingSettings( {
 			setMappings( ( current ) =>
 				null === current ? current : { ...current, ...data }
 			);
-			setEdited( toEditable( data, kinds ) );
+			setEdited( editableMaps( data, kinds ) );
 			setSaved( true );
 		} catch ( err ) {
 			if ( generationRef.current !== requestId ) {
@@ -375,7 +363,7 @@ export default function MappingSettings( {
 	const sections = kinds.filter( ( kind ) => kind.applies );
 
 	if ( 0 === sections.length ) {
-		// 無料版だけで ColorMe につないだときなど（カテゴリを作れる接続先は、カテゴリのマッピングも要らない）。
+		// カテゴリを作れる接続先に無料版だけでつないだときなど（カテゴリのマッピングも要らない。R3-6c の後）。
 		return (
 			<p>
 				{ __(

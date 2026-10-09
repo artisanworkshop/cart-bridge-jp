@@ -889,6 +889,8 @@ Pro が登録する種類はサーバーの宣言だけで画面に出る。**�
   4 種類の英文は `MappingSettings.tsx` の `sectionConfig()` から msgid を変えずに移した（訳はそのまま残る）。`import_notice()` の docblock に、案内の文が前提にする扱い
   （未設定でも取り込み・警告・設定後の次の取込みで更新）を書いた。
 - `GET /settings/mappings` の `kinds` に `entity`（持ち主の種類。`EntityTypeRegistry::mapping_kind_entries()`）と上の文言。読めない kind は `applies`・`import_notice` を偽にして文言を空にする。
+  kind ごとの評価は `RestController::describe_mapping_kind()` 1 つにまとめ、`mapping_notice` の判定も同じものを使う（文言だけ壊れた kind で、候補を取得するのに案内が出ない食い違いを避ける）。
+  決済・配送の説明には、受注のエクスポートでも同じマッピングを逆引きに使うこと（`MethodMap::reverse_lookup()`）を足した（以前は Mappings タブの冒頭の文にあった）。
 - `EntityType::export_description( PlatformAdapter ): string`（既定 ''）。受注は「Creates orders (sales) in the connected shop.」。`entities.export[].description`。
 - `entities.import[].mapping_notice`: その種類の kind に `import_notice()` かつ `applies_to()` のものがあるか（Import タブが、候補の取得〔ColorMe は API 3 本〕の前に知るため）。
   `/connections` がマッピングの種類を読むようになったので、読めない種類の `_doing_it_wrong()` がこのルートでも出る。
@@ -897,12 +899,18 @@ Pro が登録する種類はサーバーの宣言だけで画面に出る。**�
 
 **画面**: `src/types.ts` の `ENTITY_ORDER` を外し（`EntityType = string`）、`ENTITY_LABELS` を `cbjpAdmin.entityLabels` を読む `entityLabel()`/`entityLabels()` に替えた。
 選択肢は `entity-options.ts`（`importEntityOptions()`・`exportEntityOptions()`。キーの無い・重複した項目は捨て、`beta` は `false` のときだけ非ベータ）。
-Mappings タブの節は `kinds` の `applies` から（0 件なら「設定するマッピングはありません」。R3-6c の後の無料版＋ColorMe はこの形になる）、Import タブの案内は
+Mappings タブの節は `kinds` の `applies` から（0 件なら「設定するマッピングはありません」。カテゴリを作れる接続先に無料版だけでつないだとき。
+ColorMe はカテゴリを作れないので、R3-6c の後もカテゴリの節が残る）、Import タブの案内は
 `MappingNotice`（旧 `OrderMappingNotice`。`mapping-status.ts` の `importMappingGaps()` が選ばれた種類の kind ごとに数える）、Tools タブの件数は応答の `counts` のキー順と
 `skipped` の警告、送信結果が未確認の一覧は `summary`、実行中の run の `entities` はキーの形（`^[a-z][a-z0-9_]{0,19}$`）だけで受け付ける。
 
 **変わった文言**（受注・決済・配送を名指ししない形にした。スクリーンショットは R3-6d で撮り直す）: Mappings タブの冒頭、Export タブのマッピングの案内、
-Import の本移行の確認（選んだ種類の表示名を並べる）、Import の未設定の案内（「`source_heading`: N 件中 M 件」と汎用の説明）、検証レポートの「order totals」→「totals」。
+Import の本移行の確認（選んだ種類の表示名を並べる）、Import の未設定の案内（「`source_heading`: N 件中 M 件」と汎用の説明）、検証レポートの「order totals」→「totals」、
+決済・配送の説明（エクスポートでの使い方の 1 文を足した）。
+
+**変わった表示**（画面は種類の名前で並べ替えないので、サーバーの並びになる）: Mappings タブの節はカテゴリが先頭（種類の実行順で商品 30 ＜ 受注 50。以前はカテゴリが最後）、
+Tools タブの件数は LinkSource の `position()` 順（クーポン 50 が顧客 60・受注 70 より前。以前は顧客・受注・クーポンの順）、Export タブはベータでない受注
+（`BETA_ORDER_EXPORT` を宣言しないアダプタ）にも説明文が出る（以前はベータのときだけ）。実行中の run の `entities` もサーバーの順（画面には出していない）。
 
 **確認**: 品質チェック一式、dev サイトで mock アダプタ（`mockv`。プレミアム相当の能力・決済と配送の候補）の `/connections`・`/settings/mappings`・`/push-intents`・
 `/tools/rebuild-mappings` と、Mappings・Import・Export・Tools タブの表示（Import の案内が受注の選択に連動する、Export の Orders が Beta・既定で未選択・説明つき、

@@ -192,6 +192,25 @@ export function savedMap(
 }
 
 /**
+ * 編集用のマップ（`map_key` => 行の ID => 対応先の ID）。**節を出さない種類（`applies` が偽）の分も持つ**: 保存（PUT）はこれを
+ * そのまま送るので、出さない節の保存済みの値は取得したまま送り返され、消えない。
+ * @param data  応答（GET・PUT）
+ * @param kinds 登録された種類（`parseMappingKinds()`）
+ */
+export function editableMaps(
+	data: unknown,
+	kinds: MappingKindInfo[]
+): Record< string, Record< string, string > > {
+	const editable: Record< string, Record< string, string > > = {};
+
+	for ( const kind of kinds ) {
+		editable[ kind.map_key ] = savedMap( data, kind.map_key );
+	}
+
+	return editable;
+}
+
+/**
  * `GET /settings/mappings/{platform}` の応答から、選ばれた実体の種類が持つ「取込みの前に案内するマッピング」（`kinds` のうち
  * `import_notice` と `applies` が真のもの）の設定状況を数え、未設定があるものだけを返す。応答はページの外の値なので、形の違う
  * 種類は読み飛ばす（`parseMappingKinds()`）。ASP 側の候補が 0 件（取得に失敗したときも REST は空の候補を返す）なら

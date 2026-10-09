@@ -785,55 +785,62 @@ final class RestController {
 	}
 
 	/**
-	 * 画面がマッピングの節を組み立てるための種類の一覧（R3-6b1。文言は R3-6b2）。`entity` はそのマッピングを持つ実体の種類、`applies` は
-	 * この接続先で使うか（カテゴリはカテゴリを作れない接続先だけ）。外部の種類が例外を投げたら、その項目は使わない扱いにして文言を空にする
-	 * （画面は `applies` が偽の節を出さない）。
+	 * 画面がマッピングの節を組み立てるための種類の一覧（R3-6b1。文言は R3-6b2）。
 	 *
-	 * @param array<int,array{entity:string,kind:MappingKind}> $entries
+	 * @param array<int,array{entity:string,key:string,kind:MappingKind}> $entries
 	 * @return array<int,array<string,mixed>>
 	 */
 	private function mapping_kind_descriptions( string $platform, array $entries ): array {
-		$adapter      = AdapterRegistry::get( $platform );
-		$descriptions = [];
+		$adapter = AdapterRegistry::get( $platform );
 
-		foreach ( $entries as $entry ) {
-			$kind = $entry['kind'];
+		return array_map( fn ( array $entry ): array => $this->describe_mapping_kind( $entry, $adapter ), $entries );
+	}
 
-			try {
-				$source_side = $kind->source_side();
-				$texts       = [
-					'label'           => $kind->label(),
-					'description'     => $kind->description(),
-					'source_heading'  => $kind->source_heading(),
-					'target_heading'  => $kind->target_heading(),
-					'unmapped_label'  => $kind->unmapped_label(),
-					'no_targets_help' => $kind->no_targets_help(),
-				];
-				$applies     = null !== $adapter && $kind->applies_to( $adapter );
-				$notice      = $kind->import_notice();
-			} catch ( Throwable ) {
-				$source_side = MappingKind::SOURCE_ASP;
-				$texts       = array_fill_keys( [ 'label', 'description', 'source_heading', 'target_heading', 'unmapped_label', 'no_targets_help' ], '' );
-				$applies     = false;
-				$notice      = false;
-			}
+	/**
+	 * 画面に出す 1 種類のマッピング（`kinds` の 1 項目。`entities.import[].mapping_notice` の判定もこれを使う）。`entity` はそのマッピングを
+	 * 持つ実体の種類、`applies` はこの接続先で使うか（カテゴリはカテゴリを作れない接続先だけ）。外部の kind の文言・判定のどれかが例外を
+	 * 投げたら、その kind は使わない・案内しない扱いにして文言を空にする（画面は `applies` が偽の節を出さない。`/connections` の案内の印と
+	 * 食い違わないよう、判定を 1 箇所にまとめる）。キーはレジストリが確定した値を使い、`key()` を呼び直さない（`map_key()` と同じ形）。
+	 *
+	 * @param array{entity:string,key:string,kind:MappingKind} $entry
+	 * @return array<string,mixed>
+	 */
+	private function describe_mapping_kind( array $entry, ?PlatformAdapter $adapter ): array {
+		$kind = $entry['kind'];
 
-			$descriptions[] = [
-				'key'           => $kind->key(),
-				'map_key'       => $kind->map_key(),
-				'entity'        => $entry['entity'],
-				'source_side'   => MappingKind::SOURCE_WOO === $source_side ? MappingKind::SOURCE_WOO : MappingKind::SOURCE_ASP,
-				'applies'       => $applies,
-				'import_notice' => $notice,
-			] + $texts;
+		try {
+			$source_side = $kind->source_side();
+			$texts       = [
+				'label'           => $kind->label(),
+				'description'     => $kind->description(),
+				'source_heading'  => $kind->source_heading(),
+				'target_heading'  => $kind->target_heading(),
+				'unmapped_label'  => $kind->unmapped_label(),
+				'no_targets_help' => $kind->no_targets_help(),
+			];
+			$applies     = null !== $adapter && $kind->applies_to( $adapter );
+			$notice      = $kind->import_notice();
+		} catch ( Throwable ) {
+			$source_side = MappingKind::SOURCE_ASP;
+			$texts       = array_fill_keys( [ 'label', 'description', 'source_heading', 'target_heading', 'unmapped_label', 'no_targets_help' ], '' );
+			$applies     = false;
+			$notice      = false;
 		}
 
-		return $descriptions;
+		return [
+			'key'           => $entry['key'],
+			'map_key'       => $entry['key'] . '_map',
+			'entity'        => $entry['entity'],
+			'source_side'   => MappingKind::SOURCE_WOO === $source_side ? MappingKind::SOURCE_WOO : MappingKind::SOURCE_ASP,
+			'applies'       => $applies,
+			'import_notice' => $notice,
+		] + $texts;
 	}
 
 	/**
 	 * この接続先で、取込みの前に未設定の数を案内するマッピングを持つ実体の種類のキー（`entities.import[].mapping_notice`。R3-6b2）。
-	 * Import タブは、この種類が選ばれたときだけ候補を取得する（ColorMe は API を 3 本呼ぶ）。例外を投げる種類は案内しない。
+	 * Import タブは、この種類が選ばれたときだけ候補を取得する（ColorMe は API を 3 本呼ぶ）。判定は `/settings/mappings` の `kinds` と同じ
+	 * （`describe_mapping_kind()`。読めない kind は案内しない）。
 	 *
 	 * @return array<string,true>
 	 */
@@ -841,13 +848,9 @@ final class RestController {
 		$entities = [];
 
 		foreach ( EntityTypeRegistry::mapping_kind_entries() as $entry ) {
-			try {
-				$notice = $entry['kind']->import_notice() && $entry['kind']->applies_to( $adapter );
-			} catch ( Throwable ) {
-				$notice = false;
-			}
+			$description = $this->describe_mapping_kind( $entry, $adapter );
 
-			if ( $notice ) {
+			if ( true === $description['import_notice'] && true === $description['applies'] ) {
 				$entities[ $entry['entity'] ] = true;
 			}
 		}

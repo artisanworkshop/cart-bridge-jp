@@ -3,6 +3,7 @@ import { entityLabel, entityLabels } from '../entity-labels';
 import {
 	defaultExportSelection,
 	exportEntityOptions,
+	exportOptionHelp,
 	importEntityOptions,
 } from '../entity-options';
 import type { Connection } from '../types';
@@ -95,6 +96,38 @@ describe( 'exportEntityOptions', () => {
 			{ key: 'gizmo', label: 'Gizmos', beta: true, description: '' },
 		] );
 		expect( defaultExportSelection( options ) ).toEqual( [ 'product' ] );
+	} );
+} );
+
+describe( 'exportOptionHelp', () => {
+	const option = {
+		key: 'order',
+		label: 'Orders',
+		beta: false,
+		description: '',
+	};
+
+	it( 'shows the description, followed by the beta note for a beta option', () => {
+		expect(
+			exportOptionHelp(
+				{ ...option, beta: true, description: 'Creates orders.' },
+				'Beta note.'
+			)
+		).toBe( 'Creates orders. Beta note.' );
+		expect(
+			exportOptionHelp( { ...option, beta: true }, 'Beta note.' )
+		).toBe( 'Beta note.' );
+		// ベータでない種類も、説明があれば出す（受注のエクスポートをベータにしない接続先。R3-6b2 R1-L1）。
+		expect(
+			exportOptionHelp(
+				{ ...option, description: 'Creates orders.' },
+				'Beta note.'
+			)
+		).toBe( 'Creates orders.' );
+	} );
+
+	it( 'shows nothing for a non-beta option without a description', () => {
+		expect( exportOptionHelp( option, 'Beta note.' ) ).toBeUndefined();
 	} );
 } );
 

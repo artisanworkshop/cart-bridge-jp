@@ -4,7 +4,13 @@ import type {
 	MappingKindInfo,
 	SettingsMappings,
 } from '../../types';
-import { importMappingGaps, mappingCoverage } from '../mapping-status';
+import {
+	editableMaps,
+	importMappingGaps,
+	mappingCoverage,
+	parseMappingKinds,
+	savedMap,
+} from '../mapping-status';
 
 function candidates( ...ids: string[] ): MappingCandidate[] {
 	return ids.map( ( id ) => ( { id, name: `Name ${ id }` } ) );
@@ -341,5 +347,96 @@ describe( 'importMappingGaps', () => {
 		expect( importMappingGaps( null, ORDERS ) ).toEqual( [] );
 		expect( importMappingGaps( {}, ORDERS ) ).toEqual( [] );
 		expect( importMappingGaps( { kinds: 'x' }, ORDERS ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'parseMappingKinds', () => {
+	it( 'reads the declared kinds in order', () => {
+		const kinds = parseMappingKinds( makeMappings().kinds );
+
+		expect( kinds.map( ( item ) => item.key ) ).toEqual( [
+			'category',
+			'payment',
+			'shipping',
+			'status',
+		] );
+		expect( kinds[ 0 ] ).toEqual(
+			kind( 'category', { entity: 'product', source_side: 'woo' } )
+		);
+	} );
+
+	it( 'drops malformed and duplicate kinds and fails closed on flags and texts', () => {
+		const kinds = parseMappingKinds( [
+			null,
+			{ map_key: 'x_map' },
+			{ key: 'nokey' },
+			{
+				key: 'payment',
+				map_key: 'payment_map',
+				applies: 'true',
+				import_notice: 1,
+				source_side: 'sideways',
+				label: 5,
+			},
+			// 同じキー・同じ map_key の 2 つ目以降は捨てる。
+			{ key: 'payment', map_key: 'other_map', applies: true },
+			{ key: 'other', map_key: 'payment_map', applies: true },
+		] );
+
+		expect( kinds ).toEqual( [
+			{
+				key: 'payment',
+				map_key: 'payment_map',
+				entity: '',
+				source_side: 'asp',
+				applies: false,
+				import_notice: false,
+				label: '',
+				description: '',
+				source_heading: '',
+				target_heading: '',
+				unmapped_label: '',
+				no_targets_help: '',
+			},
+		] );
+		expect( parseMappingKinds( 'x' ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'savedMap', () => {
+	it( 'copies only the string values the response saved', () => {
+		const map = savedMap(
+			{ payment_map: { '101': 'bacs', '102': 3, '103': null } },
+			'payment_map'
+		);
+
+		expect( map ).toEqual( { '101': 'bacs' } );
+		expect( savedMap( { payment_map: [ 'x' ] }, 'payment_map' ) ).toEqual(
+			{}
+		);
+		expect( savedMap( null, 'payment_map' ) ).toEqual( {} );
+	} );
+} );
+
+describe( 'editableMaps', () => {
+	it( 'keeps the saved maps of kinds whose section is not shown', () => {
+		// カテゴリを作れる接続先ではカテゴリの節を出さないが、保存（PUT）で送り返して保存済みの値を消さない。
+		const data = makeMappings( {
+			category_map: { '5': '90' },
+			payment_map: { '101': 'bacs' },
+		} );
+		const kinds = parseMappingKinds( [
+			kind( 'category', {
+				entity: 'product',
+				source_side: 'woo',
+				applies: false,
+			} ),
+			kind( 'payment' ),
+		] );
+
+		expect( editableMaps( data, kinds ) ).toEqual( {
+			category_map: { '5': '90' },
+			payment_map: { '101': 'bacs' },
+		} );
 	} );
 } );

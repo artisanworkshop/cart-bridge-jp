@@ -1,3 +1,4 @@
+import { joinSentences } from './i18n';
 import type {
 	Connection,
 	EntityType,
@@ -104,4 +105,23 @@ export function defaultExportSelection(
 	return options
 		.filter( ( option ) => ! option.beta )
 		.map( ( option ) => option.key );
+}
+
+/**
+ * エクスポートの選択肢の説明。サーバーの説明（例: 受注は「接続先に売上を作る」）に、ベータならベータの注意書きを続ける。説明が無く
+ * ベータでもなければ出さない（undefined）。
+ * @param option
+ * @param betaNote ベータの注意書き（Export タブが翻訳して渡す。画像のアップロードと共通）
+ */
+export function exportOptionHelp(
+	option: ExportEntityOption,
+	betaNote: string
+): string | undefined {
+	if ( option.beta ) {
+		return '' !== option.description
+			? joinSentences( option.description, betaNote )
+			: betaNote;
+	}
+
+	return '' !== option.description ? option.description : undefined;
 }
