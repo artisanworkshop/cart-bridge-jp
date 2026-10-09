@@ -109,7 +109,7 @@ $pin_create_to = static function ( int $local_id ) use ( $platform ): bool {
 // （paused からの再開予定のアクションも、時刻を待たずに処理する）。job の totals と status、paused のログの有無を返す。
 $run_export = static function ( int $local_id, ?string $create_failure ) use ( $call, $platform, $wpdb, $pin_create_to ): array {
 	if ( ! $pin_create_to( $local_id ) ) {
-		return [ 'error' => "could not narrow the create path to product #{$local_id} (another exportable product still has no mockv mapping, or #{$local_id} still has its placeholder mapping)" ];
+		return [ 'error' => "could not narrow the create path to product #{$local_id} (another exportable product still has no mockv mapping, #{$local_id} still has its placeholder mapping, or #{$local_id} is not an exportable product)" ];
 	}
 
 	$seed = get_option( 'cbjp_verify_seed', [] );

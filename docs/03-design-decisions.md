@@ -70,7 +70,7 @@ interface PlatformAdapter {
     public function fetchCoupons( Cursor $cursor ): Page;    // Page<CanonicalCoupon>
     public function fetchReviews( Cursor $cursor ): Page;    // Page<CanonicalReview>（makeshopのみ）
 
-    // ID指定取得（送信の結果が不明な実体の確定〔push intent の解除。D21-B〕が使う。API対応可否は要検証#14/#15）
+    // ID指定取得（送信の結果が不明な実体の確定〔push intent の解除。D21-B〕が使う。API対応可否は要検証#15）
     // ~~public function fetchLatestOrders( int $limit ): array;~~                    // R3-6a で削除（D27。無料版のサンプル選定〔D15〕専用だった）
     public function fetchProductByRemoteId( string $remoteId ): ?CanonicalProduct;   // 404はnull
     public function fetchCustomerByRemoteId( string $remoteId ): ?CanonicalCustomer; // base: UnsupportedOperationException（D12）
@@ -790,7 +790,7 @@ R3-6 の後に Pro の公開準備（試用・ライセンス・更新配信・P
 - **残したもの**（汎用。Pro の試用が使いうる）: `MappingRepository::count()`・`find_page()`・`delete_for_platform()`、`PushIntentRepository::count()`・`delete_for_platform()`、totals の `unchanged`
   （`skipped` のうち既に移行済みで書かなかった件数。画面では今は使っていない）、`WarningCode::indicates_kept_by_link_direction()`、`ProductReader::EXPORTABLE_*`、
   `PlatformLock::TTL_LONG`（3600 秒。根拠を残る区間で書き直し、値は変えない）。
-- **旧版が残すデータ**: option `cbjp_sample_{platform}`・`cbjp_export_sample_{platform}` と、県コード修復が書いた監査用のメタ `_cbjp_state_repaired`（顧客の user meta と受注の order meta）は消さない（害が無く、アンインストールで `cbjp_%` の option は消える。メタはアンインストールでも残る既存の扱いと同じ）。
+- **旧版が残すデータ**: option `cbjp_sample_{platform}`・`cbjp_export_sample_{platform}` と、県コード修復が書いた監査用のメタ `_cbjp_state_repaired`（顧客の user meta と受注の order meta）は消さない（害が無く、データを消す設定〔`cbjp_delete_data_on_uninstall`。UI は R3-5〕でアンインストールすれば `cbjp_%` の option は消える。メタはアンインストールでも残る既存の扱いと同じ）。
 - **画面の文言**: Import タブの「Preview (dry run, no limit)」→「Preview (dry run)」、実行の確認と Export タブの警告から「up to the current plan's limits」を外した。検証レポートの案内から無料版の上限とサンプルのクリーンアップに触れる文を外した。
 - **readme**: 「Free version limits」の節と FAQ「What does the free version migrate?」を外し、Tools の箇条・dry run の「no limit」・スクリーンショット 5 のキャプションを直した。
   `ReadmeTest` は上限の照合をやめ、上限の節・「(up to N)」「limited to N」が readme に戻ったら落ちるようにした。スクリーンショット 2・4・5 を撮り直した（文言・Tools タブが変わったため）。
