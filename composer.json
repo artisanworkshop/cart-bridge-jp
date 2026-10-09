@@ -20,18 +20,31 @@
     },
     "scripts": {
         "post-install-cmd": [
-            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress"
+            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress",
+            "@composer install --working-dir=plugins/cart-bridge-jp-pro --no-interaction --no-progress"
         ],
         "post-update-cmd": [
-            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress"
+            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress",
+            "@composer install --working-dir=plugins/cart-bridge-jp-pro --no-interaction --no-progress"
         ],
-        "lint": "phpcs",
-        "lint:fix": "phpcbf",
-        "analyze": "phpstan analyse --memory-limit=2G",
+        "lint": [
+            "phpcs",
+            "phpcs --runtime-set text_domain cart-bridge-jp-pro plugins/cart-bridge-jp-pro"
+        ],
+        "lint:fix": [
+            "phpcbf",
+            "phpcbf --runtime-set text_domain cart-bridge-jp-pro plugins/cart-bridge-jp-pro"
+        ],
+        "analyze": [
+            "phpstan analyse --memory-limit=2G",
+            "phpstan analyse -c phpstan-pro.neon.dist --memory-limit=2G"
+        ],
         "test:wpenv": [
-            "@test:wpenv:free"
+            "@test:wpenv:free",
+            "@test:wpenv:pro"
         ],
-        "test:wpenv:free": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/cart-bridge-jp -- php ../../cbjp-dev/vendor/bin/phpunit -c phpunit.xml.dist"
+        "test:wpenv:free": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/cart-bridge-jp -- php ../../cbjp-dev/vendor/bin/phpunit -c phpunit.xml.dist",
+        "test:wpenv:pro": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/cart-bridge-jp-pro -- php ../../cbjp-dev/vendor/bin/phpunit -c phpunit.xml.dist"
     },
     "config": {
         "allow-plugins": {

@@ -69,7 +69,8 @@ jobs:
       - name: Check that the repository root is not served
         run: bin/check-dev-mount.sh
 
-      # 無料版（WooCommerce と無料版だけを読み込む）のテスト。プラグインのマウントを cwd にして、ルートの PHPUnit で実行する。
+      # 無料版（WooCommerce と無料版だけを読み込む。Pro に依存していないことの確認を兼ねる）と Pro（WooCommerce → 無料版 → Pro）のテスト。
+      # それぞれプラグインのマウントを cwd にして、ルートの PHPUnit で実行する（D29・R3-7）。
       - name: Run PHPUnit
         run: composer test:wpenv
 

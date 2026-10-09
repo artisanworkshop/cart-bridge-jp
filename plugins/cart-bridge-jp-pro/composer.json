@@ -1,0 +1,25 @@
+{
+    "name": "artisanworkshop/cart-bridge-jp-pro",
+    "description": "Pro add-on for Cart Bridge JP – Migrate for WooCommerce.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "CartBridgeJP\\Pro\\": "includes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CartBridgeJP\\Pro\\Tests\\": "tests/unit/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.2.999"
+        },
+        "sort-packages": true
+    }
+}
