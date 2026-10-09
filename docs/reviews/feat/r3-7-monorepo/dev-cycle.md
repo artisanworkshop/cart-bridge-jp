@@ -2,10 +2,10 @@
 - タスク: R3-7 モノレポ化（D29）— 無料版を `plugins/cart-bridge-jp/`、Pro アドオンの骨組みを `plugins/cart-bridge-jp-pro/` に置き、開発ツールをルートへ（動作は変えない）
 - 開始: 2026-10-09
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
-- Copilot: 未依頼
-- Codex: 未依頼
+- PR: #113 https://github.com/artisanworkshop/cart-bridge-jp/pull/113
+- 現在のステップ: 7（G1 記録済み。G2 で Codex に再依頼）
+- Copilot: 依頼 1 回 / 収束（G1 で新規指摘なし。🟢 Approval recommended）
+- Codex: 依頼 1 回 / 未収束（G1 で新規 1 件・保留）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -21,3 +21,5 @@
 | 2026-10-09 20:24 | 3 | review-loop R1: 自己レビュー＋独立サブエージェント。Medium 4 件を修正（`3bedeee`・`7b5784a`）、Low 4 件を backlog へ |
 | 2026-10-09 20:29 | 3 | review-loop R2: R1 の 4 件すべて解消・新規 Critical/High なしで APPROVE。新規の Low 3 件を修正（`63a174a`） |
 | 2026-10-09 20:29 | 4 | 初回 push・PR 作成 |
+| 2026-10-09 11:33 | 5 | CI green（run 37924133075。新しい Distribution ジョブ・`check-dev-mount.sh` を含む全ジョブ） |
+| 2026-10-09 20:44 | 7 | G1: Copilot 収束（🟢・指摘なし）、Codex 新規 1 件（Pro の通知の翻訳）を保留（計画で Pro の公開準備に回した範囲）。記録 `G1.md` |

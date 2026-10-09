@@ -230,3 +230,4 @@
 | 2026-10-09 | r3-7-monorepo/R1-L2 | Low | bin/build-zip.sh（`--version`） | release.yml がタグから渡す版をプラグインヘッダーの Version と照合しない。食い違うと名前と中身の版が違う zip ができる（旧 release.yml からある欠け）。R3-4 の版上げの前に照合を足すか判断する | 未起票 |
 | 2026-10-09 | r3-7-monorepo/R1-L3 | Low | composer.json（`lint:fix`） | phpcbf は修正すると終了コード 1 を返すので、無料版に修正があると Pro の phpcbf が走らない | 未起票 |
 | 2026-10-09 | r3-7-monorepo/R1-L4 | Low | plugins/cart-bridge-jp-pro/cart-bridge-jp-pro.php（ヘッダー） | `Update URI:` が無い。wordpress.org の外で配る Pro は、同じスラッグのプラグインが wordpress.org に出ると更新として上書きされうる。Pro の公開準備で足す | 未起票 |
+| 2026-10-09 | r3-7-monorepo/G1-1 | Medium（保留。計画どおり） | plugins/cart-bridge-jp-pro/cart-bridge-jp-pro.php（通知） | Codex（P2）: Pro の通知が `load_plugin_textdomain()` も `cart-bridge-jp-pro` の翻訳も無く、日本語の管理者にも英語で出る。Pro の公開準備で `languages/`・POT/PO/MO と訳の読み込みを足す（wordpress.org の言語パックの対象外なので同梱する） | 未起票 |
