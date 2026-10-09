@@ -56,3 +56,17 @@ export function mergeSkipped( into: string[], value: unknown ): string[] {
 
 	return merged;
 }
+
+/**
+ * 再構築を始めるときの「飛ばした種類」の一覧。続きから再開する（`cursor` がある）ときは、前の実行で集めた分を引き継ぐ: サーバーは
+ * `skipped` をバッチごとにしか返さないので、捨てると上限やエラーで止まる前のバッチの走査の失敗が、再開後の警告から消える
+ * （PR #116 G2-B1）。最初から始めるときだけ空にする。
+ * @param cursor   再開する位置（最初からなら null）
+ * @param previous これまでに集めた一覧
+ */
+export function skippedAtStart(
+	cursor: string | null,
+	previous: string[]
+): string[] {
+	return null === cursor ? [] : previous;
+}

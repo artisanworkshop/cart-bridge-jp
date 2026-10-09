@@ -15,7 +15,12 @@ import ActiveRunNotice from '../components/ActiveRunNotice';
 import { entityLabel } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { joinList } from '../i18n';
-import { type Counts, mergeCounts, mergeSkipped } from '../rebuild-result';
+import {
+	type Counts,
+	mergeCounts,
+	mergeSkipped,
+	skippedAtStart,
+} from '../rebuild-result';
 import type { Connection, RebuildResult } from '../types';
 
 /**
@@ -162,7 +167,7 @@ export default function ToolsTab() {
 		const selection = activeRuns.selectionRef.current;
 		const generation = platformGenerationRef.current;
 		let counts: Counts = {};
-		let skipped: string[] = [];
+		let skipped: string[] = skippedAtStart( rebuildCursor, rebuildSkipped );
 		let cursor: string | null = rebuildCursor;
 
 		setRebuilding( true );

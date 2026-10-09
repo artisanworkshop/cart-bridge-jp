@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mergeCounts, mergeSkipped } from '../rebuild-result';
+import { mergeCounts, mergeSkipped, skippedAtStart } from '../rebuild-result';
 
 describe( 'mergeCounts', () => {
 	it( 'adds batches and keeps the order the server sent the keys in', () => {
@@ -64,5 +64,18 @@ describe( 'mergeSkipped', () => {
 		expect( mergeSkipped( [], [ 3, '', null, 'tag' ] ) ).toEqual( [
 			'tag',
 		] );
+	} );
+} );
+
+describe( 'skippedAtStart', () => {
+	it( 'keeps the skipped kinds when resuming from a cursor', () => {
+		// 上限・エラーで止まった再構築を続きから再開しても、前のバッチの走査の失敗を警告から消さない（PR #116 G2-B1）。
+		expect( skippedAtStart( 'cursor-1', [ 'gizmo' ] ) ).toEqual( [
+			'gizmo',
+		] );
+	} );
+
+	it( 'starts empty for a new rebuild', () => {
+		expect( skippedAtStart( null, [ 'gizmo' ] ) ).toEqual( [] );
 	} );
 } );
