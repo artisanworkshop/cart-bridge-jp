@@ -629,7 +629,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 ```php
 /**
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
- * Description: Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce.
+ * Description: Migrate products, customers, and orders between Color Me Shop and WooCommerce.
  * Version: 0.1.0
  * Requires at least: 6.9
  * Requires PHP: 8.2
@@ -644,7 +644,14 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
  */
 ```
 
-- **Description の v1.0 化（D18）**: 上記ヘッダーと `composer.json` の Description は3ASPを併記しているが、v1.0 公開時（R3-3）に「Color Me Shop」のみへ改め、BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する
+- **Description の v1.0 化（D18）**: ヘッダーと `composer.json` の Description は、以前は3ASPを併記していたが、R3-3（2026-10-09）で「Color Me Shop」のみへ改めた。BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する（readme も同じ。`ReadmeTest` が「Description と readme に MakeShop・BASE が無い」ことを確かめるので、追記する PR でテストも改める）。ヘッダーの Description は POT に入るので、変えたら日本語訳も更新する
+- **`readme.txt`（R3-3）**: wordpress.org 用の英語の readme（日本語は承認後に translate.wordpress.org）。ヘッダーの `Stable tag` はプラグインヘッダーの Version・`CBJP_VERSION` と一致させ（`ReadmeTest`）、1.0.0 への引き上げは R3-4 で一括する。`Contributors` は仮の値で、R3-4 の申請前に wordpress.org のユーザー名へ差し替える。
+  Pro 版には触れない（§10.3 R3-0h の「購入 URL が無い間は Pro に触れない」と同じ。無料版の上限は事実として書く）。BASE・MakeShop の対応予定も載せない（2026-10-09 ユーザー決定）。
+  FAQ の「エクスポートが止まる警告」は、止める警告（48 種）のうち dry-run の CSV に出て出会いやすいものだけを（送信時にだけ出る `product_price_not_convertible` などは dry-run が `push_*()` を呼ばないので CSV に出ず、載せない）、`WarningCatalog::describe( code, EXPORT )` の原因・対処をそのまま載せる（`ReadmeTest` が箇条書きの全行がカタログと文字どおり一致することと、載せたコードが `blocking` であることを確かめる。カタログの文言を変えたら同じ PR で readme も直す）。無料版の上限の数字は `LimitPolicy` の既定値と照合する。
+  Requirements の「店舗オーナーのアカウントで認可する（副管理者のアカウントは認可できない）」は、2026-09-08 に副管理者で認可を試みて Color Me Shop に拒否された事実による（docs の要検証には未記載だった）。
+  サンプルのクリーンアップは取込みのサンプル用で、エクスポートの後に使うと紐づけとエクスポートのサンプルが消え、次のエクスポートで Color Me Shop に重複を作る（§10.2「E2-2 PR-A」の既知の制限。ツール側の対処は backlog `r3-3-readme-v1/R1-X1`）ので、readme にそう書いた。
+  External services 節（ガイドライン）に Color Me Shop API（`api.shop-pro.jp`）へ送る・読むデータと規約の URL を書いた（2026-10-09 に確認: API 利用規約 `https://api.shop-pro.jp/developers/tos`、サービス利用規約 `https://shop-pro.jp/terms/colorme-terms/`、GMO ペパボのプライバシーポリシー `https://pepabo.com/company/privacy/`。`ReadmeTest` は接続先のホストが節に書かれていることを確かめる）。
+  スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、R3-4 で SVN の `assets/` へ置く）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - アンインストール: `uninstall.php`。オプション `cbjp_delete_data_on_uninstall`（デフォルトfalse）が true の場合のみテーブル・オプション削除

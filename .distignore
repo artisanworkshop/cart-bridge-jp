@@ -35,6 +35,9 @@ AGENTS.md
 colorme.env
 colorme.sample.env
 
+# WordPress.org directory assets (screenshots, banners, icons) go to the SVN assets/ directory, not the plugin zip
+.wordpress-org/
+
 # Git
 .git/
 .gitignore

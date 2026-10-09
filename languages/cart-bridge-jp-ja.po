@@ -18,21 +18,16 @@ msgstr ""
 msgid "Cart Bridge JP – Migrate for WooCommerce"
 msgstr "Cart Bridge JP – Migrate for WooCommerce"
 
-#. Description of the plugin
-#: cart-bridge-jp.php
-msgid "Migrate products, customers, and orders between Japanese e-commerce platforms (Color Me Shop, MakeShop, BASE) and WooCommerce."
-msgstr "日本のネットショップのサービス（カラーミーショップ、MakeShop、BASE）と WooCommerce の間で、商品・顧客・注文を移行します。"
-
 #. Author of the plugin
 #: cart-bridge-jp.php
 msgid "Artisan Workshop"
 msgstr "Artisan Workshop"
 
-#: cart-bridge-jp.php:74
+#: cart-bridge-jp.php:83
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr "Cart Bridge JP を使うには、WooCommerce をインストールして有効化してください。"
 
-#: cart-bridge-jp.php:87
+#: cart-bridge-jp.php:96
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
@@ -251,7 +246,7 @@ msgstr "このプラットフォームではすでに実行が進行中です。
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
 
-#: includes/Core/Plugin.php:138
+#: includes/Core/Plugin.php:136
 msgid "Cart Bridge JP requires the PHP sodium extension to store API credentials securely. Please contact your hosting provider."
 msgstr "Cart Bridge JP が API の認証情報を安全に保存するには、PHP の sodium 拡張が必要です。ホスティング会社にお問い合わせください。"
 
@@ -2465,3 +2460,8 @@ msgstr "「スキップ」の記録は変更していません。WooCommerce の
 #: includes/Admin/RestController.php:1033
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
+
+#. Description of the plugin
+#: cart-bridge-jp.php
+msgid "Migrate products, customers, and orders between Color Me Shop and WooCommerce."
+msgstr "カラーミーショップと WooCommerce の間で、商品・顧客・注文を移行します。"
