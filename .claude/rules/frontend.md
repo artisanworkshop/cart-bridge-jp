@@ -1,7 +1,7 @@
 ---
 paths:
-  - "src/**"
-  - "includes/Admin/Assets.php"
+  - "plugins/*/src/**"
+  - "plugins/*/includes/Admin/Assets.php"
 ---
 
 # フロントエンド（React/TypeScript）・管理画面の規約

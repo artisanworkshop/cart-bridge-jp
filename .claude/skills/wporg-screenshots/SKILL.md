@@ -1,7 +1,7 @@
 ---
 name: wporg-screenshots
 description: >
-  wordpress.org の readme に載せるスクリーンショット（`.wordpress-org/screenshot-N.png`）を、wp-env の tests サイトで撮り直す手順。
+  wordpress.org の readme に載せるスクリーンショット（`plugins/cart-bridge-jp/.wordpress-org/screenshot-N.png`）を、wp-env の tests サイトで撮り直す手順。
   Color Me Shop API への通信を一時 mu-plugin で匿名化済みフィクスチャへ向け、偽のトークンで接続した状態・マッピング・dry-run の結果を
   用意して、Playwright（ヘッドレスの Chrome）で管理画面の各タブを撮り、最後に撮影の run・偽のトークン・mu-plugin・ログイン Cookie を必ず片付ける。
   「スクリーンショットを撮り直して」「readme の画像を更新して」「管理画面の見た目が変わったので wordpress.org の画像を直して」などと
@@ -11,7 +11,7 @@ description: >
 # /wporg-screenshots — wordpress.org 用スクリーンショットの撮影
 
 R3-3（PR #111）で readme のスクリーンショット 5 枚を撮った手順をスクリプトにしたもの。**実店舗・テストショップには接続せず、dev サイト（10010）にも触れない**。
-画面はすべて tests サイト（10011）と `tests/fixtures/colorme/` の匿名化済みデータから作る。
+画面はすべて tests サイト（10011）と `plugins/cart-bridge-jp/tests/fixtures/colorme/` の匿名化済みデータから作る。
 
 ## いつ使うか / 使わないか
 
@@ -35,12 +35,12 @@ R3-3（PR #111）で readme のスクリーンショット 5 枚を撮った手�
 2. **目視で確かめる**（Read で各画像を開く）: キャプションどおりの画面か／エラーの通知が無いか／英語の UI か／
    写っている名前がフィクスチャのものか（`Example Store`・`localhost:10011`・フィクスチャの日本語の決済・配送・カテゴリ名。実店舗の名前・ドメイン・件数が無いこと）／
    マッピングの組み合わせが自然か（代引き → Cash on delivery など）。
-3. **本番**: `$S/scripts/capture.sh shoot`（`.wordpress-org/` を上書きする）。
-4. `git diff --stat .wordpress-org/` で変わった画像を見る。描画は決定的で、画面が変わっていなければバイト単位で同じ画像になる。
+3. **本番**: `$S/scripts/capture.sh shoot`（`plugins/cart-bridge-jp/.wordpress-org/` を上書きする）。
+4. `git diff --stat plugins/cart-bridge-jp/.wordpress-org/` で変わった画像を見る。描画は決定的で、画面が変わっていなければバイト単位で同じ画像になる。
    変えていない画面に差分が出たら、WooCommerce のメニューのバッジ（`Payments 1` など、WooCommerce 側の状態で出たり消えたりする）の揺れのことが多い。
-   中身が同じなら `git checkout -- .wordpress-org/screenshot-N.png` で戻し、意図した画面の差分だけをコミットする。
+   中身が同じなら `git checkout -- plugins/cart-bridge-jp/.wordpress-org/screenshot-N.png` で戻し、意図した画面の差分だけをコミットする。
 5. `ReadmeTest`（キャプションと画像の連番の一致）を走らせる:
-   `npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist --filter ReadmeTest"`
+   `composer test:wpenv:free -- --filter ReadmeTest`
 
 `capture.sh` は終わるとき（失敗・Ctrl-C を含む）に、mu-plugin（API のモック）がまだある間に `php/teardown.php` で撮影の run と偽のトークンを片付けてから、
 mu-plugin とログイン Cookie を消す。モックを先に消すと、残った run のアクションや偽のトークンで管理画面・WP-Cron が動いたとき実 API に通信が出うるため。
@@ -70,7 +70,7 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
 - Import タブの `uncheck` は、チェックの状態を `dry_run_entities` と同じにするためのもの（結果の節とチェックが食い違う画像になる。R3-3 の R1-L12）。
   R3-6 で顧客・受注・クーポンが Pro へ移ったら、`dry_run_entities` と `uncheck` を無料版の画面に合わせて変える。
 - 撮影向けの差し替え（フィクスチャの値を変える）は mu-plugin のテンプレートに足す。mu-plugin は致命的エラーを出さない書き方にする（`.claude/rules/skill-scripts.md`）。
-- 新しい API を呼ぶ画面を撮るなら、そのレスポンスのフィクスチャ（匿名化済み。`tests/fixtures/README.md`）が要る。無いと mu-plugin がエラーを返し、画面にエラーの通知が出て撮影が止まる。
+- 新しい API を呼ぶ画面を撮るなら、そのレスポンスのフィクスチャ（匿名化済み。`plugins/cart-bridge-jp/tests/fixtures/README.md`）が要る。無いと mu-plugin がエラーを返し、画面にエラーの通知が出て撮影が止まる。
 
 ## してはいけないこと
 

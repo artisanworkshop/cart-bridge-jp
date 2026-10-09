@@ -1,12 +1,12 @@
 ---
 paths:
-  - "includes/Adapters/**"
-  - "includes/Canonical/**"
-  - "includes/Woo/Support/AddressMapper.php"
-  - "tests/unit/Adapters/**"
-  - "tests/unit/Canonical/**"
-  - "tests/unit/Woo/Support/AddressMapperTest.php"
-  - "tests/fixtures/**"
+  - "plugins/*/includes/Adapters/**"
+  - "plugins/*/includes/Canonical/**"
+  - "plugins/*/includes/Woo/Support/AddressMapper.php"
+  - "plugins/*/tests/unit/Adapters/**"
+  - "plugins/*/tests/unit/Canonical/**"
+  - "plugins/*/tests/unit/Woo/Support/AddressMapperTest.php"
+  - "plugins/*/tests/fixtures/**"
 ---
 
 # アダプタ・カラーミー固有の落とし穴

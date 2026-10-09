@@ -1,13 +1,13 @@
 ---
 paths:
-  - "includes/Sync/**"
-  - "includes/Woo/Tools/**"
-  - "includes/Woo/Export/**"
-  - "includes/Woo/Reader/**"
-  - "includes/Woo/WarningCode.php"
-  - "tests/unit/Sync/**"
-  - "tests/unit/Woo/Tools/**"
-  - "tests/unit/Woo/Reader/**"
+  - "plugins/*/includes/Sync/**"
+  - "plugins/*/includes/Woo/Tools/**"
+  - "plugins/*/includes/Woo/Export/**"
+  - "plugins/*/includes/Woo/Reader/**"
+  - "plugins/*/includes/Woo/WarningCode.php"
+  - "plugins/*/tests/unit/Sync/**"
+  - "plugins/*/tests/unit/Woo/Tools/**"
+  - "plugins/*/tests/unit/Woo/Reader/**"
 ---
 
 # Sync・Export・Tools・mappings の設計上の罠

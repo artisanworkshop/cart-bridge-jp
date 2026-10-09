@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wordpress.org 用スクリーンショットを wp-env の tests サイトで撮る。詳細は ../SKILL.md。
 # 使い方（リポジトリルートから）:
-#   capture.sh shoot [--out DIR]   撮影する（既定の出力先は .wordpress-org/。終わると撮影の run・偽のトークン・mu-plugin・Cookie を片付ける）
+#   capture.sh shoot [--out DIR]   撮影する（既定の出力先は plugins/cart-bridge-jp/.wordpress-org/。終わると撮影の run・偽のトークン・mu-plugin・Cookie を片付ける）
 #   capture.sh status              撮影用 mu-plugin の有無と tests サイトの URL を表示する
 #   capture.sh cleanup             撮影の run と偽のトークンを片付けてから、このスキルが置いた mu-plugin を消す（強制終了した後など）
 # wp-env は `npx wp-env`（グローバルの wp-env は使わない）。dev サイト（10010）には触れない。
@@ -13,13 +13,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$HERE/.." && pwd)"
 TEMPLATE="$SKILL_DIR/templates/mu-plugin-screenshot-fixtures.php"
 SHOTS="$SKILL_DIR/shots.json"
-# コンテナの中では --env-cwd（プラグインのディレクトリ）からの相対パスで読む。
+# コンテナの中では --env-cwd（リポジトリのルートをマウントした wp-content/cbjp-dev）からの相対パスで読む。
 SETUP_PHP=".claude/skills/wporg-screenshots/php/setup.php"
 TEARDOWN_PHP=".claude/skills/wporg-screenshots/php/teardown.php"
 
 die() { echo "capture: $*" >&2; exit 1; }
 
-[ -f cart-bridge-jp.php ] && [ -f .wp-env.json ] || die "run this from the repository root"
+# 無料版のディレクトリ（D29）。readme とスクリーンショット（SVN の assets/ へ置くもの）はここにある。
+PLUGIN_DIR="plugins/cart-bridge-jp"
+
+[ -f "$PLUGIN_DIR/cart-bridge-jp.php" ] && [ -f .wp-env.json ] || die "run this from the repository root"
 
 # `wp-env install-path` はこのリポジトリのインスタンスの場所（~/.wp-env/<hash>）を返す（mock-adapter.sh と同じ）。
 # 取得できない・tests サイトのディレクトリが無いときは必ず失敗する（空のまま連結するとホストのルート直下を指す）。
@@ -45,7 +48,7 @@ tests_url() {
 # tests-cli の WP-CLI。失敗（未起動・PHP の致命的エラー）は握りつぶさず、出力を見せてから同じ終了コードで返す。
 twp() {
   local out rc
-  if out=$(npx wp-env run tests-cli --env-cwd=wp-content/plugins/cart-bridge-jp wp "$@" 2>&1 </dev/null); then rc=0; else rc=$?; fi
+  if out=$(npx wp-env run tests-cli --env-cwd=wp-content/cbjp-dev wp "$@" 2>&1 </dev/null); then rc=0; else rc=$?; fi
   printf '%s\n' "$out" | grep -v '^ℹ\|^✔\|^$' || true
   return "$rc"
 }
@@ -74,7 +77,7 @@ teardown_and_remove() {
 }
 
 readme_captions() {
-  awk '/^== Screenshots ==/ { f = 1; next } /^== / { f = 0 } f && /^[0-9]+\. / { print }' readme.txt
+  awk '/^== Screenshots ==/ { f = 1; next } /^== / { f = 0 } f && /^[0-9]+\. / { print }' "$PLUGIN_DIR/readme.txt"
 }
 
 cmd=${1:-}
@@ -96,7 +99,7 @@ case "$cmd" in
 
   shoot)
     shift
-    out=".wordpress-org"
+    out="$PLUGIN_DIR/.wordpress-org"
     while [ $# -gt 0 ]; do
       case "$1" in
         --out) [ $# -ge 2 ] || die "--out needs a directory"; out=$2; shift 2 ;;

@@ -32,8 +32,8 @@ description: >
    実 platform（例: `colorme`）の行が既にある場合、その platform の mock 登録は「追加のみ・撤去は自分の投入分だけ」で行う。
 2. **mock アダプタを登録する**: `$S/scripts/mock-adapter.sh install <platform-key>`
    （例: `colorme`。県コード修復のように `AddressMapper` が `colorme` だけを解釈するツールは、そのキーで登録する必要がある）。
-   `templates/mu-plugin-mock-adapter.php` を wp-env の `mu-plugins/` へ置く。mock は `tests/unit/Fixtures/MockPlatformAdapter`
-   （composer の autoload-dev。`composer install` 済みなら dev サイトから使える）で、オプション `cbjp_verify_seed` から
+   `templates/mu-plugin-mock-adapter.php` を wp-env の `mu-plugins/` へ置く。mock は `plugins/cart-bridge-jp/tests/unit/Fixtures/MockPlatformAdapter`
+   （無料版の composer の autoload-dev。ルートで `composer install` すれば無料版の autoload も作られ、dev サイトから使える）で、オプション `cbjp_verify_seed` から
    顧客・受注を組み立てる。このオプションは **PHP 配列を `update_option()` で保存する**（JSON 文字列ではない。mu-plugin は
    `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
    `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null }`）は mock の `push_*()` を有効にし（既定は全て
@@ -75,7 +75,7 @@ description: >
 
 ## 落とし穴（PR #80 の Export タブ UI 検証で実際に踏んだもの）
 
-- **`mock-adapter.sh run` に渡す PHP はリポジトリ内に置く**（`wp eval-file` はコンテナ内で実行されるため、`/tmp` やスクラッチパッドはコンテナから見えない）。コミット前に削除する。
+- **`mock-adapter.sh run` に渡す PHP はリポジトリ内に置き、リポジトリのルートからの相対パスで渡す**（`wp eval-file` はコンテナ内の `wp-content/cbjp-dev`〔ルートのマウント〕で実行されるため、`/tmp` やスクラッチパッドはコンテナから見えない）。コミット前に削除する。
 - **`AdapterRegistry::all()` は静的キャッシュ**。同一 PHP プロセス内で `cbjp_verify_seed` を書き換えて再検証するなら、書き換えの直後に `CartBridgeJP\Adapters\AdapterRegistry::reset_cache()` を呼ぶ（呼ばないと最初に組み立てた mock がそのまま使われ、seed の変更が効かない）。
 - **`cbjp_process_job`（Action Scheduler）は CLI では自走しない**。`start_run` の後、検証スクリプト内で pending を処理する（`as_get_scheduled_actions( [ 'hook' => 'cbjp_process_job', 'status' => 'pending' ] )` → `do_action_ref_array( $action->get_hook(), $action->get_args() )` → `ActionScheduler_Store::instance()->mark_complete()`）。
 - **mock のキー（例 `mockv`）は既定では `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。タブに出すには、検証スクリプトで偽のトークンを保存して connected にする: `( new CartBridgeJP\Support\TokenStore( 'mockv' ) )->save( [ 'access_token' => 'verify-<作業名>' ] )`（実 `colorme` を汚さない。R3-0h）。撤去時は値を確かめてから `cbjp_token_mockv` を消す（`push-intent-resolution/cleanup.php` はトークンが残っていると拒否する）。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。

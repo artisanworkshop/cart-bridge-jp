@@ -62,7 +62,7 @@ description: >
   （毎セッション効くハマりどころのみ。手順ものは書かない。**領域固有の落とし穴は該当する `.claude/rules/*.md`**
   〔`adapters-colorme` / `woocommerce-api` / `sync-export-tools` / `frontend`〕へ、どの領域にも効く汎用規約とアーキテクチャ原則だけ
   CLAUDE.md へ。CLAUDE.md を再び肥大化させない）。
-- 実機確認は wp-env の dev サイトに対して `npx wp-env run cli wp eval-file <repo内の一時PHP>` で REST を
+- 実機確認は wp-env の dev サイトに対して `npx wp-env run cli --env-cwd=wp-content/cbjp-dev wp eval-file <repo のルートからの一時PHPのパス>` で REST を
   `rest_do_request()` から通す。ライブの OAuth 接続なしで Tools/Import/Export の REST・UI を確認する手順
   （mock アダプタの mu-plugin・修正前データの再現・検証・完全撤去）は **`verify-with-mock-adapter` スキル**に
   まとめてある。一時ファイルはコミット前に削除する。
