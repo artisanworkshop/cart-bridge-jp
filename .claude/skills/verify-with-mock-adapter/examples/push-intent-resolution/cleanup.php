@@ -44,7 +44,7 @@ $deleted['logs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix
 // phpcs:enable
 
 // `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push` キーだけを外す。
-// `cbjp_verify_ids` はあちらだけが書く（この example は書かない）ので触らない。
+// `cbjp_verify_ids` はこの example が書かない（seed を投入する example が書く）ので触らない。
 $seed = get_option( 'cbjp_verify_seed', null );
 
 if ( is_array( $seed ) ) {

@@ -16,6 +16,7 @@
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
+use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\WarningCode;
 
@@ -65,36 +66,51 @@ $mapping = static function ( int $local_id ) use ( $wpdb, $platform ): ?array {
 
 // 作成経路を通る商品を `$local_id` の 1 件に絞る: export できる（`ProductReader` が読む）ほかの商品のうち、まだ mockv の mapping が無いものを
 // `ZZV-OTHER-{id}` の remote_id で結ぶ（更新経路に回る。mock の更新は失敗しない）。前の手順でこの例が `$local_id` 自身に置いた仮の mapping は外す
-// （残すと `$local_id` が更新経路に回り、作成の後で止まる経路を通らない）。
-$pin_create_to = static function ( int $local_id ) use ( $platform ): void {
+// （残すと `$local_id` が更新経路に回り、作成の後で止まる経路を通らない）。結び終えたら数え直し、ほかの商品がすべて mapping を持ち、
+// `$local_id` に仮の mapping が無いことを確かめる（書込みが効かないまま進むと、別の商品も作成経路に入って固定の remote_id の検査が意味を
+// 失う。G3-B3 と同じ理由）。`$local_id` が前の手順で作成済み（本物の mapping がある）なら、それは更新経路に回ってよい（手順 2）。
+$pin_create_to = static function ( int $local_id ) use ( $platform ): bool {
 	$mappings = new MappingRepository();
 
 	if ( "ZZV-OTHER-{$local_id}" === $mappings->find_remote_id( $platform, 'product', $local_id ) ) {
 		$mappings->delete_one( $platform, 'product', "ZZV-OTHER-{$local_id}" );
 	}
 
-	$ids = wc_get_products(
-		[
-			'status' => [ 'publish', 'private', 'draft' ],
-			'type'   => [ 'simple', 'variable' ],
-			'limit'  => -1,
-			'return' => 'ids',
-		]
+	$ids = array_map(
+		'intval',
+		wc_get_products(
+			[
+				'status' => ProductReader::EXPORTABLE_STATUSES,
+				'type'   => ProductReader::EXPORTABLE_TYPES,
+				'limit'  => -1,
+				'return' => 'ids',
+			]
+		)
 	);
 
 	foreach ( $ids as $id ) {
-		$id = (int) $id;
-
 		if ( $id !== $local_id && null === $mappings->find_remote_id( $platform, 'product', $id ) ) {
 			$mappings->upsert( $platform, 'product', "ZZV-OTHER-{$id}", $id, null );
 		}
 	}
+
+	foreach ( $ids as $id ) {
+		$remote_id = $mappings->find_remote_id( $platform, 'product', $id );
+
+		if ( $id === $local_id ? "ZZV-OTHER-{$local_id}" === $remote_id : null === $remote_id ) {
+			return false;
+		}
+	}
+
+	return in_array( $local_id, $ids, true );
 };
 
 // 作成経路を 1 商品に絞り、push の seed を差し替えて product の実 export を 1 回走らせる。この run のジョブだけを処理する
 // （paused からの再開予定のアクションも、時刻を待たずに処理する）。job の totals と status、paused のログの有無を返す。
 $run_export = static function ( int $local_id, ?string $create_failure ) use ( $call, $platform, $wpdb, $pin_create_to ): array {
-	$pin_create_to( $local_id );
+	if ( ! $pin_create_to( $local_id ) ) {
+		return [ 'error' => "could not narrow the create path to product #{$local_id} (another exportable product still has no mockv mapping, or #{$local_id} still has its placeholder mapping)" ];
+	}
 
 	$seed = get_option( 'cbjp_verify_seed', [] );
 	$seed = is_array( $seed ) ? $seed : [];
