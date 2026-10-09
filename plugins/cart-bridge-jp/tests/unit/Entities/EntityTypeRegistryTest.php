@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Entities;
 
+use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Entities\Commerce\CommerceEntityTypes;
 use CartBridgeJP\Entities\Core\ProductType;
 use CartBridgeJP\Entities\EntityType;
@@ -249,5 +250,182 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		$this->assertSame( 'Orders', $labels['order'] );
 		$this->assertSame( 'Variations', $labels['variant'] );
 		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review', 'variant' ], array_keys( $labels ) );
+	}
+
+	public function test_push_intents_are_recorded_for_the_types_that_create_on_push(): void {
+		$records = [];
+
+		foreach ( EntityTypeRegistry::all() as $key => $type ) {
+			$records[ $key ] = $type->records_push_intent();
+		}
+
+		// 旧 `Exporter::PUSH_INTENT_ENTITIES`（作成と更新を `?string $remote_id` で分ける送信を持つ種類）と同じ。
+		$this->assertSame(
+			[
+				'category' => false,
+				'tag'      => false,
+				'product'  => true,
+				'customer' => true,
+				'order'    => true,
+				'stock'    => false,
+				'coupon'   => true,
+				'review'   => false,
+			],
+			$records
+		);
+	}
+
+	public function test_order_export_is_beta_only_when_the_adapter_declares_it(): void {
+		$beta    = new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, [ Capabilities::BETA_ORDER_EXPORT ] ) );
+		$regular = new MockPlatformAdapter();
+
+		$this->assertTrue( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'order' ), $beta ) );
+		$this->assertFalse( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'order' ), $regular ) );
+		$this->assertFalse( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'product' ), $beta ) );
+	}
+
+	public function test_a_beta_check_that_throws_counts_as_beta(): void {
+		$type = new class() extends EntityType {
+
+			public function key(): string {
+				return 'shaky';
+			}
+
+			public function label(): string {
+				return 'Shaky';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function is_export_beta( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				throw new \RuntimeException( 'beta' );
+			}
+		};
+
+		$this->assertTrue( EntityTypeRegistry::is_export_beta( $type, new MockPlatformAdapter() ) );
+	}
+
+	public function test_flags_are_not_cached_while_plugins_are_loading(): void {
+		global $wp_current_filter;
+		EntityTypeRegistry::reset_cache();
+
+		$wp_current_filter[] = 'plugins_loaded'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- `doing_action()` を再現する。
+		$this->assertSame( [], EntityTypeRegistry::warning_flags( 'gizmo_blocked' ) );
+		$this->register_without_reset( new GizmoType() );
+		$flags = EntityTypeRegistry::warning_flags( 'gizmo_blocked' );
+		array_pop( $wp_current_filter );
+
+		$this->assertSame( [ WarningFlag::EXPORT_BLOCKING => true ], $flags );
+	}
+
+	public function test_free_link_sources_and_mapping_kinds_cannot_be_taken_over(): void {
+		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
+		$hijack = new class() extends EntityType {
+
+			public function key(): string {
+				return 'hijack';
+			}
+
+			public function label(): string {
+				return 'Hijack';
+			}
+
+			public function position(): int {
+				return 5;
+			}
+
+			public function link_sources(): array {
+				return [
+					new \CartBridgeJP\Woo\Tools\Link\TermLinkSource( 'category', 5, 'Hijack', 'post_tag' ),
+					new \CartBridgeJP\Woo\Tools\Link\TermLinkSource( 'abcdefghijklmnopqrstuvwxyz', 6, 'Too long', 'post_tag' ),
+				];
+			}
+
+			public function mapping_kinds(): array {
+				return [
+					new \CartBridgeJP\Tests\Fixtures\Gizmo\GizmoMappingKind(),
+					new class() extends MappingKind {
+
+						public function key(): string {
+							return 'category';
+						}
+
+						public function position(): int {
+							return 20;
+						}
+
+						public function source_side(): string {
+							return self::SOURCE_ASP;
+						}
+
+						public function woo_candidates(): array {
+							return [];
+						}
+					},
+				];
+			}
+		};
+		$this->register_entity_types( [ $hijack ] );
+
+		$sources = [];
+
+		foreach ( EntityTypeRegistry::link_sources() as $source ) {
+			$sources[ $source->key() ] = $source->label();
+		}
+
+		$this->assertSame( 'Categories', $sources['category'] );
+		$this->assertArrayNotHasKey( 'abcdefghijklmnopqrstuvwxyz', $sources );
+		$this->assertSame( [ 'category', 'tag', 'product', 'variant', 'coupon', 'customer', 'order' ], array_keys( $sources ) );
+
+		$kinds = EntityTypeRegistry::mapping_kinds();
+		$this->assertSame( [ 'gizmo', 'category', 'payment', 'shipping', 'status' ], array_map( static fn ( MappingKind $kind ): string => $kind->key(), $kinds ) );
+		$this->assertSame( MappingKind::SOURCE_WOO, $kinds[1]->source_side(), '無料版のカテゴリのマッピングが残る' );
+	}
+
+	public function test_a_registration_callback_may_read_the_registry(): void {
+		add_filter(
+			EntityTypeRegistry::FILTER,
+			static function ( array $types ): array {
+				// Pro が二重登録を避けるために一覧を引いても、再帰で落ちない（組み立て中は無料版の種類だけが見える）。
+				if ( ! EntityTypeRegistry::has( 'gizmo' ) ) {
+					$types[] = new GizmoType();
+				}
+
+				return $types;
+			},
+			30
+		);
+		EntityTypeRegistry::reset_cache();
+
+		$this->assertTrue( EntityTypeRegistry::has( 'gizmo' ) );
+	}
+
+	public function test_an_unknown_severity_from_a_type_is_reported_as_unknown(): void {
+		$type = new class() extends EntityType {
+
+			public function key(): string {
+				return 'odd';
+			}
+
+			public function label(): string {
+				return 'Odd';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function describe_warning( string $code, bool $import, string $row_entity ): ?\CartBridgeJP\Entities\WarningText {
+				return 'odd_code' === $code ? new \CartBridgeJP\Entities\WarningText( 'fine', 'Looks fine.' ) : null;
+			}
+		};
+		$this->register_entity_types( [ $type ] );
+
+		$description = \CartBridgeJP\Woo\WarningCatalog::describe( 'odd_code', \CartBridgeJP\Woo\WarningCatalog::IMPORT, 'odd' );
+
+		$this->assertSame( \CartBridgeJP\Woo\WarningCatalog::SEVERITY_UNKNOWN, $description['severity'] );
+		$this->assertSame( 'Looks fine.', $description['message'] );
 	}
 }

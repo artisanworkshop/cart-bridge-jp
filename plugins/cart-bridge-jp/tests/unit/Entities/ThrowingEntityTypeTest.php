@@ -15,8 +15,10 @@ use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\VerificationReport;
+use CartBridgeJP\Tests\Fixtures\DelegatingPlatformAdapter;
 use CartBridgeJP\Tests\Fixtures\Gizmo\ThrowingEntityType;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
@@ -241,5 +243,70 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
 
 		$this->assertSame( 'boom', EntityTypeRegistry::labels()['boom'] );
+	}
+
+	public function test_a_failing_writer_is_logged(): void {
+		( new WooRepositoryFactory() )->for_platform( 'mock' );
+
+		$this->assertContains( 'Entity type failed to build its Woo writer.', array_column( ( new LogRepository() )->list( null, 'error' ), 'message' ) );
+	}
+
+	public function test_a_failing_beta_check_is_reported_as_beta(): void {
+		$shaky = new class() extends \CartBridgeJP\Entities\EntityType {
+
+			public function key(): string {
+				return 'shaky';
+			}
+
+			public function label(): string {
+				return 'Shaky';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function supports_export( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				return true;
+			}
+
+			public function is_export_beta( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				throw new \RuntimeException( 'beta' );
+			}
+		};
+		$this->register_entity_types( [ $shaky ] );
+
+		global $wp_rest_server;
+		$wp_rest_server = new WP_REST_Server(); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
+		do_action( 'rest_api_init', $wp_rest_server );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$connections    = $wp_rest_server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+		$wp_rest_server = null; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
+		$mock           = array_values( array_filter( $connections, static fn ( array $item ): bool => 'mock' === $item['platform'] ) )[0];
+		$shaky_option   = array_values( array_filter( $mock['entities']['export'], static fn ( array $option ): bool => 'shaky' === $option['key'] ) );
+
+		$this->assertSame( [ true ], array_column( $shaky_option, 'beta' ) );
+	}
+
+	/**
+	 * アダプタの能力の読み取りが失敗したら、以前と同じく run を始めない（要求した種類が黙って外れた run にしない）。
+	 */
+	public function test_a_failing_adapter_capability_check_stops_the_run(): void {
+		remove_all_filters( 'cbjp/adapters/register' );
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ): array {
+				$adapters['mock'] = new DelegatingPlatformAdapter( new MockPlatformAdapter(), new \RuntimeException( 'capabilities failed' ) );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'capabilities failed' );
+
+		JobManager::create()->start_run( JobManager::TYPE_IMPORT, 'mock', [ 'category', 'customer' ] );
 	}
 }

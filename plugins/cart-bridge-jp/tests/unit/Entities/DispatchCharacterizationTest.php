@@ -304,18 +304,29 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 		}
 	}
 
-	public function test_platform_writer_rejects_a_model_of_another_type(): void {
-		$writer = new AdapterPlatformWriter( new MockPlatformAdapter( push_products_supported: true, push_others_supported: true ) );
-		$item   = new CanonicalCategory( 'c1', 'Category', null, null );
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function pushable_entities(): array {
+		return [
+			'product'  => [ 'product' ],
+			'customer' => [ 'customer' ],
+			'order'    => [ 'order' ],
+			'stock'    => [ 'stock' ],
+			'coupon'   => [ 'coupon' ],
+		];
+	}
 
-		foreach ( [ 'product', 'customer', 'order', 'stock', 'coupon' ] as $entity ) {
-			try {
-				$writer->write( $entity, $item, null );
-				$this->fail( "{$entity}: 例外が出ませんでした。" );
-			} catch ( RuntimeException $exception ) {
-				$this->assertSame( "AdapterPlatformWriter received an unsupported Canonical model for \"{$entity}\".", $exception->getMessage() );
-			}
-		}
+	/**
+	 * @dataProvider pushable_entities
+	 */
+	public function test_platform_writer_rejects_a_model_of_another_type( string $entity ): void {
+		$writer = new AdapterPlatformWriter( new MockPlatformAdapter( push_products_supported: true, push_others_supported: true ) );
+
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( "AdapterPlatformWriter received an unsupported Canonical model for \"{$entity}\"." );
+
+		$writer->write( $entity, new CanonicalCategory( 'c1', 'Category', null, null ), null );
 	}
 
 	public function test_woo_writer_skips_entities_without_a_writer(): void {
@@ -334,17 +345,26 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 		}
 	}
 
-	public function test_woo_reader_rejects_entities_without_a_reader(): void {
-		$reader = ( new WooReaderRepositoryFactory() )->for_platform( 'mock' );
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function entities_without_a_reader(): array {
+		return [
+			'category' => [ 'category' ],
+			'tag'      => [ 'tag' ],
+			'review'   => [ 'review' ],
+			'widget'   => [ 'widget' ],
+		];
+	}
 
-		foreach ( [ 'category', 'tag', 'review', 'widget' ] as $entity ) {
-			try {
-				$reader->read( $entity, new Cursor() );
-				$this->fail( "{$entity}: 例外が出ませんでした。" );
-			} catch ( RuntimeException $exception ) {
-				$this->assertSame( "No Woo reader registered for entity \"{$entity}\".", $exception->getMessage() );
-			}
-		}
+	/**
+	 * @dataProvider entities_without_a_reader
+	 */
+	public function test_woo_reader_rejects_entities_without_a_reader( string $entity ): void {
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( "No Woo reader registered for entity \"{$entity}\"." );
+
+		( new WooReaderRepositoryFactory() )->for_platform( 'mock' )->read( $entity, new Cursor() );
 	}
 
 	public function test_importer_rejects_an_unknown_entity(): void {

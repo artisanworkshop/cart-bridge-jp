@@ -15,6 +15,7 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\VerificationReport;
@@ -266,6 +267,7 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 			$connection['entities']['export']
 		);
 		$this->assertSame( [ 'product', 'customer', 'gizmo', 'order', 'stock', 'coupon' ], array_column( $connection['entities']['export'], 'key' ) );
+		$this->assertSame( [ false, false, true, false, false, false ], array_column( $connection['entities']['export'], 'beta' ) );
 	}
 
 	public function test_mapping_kinds_are_listed_and_unregistered_maps_survive_a_save(): void {
@@ -358,5 +360,25 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'A gizmo part is not imported yet.', $output );
 		$this->assertSame( [ 'en_US' ], array_values( array_unique( $seen ) ) );
+	}
+
+	/**
+	 * 外部の種類の `remote_amount()`・`dry_run_label()` が例外を投げても、ページを止めず 0・空として扱い、原因を記録する。
+	 */
+	public function test_a_type_failing_on_an_item_does_not_stop_the_page(): void {
+		$this->gizmo->remote          = [ new CanonicalGizmo( 'g1', 'Alpha', 10 ), new CanonicalGizmo( 'g2', 'Beta', 20 ) ];
+		$this->gizmo->explode_on_item = true;
+
+		$run_id = $this->run_entities( JobManager::TYPE_DRY_RUN, [ 'gizmo' ] );
+		$job    = ( new JobRepository() )->find_by_run( $run_id )[0];
+		$totals = json_decode( (string) $job['totals_json'], true );
+		$rows   = ( new DryRunReportCsv( new DryRunItemRepository() ) )->rows( $run_id, 'gizmo', false, WarningCatalog::IMPORT );
+		$errors = array_column( ( new LogRepository() )->list( (int) $job['id'], 'error' ), 'message' );
+
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
+		$this->assertSame( 2, $totals['processed'] );
+		$this->assertSame( 0, $totals['remote_amount'] );
+		$this->assertSame( [ '', '' ], array_column( $rows, 2 ) );
+		$this->assertContains( 'Entity type failed to report the amount of a gizmo item.', $errors );
 	}
 }

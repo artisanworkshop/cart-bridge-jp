@@ -51,6 +51,11 @@ final class GizmoType extends EntityType {
 	 */
 	public ?Throwable $create_failure = null;
 
+	/**
+	 * 真にすると `remote_amount()`・`dry_run_label()` が例外を投げる（取込みのページが 1 件の異常で止まらないことの確認用）。
+	 */
+	public bool $explode_on_item = false;
+
 	private int $next_remote_id = 900;
 
 	public function key(): string {
@@ -150,6 +155,10 @@ final class GizmoType extends EntityType {
 	}
 
 	public function remote_amount( CanonicalModel $item ): ?int {
+		if ( $this->explode_on_item ) {
+			throw new RuntimeException( 'amount' );
+		}
+
 		return $item instanceof CanonicalGizmo ? $item->amount * 100 : null;
 	}
 
@@ -167,6 +176,10 @@ final class GizmoType extends EntityType {
 	}
 
 	public function dry_run_label( CanonicalModel $item ): string {
+		if ( $this->explode_on_item ) {
+			throw new RuntimeException( 'label' );
+		}
+
 		return $item instanceof CanonicalGizmo ? $item->name : '';
 	}
 
