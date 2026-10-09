@@ -11,11 +11,14 @@
  * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。Woo のカテゴリ `Apparel`・
  *    `Accessories` を作って Color Me Shop の先頭 2 つに、決済は名前（代引き → cod、振込 → bacs）で、配送は先頭どうし、
  *    受注の状態は同じ ID どうしを対応させる。
- * 5. dry-run を始め、Action Scheduler のジョブをここで処理し、すべてのジョブが完了したことを確かめる。
+ * 5. 開いたままの `colorme` の run（前回の撮影が途中で止まったもの）をキャンセルしてから dry-run を始め、Action Scheduler の
+ *    ジョブをここで処理し（規約は `.claude/rules/skill-scripts.md`）、すべてのジョブが完了したことを確かめる。途中で止まるときは
+ *    自分の run をキャンセルしてから終わる（開いた run が残ると、次の撮影と、同じ DB を使う PHPUnit の一部が 409 になる）。
  * 6. 最後に `RUN_ID=<run_id>` と `COOKIES=<JSON>`（ユーザー 1 のログイン Cookie。1 時間で切れる）を出力する。
  *
- * 何度実行してもよい（カテゴリは名前で再利用し、マッピングは丸ごと置き換え、dry-run は毎回新しく始める）。tests サイトの DB は
- * 次の PHPUnit の起動で作り直される。
+ * 何度実行してもよい（カテゴリは名前で再利用し、マッピングは丸ごと置き換え、dry-run は毎回新しく始める）。
+ * PHPUnit は tests サイトと同じ DB・同じ接頭辞を使い、起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけ。
+ * プラグインと WooCommerce の独自テーブル（ジョブ・dry-run の明細・ログ・Action Scheduler・配送ゾーン）の行は残る。
  *
  * @package CartBridgeJP
  */
@@ -25,7 +28,30 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 
-$cbjp_shot_fail = static function ( string $message ): void {
+global $wpdb;
+
+$cbjp_shot_rest = static function ( string $method, string $route, array $params = [] ): array {
+	$request = new WP_REST_Request( $method, $route );
+	if ( 'GET' === $method ) {
+		$request->set_query_params( $params );
+	} else {
+		$request->set_body_params( $params );
+	}
+	$response = rest_do_request( $request );
+
+	return [
+		'status' => $response->get_status(),
+		'data'   => $response->get_data(),
+	];
+};
+
+// 自分の run を始めた後に止まるときは、その run をキャンセルしてから終わる。
+$cbjp_shot_run_id = null;
+$cbjp_shot_fail   = static function ( string $message ) use ( &$cbjp_shot_run_id, $cbjp_shot_rest ): void {
+	if ( is_string( $cbjp_shot_run_id ) ) {
+		$cancel   = $cbjp_shot_rest( 'POST', "/cbjp/v1/runs/{$cbjp_shot_run_id}/cancel" );
+		$message .= " The dry run {$cbjp_shot_run_id} was cancelled (HTTP {$cancel['status']}).";
+	}
 	fwrite( STDERR, "setup: {$message}\n" );
 	exit( 1 );
 };
@@ -50,20 +76,19 @@ if ( ! user_can( 1, 'manage_woocommerce' ) ) {
 }
 wp_set_current_user( 1 );
 
-$cbjp_shot_rest = static function ( string $method, string $route, array $params = [] ): array {
-	$request = new WP_REST_Request( $method, $route );
-	if ( 'GET' === $method ) {
-		$request->set_query_params( $params );
-	} else {
-		$request->set_body_params( $params );
+// 前回の撮影が途中で止まって開いたままの run を閉じる（tests サイトだけ。上のガードを通った後）。
+$cbjp_shot_active = $cbjp_shot_rest( 'GET', '/cbjp/v1/runs', [ 'platform' => 'colorme' ] );
+if ( 200 !== $cbjp_shot_active['status'] || ! is_array( $cbjp_shot_active['data']['runs'] ?? null ) ) {
+	$cbjp_shot_fail( 'GET /runs returned HTTP ' . $cbjp_shot_active['status'] . ': ' . wp_json_encode( $cbjp_shot_active['data'] ) );
+}
+foreach ( $cbjp_shot_active['data']['runs'] as $cbjp_shot_open_run ) {
+	$cbjp_shot_open_id = is_array( $cbjp_shot_open_run ) && is_string( $cbjp_shot_open_run['run_id'] ?? null ) ? $cbjp_shot_open_run['run_id'] : '';
+	$cbjp_shot_cancel  = '' === $cbjp_shot_open_id ? null : $cbjp_shot_rest( 'POST', "/cbjp/v1/runs/{$cbjp_shot_open_id}/cancel" );
+	if ( null === $cbjp_shot_cancel || 200 !== $cbjp_shot_cancel['status'] ) {
+		$cbjp_shot_fail( 'could not cancel the open run ' . wp_json_encode( $cbjp_shot_open_run ) . '.' );
 	}
-	$response = rest_do_request( $request );
-
-	return [
-		'status' => $response->get_status(),
-		'data'   => $response->get_data(),
-	];
-};
+	echo "cancelled the open run {$cbjp_shot_open_id}\n";
+}
 
 // 2. サイトを撮影向けにする。
 update_option( 'blogname', 'Example Store' );
@@ -187,31 +212,95 @@ if ( ! is_string( $cbjp_shot_run_id ) || '' === $cbjp_shot_run_id ) {
 	$cbjp_shot_fail( 'POST /runs returned HTTP ' . $cbjp_shot_started['status'] . ': ' . wp_json_encode( $cbjp_shot_started['data'] ) );
 }
 
-$cbjp_shot_store  = ActionScheduler::store();
-$cbjp_shot_runner = ActionScheduler::runner();
-for ( $cbjp_shot_round = 0; $cbjp_shot_round < 200; $cbjp_shot_round++ ) {
-	$cbjp_shot_claim   = $cbjp_shot_store->stake_claim( 20, null, [ JobManager::ACTION_HOOK ] );
-	$cbjp_shot_actions = $cbjp_shot_claim->get_actions();
-	foreach ( $cbjp_shot_actions as $cbjp_shot_action_id ) {
+$cbjp_shot_jobs_of_run = static function () use ( &$cbjp_shot_run_id, $cbjp_shot_rest, $cbjp_shot_fail ): array {
+	$result = $cbjp_shot_rest( 'GET', "/cbjp/v1/runs/{$cbjp_shot_run_id}" );
+	if ( 200 !== $result['status'] || ! is_array( $result['data']['jobs'] ?? null ) ) {
+		$cbjp_shot_fail( 'GET /runs/{id} returned HTTP ' . $result['status'] . ': ' . wp_json_encode( $result['data'] ) );
+	}
+	return array_values( array_filter( $result['data']['jobs'], 'is_array' ) );
+};
+$cbjp_shot_job_ids = array_map( static fn( array $job ): int => (int) ( $job['id'] ?? 0 ), $cbjp_shot_jobs_of_run() );
+
+// claim はフック名だけで取り、引数の job_id で自分の run のアクションか見分ける（rehearse-colorme の run.php と同じ）。
+// 他の run のアクションは、ジョブが閉じている（完了・失敗・キャンセル）か存在しなければ処理して片付け、開いていれば手放す。
+// 処理できるアクションが無いのにジョブが開いているときは、paused からの再開待ち（予定時刻が先）なので待つ。
+$cbjp_shot_store    = ActionScheduler::store();
+$cbjp_shot_runner   = ActionScheduler::runner();
+$cbjp_shot_deadline = time() + 5 * MINUTE_IN_SECONDS;
+$cbjp_shot_orphaned = 0;
+while ( true ) {
+	$cbjp_shot_open = array_filter( $cbjp_shot_jobs_of_run(), static fn( array $job ): bool => in_array( $job['status'] ?? null, [ 'pending', 'running', 'paused' ], true ) );
+	if ( [] === $cbjp_shot_open ) {
+		break;
+	}
+	if ( time() > $cbjp_shot_deadline ) {
+		$cbjp_shot_fail( 'the dry run did not finish within 5 minutes.' );
+	}
+
+	$cbjp_shot_claim     = $cbjp_shot_store->stake_claim( 20, null, [ JobManager::ACTION_HOOK ] );
+	$cbjp_shot_processed = 0;
+	foreach ( $cbjp_shot_claim->get_actions() as $cbjp_shot_action_id ) {
+		$cbjp_shot_action = $cbjp_shot_store->fetch_action( (string) $cbjp_shot_action_id );
+		$cbjp_shot_args   = $cbjp_shot_action->get_args();
+		$cbjp_shot_job_id = is_array( $cbjp_shot_args ) ? (int) ( $cbjp_shot_args['job_id'] ?? 0 ) : 0;
+
+		if ( ! in_array( $cbjp_shot_job_id, $cbjp_shot_job_ids, true ) ) {
+			// `get_var()` は空文字の値でも null を返し「行が無い」と区別できないので、`get_row()` で行の有無を見る（CLAUDE.md）。
+			$cbjp_shot_other = $wpdb->get_row( $wpdb->prepare( "SELECT status FROM {$wpdb->prefix}cbjp_jobs WHERE id = %d", $cbjp_shot_job_id ), ARRAY_A );
+			if ( null === $cbjp_shot_other || in_array( $cbjp_shot_other['status'] ?? null, [ 'completed', 'failed', 'cancelled' ], true ) ) {
+				$cbjp_shot_runner->process_action( (int) $cbjp_shot_action_id, 'CBJP screenshots (stale)' );
+			} else {
+				$cbjp_shot_store->unclaim_action( (string) $cbjp_shot_action_id );
+			}
+			continue;
+		}
+
 		$cbjp_shot_runner->process_action( (int) $cbjp_shot_action_id, 'CBJP screenshots' );
+		++$cbjp_shot_processed;
 	}
 	$cbjp_shot_store->release_claim( $cbjp_shot_claim );
-	if ( [] === $cbjp_shot_actions ) {
-		break;
+
+	if ( 0 === $cbjp_shot_processed ) {
+		// 自分のジョブのアクションが 1 つも無い（pending も実行中も無い）のにジョブが開いているなら、待っても進まない。
+		$cbjp_shot_live = 0;
+		foreach ( $cbjp_shot_job_ids as $cbjp_shot_job_id ) {
+			foreach ( [ ActionScheduler_Store::STATUS_PENDING, ActionScheduler_Store::STATUS_RUNNING ] as $cbjp_shot_status ) {
+				$cbjp_shot_live += count(
+					as_get_scheduled_actions(
+						[
+							'hook'     => JobManager::ACTION_HOOK,
+							'args'     => [ 'job_id' => $cbjp_shot_job_id ],
+							'status'   => $cbjp_shot_status,
+							'per_page' => 1,
+						],
+						'ids'
+					)
+				);
+			}
+		}
+		$cbjp_shot_orphaned = 0 === $cbjp_shot_live ? $cbjp_shot_orphaned + 1 : 0;
+		if ( $cbjp_shot_orphaned >= 3 ) {
+			$cbjp_shot_fail( 'the dry run has open jobs but no pending or running action, so it cannot progress.' );
+		}
+		sleep( 5 );
 	}
 }
 
-$cbjp_shot_run  = $cbjp_shot_rest( 'GET', "/cbjp/v1/runs/{$cbjp_shot_run_id}" );
-$cbjp_shot_jobs = is_array( $cbjp_shot_run['data']['jobs'] ?? null ) ? $cbjp_shot_run['data']['jobs'] : [];
-$cbjp_shot_open = [];
+$cbjp_shot_jobs     = $cbjp_shot_jobs_of_run();
+$cbjp_shot_not_done = [];
 foreach ( $cbjp_shot_jobs as $cbjp_shot_job ) {
 	echo ( $cbjp_shot_job['entity'] ?? '?' ) . ' ' . ( $cbjp_shot_job['status'] ?? '?' ) . ' ' . wp_json_encode( $cbjp_shot_job['totals'] ?? null ) . "\n";
 	if ( 'completed' !== ( $cbjp_shot_job['status'] ?? null ) ) {
-		$cbjp_shot_open[] = $cbjp_shot_job['entity'] ?? '?';
+		$cbjp_shot_not_done[] = ( $cbjp_shot_job['entity'] ?? '?' ) . '=' . ( $cbjp_shot_job['status'] ?? '?' );
 	}
 }
-if ( count( $cbjp_shot_jobs ) !== count( $cbjp_shot_entities ) || [] !== $cbjp_shot_open ) {
-	$cbjp_shot_fail( 'the dry run did not complete for every entity (not completed: ' . implode( ', ', $cbjp_shot_open ) . ').' );
+$cbjp_shot_job_entities = array_map( static fn( array $job ): string => (string) ( $job['entity'] ?? '' ), $cbjp_shot_jobs );
+$cbjp_shot_missing      = array_diff( $cbjp_shot_entities, $cbjp_shot_job_entities );
+if ( [] !== $cbjp_shot_missing ) {
+	$cbjp_shot_fail( 'no job was created for: ' . implode( ', ', $cbjp_shot_missing ) . ' (requested: ' . implode( ', ', $cbjp_shot_entities ) . '). Check dry_run_entities in shots.json.' );
+}
+if ( [] !== $cbjp_shot_not_done ) {
+	$cbjp_shot_fail( 'the dry run did not complete for every entity: ' . implode( ', ', $cbjp_shot_not_done ) . '.' );
 }
 
 // 6. 撮影に使う値を出す。

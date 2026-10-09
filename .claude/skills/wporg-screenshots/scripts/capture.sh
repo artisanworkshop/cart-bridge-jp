@@ -50,11 +50,13 @@ twp() {
 }
 
 # このスキルが置いたファイルだけを消す。目印の無いファイルは消さずに失敗する。
+# `remove_mu … || …` の形で呼ばれると関数の中では set -e が効かないので、失敗はすべて明示的に返す。
 remove_mu() {
   local dest=$1
   [ -e "$dest" ] || return 0
   grep -q "$MARKER" "$dest" || { echo "not removing $dest (not managed by this skill)" >&2; return 1; }
-  rm "$dest"
+  rm "$dest" || return 1
+  [ ! -e "$dest" ] || { echo "could not remove $dest" >&2; return 1; }
   echo "removed $dest"
 }
 
@@ -121,11 +123,12 @@ case "$cmd" in
 
     # 途中で止まっても mu-plugin と Cookie を残さない。最後まで走ったことは DONE で確かめる
     # （set -e と EXIT トラップを併せ持つと、macOS の bash 3.2 は異常終了を 0 で返すことがある。.claude/rules/skill-scripts.md）。
+    # EXIT トラップの中でも set -e は効くので、どの片付けが失敗しても残りを続け、失敗は rc に残す。mu-plugin を先に消す。
     DONE=0
     finish() {
       local rc=$?
-      rm -rf "$TMP"
-      remove_mu "$dest" || rc=1
+      remove_mu "$dest" || { echo "capture: the mu-plugin may still be installed: $dest (run: $0 cleanup)" >&2; rc=1; }
+      rm -rf "$TMP" || rc=1
       if [ "$DONE" != 1 ] && [ "$rc" = 0 ]; then
         echo "capture: stopped before the end" >&2
         rc=1
@@ -150,7 +153,20 @@ case "$cmd" in
     [ -n "$run_id" ] || die "setup did not print RUN_ID"
     [ -s "$TMP/cookies.json" ] || die "setup did not print COOKIES"
 
-    node "$HERE/shoot.cjs" "$url" "$TMP/cookies.json" "$run_id" "$SHOTS" "$out"
+    # 一時ディレクトリに全部撮れてから出力先へ写す（途中で失敗したとき、新旧の画像が混ざらない）。
+    mkdir "$TMP/shots"
+    node "$HERE/shoot.cjs" "$url" "$TMP/cookies.json" "$run_id" "$SHOTS" "$TMP/shots"
+    cp "$TMP"/shots/screenshot-*.png "$out"/
+
+    # 枚数を減らしたときに残る、余った番号の画像を知らせる（消すかどうかは人が決める。ReadmeTest も連番の食い違いで落ちる）。
+    for f in "$out"/screenshot-*.png; do
+      num=${f##*/screenshot-}
+      num=${num%.png}
+      case "$num" in ''|*[!0-9]*) continue ;; esac
+      if [ "$((10#$num))" -gt "$shots_count" ]; then
+        echo "capture: WARNING: $f is beyond the $shots_count shots in shots.json (remove it if the readme no longer has that caption)" >&2
+      fi
+    done
 
     echo
     echo "screenshots in $out (check each against its readme caption):"

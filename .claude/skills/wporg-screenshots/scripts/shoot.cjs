@@ -77,15 +77,16 @@ if ( ! Array.isArray( shots ) || 0 === shots.length ) {
 				}
 			}
 
-			const errors = await page.locator( '.notice-error, .components-notice.is-error' ).allInnerTexts();
-			if ( errors.length > 0 ) {
-				throw new Error( `the ${ shot.tab } tab shows an error notice: ${ errors.join( ' | ' ).slice( 0, 300 ) }` );
-			}
-
 			// フォーカスの枠とホバーの表示を写さない。
 			await page.evaluate( () => document.activeElement && document.activeElement.blur() );
 			await page.mouse.move( VIEWPORT.width - 10, VIEWPORT.height - 10 );
 			await page.waitForTimeout( 800 );
+
+			// 撮る直前に確かめる（チェックを外した後の再描画で遅れて出た通知も拾う）。
+			const errors = await page.locator( '.notice-error, .components-notice.is-error' ).allInnerTexts();
+			if ( errors.length > 0 ) {
+				throw new Error( `the ${ shot.tab } tab shows an error notice: ${ errors.join( ' | ' ).slice( 0, 300 ) }` );
+			}
 			await page.screenshot( { path: file, fullPage: true } );
 			console.log( `shot ${ path.basename( file ) } (${ shot.tab })` );
 		}
