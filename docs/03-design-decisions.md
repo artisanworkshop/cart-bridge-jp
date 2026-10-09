@@ -820,17 +820,23 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
 - `EntityType`（abstract class。Pro が継承）: 抽象は `key()`・`label()`・`position()` だけ。ほかは既定実装つき（取込み〔`supports_import`・`fetch_page`・`writer`〕、
   エクスポート〔`supports_export`・`is_export_beta`・`reader`・`push`・`records_push_intent`〕、push intent〔`fetch_by_remote_id`・`describe_local`〕、
   D25〔`is_linked_by_export`〕、ツール・検証〔`link_sources`・`existing_local_ids`・`remote_amount`・`local_amount_summary`・`dry_run_label`〕、
-  警告〔`warning_flags`・`describe_warning`〕、マッピング〔`mapping_kinds`〕）。既定は以前の分岐の既定のアームと同じ結果（`push()` は `ENTITY_NOT_SUPPORTED` でスキップ、
-  `fetch_by_remote_id()` は `UnsupportedOperationException`〔push intent の解除は LINK_UNSUPPORTED〕、`existing_local_ids()` は null〔確かめられない〕）。
-  null・空配列など正常な結果と区別できない値を既定にしない（D20 と同じ）。
+  警告〔`warning_flags`・`describe_warning`〕、マッピング〔`mapping_kinds`〕）。既定は「その種類では扱わない」で、`push()` は以前の既定のアームと同じ
+  `ENTITY_NOT_SUPPORTED` のスキップ。`fetch_by_remote_id()` は `UnsupportedOperationException`（push intent の解除は LINK_UNSUPPORTED。以前は登録の無い種類が
+  REMOTE_NOT_FOUND で、LINK_UNSUPPORTED はクーポンだけだった。今も登録の無い種類は REMOTE_NOT_FOUND で、LINK_UNSUPPORTED になるのは上書きしない登録済みの種類
+  〔category・tag・stock・review。push intent を残さないので実害なし〕）。`existing_local_ids()` は null（確かめられない）。null・空配列など正常な結果と区別できない値を
+  既定にしない（D20 と同じ）。`LocalEntityLookup::existing_ids()` は種類の `existing_local_ids()` を呼ぶ形になり、種類でない `variant` には空を返す（呼び出し元なし）。
 - `EntityTypeRegistry`: 無料版の種類（category 10・tag 20・product 30・stock 60・review 80）＋ `cbjp/entity_types/register` の登録（顧客 40・受注 50・クーポン 70。
   **位置は公開の契約**。参照先を先に移すため）。フィルターの戻り値は検証する（原則 8）: `EntityType` でない要素・キーの形が違うもの〔DB の varchar(20) に入る
   `^[a-z][a-z0-9_]{0,19}$`〕・無料版のキーと `variant`〔商品の mapping が使う〕は外し、キーは配列のキーではなく `key()` で付け直す。重複は先勝ち。外したものは
   `_doing_it_wrong()`。`plugins_loaded` の途中に呼ばれた結果はキャッシュしない（Pro は優先度 20 で登録する）。登録した側は `reset_cache()` を呼ぶ。
-  `importable()`/`exportable()` は外部の種類が例外を投げても「非対応」に倒す（`JobManager::start_run()` と `GET /connections` が共用）。
+  `importable()`/`exportable()` は外部の種類が例外を投げても「非対応」に倒す（`JobManager::start_run()` と `GET /connections` が共用。アダプタの `capabilities()` の
+  失敗は、`start_run()` が絞り込みの前に読んで従来どおり run を始めない）。`is_export_beta()` の例外はベータ（既定で選ばない）に倒す。組み立て中に一覧を引かれたら
+  （登録のコールバックが `has()` を呼ぶ等）無料版の種類だけを返す。警告の印の索引も、一覧と同じく `plugins_loaded` の後だけ保持する。
+  LinkSource・MappingKind のキーは無料版の種類のものを先に確定し、外部の種類の同じキー・形の違うキー（LinkSource は種類のキーと同じ形）を外す。
 - `WooServices`: Writer/Reader のファクトリの 1 回の組み立て（1 ページ）で種類をまたいで共有する依存（`MediaImporter` のページ内の記憶などを保つ）。
 - `LinkSource`（abstract class）: リンク再構築が走査する Woo の実体。走査順は `position()`（category 10・tag 20・product 30・variant 40・coupon 50・customer 60・order 70）。
-  1 つの LinkSource の走査が例外・形の違う結果を返したら、記録してその種類を飛ばす。
+  1 つの LinkSource の走査が例外・形の違う結果を返したら、記録してその種類を飛ばす。取込み・エクスポートのページの中では、外部の種類の `remote_amount()`・
+  `dry_run_label()` の例外を握って 0・空にし（1 件の異常でページを止めない）、Writer/Reader の組み立ての例外は記録してその種類を外す。
 - `MappingKind`（abstract class）: `cbjp_settings_{platform}` の `{key}_map`。カテゴリは商品の種類、決済・配送・注文ステータスは受注の種類が持つ。
   ASP 側の候補は今は `PlatformAdapter::mapping_candidates()` を REST が 1 回だけ呼んで kind のキーで引く（kind が ASP の候補を持つ形は R3-6c で決める）。
 - `WarningText`・`WarningFlag`: 顧客・受注・クーポンの警告コードの判定の印（`export_blocking`・`unresolved_reference`・`mapping_required`・`pending_export`・
