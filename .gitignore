@@ -1,9 +1,11 @@
 # Dependencies
 /vendor/
 /node_modules/
+plugins/*/vendor/
 
 # Build output
 /build/
+plugins/*/build/
 
 # WordPress environment
 /.wp-env.override.json
