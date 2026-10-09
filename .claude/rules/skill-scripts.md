@@ -4,6 +4,7 @@ paths:
   - ".claude/skills/**/templates/**"
   - ".claude/skills/**/examples/**"
   - ".claude/skills/**/php/**"
+  - "bin/**"
 ---
 
 # `.claude/skills/` 配下のスクリプト・テンプレート・example の落とし穴

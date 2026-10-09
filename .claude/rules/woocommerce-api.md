@@ -1,7 +1,7 @@
 ---
 paths:
-  - "includes/Woo/**"
-  - "tests/unit/Woo/**"
+  - "plugins/*/includes/Woo/**"
+  - "plugins/*/tests/unit/Woo/**"
 ---
 
 # WooCommerce API の実測結果・落とし穴

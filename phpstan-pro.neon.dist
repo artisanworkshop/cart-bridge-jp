@@ -1,0 +1,16 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+# Pro アドオン（plugins/cart-bridge-jp-pro）の解析。無料版のクラスを使うので走査には含めるが、解析の対象は Pro だけ（D29）。
+# 無料版の phpstan.neon.dist は include しない（NEON の includes は paths の配列を連結するため）。
+parameters:
+    level: 6
+    treatPhpDocTypesAsCertain: false
+    paths:
+        - plugins/cart-bridge-jp-pro/includes
+        - plugins/cart-bridge-jp-pro/cart-bridge-jp-pro.php
+    scanDirectories:
+        - plugins/cart-bridge-jp/includes
+        - plugins/cart-bridge-jp-pro/includes
+    bootstrapFiles:
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php

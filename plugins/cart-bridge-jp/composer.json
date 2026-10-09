@@ -1,0 +1,27 @@
+{
+    "name": "artisanworkshop/cart-bridge-jp",
+    "description": "Migrate products, customers, and orders between Color Me Shop and WooCommerce.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.2",
+        "ext-json": "*",
+        "ext-sodium": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "CartBridgeJP\\": "includes/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CartBridgeJP\\Tests\\": "tests/unit/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.2.999"
+        },
+        "sort-packages": true
+    }
+}

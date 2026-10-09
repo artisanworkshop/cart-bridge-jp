@@ -201,13 +201,14 @@ function cbjp_rh_require_shop( array $opts ): array {
 }
 
 function cbjp_rh_out_dir(): string {
-	$dir = CBJP_PATH . '.rehearsal';
+	// リポジトリのルートの .rehearsal/（この PHP は <root>/.claude/skills/rehearse-colorme/php/）。プラグインのディレクトリ（CBJP_PATH）には書かない。
+	$dir = dirname( __DIR__, 4 ) . '/.rehearsal';
 
 	if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
 		cbjp_rh_abort( "could not create {$dir}" );
 	}
 
-	// 出力先はプラグインディレクトリの中で、Web から配信される（wp-env は 0.0.0.0 で待ち受けるので同じネットワークからも届く）。
+	// 出力先は wp-env のコンテナにマウントされ、Web から配信されうる（wp-env は 0.0.0.0 で待ち受けるので同じネットワークからも届く）。
 	// スナップショットは会員・受注を含むので、Apache（wp-env の WordPress コンテナ）に配信させない。`rehearse.sh` は PHP を動かす前に、
 	// 同じファイルを置いたうえで HTTP で読めないことを確かめる（G3-1）。ここでも書いておく（直接 eval-file した場合の備え）。
 	$files = [

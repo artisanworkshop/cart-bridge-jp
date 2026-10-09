@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cart Bridge JP の翻訳ファイル（languages/）を作る・検査する（R3-2）。WP-CLI は wp-env の cli コンテナで実行する。
+# Cart Bridge JP の翻訳ファイル（plugins/cart-bridge-jp/languages/）を作る・検査する（R3-2）。WP-CLI は wp-env の cli コンテナで実行する。
 #
 #   bin/i18n.sh pot      POT を作り直す（先に npm run build。npm run i18n:pot はビルドしてから呼ぶ）
 #   bin/i18n.sh po       日本語の PO を POT に合わせる（無ければヘッダだけの PO を作ってから合わせる）。足された文字列は訳が空になる
@@ -9,7 +9,10 @@
 # JS の文字列は src/*.tsx ではなく build/index.js から抜く（WP-CLI の make-pot は TypeScript を読まない）。参照が build/index.js になるので、
 # make-json の JSON 名（cart-bridge-jp-ja-<md5("build/index.js")>.json）が wp_set_script_translations() の探す名前と一致する。
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+# 無料版のディレクトリで作る（POT の参照パスが build/index.js・includes/… のままになり、JSON の名前も変わらない。D29 の配置）。
+# wp-env は呼び出したディレクトリから .wp-env.json を探すので、npx wp-env だけはリポジトリのルートから呼ぶ（wp_env）。
+ROOT="$(git rev-parse --show-toplevel)"
+cd "${ROOT}/plugins/cart-bridge-jp"
 mkdir -p languages
 
 DOMAIN=cart-bridge-jp
@@ -17,10 +20,16 @@ LOCALE=ja
 POT="languages/${DOMAIN}.pot"
 PO="languages/${DOMAIN}-${LOCALE}.po"
 # 抽出しないパス。src は build/index.js と二重になるうえ参照が JSON 名と食い違う。node_modules・vendor は make-pot が常に除外する。
-EXCLUDE='src,tests,docs,.claude,dist,.rehearsal,bin,languages'
+EXCLUDE='src,tests,languages'
+# 比較のスクリプト（リポジトリのルートの bin/）。wp-env はルートを wp-content/cbjp-dev にマウントする。
+CHECK_PHP='../../cbjp-dev/bin/i18n-check.php'
+
+wp_env() {
+	(cd "$ROOT" && npx wp-env "$@")
+}
 
 wpcli() {
-	npx wp-env run cli --env-cwd="wp-content/plugins/${DOMAIN}" -- wp "$@"
+	wp_env run cli --env-cwd="wp-content/plugins/${DOMAIN}" -- wp "$@"
 }
 
 require_build() {
@@ -37,7 +46,7 @@ make_pot() {
 	local dest="$1"
 	local after="${2:-}"
 
-	npx wp-env run cli --env-cwd="wp-content/plugins/${DOMAIN}" -- bash -c "
+	wp_env run cli --env-cwd="wp-content/plugins/${DOMAIN}" -- bash -c "
 		err=\$(mktemp)
 		trap 'rm -f \"\$err\"' EXIT
 		if ! wp i18n make-pot . '${dest}' --exclude='${EXCLUDE}' >/dev/null 2>\"\$err\"; then
@@ -109,7 +118,7 @@ cmd_check() {
 	fi
 
 	# 作り直した POT はリポジトリに書かず、コンテナの /tmp に置いて比べ終わったら消す（作業ツリーに一時ファイルを残さない）。
-	make_pot /tmp/cbjp-check.pot "rc=0; wp eval-file bin/i18n-check.php /tmp/cbjp-check.pot '${POT}' || rc=\$?; rm -f /tmp/cbjp-check.pot; exit \$rc"
+	make_pot /tmp/cbjp-check.pot "rc=0; wp eval-file '${CHECK_PHP}' /tmp/cbjp-check.pot '${POT}' || rc=\$?; rm -f /tmp/cbjp-check.pot; exit \$rc"
 }
 
 case "${1:-}" in

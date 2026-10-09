@@ -21,7 +21,7 @@ description: >
 
 | 項目 | 値 |
 |---|---|
-| 品質チェック | `.claude/skills/cbj-dev-cycle/scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv` → `npm run lint` → `npm run test:js` → `npm run i18n:check`〈ビルドしてから、ソースの文字列とコミット済みの POT が同じか確かめる〉） |
+| 品質チェック | `.claude/skills/cbj-dev-cycle/scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv`（無料版と Pro）→ `bin/check-dev-mount.sh`（ルートのマウントが HTTP で 403 か）→ `npm run lint` → `npm run test:js` → `npm run i18n:check`〈ビルドしてから、ソースの文字列とコミット済みの POT が同じか確かめる〉） |
 | ブランチ命名 | `feat/{タスクID小文字}-{短い説明}`（例: `feat/f1-7-tools-verification-report`）。バグ対応は `fix/{issue番号}-{短い説明}` |
 | 計画ドキュメント | `docs/10-tasks.md`（着手タスクはここから。隣接タスクのまとめ方は同ファイル「進め方」2 と memory の PR/branch grouping） |
 | 設計ドキュメント | `docs/03-design-decisions.md`（他と矛盾したらこちら優先）、`docs/00〜04`、`docs/20`（v2.0 検討事項） |
@@ -62,7 +62,7 @@ description: >
   （毎セッション効くハマりどころのみ。手順ものは書かない。**領域固有の落とし穴は該当する `.claude/rules/*.md`**
   〔`adapters-colorme` / `woocommerce-api` / `sync-export-tools` / `frontend`〕へ、どの領域にも効く汎用規約とアーキテクチャ原則だけ
   CLAUDE.md へ。CLAUDE.md を再び肥大化させない）。
-- 実機確認は wp-env の dev サイトに対して `npx wp-env run cli wp eval-file <repo内の一時PHP>` で REST を
+- 実機確認は wp-env の dev サイトに対して `npx wp-env run cli --env-cwd=wp-content/cbjp-dev wp eval-file <repo のルートからの一時PHPのパス>` で REST を
   `rest_do_request()` から通す。ライブの OAuth 接続なしで Tools/Import/Export の REST・UI を確認する手順
   （mock アダプタの mu-plugin・修正前データの再現・検証・完全撤去）は **`verify-with-mock-adapter` スキル**に
   まとめてある。一時ファイルはコミット前に削除する。

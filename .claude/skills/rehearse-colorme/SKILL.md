@@ -21,8 +21,8 @@ R3-4（公開）前の再確認や、v2.0 の BASE（B4-6）でも同じ考え�
   このガードは「接続先が指定した店舗か」を確かめるだけで、「テストショップか」は確かめない（`run type=export` は `acknowledge_production_write` を自動で付ける）。
 - 本番の店舗の login_id を渡さない。本番の店舗にはエクスポート（実 PUT/POST）しない。往復エクスポートは ColorMe の値を書き換える試験で、プラグインはリモートを削除できない。
 - 開発サイト（wp-env、`http://localhost:10010`）は `reset-local` で初期化する前提。`reset-local` は環境が `local` かつ host が `localhost` のときだけ動く。
-- 出力（スナップショット・dry-run の明細）は `.rehearsal/`（gitignore・distignore 済み）にだけ書く。ここはプラグインディレクトリの中で Web から配信され、wp-env は
-  `0.0.0.0` で待ち受けるので、`rehearse.sh` は Apache のアクセス拒否（`.htaccess`）を置き、HTTP で読めない（403/404）ことを確かめてから PHP を動かす（読めたら止まる）。**実店舗で使った場合、その値（商品・顧客・受注の ID、件数）を
+- 出力（スナップショット・dry-run の明細）はリポジトリのルートの `.rehearsal/`（gitignore 済み）にだけ書く。wp-env はルートを `wp-content/cbjp-dev` にマウントするので Web から配信されうるうえ、
+  `0.0.0.0` で待ち受けるので（ルートの `.htaccess` も拒否する。D29）、`rehearse.sh` は Apache のアクセス拒否（`.htaccess`）を置き、HTTP で読めない（403/404）ことを確かめてから PHP を動かす（読めたら止まる）。**実店舗で使った場合、その値（商品・顧客・受注の ID、件数）を
   docs・PR・コミットに書かない**（CLAUDE.md）。テストショップの値でも、記録には件数と変化の種類だけを書く。
 - 管理画面での入力（カテゴリ・グループ・クーポン・ストアフロントの注文、OAuth の接続）はユーザーが行う。
 

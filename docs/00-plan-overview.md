@@ -246,36 +246,43 @@ BASE/MakeShop を見込んで先行実装した基盤（TokenStoreのリフレ�
 
 ## 8. ディレクトリ構成
 
+R3-7（D29）で無料版と Pro アドオンを `plugins/` の下に分け、開発ツールをルートに置いた（詳細は `03-design-decisions.md` §10.6）。
+
 ```
-cart-bridge-jp/
-├── cart-bridge-jp.php          # メインファイル（ヘッダー、autoload、起動）
-├── CLAUDE.md
-├── docs/
-│   ├── 00-plan-overview.md
-│   ├── 01-plan-colorme.md
-│   ├── 02-plan-makeshop.md
-│   ├── 03-design-decisions.md
-│   ├── 04-plan-base.md
-│   └── 10-tasks.md
-├── includes/
-│   ├── Core/                   # Plugin, Activator, Uninstaller, Container
-│   ├── Adapters/
-│   │   ├── PlatformAdapter.php, Capabilities.php, Cursor.php, Page.php
-│   │   ├── ColorMe/            # ColorMeAdapter, ColorMeClient, OAuth, 変換クラス（v1.0）
-│   │   ├── Base/               # BaseAdapter, BaseClient, BaseOAuth, 変換クラス（v2.0で追加）
-│   │   └── MakeShop/           # MakeShopAdapter, GraphQLClient, 変換クラス（v3.0で追加）
-│   ├── Canonical/              # CanonicalProduct 等
-│   ├── Sync/                   # JobManager, Importer, Exporter, MappingRepository
-│   ├── Woo/                    # WooRepository（WC CRUDラッパー、画像sideload）
-│   ├── Admin/                  # Menu, RestController, Assets
-│   └── Support/                # HttpClient, RateLimiter, TokenStore, Logger
-├── src/                        # React/TS 管理画面アプリ
-├── languages/
-├── tests/
-│   ├── unit/
-│   ├── fixtures/               # 実APIレスポンスのサンプルJSON
-│   └── integration/            # 実API結合（環境変数でトークン注入時のみ）
-├── .wp-env.json
-├── composer.json / package.json / phpcs.xml.dist / phpstan.neon.dist
-└── readme.txt                  # wordpress.org用
+cart-bridge-jp/                     # リポジトリのルート = 開発ツール
+├── CLAUDE.md / AGENTS.md
+├── docs/                           # 00〜04・10・20、reviews/（PR ごとの記録）
+├── .claude/                        # rules/（落とし穴集）・skills/（cbj-dev-cycle ほか）
+├── .github/workflows/              # ci.yml（PHP・PHPUnit・JS・配布 zip の検査）・release.yml
+├── bin/                            # build-zip.sh・check-dev-mount.sh・i18n.sh
+├── .htaccess                       # Require all denied（wp-env がルートを wp-content/cbjp-dev にマウントするため）
+├── .wp-env.json                    # 2 つのプラグインと、ルートのマウント
+├── composer.json                   # 開発ツール（phpcs・phpstan・phpunit）。post-install で各プラグインの autoload を作る
+├── package.json / tsconfig.json    # 管理画面のビルド（plugins/cart-bridge-jp/src → build）
+├── phpcs.xml.dist / phpstan.neon.dist / phpstan-pro.neon.dist
+└── plugins/
+    ├── cart-bridge-jp/             # 無料版（wordpress.org）
+    │   ├── cart-bridge-jp.php      # メインファイル（ヘッダー、autoload、起動）
+    │   ├── uninstall.php / readme.txt / composer.json（実行時の autoload だけ）/ .distignore
+    │   ├── includes/
+    │   │   ├── Core/               # Plugin, Activator, Uninstaller
+    │   │   ├── Adapters/
+    │   │   │   ├── PlatformAdapter.php, AbstractPlatformAdapter.php, Capabilities.php, Cursor.php, Page.php
+    │   │   │   ├── ColorMe/        # ColorMeAdapter, ColorMeClient, OAuth, 変換クラス（v1.0）
+    │   │   │   ├── Base/           # BaseAdapter, BaseClient, BaseOAuth, 変換クラス（v2.0で追加）
+    │   │   │   └── MakeShop/       # MakeShopAdapter, GraphQLClient, 変換クラス（v3.0で追加）
+    │   │   ├── Canonical/          # CanonicalProduct 等
+    │   │   ├── Sync/               # JobManager, Importer, Exporter, MappingRepository
+    │   │   ├── Woo/                # Writer・Reader・Tools（WC CRUD）
+    │   │   ├── Admin/              # Menu, RestController, Assets
+    │   │   └── Support/            # HttpClient, RateLimiter, TokenStore, Logger
+    │   ├── src/                    # React/TS 管理画面アプリ（build/ はビルド結果）
+    │   ├── languages/
+    │   ├── tests/                  # bootstrap.php・unit/・fixtures/（実APIレスポンスのサンプルJSON）
+    │   ├── phpunit.xml.dist
+    │   └── .wordpress-org/         # wordpress.org のスクリーンショット（SVN の assets/ へ置く）
+    └── cart-bridge-jp-pro/         # Pro アドオン（自社サイト）。顧客・受注・クーポンは R3-6 で移す
+        ├── cart-bridge-jp-pro.php / composer.json / phpunit.xml.dist
+        ├── includes/Core/          # Plugin
+        └── tests/
 ```

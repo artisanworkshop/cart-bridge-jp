@@ -1,0 +1,22 @@
+# Files in plugins/cart-bridge-jp/ that stay out of the plugin zip (bin/build-zip.sh rsyncs with this list).
+# The development toolchain (composer, npm, phpcs, phpstan, CI, docs) lives at the repository root and is never copied.
+
+# Admin UI sources (build/ output is kept)
+src/
+
+# Test suites
+tests/
+phpunit.xml.dist
+.phpunit.result.cache
+
+# Composer manifests (vendor/ itself is kept — the plugin autoloads via vendor/autoload.php at runtime)
+composer.json
+composer.lock
+
+# WordPress.org directory assets (screenshots, banners, icons) go to the SVN assets/ directory, not the plugin zip
+.wordpress-org/
+
+# Misc
+.distignore
+.DS_Store
+*.DS_Store

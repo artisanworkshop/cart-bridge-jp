@@ -40,7 +40,7 @@ wp() {
   local out rc
   # `set -e` 下で `out=$(…)` を単独の代入文にすると、wp-env が失敗した時点でスクリプトごと終了し、下の出力に
   # 到達しない（エラー本文が消える）。`if` の条件位置に置いて errexit を回避し、終了コードを自分で受ける。
-  if out=$(npx wp-env run cli --env-cwd=wp-content/plugins/cart-bridge-jp wp "$@" 2>&1); then rc=0; else rc=$?; fi
+  if out=$(npx wp-env run cli --env-cwd=wp-content/cbjp-dev wp "$@" 2>&1); then rc=0; else rc=$?; fi
   printf '%s\n' "$out" | grep -v '^ℹ\|^✔\|^$' || true
   return "$rc"
 }

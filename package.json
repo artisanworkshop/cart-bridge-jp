@@ -5,8 +5,8 @@
   "description": "Admin UI for Cart Bridge JP – Migrate for WooCommerce.",
   "license": "GPL-2.0-or-later",
   "scripts": {
-    "start": "wp-scripts start",
-    "build": "wp-scripts build",
+    "start": "wp-scripts start --source-path=plugins/cart-bridge-jp/src --output-path=plugins/cart-bridge-jp/build",
+    "build": "wp-scripts build --source-path=plugins/cart-bridge-jp/src --output-path=plugins/cart-bridge-jp/build",
     "lint": "wp-scripts lint-js && tsc --noEmit",
     "test:js": "wp-scripts test-unit-js",
     "format": "wp-scripts format",

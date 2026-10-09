@@ -23,6 +23,16 @@ require_once "{$cbjp_tests_dir}/includes/functions.php";
  * WooCommerceとテスト対象プラグインを読み込む。
  */
 function cbjp_test_manually_load_plugins(): void {
+	// テストはプラグインのマウント（wp-content/plugins/cart-bridge-jp）を cwd にして実行する。リポジトリのルートを別にマウントした
+	// パス（wp-content/cbjp-dev）から起動すると、プラグインとテストが 2 つのパスから読まれ、CBJP_URL も plugins の URL から外れる。
+	$cbjp_expected = realpath( WP_CONTENT_DIR . '/plugins/cart-bridge-jp' );
+
+	if ( false === $cbjp_expected || realpath( dirname( __DIR__ ) ) !== $cbjp_expected ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- CLIブートストラップの標準出力であり、Webレスポンスではないため。
+		echo 'Run the tests from wp-content/plugins/cart-bridge-jp (see composer test:wpenv), not from ' . dirname( __DIR__ ) . PHP_EOL;
+		exit( 1 );
+	}
+
 	// wp-env はzip取得したプラグインを "woocommerce.latest-stable" 等のURL由来の
 	// ディレクトリ名で配置するため、固定パスではなくglobで解決する。
 	$woocommerce_candidates = glob( WP_CONTENT_DIR . '/plugins/woocommerce*/woocommerce.php' );
@@ -57,5 +67,3 @@ if ( class_exists( 'WC_Install' ) ) {
 	// wc_ordersテーブル自体は作成するが、権威データストアの切り替えは行わないため明示的に有効化する。
 	update_option( 'woocommerce_custom_orders_table_enabled', 'yes' );
 }
-
-require_once dirname( __DIR__ ) . '/vendor/yoast/phpunit-polyfills/phpunitpolyfills-autoload.php';
