@@ -7,25 +7,20 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo;
 
-use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WooWriterFactory;
-use CartBridgeJP\Woo\Support\MediaImporter;
-use CartBridgeJP\Woo\Support\MethodMap;
-use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
-use CartBridgeJP\Woo\Writer\CouponWriter;
-use CartBridgeJP\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Woo\Writer\EntityWriter;
-use CartBridgeJP\Woo\Writer\OrderItemBuilder;
-use CartBridgeJP\Woo\Writer\OrderWriter;
-use CartBridgeJP\Woo\Writer\ProductWriter;
-use CartBridgeJP\Woo\Writer\StockWriter;
-use CartBridgeJP\Woo\Writer\TermWriter;
-use CartBridgeJP\Woo\Writer\VariationWriter;
+use Throwable;
 
 /**
  * platformごとに `WooRepository`（実移行のwriter）を組み立てる既定のファクトリ。
+ *
+ * Writer は実体の種類（`Entities\EntityType::writer()`。R3-6b1）が作る。1 回の組み立て（1 ページ）につき種類ごとに 1 インスタンスで、
+ * 依存（mapping・画像の取込み・商品の解決など）は `Entities\WooServices` で種類をまたいで共有する。外部の種類の `writer()` が
+ * 例外を投げたら、その種類だけ外す（書込みは `ENTITY_NOT_SUPPORTED` でスキップされる。ほかの種類のページを巻き込まない）。
  */
 final class WooRepositoryFactory implements WooWriterFactory {
 
@@ -45,20 +40,21 @@ final class WooRepositoryFactory implements WooWriterFactory {
 	 * @return array<string,EntityWriter>
 	 */
 	private function writers( string $platform ): array {
-		$mappings   = new MappingRepository();
-		$media      = new MediaImporter( $platform );
-		$resolver   = new ProductResolver( $platform, $mappings );
-		$variations = new VariationWriter( $platform, $mappings );
-		$methods    = new MethodMap( $platform );
+		$services = new WooServices( $platform );
+		$writers  = [];
 
-		return [
-			'category' => new TermWriter( 'product_cat', $platform, $mappings, $media ),
-			'tag'      => new TermWriter( 'product_tag', $platform, $mappings, $media ),
-			'product'  => new ProductWriter( $platform, $mappings, $variations, $media ),
-			'customer' => new CustomerWriter( $platform ),
-			'order'    => new OrderWriter( $platform, $mappings, new OrderItemBuilder( $resolver ), $methods ),
-			'stock'    => new StockWriter( $platform, $resolver ),
-			'coupon'   => new CouponWriter( $platform ),
-		];
+		foreach ( EntityTypeRegistry::all() as $key => $type ) {
+			try {
+				$writer = $type->writer( $platform, $services );
+			} catch ( Throwable ) {
+				continue;
+			}
+
+			if ( $writer instanceof EntityWriter ) {
+				$writers[ $key ] = $writer;
+			}
+		}
+
+		return $writers;
 	}
 }

@@ -7,8 +7,10 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Sync;
 
+use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\Money;
-use CartBridgeJP\Woo\Tools\LocalEntityLookup;
+use Throwable;
 
 /**
  * 移行後検証レポート（D17 / `docs/03-design-decisions.md` §10.4）。
@@ -19,13 +21,16 @@ use CartBridgeJP\Woo\Tools\LocalEntityLookup;
  * 取得した全件」（警告・例外でスキップした分を含む）、Woo側は「リンク済みで実在する全件」
  * なので、スキップがあれば ASP 側が大きくなる。`missing`（mapping はあるが実体が無い）が 0 で
  * 件数・金額が一致すれば完全に整合している。
+ *
+ * 実在の確認と金額の集計は実体の種類が持つ（`Entities\EntityType::existing_local_ids()`・`local_amount_summary()`。R3-6b1）。
+ * 登録の無い種類（ジョブは残っている）は実在 0 件として数える。確かめられない種類・例外を投げた種類は `existing`/`missing` を null
+ * （不明）にする。
  */
 final class VerificationReport {
 
 	public function __construct(
 		private readonly JobRepository $jobs,
-		private readonly MappingRepository $mappings,
-		private readonly LocalEntityLookup $lookup = new LocalEntityLookup()
+		private readonly MappingRepository $mappings
 	) {}
 
 	/**
@@ -44,9 +49,10 @@ final class VerificationReport {
 
 		foreach ( $jobs as $job ) {
 			$entity    = (string) $job['entity'];
+			$type      = EntityTypeRegistry::get( $entity );
 			$totals    = $this->decode_totals( $job['totals_json'] );
 			$local_ids = $this->mappings->local_ids( $platform, $entity );
-			$existing  = $this->lookup->existing_ids( $entity, $local_ids );
+			$existing  = null === $type ? [] : $this->existing( $type, $local_ids );
 
 			$row = [
 				'entity'        => $entity,
@@ -56,15 +62,15 @@ final class VerificationReport {
 				'skipped'       => $totals['skipped'],
 				'warned'        => $totals['warned'],
 				'linked'        => count( $local_ids ),
-				'existing'      => count( $existing ),
-				'missing'       => count( $local_ids ) - count( $existing ),
+				'existing'      => null === $existing ? null : count( $existing ),
+				'missing'       => null === $existing ? null : count( $local_ids ) - count( $existing ),
 				'remote_amount' => null,
 				'local_amount'  => null,
 			];
 
-			if ( 'order' === $entity ) {
-				$summary = $this->lookup->summarize_orders( $existing );
+			$summary = null === $type || null === $existing ? null : $this->amount_summary( $type, $existing );
 
+			if ( null !== $summary ) {
 				// F1-7 より前に作られたジョブの totals_json には `remote_amount` が無い。0 として扱うと
 				// 「ASP 側 0.00 / Woo 側 N」という偽の不一致になるため、キーが無ければ「不明」（null）にする。
 				$row['remote_amount'] = $this->has_remote_amount( $job['totals_json'] ) ? Money::format_minor_units( $totals['remote_amount'] ) : null;
@@ -90,6 +96,43 @@ final class VerificationReport {
 			'platform_currency' => Money::PLATFORM_CURRENCY,
 			'currency_mismatch' => [] !== $currencies && [ Money::PLATFORM_CURRENCY ] !== $currencies,
 			'entities'          => $entities,
+		];
+	}
+
+	/**
+	 * @param array<int,int> $local_ids
+	 * @return array<int,int>|null
+	 */
+	private function existing( EntityType $type, array $local_ids ): ?array {
+		try {
+			$existing = $type->existing_local_ids( $local_ids );
+		} catch ( Throwable ) {
+			return null;
+		}
+
+		return is_array( $existing ) ? array_values( array_filter( $existing, 'is_int' ) ) : null;
+	}
+
+	/**
+	 * 外部の種類が返す値は信用しない（原則 8）。形が違えば金額は突合しない。
+	 *
+	 * @param array<int,int> $existing
+	 * @return array{total_minor:int,currencies:array<int,string>}|null
+	 */
+	private function amount_summary( EntityType $type, array $existing ): ?array {
+		try {
+			$summary = $type->local_amount_summary( $existing );
+		} catch ( Throwable ) {
+			return null;
+		}
+
+		if ( ! is_array( $summary ) || ! is_int( $summary['total_minor'] ?? null ) || ! is_array( $summary['currencies'] ?? null ) ) {
+			return null;
+		}
+
+		return [
+			'total_minor' => $summary['total_minor'],
+			'currencies'  => array_values( array_filter( $summary['currencies'], 'is_string' ) ),
 		];
 	}
 

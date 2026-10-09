@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
@@ -64,15 +65,6 @@ final class Exporter {
 	 * テストが期待値を組み立てられるようpublicにする。
 	 */
 	public const CHECKSUM_SALT_IMAGES = 'images:';
-
-	/**
-	 * `PlatformWriter::write()`がディスパッチする`push_*()`のうち、作成/更新を`?string $remote_id`で
-	 * 分岐するエンティティ（D21-B「作成を伴う push」）。`push_stock()`はこの引数を取らず既存実体への
-	 * 更新のみで冪等なため対象外（判定はインターフェースのシグネチャから導く。原則1）。
-	 *
-	 * @var array<int,string>
-	 */
-	private const PUSH_INTENT_ENTITIES = [ 'product', 'customer', 'order', 'coupon' ];
 
 	public function __construct(
 		private readonly MappingRepository $mappings,
@@ -146,6 +138,12 @@ final class Exporter {
 		// アイテムで1回だけ解決し、ページ内で使い回す（警告が無いページでは`capabilities()`を呼ばない）。
 		$supports_per_variant_stock = null;
 
+		// 種類ごとの部分（push intent の対象か・dry-run のラベル）はページごとに 1 回だけ引く。作成/更新を`?string $remote_id`で
+		// 分岐する送信（D21-B「作成を伴う push」）を持つ種類だけが push intent を残す（`EntityType::records_push_intent()`。
+		// 在庫は既存実体への更新のみで冪等なため対象外）。
+		$type               = EntityTypeRegistry::get( $entity );
+		$push_intent_entity = null !== $type && $type->records_push_intent();
+
 		foreach ( $items as $read_item ) {
 			++$totals['processed'];
 
@@ -153,7 +151,6 @@ final class Exporter {
 			$item               = $read_item->item;
 			$row                = $existing[ $local_id ] ?? null;
 			$existing_remote_id = $row['remote_id'] ?? null;
-			$push_intent_entity = in_array( $entity, self::PUSH_INTENT_ENTITIES, true );
 
 			// D21-Bレビュー指摘（Copilot/Codex）: mapping書込みと印の削除は別々の書込みのため、
 			// 「mapping書込み後・印削除前」にプロセスが止まる、またはREST側の解除
@@ -181,7 +178,7 @@ final class Exporter {
 				}
 
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ] );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), PushResult::OPERATION_SKIPPED, [ WarningCode::LINKED_BY_IMPORT_NOT_EXPORTED ] );
 				}
 
 				continue;
@@ -201,7 +198,7 @@ final class Exporter {
 				++$totals['warned'];
 
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::PUSH_OUTCOME_UNCONFIRMED ] ) );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::PUSH_OUTCOME_UNCONFIRMED ] ) );
 				}
 
 				continue;
@@ -235,7 +232,7 @@ final class Exporter {
 				++$totals['warned'];
 
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
 				}
 
 				continue;
@@ -258,7 +255,7 @@ final class Exporter {
 				}
 
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), PushResult::OPERATION_SKIPPED, $read_item->warnings );
 				}
 
 				continue;
@@ -389,7 +386,7 @@ final class Exporter {
 				);
 
 				if ( $is_dry_run ) {
-					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::VALIDATION_EXCEPTION ] ) );
+					$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), PushResult::OPERATION_SKIPPED, array_merge( $read_item->warnings, [ WarningCode::VALIDATION_EXCEPTION ] ) );
 				}
 
 				continue;
@@ -553,7 +550,7 @@ final class Exporter {
 			}
 
 			if ( $is_dry_run ) {
-				$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_entity( $entity, $item ), $operation, $warnings );
+				$dry_run_rows[] = $this->dry_run_row( $entity, $local_id, $existing_remote_id, DryRunLabel::for_type( $type, $item ), $operation, $warnings );
 			}
 
 			// 作成確定後の中断の原因がレート制限だった場合は、上でremote_idをmappingへ書いた後に

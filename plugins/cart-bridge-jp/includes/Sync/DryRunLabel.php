@@ -7,13 +7,9 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Sync;
 
-use CartBridgeJP\Canonical\CanonicalCategory;
-use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
-use CartBridgeJP\Canonical\CanonicalOrder;
-use CartBridgeJP\Canonical\CanonicalProduct;
-use CartBridgeJP\Canonical\CanonicalStock;
-use CartBridgeJP\Canonical\CanonicalTag;
+use CartBridgeJP\Entities\EntityType;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 
 /**
  * `cbjp_dry_run_items.label`（CSV上の人が読める識別子）を組み立てる。`Support\Logger`の
@@ -24,14 +20,17 @@ final class DryRunLabel {
 
 	private function __construct() {}
 
+	/**
+	 * 種類（`Entities\EntityType::dry_run_label()`）が組み立てる。登録の無い種類は空。
+	 */
 	public static function for_entity( string $entity, CanonicalModel $item ): string {
-		return match ( true ) {
-			$item instanceof CanonicalProduct, $item instanceof CanonicalCategory, $item instanceof CanonicalTag => $item->name,
-			$item instanceof CanonicalCoupon => $item->code,
-			$item instanceof CanonicalOrder => $item->number,
-			$item instanceof CanonicalStock => $item->sku ?? '',
-			// customer/reviewはPII（氏名・メール）を含みうるため常に空。
-			default => '',
-		};
+		return self::for_type( EntityTypeRegistry::get( $entity ), $item );
+	}
+
+	/**
+	 * ページごとに 1 回引いた種類で組み立てる（`Sync\Importer`・`Sync\Exporter`）。
+	 */
+	public static function for_type( ?EntityType $type, CanonicalModel $item ): string {
+		return null === $type ? '' : $type->dry_run_label( $item );
 	}
 }

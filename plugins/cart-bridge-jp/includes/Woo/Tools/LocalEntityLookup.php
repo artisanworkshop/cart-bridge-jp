@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Tools;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\Money;
 use WC_Order;
 
@@ -23,17 +24,58 @@ final class LocalEntityLookup {
 	private const CHUNK_SIZE = 200;
 
 	/**
+	 * 実体の種類ごとの実在確認（種類の `EntityType::existing_local_ids()`。登録の無い種類・確かめられない種類は空）。
+	 *
 	 * @param array<int,int> $ids
 	 * @return array<int,int> 実在するIDのみ（重複除去）。
 	 */
 	public function existing_ids( string $entity, array $ids ): array {
-		$existing = [];
+		return EntityTypeRegistry::get( $entity )?->existing_local_ids( $ids ) ?? [];
+	}
 
-		foreach ( array_chunk( $this->normalize_ids( $ids ), self::CHUNK_SIZE ) as $chunk ) {
-			$existing = array_merge( $existing, $this->existing_chunk( $entity, $chunk ) );
-		}
+	/**
+	 * 投稿型の実体のうち実在するもの（ゴミ箱は含まない）。
+	 *
+	 * @param array<int,string> $post_types
+	 * @param array<int,int>    $ids
+	 * @return array<int,int>
+	 */
+	public function existing_posts( array $post_types, array $ids ): array {
+		return $this->in_chunks( $ids, fn ( array $chunk ): array => $this->existing_post_ids( $post_types, $chunk ) );
+	}
 
-		return $existing;
+	/**
+	 * @param array<int,int> $ids
+	 * @return array<int,int>
+	 */
+	public function existing_terms( string $taxonomy, array $ids ): array {
+		return $this->in_chunks( $ids, fn ( array $chunk ): array => $this->existing_term_ids( $taxonomy, $chunk ) );
+	}
+
+	/**
+	 * @param array<int,int> $ids
+	 * @return array<int,int>
+	 */
+	public function existing_users( array $ids ): array {
+		return $this->in_chunks( $ids, fn ( array $chunk ): array => $this->existing_user_ids( $chunk ) );
+	}
+
+	/**
+	 * 受注（ゴミ箱・返金は含まない）。
+	 *
+	 * @param array<int,int> $ids
+	 * @return array<int,int>
+	 */
+	public function existing_orders( array $ids ): array {
+		return $this->in_chunks( $ids, fn ( array $chunk ): array => $this->existing_order_ids( $chunk ) );
+	}
+
+	/**
+	 * @param array<int,int> $ids
+	 * @return array<int,int>
+	 */
+	public function existing_comments( array $ids ): array {
+		return $this->in_chunks( $ids, fn ( array $chunk ): array => $this->existing_comment_ids( $chunk ) );
 	}
 
 	/**
@@ -71,23 +113,20 @@ final class LocalEntityLookup {
 	}
 
 	/**
-	 * @param array<int,int> $chunk
+	 * 重複を除いた ID を `CHUNK_SIZE` 件ずつ `$lookup` に渡し、結果をつなぐ。
+	 *
+	 * @param array<int,int>                       $ids
+	 * @param callable(array<int,int>):array<int,int> $lookup
 	 * @return array<int,int>
 	 */
-	private function existing_chunk( string $entity, array $chunk ): array {
-		return match ( $entity ) {
-			'product'  => $this->existing_post_ids( [ 'product' ], $chunk ),
-			'variant'  => $this->existing_post_ids( [ 'product_variation' ], $chunk ),
-			// stockのlocal_idは在庫を書き込んだ商品またはバリエーション（`Writer\StockWriter`）。
-			'stock'    => $this->existing_post_ids( [ 'product', 'product_variation' ], $chunk ),
-			'coupon'   => $this->existing_post_ids( [ 'shop_coupon' ], $chunk ),
-			'category' => $this->existing_term_ids( 'product_cat', $chunk ),
-			'tag'      => $this->existing_term_ids( 'product_tag', $chunk ),
-			'customer' => $this->existing_user_ids( $chunk ),
-			'order'    => $this->existing_order_ids( $chunk ),
-			'review'   => $this->existing_comment_ids( $chunk ),
-			default    => [],
-		};
+	private function in_chunks( array $ids, callable $lookup ): array {
+		$existing = [];
+
+		foreach ( array_chunk( $this->normalize_ids( $ids ), self::CHUNK_SIZE ) as $chunk ) {
+			$existing = array_merge( $existing, $lookup( $chunk ) );
+		}
+
+		return $existing;
 	}
 
 	/**

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
 use CartBridgeJP\Support\PlatformLock;
@@ -42,20 +43,6 @@ final class JobManager {
 	 * レート制限枯渇で paused にしたジョブを再開するまでの待機秒数。
 	 */
 	private const PAUSED_RESUME_DELAY_SECONDS = 60;
-
-	/**
-	 * エンティティ実行順（`docs/03-design-decisions.md` §3）。インポート・エクスポート共通。
-	 */
-	private const ENTITY_ORDER = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
-
-	/**
-	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-B: product/customer/order/stock/coupon）。
-	 * `category`/`tag`/`review`はここに含めない: category/tagはexportエンティティとして独立させず
-	 * `category_map`で解決する（`push_category()`はcategory作成可能なプラットフォーム向けで
-	 * ColorMeは常に`can_create_category=false`。`docs/03-design-decisions.md` §10.2「カテゴリ」）。
-	 * reviewは`PlatformAdapter`に`push_review()`が存在しないため常に対象外。
-	 */
-	private const EXPORT_ENTITIES_WITH_READER = [ 'product', 'customer', 'order', 'stock', 'coupon' ];
 
 	public function __construct(
 		private readonly JobRepository $jobs,
@@ -120,10 +107,12 @@ final class JobManager {
 			throw new RuntimeException( "Unknown platform: {$platform}" );
 		}
 
+		// 実行順と能力の判定は実体の種類が持つ（`Entities\EntityType::position()`・`supports_import()`/`supports_export()`。R3-6b1）。
+		// 登録の無い種類・この接続先で扱えない種類は黙って外す。
 		$is_export_type   = in_array( $type, [ self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ], true );
 		$ordered_entities = $is_export_type
-			? $this->filter_and_order_export_entities( $entities, $adapter )
-			: $this->filter_and_order_entities( $entities, $adapter );
+			? EntityTypeRegistry::exportable( $adapter, $entities )
+			: EntityTypeRegistry::importable( $adapter, $entities );
 
 		if ( [] === $ordered_entities ) {
 			throw new RuntimeException( 'No supported entities to run.' );
@@ -353,66 +342,6 @@ final class JobManager {
 		if ( $this->jobs->transition( (int) $next_job['id'], [ JobRepository::STATUS_PENDING ], JobRepository::STATUS_RUNNING ) ) {
 			$this->enqueue( (int) $next_job['id'] );
 		}
-	}
-
-	/**
-	 * @param array<int,string> $requested
-	 * @return array<int,string>
-	 */
-	private function filter_and_order_entities( array $requested, PlatformAdapter $adapter ): array {
-		$capabilities = $adapter->capabilities();
-
-		$supported = array_filter(
-			self::ENTITY_ORDER,
-			static function ( string $entity ) use ( $requested, $capabilities ): bool {
-				if ( ! in_array( $entity, $requested, true ) ) {
-					return false;
-				}
-
-				return match ( $entity ) {
-					'tag' => $capabilities->has_tags,
-					'coupon' => $capabilities->has_coupons,
-					'review' => $capabilities->has_reviews,
-					'customer' => $capabilities->can_fetch_customers,
-					default => true,
-				};
-			}
-		);
-
-		return array_values( $supported );
-	}
-
-	/**
-	 * エクスポート対象エンティティの絞り込み・順序決定（`filter_and_order_entities()`の
-	 * ASP向け対称形）。`EXPORT_ENTITIES_WITH_READER`でReader未実装のentity（`category`/`tag`/
-	 * `review`）を先に除外し、残りをcapabilityで絞り込む。`category`は`EXPORT_ENTITIES_WITH_READER`
-	 * に含めないため、ここでは到達しない（`push_category()`はcategory作成可能なプラットフォーム
-	 * 向けで、ColorMeは`can_create_category=false`のため常にexportエンティティ化しない。
-	 * `category_map`が紐付けを担う。`docs/03-design-decisions.md` §10.2「カテゴリ」）。
-	 *
-	 * @param array<int,string> $requested
-	 * @return array<int,string>
-	 */
-	private function filter_and_order_export_entities( array $requested, PlatformAdapter $adapter ): array {
-		$capabilities = $adapter->capabilities();
-
-		$supported = array_filter(
-			self::ENTITY_ORDER,
-			static function ( string $entity ) use ( $requested, $capabilities ): bool {
-				if ( ! in_array( $entity, $requested, true ) || ! in_array( $entity, self::EXPORT_ENTITIES_WITH_READER, true ) ) {
-					return false;
-				}
-
-				return match ( $entity ) {
-					'customer' => $capabilities->can_update_customer,
-					'order' => $capabilities->can_create_order,
-					'coupon' => $capabilities->has_coupons && $capabilities->can_create_coupon,
-					default => true,
-				};
-			}
-		);
-
-		return array_values( $supported );
 	}
 
 	private function exporter(): Exporter {

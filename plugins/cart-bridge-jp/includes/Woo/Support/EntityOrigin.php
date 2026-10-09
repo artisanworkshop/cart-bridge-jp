@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Support;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Order;
 
@@ -89,8 +90,8 @@ final class EntityOrigin {
 	/**
 	 * mapping が指す Woo の実体がエクスポートで結ばれた（実体があり、取込みで結ばれていない）か。真なら取込みで上書きしない。
 	 *
-	 * 判定するのはエクスポートの Reader があるエンティティのうち、mapping の local_id が実体そのものを指す商品・顧客・受注・クーポンだけ
-	 * （それ以外は偽）。在庫は対象を商品・バリエーションの mapping で解決する（在庫の mapping が無くても届く）ため`Woo\Writer\StockWriter`が
+	 * 判定は実体の種類（`Entities\EntityType::is_linked_by_export()`。R3-6b1）が持つ。判定するのはエクスポートの Reader がある種類のうち、
+	 * mapping の local_id が実体そのものを指す商品・顧客・受注・クーポンだけ（それ以外・登録の無い種類は偽）。在庫は対象を商品・バリエーションの mapping で解決する（在庫の mapping が無くても届く）ため`Woo\Writer\StockWriter`が
 	 * 解決した対象で判定する。カテゴリ・タグ・レビューはエクスポートしない。
 	 *
 	 * 「実体がある」は、各 writer が既存 ID を信用せず作り直す（stale-ID のフォールバック）判定と同じ条件にする。ずれると、
@@ -102,22 +103,16 @@ final class EntityOrigin {
 			return false;
 		}
 
-		return match ( $entity ) {
-			'product'  => self::is_product_post( $local_id ) && ! self::post_linked_by_import( $local_id, $platform ),
-			'coupon'   => 'shop_coupon' === get_post_type( $local_id ) && ! self::post_linked_by_import( $local_id, $platform ),
-			'customer' => false !== get_userdata( $local_id )
-				&& ! CustomerWriter::has_protected_role( $local_id )
-				&& ! self::user_linked_by_import( $local_id, $platform ),
-			'order'    => self::order_linked_by_export( $local_id, $platform ),
-			default    => false,
-		};
+		$type = EntityTypeRegistry::get( $entity );
+
+		return null !== $type && $type->is_linked_by_export( $platform, $local_id );
 	}
 
 	/**
 	 * `ProductWriter::prepare()`の`wc_get_product_object()`が例外を投げない（＝既存の商品として読める）条件と同じ:
 	 * 投稿があり、投稿タイプが`product`か`product_variation`。
 	 */
-	private static function is_product_post( int $post_id ): bool {
+	public static function is_product_post( int $post_id ): bool {
 		$post = get_post( $post_id );
 
 		return null !== $post && in_array( $post->post_type, [ 'product', 'product_variation' ], true );
@@ -126,7 +121,7 @@ final class EntityOrigin {
 	/**
 	 * `OrderWriter::write()`の stale-ID 判定（`wc_get_order() instanceof WC_Order`）と同じ条件で受注を読む。
 	 */
-	private static function order_linked_by_export( int $order_id, string $platform ): bool {
+	public static function order_linked_by_export( int $order_id, string $platform ): bool {
 		$order = wc_get_order( $order_id );
 
 		return $order instanceof WC_Order && ! self::order_linked_by_import( $order, $platform );

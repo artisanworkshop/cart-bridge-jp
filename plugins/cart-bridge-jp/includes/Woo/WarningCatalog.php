@@ -79,6 +79,14 @@ final class WarningCatalog {
 	}
 
 	/**
+	 * 無料版のカタログが説明するコードか（どちらかの向きで）。登録された種類はこのコードの判定の印を変えられない
+	 * （`Entities\EntityTypeRegistry::warning_flags()`）。
+	 */
+	public static function is_core_code( string $code ): bool {
+		return null !== self::entry( $code, true ) || null !== self::entry( $code, false );
+	}
+
+	/**
 	 * 翻訳された書式へ値を 1 つ差し込む。翻訳は外部の入力で、余分なプレースホルダ（`%2$s` 等）を持つと `sprintf()` が例外を
 	 * 投げるため、CSV の書き出しを止めずに null を返す（呼び出し側は差し込まない文言へ倒す）。値の `%` は書式として解釈されない。
 	 */
