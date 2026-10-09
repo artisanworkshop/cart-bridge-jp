@@ -899,7 +899,7 @@ Pro が登録する種類はサーバーの宣言だけで画面に出る。**�
 
 **画面**: `src/types.ts` の `ENTITY_ORDER` を外し（`EntityType = string`）、`ENTITY_LABELS` を `cbjpAdmin.entityLabels` を読む `entityLabel()`/`entityLabels()` に替えた。
 選択肢は `entity-options.ts`（`importEntityOptions()`・`exportEntityOptions()`。キーの無い・重複した項目は捨て、`beta` は `false` のときだけ非ベータ）。
-Mappings タブの節は `kinds` の `applies` から（0 件なら「設定するマッピングはありません」。カテゴリを作れる接続先に無料版だけでつないだとき。
+Mappings タブの節は `kinds` の `applies` から（0 件なら「設定するマッピングはありません」。R3-6c の後、カテゴリを作れる接続先に無料版だけでつないだとき。
 ColorMe はカテゴリを作れないので、R3-6c の後もカテゴリの節が残る）、Import タブの案内は
 `MappingNotice`（旧 `OrderMappingNotice`。`mapping-status.ts` の `importMappingGaps()` が選ばれた種類の kind ごとに数える）、Tools タブの件数は応答の `counts` のキー順と
 `skipped` の警告、送信結果が未確認の一覧は `summary`、実行中の run の `entities` はキーの形（`^[a-z][a-z0-9_]{0,19}$`）だけで受け付ける。
