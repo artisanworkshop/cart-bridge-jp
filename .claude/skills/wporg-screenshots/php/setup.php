@@ -9,7 +9,8 @@
  * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す。
  * 3. 偽のトークンで `colorme` に接続した状態にし（`TokenStore`。tests サイトだけ）、決済（銀行振込・代引き）と配送（日本・定額）を有効にする。
  * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。Woo のカテゴリ `Apparel`・
- *    `Accessories` を作って Color Me Shop の先頭 2 つに、決済は名前（代引き → cod、振込 → bacs）で、配送は先頭どうし、
+ *    `Accessories` を作って Color Me Shop の先頭 2 つに、決済は名前（代引き → cod、振込 → bacs）で、配送は Color Me Shop の先頭を
+ *    撮影用ゾーン `Japan` の定額配送に、
  *    受注の状態は同じ ID どうしを対応させる。
  * 5. 開いたままの `colorme` の run（前回の撮影が途中で止まったもの）をキャンセルしてから dry-run を始め、Action Scheduler の
  *    ジョブをここで処理し（規約は `.claude/rules/skill-scripts.md`）、すべてのジョブが完了したことを確かめる。途中で止まるときは
@@ -115,12 +116,30 @@ foreach ( [ 'bacs', 'cod' ] as $cbjp_shot_gateway ) {
 	update_option( "woocommerce_{$cbjp_shot_gateway}_settings", array_merge( is_array( $cbjp_shot_settings ) ? $cbjp_shot_settings : [], [ 'enabled' => 'yes' ] ) );
 }
 
-if ( [] === WC_Shipping_Zones::get_zones() ) {
+// 撮影用の配送ゾーン `Japan` とその定額配送を、名前で探して無ければ作る。配送ゾーンは PHPUnit の後も残り、他のゾーンが
+// あることもあるので、「ゾーンが 1 つも無いときだけ作る」「候補の先頭を対応させる」では画面がサイトの状態で変わる（PR #112 G1-1）。
+$cbjp_shot_zone = null;
+foreach ( WC_Shipping_Zones::get_zones() as $cbjp_shot_zone_row ) {
+	if ( is_array( $cbjp_shot_zone_row ) && 'Japan' === ( $cbjp_shot_zone_row['zone_name'] ?? null ) ) {
+		$cbjp_shot_zone = WC_Shipping_Zones::get_zone( (int) ( $cbjp_shot_zone_row['id'] ?? 0 ) );
+		break;
+	}
+}
+if ( ! $cbjp_shot_zone instanceof WC_Shipping_Zone ) {
 	$cbjp_shot_zone = new WC_Shipping_Zone();
 	$cbjp_shot_zone->set_zone_name( 'Japan' );
 	$cbjp_shot_zone->add_location( 'JP', 'country' );
 	$cbjp_shot_zone->save();
-	$cbjp_shot_zone->add_shipping_method( 'flat_rate' );
+}
+$cbjp_shot_flat_rate = '';
+foreach ( $cbjp_shot_zone->get_shipping_methods() as $cbjp_shot_method ) {
+	if ( $cbjp_shot_method instanceof WC_Shipping_Method && 'flat_rate' === $cbjp_shot_method->id ) {
+		$cbjp_shot_flat_rate = "flat_rate:{$cbjp_shot_method->instance_id}";
+		break;
+	}
+}
+if ( '' === $cbjp_shot_flat_rate ) {
+	$cbjp_shot_flat_rate = 'flat_rate:' . (int) $cbjp_shot_zone->add_shipping_method( 'flat_rate' );
 }
 
 // 4. 候補一覧から対応を作って保存する（フィクスチャの ID を書き写さない）。
@@ -150,15 +169,13 @@ foreach ( [ 'Apparel', 'Accessories' ] as $cbjp_shot_i => $cbjp_shot_name ) {
 	$cbjp_shot_category_map[ (string) $cbjp_shot_term['term_id'] ] = $cbjp_shot_asp_categories[ $cbjp_shot_i ];
 }
 
-$cbjp_shot_pair = static function ( array $from, array $to ): array {
-	$map = [];
-	foreach ( $from as $i => $id ) {
-		if ( isset( $to[ $i ] ) ) {
-			$map[ $id ] = $to[ $i ];
-		}
-	}
-	return $map;
-};
+// 配送は Color Me Shop の先頭の配送方法を、上で用意した `Japan` の定額配送（候補にあることを確かめる）に対応させる。
+$cbjp_shot_asp_shipping = $cbjp_shot_ids( $cbjp_shot_asp['shipping'] ?? null );
+$cbjp_shot_shipping_map = [];
+if ( isset( $cbjp_shot_asp_shipping[0] ) && in_array( $cbjp_shot_flat_rate, $cbjp_shot_ids( $cbjp_shot_woo['shipping'] ?? null ), true ) ) {
+	$cbjp_shot_shipping_map[ $cbjp_shot_asp_shipping[0] ] = $cbjp_shot_flat_rate;
+}
+
 // 決済は名前で対応させる（並び順で組むと「代引き → 銀行振込」のように画面に誤った対応が写る）。
 $cbjp_shot_woo_gateways = $cbjp_shot_ids( $cbjp_shot_woo['payment'] ?? null );
 $cbjp_shot_payment_map  = [];
@@ -183,7 +200,7 @@ foreach ( $cbjp_shot_ids( $cbjp_shot_asp['status'] ?? null ) as $cbjp_shot_statu
 $cbjp_shot_mappings = [
 	'category_map' => $cbjp_shot_category_map,
 	'payment_map'  => $cbjp_shot_payment_map,
-	'shipping_map' => $cbjp_shot_pair( array_slice( $cbjp_shot_ids( $cbjp_shot_asp['shipping'] ?? null ), 0, 1 ), $cbjp_shot_ids( $cbjp_shot_woo['shipping'] ?? null ) ),
+	'shipping_map' => $cbjp_shot_shipping_map,
 	'status_map'   => $cbjp_shot_status_map,
 ];
 foreach ( $cbjp_shot_mappings as $cbjp_shot_key => $cbjp_shot_map ) {

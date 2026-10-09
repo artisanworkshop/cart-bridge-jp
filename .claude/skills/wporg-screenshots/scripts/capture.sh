@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # wordpress.org 用スクリーンショットを wp-env の tests サイトで撮る。詳細は ../SKILL.md。
 # 使い方（リポジトリルートから）:
-#   capture.sh shoot [--out DIR]   撮影する（既定の出力先は .wordpress-org/。終わると mu-plugin と Cookie を必ず消す）
+#   capture.sh shoot [--out DIR]   撮影する（既定の出力先は .wordpress-org/。終わると撮影の run・偽のトークン・mu-plugin・Cookie を片付ける）
 #   capture.sh status              撮影用 mu-plugin の有無と tests サイトの URL を表示する
-#   capture.sh cleanup             このスキルが置いた mu-plugin が残っていれば消す（強制終了した後など）
+#   capture.sh cleanup             撮影の run と偽のトークンを片付けてから、このスキルが置いた mu-plugin を消す（強制終了した後など）
 # wp-env は `npx wp-env`（グローバルの wp-env は使わない）。dev サイト（10010）には触れない。
 set -euo pipefail
 
@@ -15,6 +15,7 @@ TEMPLATE="$SKILL_DIR/templates/mu-plugin-screenshot-fixtures.php"
 SHOTS="$SKILL_DIR/shots.json"
 # コンテナの中では --env-cwd（プラグインのディレクトリ）からの相対パスで読む。
 SETUP_PHP=".claude/skills/wporg-screenshots/php/setup.php"
+TEARDOWN_PHP=".claude/skills/wporg-screenshots/php/teardown.php"
 
 die() { echo "capture: $*" >&2; exit 1; }
 
@@ -60,6 +61,18 @@ remove_mu() {
   echo "removed $dest"
 }
 
+# 撮影の run と偽のトークンを、mu-plugin（API のモック）がまだある間に片付けてから mu-plugin を消す。モックを先に消すと、
+# 残った run のアクションや偽のトークンで管理画面・WP-Cron が動いたとき実 API に通信が出うる（PR #112 G1-2）。
+# 後片付けに失敗したら mu-plugin は残して失敗を返す（`… || …` の形で呼ばれるので、失敗はすべて明示的に返す）。
+teardown_and_remove() {
+  local dest=$1 url=$2
+  if ! twp eval-file "$TEARDOWN_PHP" "$url"; then
+    echo "capture: teardown failed; keeping the mu-plugin so that nothing reaches the real Color Me Shop API: $dest (fix the cause, then run: $0 cleanup)" >&2
+    return 1
+  fi
+  remove_mu "$dest" || { echo "capture: the mu-plugin may still be installed: $dest (run: $0 cleanup)" >&2; return 1; }
+}
+
 readme_captions() {
   awk '/^== Screenshots ==/ { f = 1; next } /^== / { f = 0 } f && /^[0-9]+\. / { print }' readme.txt
 }
@@ -74,8 +87,9 @@ case "$cmd" in
     ;;
 
   cleanup)
+    url=$(tests_url) || exit 1
     dir=$(tests_mu_dir) || exit 1
-    remove_mu "$dir/$MU_FILE_NAME"
+    teardown_and_remove "$dir/$MU_FILE_NAME" "$url" || exit 1
     [ ! -e "$dir/$MU_FILE_NAME" ] || die "the mu-plugin is still there: $dir/$MU_FILE_NAME"
     echo "clean"
     ;;
@@ -121,13 +135,16 @@ case "$cmd" in
     mkdir -p "$out"
     if ! TMP=$(mktemp -d) || [ -z "$TMP" ]; then die "mktemp failed"; fi
 
-    # 途中で止まっても mu-plugin と Cookie を残さない。最後まで走ったことは DONE で確かめる
+    # 途中で止まっても run・偽のトークン・mu-plugin・Cookie を残さない。最後まで走ったことは DONE で確かめる
     # （set -e と EXIT トラップを併せ持つと、macOS の bash 3.2 は異常終了を 0 で返すことがある。.claude/rules/skill-scripts.md）。
-    # EXIT トラップの中でも set -e は効くので、どの片付けが失敗しても残りを続け、失敗は rc に残す。mu-plugin を先に消す。
+    # EXIT トラップの中でも set -e は効くので、どの片付けが失敗しても残りを続け、失敗は rc に残す。mu-plugin の片付けを先に行う。
     DONE=0
+    MU_INSTALLED=0
     finish() {
       local rc=$?
-      remove_mu "$dest" || { echo "capture: the mu-plugin may still be installed: $dest (run: $0 cleanup)" >&2; rc=1; }
+      if [ "$MU_INSTALLED" = 1 ]; then
+        teardown_and_remove "$dest" "$url" || rc=1
+      fi
       rm -rf "$TMP" || rc=1
       if [ "$DONE" != 1 ] && [ "$rc" = 0 ]; then
         echo "capture: stopped before the end" >&2
@@ -139,6 +156,7 @@ case "$cmd" in
     trap 'exit 130' INT TERM
 
     mkdir -p "$dir"
+    MU_INSTALLED=1
     cp "$TEMPLATE" "$dest"
     echo "installed $dest"
 
