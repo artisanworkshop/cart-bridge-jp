@@ -56,12 +56,6 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	private const RATE_LIMIT_PER_MINUTE = 100;
 
 	/**
-	 * 商品・顧客・在庫の一覧APIページサイズ。`products.json`/`stocks.json` の上限（50）に合わせる
-	 * （`customers.json`/`sales.json` は上限100だが、全エンドポイント共通の値に揃える）。
-	 */
-	private const PAGE_SIZE = 50;
-
-	/**
 	 * `GET /sales.json` の全量走査の起点に使う日付（カラーミーのサービス開始より確実に前）。
 	 */
 	private const HISTORY_FLOOR = '2000-01-01';
@@ -92,10 +86,28 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 	private bool $order_tax_type_loaded = false;
 
+	/**
+	 * 認証済みの API 呼び出しと応答の共通処理（`api()`）。
+	 */
+	private ?ColorMeApi $api = null;
+
 	public function __construct(
 		private readonly TokenStore $token_store = new TokenStore( self::ID ),
 		private readonly Logger $logger = new Logger()
 	) {}
+
+	/**
+	 * 認証済みの ColorMe API と応答の共通処理（R3-6b1）。アダプタ自身の取得・送信もこれを通す。Pro アドオンが ColorMe の顧客・受注・
+	 * クーポンを扱うとき（R3-6c）もこの口を使う（`docs/03-design-decisions.md` §10.0「Pro が使ってよい無料版の API」）。
+	 * アダプタと同じ `TokenStore`・`Logger` を使う。
+	 */
+	public function api(): ColorMeApi {
+		if ( null === $this->api ) {
+			$this->api = new ColorMeApi( $this->token_store, $this->logger );
+		}
+
+		return $this->api;
+	}
 
 	public function id(): string {
 		return self::ID;
@@ -141,9 +153,9 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * `POST /v1/sales`（受注作成）はプレミアムプラン契約のショップのみ利用可
 	 * （`tests/fixtures/colorme/swagger.json` createSale説明）。
 	 * `test_connection()` が `shop.json` から取得・キャッシュした契約プランを見て動的に判定する。
-	 * 未接続・未キャッシュの場合は安全側（false）に倒す。
+	 * 未接続・未キャッシュの場合は安全側（false）に倒す。Pro アドオンが受注のエクスポートの可否を決めるのにも使う（R3-6b1 で public）。
 	 */
-	private function is_premium_plan(): bool {
+	public function is_premium_plan(): bool {
 		$extras = $this->token_store->get()['extras'] ?? [];
 
 		return is_array( $extras ) && 'premium' === ( $extras['contract_plan'] ?? null );
@@ -237,23 +249,23 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 	public function fetch_products( Cursor $cursor ): Page {
 		$offset      = (int) $cursor->get( 'offset', 0 );
-		$body        = $this->client()->get(
+		$body        = $this->api()->client()->get(
 			'products.json',
 			[
-				'limit'  => self::PAGE_SIZE,
+				'limit'  => ColorMeApi::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw         = $this->list_from( $body, 'products' );
+		$raw         = $this->api()->list_from( $body, 'products' );
 		$transformer = $this->product_transformer();
-		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
-		$total       = $this->total_from_meta( $body );
+		$items       = $this->api()->transform_rows( $raw, static fn ( array $item ): CanonicalProduct => $transformer->transform( $item ), 'product' );
+		$total       = $this->api()->total_from_meta( $body );
 
 		// customer/order/stockと同じ理由（`meta.total`は生の行数であり、`list_from()`の非配列行
 		// フィルタや`ProductTransformer::transform()`の変換失敗（例: `variants`欠損によるスキーマ
 		// 崩壊）で`items`件数がそれと1:1対応するとは限らない）。ページング終端の判定にだけ使い、
 		// 進捗率の分母として`Page`側には報告しない。
-		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $total ), null );
+		return new Page( $items, $this->api()->next_cursor( $offset, $this->api()->raw_row_count( $body, 'products' ), $total ), null );
 	}
 
 	/**
@@ -266,8 +278,8 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	public function mapping_candidates(): array {
 		return [
 			'category' => self::category_candidates( $this->fetch_categories() ),
-			'payment'  => self::id_name_candidates( $this->id_name_map( 'payments.json', 'payments' ) ),
-			'shipping' => self::id_name_candidates( $this->id_name_map( 'deliveries.json', 'deliveries' ) ),
+			'payment'  => self::id_name_candidates( $this->api()->id_name_map( 'payments.json', 'payments' ) ),
+			'shipping' => self::id_name_candidates( $this->api()->id_name_map( 'deliveries.json', 'deliveries' ) ),
 			'status'   => self::status_candidates(),
 		];
 	}
@@ -331,42 +343,42 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * @return array<int,CanonicalCategory>
 	 */
 	public function fetch_categories(): array {
-		$body        = $this->client()->get( 'categories.json' );
-		$raw         = $this->list_from( $body, 'categories' );
+		$body        = $this->api()->client()->get( 'categories.json' );
+		$raw         = $this->api()->list_from( $body, 'categories' );
 		$transformer = new CategoryTransformer();
 
-		return $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'category' );
+		return $this->api()->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'category' );
 	}
 
 	/**
 	 * @return array<int,CanonicalTag>
 	 */
 	public function fetch_tags(): array {
-		$body        = $this->client()->get( 'groups.json' );
-		$raw         = $this->list_from( $body, 'groups' );
+		$body        = $this->api()->client()->get( 'groups.json' );
+		$raw         = $this->api()->list_from( $body, 'groups' );
 		$transformer = new TagTransformer();
 
-		return $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalTag => $transformer->transform( $item ), 'tag' );
+		return $this->api()->transform_rows( $raw, static fn ( array $item ): ?CanonicalTag => $transformer->transform( $item ), 'tag' );
 	}
 
 	public function fetch_customers( Cursor $cursor ): Page {
 		$offset      = (int) $cursor->get( 'offset', 0 );
-		$body        = $this->client()->get(
+		$body        = $this->api()->client()->get(
 			'customers.json',
 			[
-				'limit'  => self::PAGE_SIZE,
+				'limit'  => ColorMeApi::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw         = $this->list_from( $body, 'customers' );
+		$raw         = $this->api()->list_from( $body, 'customers' );
 		$transformer = new CustomerTransformer();
-		$items       = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => $transformer->transform( $item ), 'customer' );
-		$row_total   = $this->total_from_meta( $body );
+		$items       = $this->api()->transform_rows( $raw, static fn ( array $item ): ?CanonicalCustomer => $transformer->transform( $item ), 'customer' );
+		$row_total   = $this->api()->total_from_meta( $body );
 
 		// `meta.total`は生レスポンスの顧客件数であり、`CustomerTransformer`が非会員・email欠損の
 		// 行をnullで除外した後の`items`件数とは一致しない（`fetch_stocks()`のバリエーション展開と
 		// 同種の乖離）。ページング終端の判定にだけ使い、進捗率の分母として`Page`側には報告しない。
-		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'customers' ), $row_total ), null );
+		return new Page( $items, $this->api()->next_cursor( $offset, $this->api()->raw_row_count( $body, 'customers' ), $row_total ), null );
 	}
 
 	/**
@@ -375,24 +387,24 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 */
 	public function fetch_orders( Cursor $cursor ): Page {
 		$offset = (int) $cursor->get( 'offset', 0 );
-		$body   = $this->client()->get(
+		$body   = $this->api()->client()->get(
 			'sales.json',
 			[
 				'after'  => self::HISTORY_FLOOR,
-				'limit'  => self::PAGE_SIZE,
+				'limit'  => ColorMeApi::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw    = $this->list_from( $body, 'sales' );
+		$raw    = $this->api()->list_from( $body, 'sales' );
 		// `order_transformer()`（初回呼び出し時にpayments.json/deliveries.jsonを叩く）を
 		// 行単位のtry節の外で解決する。理由は`fetch_order_by_remote_id()`と同じ。
 		$transformer = $this->order_transformer();
-		$items       = $this->transform_rows( $raw, static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ), 'order' );
-		$row_total   = $this->total_from_meta( $body );
+		$items       = $this->api()->transform_rows( $raw, static fn ( array $item ): CanonicalOrder => $transformer->transform( $item ), 'order' );
+		$row_total   = $this->api()->total_from_meta( $body );
 
 		// customer同様、`OrderTransformer`が変換失敗行（id/make_date/total_price欠損）を除外した
 		// 後の`items`件数は`meta.total`（生の受注件数）と一致しうるとは限らない。
-		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'sales' ), $row_total ), null );
+		return new Page( $items, $this->api()->next_cursor( $offset, $this->api()->raw_row_count( $body, 'sales' ), $row_total ), null );
 	}
 
 	/**
@@ -401,34 +413,34 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 */
 	public function fetch_stocks( Cursor $cursor ): Page {
 		$offset        = (int) $cursor->get( 'offset', 0 );
-		$body          = $this->client()->get(
+		$body          = $this->api()->client()->get(
 			'products.json',
 			[
-				'limit'  => self::PAGE_SIZE,
+				'limit'  => ColorMeApi::PAGE_SIZE,
 				'offset' => $offset,
 			]
 		);
-		$raw           = $this->list_from( $body, 'products' );
+		$raw           = $this->api()->list_from( $body, 'products' );
 		$transformer   = new StockTransformer();
-		$items         = $this->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'stock' );
-		$product_total = $this->total_from_meta( $body );
+		$items         = $this->api()->transform_rows_flat( $raw, static fn ( array $item ): array => $transformer->transform( $item ), 'stock' );
+		$product_total = $this->api()->total_from_meta( $body );
 
 		// `Page::$total`は進捗率表示用の最終processed件数の見込み（`items`の累積件数と対になる）。
 		// `$items`はバリエーション単位に展開済み（1商品→複数件）で商品件数と一致しないため、
 		// `meta.total`（商品件数）をそのまま`Page`側の`total`として報告すると進捗が100%を
 		// 超えて表示されてしまう。ページング終端の判定にだけ商品件数ベースの値を使い、
 		// `Page`には報告しない。
-		return new Page( $items, $this->next_cursor( $offset, $this->raw_row_count( $body, 'products' ), $product_total ), null );
+		return new Page( $items, $this->api()->next_cursor( $offset, $this->api()->raw_row_count( $body, 'products' ), $product_total ), null );
 	}
 
 	/**
 	 * `GET /shop_coupons.json` にページングパラメータが無い（swagger）ため常に1ページで完結する。
 	 */
 	public function fetch_coupons( Cursor $cursor ): Page {
-		$body        = $this->client()->get( 'shop_coupons.json' );
-		$raw         = $this->list_from( $body, 'shop_coupons' );
+		$body        = $this->api()->client()->get( 'shop_coupons.json' );
+		$raw         = $this->api()->list_from( $body, 'shop_coupons' );
 		$transformer = new CouponTransformer();
-		$items       = $this->transform_rows( $raw, static fn ( array $item ): ?CanonicalCoupon => $transformer->transform( $item ), 'coupon' );
+		$items       = $this->api()->transform_rows( $raw, static fn ( array $item ): ?CanonicalCoupon => $transformer->transform( $item ), 'coupon' );
 
 		return new Page( $items, null, count( $items ) );
 	}
@@ -438,7 +450,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct {
-		$product = $this->fetch_single_by_remote_id( 'products/' . rawurlencode( $remote_id ) . '.json', 'product' );
+		$product = $this->api()->fetch_single( 'products/' . rawurlencode( $remote_id ) . '.json', 'product' );
 
 		if ( null === $product ) {
 			return null;
@@ -453,14 +465,14 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		try {
 			return $transformer->transform( $product );
 		} catch ( Throwable $exception ) {
-			$this->log_transform_failure( 'product', $product, $exception );
+			$this->api()->log_transform_failure( 'product', $product, $exception );
 
 			return null;
 		}
 	}
 
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
-		$customer = $this->fetch_single_by_remote_id( 'customers/' . rawurlencode( $remote_id ) . '.json', 'customer' );
+		$customer = $this->api()->fetch_single( 'customers/' . rawurlencode( $remote_id ) . '.json', 'customer' );
 
 		if ( null === $customer ) {
 			return null;
@@ -469,7 +481,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		try {
 			return ( new CustomerTransformer() )->transform( $customer );
 		} catch ( Throwable $exception ) {
-			$this->log_transform_failure( 'customer', $customer, $exception );
+			$this->api()->log_transform_failure( 'customer', $customer, $exception );
 
 			return null;
 		}
@@ -480,7 +492,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * 直近7日の暗黙の絞り込みを受けない（03 §9 #14）ため、古い受注でも取得できる。
 	 */
 	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
-		$sale = $this->fetch_single_by_remote_id( 'sales/' . rawurlencode( $remote_id ) . '.json', 'sale' );
+		$sale = $this->api()->fetch_single( 'sales/' . rawurlencode( $remote_id ) . '.json', 'sale' );
 
 		if ( null === $sale ) {
 			return null;
@@ -495,7 +507,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		try {
 			return $transformer->transform( $sale );
 		} catch ( Throwable $exception ) {
-			$this->log_transform_failure( 'order', $sale, $exception );
+			$this->api()->log_transform_failure( 'order', $sale, $exception );
 
 			return null;
 		}
@@ -535,10 +547,10 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		}
 
 		if ( null === $remote_id ) {
-			$body      = $this->client()->post( 'products.json', [ 'product' => $transformer->to_create_payload( $product ) ] );
+			$body      = $this->api()->client()->post( 'products.json', [ 'product' => $transformer->to_create_payload( $product ) ] );
 			$operation = PushResult::OPERATION_CREATED;
 		} else {
-			$body      = $this->client()->put( "products/{$remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
+			$body      = $this->api()->client()->put( "products/{$remote_id}.json", [ 'product' => $transformer->to_update_payload( $product ) ] );
 			$operation = PushResult::OPERATION_UPDATED;
 		}
 
@@ -593,7 +605,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			$follow_up_payload = $transformer->to_update_payload( $product );
 
 			try {
-				$this->client()->put( "products/{$product_remote_id}.json", [ 'product' => $follow_up_payload ] );
+				$this->api()->client()->put( "products/{$product_remote_id}.json", [ 'product' => $follow_up_payload ] );
 			} catch ( RateLimitExhaustedException $exception ) {
 				// レート制限はジョブ全体を一時停止すべきシグナル（`Sync\Exporter`のPR #40 G1-1
 				// 専用catch）のため、ここでは握り潰さずそのまま再スローする。作成経路では呼び出し元
@@ -815,7 +827,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 */
 	private function fetch_product_detail( string $product_remote_id, array &$failure ): ?array {
 		try {
-			$body = $this->client()->get( "products/{$product_remote_id}.json" );
+			$body = $this->api()->client()->get( "products/{$product_remote_id}.json" );
 		} catch ( RateLimitExhaustedException $exception ) {
 			throw $exception;
 		} catch ( Throwable $exception ) {
@@ -866,7 +878,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 		if ( null === $existing ) {
 			try {
-				$this->client()->post(
+				$this->api()->client()->post(
 					"products/{$product_remote_id}/options.json",
 					[
 						'option' => [
@@ -903,7 +915,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			}
 
 			try {
-				$this->client()->post(
+				$this->api()->client()->post(
 					"products/{$product_remote_id}/options/{$option_id}/values.json",
 					[ 'option_value' => [ 'name' => $value ] ]
 				);
@@ -1092,7 +1104,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		}
 
 		try {
-			$this->client()->put( "products/{$product_remote_id}/variants/{$variant_remote_id}.json", [ 'variant' => $payload ] );
+			$this->api()->client()->put( "products/{$product_remote_id}/variants/{$variant_remote_id}.json", [ 'variant' => $payload ] );
 
 			return true;
 		} catch ( RateLimitExhaustedException $exception ) {
@@ -1141,7 +1153,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			}
 
 			try {
-				$this->client()->post_multipart(
+				$this->api()->client()->post_multipart(
 					"products/{$product_remote_id}/images.json",
 					'image',
 					self::image_filename( $src, $position ),
@@ -1235,10 +1247,10 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		}
 
 		if ( null === $remote_id ) {
-			$body      = $this->client()->post( 'customers.json', [ 'customer' => $payload ] );
+			$body      = $this->api()->client()->post( 'customers.json', [ 'customer' => $payload ] );
 			$operation = PushResult::OPERATION_CREATED;
 		} else {
-			$body      = $this->client()->put( "customers/{$remote_id}.json", [ 'customer' => $payload ] );
+			$body      = $this->api()->client()->put( "customers/{$remote_id}.json", [ 'customer' => $payload ] );
 			$operation = PushResult::OPERATION_UPDATED;
 		}
 
@@ -1287,7 +1299,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 		// 過去のWoo受注を複製するのであって新規注文ではないため、既定（在庫引き当て）のまま
 		// だとColorMe側の現在庫を実売と無関係に消費してしまう（在庫同期は別途push_stock()の責務）。
-		$body = $this->client()->post( 'sales.json?reserve_stocks=false', [ 'sale' => $result['payload'] ] );
+		$body = $this->api()->client()->post( 'sales.json?reserve_stocks=false', [ 'sale' => $result['payload'] ] );
 
 		$order_remote_id = Cast::to_string_or_null( $body['sale']['id'] ?? null );
 
@@ -1386,13 +1398,13 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			// 無視されると恒久的な在庫未同期になるため、確実にColorMe側で在庫管理を有効化した
 			// 状態でバリエーションの数量を送る（`ProductTransformer::base_payload()`の
 			// `stock_managed`常時送信と同じ思想。review-loop G1でCodexが指摘）。
-			$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => [ 'stock_managed' => true ] ] );
-			$this->client()->put( "products/{$stock->product_ref}/variants/{$stock->variant_ref}.json", [ 'variant' => $payload ] );
+			$this->api()->client()->put( "products/{$stock->product_ref}.json", [ 'product' => [ 'stock_managed' => true ] ] );
+			$this->api()->client()->put( "products/{$stock->product_ref}/variants/{$stock->variant_ref}.json", [ 'variant' => $payload ] );
 
 			return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
 		}
 
-		$this->client()->put( "products/{$stock->product_ref}.json", [ 'product' => StockTransformer::to_product_payload( $stock ) ] );
+		$this->api()->client()->put( "products/{$stock->product_ref}.json", [ 'product' => StockTransformer::to_product_payload( $stock ) ] );
 
 		return new PushResult( $stock->remote_id(), PushResult::OPERATION_UPDATED );
 	}
@@ -1401,41 +1413,11 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
 	}
 
-	/**
-	 * `id.json`単体取得エンドポイント共通のラッパー。404は契約どおりnullに変換する。
-	 *
-	 * @return ?array<string,mixed>
-	 */
-	private function fetch_single_by_remote_id( string $path, string $envelope_key ): ?array {
-		try {
-			$body = $this->client()->get( $path );
-		} catch ( ApiException $exception ) {
-			if ( 404 === $exception->status_code() ) {
-				return null;
-			}
-
-			throw $exception;
-		}
-
-		$item = $body[ $envelope_key ] ?? null;
-
-		if ( is_array( $item ) ) {
-			return $item;
-		}
-
-		// 200応答でも envelope キー自体が欠損、またはその中身が期待した配列でない場合
-		// （スキーマ変更・プロキシ異常等）を無言でnullにすると、404（=正当な削除済み）と
-		// 区別が付かなくなる。呼び出し側（`Woo\Tools\PushIntentResolver`）はnullを「リモートに実体が
-		// 無い」と解釈するため、そのままだと実在する実体を無いものとして扱ってしまう。例外を投げて
-		// 呼び出し側に失敗として知らせる（`list_from()`と同じ方針）。
-		throw new RuntimeException( "ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was missing or not an array." );
-	}
-
 	private function order_transformer(): OrderTransformer {
 		if ( null === $this->order_transformer ) {
 			$this->order_transformer = new OrderTransformer(
-				$this->id_name_map( 'payments.json', 'payments' ),
-				$this->id_name_map( 'deliveries.json', 'deliveries' )
+				$this->api()->id_name_map( 'payments.json', 'payments' ),
+				$this->api()->id_name_map( 'deliveries.json', 'deliveries' )
 			);
 		}
 
@@ -1451,7 +1433,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 */
 	private function order_tax_type(): ?string {
 		if ( ! $this->order_tax_type_loaded ) {
-			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = $this->api()->client()->get( 'shop.json' )['shop'] ?? [];
 			$shop = is_array( $shop ) ? $shop : [];
 
 			$this->order_tax_type        = Cast::to_string_or_null( $shop['tax_type'] ?? null );
@@ -1469,7 +1451,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 */
 	private function product_transformer(): ProductTransformer {
 		if ( null === $this->product_transformer ) {
-			$shop = $this->client()->get( 'shop.json' )['shop'] ?? [];
+			$shop = $this->api()->client()->get( 'shop.json' )['shop'] ?? [];
 			$shop = is_array( $shop ) ? $shop : [];
 
 			$this->product_transformer = new ProductTransformer(
@@ -1484,76 +1466,6 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	/**
-	 * `sale`は`payment_id`/`delivery_id`のみを持ち名称を含まないため、`OrderTransformer`が
-	 * 参照する`id => name`マップをここで組み立てる（同クラスdocblock参照）。
-	 *
-	 * @return array<int,string>
-	 */
-	private function id_name_map( string $path, string $envelope_key ): array {
-		$rows = $this->list_from( $this->client()->get( $path ), $envelope_key );
-		$map  = [];
-
-		foreach ( $rows as $row ) {
-			$id   = Cast::to_int_or_null( $row['id'] ?? null );
-			$name = Cast::to_string_or_null( $row['name'] ?? null );
-
-			if ( null !== $id && null !== $name ) {
-				$map[ $id ] = $name;
-			}
-		}
-
-		return $map;
-	}
-
-	/**
-	 * 一覧エンベロープキー（例: `products`）はAPI契約上必ず配列で返る前提。キー自体の欠損や
-	 * 非配列値はショップの仕様変更・プロキシ異常等によるスキーマ崩壊であり、`[]`（正当な0件）と
-	 * 区別せず返すと、呼び出し元がページ終端と誤認しジョブを「完了」させてしまい、
-	 * データ欠落がリトライ可能な失敗として表面化しない（フェイルクローズ原則。CLAUDE.md）。
-	 * ここで例外を投げ`JobManager`の`catch(Throwable)`でジョブを失敗させる。
-	 *
-	 * @param array<string,mixed> $body
-	 * @return array<int,array<string,mixed>>
-	 */
-	private function list_from( array $body, string $key ): array {
-		$list = $body[ $key ] ?? null;
-
-		if ( ! is_array( $list ) ) {
-			throw new RuntimeException( "ColorMe API response is missing the expected \"{$key}\" list envelope." );
-		}
-
-		return array_values( array_filter( $list, 'is_array' ) );
-	}
-
-	/**
-	 * @param array<string,mixed> $body
-	 */
-	private function total_from_meta( array $body ): ?int {
-		$meta = $body['meta'] ?? null;
-
-		return is_array( $meta ) ? self::exact_int_or_null( $meta['total'] ?? null ) : null;
-	}
-
-	/**
-	 * `meta.total`はページング終端の境界値として使うため、`Cast::to_int_or_null()`の暗黙の
-	 * 切り捨て（例: 50.5→50件目までしか無いページを「50件で完了」と誤認）をそのまま許すと、
-	 * 実際にはより多くの行が残るページを誤って終端と判定しかねない。整数として厳密に
-	 * 表現できる値のみ受け付け、小数はnullに倒す（null＝「総件数不明」として`next_cursor()`が
-	 * 空ページに達するまで継続する）。
-	 */
-	private static function exact_int_or_null( mixed $value ): ?int {
-		if ( is_string( $value ) && is_numeric( $value ) ) {
-			$value = $value + 0;
-		}
-
-		if ( is_int( $value ) ) {
-			return $value;
-		}
-
-		return is_float( $value ) && (float) (int) $value === $value ? (int) $value : null;
-	}
-
-	/**
 	 * `shop.tax`/`shop.reduce_tax_rate`（パーセント表記の税率）用のバリデーション。
 	 * swagger上はinteger型だが、`Cast::to_int_or_null()`は小数（例: `8.9`）を`(int)`丸めで
 	 * 黙って通してしまうため、`exact_int_or_null()`と同じ理由（`meta.total`参照）で厳密な
@@ -1562,137 +1474,8 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * （レビュー指摘: PR #24。誤った税率でもっともらしいが誤った定価を計算してしまうことを防ぐ）。
 	 */
 	private static function valid_tax_rate_or_null( mixed $value ): ?int {
-		$rate = self::exact_int_or_null( $value );
+		$rate = ColorMeApi::exact_int_or_null( $value );
 
 		return null !== $rate && $rate >= 0 && $rate <= 100 ? $rate : null;
-	}
-
-	/**
-	 * `list_from()`はis_array()フィルタ後の配列を返すため、非配列要素が混入したページでは
-	 * その件数がAPI側の実際のページ内行数より少なくなりうる。カーソルのoffset計算を
-	 * フィルタ後の件数で行うと、次ページのoffsetがAPI側の絶対位置より手前になり、
-	 * 除外された行を含むページと次のページが重複し、重複取込・重複書込を招く
-	 * （upsertのため実害は軽微だが、レート制限を無駄に消費する）。offset計算には
-	 * 必ずフィルタ前の生の行数を使う。
-	 *
-	 * @param array<string,mixed> $body
-	 */
-	private function raw_row_count( array $body, string $key ): int {
-		$list = $body[ $key ] ?? null;
-
-		return is_array( $list ) ? count( $list ) : 0;
-	}
-
-	/**
-	 * `meta.total`が得られる場合はそれで終端判定し、得られない場合（categories/groups/
-	 * shop_couponsの単発取得を除くページング系）はページサイズ未満の取得件数を終端の合図にする。
-	 *
-	 * `$raw_count`は`list_from()`によるフィルタ前の生の行数（`raw_row_count()`）を渡すこと。
-	 * フィルタ後の件数を渡すと、次ページのoffsetがAPI側の絶対位置より手前になり重複取得を招く
-	 * （offset計算はAPI側のページ内行数と対応させる必要があるため）。
-	 */
-	private function next_cursor( int $offset, int $raw_count, ?int $total ): ?Cursor {
-		// 0件取得時は無条件に終端とする。`meta.total`がoffsetより大きい値を報告していても
-		// （並行削除等で0件になった場合）offsetを進めるすべが無く、同じoffsetのCursorを返すと
-		// JobManagerが同一ページを無限に再エンキューし続けてしまう。
-		if ( 0 === $raw_count ) {
-			return null;
-		}
-
-		$next_offset = $offset + $raw_count;
-
-		// `meta.total`が負値、またはここまでの累計行数（`$next_offset`）にも満たない不整合な値
-		// （スキーマ崩壊・プロキシ異常等）の場合は、totalを信頼できないとみなし「総件数不明」と
-		// 同じ扱い（下のフォールバック＝空ページに達するまで継続）に倒す。不整合なtotalを
-		// そのまま終端判定に使うと、実際にはまだ残っている行を含むページを「完了」と誤認し、
-		// 静かな部分移行を招く（フェイルクローズ原則）。
-		if ( null !== $total && $total >= $next_offset ) {
-			return $next_offset < $total ? new Cursor( [ 'offset' => $next_offset ] ) : null;
-		}
-
-		// `meta.total`が得られない（または上記で信頼できないと判定された）場合、「取得件数が
-		// ページサイズ未満＝最終ページ」とは推測しない（APIが実際にはページサイズ分の行を
-		// 返していても、`$raw_count`自体がそのままページサイズと一致しない構成のエンドポイントが
-		// ありうるため）。0件になるまで走査を続ける（安全側=継続に倒す）。
-		return new Cursor( [ 'offset' => $next_offset ] );
-	}
-
-	/**
-	 * 1行の変換失敗（例: id欠損の`RuntimeException`）でページ全体を落とさないための共通ラッパー。
-	 * `Importer`の1件例外保護は`WooWriter::write()`周りにしか無く、fetch/transform段はここで担う。
-	 *
-	 * @template T
-	 *
-	 * @param array<int,array<string,mixed>>   $raw_items
-	 * @param callable(array<string,mixed>):?T $transform
-	 * @return array<int,T>
-	 */
-	private function transform_rows( array $raw_items, callable $transform, string $entity ): array {
-		return $this->transform_rows_flat(
-			$raw_items,
-			static function ( array $raw ) use ( $transform ): array {
-				$item = $transform( $raw );
-
-				return null !== $item ? [ $item ] : [];
-			},
-			$entity
-		);
-	}
-
-	/**
-	 * `transform_rows()`の1件=0..N件版（category/stockのように1行から複数モデルを生成する場合）。
-	 *
-	 * @template T
-	 *
-	 * @param array<int,array<string,mixed>>             $raw_items
-	 * @param callable(array<string,mixed>):array<int,T> $transform
-	 * @return array<int,T>
-	 */
-	private function transform_rows_flat( array $raw_items, callable $transform, string $entity ): array {
-		$result = [];
-
-		foreach ( $raw_items as $raw ) {
-			try {
-				$items = $transform( $raw );
-			} catch ( Throwable $exception ) {
-				$this->log_transform_failure( $entity, $raw, $exception );
-				continue;
-			}
-
-			array_push( $result, ...$items );
-		}
-
-		return $result;
-	}
-
-	/**
-	 * `Support\Logger`の個人情報禁止ルール（`Importer`の同種catch節と同じ方針）に従い、
-	 * remote_idと例外クラス名のみを記録する（例外メッセージ自体は含めない）。
-	 *
-	 * @param array<string,mixed> $raw
-	 */
-	private function log_transform_failure( string $entity, array $raw, Throwable $exception ): void {
-		$this->logger->error(
-			"Failed to transform a ColorMe \"{$entity}\" row.",
-			[
-				// `??`は空文字を「設定済み」とみなし`id_big`へフォールバックしない
-				// （`id`が空文字の壊れた行でカテゴリー由来の`id_big`を拾えなくなる）ため、
-				// `Cast::first_non_empty()`で空文字も未設定として扱う。
-				'remote_id' => Cast::first_non_empty( $raw['id'] ?? null, $raw['id_big'] ?? null ),
-				'exception' => $exception::class,
-			]
-		);
-	}
-
-	private function client(): ColorMeClient {
-		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
-
-		if ( '' === $access_token ) {
-			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（push intent の解除・`Sync\Exporter` 等）が
-			// 「再接続が必要」と区別できるよう、未接続であることを文脈で明示する。
-			throw new ApiException( 'ColorMe adapter is not connected.', 0, [ 'not_connected' => true ] );
-		}
-
-		return ColorMeClient::for_access_token( $access_token );
 	}
 }
