@@ -48,17 +48,33 @@ add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_bootstrap', 20 );
  * 依存は Pro から無料版への一方向（D29）。無料版が起動していないときは Pro も何もしない。
  */
 function cbjp_pro_bootstrap(): void {
-	if ( ! class_exists( \WooCommerce::class ) || ! class_exists( \CartBridgeJP\Core\Plugin::class ) ) {
+	cbjp_pro_maybe_boot(
+		class_exists( \WooCommerce::class ) && class_exists( \CartBridgeJP\Core\Plugin::class ),
+		class_exists( Core\Plugin::class )
+	);
+}
+
+/**
+ * 前提を確かめてから起動する。欠けていれば管理画面に通知を登録し、起動しない。
+ * 判定を引数で受けるのは、前提が欠けた場合をテストで再現するため（テスト環境では WooCommerce と無料版が常に読み込まれている）。
+ *
+ * @param bool $requirements_met WooCommerce と無料版が読み込まれているか。
+ * @param bool $autoloaded       Pro の autoload（vendor/autoload.php）が読み込めたか。
+ * @return bool 起動したか。
+ */
+function cbjp_pro_maybe_boot( bool $requirements_met, bool $autoloaded ): bool {
+	if ( ! $requirements_met ) {
 		add_action( 'admin_notices', __NAMESPACE__ . '\\cbjp_pro_render_missing_requirements_notice' );
-		return;
+		return false;
 	}
 
-	if ( ! class_exists( Core\Plugin::class ) ) {
+	if ( ! $autoloaded ) {
 		add_action( 'admin_notices', __NAMESPACE__ . '\\cbjp_pro_render_missing_autoload_notice' );
-		return;
+		return false;
 	}
 
 	Core\Plugin::instance()->boot();
+	return true;
 }
 
 /**

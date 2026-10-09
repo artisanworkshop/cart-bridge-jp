@@ -25,6 +25,25 @@ final class BootstrapTest extends WP_UnitTestCase {
 		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
 	}
 
+	public function test_does_not_boot_without_woocommerce_or_the_free_plugin(): void {
+		$this->assertFalse( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( false, true ) );
+		$this->assertSame( 10, has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_requirements_notice' ) );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
+	}
+
+	public function test_does_not_boot_without_its_autoloader(): void {
+		$this->assertFalse( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( true, false ) );
+		$this->assertSame( 10, has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_requirements_notice' ) );
+	}
+
+	public function test_boots_when_the_requirements_are_met(): void {
+		$this->assertTrue( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( true, true ) );
+		$this->assertTrue( Plugin::instance()->is_booted() );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_requirements_notice' ) );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
+	}
+
 	public function test_requirements_notice_is_shown_to_administrators_only(): void {
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
 		$admin_output = $this->render( 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_requirements_notice' );

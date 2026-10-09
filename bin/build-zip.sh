@@ -56,8 +56,12 @@ case "$VERSION" in
 	*[!0-9A-Za-z.-]* | '') die "invalid version: ${VERSION}" ;;
 esac
 
+# 出力は受けておき、失敗したときだけすべて出してから止める（webpack のエラーは標準出力に出るので、捨てると CI のログに理由が残らない）。
 if [ "$BUILD" = 1 ]; then
-	npm run build >/dev/null || die "npm run build failed"
+	if build_out=$(npm run build 2>&1); then :; else
+		printf '%s\n' "$build_out" >&2
+		die "npm run build failed"
+	fi
 fi
 
 if ! TMP=$(mktemp -d) || [ -z "$TMP" ]; then
@@ -70,8 +74,10 @@ FINAL="${TMP}/final/${SLUG}"
 mkdir -p "$STAGE" "$FINAL"
 
 rsync -a --exclude=vendor/ "${SRC}/" "${STAGE}/"
-composer install --no-dev --optimize-autoloader --prefer-dist --no-progress --no-interaction --quiet --working-dir="$STAGE" ||
+if composer_out=$(composer install --no-dev --optimize-autoloader --prefer-dist --no-progress --no-interaction --working-dir="$STAGE" 2>&1); then :; else
+	printf '%s\n' "$composer_out" >&2
 	die "composer install --no-dev failed"
+fi
 rsync -a --exclude-from="${SRC}/.distignore" "${STAGE}/" "${FINAL}/"
 
 fail=0
