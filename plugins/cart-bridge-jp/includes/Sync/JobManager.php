@@ -108,7 +108,10 @@ final class JobManager {
 		}
 
 		// 実行順と能力の判定は実体の種類が持つ（`Entities\EntityType::position()`・`supports_import()`/`supports_export()`。R3-6b1）。
-		// 登録の無い種類・この接続先で扱えない種類は黙って外す。
+		// 登録の無い種類・この接続先で扱えない種類は黙って外す。種類の判定は外部の種類の例外を「非対応」として握るので、アダプタの
+		// 能力の読み取りの失敗は先にここで外へ出す（以前と同じく run を始めない。要求した種類が黙って外れた run にしない）。
+		$adapter->capabilities();
+
 		$is_export_type   = in_array( $type, [ self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ], true );
 		$ordered_entities = $is_export_type
 			? EntityTypeRegistry::exportable( $adapter, $entities )

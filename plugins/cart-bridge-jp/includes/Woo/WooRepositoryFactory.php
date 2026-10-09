@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo;
 
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Entities\WooServices;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Sync\WooWriter;
 use CartBridgeJP\Sync\WooWriterFactory;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
@@ -46,7 +47,16 @@ final class WooRepositoryFactory implements WooWriterFactory {
 		foreach ( EntityTypeRegistry::all() as $key => $type ) {
 			try {
 				$writer = $type->writer( $platform, $services );
-			} catch ( Throwable ) {
+			} catch ( Throwable $exception ) {
+				( new Logger() )->error(
+					'Entity type failed to build its Woo writer.',
+					[
+						'platform'  => $platform,
+						'entity'    => $key,
+						'exception' => $exception::class,
+					]
+				);
+
 				continue;
 			}
 

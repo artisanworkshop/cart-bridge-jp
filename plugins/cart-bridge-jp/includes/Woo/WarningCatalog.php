@@ -161,7 +161,14 @@ final class WarningCatalog {
 			return null;
 		}
 
-		return $text instanceof WarningText ? $text : null;
+		if ( ! $text instanceof WarningText ) {
+			return null;
+		}
+
+		// 知らない重大度は `unknown` にする（CSV の絞り込みに楽観的な値を流さない。原則 9）。
+		$known = [ self::SEVERITY_BLOCKING, self::SEVERITY_ACTION_REQUIRED, self::SEVERITY_INFO, self::SEVERITY_UNKNOWN ];
+
+		return in_array( $text->severity, $known, true ) ? $text : new WarningText( self::SEVERITY_UNKNOWN, $text->message, $text->action, $text->detail_message );
 	}
 
 	/**

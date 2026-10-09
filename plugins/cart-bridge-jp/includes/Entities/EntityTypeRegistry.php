@@ -42,6 +42,11 @@ final class EntityTypeRegistry {
 	private const RESERVED_KEYS = [ 'variant' ];
 
 	/**
+	 * 無料版の種類のキー（`core_types()`）。外部の種類はこのキーを使えず、これらの種類の LinkSource・MappingKind のキーも先に確定する。
+	 */
+	private const CORE_KEYS = [ 'category', 'tag', 'product', 'stock', 'review' ];
+
+	/**
 	 * @var array<string,EntityType>|null
 	 */
 	private static ?array $types = null;
@@ -53,6 +58,11 @@ final class EntityTypeRegistry {
 	 */
 	private static ?array $flag_index = null;
 
+	/**
+	 * 一覧を組み立てている間（フィルターのコールバックが `has()` などを呼んでも再帰しないように）。
+	 */
+	private static bool $building = false;
+
 	private function __construct() {}
 
 	/**
@@ -63,7 +73,18 @@ final class EntityTypeRegistry {
 			return self::$types;
 		}
 
-		$types = self::build();
+		// 組み立て中に呼ばれた（登録のコールバックが一覧を引いた）ら、無料版の種類だけを返す（再帰で fatal にしない）。
+		if ( self::$building ) {
+			return self::core_map();
+		}
+
+		self::$building = true;
+
+		try {
+			$types = self::build();
+		} finally {
+			self::$building = false;
+		}
 
 		if ( did_action( 'plugins_loaded' ) && ! doing_action( 'plugins_loaded' ) ) {
 			self::$types = $types;
@@ -179,24 +200,42 @@ final class EntityTypeRegistry {
 	 * @return array<string,true>
 	 */
 	public static function warning_flags( string $code ): array {
-		if ( null === self::$flag_index ) {
-			self::$flag_index = self::build_flag_index();
+		if ( null !== self::$flag_index ) {
+			return self::$flag_index[ $code ] ?? [];
 		}
 
-		return self::$flag_index[ $code ] ?? [];
+		$index = self::build_flag_index();
+
+		// 種類の一覧と同じく、一覧をキャッシュできる時点（`plugins_loaded` の後）のものだけを保持する。途中で作った索引を保持すると、
+		// 後から登録された種類の印（受注の blocking など）が `reset_cache()` まで無いままになる（fail-open）。
+		if ( null !== self::$types ) {
+			self::$flag_index = $index;
+		}
+
+		return $index[ $code ] ?? [];
 	}
 
 	/**
-	 * 全種類のマッピング設定（種類の実行順 → 種類の中の `position()`）。キーが重なれば先の種類が勝つ。
+	 * エクスポートがベータ扱いか（D24。既定で選ばない）。外部の種類が例外を投げたらベータとして扱う（既定で選ばない側に倒す。原則 9）。
+	 */
+	public static function is_export_beta( EntityType $type, PlatformAdapter $adapter ): bool {
+		try {
+			return false !== $type->is_export_beta( $adapter );
+		} catch ( Throwable ) {
+			return true;
+		}
+	}
+
+	/**
+	 * 全種類のマッピング設定（種類の実行順 → 種類の中の `position()`）。キーは無料版の種類のものを先に確定し、外部の種類の同じキー・
+	 * 形の違うキーは外す（外部の種類が無料版のマッピングを置き換えないように）。
 	 *
 	 * @return array<int,MappingKind>
 	 */
 	public static function mapping_kinds(): array {
-		$kinds = [];
+		$entries = [];
 
 		foreach ( self::all() as $type ) {
-			$own = [];
-
 			try {
 				foreach ( $type->mapping_kinds() as $kind ) {
 					if ( ! $kind instanceof MappingKind ) {
@@ -204,35 +243,27 @@ final class EntityTypeRegistry {
 						continue;
 					}
 
-					$own[] = [ $kind->position(), $kind->key(), $kind ];
+					$entries[] = [ $type->position(), $kind->position(), $kind->key(), $kind, self::is_core( $type ) ];
 				}
 			} catch ( Throwable ) {
 				self::reject( "The mapping kinds of entity type \"{$type->key()}\" could not be read." );
-				continue;
-			}
-
-			usort( $own, static fn ( array $a, array $b ): int => [ $a[0], $a[1] ] <=> [ $b[0], $b[1] ] );
-
-			foreach ( $own as [ , $key, $kind ] ) {
-				if ( 1 !== preg_match( '/^[a-z][a-z0-9_]{0,30}\z/', $key ) || isset( $kinds[ $key ] ) ) {
-					self::reject( "The mapping kind \"{$key}\" is invalid or already registered." );
-					continue;
-				}
-
-				$kinds[ $key ] = $kind;
 			}
 		}
 
-		return array_values( $kinds );
+		return array_map(
+			static fn ( array $entry ): MappingKind => $entry[3],
+			self::claim_keys( $entries, '/^[a-z][a-z0-9_]{0,30}\z/', 'mapping kind' )
+		);
 	}
 
 	/**
-	 * リンク再構築が走査する全種類の実体（`LinkSource::position()` 順。キーが重なれば先の種類が勝つ）。
+	 * リンク再構築が走査する全種類の実体（`LinkSource::position()` 順）。キーは無料版の種類のものを先に確定し、外部の種類の同じキー・
+	 * 形の違うキー（`cbjp_mappings.entity_type` の varchar(20) に入らないもの）は外す。
 	 *
 	 * @return array<int,LinkSource>
 	 */
 	public static function link_sources(): array {
-		$sources = [];
+		$entries = [];
 
 		foreach ( self::all() as $type ) {
 			try {
@@ -242,23 +273,52 @@ final class EntityTypeRegistry {
 						continue;
 					}
 
-					$key = $source->key();
-
-					if ( isset( $sources[ $key ] ) ) {
-						self::reject( "The link source \"{$key}\" is already registered." );
-						continue;
-					}
-
-					$sources[ $key ] = [ $source->position(), $key, $source ];
+					$entries[] = [ 0, $source->position(), $source->key(), $source, self::is_core( $type ) ];
 				}
 			} catch ( Throwable ) {
 				self::reject( "The link sources of entity type \"{$type->key()}\" could not be read." );
 			}
 		}
 
-		usort( $sources, static fn ( array $a, array $b ): int => [ $a[0], $a[1] ] <=> [ $b[0], $b[1] ] );
+		return array_map(
+			static fn ( array $entry ): LinkSource => $entry[3],
+			self::claim_keys( $entries, self::KEY_PATTERN, 'link source' )
+		);
+	}
 
-		return array_map( static fn ( array $entry ): LinkSource => $entry[2], $sources );
+	/**
+	 * キーの重複を除き（無料版の種類のものを先に確定し、残りは先勝ち）、[種類の位置, 項目の位置, キー] の順に並べる。
+	 *
+	 * @param array<int,array{0:int,1:int,2:string,3:object,4:bool}> $entries
+	 * @return array<int,array{0:int,1:int,2:string,3:object,4:bool}>
+	 */
+	private static function claim_keys( array $entries, string $pattern, string $what ): array {
+		$claimed = [];
+
+		foreach ( [ true, false ] as $core_pass ) {
+			foreach ( $entries as $entry ) {
+				if ( $entry[4] !== $core_pass ) {
+					continue;
+				}
+
+				$key = $entry[2];
+
+				if ( 1 !== preg_match( $pattern, $key ) || isset( $claimed[ $key ] ) ) {
+					self::reject( "The {$what} \"{$key}\" is invalid or already registered." );
+					continue;
+				}
+
+				$claimed[ $key ] = $entry;
+			}
+		}
+
+		usort( $claimed, static fn ( array $a, array $b ): int => [ $a[0], $a[1], $a[2] ] <=> [ $b[0], $b[1], $b[2] ] );
+
+		return $claimed;
+	}
+
+	private static function is_core( EntityType $type ): bool {
+		return in_array( $type->key(), self::CORE_KEYS, true );
 	}
 
 	/**
@@ -282,13 +342,7 @@ final class EntityTypeRegistry {
 	 * @return array<string,EntityType>
 	 */
 	private static function build(): array {
-		$types = [];
-
-		foreach ( self::core_types() as $type ) {
-			$types[ $type->key() ] = $type;
-		}
-
-		$core_keys = array_keys( $types );
+		$types = self::core_map();
 
 		/**
 		 * 無料版の商品系に加えて登録する実体の種類（Pro アドオンの拡張点）。`EntityType` を継承したインスタンスの配列を返す
@@ -329,7 +383,7 @@ final class EntityTypeRegistry {
 			}
 
 			if ( isset( $types[ $key ] ) ) {
-				$reason = in_array( $key, $core_keys, true ) ? 'a built-in type' : 'already registered';
+				$reason = in_array( $key, self::CORE_KEYS, true ) ? 'a built-in type' : 'already registered';
 				self::reject( "The entity type \"{$key}\" is {$reason}." );
 				continue;
 			}
@@ -342,6 +396,21 @@ final class EntityTypeRegistry {
 			$types,
 			static fn ( string $a, string $b ): int => [ $positions[ $a ], $a ] <=> [ $positions[ $b ], $b ]
 		);
+
+		return $types;
+	}
+
+	/**
+	 * 無料版の種類だけの一覧（実行順。組み立て中に呼ばれたとき）。
+	 *
+	 * @return array<string,EntityType>
+	 */
+	private static function core_map(): array {
+		$types = [];
+
+		foreach ( self::core_types() as $type ) {
+			$types[ $type->key() ] = $type;
+		}
 
 		return $types;
 	}

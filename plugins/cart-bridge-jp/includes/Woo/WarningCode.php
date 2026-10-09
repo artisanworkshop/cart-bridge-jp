@@ -14,7 +14,8 @@ use CartBridgeJP\Entities\WarningFlag;
  * `WriteResult::$warnings` に積む警告コード定数。`"{code}:{detail}"` 形式の文字列にする
  * （F1-6のdry-run CSV・結果レポートが`:`で分解できる契約）。コード自体はi18nしない安定キーで、
  * 店舗向けの説明（重大度・原因・対処）は `Woo\WarningCatalog` に書く（R3-0k）。定数を足したら、取込み・エクスポートの
- * 両方の向きの説明をカタログに足すこと（`WarningCatalogTest` が全定数について強制する）。
+ * 両方の向きの説明をカタログに足すこと（`WarningCatalogTest` が全定数について強制する）。顧客・受注・クーポンのコードの説明と判定の印は
+ * 実体の種類が持つ（`Entities\Commerce\*Warnings`。R3-6b1。定数は R3-6c で Pro へ移すまでここに残す）。
  */
 final class WarningCode {
 

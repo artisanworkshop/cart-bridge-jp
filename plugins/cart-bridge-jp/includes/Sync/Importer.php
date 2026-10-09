@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
+use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Woo\WarningCode;
@@ -109,11 +110,7 @@ final class Importer {
 
 			// 移行後検証レポート（D17）用: この run で ASP から取得したアイテムの金額（受注の種類だけが返す）を、書込の成否・
 			// スキップに関わらず全 processed 分で累積する（`JobRepository::empty_totals()`）。
-			$remote_amount = $type?->remote_amount( $item );
-
-			if ( null !== $remote_amount ) {
-				$totals['remote_amount'] += $remote_amount;
-			}
+			$totals['remote_amount'] += $this->remote_amount_of( $type, $item, $entity, $job_id );
 
 			$remote_id = $remote_ids[ $index ];
 
@@ -285,6 +282,26 @@ final class Importer {
 		$page = $type->fetch_page( $adapter, $cursor );
 
 		return [ $page->items, $page->next_cursor, $page->total ];
+	}
+
+	/**
+	 * 外部の種類の戻り値・例外は信用しない（原則 8）。1 件の金額が読めなくても、ページ全体を止めず 0 として数える
+	 * （例外クラスは記録する。`Support\Logger` の個人情報禁止ルールに従い、メッセージは記録しない）。
+	 */
+	private function remote_amount_of( ?EntityType $type, CanonicalModel $item, string $entity, ?int $job_id ): int {
+		if ( null === $type ) {
+			return 0;
+		}
+
+		try {
+			$amount = $type->remote_amount( $item );
+		} catch ( Throwable $exception ) {
+			$this->logger->error( "Entity type failed to report the amount of a {$entity} item.", [ 'exception' => $exception::class ], $job_id );
+
+			return 0;
+		}
+
+		return is_int( $amount ) ? $amount : 0;
 	}
 
 	private function remote_id_of( CanonicalModel $item ): ?string {

@@ -9,6 +9,7 @@ namespace CartBridgeJP\Woo;
 
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Entities\WooServices;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Sync\WooReader;
 use CartBridgeJP\Sync\WooReaderFactory;
 use CartBridgeJP\Woo\Reader\EntityReader;
@@ -34,7 +35,16 @@ final class WooReaderRepositoryFactory implements WooReaderFactory {
 		foreach ( EntityTypeRegistry::all() as $key => $type ) {
 			try {
 				$reader = $type->reader( $platform, $services );
-			} catch ( Throwable ) {
+			} catch ( Throwable $exception ) {
+				( new Logger() )->error(
+					'Entity type failed to build its Woo reader.',
+					[
+						'platform'  => $platform,
+						'entity'    => $key,
+						'exception' => $exception::class,
+					]
+				);
+
 				continue;
 			}
 

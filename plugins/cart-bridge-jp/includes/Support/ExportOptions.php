@@ -15,9 +15,9 @@ namespace CartBridgeJP\Support;
  * オンとして扱い、欠損・壊れた値（`'true'`・`1`・配列・`stdClass` 等）は全てオフに倒す（フェイルクローズ。
  * `(bool)` キャストは `'false'` を true にしてしまうため使わない）。
  *
- * `cbjp_settings_{platform}`（マッピング。`Woo\Support\MethodMap` と `Admin\RestController` が全置換で書く）とは
- * 別のオプションにしてある: あちらは4つのマップキーだけを読み書きするため、同じオプションに載せると
- * マッピング保存で本設定が消える。アンインストール時は `Core\Uninstaller` が `cbjp_` 接頭辞のオプションを全削除する。
+ * `cbjp_settings_{platform}`（マッピング。`Woo\Support\MethodMap` が読み、`Admin\RestController` が書く）とは
+ * 別のオプションにしてある: あちらは R3-6b1 より前は 4 つのマップキーだけで option を書き直していたため、同じオプションに載せると
+ * マッピング保存で本設定が消えた（今は登録の無いキーを残すが、マッピングの種類と同じ名前空間に置かない）。アンインストール時は `Core\Uninstaller` が `cbjp_` 接頭辞のオプションを全削除する。
  */
 final class ExportOptions {
 

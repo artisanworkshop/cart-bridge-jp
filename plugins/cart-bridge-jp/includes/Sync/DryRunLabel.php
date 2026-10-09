@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
+use Throwable;
 
 /**
  * `cbjp_dry_run_items.label`（CSV上の人が読める識別子）を組み立てる。`Support\Logger`の
@@ -28,9 +29,18 @@ final class DryRunLabel {
 	}
 
 	/**
-	 * ページごとに 1 回引いた種類で組み立てる（`Sync\Importer`・`Sync\Exporter`）。
+	 * ページごとに 1 回引いた種類で組み立てる（`Sync\Importer`・`Sync\Exporter`）。外部の種類が例外を投げたら空にする
+	 * （ラベルは表示用。1 件の異常でページ全体を止めない。呼び出し元には例外を処理する catch 節の中もある）。
 	 */
 	public static function for_type( ?EntityType $type, CanonicalModel $item ): string {
-		return null === $type ? '' : $type->dry_run_label( $item );
+		if ( null === $type ) {
+			return '';
+		}
+
+		try {
+			return $type->dry_run_label( $item );
+		} catch ( Throwable ) {
+			return '';
+		}
 	}
 }

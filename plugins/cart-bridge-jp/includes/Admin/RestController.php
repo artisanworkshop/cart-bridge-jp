@@ -860,7 +860,8 @@ final class RestController {
 				$options['export'][] = [
 					'key'   => $key,
 					'label' => $label,
-					'beta'  => EntityTypeRegistry::safely( $type, static fn ( EntityType $t ): bool => $t->is_export_beta( $adapter ) ),
+					// 例外のときはベータ（既定で選ばない）に倒す（原則 9）。
+					'beta'  => EntityTypeRegistry::is_export_beta( $type, $adapter ),
 				];
 			}
 		}
