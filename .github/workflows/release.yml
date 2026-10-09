@@ -23,42 +23,22 @@ jobs:
           extensions: sodium, json, mysqli
           coverage: none
 
-      - name: Install Composer dependencies (runtime only)
-        run: composer install --no-dev --optimize-autoloader --prefer-dist --no-progress --no-interaction
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
-      - name: Install Node dependencies & build
-        run: |
-          npm ci
-          npm run build
+      - name: Install Node dependencies
+        run: npm ci
 
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Create plugin zip
-        run: |
-          PLUGIN_SLUG="cart-bridge-jp"
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          DEST="${PLUGIN_SLUG}-${VERSION}"
-
-          # Copy release files to staging directory
-          mkdir -p "/tmp/${DEST}/${PLUGIN_SLUG}"
-          rsync -a \
-            --exclude-from='.distignore' \
-            . "/tmp/${DEST}/${PLUGIN_SLUG}/"
-
-          # Create zip
-          cd "/tmp/${DEST}"
-          zip -rq "${PLUGIN_SLUG}-${VERSION}.zip" "${PLUGIN_SLUG}/"
-
-          # Move to workspace
-          mv "${PLUGIN_SLUG}-${VERSION}.zip" "$GITHUB_WORKSPACE/"
+      # 無料版（plugins/cart-bridge-jp）の zip。ビルド・composer install --no-dev・.distignore・中身の検査は CI の Distribution ジョブと同じスクリプト（D29・R3-7）。
+      - name: Build and check the plugin zip
+        run: bin/build-zip.sh --version "${{ steps.version.outputs.VERSION }}" --out .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

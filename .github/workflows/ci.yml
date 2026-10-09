@@ -102,6 +102,32 @@ jobs:
       - name: Build
         run: npm run build
 
+  # 無料版の配布 zip を作り、中身（許可した最上位だけ・追跡しているファイルだけ・autoload に --no-dev・Pro の識別子が無いこと）を検査する（D29・R3-7）。
+  distribution:
+    name: Distribution (free plugin zip)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: sodium, json
+          coverage: none
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build and check the plugin zip
+        run: bin/build-zip.sh
+
   dev-tooling:
     name: Dev tooling (cbj-dev-cycle scripts)
     runs-on: ubuntu-latest
