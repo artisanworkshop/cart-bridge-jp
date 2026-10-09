@@ -53,7 +53,8 @@ Admin UI (React/TS) ──REST──> Admin\RestController
 
 > **注**: 本節は初期構想。**確定版のIFは `03-design-decisions.md` §2**（オプショナルエンティティ=D5、
 > サンプル選定用メソッド=D15 を含む）を参照。D27（2026-10-09）で D15 は廃止し、顧客・受注・クーポンは Pro アドオンへ移す。
-> それらのメソッド（`fetch_customers`・`fetch_orders`・`fetch_coupons`・`fetch_latest_orders`・`push_customer` など）は Pro へ移す（2026-10-09 決定。`03-design-decisions.md` §10.0「決め残し」1）。
+> それらのメソッド（`fetch_customers`・`fetch_orders`・`fetch_coupons`・`push_customer` など）は Pro へ移す（2026-10-09 決定。`03-design-decisions.md` §10.0「決め残し」1。R3-6c）。
+> サンプル選定専用の `fetch_latest_orders` は R3-6a で削除した。
 > Pro が ASP の API を呼ぶための拡張点の形は、R3-4 の凍結（D20）の前に R3-6 で決める。
 
 ```php
