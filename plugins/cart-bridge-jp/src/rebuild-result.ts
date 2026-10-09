@@ -19,7 +19,13 @@ export function mergeCounts( into: Counts, add: unknown ): Counts {
 
 	for ( const [ key, value ] of Object.entries( add ) ) {
 		if ( 'number' === typeof value && Number.isFinite( value ) ) {
-			merged[ key ] = ( merged[ key ] ?? 0 ) + value;
+			// 種類のキーは `constructor` などもありうる（`^[a-z][a-z0-9_]{0,19}$`）。継承プロパティを前の件数と読まないよう、自前のものだけ足す
+			// （PR #116 G1-2）。書き込みも `__proto__` に当たらない形（登録キーの形に `_` 始まりは無い）。
+			const previous = Object.prototype.hasOwnProperty.call( merged, key )
+				? merged[ key ]
+				: 0;
+
+			merged[ key ] = previous + value;
 		}
 	}
 

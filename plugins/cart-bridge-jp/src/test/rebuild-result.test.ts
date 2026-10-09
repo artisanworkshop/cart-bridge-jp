@@ -27,6 +27,17 @@ describe( 'mergeCounts', () => {
 		} );
 	} );
 
+	it( 'does not read inherited properties as earlier counts', () => {
+		// `constructor` は登録できるキーの形（PR #116 G1-2）。
+		const counts = mergeCounts(
+			mergeCounts( {}, { constructor: 2, tostring: 1 } ),
+			{ constructor: 1 }
+		);
+
+		expect( counts.constructor ).toBe( 3 );
+		expect( counts ).toEqual( { constructor: 3, tostring: 1 } );
+	} );
+
 	it( 'ignores malformed counts', () => {
 		expect( mergeCounts( { product: 1 }, null ) ).toEqual( { product: 1 } );
 		expect( mergeCounts( { product: 1 }, [ 3 ] ) ).toEqual( {

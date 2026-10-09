@@ -16,7 +16,12 @@ import type {
 	SettingsMappings,
 	SettingsMappingValues,
 } from '../types';
-import { editableMaps, parseMappingKinds } from './mapping-status';
+import {
+	editableMaps,
+	mappedTarget,
+	parseMappingKinds,
+	withMappedTarget,
+} from './mapping-status';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
@@ -131,8 +136,10 @@ function MappingSection( {
 								</thead>
 								<tbody>
 									{ sourceCandidates.map( ( source ) => {
-										const currentValue =
-											map[ source.id ] ?? UNMAPPED;
+										const currentValue = mappedTarget(
+											map,
+											source.id
+										);
 										// 保存済みの値が現在の候補一覧に無い場合（決済ゲートウェイの
 										// 無効化、配送ゾーンインスタンスの削除、ASP側メソッドの廃止等）、
 										// ネイティブ<select>はどのoptionにも一致せず先頭
@@ -286,15 +293,14 @@ export default function MappingSettings( {
 				return current;
 			}
 
-			const next = { ...current[ mapKey ] };
-
-			if ( UNMAPPED === targetId ) {
-				delete next[ sourceId ];
-			} else {
-				next[ sourceId ] = targetId;
-			}
-
-			return { ...current, [ mapKey ]: next };
+			return {
+				...current,
+				[ mapKey ]: withMappedTarget(
+					current[ mapKey ] ?? {},
+					sourceId,
+					targetId
+				),
+			};
 		} );
 		setSaved( false );
 	}

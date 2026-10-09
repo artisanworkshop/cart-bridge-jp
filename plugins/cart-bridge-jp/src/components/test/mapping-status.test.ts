@@ -7,9 +7,11 @@ import type {
 import {
 	editableMaps,
 	importMappingGaps,
+	mappedTarget,
 	mappingCoverage,
 	parseMappingKinds,
 	savedMap,
+	withMappedTarget,
 } from '../mapping-status';
 
 function candidates( ...ids: string[] ): MappingCandidate[] {
@@ -416,6 +418,19 @@ describe( 'savedMap', () => {
 		);
 		expect( savedMap( null, 'payment_map' ) ).toEqual( {} );
 	} );
+
+	it( 'keeps an id named __proto__ as a saved value', () => {
+		// REST の応答（JSON）は `__proto__` を自前のプロパティとして持つ。代入で写すと落ち、次の保存で消える（PR #116 G1-1）。
+		const data = JSON.parse(
+			'{"payment_map":{"__proto__":"bacs","constructor":"cod"}}'
+		) as unknown;
+		const map = savedMap( data, 'payment_map' );
+
+		expect( Object.keys( map ) ).toEqual( [ '__proto__', 'constructor' ] );
+		expect( JSON.stringify( map ) ).toBe(
+			'{"__proto__":"bacs","constructor":"cod"}'
+		);
+	} );
 } );
 
 describe( 'editableMaps', () => {
@@ -438,5 +453,34 @@ describe( 'editableMaps', () => {
 			category_map: { '5': '90' },
 			payment_map: { '101': 'bacs' },
 		} );
+	} );
+} );
+
+describe( 'mappedTarget / withMappedTarget', () => {
+	it( 'reads and writes ids that collide with Object.prototype', () => {
+		// 外部のアダプタの ID は不透明な文字列（PR #116 G1・backlog e2-1-mapping-ui/G3-3）。
+		expect( mappedTarget( {}, 'constructor' ) ).toBe( '' );
+		expect( mappedTarget( {}, 'toString' ) ).toBe( '' );
+
+		const set = withMappedTarget( { '101': 'bacs' }, '__proto__', 'cod' );
+
+		expect( mappedTarget( set, '__proto__' ) ).toBe( 'cod' );
+		expect( JSON.stringify( set ) ).toBe(
+			'{"101":"bacs","__proto__":"cod"}'
+		);
+	} );
+
+	it( 'replaces or removes one row without touching the others', () => {
+		const map = { '101': 'bacs', '102': 'cod' };
+
+		expect( withMappedTarget( map, '101', 'cheque' ) ).toEqual( {
+			'101': 'cheque',
+			'102': 'cod',
+		} );
+		expect( withMappedTarget( map, '102', '' ) ).toEqual( {
+			'101': 'bacs',
+		} );
+		// 元のマップは変えない（React の state）。
+		expect( map ).toEqual( { '101': 'bacs', '102': 'cod' } );
 	} );
 } );

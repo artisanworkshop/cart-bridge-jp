@@ -168,6 +168,9 @@ export function parseMappingKinds( value: unknown ): MappingKindInfo[] {
 
 /**
  * 保存済みのマップ（`{key}_map`）を、自前のキーで値が文字列の項目だけの新しいオブジェクトとして読む（形の違う値は空のマップ）。
+ * ID は不透明な文字列で `__proto__` もありうる（REST の検証は拒まない）。代入（`copy[ id ] = …`）は `__proto__` で継承の設定子を呼んで
+ * 項目を黙って落とし、次の保存（PUT はマップを丸ごと置き換える）で消してしまうので、`Object.fromEntries()` で自前のプロパティとして作る
+ * （以前の `{ ...map }` と同じ。PR #116 G1-1）。
  * @param data   応答
  * @param mapKey マップのキー
  */
@@ -176,19 +179,51 @@ export function savedMap(
 	mapKey: string
 ): Record< string, string > {
 	const map = ownValue( data, mapKey );
-	const copy: Record< string, string > = {};
 
 	if ( ! isRecord( map ) ) {
-		return copy;
+		return {};
 	}
 
-	for ( const [ source, target ] of Object.entries( map ) ) {
-		if ( 'string' === typeof target ) {
-			copy[ source ] = target;
-		}
-	}
+	return Object.fromEntries(
+		Object.entries( map ).filter(
+			( entry ): entry is [ string, string ] =>
+				'string' === typeof entry[ 1 ]
+		)
+	);
+}
 
-	return copy;
+/**
+ * マップに保存した対応先の ID（無ければ空文字列〈画面の「未設定」〉）。ID は不透明な文字列で `constructor`・`__proto__` もありうるので、
+ * 継承プロパティを値と読まない（PR #116 G1。backlog e2-1-mapping-ui/G3-3）。
+ * @param map
+ * @param sourceId
+ */
+export function mappedTarget(
+	map: Record< string, string >,
+	sourceId: string
+): string {
+	return Object.prototype.hasOwnProperty.call( map, sourceId )
+		? map[ sourceId ]
+		: '';
+}
+
+/**
+ * 1 行の対応先を変えた新しいマップ（`targetId` が空文字列なら行を外す）。代入（`next[ id ] = …`）は ID が `__proto__` のとき継承の
+ * 設定子に吸われて保存されないので、`Object.fromEntries()` で自前のプロパティとして作る（PR #116 G1。backlog e2-1-mapping-ui/G3-3）。
+ * @param map
+ * @param sourceId
+ * @param targetId
+ */
+export function withMappedTarget(
+	map: Record< string, string >,
+	sourceId: string,
+	targetId: string
+): Record< string, string > {
+	const rest = Object.entries( map ).filter( ( [ id ] ) => id !== sourceId );
+
+	return Object.fromEntries(
+		'' === targetId ? rest : [ ...rest, [ sourceId, targetId ] ]
+	);
 }
 
 /**
