@@ -1,11 +1,13 @@
 ---
 paths:
   - "plugins/*/includes/Sync/**"
+  - "plugins/*/includes/Entities/**"
   - "plugins/*/includes/Woo/Tools/**"
   - "plugins/*/includes/Woo/Export/**"
   - "plugins/*/includes/Woo/Reader/**"
   - "plugins/*/includes/Woo/WarningCode.php"
   - "plugins/*/tests/unit/Sync/**"
+  - "plugins/*/tests/unit/Entities/**"
   - "plugins/*/tests/unit/Woo/Tools/**"
   - "plugins/*/tests/unit/Woo/Reader/**"
 ---
@@ -45,3 +47,10 @@ paths:
 - `PlatformAdapter` のメソッドを `JobManager`/`Importer` の「高速経路」（R3-6a で削除した無料版サンプルのID指定取得のような）へ無条件で配線する前に、そのメソッドのdocblockが `UnsupportedOperationException` を許容しているかを確認すること。許容されている場合、対象エンティティが別の経路（`can_fetch_customers` によるcustomerのentity除外等）で完全にガードされていない限り、呼び出し側は例外を捕捉して元の経路（カーソル走査等）へフォールバックする必要がある。`fetch_order_by_remote_id()` は `fetch_orders()` 自体が全アダプタ必須で代替経路が無いにもかかわらず単一ID取得だけ `UnsupportedOperationException` を許容するという非対称な契約を持っており、`Importer::run_sample_page()`/`JobManager::SAMPLE_ID_FETCH_ENTITIES` に `order` を追加した際にこのフォールバックを最初は実装し忘れていた（issue #38、PR #86。Codex/Copilotが独立に同一箇所を指摘）
 - `SampleSelector`（R3-6a で削除）のような、外部アダプタの戻り値を検証・正規化（重複排除・上限・型チェック等）した上で永続化するロジックに新しい検証を追加する場合、その値への**全ての**入口（新規選定 `select_and_persist()`・永続化済みデータの読込み `load()`・下流の消費側）に同じ検証を適用すること。新規選定側だけに追加すると、その変更が入る前に保存された、または契約違反アダプタが過去に保存した永続データが `load()` 経由でそのまま消費されてしまう（`SampleSet::from_array()` が保存された `null` を `strval(null) === ''` で空文字列に変換する経路も含む）。1回の指摘対応では入口を洗い出しきれず、`order_remote_ids` の正規化だけで3ラウンド（新規選定時の重複排除・上限 → 読込み時の同処理 → 空文字列の除去と要素の型検証）を要した（issue #38、PR #86 G1〜G3、Copilot指摘）
 - `totals.unchanged` は `skipped` の内訳で、checksum 一致（変更なし）で書かなかった件数と、D25 の往復の向きで送らない／上書きしなかった件数のうち mapping があるもの（既に結ばれている）だけを数える。dry-run の `created + updated + unchanged` が「移行できる件数」になるので、blocking・例外・契約違反のスキップで数えると「移行できない」件数が消え、逆に「変更なしで書かない」新しい経路を足して数え忘れると「移行できない」が過大になる（issue #55、R3-0h。R3-6a で削除した無料版の Pro 案内〔`LimitsUpsellNotice`〕がこの内訳を使っていた。今は画面で使っていないが、Pro の試用の集計で使いうるので意味を保つ）
+- **実体ごとの振る舞いは実体の種類（`Entities\EntityType`）に置き、実体の名前（`'order'` など）で分岐するコードを足さない**（R3-6b1。`docs/03` §10.0「実体の種類の拡張点」）。
+  取込み・エクスポート・push intent・D25・リンク再構築・検証レポート・CSV のラベル・警告の印とカタログ・マッピングの種類は、`EntityTypeRegistry` から種類を引いて呼ぶ。
+  新しい種類ごとの処理は `EntityType` に**既定実装つき**で足し（Pro が継承する。既定は「その種類では扱わない」を、正常な結果と区別できる形で返す）、`EntityTypeContractTest` の BASELINE を更新する。
+  一覧・レポートを組み立てる箇所（`/connections`・`start_run`・CSV・リンク再構築・検証レポート・push intent の一覧）は、外部の種類の例外・形の違う戻り値で全体を落とさない。
+  **レジストリは静的キャッシュ**で、WP のテスト基盤はフックを戻しても静的変数を戻さない。種類を登録するテストは `Tests\Fixtures\RegistersEntityTypes` を使い、`tear_down()` で
+  `parent::tear_down()` の前後に `reset_cache()` する。REST の report の `entity` の enum はルートを登録した時点（`rest_api_init`）のレジストリから作るので、テストでは種類を登録してから
+  `rest_api_init` を発火する。振る舞いを変えないリファクタの証拠には `tests/unit/Entities/DispatchCharacterizationTest`（実行順・能力・警告の印・CSV の note・カタログの文言のハッシュ）を使う
