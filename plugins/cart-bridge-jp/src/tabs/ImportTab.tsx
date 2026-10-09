@@ -13,13 +13,7 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import LimitsUpsellNotice from '../components/LimitsUpsellNotice';
 import OrderMappingNotice from '../components/OrderMappingNotice';
-import {
-	dryRunEntityTotals,
-	withoutDryRunTotals,
-	type DryRunTotals,
-} from '../components/upsell-breakdown';
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
 import { ENTITY_LABELS } from '../entity-labels';
@@ -33,7 +27,6 @@ import type {
 	Capabilities,
 	Connection,
 	EntityType,
-	Limits,
 	RunType,
 } from '../types';
 import { ENTITY_ORDER } from '../types';
@@ -95,17 +88,8 @@ export default function ImportTab() {
 	const [ importState, setImportState ] = useState< RunSectionState >(
 		initialRunSectionState()
 	);
-	const [ dryRunTotals, setDryRunTotals ] = useState< DryRunTotals | null >(
-		null
-	);
-	const [ limits, setLimits ] = useState< Limits | null >( null );
 	const platformRef = useRef( platform );
 	platformRef.current = platform;
-	// limits 取得effectが応答を受け取った時点でまだ同じ import run を指しているかを判定する
-	// （`ExportTab.tsx`の`exportRunIdRef`と同じ役割）。`platformRef`は同一プラットフォーム内で新しい run が
-	// 始まった・見つけた run を取り込んだ場合には変化しないため、そのケースの古い応答を弾けない。
-	const importRunIdRef = useRef< string | null >( null );
-	importRunIdRef.current = importState.runId;
 	// リトライ後、次に成功したポーリング応答が届くまで`retryingJobId`を解除しない
 	// ためのラッチ。`useRunPolling`は失敗時も内部で自動的に再試行し続けるため、
 	// 「リトライ後の確認フェッチ」が一時的な通信エラーで一旦失敗しても
@@ -161,8 +145,6 @@ export default function ImportTab() {
 		setSelectedEntities(
 			new Set( availableEntities( currentConnection.capabilities ) )
 		);
-		setDryRunTotals( null );
-		setLimits( null );
 		setStartError( null );
 		setDryRunState( {
 			...initialRunSectionState(),
@@ -183,80 +165,6 @@ export default function ImportTab() {
 		null !== dryRunPolling.run && isRunTerminal( dryRunPolling.run );
 	const importTerminal =
 		null !== importPolling.run && isRunTerminal( importPolling.run );
-
-	// dry-runが完了したら、Pro案内（D15/§10.3）で使う「総数」と「移行できる件数」をキャッシュする。
-	// サンプリングを行わない全量走査なので processed がそのまま総数になる（内訳は`dryRunEntityTotals()`。issue #55）。
-	useEffect( () => {
-		if ( ! dryRunPolling.run || ! dryRunTerminal ) {
-			return;
-		}
-
-		const totals: DryRunTotals = {};
-
-		for ( const job of dryRunPolling.run.jobs ) {
-			if ( 'completed' === job.status ) {
-				totals[ job.entity ] = dryRunEntityTotals( job.totals );
-			}
-		}
-
-		// 置き換えではなくマージする: 対象エンティティを絞った再dry-runの後も、
-		// 直前の広いdry-runで判明していた他エンティティの総数（Pro案内の分母）を保持するため。
-		setDryRunTotals( ( prev ) => ( { ...prev, ...totals } ) );
-		// `run_id`（文字列）ではなく`run`オブジェクト自体を依存に使う: 失敗ジョブの
-		// リトライが完了した際、ポーリングが中間の非terminal状態を観測できないまま
-		// 「terminal（failed含む）→terminal（全completed）」と直接遷移することがあり、
-		// その場合`run_id`も`dryRunTerminal`（true→true）も値として変化しないため
-		// 再計算がスキップされてしまう（同一run_idでも`setRun()`は毎回新しい
-		// オブジェクトを作るため、参照の変化でこの遷移を検出できる）。
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ dryRunPolling.run, dryRunTerminal ] );
-
-	// 実移行が完了したら上限使用状況を取得し、Pro案内に使う。
-	useEffect( () => {
-		if ( ! importTerminal || null === platform ) {
-			return;
-		}
-
-		// このリクエストを発行した時点のプラットフォームを閉じ込めておく。応答が
-		// 届くまでの間にユーザーが別プラットフォームへ切り替えていた場合、そちらの
-		// `limits`（platform-change時にnullへリセット済み）を古い応答で上書きしない。
-		// 同じプラットフォームで別の run（開始・取り込み）に置き換わった場合も捨てる（`importRunIdRef`）。
-		const requestedPlatform = platform;
-		const requestedRunId = importPolling.run?.run_id ?? null;
-
-		apiFetch< Limits >( {
-			path: `/cbjp/v1/limits?platform=${ encodeURIComponent(
-				platform
-			) }`,
-		} )
-			.then( ( data ) => {
-				if (
-					platformRef.current !== requestedPlatform ||
-					importRunIdRef.current !== requestedRunId
-				) {
-					return;
-				}
-
-				setLimits( data );
-			} )
-			.catch( () => {
-				if (
-					platformRef.current !== requestedPlatform ||
-					importRunIdRef.current !== requestedRunId
-				) {
-					return;
-				}
-
-				// アップセル表示は付加情報のため、取得失敗時は黙って表示を省略する。
-				// ただし直前の実移行の`limits`を残したままにすると、新しいrunの
-				// ジョブ一覧と組み合わさって古い使用数のまま表示されうるため破棄する。
-				setLimits( null );
-			} );
-		// `run_id`ではなく`run`オブジェクト自体を依存にする理由はdry-run側の
-		// totalsキャッシュeffectと同じ（失敗ジョブのリトライがterminal→terminalと
-		// 中間状態を挟まず遷移しうるため）。
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ importPolling.run, importTerminal, platform ] );
 
 	// リトライ後、最初に届いた「新しい」（＝ポーリング成功による）スナップショットで
 	// `retryingJobId`ラッチを解除する。`retryJob()`参照。
@@ -367,28 +275,8 @@ export default function ImportTab() {
 	 * セクションで run の表示を始める（開始が成功したとき・進行中の run を見つけて取り込んだときの共通処理）。
 	 * @param type
 	 * @param runId
-	 * @param entities この run のエンティティ（前回の dry-run 件数を捨てる対象）
 	 */
-	function beginTrackingRun(
-		type: RunType,
-		runId: string,
-		entities: EntityType[]
-	) {
-		// 前回の実移行の`/limits`スナップショットを、新しいrunのジョブ一覧と
-		// 組み合わせて`LimitsUpsellNotice`に渡さないようにする（新runがterminalに
-		// なるまで`limits`を自然に取り直さないため、明示的にリセットが必要）。
-		if ( 'import' === type ) {
-			setLimits( null );
-		}
-
-		// 新しいdry-runの対象エンティティは前回の件数を捨てる（一部のジョブが失敗・キャンセルしたとき、
-		// 前回の内訳が今回のものとして残らないように。`withoutDryRunTotals()`参照。PR #87 G1-2）。
-		if ( 'dry_run' === type ) {
-			setDryRunTotals( ( prev ) =>
-				withoutDryRunTotals( prev, entities )
-			);
-		}
-
+	function beginTrackingRun( type: RunType, runId: string ) {
 		( 'dry_run' === type ? setDryRunState : setImportState )(
 			( prev ) => ( {
 				...prev,
@@ -409,7 +297,7 @@ export default function ImportTab() {
 		}
 
 		storeRunId( platform, type, run.run_id );
-		beginTrackingRun( type, run.run_id, run.entities );
+		beginTrackingRun( type, run.run_id );
 	}
 
 	async function startRun( type: RunType ) {
@@ -419,15 +307,10 @@ export default function ImportTab() {
 
 		if (
 			'import' === type &&
-			// Pro版で上限が解除されている場合、この実行はサンプルではなく全件書込みに
-			// なる（`Sync\JobManager`のサンプリング分岐参照）。「サンプルのみ」と誤って
-			// 断定すると、Proユーザーが小規模な操作だと誤解したまま全カタログ・全顧客・
-			// 全受注の書込みを承認してしまいかねないため、無料版/Pro版どちらでも正しい
-			// 表現にとどめる。
 			// eslint-disable-next-line no-alert
 			! window.confirm(
 				__(
-					'This will write real WooCommerce data (products, orders, customers, etc.) to this site, up to the current plan’s limits. Continue?',
+					'This will write real WooCommerce data (products, orders, customers, etc.) to this site. Continue?',
 					'cart-bridge-jp'
 				)
 			)
@@ -466,7 +349,7 @@ export default function ImportTab() {
 				return;
 			}
 
-			beginTrackingRun( type, response.run_id, requestedEntities );
+			beginTrackingRun( type, response.run_id );
 			// 一覧に残っている前の run（取り込んだあと終わったが、追跡中なので照会し直していない）を、新しい run を
 			// 始めたことで「追跡していない run」として案内・取り込みし直さないよう、取り直す（R2-2）。
 			activeRuns.refresh();
@@ -667,10 +550,7 @@ export default function ImportTab() {
 							}
 							onClick={ () => startRun( 'dry_run' ) }
 						>
-							{ __(
-								'Preview (dry run, no limit)',
-								'cart-bridge-jp'
-							) }
+							{ __( 'Preview (dry run)', 'cart-bridge-jp' ) }
 						</Button>{ ' ' }
 						<Button
 							variant="primary"
@@ -776,14 +656,6 @@ export default function ImportTab() {
 							<Notice status="error" isDismissible={ false }>
 								{ importPolling.error }
 							</Notice>
-						) }
-						{ importTerminal && limits && importPolling.run && (
-							<LimitsUpsellNotice
-								jobs={ importPolling.run.jobs }
-								limits={ limits }
-								entityLabels={ ENTITY_LABELS }
-								dryRunTotals={ dryRunTotals }
-							/>
 						) }
 						{ importPolling.run && (
 							<RunProgress

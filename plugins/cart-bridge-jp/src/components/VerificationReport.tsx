@@ -46,7 +46,7 @@ export function formatAmount( amount: string, currency: string ): string {
  * ASP側（この run で取得した全件）と Woo側（リンク済みで実在する全件）はスコープが違う
  * （後者はプラットフォーム全体・全期間）ため、単なる一致/不一致ではなく差の向きを返す:
  * - `missing`: mapping はあるが Woo 側の実体が無い（要 Rebuild links / 再 import）
- * - `fewer`: 取得件数より Woo 側が少ない（無料版の上限・スキップ・警告。上限到達時は正常）
+ * - `fewer`: 取得件数より Woo 側が少ない（スキップ・警告）
  * - `more`: 取得件数より Woo 側が多い（過去の run で取り込んだ分。ASP 側で減った場合など）
  * - `amount`: 件数は一致するが受注合計が一致しない
  * - `reconciled`: 件数・金額とも一致し missing も無い
@@ -117,7 +117,7 @@ function buildNotices(
 		notices.push( {
 			status: 'warning',
 			message: __(
-				'Some linked records no longer exist in WooCommerce. Import again to recreate them, or run the sample cleanup to drop the stale links.',
+				'Some linked records no longer exist in WooCommerce. Import again to recreate them.',
 				'cart-bridge-jp'
 			),
 		} );
@@ -127,7 +127,7 @@ function buildNotices(
 		notices.push( {
 			status: 'info',
 			message: __(
-				'Some records fetched from the platform are not in WooCommerce. In the free version this is expected once the sample limit is reached; otherwise check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab.',
+				'Some records fetched from the platform are not in WooCommerce. Check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab.',
 				'cart-bridge-jp'
 			),
 		} );

@@ -208,7 +208,7 @@ export default function PushIntentsPanel( {
 				setResolvingId( null );
 				setResolvingAction( null );
 
-				// 別タブでの解除やSampleCleanupの一括削除で既に消えている場合、404のまま
+				// 別タブでの解除で既に消えている場合、404のまま
 				// 行エラーを出し続けても解除する手段が無くなる。成功時と同じく一覧を取り直す
 				// （Copilot指摘）。
 				if ( 'cbjp_push_intent_not_found' === errorCode( err ) ) {
