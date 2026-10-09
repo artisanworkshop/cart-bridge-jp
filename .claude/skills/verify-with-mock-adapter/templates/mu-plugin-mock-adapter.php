@@ -26,9 +26,6 @@
  *   （省略したキーは空。`RestController` が正規化する）。受注の `payment_method_id`/`payment_method_name`/`shipping_method_id`/
  *   `shipping_method_name`（任意）は canonical の `payment`/`shipping` の `method_id`/`method_name` になり、`payment_map`/`shipping_map`
  *   が未設定なら dry-run で `payment_method_unmapped`/`shipping_method_unmapped` が付く。
- * - `limits`（配列。任意）は無料版の上限（`cbjp/limits/{entity}`）を差し替える。形は { entity: int|null }（null は Pro 相当の解除）。
- *   `pro_url`（任意）は `cbjp/limits/pro_url` の戻り値にそのまま渡す（`LimitPolicy::pro_url()` が検証する）。どちらも**サイト全体に効く**
- *   ので、使い終わったらキーを外す（R3-0h の Pro 案内の検証用。`examples/upsell-notice/`）。
  * - クラス定義をこのファイルのトップレベルに書かない。mu-plugins は通常プラグインより先に読み込まれ、
  *   composer の autoloader がまだ無い。`plugins_loaded` のコールバック内で `new` すればよい。
  * - `CartBridgeJP\Tests\Fixtures\MockPlatformAdapter` は composer の autoload-dev（tests/unit/）。
@@ -177,50 +174,6 @@ add_action(
 				return $adapters;
 			},
 			99
-		);
-
-		// 無料版の上限（`cbjp/limits/{entity}`）と Pro 版の案内先（`cbjp/limits/pro_url`）を seed で差し替える（R3-0h の検証用）。
-		// **サイト全体（全 platform）に効く**ので、使い終わったら seed のキーを外す（`examples/upsell-notice/cleanup.php`）。
-		// 値はフィルターが呼ばれた時点で読む: 同じプロセス内で seed を書き換えても効く（`get_option()` のキャッシュは `update_option()` で更新される）。
-		// 型の違う値は読み飛ばして元の値を返す（mu-plugin の fatal を避ける既存方針）。
-		$seed_key = static function ( string $key, &$value ): bool {
-			$seed = get_option( 'cbjp_verify_seed', [] );
-
-			if ( ! is_array( $seed ) || ! array_key_exists( $key, $seed ) ) {
-				return false;
-			}
-
-			$value = $seed[ $key ];
-
-			return true;
-		};
-
-		foreach ( [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ] as $entity ) {
-			// `limits`: { entity: int|null }。int はその件数、null は Pro 相当（上限なし）。キーが無い・型が違う値は元の上限のまま。
-			add_filter(
-				"cbjp/limits/{$entity}",
-				static function ( $limit ) use ( $entity, $seed_key ) {
-					$limits = null;
-
-					if ( ! $seed_key( 'limits', $limits ) || ! is_array( $limits ) || ! array_key_exists( $entity, $limits ) ) {
-						return $limit;
-					}
-
-					return is_int( $limits[ $entity ] ) || null === $limits[ $entity ] ? $limits[ $entity ] : $limit;
-				},
-				20
-			);
-		}
-
-		// `pro_url`: そのまま返す（文字列以外・不正な URL も渡す。`LimitPolicy::pro_url()` の検証を通すため）。キーが無ければ元の値。
-		add_filter(
-			'cbjp/limits/pro_url',
-			static function ( $url ) use ( $seed_key ) {
-				$value = null;
-
-				return $seed_key( 'pro_url', $value ) ? $value : $url;
-			},
-			20
 		);
 	},
 	20

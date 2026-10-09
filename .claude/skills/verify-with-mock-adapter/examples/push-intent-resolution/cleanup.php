@@ -43,7 +43,7 @@ $deleted['jobs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix
 $deleted['logs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", $like ) );
 // phpcs:enable
 
-// `cbjp_verify_seed` は prefecture-repair の example とも共有する（customers/orders）ので、この example が書く `push` キーだけを外す。
+// `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push` キーだけを外す。
 // `cbjp_verify_ids` はあちらだけが書く（この example は書かない）ので触らない。
 $seed = get_option( 'cbjp_verify_seed', null );
 

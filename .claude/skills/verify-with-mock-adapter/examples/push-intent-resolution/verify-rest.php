@@ -3,8 +3,8 @@
 // rest_do_request() で通し、各ステップを PASS/FAIL で出す。失敗が1つでもあれば非ゼロで終了する（seed は不要。push の切替は下で自分で行う）。
 //
 // 前提:
-//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping・上限に触れないため colorme では登録しない）
-//   - dev サイトに export できる Woo 商品が 1 件以上ある（どれがサンプルに選ばれるかは `ExportSampleSelector` 次第。実 platform の
+//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping に触れないため colorme では登録しない）
+//   - dev サイトに export できる Woo 商品が 1 件以上ある（export できる商品はすべて対象になる。実 platform の
 //     mapping が付いていても、mockv 側は空なので未 export 扱いになる）
 //   - 前回の残りが無い（あれば cleanup.php を先に流す。残りがあると結果が変わるので、この先頭で中止する）
 // 実行: mock-adapter.sh run .claude/skills/verify-with-mock-adapter/examples/push-intent-resolution/verify-rest.php
@@ -64,7 +64,7 @@ $intents_now = static function () use ( $call, $platform ): array {
 //   - `cbjp_process_job`（Action Scheduler）は CLI では自走しないので、pending を自分で処理する。**この run のジョブだけ**を job_id で引いて処理する
 //     （サイト全体の pending を流すと、他 platform〔colorme 等〕のジョブを同期実行して実 API を叩きかねない）。20 回で処理し切れなければエラーにする
 $run_export = static function ( array $seed ) use ( $call, $platform ): array {
-	// `cbjp_verify_seed` は prefecture-repair の example と共有する（customers/orders）ので、丸ごと上書きせず `push` キーだけを差し替える。
+	// `cbjp_verify_seed` は他の example と共有する（customers/orders など）ので、丸ごと上書きせず `push` キーだけを差し替える。
 	$current = get_option( 'cbjp_verify_seed', [] );
 	$current = is_array( $current ) ? $current : [];
 	unset( $current['push'] );

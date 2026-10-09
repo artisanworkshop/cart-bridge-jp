@@ -6,17 +6,14 @@
 // （未解決の参照として次回も送り直す既知の挙動）。「作り直していない」は、作成の後で止まった例外だけが渡す固定の remote_id で確かめる。
 //
 // 前提:
-//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping・上限に触れないため colorme では登録しない）
-//   - dev サイトに価格のある公開の単純商品が 2 件以上ある（それぞれを 1 件だけのサンプルに固定して export する。テンプレートの
-//     `partial_*` は remote_id が固定なので、1 回の export で作成経路を通る商品を 1 件に絞る必要がある）
-//   - 無料版の上限が効いている（`rehearse-colorme` の `limits-on` で解除していると、サンプルではなく全件が対象になる）
-//   - 前回の残りが無い（あれば push-intent-resolution/cleanup.php を先に流す。同じキーの intent・mapping・job・ログ・サンプルを消す）
+//   - mock を非衝突キーで登録済み: mock-adapter.sh install mockv（実 platform の mapping に触れないため colorme では登録しない）
+//   - dev サイトに価格のある公開の単純商品が 2 件以上ある（テンプレートの `partial_*` は remote_id が固定なので、1 回の export で作成経路を
+//     通る商品を 1 件に絞る必要がある。R3-6a で無料版のサンプルを外したので、対象以外の export できる商品を先に `ZZV-OTHER-*` の
+//     remote_id で結んでおき〔mockv の mapping。撤去で消える〕、更新経路に回す）
+//   - 前回の残りが無い（あれば push-intent-resolution/cleanup.php を先に流す。同じキーの intent・mapping・job・ログを消す）
 // 実行: mock-adapter.sh run .claude/skills/verify-with-mock-adapter/examples/partial-push/verify-rest.php
 // 続けて: push-intent-resolution/cleanup.php → mock-adapter.sh uninstall → mock-adapter.sh inspect（検証前と同じか確認）
 use CartBridgeJP\Adapters\AdapterRegistry;
-use CartBridgeJP\Sync\ExportSampleSelector;
-use CartBridgeJP\Sync\ExportSampleSet;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
@@ -66,11 +63,38 @@ $mapping = static function ( int $local_id ) use ( $wpdb, $platform ): ?array {
 	return is_array( $row ) ? $row : null;
 };
 
-// サンプルを 1 商品に固定し、push の seed を差し替えて product の実 export を 1 回走らせる。この run のジョブだけを処理する
+// 作成経路を通る商品を `$local_id` の 1 件に絞る: export できる（`ProductReader` が読む）ほかの商品のうち、まだ mockv の mapping が無いものを
+// `ZZV-OTHER-{id}` の remote_id で結ぶ（更新経路に回る。mock の更新は失敗しない）。前の手順でこの例が `$local_id` 自身に置いた仮の mapping は外す
+// （残すと `$local_id` が更新経路に回り、作成の後で止まる経路を通らない）。
+$pin_create_to = static function ( int $local_id ) use ( $platform ): void {
+	$mappings = new MappingRepository();
+
+	if ( "ZZV-OTHER-{$local_id}" === $mappings->find_remote_id( $platform, 'product', $local_id ) ) {
+		$mappings->delete_one( $platform, 'product', "ZZV-OTHER-{$local_id}" );
+	}
+
+	$ids = wc_get_products(
+		[
+			'status' => [ 'publish', 'private', 'draft' ],
+			'type'   => [ 'simple', 'variable' ],
+			'limit'  => -1,
+			'return' => 'ids',
+		]
+	);
+
+	foreach ( $ids as $id ) {
+		$id = (int) $id;
+
+		if ( $id !== $local_id && null === $mappings->find_remote_id( $platform, 'product', $id ) ) {
+			$mappings->upsert( $platform, 'product', "ZZV-OTHER-{$id}", $id, null );
+		}
+	}
+};
+
+// 作成経路を 1 商品に絞り、push の seed を差し替えて product の実 export を 1 回走らせる。この run のジョブだけを処理する
 // （paused からの再開予定のアクションも、時刻を待たずに処理する）。job の totals と status、paused のログの有無を返す。
-$run_export = static function ( int $local_id, ?string $create_failure ) use ( $call, $platform, $wpdb ): array {
-	$sample = ( new ExportSampleSet( [], [ $local_id ], [], false ) )->to_array();
-	update_option( ExportSampleSelector::option_name_for( $platform ), $sample, false );
+$run_export = static function ( int $local_id, ?string $create_failure ) use ( $call, $platform, $wpdb, $pin_create_to ): array {
+	$pin_create_to( $local_id );
 
 	$seed = get_option( 'cbjp_verify_seed', [] );
 	$seed = is_array( $seed ) ? $seed : [];
@@ -81,13 +105,12 @@ $run_export = static function ( int $local_id, ?string $create_failure ) use ( $
 	];
 	update_option( 'cbjp_verify_seed', $seed );
 
-	// 前提の書込みを読み直して確かめる（`update_option()` は同じ値でも false を返すので戻り値では判断しない）。サンプルや seed が古いままだと、
-	// 別の商品・別の失敗の仕方で export して、固定の remote_id の検査が意味を失う（G3-B3）。
-	wp_cache_delete( ExportSampleSelector::option_name_for( $platform ), 'options' );
+	// 前提の書込みを読み直して確かめる（`update_option()` は同じ値でも false を返すので戻り値では判断しない）。seed が古いままだと、
+	// 別の失敗の仕方で export して、固定の remote_id の検査が意味を失う（G3-B3）。
 	wp_cache_delete( 'cbjp_verify_seed', 'options' );
 
-	if ( get_option( ExportSampleSelector::option_name_for( $platform ) ) !== $sample || ( get_option( 'cbjp_verify_seed' )['push'] ?? null ) !== $seed['push'] ) {
-		return [ 'error' => 'the pinned export sample or the push seed was not saved as requested' ];
+	if ( ( get_option( 'cbjp_verify_seed' )['push'] ?? null ) !== $seed['push'] ) {
+		return [ 'error' => 'the push seed was not saved as requested' ];
 	}
 
 	AdapterRegistry::reset_cache();
@@ -157,21 +180,16 @@ if ( ! is_array( get_option( 'cbjp_verify_seed', [] ) ) ) {
 	$abort( 'option cbjp_verify_seed is not an array — run push-intent-resolution/cleanup.php first (it removes the broken value), then retry', 2 );
 }
 
-if ( null === ( new LimitPolicy( new MappingRepository() ) )->limit_for( 'product' ) ) {
-	$abort( 'the free-version product limit is lifted (e.g. rehearse-colorme limits-on) — the export would not use the pinned sample. Run limits-off first', 2 );
-}
-
 $leftover = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s", $platform ) ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	+ count( ( new PushIntentRepository() )->find_unresolved( $platform ) )
-	+ ( false !== get_option( ExportSampleSelector::option_name_for( $platform ), false ) ? 1 : 0 )
-	// この example が書くもの（mapping・job・intent・固定したサンプル・`push` キー）と、job_id を持たない platform のログ（前回の resolve の操作ログ）を数える。
-	// cleanup.php はほかに `cbjp_sample_{platform}`／`cbjp_rate_limit_{platform}` も消すが、この example は書かないので数えない。
+	// この example が書くもの（mapping・job・intent・`push` キー）と、job_id を持たない platform のログ（前回の resolve の操作ログ）を数える。
+	// cleanup.php はほかに `cbjp_rate_limit_{platform}` も消すが、この example は書かないので数えない。
 	+ ( is_array( get_option( 'cbjp_verify_seed', [] ) ) && array_key_exists( 'push', (array) get_option( 'cbjp_verify_seed', [] ) ) ? 1 : 0 )
 	+ (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", '%' . $wpdb->esc_like( '"platform":"' . $platform . '"' ) . '%' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 if ( $leftover > 0 ) {
-	$abort( "'{$platform}' already has mappings, jobs, intents, a pinned export sample, a push seed or platform logs ({$leftover}) — run push-intent-resolution/cleanup.php first, then retry", 2 );
+	$abort( "'{$platform}' already has mappings, jobs, intents, a push seed or platform logs ({$leftover}) — run push-intent-resolution/cleanup.php first, then retry", 2 );
 }
 
 $products = array_values(
@@ -199,7 +217,8 @@ $check( '1 作成結果は確定しているので印（push intent）は残さ�
 // ---- 2) 次の export: 作成ではなく更新。remote_id は変わらない ----
 $r = $run_export( $first, null );
 $m = $mapping( $first );
-$check( '2 次の export は作成せず更新する（重複作成なし）', 0 === (int) ( $r['totals']['created'] ?? -1 ) && 1 === (int) ( $r['totals']['updated'] ?? -1 ), wp_json_encode( $r['totals'] ?? [] ) );
+// ほかの商品も `ZZV-OTHER-*` で結んであるので更新に数えられる。作成が 0 であることだけを確かめる。
+$check( '2 次の export は作成せず更新する（重複作成なし）', 0 === (int) ( $r['totals']['created'] ?? -1 ) && (int) ( $r['totals']['updated'] ?? 0 ) >= 1, wp_json_encode( $r['totals'] ?? [] ) );
 $check( '2 remote_id は同じ（作成し直していない）', null !== $m && 'ZZV-PARTIAL-API' === $m['remote_id'], wp_json_encode( $m ) );
 
 // ---- 3) 作成の後でレート制限: mapping を書いてから一時停止し、再開すると同じページを更新として送る ----
@@ -208,8 +227,8 @@ $m = $mapping( $second );
 $check( '3 ジョブはレート制限で一時停止した（paused のログ）', (int) ( $r['paused'] ?? 0 ) >= 1, wp_json_encode( $r ) );
 $check( '3 再開後に完了する', 'completed' === ( $r['status'] ?? null ), wp_json_encode( $r ) );
 $check( '3 mapping の remote_id は作成済みの ZZV-PARTIAL-RL（作り直していない）', null !== $m && 'ZZV-PARTIAL-RL' === $m['remote_id'], wp_json_encode( $m ) );
-// 一時停止したページの集計は再開で失われる（既知: backlog `fix-72-partial-push/R1-L3`）ので、run の集計は再開後の「更新 1」だけになる。
-$check( '3 再開で同じ商品を更新として送る（作成 0・更新 1）', 0 === (int) ( $r['totals']['created'] ?? -1 ) && 1 === (int) ( $r['totals']['updated'] ?? -1 ), wp_json_encode( $r['totals'] ?? [] ) );
+// 一時停止したページの集計は再開で失われる（既知: backlog `fix-72-partial-push/R1-L3`）。ほかの商品も更新に数えられるので、作成が 0 であることを確かめる。
+$check( '3 再開で同じ商品を更新として送る（作成 0）', 0 === (int) ( $r['totals']['created'] ?? -1 ) && (int) ( $r['totals']['updated'] ?? 0 ) >= 1, wp_json_encode( $r['totals'] ?? [] ) );
 $check( '3 印（push intent）は残さない', [] === ( new PushIntentRepository() )->find_unresolved( $platform ) );
 
 echo 0 === $failures ? "ALL PASS\n" : "{$failures} FAILURE(S)\n";
