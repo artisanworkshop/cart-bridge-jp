@@ -1,12 +1,10 @@
 {
-    "name": "artisanworkshop/cart-bridge-jp",
-    "description": "Migrate products, customers, and orders between Color Me Shop and WooCommerce.",
-    "type": "wordpress-plugin",
+    "name": "artisanworkshop/cart-bridge-jp-dev",
+    "description": "Development toolchain for the Cart Bridge JP monorepo (the free plugin and the Pro add-on under plugins/).",
+    "type": "project",
     "license": "GPL-2.0-or-later",
     "require": {
-        "php": ">=8.2",
-        "ext-json": "*",
-        "ext-sodium": "*"
+        "php": ">=8.2"
     },
     "require-dev": {
         "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
@@ -20,22 +18,20 @@
         "wp-coding-standards/wpcs": "^3.1",
         "yoast/phpunit-polyfills": "^2.0"
     },
-    "autoload": {
-        "psr-4": {
-            "CartBridgeJP\\": "includes/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "CartBridgeJP\\Tests\\": "tests/unit/"
-        }
-    },
     "scripts": {
+        "post-install-cmd": [
+            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress"
+        ],
+        "post-update-cmd": [
+            "@composer install --working-dir=plugins/cart-bridge-jp --no-interaction --no-progress"
+        ],
         "lint": "phpcs",
         "lint:fix": "phpcbf",
         "analyze": "phpstan analyse --memory-limit=2G",
-        "test": "phpunit",
-        "test:wpenv": "npx wp-env run tests-cli bash -c \"cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist\""
+        "test:wpenv": [
+            "@test:wpenv:free"
+        ],
+        "test:wpenv:free": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/cart-bridge-jp -- php ../../cbjp-dev/vendor/bin/phpunit -c phpunit.xml.dist"
     },
     "config": {
         "allow-plugins": {

@@ -1,6 +1,6 @@
 <?php
 /**
- * `bin/i18n.sh check` が `wp eval-file bin/i18n-check.php <作り直した POT> <コミット済みの POT>` で呼ぶ（R3-2）。
+ * `bin/i18n.sh check` が無料版のディレクトリから `wp eval-file ../../cbjp-dev/bin/i18n-check.php <作り直した POT> <コミット済みの POT>` で呼ぶ（R3-2）。
  *
  * 2 つの POT の文字列が同じかを比べ、違えば一覧を出して非ゼロで終わる。比べるのは msgctxt・msgid・msgid_plural と、
  * JS（`build/`）から参照されるか（JS と PHP の間で移ると、管理画面の JSON に入る文字列が変わるため）。行番号・翻訳者コメント・

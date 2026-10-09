@@ -1,0 +1,4 @@
+# Cart Bridge JP development: wp-env mounts this repository root at wp-content/cbjp-dev so that the containers can run
+# the root PHPUnit, bin/ and the .claude/skills PHP. The root holds local credentials (colorme.env) and rehearsal output
+# with customer data, and wp-env listens on 0.0.0.0. Never serve it over HTTP (bin/check-dev-mount.sh verifies the 403).
+Require all denied

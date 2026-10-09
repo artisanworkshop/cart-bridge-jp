@@ -8,8 +8,11 @@
     "https://downloads.wordpress.org/plugin/wp-mail-logging.zip",
     "https://downloads.wordpress.org/plugin/plugin-check.zip",
     "https://downloads.wordpress.org/plugin/debug-bar.zip",
-    "."
+    "./plugins/cart-bridge-jp"
   ],
+  "mappings": {
+    "wp-content/cbjp-dev": "."
+  },
   "config": {
     "WP_DEBUG": true,
     "WP_DEBUG_LOG": true,

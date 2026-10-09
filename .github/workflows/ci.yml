@@ -65,10 +65,15 @@ jobs:
       - name: Start wp-env
         run: npx wp-env start
 
-      - name: Run PHPUnit
-        run: npx wp-env run tests-cli bash -c "cd wp-content/plugins/cart-bridge-jp && ./vendor/bin/phpunit -c phpunit.xml.dist"
+      # wp-env はリポジトリのルートを wp-content/cbjp-dev にマウントする（テスト・i18n・スキルが使う）。ルートの .htaccess で HTTP を拒否できているか（D29・R3-7）。
+      - name: Check that the repository root is not served
+        run: bin/check-dev-mount.sh
 
-      # ビルド済みの JS と PHP から POT を作り直し、コミット済みの languages/cart-bridge-jp.pot と文字列が同じか確かめる（R3-2）。
+      # 無料版（WooCommerce と無料版だけを読み込む）のテスト。プラグインのマウントを cwd にして、ルートの PHPUnit で実行する。
+      - name: Run PHPUnit
+        run: composer test:wpenv
+
+      # ビルド済みの JS と PHP から POT を作り直し、コミット済みの plugins/cart-bridge-jp/languages/cart-bridge-jp.pot と文字列が同じか確かめる（R3-2）。
       # PO・生成物（.mo / .l10n.php / JSON）が POT と揃っているかは PHPUnit の TranslationsTest が確かめる。
       - name: Check that translations are up to date
         run: npm run i18n:check

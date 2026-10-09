@@ -11,7 +11,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "noEmit": true,
-    "outDir": "build"
+    "outDir": "plugins/cart-bridge-jp/build"
   },
-  "include": ["src"]
+  "include": ["plugins/cart-bridge-jp/src"]
 }

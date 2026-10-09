@@ -2,7 +2,11 @@
 <ruleset name="Cart Bridge JP">
 	<description>WordPress Coding Standards for Cart Bridge JP.</description>
 
-	<file>.</file>
+	<!-- 無料版と開発用の PHP（bin・.claude）。Pro（plugins/cart-bridge-jp-pro）はテキストドメインが違うので、composer lint が
+	     runtime-set で text_domain を cart-bridge-jp-pro にして plugins/cart-bridge-jp-pro だけを別に検査する（コマンドラインのファイル指定が file 要素より優先される）。 -->
+	<file>plugins/cart-bridge-jp</file>
+	<file>bin</file>
+	<file>.claude</file>
 
 	<exclude-pattern>/vendor/*</exclude-pattern>
 	<exclude-pattern>/node_modules/*</exclude-pattern>

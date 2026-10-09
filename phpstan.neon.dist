@@ -4,12 +4,13 @@ includes:
 parameters:
     level: 6
     treatPhpDocTypesAsCertain: false
+    # 無料版だけを解析・走査する。無料版のコードが Pro（plugins/cart-bridge-jp-pro）を参照するとクラスが見つからず失敗する（D29: 依存は Pro から無料版への一方向）。
     paths:
-        - includes
-        - cart-bridge-jp.php
-        - uninstall.php
+        - plugins/cart-bridge-jp/includes
+        - plugins/cart-bridge-jp/cart-bridge-jp.php
+        - plugins/cart-bridge-jp/uninstall.php
     scanDirectories:
-        - includes
+        - plugins/cart-bridge-jp/includes
     bootstrapFiles:
         - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
     ignoreErrors:
