@@ -771,7 +771,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   (1) 無料版から件数の上限を外す: `Sync\LimitPolicy`・`cbjp/limits/*`・`GET /limits`・上限の案内（`LimitsUpsellNotice`・`upsell-breakdown`）・サンプル選定（`SampleSelector`・`ExportSampleSelector`）を無料版から除き、商品関連（カテゴリ・タグ・商品・バリエーション・在庫・画像）は取込み・エクスポート・dry-run とも全量にする。
   (2) 顧客・受注・クーポンのコードを Pro アドオン（別リポジトリ）へ移す: Woo の Writer・Reader（`CustomerWriter`・`OrderWriter`・`CouponWriter`・`CustomerReader`・`OrderReader`・`CouponReader` と補助クラス）と関連テスト、受注のエクスポート（D24 のベータ）。無料版には顧客・受注・クーポンのコードを残さない。
   (3) 無料版に、Pro が実体の種類を足す拡張点を設ける（Writer・Reader の登録、ジョブの実体一覧、Import/Export タブの選択肢）。
-  (4) readme・スクリーンショット・`ReadmeTest`・i18n を新しい範囲に合わせて改める（R3-3 の「Free version limits」の節・無料版と顧客・受注・クーポンの FAQ を書き直す。Pro への言及はリンク程度。ガイドライン 9・11）。`CLAUDE.md` の冒頭とアーキテクチャ原則 7 も書き換える。
+  (4) readme・スクリーンショット・`ReadmeTest`・i18n を新しい範囲に合わせて改める（R3-3 の「Free version limits」の節・無料版と顧客・受注・クーポンの FAQ を書き直す。Pro への言及はリンク程度。ガイドライン 9・11）。スクリーンショットは `/wporg-screenshots` で撮り直す（`shots.json` の `dry_run_entities`・`uncheck` を無料版の画面に合わせる）。`CLAUDE.md` の冒頭とアーキテクチャ原則 7 も書き換える。
   **計画で決めること**（`docs/03` §10.0「決め残し」）: アダプタの顧客・受注・クーポンの読取り・変換・送信を無料版に残すか Pro へ移すか、拡張点の形、ツール（サンプルのクリーンアップ・リンク再構築・県コード修復）と Mappings タブと検証レポートの受注金額の突合の振り分け、Pro への案内、Pro の公開時期、0.1.0 で顧客・受注を取り込んだサイトの更新時の扱い。backlog `r3-3-readme-v1/R1-X1`（クリーンアップ後の再エクスポートで重複）はクリーンアップの置き場所と合わせて扱う
 
 > **要判断（v1.0公開前）**: ~~無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。~~
