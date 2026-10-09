@@ -17,7 +17,6 @@ use CartBridgeJP\Sync\FixedWooWriterFactory;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\WooWriter;
@@ -74,7 +73,6 @@ final class JobManagerConcurrencyTest extends WP_UnitTestCase {
 	private function make_manager( ?WooWriterFactory $factory = null ): JobManager {
 		return new JobManager(
 			$this->jobs,
-			new LimitPolicy( $this->mappings ),
 			new Importer( $this->mappings ),
 			$factory ?? new FixedWooWriterFactory( new InMemoryWriter() )
 		);

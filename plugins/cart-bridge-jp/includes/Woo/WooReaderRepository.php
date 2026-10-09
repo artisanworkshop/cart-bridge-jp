@@ -24,7 +24,7 @@ final class WooReaderRepository implements WooReader {
 	 */
 	public function __construct( private readonly array $readers ) {}
 
-	public function read( string $entity, Cursor $cursor, ?array $only_local_ids ): ReadPage {
+	public function read( string $entity, Cursor $cursor ): ReadPage {
 		$reader = $this->readers[ $entity ] ?? null;
 
 		if ( null === $reader ) {
@@ -35,6 +35,6 @@ final class WooReaderRepository implements WooReader {
 			throw new RuntimeException( "No Woo reader registered for entity \"{$entity}\"." );
 		}
 
-		return $reader->query( $cursor, $only_local_ids );
+		return $reader->query( $cursor, null );
 	}
 }

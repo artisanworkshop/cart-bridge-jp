@@ -10,16 +10,14 @@ namespace CartBridgeJP\Tests\Adapters\ColorMe\Transform;
 use CartBridgeJP\Adapters\ColorMe\Transform\CustomerTransformer;
 use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
 use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
-use CartBridgeJP\Sync\SampleSelector;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
-use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
 
 /**
- * `Importer::remote_id_of()` と `SampleSelector`（`includes/Sync/SampleSelector.php`）は
- * `CanonicalOrder::line_items[*]['remote_product_id']` / `customer_ref` が、対応する
- * Product/Customer Transformerの `extras['remote_id']` とバイト一致していることを前提にする。
- * この契約が崩れると無料版のサンプルID指定取得（D15）が静かに空振りする。
+ * 受注の取込み（`Woo\Writer\OrderItemBuilder`・`OrderWriter::apply_customer()`）は
+ * `CanonicalOrder::line_items[*]['remote_product_id']` / `customer_ref` で商品・顧客の mapping を引くため、
+ * これらが対応する Product/Customer Transformer の `extras['remote_id']` とバイト一致していることを前提にする。
+ * この契約が崩れると、取り込み済みの商品・顧客に受注が結ばれない。
  */
 final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 
@@ -76,43 +74,6 @@ final class CrossTransformerConsistencyTest extends WP_UnitTestCase {
 				$customer_remote_ids,
 				"Order {$order->number} references a customer not present in the customer fixture."
 			);
-		}
-	}
-
-	public function test_sample_selector_resolves_a_non_empty_sample_from_transformed_orders(): void {
-		[ $customers_raw, $orders_raw ] = $this->raw_fixtures_with_members_flagged();
-
-		$products  = array_map(
-			fn( array $raw ) => ( new ProductTransformer() )->transform( $raw ),
-			FixtureLoader::load( 'colorme', 'products' )['products']
-		);
-		$customers = array_values(
-			array_filter(
-				array_map(
-					fn( array $raw ) => ( new CustomerTransformer() )->transform( $raw ),
-					$customers_raw
-				)
-			)
-		);
-		$orders    = array_map(
-			fn( array $raw ) => ( new OrderTransformer() )->transform( $raw ),
-			$orders_raw
-		);
-
-		$adapter  = new MockPlatformAdapter( $products, $customers, $orders );
-		$selector = new SampleSelector( $adapter );
-
-		$sample = $selector->select_or_load( 'colorme-consistency-test-' . wp_generate_uuid4() );
-
-		$this->assertNotEmpty( $sample->product_remote_ids );
-		$this->assertNotEmpty( $sample->customer_refs );
-
-		foreach ( $sample->product_remote_ids as $remote_id ) {
-			$this->assertNotNull( $adapter->fetch_product_by_remote_id( $remote_id ) );
-		}
-
-		foreach ( $sample->customer_refs as $remote_id ) {
-			$this->assertNotNull( $adapter->fetch_customer_by_remote_id( $remote_id ) );
 		}
 	}
 

@@ -17,8 +17,8 @@ use CartBridgeJP\Woo\Writer\OrderWriter;
  * run（`type=import`）のジョブごとに、ASP側（この run で取得・書込した件数と、受注は
  * `Importer` が totals に累積した合計金額 `remote_amount`）と Woo側（mappings がリンクする実体の
  * 実在数と、受注は `WC_Order::get_total()` の合計）を並べる。ASP側の件数・金額は「この run で
- * 取得した全件」（無料版の上限でスキップした分を含む）、Woo側は「リンク済みで実在する全件」
- * なので、無料版では ASP 側が大きくなるのが正常。`missing`（mapping はあるが実体が無い）が 0 で
+ * 取得した全件」（警告・例外でスキップした分を含む）、Woo側は「リンク済みで実在する全件」
+ * なので、スキップがあれば ASP 側が大きくなる。`missing`（mapping はあるが実体が無い）が 0 で
  * 件数・金額が一致すれば完全に整合している。
  */
 final class VerificationReport {

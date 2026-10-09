@@ -8,15 +8,12 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
-use CartBridgeJP\Adapters\UnsupportedOperationException;
-use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\FixedWooWriterFactory;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
-use CartBridgeJP\Sync\LimitPolicy;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
@@ -44,7 +41,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		remove_all_filters( 'cbjp/limits/order' );
 		remove_all_filters( 'cbjp/limits/stock' );
 		AdapterRegistry::reset_cache();
-		delete_option( 'cbjp_sample_mock' );
 		parent::tear_down();
 	}
 
@@ -73,7 +69,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 	private function make_manager( InMemoryWriter $writer ): JobManager {
 		return new JobManager(
 			$this->jobs,
-			new LimitPolicy( $this->mappings ),
 			new Importer( $this->mappings ),
 			new FixedWooWriterFactory( $writer )
 		);
@@ -126,9 +121,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		];
 		$this->register_adapter( products: $products );
 
-		// Pro相当（上限解除）にして通常のカーソル全量取込パスを通す。
-		add_filter( 'cbjp/limits/product', static fn() => null );
-
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );
 
@@ -166,8 +158,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		];
 		$this->register_adapter( products: $products );
 
-		add_filter( 'cbjp/limits/product', static fn() => null );
-
 		$manager = $this->make_manager( new InMemoryWriter() );
 
 		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
@@ -176,93 +166,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$job    = $this->jobs->find_by_run( $run_id )[0];
 		$totals = json_decode( (string) $job['totals_json'], true );
 		$this->assertSame( 5, $totals['total'] );
-	}
-
-	public function test_totals_total_is_set_from_the_sample_size_for_id_fetch_entities(): void {
-		$products = [
-			CanonicalFactory::product( 'p1', 'SKU-1' ),
-			CanonicalFactory::product( 'p2', 'SKU-2' ),
-			CanonicalFactory::product( 'p3', 'SKU-3' ),
-		];
-		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$manager = $this->make_manager( new InMemoryWriter() );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
-		$manager->run_to_completion( $run_id );
-
-		$job    = $this->jobs->find_by_run( $run_id )[0];
-		$totals = json_decode( (string) $job['totals_json'], true );
-		// 最新注文由来のサンプルはp1のみ（1件）だが、受注が10件未満（1件）のため
-		// SampleSelectorが§10.2 #5後半の補完を行い、通常一覧の先頭ページ（MockPlatformAdapterの
-		// ページサイズ=2件、p1・p2）からp2が追加され2件になる。
-		$this->assertSame( 2, $totals['total'] );
-	}
-
-	public function test_totals_total_is_set_from_the_sample_size_for_stock_import(): void {
-		$products = [
-			CanonicalFactory::product( 'p1', 'SKU-1', 7 ),
-			CanonicalFactory::product( 'p2', 'SKU-2' ),
-			CanonicalFactory::product( 'p3', 'SKU-3' ),
-		];
-		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$manager = $this->make_manager( new InMemoryWriter() );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
-		$manager->run_to_completion( $run_id );
-
-		$job    = $this->jobs->find_by_run( $run_id )[0];
-		$totals = json_decode( (string) $job['totals_json'], true );
-		// product同様、§10.2 #5後半の補完でサンプル商品はp1・p2の2件になる。
-		$this->assertSame( 2, $totals['total'] );
-	}
-
-	/**
-	 * バリエーションを持つサンプル商品は複数件のCanonicalStockに展開される
-	 * （`Importer::stocks_for_sample_product()`）。進捗率の分母（`total`）にサンプル商品数を
-	 * そのまま使うと、展開後の処理件数（processed）がtotalを超えてしまう。
-	 */
-	public function test_totals_total_for_stock_import_reflects_variant_expansion_not_product_count(): void {
-		$orders = array_map(
-			static fn ( int $n ): CanonicalOrder => CanonicalFactory::order( (string) ( 1000 + $n ), null, [ "p{$n}" ] ),
-			range( 1, 10 )
-		);
-		// 受注10件すべてを揃え、§10.2 #5後半の商品補完（top-up）が発生しないようにする
-		// （補完が入ると分母の計算対象がp1以外にも広がり検証が複雑になるため）。
-		$products = [
-			CanonicalFactory::product(
-				'p1',
-				'SKU-1',
-				5,
-				[
-					[
-						'remote_id' => 'v1',
-						'sku'       => 'SKU-1-V1',
-						'stock'     => 3,
-					],
-					[
-						'remote_id' => 'v2',
-						'sku'       => 'SKU-1-V2',
-						'stock'     => 4,
-					],
-				]
-			),
-		];
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$manager = $this->make_manager( new InMemoryWriter() );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
-		$manager->run_to_completion( $run_id );
-
-		$job    = $this->jobs->find_by_run( $run_id )[0];
-		$totals = json_decode( (string) $job['totals_json'], true );
-		// サンプル商品はp1のみ（1件）だが、p1は2バリエーションに展開されるためtotal=2。
-		$this->assertSame( 2, $totals['total'] );
-		$this->assertSame( 2, $totals['processed'] );
 	}
 
 	public function test_starting_a_second_run_while_one_is_in_progress_throws(): void {
@@ -275,167 +178,57 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$manager->start_run( 'import', 'mock', [ 'category' ] );
 	}
 
-	public function test_free_tier_caps_order_import_at_the_default_limit(): void {
-		$orders = [];
-		for ( $i = 1; $i <= 15; $i++ ) {
-			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
-		}
-		$adapter = $this->register_adapter( orders: $orders );
+	/**
+	 * D27（R3-6a）: 無料版に件数の上限は無い。D15 の上限（商品 50・顧客 10・受注 10）を超える件数を、
+	 * カーソル走査で全件取り込む（サンプルの選定・ID 指定取得の経路は無い）。
+	 */
+	public function test_import_has_no_count_limit(): void {
+		$products  = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 55 ) );
+		$customers = array_map( static fn ( int $n ) => CanonicalFactory::customer( "c{$n}", "c{$n}@example.com" ), range( 1, 12 ) );
+		$orders    = array_map( static fn ( int $n ) => CanonicalFactory::order( (string) ( 1000 + $n ), "c{$n}", [ "p{$n}" ] ), range( 1, 12 ) );
+		$this->register_adapter( $products, $customers, $orders );
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );
 
-		$run_id = $manager->start_run( 'import', 'mock', [ 'order' ] );
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product', 'customer', 'order' ] );
 		$manager->run_to_completion( $run_id );
 
-		// order のデフォルト上限は10件（D15/§10.2）。
-		$this->assertSame( 10, $this->mappings->count( 'mock', 'order' ) );
-
-		// issue #38: サンプル実行は受注のカーソル全量走査（fetch_orders）を一切呼ばず、
-		// SampleSelectorが選んだ10件をfetch_order_by_remote_id()で個別取得すること。
-		// カーソル走査に戻ると、実店舗の全受注履歴を走査してからサンプル外を捨てる
-		// （F1-8実測: processed が全件・created 10・残りが skipped）という無料版のコンセプトに
-		// 反する退行が再発する。
-		$this->assertSame( 0, $adapter->fetch_orders_calls );
-
-		$order_fetches = array_values( array_filter( $adapter->fetched_by_id, static fn( array $call ): bool => 'order' === $call[0] ) );
-		$this->assertCount( 10, $order_fetches );
-		$this->assertSame(
-			[ '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010' ],
-			array_column( $order_fetches, 1 )
-		);
-	}
-
-	public function test_order_sample_falls_back_to_cursor_walk_when_the_adapter_cannot_fetch_a_single_order(): void {
-		// Codex/Copilot指摘（PR #86 review）: `PlatformAdapter::fetch_order_by_remote_id()`の契約
-		// （docblock）は未対応ASPが `UnsupportedOperationException` を投げることを明示的に許容している
-		// （product/customerのID指定取得には無い許容）。orderは`fetch_orders()`自体は全アダプタ必須で
-		// 代替経路が無いため、単一ID取得だけが使えないアダプタでも受注インポート自体は通常のカーソル
-		// 走査で継続できなければならない（product/customerと違い、entity自体を除外してはいけない）。
-		$orders = [];
-		for ( $i = 1; $i <= 15; $i++ ) {
-			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+		foreach ( $this->jobs->find_by_run( $run_id ) as $job ) {
+			$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
 		}
 
-		$adapter = new MockPlatformAdapter(
-			orders: $orders,
-			fetch_by_id_failure: new UnsupportedOperationException( 'mock', 'fetch_order_by_remote_id' )
-		);
-		add_filter(
-			'cbjp/adapters/register',
-			static function ( array $adapters ) use ( $adapter ) {
-				$adapters[ $adapter->id() ] = $adapter;
-
-				return $adapters;
-			}
-		);
-		AdapterRegistry::reset_cache();
-
-		$writer  = new InMemoryWriter();
-		$manager = $this->make_manager( $writer );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'order' ] );
-		$manager->run_to_completion( $run_id );
-
-		$job = $this->jobs->find_by_run( $run_id )[0];
-		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
-		// order のデフォルト上限は10件（D15/§10.2）。ID指定取得が使えず通常のカーソル走査
-		// （LimitPolicyが上限をかける）にフォールバックしても、結果は同じ10件になる。
-		$this->assertSame( 10, $this->mappings->count( 'mock', 'order' ) );
-		$this->assertGreaterThan( 0, $adapter->fetch_orders_calls );
+		$this->assertSame( 55, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertSame( 12, $this->mappings->count( 'mock', 'customer' ) );
+		$this->assertSame( 12, $this->mappings->count( 'mock', 'order' ) );
 	}
 
-	public function test_pro_filter_removes_the_order_limit(): void {
-		$orders = [];
-		for ( $i = 1; $i <= 15; $i++ ) {
-			$orders[] = CanonicalFactory::order( (string) ( 1000 + $i ), null, [] );
+	/**
+	 * 旧版の上限のフィルター（`cbjp/limits/{entity}`）は何も絞らない。ガイドライン 5 のため、上限を外すためだけの
+	 * フィルターを無料版に置かない（D27）。上限を再び足す退行を検出する。
+	 */
+	public function test_former_limit_filters_do_not_restrict_imports(): void {
+		foreach ( [ 'product', 'customer', 'order', 'stock' ] as $entity ) {
+			add_filter( "cbjp/limits/{$entity}", static fn () => 1 );
 		}
-		$this->register_adapter( orders: $orders );
 
-		add_filter( 'cbjp/limits/order', static fn() => null );
+		$products  = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 3 ) );
+		$customers = array_map( static fn ( int $n ) => CanonicalFactory::customer( "c{$n}", "c{$n}@example.com" ), range( 1, 3 ) );
+		$orders    = array_map( static fn ( int $n ) => CanonicalFactory::order( (string) ( 1000 + $n ), null, [ "p{$n}" ] ), range( 1, 3 ) );
+		$this->register_adapter( $products, $customers, $orders );
 
-		$writer  = new InMemoryWriter();
-		$manager = $this->make_manager( $writer );
+		$manager = $this->make_manager( new InMemoryWriter() );
 
-		$run_id = $manager->start_run( 'import', 'mock', [ 'order' ] );
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product', 'customer', 'order', 'stock' ] );
 		$manager->run_to_completion( $run_id );
 
-		$this->assertSame( 15, $this->mappings->count( 'mock', 'order' ) );
+		$this->assertSame( 3, $this->mappings->count( 'mock', 'product' ) );
+		$this->assertSame( 3, $this->mappings->count( 'mock', 'customer' ) );
+		$this->assertSame( 3, $this->mappings->count( 'mock', 'order' ) );
+		$this->assertSame( 3, $this->mappings->count( 'mock', 'stock' ) );
 	}
 
-	public function test_free_tier_product_import_is_restricted_to_the_order_derived_sample(): void {
-		$products = [
-			CanonicalFactory::product( 'p1', 'SKU-1' ),
-			CanonicalFactory::product( 'p2', 'SKU-2' ),
-			CanonicalFactory::product( 'p3', 'SKU-3' ),
-		];
-		// 最新注文（fetch_latest_ordersはordersの先頭からlimit件）はp1のみを参照する。
-		// 受注が10件未満（1件）のため、§10.2 #5後半の補完で通常一覧の先頭ページ
-		// （MockPlatformAdapterのページサイズ=2件）からp2も追加され、p3は対象外のまま。
-		$orders = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$writer  = new InMemoryWriter();
-		$manager = $this->make_manager( $writer );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
-		$manager->run_to_completion( $run_id );
-
-		$this->assertSame( 2, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
-		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'product', 'p2' ) );
-		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p3' ) );
-	}
-
-	public function test_free_tier_product_sample_import_respects_the_cumulative_limit_not_just_the_sample_size(): void {
-		// サンプル選定の上限（50件、`SampleSelector::PRODUCT_HARD_CAP`）は「1回に選ばれる
-		// サンプルセットのサイズ」しか制限しない。クリーンアップ→再選定（§10.2 #7）を経て
-		// 複数回サンプルが入れ替わった場合、`cbjp_mappings`の累積件数を見る`LimitPolicy`が
-		// 効いていないと、無料版の商品上限を超えて何度でも新規作成できてしまう。
-		add_filter( 'cbjp/limits/product', static fn () => 1 );
-		// 既に上限（1件）に達している状態を、過去のサンプルで作成済みのmappingとして再現する。
-		$this->mappings->upsert( 'mock', 'product', 'already-imported', 999, null );
-
-		$products = [ CanonicalFactory::product( 'p1', 'SKU-1' ) ];
-		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$writer  = new InMemoryWriter();
-		$manager = $this->make_manager( $writer );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
-		$manager->run_to_completion( $run_id );
-
-		// 残枠は0（上限1件 - 既存1件）のため、サンプルに含まれるp1は新規作成されない。
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'p1' ) );
-	}
-
-	public function test_free_tier_stock_import_derives_from_sample_products(): void {
-		$products = [
-			CanonicalFactory::product( 'p1', 'SKU-1', 7 ),
-			CanonicalFactory::product( 'p2', 'SKU-2' ),
-			CanonicalFactory::product( 'p3', 'SKU-3' ),
-		];
-		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-
-		$this->register_adapter( products: $products, orders: $orders );
-
-		$writer  = new InMemoryWriter();
-		$manager = $this->make_manager( $writer );
-
-		$run_id = $manager->start_run( 'import', 'mock', [ 'stock' ] );
-		$manager->run_to_completion( $run_id );
-
-		// §10.2 #4: 全量走査せず、サンプル商品（p1・§10.2 #5後半の補完によるp2）分の
-		// 在庫のみ書き込まれる。
-		$this->assertSame( 2, $this->mappings->count( 'mock', 'stock' ) );
-		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'stock', 'p1' ) );
-		$this->assertNotNull( $this->mappings->find_local_id( 'mock', 'stock', 'p2' ) );
-	}
-
-	public function test_pro_unlock_imports_all_stock_without_sample_filtering(): void {
+	public function test_stock_import_walks_all_products(): void {
 		$products = [
 			CanonicalFactory::product( 'p1', 'SKU-1' ),
 			CanonicalFactory::product( 'p2', 'SKU-2' ),
@@ -444,9 +237,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
 
 		$this->register_adapter( products: $products, orders: $orders );
-
-		// Pro相当: 商品上限の解除でサンプリング自体が無効になる。
-		add_filter( 'cbjp/limits/product', static fn() => null );
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );
@@ -581,8 +371,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 		];
 		$this->register_adapter( products: $products );
 
-		// Pro相当（上限解除）で先に全件を実インポートし、checksumをキャッシュさせる。
-		add_filter( 'cbjp/limits/product', static fn() => null );
+		// 先に全件を実インポートし、checksumをキャッシュさせる。
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );

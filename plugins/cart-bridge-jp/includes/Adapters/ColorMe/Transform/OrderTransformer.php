@@ -426,14 +426,13 @@ final class OrderTransformer {
 	}
 
 	/**
-	 * ゲスト購入（`customer.member === false`）は`SampleSelector`の顧客枠にカウントさせない
-	 * ため、`customer_ref` は登録会員のみ設定する（`docs/03-design-decisions.md` §10.2）。
-	 * ゲストの請求先情報は `customer_snapshot()` 側で別途保持する。
+	 * `customer_ref` は、`Woo\Writer\OrderWriter::apply_customer()` が顧客の mapping を引くキー。
+	 * 顧客として取り込まれる登録会員だけに設定し、ゲスト購入（`customer.member === false`）には設定しない
+	 * （`docs/03-design-decisions.md` §10.2）。ゲストの請求先情報は `customer_snapshot()` 側で別途保持する。
 	 *
 	 * `mail`が欠損した会員データも`CustomerTransformer::transform()`と同じ理由（email欠損時は
-	 * 除外）で除外する。ここで除外しないと、`SampleSelector`が無料版の限られた顧客サンプル枠
-	 * （10件）に「実際には`CustomerTransformer`側で弾かれ絶対にインポートされない」remote_idを
-	 * 消費させてしまい、枠を無駄にした上に存在しない顧客への無駄なフェッチも発生する。
+	 * 除外）で除外する。ここで除外しないと、「`CustomerTransformer`側で弾かれ絶対にインポートされない」
+	 * remote_idを指すことになり、受注が `ORDER_CUSTOMER_UNRESOLVED` になる。
 	 * この場合も請求先情報自体は `customer_snapshot()` 側で別途保持する。
 	 *
 	 * @param array<string,mixed> $raw
@@ -496,9 +495,9 @@ final class OrderTransformer {
 	}
 
 	/**
-	 * `SampleSelector`（`includes/Sync/SampleSelector.php`）が `remote_product_id` キーのみを読む。
+	 * `Woo\Writer\OrderItemBuilder`（`ProductResolver`）が `remote_product_id` で商品の mapping を引く。
 	 * ここに設定する値は `ProductTransformer` の `extras['remote_id']` とバイト一致していなければ
-	 * ならない（無料版のサンプル商品ID指定取得が空振りする）。
+	 * ならない（一致しないと、取り込み済みの商品に明細を結べない）。
 	 *
 	 * @param array<string,mixed> $raw
 	 * @return array<int,array<string,mixed>>

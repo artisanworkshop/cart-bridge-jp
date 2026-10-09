@@ -43,7 +43,8 @@ final class Uninstaller {
 		delete_option( self::DELETE_DATA_OPTION );
 
 		// オプション名はテーブルと異なり素の `cbjp_` 接頭辞で保存している
-		// （cbjp_token_{platform} / cbjp_sample_{platform} / cbjp_rate_limit_{platform} 等）。
+		// （cbjp_token_{platform} / cbjp_rate_limit_{platform} 等。R3-6a より前の版が残した
+		// cbjp_sample_{platform} / cbjp_export_sample_{platform} もここで消える）。
 		$pattern = $wpdb->esc_like( 'cbjp_' ) . '%';
 
 		$option_names = $wpdb->get_col(

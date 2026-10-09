@@ -10,7 +10,6 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PlatformAdapter;
-use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
 use CartBridgeJP\Support\PlatformLock;
@@ -50,11 +49,6 @@ final class JobManager {
 	private const ENTITY_ORDER = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
 
 	/**
-	 * サンプルID指定取得で取り込むエンティティ（D15 §10.2 #4）。
-	 */
-	private const SAMPLE_ID_FETCH_ENTITIES = [ 'product', 'customer', 'order' ];
-
-	/**
 	 * `Woo\Reader\EntityReader`が実装済みのエンティティ（PR-B: product/customer/order/stock/coupon）。
 	 * `category`/`tag`/`review`はここに含めない: category/tagはexportエンティティとして独立させず
 	 * `category_map`で解決する（`push_category()`はcategory作成可能なプラットフォーム向けで
@@ -63,16 +57,8 @@ final class JobManager {
 	 */
 	private const EXPORT_ENTITIES_WITH_READER = [ 'product', 'customer', 'order', 'stock', 'coupon' ];
 
-	/**
-	 * Woo側の最新受注10件起点のサンプル（`Sync\ExportSampleSelector`）でIDを絞り込むエクスポート
-	 * エンティティ（D15 §10.2 #8）。`coupon`は対象外: D15の表で「クーポン: 最新10件」は受注サンプルに
-	 * 紐付かない独立した上限（`LimitPolicy`のみで実現。importのcoupon処理と同じ形）。
-	 */
-	private const EXPORT_SAMPLE_ID_ENTITIES = [ 'product', 'customer', 'order', 'stock' ];
-
 	public function __construct(
 		private readonly JobRepository $jobs,
-		private readonly LimitPolicy $limits,
 		private readonly Importer $importer,
 		private readonly WooWriterFactory $writer_factory,
 		private readonly Logger $logger = new Logger(),
@@ -90,7 +76,6 @@ final class JobManager {
 
 		return new self(
 			new JobRepository(),
-			new LimitPolicy( $mappings ),
 			new Importer( $mappings ),
 			$writer_factory ?? new WooRepositoryFactory()
 		);
@@ -338,58 +323,8 @@ final class JobManager {
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
 	private function process_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $job, bool $is_dry_run ): array {
-		// サンプリング（無料版）は商品上限の有無で判定する。stock/reviewの範囲は
-		// 「サンプル商品に紐づくもの」なので、商品上限が解除（Pro）されたら連動して解除される。
-		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( 'product' );
-
-		if ( ! $is_dry_run && in_array( $entity, self::SAMPLE_ID_FETCH_ENTITIES, true ) && null !== $this->limits->limit_for( $entity ) ) {
-			$sample     = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$remote_ids = match ( $entity ) {
-				'product'  => $sample->product_remote_ids,
-				'customer' => $sample->customer_refs,
-				'order'    => $sample->order_remote_ids,
-			};
-
-			try {
-				$result = $this->importer->run_sample_page( $adapter, $writer, $entity, $remote_ids, false, $this->limits, (int) $job['id'], (string) $job['run_id'] );
-
-				// サンプルID指定取得は1回で全件確定するため、件数がそのまま進捗率の分母になる。
-				return [ array_merge( $result['totals'], [ 'total' => count( $remote_ids ) ] ), null ];
-			} catch ( UnsupportedOperationException $exception ) {
-				// `PlatformAdapter::fetch_order_by_remote_id()`の契約（docblock）は、未対応ASPが
-				// UnsupportedOperationExceptionを投げることを明示的に許容している（product/customerの
-				// ID指定取得には無い許容）。product/customerでこの経路に来ている時点で
-				// （customerは`can_fetch_customers=false`のアダプタが`filter_and_order_entities()`で
-				// 除外済みのため）ID指定取得は必須の前提であり、投げられた場合はアダプタの契約違反
-				// として下のThrowableのままジョブを失敗させる。
-				// orderだけは`fetch_orders()`自体は全アダプタ必須（他に代替経路が無い）で、単一ID
-				// 取得のみ任意というのが契約上の非対称のため、orderに限り下の通常カーソル走査
-				// （無料版でもLimitPolicyで上限は掛かる。ID指定取得が使えるアダプタより無駄な
-				// API呼び出しが増えるだけで安全側）へフォールバックする。
-				if ( 'order' !== $entity ) {
-					throw $exception;
-				}
-			}
-		}
-
-		if ( 'stock' === $entity && $sampling_active ) {
-			// §10.2 #4: 在庫の全量走査はレート制限を浪費するため、サンプル商品のID指定取得から導出する。
-			// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は
-			// サンプル商品数（`count($sample->product_remote_ids)`）ではなく`Importer`が実際に
-			// 処理した件数（`$result['total']`）を使う（商品数のままだとprocessedがtotalを超えうる）。
-			$sample = $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() );
-			$result = $this->importer->run_sample_stock_page( $adapter, $writer, $sample->product_remote_ids, false, (int) $job['id'], (string) $job['run_id'] );
-
-			return [ array_merge( $result['totals'], [ 'total' => $result['total'] ] ), null ];
-		}
-
-		$cursor       = Cursor::from_json( $job['cursor_json'] );
-		$sample       = ( 'review' === $entity && $sampling_active )
-			? $this->sample_selector_for( $adapter )->select_or_load( $adapter->id() )
-			: null;
-		$limit_policy = $is_dry_run ? null : $this->limits;
-
-		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, $limit_policy, $sample, (int) $job['id'], (string) $job['run_id'] );
+		$cursor = Cursor::from_json( $job['cursor_json'] );
+		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'] );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {
@@ -447,10 +382,6 @@ final class JobManager {
 		return array_values( $supported );
 	}
 
-	private function sample_selector_for( PlatformAdapter $adapter ): SampleSelector {
-		return new SampleSelector( $adapter );
-	}
-
 	/**
 	 * エクスポート対象エンティティの絞り込み・順序決定（`filter_and_order_entities()`の
 	 * ASP向け対称形）。`EXPORT_ENTITIES_WITH_READER`でReader未実装のentity（`category`/`tag`/
@@ -484,10 +415,6 @@ final class JobManager {
 		return array_values( $supported );
 	}
 
-	private function export_sample_selector(): ExportSampleSelector {
-		return new ExportSampleSelector();
-	}
-
 	private function exporter(): Exporter {
 		return new Exporter( new MappingRepository() );
 	}
@@ -505,19 +432,8 @@ final class JobManager {
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
 	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run ): array {
-		// `product`の上限を基準にする（`stock`は`LimitPolicy::DEFAULT_LIMITS['stock']`が数値上限
-		// なし（null）のエンティティのため、エンティティ自身の上限で判定すると`stock`は
-		// サンプリング有効時でも常に全量対象になってしまう。importの`JobManager::process_page()`が
-		// `stock`をこの理由で`'product'`基準にしているのと対称。`EXPORT_SAMPLE_ID_ENTITIES`参照）。
-		$sampling_active = ! $is_dry_run && null !== $this->limits->limit_for( 'product' );
-		$only_local_ids  = ( $sampling_active && in_array( $entity, self::EXPORT_SAMPLE_ID_ENTITIES, true ) )
-			? $this->export_local_ids_for( $entity, $this->export_sample_selector()->select_or_load( $job['platform'] ) )
-			: null;
-
-		$cursor       = Cursor::from_json( $job['cursor_json'] );
-		$limit_policy = $is_dry_run ? null : $this->limits;
-
-		$result = $this->exporter()->run_page( $adapter, $writer, $reader, $entity, $cursor, $is_dry_run, $limit_policy, $only_local_ids, (int) $job['id'], (string) $job['run_id'] );
+		$cursor = Cursor::from_json( $job['cursor_json'] );
+		$result = $this->exporter()->run_page( $adapter, $writer, $reader, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'] );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {
@@ -525,21 +441,6 @@ final class JobManager {
 		}
 
 		return [ $totals, $result['next_cursor'] ];
-	}
-
-	/**
-	 * @return array<int,int>
-	 */
-	private function export_local_ids_for( string $entity, ExportSampleSet $sample ): array {
-		return match ( $entity ) {
-			'product' => $sample->product_ids,
-			'customer' => $sample->customer_ids,
-			'order' => $sample->order_ids,
-			// `StockReader`が商品サンプルを受け取り、内部でvariable商品のバリエーションへ展開する
-			// （`Sync\Importer::stocks_for_sample_product()`のexport向け対称形）。
-			'stock' => $sample->product_ids,
-			default => [],
-		};
 	}
 
 	/**

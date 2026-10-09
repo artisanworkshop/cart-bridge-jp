@@ -307,8 +307,7 @@ final class CouponReaderTest extends WooTestCase {
 	}
 
 	/**
-	 * D15 §10.2「クーポン: 最新10件」＝新しい順。'ID'昇順（作成日昇順）のままだと無料版の
-	 * `LimitPolicy`上限が古いクーポンだけを消費してしまう（レビュー指摘）。
+	 * 新しい順（D15 の上限〔最新10件〕のために選んだ順序。R3-6a で上限を外した後もそのまま）。
 	 */
 	public function test_query_orders_newest_first(): void {
 		$older = $this->create_coupon( 'OLDER' );

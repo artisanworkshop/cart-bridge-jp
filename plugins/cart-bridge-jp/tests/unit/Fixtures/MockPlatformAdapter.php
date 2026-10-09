@@ -24,7 +24,7 @@ use CartBridgeJP\Canonical\CanonicalTag;
 
 /**
  * テスト用のモックアダプタ。固定フィクスチャをカーソル（offset方式）でページングして返す。
- * Sync層（JobManager/Importer/LimitPolicy/SampleSelector）のテストに使う。
+ * Sync層（JobManager/Importer/Exporter）とツールのテストに使う。
  */
 final class MockPlatformAdapter extends AbstractPlatformAdapter {
 
@@ -35,12 +35,6 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 * paused時にJobManagerが空回りで再フェッチしていないことの検証に使う。
 	 */
 	public int $fetch_calls = 0;
-
-	/**
-	 * `fetch_orders()`（受注のカーソル走査）の呼び出し回数。無料版サンプル実行時にこの
-	 * カーソル走査が呼ばれないことの検証に使う（issue #38）。
-	 */
-	public int $fetch_orders_calls = 0;
 
 	/**
 	 * `fetch_customer_by_remote_id()`/`fetch_order_by_remote_id()`の呼び出し履歴（`[entity, remote_id]`）。
@@ -116,7 +110,7 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 *   制御する。4エンティティを個別に無効化するテストは`capabilities_override`で行う）。
 	 * @param \Throwable|null                $fetch_by_id_failure 指定すると`fetch_customer_by_remote_id()`/
 	 *   `fetch_order_by_remote_id()`だけがこの例外を投げる（`$fetch_failure`と違い既存のID指定取得の
-	 *   テストへ影響しない。県コード修復ツールの障害シナリオのテスト用）。
+	 *   テストへ影響しない。ID指定取得の障害シナリオのテスト用）。
 	 * @param ?CanonicalCustomer              $customer_by_remote_id_override 指定すると
 	 *   fetch_customer_by_remote_id() が要求IDを無視してこの顧客をそのまま返す
 	 *   （要求IDと異なる顧客を返す契約違反アダプタのシナリオのテスト用。`$product_by_remote_id_override`と同じ）。
@@ -126,11 +120,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 *   （D21-B。push intentが「作成結果不明」として残る/確定して消えるシナリオのテスト用。
 	 *   更新経路〔`$remote_id`が非null〕には影響しない）。
 	 * @param string                          $platform_id id() が返す値（既定 'mock'）。`Importer`/`Exporter`/`JobManager` は
-	 *   mapping・上限・サンプルのキーを登録キーではなく `$adapter->id()` から決めるため、`cbjp/adapters/register` に
+	 *   mapping のキーを登録キーではなく `$adapter->id()` から決めるため、`cbjp/adapters/register` に
 	 *   別のキー（例: `colorme`）で登録する手動検証（`verify-with-mock-adapter` スキル）では、そのキーと同じ値を渡す。
-	 * @param array<int,CanonicalOrder>|null   $latest_orders_override 指定すると fetch_latest_orders() が
-	 *   要求された `$limit` を無視してこの配列をそのまま返す（`$limit` 件を超えて返す・重複を返す等、
-	 *   契約違反アダプタのシナリオのテスト用。`SampleSelector`が防御的に上限・重複排除しているかの検証に使う）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -148,8 +139,7 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		private readonly ?CanonicalCustomer $customer_by_remote_id_override = null,
 		private readonly ?CanonicalOrder $order_by_remote_id_override = null,
 		private readonly ?\Throwable $create_push_failure = null,
-		private readonly string $platform_id = 'mock',
-		private readonly ?array $latest_orders_override = null
+		private readonly string $platform_id = 'mock'
 	) {}
 
 	public function id(): string {
@@ -205,8 +195,6 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_orders( Cursor $cursor ): Page {
-		++$this->fetch_orders_calls;
-
 		return $this->paginate( $this->orders, $cursor );
 	}
 
@@ -231,17 +219,6 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 
 	public function fetch_reviews( Cursor $cursor ): Page {
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
-	}
-
-	/**
-	 * 新しい順（配列の先頭から）$limit 件を返す。
-	 */
-	public function fetch_latest_orders( int $limit ): array {
-		if ( null !== $this->latest_orders_override ) {
-			return $this->latest_orders_override;
-		}
-
-		return array_slice( $this->orders, 0, $limit );
 	}
 
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct {

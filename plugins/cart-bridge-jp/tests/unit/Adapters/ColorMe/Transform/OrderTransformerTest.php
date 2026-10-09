@@ -66,8 +66,8 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 
 	public function test_customer_ref_is_excluded_for_members_without_a_usable_email(): void {
 		// CustomerTransformer::transform()はmail欠損の会員を除外するため、ここでcustomer_refに
-		// 含めてしまうとSampleSelectorが無料版の限られた顧客サンプル枠を「実際には決してWoo顧客
-		// として作成されない」remote_idで消費してしまう。請求先情報自体はcustomer_snapshotに残す。
+		// 含めてしまうと「実際には決してWoo顧客として作成されない」remote_idを指し、受注が
+		// ORDER_CUSTOMER_UNRESOLVEDになる。請求先情報自体はcustomer_snapshotに残す。
 		$raw                       = FixtureLoader::load( 'colorme', 'sale_bank_detail' )['sale'];
 		$raw['customer']['member'] = true;
 		$raw['customer']['mail']   = null;

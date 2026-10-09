@@ -8,7 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Admin;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
-use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\PlatformLock;
@@ -18,7 +17,6 @@ use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
-use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WC_Product_Simple;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -29,8 +27,7 @@ use WP_UnitTestCase;
  * REST の同時実行ガードとプラットフォーム単位ロック（R3-0i・issue #57）。
  *
  * 別の要求がロックを保持している状況は、テストの中で `PlatformLock::acquire()` を呼んで作る（同じリクエストの
- * 中で入れ子に取ると内側は取得に失敗する＝別の要求が保持中と同じ）。`mock` と `colorme`（県コード修復は
- * `pref_id` スキームを持つ `colorme` だけが対象）の両方のキーに同じ mock アダプタを登録する。
+ * 中で入れ子に取ると内側は取得に失敗する＝別の要求が保持中と同じ）。
  */
 final class RestControllerLockTest extends WP_UnitTestCase {
 
@@ -41,48 +38,15 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 	private WP_REST_Server $server;
 	private JobRepository $jobs;
 
-	/**
-	 * `colorme` キーの mock。県コード修復が ASP へ照会したか（`fetched_by_id`）を見るために持つ。
-	 */
-	private MockPlatformAdapter $colorme;
-
 	public function set_up(): void {
 		parent::set_up();
 		Activator::activate();
 
-		// 県コード修復の対象になる顧客（ASP 側は pref_id=4＝秋田）。`untouched_probe()` が旧コードの値（JP04）で取り込んだ
-		// Woo 側の顧客を用意したときだけ照会・補正の対象になる。
-		$this->colorme = new MockPlatformAdapter(
-			customers: [
-				new CanonicalCustomer(
-					'legacy@example.com',
-					'Yamada Taro',
-					null,
-					null,
-					null,
-					[
-						'postal'   => '1000001',
-						'pref_id'  => 4,
-						'address1' => 'Chiyoda 1-1-1',
-						'country'  => 'JP',
-					],
-					'0312345678',
-					null,
-					null,
-					null,
-					[ 'remote_id' => 'C1' ]
-				),
-			],
-			platform_id: 'colorme'
-		);
-
-		$colorme = $this->colorme;
 		remove_all_filters( 'cbjp/adapters/register' );
 		add_filter(
 			'cbjp/adapters/register',
-			static function ( array $adapters ) use ( $colorme ) {
-				$adapters['mock']    = new MockPlatformAdapter();
-				$adapters['colorme'] = $colorme;
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
 
 				return $adapters;
 			}
@@ -147,24 +111,9 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				return $request;
 			case 'retry job':
 				return new WP_REST_Request( 'POST', '/cbjp/v1/jobs/' . $this->failed_job( 'mock' ) . '/retry' );
-			case 'sample cleanup':
-				$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
-				$request->set_body_params( [ 'platform' => 'mock' ] );
-
-				return $request;
 			case 'rebuild mappings':
 				$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/rebuild-mappings' );
 				$request->set_body_params( [ 'platform' => 'mock' ] );
-
-				return $request;
-			case 'state repair scan':
-				$request = new WP_REST_Request( 'GET', '/cbjp/v1/tools/repair-states' );
-				$request->set_query_params( [ 'platform' => 'colorme' ] );
-
-				return $request;
-			case 'state repair run':
-				$request = new WP_REST_Request( 'POST', '/cbjp/v1/tools/repair-states' );
-				$request->set_body_params( [ 'platform' => 'colorme' ] );
 
 				return $request;
 			case 'export options':
@@ -193,10 +142,7 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 		return [
 			'start run'           => [ 'start run', 'mock' ],
 			'retry job'           => [ 'retry job', 'mock' ],
-			'sample cleanup'      => [ 'sample cleanup', 'mock' ],
 			'rebuild mappings'    => [ 'rebuild mappings', 'mock' ],
-			'state repair scan'   => [ 'state repair scan', 'colorme' ],
-			'state repair run'    => [ 'state repair run', 'colorme' ],
 			'export options'      => [ 'export options', 'mock' ],
 			'push intent resolve' => [ 'push intent resolve', 'mock' ],
 			'disconnect'          => [ 'disconnect', 'mock' ],
@@ -228,10 +174,6 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				$job_id = $this->jobs->find_by_run( 'run-failed' )[0]['id'] ?? 0;
 
 				return fn () => $this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( (int) $job_id )['status'] );
-			case 'sample cleanup':
-				$mappings->upsert( 'mock', 'product', 'p1', 999999, null );
-
-				return fn () => $this->assertSame( 1, $mappings->count( 'mock', 'product' ) );
 			case 'rebuild mappings':
 				$product = new WC_Product_Simple();
 				$product->set_name( 'Owned' );
@@ -250,25 +192,6 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 				( new TokenStore( 'mock' ) )->save_settings( [ 'client_id' => 'kept-client-id' ] );
 
 				return fn () => $this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
-			case 'state repair scan':
-			case 'state repair run':
-				// 旧コードで取り込まれた顧客（pref_id=4＝秋田なのに JP04＝宮城）。Scan は ASP へ照会し、Run は JP05 へ補正する。
-				$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
-
-				foreach ( [ 'billing', 'shipping' ] as $side ) {
-					update_user_meta( $user_id, "{$side}_state", 'JP04' );
-					update_user_meta( $user_id, "{$side}_postcode", '1000001' );
-					update_user_meta( $user_id, "{$side}_address_1", 'Chiyoda 1-1-1' );
-					update_user_meta( $user_id, "{$side}_country", 'JP' );
-				}
-
-				update_user_meta( $user_id, '_cbjp_platform', 'colorme' );
-				$mappings->upsert( 'colorme', 'customer', 'C1', $user_id, null );
-
-				return function () use ( $user_id ): void {
-					$this->assertSame( [], $this->colorme->fetched_by_id );
-					$this->assertSame( 'JP04', get_user_meta( $user_id, 'billing_state', true ) );
-				};
 		}
 
 		$this->fail( "Unknown request: {$name}" );
@@ -334,18 +257,6 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 		$missing_intent->set_body_params( [ 'action' => 'not_created' ] );
 		$this->assertSame( 404, $this->server->dispatch( $missing_intent )->get_status() );
 		$this->assertNull( $this->lock_value( 'mock' ) );
-
-		$customer_id = self::factory()->user->create( [ 'role' => 'customer' ] );
-		update_user_meta( $customer_id, '_cbjp_platform', 'mock' );
-		update_user_meta( $customer_id, '_cbjp_remote_id', 'cu1' );
-		update_user_meta( $customer_id, CustomerWriter::CREATED_BY_IMPORT_META, 'mock' );
-		( new MappingRepository() )->upsert( 'mock', 'customer', 'cu1', $customer_id, null );
-		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
-
-		$cleanup = new WP_REST_Request( 'POST', '/cbjp/v1/tools/sample-cleanup' );
-		$cleanup->set_body_params( [ 'platform' => 'mock' ] );
-		$this->assertSame( 403, $this->server->dispatch( $cleanup )->get_status() );
-		$this->assertNull( $this->lock_value( 'mock' ) );
 	}
 
 	/**
@@ -355,7 +266,7 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 		$start = $this->server->dispatch( $this->guarded_request( 'start run' ) );
 		$this->assertSame( 200, $start->get_status() );
 
-		$error = $this->server->dispatch( $this->guarded_request( 'sample cleanup' ) )->as_error();
+		$error = $this->server->dispatch( $this->guarded_request( 'rebuild mappings' ) )->as_error();
 
 		$this->assertSame( 'A run is already in progress for this platform.', $error->get_error_message() );
 		$this->assertSame( [ $start->get_data()['run_id'] ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
@@ -428,20 +339,6 @@ final class RestControllerLockTest extends WP_UnitTestCase {
 		$this->assertSame( self::DISCONNECT_RUN_MESSAGE, $error->get_error_message() );
 		$this->assertSame( [ $run_id ], array_column( $error->get_error_data()['active_runs'], 'run_id' ) );
 		$this->assertSame( [ 'client_id' => 'kept-client-id' ], ( new TokenStore( 'mock' ) )->settings() );
-	}
-
-	public function test_the_cleanup_preview_reports_a_cancelled_run_still_writing_a_page(): void {
-		$job_id = $this->jobs->create( 'run-cancelled', 'import', 'mock', 'product' );
-		$this->jobs->cancel_run( 'run-cancelled' );
-		$action = as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $job_id ], JobManager::ACTION_GROUP );
-
-		$preview = new WP_REST_Request( 'GET', '/cbjp/v1/tools/sample-cleanup' );
-		$preview->set_query_params( [ 'platform' => 'mock' ] );
-		$this->assertFalse( $this->server->dispatch( $preview )->get_data()['run_in_progress'] );
-
-		\ActionScheduler::store()->log_execution( $action );
-
-		$this->assertTrue( $this->server->dispatch( $preview )->get_data()['run_in_progress'] );
 	}
 
 	/**

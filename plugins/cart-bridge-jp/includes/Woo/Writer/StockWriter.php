@@ -97,7 +97,7 @@ final class StockWriter implements EntityWriter {
 		if ( $target instanceof WC_Product_Variable ) {
 			// variable商品自体が対象になった場合は在庫を一切書き込まず、実体に触れないまま
 			// 警告だけを積んでskippedを返す。variant_ref=nullで明示的に親レベル在庫が来た場合
-			// （`Importer::run_sample_stock_page()`）だけでなく、variant_refが指定されていても
+			// だけでなく、variant_refが指定されていても
 			// mapping未整備/stale時に`resolve_stock_target()`のSKUフォールバックが親商品自身の
 			// SKU（`SkuGuard`で親にも設定され得る）にマッチして親が返ってくるケースがあるため、
 			// variant_refの有無に関わらずここで弾く必要がある。

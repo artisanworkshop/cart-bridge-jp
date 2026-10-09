@@ -134,8 +134,7 @@ final class OrderReader implements EntityReader {
 
 	/**
 	 * `wc-checkout-draft`（WooCommerce Blocksのチェックアウト下書き。24時間後に日次cronで完全削除
-	 * される）を除く全ステータス（`Sync\ExportSampleSelector::select_and_persist()`と同じ理由・
-	 * 同じ式。CLAUDE.md参照）。
+	 * される）を除く全ステータス（下書きは受注として確定していないため送らない）。
 	 *
 	 * @return array<int,string>
 	 */

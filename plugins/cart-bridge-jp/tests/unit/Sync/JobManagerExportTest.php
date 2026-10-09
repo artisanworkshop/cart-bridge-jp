@@ -11,7 +11,6 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\DryRunItemRepository;
-use CartBridgeJP\Sync\ExportSampleSelector;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
@@ -24,7 +23,7 @@ use WP_UnitTestCase;
  * `JobManager`のexport方向配線（Step 5-9で追加した`TYPE_EXPORT`/`TYPE_DRY_RUN_EXPORT`分岐）を
  * 実配線（`AdapterPlatformWriterFactory`/`WooReaderRepositoryFactory`/`MockPlatformAdapter`の
  * push成功モード + 実WC商品）で検証する。`Sync\Exporter`自体のオーケストレーションロジック
- * （checksum一致・quota等）は`ExporterTest`が実writer/readerを介さずに検証済み。
+ * （checksum一致・push intent等）は`ExporterTest`が実writer/readerを介さずに検証済み。
  */
 final class JobManagerExportTest extends WP_UnitTestCase {
 
@@ -48,8 +47,9 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		remove_all_filters( 'cbjp/limits/product' );
+		remove_all_filters( 'cbjp/limits/stock' );
+		remove_all_filters( 'cbjp/limits/coupon' );
 		AdapterRegistry::reset_cache();
-		ExportSampleSelector::clear( 'mock' );
 		parent::tear_down();
 	}
 
@@ -83,9 +83,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$this->create_product( 'Product A', 'SKU-A' );
 		$this->create_product( 'Product B', 'SKU-B' );
 
-		// Pro相当（上限解除）でサンプリングを無効にし、通常のカーソル全量走査パスを通す。
-		add_filter( 'cbjp/limits/product', static fn () => null );
-
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product' ] );
 		$manager->run_to_completion( $run_id );
@@ -98,8 +95,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 	public function test_export_excludes_entities_without_an_implemented_reader(): void {
 		$this->register_adapter();
 		$this->create_product( 'Product A', 'SKU-A' );
-
-		add_filter( 'cbjp/limits/product', static fn () => null );
 
 		$manager = JobManager::create();
 		// `category`/`tag`/`review`はReaderを持たない設計（`docs/03-design-decisions.md` §10.2:
@@ -127,8 +122,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		);
 		AdapterRegistry::reset_cache();
 
-		add_filter( 'cbjp/limits/product', static fn () => null );
-
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product', 'customer', 'order', 'stock', 'coupon' ] );
 
@@ -143,8 +136,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 	public function test_dry_run_export_records_items_without_persisting_mappings_or_pushing(): void {
 		$adapter = $this->register_adapter( push_products_supported: false );
 		$this->create_product( 'Product A', 'SKU-A' );
-
-		add_filter( 'cbjp/limits/product', static fn () => null );
 
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_DRY_RUN_EXPORT, 'mock', [ 'product' ] );
@@ -166,8 +157,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$this->register_adapter( push_products_supported: false );
 		$this->create_product( 'Product A', 'SKU-A' );
 
-		add_filter( 'cbjp/limits/product', static fn () => null );
-
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product' ] );
 		$manager->run_to_completion( $run_id );
@@ -180,38 +169,58 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $this->mappings->count( 'mock', 'product' ) );
 	}
 
-	public function test_free_tier_export_sample_is_restricted_to_products_in_the_latest_orders(): void {
-		$this->register_adapter();
-		$sampled_id   = $this->create_product( 'Sampled', 'SKU-SAMPLED' );
-		$unsampled_id = $this->create_product( 'Unsampled', 'SKU-UNSAMPLED' );
+	/**
+	 * D27（R3-6a）: 無料版に件数の上限は無い。D15 の上限（商品 50）を超える商品を、受注に含まれるかによらず全件送る。
+	 */
+	public function test_export_has_no_count_limit(): void {
+		$adapter = $this->register_adapter();
 
-		// ちょうど10件（`ExportSampleSelector::SAMPLE_ORDER_LIMIT`）の受注を用意し、
-		// §10.2 #5後半のフォールバック補完（受注10件未満の場合に通常一覧の先頭ページから
-		// 残り枠を補完する）が発生しないようにする。補完が入ると`$unsampled_id`も
-		// サンプルに含まれてしまい、このテストの検証対象（受注に紐づく商品のみへの制限）が
-		// 別の挙動と混ざってしまうため。
-		for ( $i = 0; $i < 10; $i++ ) {
-			$order = wc_create_order();
-			$order->add_product( wc_get_product( $sampled_id ), 1 );
-			$order->calculate_totals();
-			$order->save();
+		for ( $i = 1; $i <= 51; $i++ ) {
+			$this->create_product( "Product {$i}", "SKU-{$i}" );
 		}
 
 		$manager = JobManager::create();
-		// 無料版の上限（デフォルト50件）はそのまま = サンプリング有効。
-		$run_id = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product' ] );
+		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product' ] );
 		$manager->run_to_completion( $run_id );
 
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertNotNull( $this->mappings->find_remote_id( 'mock', 'product', $sampled_id ) );
-		$this->assertNull( $this->mappings->find_remote_id( 'mock', 'product', $unsampled_id ) );
+		$job = $this->jobs->find_by_run( $run_id )[0];
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
+		$this->assertCount( 51, $adapter->pushed_products );
+		$this->assertSame( 51, $this->mappings->count( 'mock', 'product' ) );
+	}
+
+	/**
+	 * 旧版の上限のフィルター（`cbjp/limits/{entity}`）は何も絞らない（D27。上限を再び足す退行を検出する）。
+	 */
+	public function test_former_limit_filters_do_not_restrict_exports(): void {
+		foreach ( [ 'product', 'stock', 'coupon' ] as $entity ) {
+			add_filter( "cbjp/limits/{$entity}", static fn () => 1 );
+		}
+
+		$adapter = $this->register_adapter( push_others_supported: true );
+
+		for ( $i = 1; $i <= 3; $i++ ) {
+			$this->create_product( "Product {$i}", "SKU-{$i}" );
+
+			$coupon = new WC_Coupon();
+			$coupon->set_code( "CODE{$i}" );
+			$coupon->set_discount_type( 'percent' );
+			$coupon->set_amount( '10' );
+			$coupon->save();
+		}
+
+		$manager = JobManager::create();
+		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'product', 'stock', 'coupon' ] );
+		$manager->run_to_completion( $run_id );
+
+		$this->assertCount( 3, $adapter->pushed_products );
+		$this->assertCount( 3, $adapter->pushed_stocks );
+		$this->assertCount( 3, $adapter->pushed_coupons );
 	}
 
 	public function test_export_pushes_customer_when_supported(): void {
 		$adapter = $this->register_adapter( push_others_supported: true );
 		self::factory()->user->create( [ 'role' => 'customer' ] );
-
-		add_filter( 'cbjp/limits/product', static fn () => null );
 
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'customer' ] );
@@ -228,8 +237,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$order   = wc_create_order();
 		$order->save();
 
-		add_filter( 'cbjp/limits/product', static fn () => null );
-
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'order' ] );
 		$manager->run_to_completion( $run_id );
@@ -244,8 +251,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$adapter    = $this->register_adapter( push_others_supported: true );
 		$product_id = $this->create_product( 'Product A', 'SKU-A' );
 		$this->mappings->upsert( 'mock', 'product', 'p-1', $product_id, null );
-
-		add_filter( 'cbjp/limits/product', static fn () => null );
 
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'stock' ] );
@@ -265,8 +270,6 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 		$coupon->set_amount( '10' );
 		$coupon->save();
 
-		add_filter( 'cbjp/limits/product', static fn () => null );
-
 		$manager = JobManager::create();
 		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'coupon' ] );
 		$manager->run_to_completion( $run_id );
@@ -278,74 +281,36 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 実装計画Eの回帰テスト: `stock`エンティティ自身の無料版上限
-	 * （`LimitPolicy::DEFAULT_LIMITS['stock']`）はnull（数値上限なし）だが、`product`の上限を
-	 * 基準にサンプリングが働き、受注サンプルに含まれない商品の在庫はexport対象にならないこと。
+	 * 在庫は送った商品すべての分を送る（D15 では受注のサンプルに含まれる商品の分だけだった）。
 	 */
-	public function test_free_tier_stock_export_sample_is_restricted_to_sampled_products(): void {
-		$adapter      = $this->register_adapter( push_others_supported: true );
-		$sampled_id   = $this->create_product( 'Sampled', 'SKU-SAMPLED' );
-		$unsampled_id = $this->create_product( 'Unsampled', 'SKU-UNSAMPLED' );
+	public function test_stock_export_covers_all_exported_products(): void {
+		$adapter    = $this->register_adapter( push_others_supported: true );
+		$ordered_id = $this->create_product( 'Ordered', 'SKU-ORDERED' );
+		$other_id   = $this->create_product( 'Other', 'SKU-OTHER' );
 
-		// 両商品とも既にexport済み（mapping有り）という前提にし、このテストの検証対象を
-		// 「サンプル制限」だけに絞る（mapping未整備によるSTOCK_PRODUCT_NOT_EXPORTEDブロックと
-		// 混同しないようにするため）。
-		$this->mappings->upsert( 'mock', 'product', 'p-sampled', $sampled_id, null );
-		$this->mappings->upsert( 'mock', 'product', 'p-unsampled', $unsampled_id, null );
+		// 両商品とも既にexport済み（mapping有り）という前提にし、mapping未整備による
+		// STOCK_PRODUCT_NOT_EXPORTEDブロックと混同しないようにする。
+		$this->mappings->upsert( 'mock', 'product', 'p-ordered', $ordered_id, null );
+		$this->mappings->upsert( 'mock', 'product', 'p-other', $other_id, null );
 
-		for ( $i = 0; $i < 10; $i++ ) {
-			$order = wc_create_order();
-			$order->add_product( wc_get_product( $sampled_id ), 1 );
-			$order->calculate_totals();
-			$order->save();
-		}
+		$order = wc_create_order();
+		$order->add_product( wc_get_product( $ordered_id ), 1 );
+		$order->calculate_totals();
+		$order->save();
 
 		$manager = JobManager::create();
-		// 無料版の上限（デフォルト50件）はそのまま = サンプリング有効。
-		$run_id = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'stock' ] );
+		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'stock' ] );
 		$manager->run_to_completion( $run_id );
 
 		$pushed_refs = array_map( static fn ( $stock ) => $stock->product_ref, $adapter->pushed_stocks );
-		$this->assertContains( 'p-sampled', $pushed_refs );
-		$this->assertNotContains( 'p-unsampled', $pushed_refs );
+		sort( $pushed_refs );
+		$this->assertSame( [ 'p-ordered', 'p-other' ], $pushed_refs );
 	}
 
 	/**
-	 * 実装計画Fの回帰テスト: `coupon`は受注サンプルに紐付かない独立した上限
-	 * （`LimitPolicy::DEFAULT_LIMITS['coupon']`=10）のみで制限され、`ExportSampleSelector`の
-	 * サンプルID方式（`only_local_ids`）の対象にならないこと。受注サンプルと無関係なクーポンを
-	 * 作成し、サンプリング有効（無料版）のままでもLimitPolicyの上限までは正しくpushされることを
-	 * 確認する。
+	 * D27（R3-6a）: D15 の上限（クーポン 10）を超えるクーポンも全件送る。
 	 */
-	public function test_coupon_export_is_not_restricted_by_order_sample(): void {
-		$adapter = $this->register_adapter( push_others_supported: true );
-
-		for ( $i = 0; $i < 3; $i++ ) {
-			$coupon = new WC_Coupon();
-			$coupon->set_code( "CODE{$i}" );
-			$coupon->set_discount_type( 'percent' );
-			$coupon->set_amount( '10' );
-			$coupon->save();
-		}
-
-		// 受注サンプルの起点となる受注は1件も作らない（クーポンのサンプルが受注に依存しない
-		// ことを確認するため）。
-		$manager = JobManager::create();
-		$run_id  = $manager->start_run( JobManager::TYPE_EXPORT, 'mock', [ 'coupon' ] );
-		$manager->run_to_completion( $run_id );
-
-		$job = $this->jobs->find_by_run( $run_id )[0];
-		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
-		$this->assertCount( 3, $adapter->pushed_coupons );
-		$this->assertSame( 3, $this->mappings->count( 'mock', 'coupon' ) );
-	}
-
-	/**
-	 * D15 §10.2「クーポン: 最新10件」は`LimitPolicy`（`cbjp_mappings`累積カウント）だけで
-	 * 強制される（サンプルID方式を使わないため）。`LimitPolicy::DEFAULT_LIMITS['coupon']`=10を
-	 * 超える新規クーポンが実際に頭打ちになることを確認する回帰テスト。
-	 */
-	public function test_coupon_export_is_capped_at_the_free_tier_limit(): void {
+	public function test_coupon_export_has_no_count_limit(): void {
 		$adapter = $this->register_adapter( push_others_supported: true );
 
 		for ( $i = 0; $i < 12; $i++ ) {
@@ -362,7 +327,7 @@ final class JobManagerExportTest extends WP_UnitTestCase {
 
 		$job = $this->jobs->find_by_run( $run_id )[0];
 		$this->assertSame( JobRepository::STATUS_COMPLETED, $job['status'] );
-		$this->assertCount( 10, $adapter->pushed_coupons );
-		$this->assertSame( 10, $this->mappings->count( 'mock', 'coupon' ) );
+		$this->assertCount( 12, $adapter->pushed_coupons );
+		$this->assertSame( 12, $this->mappings->count( 'mock', 'coupon' ) );
 	}
 }

@@ -12,12 +12,8 @@ use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
-use CartBridgeJP\Canonical\CanonicalProduct;
-use CartBridgeJP\Canonical\CanonicalReview;
-use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\Money;
-use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
 use Throwable;
@@ -28,9 +24,7 @@ use Throwable;
  * リモートIDは `CanonicalModel::remote_id()` から取得する（Product/Customer/Coupon/Review は
  * アダプタが `extras['remote_id']` に格納する契約。null の場合はアダプタ実装バグとして例外）。
  *
- * 無料版サンプル選定（D15）: product/customer/order はID指定取得（`run_sample_page`）、
- * stock はサンプル商品のID指定取得結果から導出（`run_sample_stock_page`、§10.2 #4）、
- * review はカーソル走査＋サンプル商品メンバーシップで絞り込む（`run_page` の $sample）。
+ * 件数の上限は無い（D27。R3-6a で D15 のサンプル・上限を外した）。全エンティティをカーソル走査する。
  */
 final class Importer {
 
@@ -41,8 +35,7 @@ final class Importer {
 	) {}
 
 	/**
-	 * カーソル走査エンティティを1ページ処理する。$sample が渡された場合は
-	 * サンプル商品に紐づくアイテムのみを取り込む（呼び出し側=JobManagerが対象エンティティを判断する）。
+	 * カーソル走査エンティティを1ページ処理する。
 	 *
 	 * @return array{next_cursor:?Cursor,total:?int,totals:array<string,int>}
 	 */
@@ -52,157 +45,18 @@ final class Importer {
 		string $entity,
 		Cursor $cursor,
 		bool $is_dry_run,
-		?LimitPolicy $limit_policy = null,
-		?SampleSet $sample = null,
 		?int $job_id = null,
 		?string $run_id = null
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, $sample, $job_id, $run_id );
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $job_id, $run_id );
 
 		return [
 			'next_cursor' => $next_cursor,
 			'total'       => $total,
 			'totals'      => $totals,
 		];
-	}
-
-	/**
-	 * サンプルID指定取得エンティティ（product/customer/order）をまとめて処理する（D15 #4）。
-	 * ページングは不要（サンプル件数は上限で有界）。
-	 *
-	 * `$limit_policy`は`SampleSelector`のサンプル件数上限（50/10件）とは別に必要: サンプル上限は
-	 * 「1回の選定で作られるサンプルセットのサイズ」しか制限せず、クリーンアップ→再選定
-	 * （§10.2 #7）を経て複数回サンプルが入れ替わった場合の**累積**作成数までは制限しない。
-	 * `cbjp_mappings`の累積件数を正とする`LimitPolicy`を渡すことで、`run_page()`の
-	 * カーソル走査と同じ累積上限をこの経路にも適用する。
-	 *
-	 * @param array<int,string> $remote_ids
-	 * @return array{totals:array<string,int>}
-	 */
-	public function run_sample_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $remote_ids, bool $is_dry_run, ?LimitPolicy $limit_policy = null, ?int $job_id = null, ?string $run_id = null ): array {
-		$items = [];
-
-		foreach ( $remote_ids as $remote_id ) {
-			$item = match ( $entity ) {
-				'product'  => $adapter->fetch_product_by_remote_id( (string) $remote_id ),
-				'customer' => $adapter->fetch_customer_by_remote_id( (string) $remote_id ),
-				'order'    => $adapter->fetch_order_by_remote_id( (string) $remote_id ),
-				default    => throw new RuntimeException( "Entity \"{$entity}\" does not support sample ID fetch." ),
-			};
-
-			if ( null !== $item ) {
-				$items[] = $item;
-			}
-		}
-
-		return [ 'totals' => $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $limit_policy, null, $job_id, $run_id ) ];
-	}
-
-	/**
-	 * 無料版の在庫取込（§10.2 #4）: `fetchStocks` の全量走査はレート制限を浪費するため使わず、
-	 * サンプル商品のID指定取得結果（CanonicalProduct.stock/variants）から在庫を導出して書き込む。
-	 *
-	 * @param array<int,string> $product_remote_ids
-	 * @return array{totals:array<string,int>,total:int}
-	 */
-	public function run_sample_stock_page( PlatformAdapter $adapter, WooWriter $writer, array $product_remote_ids, bool $is_dry_run, ?int $job_id = null, ?string $run_id = null ): array {
-		$items = [];
-
-		foreach ( $product_remote_ids as $remote_id ) {
-			$remote_id = (string) $remote_id;
-			$product   = $adapter->fetch_product_by_remote_id( $remote_id );
-
-			if ( null === $product ) {
-				continue;
-			}
-
-			// アダプタ拡張点の信頼境界（アーキテクチャ原則8）: `fetch_product_by_remote_id()`が
-			// 要求したIDと異なる商品を返した場合（契約違反アダプタのバグ等）、下で要求ID
-			// （`ProductResolver`が解決する対象＝正しい商品）と`$product`の在庫・SKU（別の商品の
-			// データ）を組み合わせてしまうと、誤った商品の在庫が正しい商品に書き込まれ、
-			// 本来在庫切れの商品が購入可能になりかねない。IDが一致しない場合は取得失敗と
-			// 同様に扱いスキップする。
-			if ( $product->remote_id() !== $remote_id ) {
-				continue;
-			}
-
-			array_push( $items, ...$this->stocks_for_sample_product( $remote_id, $product ) );
-		}
-
-		// バリエーションを持つ商品は複数件のCanonicalStockに展開されるため、進捗率の分母は
-		// `$product_remote_ids`の商品数ではなく実際に処理する`$items`件数を報告する
-		// （呼び出し側=JobManagerが商品数をそのままtotalにすると、バリエーション展開分だけ
-		// processedがtotalを超えてしまう）。
-		return [
-			'totals' => $this->process_items( $adapter, $writer, 'stock', $items, $is_dry_run, null, null, $job_id, $run_id ),
-			'total'  => count( $items ),
-		];
-	}
-
-	/**
-	 * バリエーションを持つ商品は、親レベルではなくバリエーション単位（`CanonicalProduct::$variants`。
-	 * ASP非依存の `remote_id`/`sku`/`stock` キー規約は `Woo\Writer\VariationWriter` 参照）で
-	 * `CanonicalStock` を作る。variable商品の親には在庫を書かない
-	 * （`WC_Product_Variable::sync()` が子から導出するため親への直接書込は無効。CLAUDE.md）ので、
-	 * 親レベルの1件だけを返すと `Woo\Writer\StockWriter` が対象を
-	 * `WC_Product_Variable` と判定してスキップし、無料版のサンプル在庫が実質書き込まれない。
-	 * バリエーションが無い商品は従来どおり商品レベル1件を返す。
-	 *
-	 * @return array<int,CanonicalStock>
-	 */
-	private function stocks_for_sample_product( string $remote_id, CanonicalProduct $product ): array {
-		$variants = $product->variants;
-
-		if ( [] === $variants ) {
-			return [
-				new CanonicalStock(
-					$remote_id,
-					null,
-					$product->sku,
-					$product->stock,
-					CanonicalStock::is_in_stock( $product->stock )
-				),
-			];
-		}
-
-		$items = [];
-
-		foreach ( $variants as $variant ) {
-			// `$variant`はアダプタが返す`CanonicalProduct::$variants`（配列<string,mixed>）で、
-			// 型宣言はドキュメント上の契約でしかない（アーキテクチャ原則8）。要素自体が配列でない
-			// 場合（オブジェクト等）にオフセットアクセスするとTypeError/Errorになりジョブ全体が
-			// 失敗してしまうため、`ProductTransformer::variants()`/`StockTransformer`と同じく
-			// この1件だけをスキップする。
-			if ( ! is_array( $variant ) ) {
-				continue;
-			}
-
-			// `VariationWriter`が同じremote_id/sku/stock契約に使う`Value`ヘルパーで防御的に取り出し、
-			// 非スカラー値が来ても在庫管理商品を無条件に「在庫あり」扱いしないようフェイルクローズする。
-			$variant_remote_id = Value::string( $variant['remote_id'] ?? null );
-
-			if ( null === $variant_remote_id ) {
-				continue;
-			}
-
-			// キー欠損/明示的nullは「在庫管理外」という正当な契約（CLAUDE.md）だが、値が存在するのに
-			// `Value::int()` でパースできない（配列等の不正値）場合は同じnullに丸められてしまい、
-			// `is_in_stock(null)`が「在庫あり」と誤判定する。両者を区別し、後者は0にフェイルクローズする。
-			$raw_stock = $variant['stock'] ?? null;
-			$quantity  = null === $raw_stock ? null : ( Value::int( $raw_stock ) ?? 0 );
-
-			$items[] = new CanonicalStock(
-				$remote_id,
-				$variant_remote_id,
-				Value::string( $variant['sku'] ?? null ),
-				$quantity,
-				CanonicalStock::is_in_stock( $quantity )
-			);
-		}
-
-		return $items;
 	}
 
 	/**
@@ -215,8 +69,6 @@ final class Importer {
 		string $entity,
 		array $items,
 		bool $is_dry_run,
-		?LimitPolicy $limit_policy,
-		?SampleSet $sample,
 		?int $job_id = null,
 		?string $run_id = null
 	): array {
@@ -233,7 +85,6 @@ final class Importer {
 		// dry-run実行が処理した各アイテムを1行ずつ`cbjp_dry_run_items`へ記録する（F1-6のCSV
 		// レポート用）。ループを抜けてから1回のバッチINSERTでまとめて書き込む
 		// （アイテム毎にINSERTするとページ内アイテム数だけクエリが積み重なるため）。
-		// サンプル外スキップ（無料版のサンプル選定対象外。件数は`totals`で確認できる）と、
 		// remote_id欠損（キーが作れない）は記録の対象外。checksum一致スキップは記録する
 		// （下記参照）。
 		$dry_run_rows = [];
@@ -252,23 +103,14 @@ final class Importer {
 		);
 		$existing   = $this->mappings->find_many( $platform, $entity, array_filter( $remote_ids, static fn ( ?string $id ): bool => null !== $id ) );
 
-		// 残枠はページ開始時に一度だけ解決する（アイテム毎のCOUNT(*)を避ける）。
-		// 上限は新規作成のみを対象とし、既存mappingの更新は阻まない（D16の上書きポリシー前提）。
-		$remaining = ( null !== $limit_policy ) ? $limit_policy->remaining( $platform, $entity ) : null;
-
 		foreach ( $items as $index => $item ) {
 			++$totals['processed'];
 
 			if ( $item instanceof CanonicalOrder ) {
 				// 移行後検証レポート（D17）用: この run で ASP から取得した受注の合計金額を、書込の成否・
 				// スキップに関わらず全 processed 分で累積する（Woo側の「リンク済み受注の合計」と並べ、
-				// 無料版の上限で取り込めなかった分も金額で可視化するため。`JobRepository::empty_totals()`）。
+				// 警告・例外で取り込めなかった分も金額で可視化するため。`JobRepository::empty_totals()`）。
 				$totals['remote_amount'] += Money::to_minor_units( $item->totals['total'] ?? null ) ?? 0;
-			}
-
-			if ( null !== $sample && ! in_array( $this->sample_match_key( $item ), $sample->product_remote_ids, true ) ) {
-				++$totals['skipped'];
-				continue;
 			}
 
 			$remote_id = $remote_ids[ $index ];
@@ -289,7 +131,7 @@ final class Importer {
 			// checksum一致＝変更なしはスキップする（03 §5 冪等性）。
 			if ( null !== $row && null !== $row['checksum'] && $row['checksum'] === $item->checksum() ) {
 				++$totals['skipped'];
-				// `skipped`の内訳（`JobRepository::empty_totals()`）。dry-runでは「移行できる件数」に数える（issue #55）。
+				// unchanged は skipped の内訳で、既に移行済みで変更が無い件数（JobRepository の empty_totals を参照）。
 				++$totals['unchanged'];
 
 				// dry-runはCSVレポートを「全量出力」する契約（03 §10.4）のため、この分岐で
@@ -312,18 +154,6 @@ final class Importer {
 				continue;
 			}
 
-			$consumed_quota_slot = false;
-
-			if ( ! $is_dry_run && null === $existing_local_id && null !== $remaining ) {
-				if ( $remaining <= 0 ) {
-					++$totals['skipped'];
-					continue;
-				}
-
-				--$remaining;
-				$consumed_quota_slot = true;
-			}
-
 			try {
 				$result = $writer->write( $entity, $item, $existing_local_id );
 			} catch ( Throwable $exception ) {
@@ -333,14 +163,6 @@ final class Importer {
 				// ため`update_progress()`に到達せず永続化されない）。1件の異常データで移行全体が
 				// 止まらないよう、このアイテムのみskipped扱いにして処理を継続する
 				// （local_id 0と同様mappingsは書かないため、次回実行時に再試行される）。
-				//
-				// 上で確保した無料版サンプル上限の枠は、この例外で実体が何も作られなかった
-				// ため消費されたことにしない（返却しないと、無効な1件が枠を1つ無駄に食い潰し、
-				// 本来枠内に収まるはずの正常なアイテムがこのページで弾かれてしまう）。
-				if ( $consumed_quota_slot ) {
-					++$remaining;
-				}
-
 				++$totals['skipped'];
 				++$totals['warned'];
 				// `Support\Logger`の契約（個人情報禁止ルール。ID以外を含めない）はcontextだけでなく
@@ -404,10 +226,6 @@ final class Importer {
 					'local_id' => $result->local_id,
 					'checksum' => $checksum,
 				];
-			} elseif ( $consumed_quota_slot ) {
-				// 例外と同じ理由: 実体を作成/更新できなかった（local_id 0）場合も枠を消費した
-				// ことにしない。
-				++$remaining;
 			}
 
 			// この契約は `WooWriter`/`EntityWriter` インターフェース上で型として強制できない
@@ -423,8 +241,8 @@ final class Importer {
 			++$totals[ $operation ];
 
 			// D25（issue #98）: エクスポートで結ばれた実体を上書きしなかった結果（local_id 0 で mapping には触れない）。mapping がある実体は
-			// 既に結ばれている（`LimitPolicy::used()`にも数えられている）ので、Exporter の同じ扱いと揃えて`unchanged`にも数え、
-			// Pro 案内の「未移行」を過小にしない。在庫は在庫の mapping が無くても届くので、mapping（`$row`）があるときだけ数える。
+			// 既に結ばれているので、Exporter の同じ扱いと揃えて`unchanged`（`skipped`のうち、既に結ばれていて書かなかった件数）にも数える。
+			// 在庫は在庫の mapping が無くても届くので、mapping（`$row`）があるときだけ数える。
 			if ( WriteResult::OPERATION_SKIPPED === $operation && null !== $row && WarningCode::indicates_kept_by_link_direction( $result->warnings ) ) {
 				++$totals['unchanged'];
 			}
@@ -459,8 +277,6 @@ final class Importer {
 		return match ( $entity ) {
 			'category' => [ $adapter->fetch_categories(), null, null ],
 			'tag'      => [ $adapter->fetch_tags(), null, null ],
-			// product/customer は無料版ではサンプルID指定取得（run_sample_page）を使うが、
-			// Pro版（上限解除時）は全量カーソル走査でここを通る。
 			'product'  => $this->unwrap_page( $adapter->fetch_products( $cursor ) ),
 			'customer' => $this->unwrap_page( $adapter->fetch_customers( $cursor ) ),
 			'order'    => $this->unwrap_page( $adapter->fetch_orders( $cursor ) ),
@@ -476,17 +292,6 @@ final class Importer {
 	 */
 	private function unwrap_page( Page $page ): array {
 		return [ $page->items, $page->next_cursor, $page->total ];
-	}
-
-	/**
-	 * サンプル商品メンバーシップの照合キー（stock/review用）。
-	 */
-	private function sample_match_key( CanonicalModel $item ): string {
-		if ( $item instanceof CanonicalStock || $item instanceof CanonicalReview ) {
-			return $item->product_ref;
-		}
-
-		return '';
 	}
 
 	private function remote_id_of( CanonicalModel $item ): ?string {

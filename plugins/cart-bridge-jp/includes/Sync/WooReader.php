@@ -18,8 +18,7 @@ use CartBridgeJP\Woo\Reader\ReadPage;
 interface WooReader {
 
 	/**
-	 * @param string          $entity 'product'（PR-Bで customer/order/stock/coupon を追加）
-	 * @param array<int,int>|null $only_local_ids
+	 * @param string $entity 'product'（PR-Bで customer/order/stock/coupon を追加）
 	 */
-	public function read( string $entity, Cursor $cursor, ?array $only_local_ids ): ReadPage;
+	public function read( string $entity, Cursor $cursor ): ReadPage;
 }

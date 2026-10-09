@@ -267,7 +267,7 @@ final class WarningCode {
 	 * `ORDER_REFUNDED`（「ColorMe側の受注金額が実際の回収額より高くなる」という構造上同型の
 	 * 金銭的懸念）はexport blockingの対象だが、こちらは意図的にblockingへ含めない: 割引・
 	 * クーポンを一切運べない設計上の制約そのものであり、保留しても解決する見込みが無い。
-	 * blocking化するとクーポンを使った受注が無料版のサンプル移行で一切確認できなくなり、
+	 * blocking化するとクーポンを使った受注が一切移行できなくなり、
 	 * `PRICES_INCLUDE_TAX_DISABLED`をblockingへ含めなかった理由（多くの実店舗の既定設定で
 	 * 発火し、挙動確認自体ができなくなる）と同種の弊害が生じるため、情報提供の警告に留める
 	 * （E2-3 PR-Cレビュー指摘）。
@@ -703,7 +703,7 @@ final class WarningCode {
 			// 渡すと税分だけ低い売価がColorMeへ恒久的に登録されるため止める（issue #59。金銭的リスク）。
 			// なお`PRICES_INCLUDE_TAX_DISABLED`（`Woo\Writer\ProductWriter`のインポート方向）は
 			// エクスポートの対象外で、`ProductReader`は税込へ正規化するようになったため、税計算OFFの
-			// 既定環境でもここには含めなくてよい（blocking化すると無料版の挙動確認ができなくなる）。
+			// 既定環境でもここには含めなくてよい（blocking化すると税計算OFFの既定環境で商品を送れなくなる）。
 			self::PRICE_TAX_BASIS_UNRESOLVED,
 			// `Woo\Support\VariationAxisResolver`: バリエーション軸が3つ以上あり、`CanonicalProduct::
 			// $variants`のoption1/2規約（2軸まで）に合わせ3軸目以降を切り捨てている。
@@ -736,7 +736,7 @@ final class WarningCode {
 	/**
 	 * `Sync\Importer::process_items()`用: 取込みがエクスポートで結ばれた実体を上書きしなかった結果か（D25。
 	 * `LINKED_BY_EXPORT_NOT_IMPORTED`）。mapping がある実体なら既に結ばれている＝移行済みとして`unchanged`にも数える
-	 * （`LimitPolicy::used()`は向きを問わず mapping を数えるため、数えないと Pro 案内の「未移行」が過小になる）。
+	 * （Exporter の取込みで結ばれた実体の扱いと揃える）。
 	 *
 	 * @param array<int,string> $warnings
 	 */

@@ -82,28 +82,21 @@ interface PlatformAdapter {
 	public function fetch_reviews( Cursor $cursor ): Page;
 
 	/**
-	 * 無料版サンプル選定用（D15）。新しい順で最新 $limit 件を返す。
-	 *
-	 * @return array<int,CanonicalOrder>
-	 */
-	public function fetch_latest_orders( int $limit ): array;
-
-	/**
-	 * 無料版サンプル選定用（D15）。404はnullを返す（例外にしない）。
+	 * 商品をID指定で1件取得する。404はnullを返す（例外にしない）。送信の結果が不明な実体の確定
+	 * （`Woo\Tools\PushIntentResolver`。D21-B）が、リモートに実体があるかを確かめるために使う。
 	 */
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct;
 
 	/**
-	 * 無料版サンプル選定用（D15）。base: UnsupportedOperationException（D12。受注購入者から抽出）。
+	 * 顧客をID指定で1件取得する。404はnullを返す（例外にしない）。用途は `fetch_product_by_remote_id()` と同じ。
+	 * base: UnsupportedOperationException（D12。受注購入者から抽出）。
 	 */
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer;
 
 	/**
-	 * 受注をID指定で1件取得する。404はnullを返す（例外にしない）。県コード修復ツール
-	 * （`Woo\Tools\PrefStateRepair`。issue #46）が、インポート済み受注の住所の権威値を
-	 * 再取得するために使う。期間指定付きの一覧取得と違い、ID指定の単一取得は日付範囲の
-	 * 暗黙の絞り込み（カラーミー: 直近7日。03 §9 #14）の影響を受けない。
-	 * 未対応のASPは UnsupportedOperationException。
+	 * 受注をID指定で1件取得する。404はnullを返す（例外にしない）。用途は `fetch_product_by_remote_id()` と同じ。
+	 * 期間指定付きの一覧取得と違い、ID指定の単一取得は日付範囲の暗黙の絞り込み（カラーミー: 直近7日。03 §9 #14）の
+	 * 影響を受けない。未対応のASPは UnsupportedOperationException。
 	 */
 	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder;
 

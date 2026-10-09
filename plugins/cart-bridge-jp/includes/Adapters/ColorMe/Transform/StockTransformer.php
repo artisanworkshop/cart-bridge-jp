@@ -12,7 +12,7 @@ use RuntimeException;
 
 /**
  * `GET /v1/products.json` `GET /v1/products/{id}.json` の1要素を `CanonicalStock` の配列へ変換する。
- * 無料版のサンプル在庫取込・`fetch_stocks()`（全量走査）双方の共通データ源。
+ * `fetch_stocks()`（全量走査）のデータ源。
  *
  * カラーミーの `GET /v1/stocks.json` はバリエーションIDを返さない（`option1_value`/
  * `variant_model_number` のみ）ため、同一商品の複数バリエーションで `CanonicalStock::remote_id()`
