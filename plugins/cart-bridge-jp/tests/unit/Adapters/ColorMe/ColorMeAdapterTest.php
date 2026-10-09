@@ -2138,7 +2138,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$customer = new CanonicalCustomer( 'woo@example.com', '山田 花子', null, null, null, [ 'country' => 'JP' ], '0300000001', null, null, null );
 		$reader   = new FixedWooReader( [ new ReadItem( 201, $customer ) ] );
 
-		$result = ( new Exporter( $mappings ) )->run_page( $adapter, new AdapterPlatformWriter( $adapter ), $reader, 'customer', Cursor::start(), false, null, null, 9301 );
+		$result = ( new Exporter( $mappings ) )->run_page( $adapter, new AdapterPlatformWriter( $adapter ), $reader, 'customer', Cursor::start(), false, 9301 );
 
 		$this->assertSame( 1, $result['totals']['skipped'] );
 		$this->assertSame( 1, $result['totals']['warned'] );
@@ -3200,7 +3200,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	public function test_an_unconnected_adapter_marks_the_failure_as_not_connected(): void {
-		// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（県コード修復ツール等）が
+		// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（push intent の解除・`Sync\Exporter` 等）が
 		// 「再接続が必要」と一時的な通信断を区別できるよう、未接続は文脈で明示される。
 		[ $adapter ] = $this->make_adapter();
 
@@ -3299,8 +3299,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 	}
 
 	public function test_fetch_order_by_remote_id_carries_the_billing_and_shipping_pref_ids_for_state_repair(): void {
-		// 県コード修復（issue #46）は請求先（customer_snapshot）と配送先（shipping）の生の `pref_id` を
-		// Canonical 経由で受け取る。フィクスチャの `pref_id=13`（東京）は表の固定点で層間のズレを
+		// 受注の請求先（customer_snapshot）と配送先（shipping）の生の `pref_id` は Canonical 経由で Writer に届く
+		// （issue #46。R3-6a で削除した県コード修復もこれを使っていた）。フィクスチャの `pref_id=13`（東京）は表の固定点で層間のズレを
 		// 検出できないため、固定点でない値（4=秋田・5=宮城）へ差し替えて通過することを確認する。
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -3330,7 +3330,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 	public function test_fetch_order_by_remote_id_propagates_lookup_failures_instead_of_swallowing_them(): void {
 		// `payments.json` の取得失敗（認証切れ等の基盤障害）を、この受注「1件」の変換失敗と同じ扱いで
-		// nullに握り潰すと、呼び出し側（県コード修復ツール等）が「ASP側で削除済み」と誤解して
+		// nullに握り潰すと、呼び出し側（push intent の解除等）が「ASP側で削除済み」と誤解して
 		// 障害に気付けない。
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );

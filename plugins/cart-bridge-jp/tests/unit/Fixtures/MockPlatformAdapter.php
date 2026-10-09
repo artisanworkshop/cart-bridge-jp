@@ -37,13 +37,6 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
-	 * `fetch_customer_by_remote_id()`/`fetch_order_by_remote_id()`の呼び出し履歴（`[entity, remote_id]`）。
-	 *
-	 * @var array<int,array{0:string,1:string}>
-	 */
-	public array $fetched_by_id = [];
-
-	/**
 	 * `push_product()`に渡された`(CanonicalProduct, ?remote_id)`の記録
 	 * （`Sync\Exporter`のテストで実際にpushされた内容を検証する用）。
 	 *
@@ -236,19 +229,16 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	/**
-	 * ID指定取得の呼び出しを記録し、`$fetch_by_id_failure`が指定されていれば投げる
-	 * （県コード修復ツールの「事前フィルタでAPIを呼ばない」「障害で中断しcursorを返す」のテスト用）。
+	 * ID指定取得で`$fetch_by_id_failure`が指定されていれば投げる（push intent の解除の障害シナリオのテスト用）。
 	 */
-	private function record_fetch_by_id( string $entity, string $remote_id ): void {
-		$this->fetched_by_id[] = [ $entity, $remote_id ];
-
+	private function maybe_fail_fetch_by_id(): void {
 		if ( null !== $this->fetch_by_id_failure ) {
 			throw $this->fetch_by_id_failure;
 		}
 	}
 
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
-		$this->record_fetch_by_id( 'customer', $remote_id );
+		$this->maybe_fail_fetch_by_id();
 
 		if ( null !== $this->customer_by_remote_id_override ) {
 			return $this->customer_by_remote_id_override;
@@ -264,7 +254,7 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
-		$this->record_fetch_by_id( 'order', $remote_id );
+		$this->maybe_fail_fetch_by_id();
 
 		if ( null !== $this->order_by_remote_id_override ) {
 			return $this->order_by_remote_id_override;

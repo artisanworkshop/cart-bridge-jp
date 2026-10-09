@@ -2332,7 +2332,7 @@ final class OrderWriterTest extends WooTestCase {
 
 	/**
 	 * PR R1-S2: 作成後の後処理（購入実績の印＝顧客の保存）で他プラグインが失敗しても、受注は作成済みのまま返す。
-	 * 消すと mapping が書かれず、次回に同じ受注を重複作成する（無料版の上限にも数えられない）。
+	 * 消すと mapping が書かれず、次回に同じ受注を重複作成する。
 	 */
 	public function test_a_failing_follow_up_step_keeps_the_created_order(): void {
 		$user_id = wp_insert_user(

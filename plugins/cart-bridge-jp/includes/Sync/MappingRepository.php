@@ -214,7 +214,7 @@ final class MappingRepository {
 
 	/**
 	 * platform + entity_type の mapping が指すローカルIDの一覧（重複除去・昇順）。
-	 * 移行後検証レポート（`VerificationReport`）とクリーンアップのプレビューが Woo 側の実在確認に使う。
+	 * 移行後検証レポート（`VerificationReport`）が Woo 側の実在確認に使う。
 	 *
 	 * @return array<int,int>
 	 */

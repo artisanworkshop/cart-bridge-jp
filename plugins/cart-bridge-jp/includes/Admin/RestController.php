@@ -11,7 +11,6 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
-use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
@@ -1079,7 +1078,7 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: 無料版のサンプル10件でも
+		// エクスポート実行前の本番書込み警告（D17）のサーバー側担保: エクスポートは
 		// ASP本番環境へ実際に書き込むため、UI（E2-4の確認ダイアログ）が確認を得たことを示す
 		// フラグを必須にする。dry-run（`dry_run_export`）は何も書き込まないため対象外。
 		// プラットフォーム存在チェックの後に置く: 不正なplatform + type=exportのリクエストが

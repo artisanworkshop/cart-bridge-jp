@@ -523,7 +523,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 *
 	 * 送れない商品（標準・軽減以外の税区分、価格を 1 件も換算できない。`ProductTransformer::push_blocker()`）は、
 	 * 作成も更新もせず remote_id を空にした`skipped`で返す（R3-1d、issue #78。`push_customer()`の必須項目の欠けと同じ形。
-	 * `Sync\Exporter`は作成なら intent を消して無料枠を返し、更新なら既存の mapping・checksum に触れず次回に再試行する）。
+	 * `Sync\Exporter`は作成なら intent を消し、更新なら既存の mapping・checksum に触れず次回に再試行する）。
 	 * 以前は作成時だけ hidden にしていたが、更新では効かず次のエクスポートで課税商品として公開されていた。
 	 */
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
@@ -1688,7 +1688,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		$access_token = (string) ( $this->token_store->get()['access_token'] ?? '' );
 
 		if ( '' === $access_token ) {
-			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（県コード修復ツール等）が
+			// ステータス 0 は通信断・JSON 破損でも使われるため、呼び出し側（push intent の解除・`Sync\Exporter` 等）が
 			// 「再接続が必要」と区別できるよう、未接続であることを文脈で明示する。
 			throw new ApiException( 'ColorMe adapter is not connected.', 0, [ 'not_connected' => true ] );
 		}

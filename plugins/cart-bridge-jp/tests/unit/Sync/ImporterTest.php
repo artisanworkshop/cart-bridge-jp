@@ -11,7 +11,6 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
-use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\Importer;
 use CartBridgeJP\Sync\MappingRepository;

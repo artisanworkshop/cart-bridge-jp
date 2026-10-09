@@ -86,136 +86,136 @@ msgstr "キャンセル"
 msgid "Cart Bridge JP"
 msgstr "Cart Bridge JP"
 
-#: includes/Admin/RestController.php:442
+#: includes/Admin/RestController.php:441
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr "このプラットフォームの実行がまだ終わっていません。先に「ツール」タブ（または「インポート」「エクスポート」タブ）でキャンセルしてから、もう一度お試しください。"
 
-#: includes/Admin/RestController.php:491
+#: includes/Admin/RestController.php:490
 msgid "No recognized connection fields were provided."
 msgstr "認識できる接続の項目がありません。"
 
-#: includes/Admin/RestController.php:501
+#: includes/Admin/RestController.php:500
 msgid "The connection settings changed while saving. Please try again."
 msgstr "保存中に接続の設定が変わりました。もう一度お試しください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:566
+#: includes/Admin/RestController.php:565
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr "「%s」は ID と ID の対応を表すオブジェクトにしてください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:584
+#: includes/Admin/RestController.php:583
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr "「%s」に不正な項目があります。"
 
-#: includes/Admin/RestController.php:641
+#: includes/Admin/RestController.php:640
 msgid "\"push_images\" must be true or false."
 msgstr "「push_images」は true か false にしてください。"
 
-#: includes/Admin/RestController.php:649
+#: includes/Admin/RestController.php:648
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
 
-#: includes/Admin/RestController.php:918
+#: includes/Admin/RestController.php:917
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:961
+#: includes/Admin/RestController.php:960
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:985
+#: includes/Admin/RestController.php:984
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:997
+#: includes/Admin/RestController.php:996
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1027
+#: includes/Admin/RestController.php:1026
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1090
+#: includes/Admin/RestController.php:1089
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1102
+#: includes/Admin/RestController.php:1101
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1139
-#: includes/Admin/RestController.php:1180
-#: includes/Admin/RestController.php:1250
-#: includes/Admin/RestController.php:1342
+#: includes/Admin/RestController.php:1138
+#: includes/Admin/RestController.php:1179
+#: includes/Admin/RestController.php:1249
+#: includes/Admin/RestController.php:1341
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1264
+#: includes/Admin/RestController.php:1263
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1276
+#: includes/Admin/RestController.php:1275
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1348
+#: includes/Admin/RestController.php:1347
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1375
+#: includes/Admin/RestController.php:1374
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1509
+#: includes/Admin/RestController.php:1508
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
 
-#: includes/Admin/RestController.php:1443
+#: includes/Admin/RestController.php:1442
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1488
+#: includes/Admin/RestController.php:1487
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1493
+#: includes/Admin/RestController.php:1492
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1498
+#: includes/Admin/RestController.php:1497
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1503
+#: includes/Admin/RestController.php:1502
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1515
+#: includes/Admin/RestController.php:1514
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1520
+#: includes/Admin/RestController.php:1519
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1530
+#: includes/Admin/RestController.php:1529
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1608
+#: includes/Admin/RestController.php:1607
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1609
+#: includes/Admin/RestController.php:1608
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1621
+#: includes/Admin/RestController.php:1620
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -1134,10 +1134,6 @@ msgstr "プラットフォームは注文日を受け取れないため、プラ
 #: includes/Woo/WarningCatalog.php:648
 msgid "The product or variation for this stock is not found in WooCommerce, so the stock is not imported."
 msgstr "この在庫の商品かバリエーションが WooCommerce に無いため、在庫はインポートしません。"
-
-#: includes/Woo/WarningCatalog.php:649
-msgid "Import products before stock (a full import does this). If this remains, the product was not imported, for example because of the free version’s limit."
-msgstr "在庫より先に商品をインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は、無料版の上限などの理由で商品がインポートされていません。"
 
 #. translators: %s: the platform's ID of a product or variation.
 #: includes/Woo/WarningCatalog.php:651
@@ -2166,7 +2162,7 @@ msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
 
-#: includes/Admin/RestController.php:960
+#: includes/Admin/RestController.php:959
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
 
@@ -2194,3 +2190,7 @@ msgstr "プレビュー（書き込みなし）"
 #: build/index.js:22
 msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
 msgstr "エクスポートを実行すると、接続したショップにデータをすぐ書き込みます。本番のショップではなく、まずテスト用のショップで実行することをおすすめします。"
+
+#: includes/Woo/WarningCatalog.php:649
+msgid "Import products before stock (a full import does this). If this remains, the product was not imported; check the warnings for that product in the preview (dry-run) report."
+msgstr "在庫より先に商品をインポートしてください（すべてをインポートすればこの順になります）。それでも残る場合は商品がインポートされていません。プレビューのレポートでその商品の警告を確認してください。"
