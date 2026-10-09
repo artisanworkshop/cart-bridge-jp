@@ -122,13 +122,13 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 長い落とし穴集はパス指定ルールへ分割してある（Claude Code は**該当ファイルを Read したときだけ**読み込む）。CLAUDE.md にある規約と同格の**必須ルール**で、
 触るファイルに対応するものは実装・レビューの前に必ず読むこと（Codex/Copilot など Claude Code 以外のツールやサブエージェントは自動では読み込まないため、明示的に開くこと。`AGENTS.md` も参照）。
 
-| ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/` はルート） |
+| ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/`・`bin/` はルート） |
 |---|---|---|
 | `.claude/rules/adapters-colorme.md` | ASP アダプタ共通の基準（境界データ・`Page::$total`・push の部分失敗・税込換算）とカラーミー API の癖（クーポン・画像・税・`pref_id`・受注明細ほか） | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
 | `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・`cbjp_mappings`（checksum・upsert）・サンプルクリーンアップ等のツールの設計上の罠 | `includes/Sync/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
-| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**` |
+| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**` |
 
 ## テスト方針
 

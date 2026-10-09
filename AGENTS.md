@@ -14,12 +14,12 @@ is split by topic into [`.claude/rules/`](./.claude/rules/). They carry the same
 weight as `CLAUDE.md`. **Claude Code loads them automatically when it reads a matching
 file; other tools do not, so open the ones that match the files you change or review:**
 
-| Rule file | Applies to (paths under `plugins/*/`, e.g. `plugins/cart-bridge-jp/includes/...`) |
+| Rule file | Applies to (plugin paths are under `plugins/*/`, e.g. `plugins/cart-bridge-jp/includes/...`; `.claude/` and `bin/` are at the repository root) |
 |---|---|
 | [`adapters-colorme.md`](./.claude/rules/adapters-colorme.md) | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
 | [`woocommerce-api.md`](./.claude/rules/woocommerce-api.md) | `includes/Woo/**` |
 | [`sync-export-tools.md`](./.claude/rules/sync-export-tools.md) | `includes/Sync/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | [`frontend.md`](./.claude/rules/frontend.md) | `src/**`, `includes/Admin/Assets.php` |
-| [`skill-scripts.md`](./.claude/rules/skill-scripts.md) | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**` |
+| [`skill-scripts.md`](./.claude/rules/skill-scripts.md) | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**` |
 
 The exact `paths` for each file are in its YAML frontmatter.

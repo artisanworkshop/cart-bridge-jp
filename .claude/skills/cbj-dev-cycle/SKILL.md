@@ -21,7 +21,7 @@ description: >
 
 | 項目 | 値 |
 |---|---|
-| 品質チェック | `.claude/skills/cbj-dev-cycle/scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv` → `npm run lint` → `npm run test:js` → `npm run i18n:check`〈ビルドしてから、ソースの文字列とコミット済みの POT が同じか確かめる〉） |
+| 品質チェック | `.claude/skills/cbj-dev-cycle/scripts/quality.sh`（= `composer lint` → `composer analyze` → `composer test:wpenv`（無料版と Pro）→ `bin/check-dev-mount.sh`（ルートのマウントが HTTP で 403 か）→ `npm run lint` → `npm run test:js` → `npm run i18n:check`〈ビルドしてから、ソースの文字列とコミット済みの POT が同じか確かめる〉） |
 | ブランチ命名 | `feat/{タスクID小文字}-{短い説明}`（例: `feat/f1-7-tools-verification-report`）。バグ対応は `fix/{issue番号}-{短い説明}` |
 | 計画ドキュメント | `docs/10-tasks.md`（着手タスクはここから。隣接タスクのまとめ方は同ファイル「進め方」2 と memory の PR/branch grouping） |
 | 設計ドキュメント | `docs/03-design-decisions.md`（他と矛盾したらこちら優先）、`docs/00〜04`、`docs/20`（v2.0 検討事項） |

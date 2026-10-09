@@ -210,7 +210,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * readme は配布物に入れ、ディレクトリのアセット（SVN の assets/ へ置く）は zip に入れない（release.yml は `.distignore` で rsync する）。
+	 * readme は配布物に入れ、ディレクトリのアセット（SVN の assets/ へ置く）は zip に入れない（`bin/build-zip.sh`〔CI の Distribution ジョブと release.yml〕は `.distignore` で rsync する）。
 	 */
 	public function test_distignore_ships_the_readme_but_not_the_directory_assets(): void {
 		$lines = array_map( 'trim', (array) file( CBJP_PATH . '.distignore', FILE_IGNORE_NEW_LINES ) );

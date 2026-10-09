@@ -664,9 +664,11 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 
 `.github/workflows/ci.yml` — push / PR（main宛）で実行:
 
-1. **php-quality**: PHP 8.2/8.3 マトリクスで `composer lint`（PHPCS）+ `composer analyze`（PHPStan level 6）
-2. **php-test**: `wp-env` を起動して `composer test`（PHPUnit）。続けて `npm run i18n:check`（ビルドしてから POT の鮮度を確かめる。§6「翻訳（R3-2）」）
+1. **php-quality**: PHP 8.2/8.3 マトリクスで `composer lint`（PHPCS。無料版と Pro）+ `composer analyze`（PHPStan level 6。無料版だけの解析と Pro の解析）
+2. **php-test**: `wp-env` を起動し、`bin/check-dev-mount.sh`（ルートのマウントが HTTP で 403 か）→ `composer test:wpenv`（PHPUnit。無料版 → Pro）→ `npm run i18n:check`（ビルドしてから POT の鮮度を確かめる。§6「翻訳（R3-2）」）
 3. **js**: `npm ci && npm run lint && npm run test:js && npm run build`（tsc型チェック含む）
+4. **distribution**: `bin/build-zip.sh`（無料版の zip を作り、中身を検査する。`release.yml` も同じスクリプトで zip を作る。§10.6）
+5. **dev-tooling**: `cbj-dev-cycle` の補助スクリプトの回帰テスト
 
 ## 9. 要検証事項トラッカー（00 §7 の具体化）
 
