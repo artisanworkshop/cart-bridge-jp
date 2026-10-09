@@ -779,10 +779,10 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   確認: `composer lint && composer analyze && composer test:wpenv`・`npm run build`・`npm run test:js`・`npm run i18n:check`・Plugin Check（展開した zip に対して）・wp-env の管理画面
   **実装サマリ（2026-10-09。ブランチ `feat/r3-7-monorepo`）**: 移動の前にパスを明示（テストのブートストラップはプラグインのマウント以外から起動したら止める・リハーサルの出力先をリポジトリのルートに・wp-scripts にソースと出力のパス）→ 中身を変えない `git mv`（297 件）→
   無料版のツール一式（ルートの composer は開発ツールだけ・プラグインごとの実行時の composer・wp-env はプラグインのマウントとルートの `wp-content/cbjp-dev` へのマウント・ルートの `.htaccess` と `bin/check-dev-mount.sh`・PHPUnit はプラグインのマウントからルートの PHPUnit で・PHPStan は無料版だけ・i18n）→
-  配布（`bin/build-zip.sh` と CI の Distribution ジョブ・release.yml）→ Pro の骨組み（`plugins/cart-bridge-jp-pro/`、`phpstan-pro.neon.dist`、テスト 4 件）→ スキル・ルール → docs。詳細は `docs/03` §10.6。
+  配布（`bin/build-zip.sh` と CI の Distribution ジョブ・release.yml）→ Pro の骨組み（`plugins/cart-bridge-jp-pro/`、`phpstan-pro.neon.dist`、テスト 7 件）→ スキル・ルール → docs。詳細は `docs/03` §10.6。
   既存の問題を 1 つ解消: ルートをプラグインとしてマウントしていたため、gitignore 済みの `colorme.env`（テスト用アプリの資格情報）が dev サイトで HTTP 200 で読めた（R3-7 で 404。ルートのマウントは 403）。
-  確認: 品質チェック一式（無料版 1767 件・Pro 4 件・Jest 104 件・POT 555 文字列）、main の旧手順の zip との比較（autoloader のクラス名の接尾辞と webpack のモジュール番号のほかは同じ。旧手順は手元の `.phpunit.result.cache` を拾っていた）、
-  Plugin Check（`plugin_readme`・`plugin_header_fields`・`trademarks`）エラー・警告 0、ミューテーション（`.htaccess` の削除・無効化、zip への置き忘れ・最上位の余分・Pro の識別子・`--no-dev` 抜き、無料版から Pro の参照〔PHPStan〕、Pro のテキストドメイン〔PHPCS〕、Pro の起動の優先度・HPOS の宣言・通知の権限〔PHPUnit〕がすべて検出された）、
+  確認: 品質チェック一式（無料版 1767 件・Pro 7 件・Jest 104 件・POT 555 文字列）、main の旧手順の zip との比較（autoloader のクラス名の接尾辞と webpack のモジュール番号のほかは同じ。旧手順は手元の `.phpunit.result.cache` を拾っていた）、
+  Plugin Check（`plugin_readme`・`plugin_header_fields`・`trademarks`）エラー・警告 0、ミューテーション（`.htaccess` の削除・無効化、zip への置き忘れ・最上位の余分・Pro の識別子・`--no-dev` 抜き、無料版から Pro の参照〔PHPStan〕、Pro のテキストドメイン〔PHPCS〕、Pro の起動の優先度・HPOS の宣言・通知の権限・前提が欠けたときに起動しない分岐〔PHPUnit〕がすべて検出された）、
   `mock-adapter.sh inspect`・リハーサルの出力先（403）・`capture.sh shoot`（既存の画像を再現。差はメニューのバッジ 1 枚）。`composer test:wpenv:free -- --filter X` の引数が PHPUnit に渡るようになった（以前は全件が走った）
 
 > **要判断（v1.0公開前）**: ~~無料版の上限到達時に表示する Pro 案内（03 §10.3）の導線先として、v1.0 公開と同時に Pro 版を購入可能にするか。~~

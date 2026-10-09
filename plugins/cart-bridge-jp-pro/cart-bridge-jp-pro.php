@@ -48,10 +48,10 @@ add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_bootstrap', 20 );
  * 依存は Pro から無料版への一方向（D29）。無料版が起動していないときは Pro も何もしない。
  */
 function cbjp_pro_bootstrap(): void {
-	cbjp_pro_maybe_boot(
-		class_exists( \WooCommerce::class ) && class_exists( \CartBridgeJP\Core\Plugin::class ),
-		class_exists( Core\Plugin::class )
-	);
+	$requirements_met = class_exists( \WooCommerce::class ) && class_exists( \CartBridgeJP\Core\Plugin::class );
+
+	// 前提が欠けていれば Pro のクラスを読み込まない（Pro のクラスが無料版の型を継承・実装すると、無料版が無いときの autoload が fatal になる）。
+	cbjp_pro_maybe_boot( $requirements_met, $requirements_met && class_exists( Core\Plugin::class ) );
 }
 
 /**

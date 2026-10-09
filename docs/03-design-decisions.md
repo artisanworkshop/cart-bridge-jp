@@ -2311,7 +2311,7 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 - PHPUnit: プラグインのマウントを cwd にして、ルートの PHPUnit で実行する（`composer test:wpenv:free`/`:pro`。引数は PHPUnit に渡る）。別のパスから起動すると、プラグインとテストが 2 つのパスから読まれ `CBJP_URL` もずれるので、ブートストラップが止める。
   無料版のブートストラップは WooCommerce と無料版だけを読み込み、Pro のブートストラップは WooCommerce → 無料版 → Pro の順に読み込む。
 - PHPStan: 無料版の設定は無料版だけを解析・走査する（無料版が Pro を参照すると「不明なクラス」で失敗する。依存は Pro から無料版への一方向）。Pro の設定（`phpstan-pro.neon.dist`）は独立したファイルで、無料版を走査に含める（NEON の includes は paths を連結するので include しない）。
-- PHPCS: ruleset は 1 つ（無料版・`bin`・`.claude`。テキストドメイン `cart-bridge-jp`）。Pro は `--runtime-set text_domain cart-bridge-jp-pro` で別に検査する（コマンドラインのファイル指定が ruleset の `<file>` より優先される）。
+- PHPCS: ruleset は 1 つ（無料版・`bin`・`.claude/skills`。テキストドメイン `cart-bridge-jp`。`.claude/worktrees` は Claude Code のワークツリーなので対象にしない）。Pro は `--runtime-set text_domain cart-bridge-jp-pro` で別に検査する（コマンドラインのファイル指定が ruleset の `<file>` より優先される）。
 - JS: ルートの `package.json` のまま（依存・lock は変えない）。`wp-scripts` に `--source-path`・`--output-path` を渡す。`bin/i18n.sh` はプラグインのディレクトリで POT を作り（参照パスと JSON の名前は R3-7 の前と同じ）、`npx wp-env` だけはルートから呼ぶ（wp-env は呼び出したディレクトリから `.wp-env.json` を探す）。
 
 **配布物の検査**（`bin/build-zip.sh`。CI の Distribution ジョブと `release.yml` が使う）: 無料版を `vendor/` 抜きで一時ディレクトリへ写し、そこで `composer install --no-dev -o`（開発用の vendor を壊さない。`.distignore` が `composer.json` を除くので、除く前の写しで実行する）→ `.distignore` で写して検査 → zip。
