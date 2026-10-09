@@ -21,6 +21,30 @@ final class OrderStatusMappingKind extends MappingKind {
 		return 'status';
 	}
 
+	public function label(): string {
+		return __( 'Order status mapping', 'cart-bridge-jp' );
+	}
+
+	public function description(): string {
+		return __( 'Overrides the WooCommerce status an imported order gets for each platform status. Leave it at Default to use the standard status.', 'cart-bridge-jp' );
+	}
+
+	public function source_heading(): string {
+		return __( 'Platform order status', 'cart-bridge-jp' );
+	}
+
+	public function target_heading(): string {
+		return __( 'WooCommerce order status', 'cart-bridge-jp' );
+	}
+
+	public function unmapped_label(): string {
+		return __( '— Default —', 'cart-bridge-jp' );
+	}
+
+	public function no_targets_help(): string {
+		return __( 'No WooCommerce order statuses are available.', 'cart-bridge-jp' );
+	}
+
 	public function position(): int {
 		return 30;
 	}

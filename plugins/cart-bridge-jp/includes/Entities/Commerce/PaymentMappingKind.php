@@ -21,6 +21,26 @@ final class PaymentMappingKind extends MappingKind {
 		return 'payment';
 	}
 
+	public function label(): string {
+		return __( 'Payment method mapping', 'cart-bridge-jp' );
+	}
+
+	public function description(): string {
+		return __( 'Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning.', 'cart-bridge-jp' );
+	}
+
+	public function source_heading(): string {
+		return __( 'Platform payment method', 'cart-bridge-jp' );
+	}
+
+	public function target_heading(): string {
+		return __( 'WooCommerce payment method', 'cart-bridge-jp' );
+	}
+
+	public function no_targets_help(): string {
+		return __( 'No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first.', 'cart-bridge-jp' );
+	}
+
 	public function position(): int {
 		return 10;
 	}

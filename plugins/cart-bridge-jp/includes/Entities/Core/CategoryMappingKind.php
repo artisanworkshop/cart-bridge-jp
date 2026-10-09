@@ -21,6 +21,30 @@ final class CategoryMappingKind extends MappingKind {
 		return 'category';
 	}
 
+	public function label(): string {
+		return __( 'Category mapping', 'cart-bridge-jp' );
+	}
+
+	public function description(): string {
+		return __( 'Used when exporting products. This platform cannot create new categories, so pick an existing platform category for each WooCommerce category you plan to export.', 'cart-bridge-jp' );
+	}
+
+	public function source_heading(): string {
+		return __( 'WooCommerce category', 'cart-bridge-jp' );
+	}
+
+	public function target_heading(): string {
+		return __( 'Platform category', 'cart-bridge-jp' );
+	}
+
+	public function unmapped_label(): string {
+		return __( '— No category —', 'cart-bridge-jp' );
+	}
+
+	public function no_targets_help(): string {
+		return __( 'No platform categories are available to choose from. Check the connection, or create the categories on the platform first.', 'cart-bridge-jp' );
+	}
+
 	public function position(): int {
 		return 10;
 	}

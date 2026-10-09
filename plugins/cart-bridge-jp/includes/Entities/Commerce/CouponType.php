@@ -92,6 +92,7 @@ final class CouponType extends EntityType {
 		return [
 			'exists'   => true,
 			'edit_url' => get_edit_post_link( $local_id, 'raw' ),
+			'summary'  => $coupon->get_code(),
 			'details'  => [
 				'code' => $coupon->get_code(),
 			],

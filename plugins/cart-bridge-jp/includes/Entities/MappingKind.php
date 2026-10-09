@@ -35,6 +35,11 @@ abstract class MappingKind {
 	abstract public function key(): string;
 
 	/**
+	 * 画面の節の見出し（例: `Payment method mapping`）。呼ばれるたびに翻訳する（結果を保持しない）。
+	 */
+	abstract public function label(): string;
+
+	/**
 	 * 同じ実体の種類の中での並び（小さいほど先）。
 	 */
 	abstract public function position(): int;
@@ -66,9 +71,49 @@ abstract class MappingKind {
 	}
 
 	/**
-	 * 取込みの前に未設定の数を案内するか（Import タブ。決済・配送）。
+	 * 取込みの前に未設定の数を案内するか（Import タブ。決済・配送）。案内の文は「未設定でも取り込み、dry-run の警告に出し、設定した後の
+	 * 次の取込みで更新する」ことを伝えるので、その扱いになる種類（未設定の警告で checksum を保存しない種類）だけが真を返す。
 	 */
 	public function import_notice(): bool {
 		return false;
+	}
+
+	/**
+	 * 節の説明（いつ使うか・未設定のときどうなるか）。画面は空なら出さない。
+	 */
+	public function description(): string {
+		return '';
+	}
+
+	/**
+	 * 行に並べる側（`source_side()`）の列の見出し。
+	 */
+	public function source_heading(): string {
+		return self::SOURCE_WOO === $this->source_side()
+			? __( 'WooCommerce value', 'cart-bridge-jp' )
+			: __( 'Platform value', 'cart-bridge-jp' );
+	}
+
+	/**
+	 * 選ばせる側の列の見出し。
+	 */
+	public function target_heading(): string {
+		return self::SOURCE_WOO === $this->source_side()
+			? __( 'Platform value', 'cart-bridge-jp' )
+			: __( 'WooCommerce value', 'cart-bridge-jp' );
+	}
+
+	/**
+	 * 「設定しない」の選択肢の表示。
+	 */
+	public function unmapped_label(): string {
+		return __( '— Unmapped —', 'cart-bridge-jp' );
+	}
+
+	/**
+	 * 選べる対応先が 0 件のときの案内。
+	 */
+	public function no_targets_help(): string {
+		return __( 'There are no options to choose from yet.', 'cart-bridge-jp' );
 	}
 }

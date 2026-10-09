@@ -72,6 +72,10 @@ final class OrderType extends EntityType {
 		return in_array( Capabilities::BETA_ORDER_EXPORT, (array) $adapter->capabilities()->to_array()['beta_features'], true );
 	}
 
+	public function export_description( PlatformAdapter $adapter ): string {
+		return __( 'Creates orders (sales) in the connected shop.', 'cart-bridge-jp' );
+	}
+
 	public function reader( string $platform, WooServices $services ): EntityReader {
 		return new OrderReader( $platform, $services->mappings() );
 	}
@@ -104,6 +108,17 @@ final class OrderType extends EntityType {
 		return [
 			'exists'   => true,
 			'edit_url' => $order->get_edit_order_url(),
+			// 日時は WooCommerce の書式とサイトのタイムゾーンで書く（注文一覧と同じ見え方）。
+			'summary'  => sprintf(
+				/* translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time */
+				__( '#%1$s — %2$s %3$s (%4$s)', 'cart-bridge-jp' ),
+				$order->get_order_number(),
+				$order->get_total(),
+				$order->get_currency(),
+				null !== $date_created
+					? $date_created->date_i18n( wc_date_format() . ' ' . wc_time_format() )
+					: __( 'date unknown', 'cart-bridge-jp' )
+			),
 			'details'  => [
 				'number'       => $order->get_order_number(),
 				'total'        => $order->get_total(),

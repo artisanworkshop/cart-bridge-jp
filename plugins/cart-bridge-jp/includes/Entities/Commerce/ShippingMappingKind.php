@@ -21,6 +21,26 @@ final class ShippingMappingKind extends MappingKind {
 		return 'shipping';
 	}
 
+	public function label(): string {
+		return __( 'Shipping method mapping', 'cart-bridge-jp' );
+	}
+
+	public function description(): string {
+		return __( 'Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning.', 'cart-bridge-jp' );
+	}
+
+	public function source_heading(): string {
+		return __( 'Platform shipping method', 'cart-bridge-jp' );
+	}
+
+	public function target_heading(): string {
+		return __( 'WooCommerce shipping method', 'cart-bridge-jp' );
+	}
+
+	public function no_targets_help(): string {
+		return __( 'No WooCommerce shipping methods are available. Add a shipping zone with a shipping method in WooCommerce > Settings > Shipping first.', 'cart-bridge-jp' );
+	}
+
 	public function position(): int {
 		return 20;
 	}

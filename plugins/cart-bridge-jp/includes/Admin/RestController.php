@@ -516,11 +516,12 @@ final class RestController {
 			return $this->unknown_platform_error( $platform );
 		}
 
-		$kinds                      = EntityTypeRegistry::mapping_kinds();
+		$entries                    = EntityTypeRegistry::mapping_kind_entries();
+		$kinds                      = array_column( $entries, 'kind' );
 		$response                   = $this->settings_mappings_response( $this->read_settings_mappings( $platform ) );
 		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform, $kinds );
 		$response['woo_candidates'] = $this->woo_mapping_candidates( $kinds );
-		$response['kinds']          = $this->mapping_kind_descriptions( $platform, $kinds );
+		$response['kinds']          = $this->mapping_kind_descriptions( $platform, $entries );
 
 		return rest_ensure_response( $response );
 	}
@@ -784,37 +785,74 @@ final class RestController {
 	}
 
 	/**
-	 * 画面がマッピングの節を組み立てるための種類の一覧（R3-6b1。文言は R3-6b2 で足す）。`applies` はこの接続先で使うか
-	 * （カテゴリはカテゴリを作れない接続先だけ）。外部の種類が例外を投げたら、その項目は使わない扱いにする。
+	 * 画面がマッピングの節を組み立てるための種類の一覧（R3-6b1。文言は R3-6b2）。`entity` はそのマッピングを持つ実体の種類、`applies` は
+	 * この接続先で使うか（カテゴリはカテゴリを作れない接続先だけ）。外部の種類が例外を投げたら、その項目は使わない扱いにして文言を空にする
+	 * （画面は `applies` が偽の節を出さない）。
 	 *
-	 * @param array<int,MappingKind> $kinds
-	 * @return array<int,array{key:string,map_key:string,source_side:string,applies:bool,import_notice:bool}>
+	 * @param array<int,array{entity:string,kind:MappingKind}> $entries
+	 * @return array<int,array<string,mixed>>
 	 */
-	private function mapping_kind_descriptions( string $platform, array $kinds ): array {
+	private function mapping_kind_descriptions( string $platform, array $entries ): array {
 		$adapter      = AdapterRegistry::get( $platform );
 		$descriptions = [];
 
-		foreach ( $kinds as $kind ) {
+		foreach ( $entries as $entry ) {
+			$kind = $entry['kind'];
+
 			try {
-				$source_side   = $kind->source_side();
-				$applies       = null !== $adapter && $kind->applies_to( $adapter );
-				$import_notice = $kind->import_notice();
+				$source_side = $kind->source_side();
+				$texts       = [
+					'label'           => $kind->label(),
+					'description'     => $kind->description(),
+					'source_heading'  => $kind->source_heading(),
+					'target_heading'  => $kind->target_heading(),
+					'unmapped_label'  => $kind->unmapped_label(),
+					'no_targets_help' => $kind->no_targets_help(),
+				];
+				$applies     = null !== $adapter && $kind->applies_to( $adapter );
+				$notice      = $kind->import_notice();
 			} catch ( Throwable ) {
-				$source_side   = MappingKind::SOURCE_ASP;
-				$applies       = false;
-				$import_notice = false;
+				$source_side = MappingKind::SOURCE_ASP;
+				$texts       = array_fill_keys( [ 'label', 'description', 'source_heading', 'target_heading', 'unmapped_label', 'no_targets_help' ], '' );
+				$applies     = false;
+				$notice      = false;
 			}
 
 			$descriptions[] = [
 				'key'           => $kind->key(),
 				'map_key'       => $kind->map_key(),
+				'entity'        => $entry['entity'],
 				'source_side'   => MappingKind::SOURCE_WOO === $source_side ? MappingKind::SOURCE_WOO : MappingKind::SOURCE_ASP,
 				'applies'       => $applies,
-				'import_notice' => $import_notice,
-			];
+				'import_notice' => $notice,
+			] + $texts;
 		}
 
 		return $descriptions;
+	}
+
+	/**
+	 * この接続先で、取込みの前に未設定の数を案内するマッピングを持つ実体の種類のキー（`entities.import[].mapping_notice`。R3-6b2）。
+	 * Import タブは、この種類が選ばれたときだけ候補を取得する（ColorMe は API を 3 本呼ぶ）。例外を投げる種類は案内しない。
+	 *
+	 * @return array<string,true>
+	 */
+	private function import_notice_entities( PlatformAdapter $adapter ): array {
+		$entities = [];
+
+		foreach ( EntityTypeRegistry::mapping_kind_entries() as $entry ) {
+			try {
+				$notice = $entry['kind']->import_notice() && $entry['kind']->applies_to( $adapter );
+			} catch ( Throwable ) {
+				$notice = false;
+			}
+
+			if ( $notice ) {
+				$entities[ $entry['entity'] ] = true;
+			}
+		}
+
+		return $entities;
 	}
 
 	/**
@@ -830,34 +868,44 @@ final class RestController {
 	/**
 	 * 接続先ごとの取込み・エクスポートの選択肢（`GET /connections` の `entities`）。判定は `JobManager::start_run()` と同じ
 	 * （`EntityTypeRegistry::importable()`/`exportable()`）。`beta` はエクスポートが既定で選ばれない種類（D24）。
+	 * `mapping_notice`・`description` は R3-6b2（画面が実体の名前で分岐しないため）。
 	 *
-	 * @return array{import:array<int,array{key:string,label:string}>,export:array<int,array{key:string,label:string,beta:bool}>}
+	 * @return array{import:array<int,array{key:string,label:string,mapping_notice:bool}>,export:array<int,array{key:string,label:string,beta:bool,description:string}>}
 	 */
 	private function entity_options( PlatformAdapter $adapter ): array {
-		$keys       = EntityTypeRegistry::keys();
-		$options    = [
+		$keys           = EntityTypeRegistry::keys();
+		$options        = [
 			'import' => [],
 			'export' => [],
 		];
-		$importable = EntityTypeRegistry::importable( $adapter, $keys );
-		$exportable = EntityTypeRegistry::exportable( $adapter, $keys );
+		$importable     = EntityTypeRegistry::importable( $adapter, $keys );
+		$exportable     = EntityTypeRegistry::exportable( $adapter, $keys );
+		$notice_holders = [] !== $importable ? $this->import_notice_entities( $adapter ) : [];
 
 		foreach ( EntityTypeRegistry::all() as $key => $type ) {
 			$label = EntityTypeRegistry::label( $type );
 
 			if ( in_array( $key, $importable, true ) ) {
 				$options['import'][] = [
-					'key'   => $key,
-					'label' => $label,
+					'key'            => $key,
+					'label'          => $label,
+					'mapping_notice' => isset( $notice_holders[ $key ] ),
 				];
 			}
 
 			if ( in_array( $key, $exportable, true ) ) {
+				try {
+					$description = $type->export_description( $adapter );
+				} catch ( Throwable ) {
+					$description = '';
+				}
+
 				$options['export'][] = [
-					'key'   => $key,
-					'label' => $label,
+					'key'         => $key,
+					'label'       => $label,
 					// 例外のときはベータ（既定で選ばない）に倒す（原則 9）。
-					'beta'  => EntityTypeRegistry::is_export_beta( $type, $adapter ),
+					'beta'        => EntityTypeRegistry::is_export_beta( $type, $adapter ),
+					'description' => $description,
 				];
 			}
 		}

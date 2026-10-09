@@ -93,6 +93,7 @@ final class CustomerType extends EntityType {
 		return [
 			'exists'   => true,
 			'edit_url' => get_edit_user_link( $local_id ),
+			'summary'  => $user->user_email,
 			'details'  => [
 				'email' => $user->user_email,
 			],

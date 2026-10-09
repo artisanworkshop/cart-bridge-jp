@@ -1865,6 +1865,10 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	public function test_list_push_intents_describes_product_customer_and_order_entities(): void {
 		$this->register_mock_adapter();
+		// 受注の要約の日時は WooCommerce の書式とサイトのタイムゾーンで書く（R3-6b2）。
+		update_option( 'timezone_string', 'Asia/Tokyo' );
+		update_option( 'date_format', 'Y-m-d' );
+		update_option( 'time_format', 'H:i' );
 
 		$product = new WC_Product_Simple();
 		// Woo の名前は HTML（kses・REST・取込みでは実体参照になる）。画面には表示どおりの文字で渡す（issue #99）。
@@ -1881,20 +1885,28 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$order = new WC_Order();
 		$order->set_status( 'processing' );
+		$order->set_currency( 'JPY' );
+		$order->set_total( '1234' );
+		$order->set_date_created( '2026-01-02T03:04:05+00:00' );
 		$order->save();
 		$order_id = $order->get_id();
+
+		$coupon = new WC_Coupon();
+		$coupon->set_code( 'spring10' );
+		$coupon_id = $coupon->save();
 
 		$intents = new PushIntentRepository();
 		$intents->begin( 'mock', 'product', $product_id, 'run-1', 10 );
 		$intents->begin( 'mock', 'customer', $customer_id, 'run-1', 11 );
 		$intents->begin( 'mock', 'order', $order_id, 'run-1', 12 );
+		$intents->begin( 'mock', 'coupon', $coupon_id, 'run-1', 13 );
 
 		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' );
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertCount( 3, $data['intents'] );
+		$this->assertCount( 4, $data['intents'] );
 
 		$by_entity = [];
 		foreach ( $data['intents'] as $intent ) {
@@ -1912,6 +1924,33 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertTrue( $by_entity['order']['exists'] );
 		$this->assertArrayHasKey( 'number', $by_entity['order']['details'] );
 		$this->assertArrayHasKey( 'total', $by_entity['order']['details'] );
+
+		// 画面に出す 1 行（R3-6b2。以前は画面が `details` から組み立てていた）。
+		$this->assertSame( 'Widget & Co (SKU: SKU-9)', $by_entity['product']['summary'] );
+		$this->assertSame( 'buyer@example.test', $by_entity['customer']['summary'] );
+		$this->assertSame(
+			sprintf( '#%s — %s JPY (2026-01-02 12:04)', wc_get_order( $order_id )->get_order_number(), wc_get_order( $order_id )->get_total() ),
+			$by_entity['order']['summary']
+		);
+		$this->assertSame( 'spring10', $by_entity['coupon']['summary'] );
+	}
+
+	/**
+	 * SKU の無い商品は名前だけ、日時の無い受注は「date unknown」（R3-6b2）。
+	 */
+	public function test_list_push_intents_summarizes_without_the_optional_details(): void {
+		$this->register_mock_adapter();
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Plain' );
+		$product_id = $product->save();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', $product_id, 'run-1', 10 );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' ) )->get_data();
+
+		$this->assertSame( 'Plain', $data['intents'][0]['summary'] );
 	}
 
 	public function test_list_push_intents_marks_a_deleted_local_entity_as_not_existing(): void {
@@ -1925,6 +1964,37 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertFalse( $data['intents'][0]['exists'] );
 		$this->assertNull( $data['intents'][0]['edit_url'] );
+		$this->assertSame( '', $data['intents'][0]['summary'] );
+	}
+
+	/**
+	 * 画面がマッピングの節を組み立てる文言（R3-6b2。以前は `MappingSettings.tsx` にあった英文を種類へ移した）。
+	 */
+	public function test_get_settings_mappings_describes_each_kind_for_the_screen(): void {
+		$this->register_mock_adapter();
+
+		$kinds = array_column( $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data()['kinds'], null, 'key' );
+
+		$this->assertSame( [ 'category', 'payment', 'shipping', 'status' ], array_keys( $kinds ) );
+		$this->assertSame( 'product', $kinds['category']['entity'] );
+		$this->assertSame( 'Category mapping', $kinds['category']['label'] );
+		$this->assertSame( 'WooCommerce category', $kinds['category']['source_heading'] );
+		$this->assertSame( 'Platform category', $kinds['category']['target_heading'] );
+		$this->assertSame( '— No category —', $kinds['category']['unmapped_label'] );
+		$this->assertSame( 'order', $kinds['payment']['entity'] );
+		$this->assertSame( 'Payment method mapping', $kinds['payment']['label'] );
+		$this->assertSame( 'Platform payment method', $kinds['payment']['source_heading'] );
+		$this->assertSame( '— Unmapped —', $kinds['payment']['unmapped_label'] );
+		$this->assertTrue( $kinds['payment']['import_notice'] );
+		$this->assertSame( 'Shipping method mapping', $kinds['shipping']['label'] );
+		$this->assertTrue( $kinds['shipping']['import_notice'] );
+		$this->assertSame( '— Default —', $kinds['status']['unmapped_label'] );
+		$this->assertFalse( $kinds['status']['import_notice'] );
+
+		foreach ( $kinds as $kind ) {
+			$this->assertNotSame( '', $kind['description'], "{$kind['key']} の説明" );
+			$this->assertNotSame( '', $kind['no_targets_help'], "{$kind['key']} の候補が無いときの案内" );
+		}
 	}
 
 	public function test_resolve_push_intent_not_created_deletes_the_intent_without_writing_a_mapping(): void {
@@ -2239,6 +2309,24 @@ final class RestControllerTest extends WP_UnitTestCase {
 			}
 		);
 		AdapterRegistry::reset_cache();
+	}
+
+	/**
+	 * 選択肢の説明と取込みの案内の印（R3-6b2）: 受注だけが説明を持ち、決済・配送の案内が要る。
+	 */
+	public function test_get_connections_describes_the_entity_options_for_the_screen(): void {
+		$this->register_mock_adapter();
+
+		$entities = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data()[0]['entities'];
+		$export   = array_column( $entities['export'], 'description', 'key' );
+		$import   = array_column( $entities['import'], 'mapping_notice', 'key' );
+
+		$this->assertSame( 'Creates orders (sales) in the connected shop.', $export['order'] );
+		$this->assertSame( '', $export['product'] );
+		$this->assertSame( '', $export['customer'] );
+		$this->assertTrue( $import['order'] );
+		$this->assertFalse( $import['product'] );
+		$this->assertFalse( $import['customer'] );
 	}
 
 	public function test_get_connections_exposes_the_beta_features_of_the_colorme_adapter(): void {
