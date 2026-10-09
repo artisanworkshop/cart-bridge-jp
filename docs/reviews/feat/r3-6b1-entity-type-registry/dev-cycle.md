@@ -3,7 +3,7 @@
 - 開始: 2026-10-10
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: #115 https://github.com/artisanworkshop/cart-bridge-jp/pull/115
-- 現在のステップ: 7（G3 の修正を push・CI 待ち。再依頼なし）
+- 現在のステップ: 完了（最終報告済み。マージ待ち）
 - Copilot: 依頼 3 回 / 上限（G1 で 3 件・G2 で 3 件・G3 で本文 1 件。すべて修正）
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし。Didn't find any major issues）
 
@@ -19,3 +19,4 @@
 | 2026-10-10 02:19 | 7 | G1: Codex は自動レビューが 5 分で届かず review コメントを自動投稿 →「Didn't find any major issues」で収束。Copilot は 3 件（ColorMeApi の戻り値・Woo 側の候補の正規化・検証レポートの ID の絞り込み）をすべて修正（`598b19d`）。記録 `G1.md` |
 | 2026-10-10 02:35 | 7 | G2（Copilot のみ）: スレッド 1 件（リンク再構築の件数の上限）と本文の Previously missed 2 件（`records_push_intent()` の例外・解除で取得したモデルの ID の読み取り）をすべて修正（`cfd66e7`）。記録 `G2.md` |
 | 2026-10-10 02:48 | 7 | G3（Copilot の 3 回目）: スレッド 0 件・本文の Previously missed 1 件（検証レポートの通貨の一覧の検証）を修正（`f671ab0`）。記録 `G3.md`。再依頼はしない |
+| 2026-10-10 02:54 | 8 | 最終 CI green（run 37968888439、HEAD 00b079f）。遅れて届いた bot のレビューなし。最終報告 `final-report.md` |
