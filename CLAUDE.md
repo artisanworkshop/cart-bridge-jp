@@ -155,6 +155,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
 - カラーミーのテストショップと開発サイトの間で全件リハーサル（インポート全般 → 同じショップへの往復エクスポート → Woo 生まれの作成エクスポート。ColorMe 側のスナップショットを往復の前後で比べる）を回す手順はプロジェクトスキル `/rehearse-colorme`（`.claude/skills/rehearse-colorme/`。R3-1 で作成。店舗の login_id が一致しなければ何もしない）
+- wordpress.org 用のスクリーンショット（`.wordpress-org/screenshot-N.png`）を撮り直す手順はプロジェクトスキル `/wporg-screenshots`（`.claude/skills/wporg-screenshots/`。tests サイトで、実 API に出ず匿名化済みフィクスチャから画面を作る。撮る画面は `shots.json`）
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（`composer test` はホストから動かない。上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）
