@@ -314,4 +314,59 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 
 		JobManager::create()->start_run( JobManager::TYPE_IMPORT, 'mock', [ 'category', 'customer' ] );
 	}
+
+	/**
+	 * 外部の種類が重複・無関係な ID を「実在」として返しても、問い合わせた ID の中だけを数え、金額の集計にも渡さない。
+	 */
+	public function test_the_verification_report_ignores_ids_it_did_not_ask_about(): void {
+		$real = self::factory()->post->create();
+		$liar = new class( $real ) extends \CartBridgeJP\Entities\EntityType {
+
+			/**
+			 * @var array<int,int>
+			 */
+			public array $summarized = [];
+
+			public function __construct( private readonly int $real ) {}
+
+			public function key(): string {
+				return 'liar';
+			}
+
+			public function label(): string {
+				return 'Liar';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function existing_local_ids( array $local_ids ): ?array {
+				return [ $this->real, $this->real, 888888 ];
+			}
+
+			public function local_amount_summary( array $local_ids ): ?array {
+				$this->summarized = $local_ids;
+
+				return [
+					'total_minor' => 100,
+					'currencies'  => [ 'JPY' ],
+				];
+			}
+		};
+		$this->register_entity_types( [ $liar ] );
+		$jobs   = new JobRepository();
+		$job_id = $jobs->create( 'run-liar', JobManager::TYPE_IMPORT, 'mock', 'liar' );
+		$jobs->update_status( $job_id, JobRepository::STATUS_COMPLETED );
+		$mappings = new MappingRepository();
+		$mappings->upsert( 'mock', 'liar', 'l1', $real, null );
+		$mappings->upsert( 'mock', 'liar', 'l2', 777777, null );
+
+		$row = ( new VerificationReport( $jobs, $mappings ) )->build( 'run-liar' )['entities'][0];
+
+		$this->assertSame( 2, $row['linked'] );
+		$this->assertSame( 1, $row['existing'] );
+		$this->assertSame( 1, $row['missing'] );
+		$this->assertSame( [ $real ], $liar->summarized );
+	}
 }

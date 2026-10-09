@@ -294,7 +294,20 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 			],
 			$data['asp_candidates']['gizmo']
 		);
-		$this->assertSame( 'Red', $data['woo_candidates']['gizmo'][0]['name'] );
+		// Woo 側の候補も ASP 側と同じ正規化（保存時と同じ形）を通る。
+		$this->assertSame(
+			[
+				[
+					'id'   => 'red',
+					'name' => 'Red',
+				],
+				[
+					'id'   => 'blue',
+					'name' => 'Blue',
+				],
+			],
+			$data['woo_candidates']['gizmo']
+		);
 
 		$save = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/mock' );
 		$save->set_body_params( [ 'gizmo_map' => [ '1' => 'red' ] ] );

@@ -14,6 +14,7 @@ use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\TokenStore;
 use RuntimeException;
 use Throwable;
+use UnexpectedValueException;
 
 /**
  * 認証済みの ColorMe API の呼び出しと、応答の共通処理（一覧のエンベロープ・`meta.total`・カーソル・ID 指定取得・行ごとの変換失敗の記録）。
@@ -237,12 +238,18 @@ final class ColorMeApi {
 		foreach ( $raw_items as $raw ) {
 			try {
 				$items = $transform( $raw );
+
+				// Pro アドオンが渡すコールバックの戻り値の型は docblock の契約でしかない（原則 8）。配列でなければ、この 1 行の変換失敗として
+				// 記録して飛ばす（追加の時点で TypeError になり、ページ全体を落とさないように）。
+				if ( ! is_array( $items ) ) {
+					throw new UnexpectedValueException( 'The transform callback must return an array of models.' );
+				}
 			} catch ( Throwable $exception ) {
 				$this->log_transform_failure( $entity, $raw, $exception );
 				continue;
 			}
 
-			array_push( $result, ...$items );
+			array_push( $result, ...array_values( $items ) );
 		}
 
 		return $result;

@@ -761,7 +761,8 @@ final class RestController {
 
 	/**
 	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。候補は種類が作る（`MappingKind::woo_candidates()`）。
-	 * 外部の種類の戻り値は形だけ確かめ（id・name が文字列の要素だけ残す）、例外は空の候補に倒す。無料版の候補の値は変えない。
+	 * ASP 側の候補と同じ正規化（`normalized_candidate_list()`。保存時の `validate_settings_map()` と同じ形）を通す。外部の種類が
+	 * 空白・制御文字を含む ID を返しても、選んだ値が保存で別のキーになったり拒否されたりしない。例外は空の候補に倒す。
 	 *
 	 * @param array<int,MappingKind> $kinds
 	 * @return array<string,array<int,array{id:string,name:string}>>
@@ -776,12 +777,7 @@ final class RestController {
 				$list = [];
 			}
 
-			$candidates[ $kind->key() ] = array_values(
-				array_filter(
-					is_array( $list ) ? $list : [],
-					static fn ( $item ): bool => is_array( $item ) && is_string( $item['id'] ?? null ) && is_string( $item['name'] ?? null )
-				)
-			);
+			$candidates[ $kind->key() ] = self::normalized_candidate_list( $list );
 		}
 
 		return $candidates;

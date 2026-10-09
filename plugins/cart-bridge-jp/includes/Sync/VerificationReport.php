@@ -110,7 +110,16 @@ final class VerificationReport {
 			return null;
 		}
 
-		return is_array( $existing ) ? array_values( array_filter( $existing, 'is_int' ) ) : null;
+		if ( ! is_array( $existing ) ) {
+			return null;
+		}
+
+		// 外部の種類の戻り値は信用しない（原則 8）。問い合わせた ID の中で重複を除いたものだけを実在として数える
+		// （重複・無関係な ID で `existing` が `linked` を超えたり、金額の集計に無関係な実体が混ざったりしないように）。
+		$requested = array_flip( array_map( 'intval', $local_ids ) );
+		$valid     = array_filter( $existing, static fn ( $id ): bool => is_int( $id ) && isset( $requested[ $id ] ) );
+
+		return array_values( array_unique( $valid ) );
 	}
 
 	/**

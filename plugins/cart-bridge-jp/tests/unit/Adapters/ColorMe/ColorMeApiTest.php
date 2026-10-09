@@ -127,4 +127,20 @@ final class ColorMeApiTest extends WP_UnitTestCase {
 
 		$adapter->api()->list_from( [], 'customers' );
 	}
+
+	/**
+	 * Pro が渡すコールバックが配列以外を返しても、その行の変換失敗として飛ばし、ほかの行は残す（ページ全体を落とさない）。
+	 */
+	public function test_transform_rows_flat_skips_a_row_whose_callback_returns_a_non_array(): void {
+		[ $adapter ] = $this->make_adapter();
+		$rows        = [ [ 'id' => 1 ], [ 'id' => 2 ], [ 'id' => 3 ] ];
+
+		$result = $adapter->api()->transform_rows_flat(
+			$rows,
+			static fn ( array $raw ): mixed => 2 === $raw['id'] ? 'not an array' : [ 'row-' . $raw['id'] ],
+			'customer'
+		);
+
+		$this->assertSame( [ 'row-1', 'row-3' ], $result );
+	}
 }

@@ -27,10 +27,19 @@ final class GizmoMappingKind extends MappingKind {
 	}
 
 	public function woo_candidates(): array {
+		// 外部の種類は正規化されていない値を返しうる（保存時の正規化と同じ形に揃うことの確認用）。
 		return [
 			[
 				'id'   => 'red',
 				'name' => 'Red',
+			],
+			[
+				'id'   => " blue\n",
+				'name' => ' Blue ',
+			],
+			[
+				'id'   => "\t",
+				'name' => 'Tab only',
 			],
 		];
 	}
