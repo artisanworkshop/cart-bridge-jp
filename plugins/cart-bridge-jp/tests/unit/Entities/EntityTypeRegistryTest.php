@@ -385,12 +385,22 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_registration_callback_may_read_the_registry(): void {
+		$depth = 0;
 		add_filter(
 			EntityTypeRegistry::FILTER,
-			static function ( array $types ): array {
-				// Pro が二重登録を避けるために一覧を引いても、再帰で落ちない（組み立て中は無料版の種類だけが見える）。
-				if ( ! EntityTypeRegistry::has( 'gizmo' ) ) {
-					$types[] = new GizmoType();
+			static function ( array $types ) use ( &$depth ): array {
+				// 再入の防止が外れると、この中の `has()` がもう一度フィルターを適用する。プロセスごと落ちる（無限再帰）前に、名前の付いた失敗にする。
+				if ( ++$depth > 1 ) {
+					throw new \LogicException( 'The registry re-applied the filter while it was being built.' );
+				}
+
+				try {
+					// Pro が二重登録を避けるために一覧を引いても、再帰で落ちない（組み立て中は無料版の種類だけが見える）。
+					if ( ! EntityTypeRegistry::has( 'gizmo' ) ) {
+						$types[] = new GizmoType();
+					}
+				} finally {
+					--$depth;
 				}
 
 				return $types;

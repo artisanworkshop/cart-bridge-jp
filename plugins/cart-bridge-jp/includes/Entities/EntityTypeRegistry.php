@@ -42,11 +42,6 @@ final class EntityTypeRegistry {
 	private const RESERVED_KEYS = [ 'variant' ];
 
 	/**
-	 * 無料版の種類のキー（`core_types()`）。外部の種類はこのキーを使えず、これらの種類の LinkSource・MappingKind のキーも先に確定する。
-	 */
-	private const CORE_KEYS = [ 'category', 'tag', 'product', 'stock', 'review' ];
-
-	/**
 	 * @var array<string,EntityType>|null
 	 */
 	private static ?array $types = null;
@@ -317,8 +312,11 @@ final class EntityTypeRegistry {
 		return $claimed;
 	}
 
+	/**
+	 * 無料版の種類（`core_types()`）か。外部の種類は無料版のキーを使えないので、キーで見分けられる。
+	 */
 	private static function is_core( EntityType $type ): bool {
-		return in_array( $type->key(), self::CORE_KEYS, true );
+		return isset( self::core_map()[ $type->key() ] );
 	}
 
 	/**
@@ -383,7 +381,7 @@ final class EntityTypeRegistry {
 			}
 
 			if ( isset( $types[ $key ] ) ) {
-				$reason = in_array( $key, self::CORE_KEYS, true ) ? 'a built-in type' : 'already registered';
+				$reason = isset( self::core_map()[ $key ] ) ? 'a built-in type' : 'already registered';
 				self::reject( "The entity type \"{$key}\" is {$reason}." );
 				continue;
 			}

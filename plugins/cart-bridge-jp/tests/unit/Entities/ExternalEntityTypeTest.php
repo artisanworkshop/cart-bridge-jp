@@ -380,5 +380,6 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $totals['remote_amount'] );
 		$this->assertSame( [ '', '' ], array_column( $rows, 2 ) );
 		$this->assertContains( 'Entity type failed to report the amount of a gizmo item.', $errors );
+		$this->assertContains( 'Entity type failed to build a dry-run label.', array_column( ( new LogRepository() )->list( null, 'error' ), 'message' ) );
 	}
 }

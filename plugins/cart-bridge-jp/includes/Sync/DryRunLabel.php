@@ -10,6 +10,7 @@ namespace CartBridgeJP\Sync;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Support\Logger;
 use Throwable;
 
 /**
@@ -29,7 +30,7 @@ final class DryRunLabel {
 	}
 
 	/**
-	 * ページごとに 1 回引いた種類で組み立てる（`Sync\Importer`・`Sync\Exporter`）。外部の種類が例外を投げたら空にする
+	 * ページごとに 1 回引いた種類で組み立てる（`Sync\Importer`・`Sync\Exporter`）。外部の種類が例外を投げたら空にし、例外クラスを記録する
 	 * （ラベルは表示用。1 件の異常でページ全体を止めない。呼び出し元には例外を処理する catch 節の中もある）。
 	 */
 	public static function for_type( ?EntityType $type, CanonicalModel $item ): string {
@@ -39,7 +40,15 @@ final class DryRunLabel {
 
 		try {
 			return $type->dry_run_label( $item );
-		} catch ( Throwable ) {
+		} catch ( Throwable $exception ) {
+			( new Logger() )->error(
+				'Entity type failed to build a dry-run label.',
+				[
+					'entity'    => $type->key(),
+					'exception' => $exception::class,
+				]
+			);
+
 			return '';
 		}
 	}

@@ -26,6 +26,7 @@ use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
+use CartBridgeJP\Woo\WooReaderRepositoryFactory;
 use CartBridgeJP\Woo\WooRepositoryFactory;
 use WP_REST_Request;
 use WP_REST_Server;
@@ -245,10 +246,14 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 'boom', EntityTypeRegistry::labels()['boom'] );
 	}
 
-	public function test_a_failing_writer_is_logged(): void {
+	public function test_failing_writers_and_readers_are_logged(): void {
 		( new WooRepositoryFactory() )->for_platform( 'mock' );
+		( new WooReaderRepositoryFactory() )->for_platform( 'mock' );
 
-		$this->assertContains( 'Entity type failed to build its Woo writer.', array_column( ( new LogRepository() )->list( null, 'error' ), 'message' ) );
+		$messages = array_column( ( new LogRepository() )->list( null, 'error' ), 'message' );
+
+		$this->assertContains( 'Entity type failed to build its Woo writer.', $messages );
+		$this->assertContains( 'Entity type failed to build its Woo reader.', $messages );
 	}
 
 	public function test_a_failing_beta_check_is_reported_as_beta(): void {
