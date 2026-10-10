@@ -239,7 +239,7 @@ final class OrderWriter implements EntityWriter {
 				wc_get_logger()->error(
 					'Cart Bridge JP: a follow-up step after creating an imported order failed.',
 					[
-						'source'    => 'cart-bridge-jp-pro',
+						'source'    => 'cart-bridge-jp',
 						'step'      => $step,
 						'order_id'  => $order_id,
 						'exception' => $exception::class,

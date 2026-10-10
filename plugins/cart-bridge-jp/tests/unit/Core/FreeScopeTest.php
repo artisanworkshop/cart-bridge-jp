@@ -7,7 +7,13 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Core;
 
+use CartBridgeJP\Adapters\Capabilities;
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Woo\Support\EntityOrigin;
+use CartBridgeJP\Woo\Support\MappingCandidates;
+use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Tools\LocalEntityLookup;
 use CartBridgeJP\Woo\WarningCode;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -26,6 +32,29 @@ final class FreeScopeTest extends WP_UnitTestCase {
 		$methods = array_map( static fn ( \ReflectionMethod $method ): string => $method->getName(), ( new ReflectionClass( PlatformAdapter::class ) )->getMethods() );
 
 		$this->assertSame( [], array_values( preg_grep( self::COMMERCE, $methods ) ) );
+	}
+
+	/**
+	 * 顧客・受注のコードを分けて Pro へ移した補助クラス・アダプタ・能力に、受注などのメソッド・引数・定数が戻らない（R3-6c1 review-loop R1）。
+	 * 決済・配送は受注のマッピングなので一緒に見る。
+	 */
+	public function test_the_shared_helpers_have_no_customer_order_or_coupon_members(): void {
+		$members = [];
+
+		foreach ( [ PlatformAdapter::class, ColorMeAdapter::class, Capabilities::class, MethodMap::class, MappingCandidates::class, LocalEntityLookup::class, EntityOrigin::class ] as $class ) {
+			$reflection = new ReflectionClass( $class );
+			$names      = array_merge(
+				array_map( static fn ( \ReflectionMethod $method ): string => $method->getName(), $reflection->getMethods( \ReflectionMethod::IS_PUBLIC ) ),
+				array_map( static fn ( \ReflectionProperty $property ): string => '$' . $property->getName(), $reflection->getProperties( \ReflectionProperty::IS_PUBLIC ) ),
+				array_keys( $reflection->getConstants() )
+			);
+
+			foreach ( preg_grep( '/customer|order|coupon|payment|shipping/i', $names ) as $name ) {
+				$members[] = $reflection->getShortName() . '::' . $name;
+			}
+		}
+
+		$this->assertSame( [], $members );
 	}
 
 	public function test_no_class_file_is_named_after_customers_orders_or_coupons(): void {

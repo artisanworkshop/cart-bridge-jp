@@ -63,30 +63,34 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * @return array<string,array{0:mixed}>
+	 * 2 つ目は記録する理由（null は記録しない。フィルターが配列を返さないのは「登録が無い」と同じ）。
+	 *
+	 * @return array<string,array{0:mixed,1:?string}>
 	 */
 	public static function broken_registrations(): array {
 		return [
-			'not an array'               => [ 'not-an-array' ],
-			'not callable'               => [ [ 'mock' => 'not_a_function_cbjp' ] ],
-			'returns another type'       => [ [ 'mock' => static fn (): \stdClass => new \stdClass() ] ],
+			'not an array'               => [ 'not-an-array', null ],
+			'not callable'               => [ [ 'mock' => 'not_a_function_cbjp' ], 'not_callable' ],
+			'returns another type'       => [ [ 'mock' => static fn (): \stdClass => new \stdClass() ], 'not_a_commerce_adapter' ],
 			// `id()` は一致するが `CommerceAdapter` ではない（無料版のアダプタを返してしまう登録）。
-			'returns a platform adapter' => [ [ 'mock' => static fn (): MockPlatformAdapter => new MockPlatformAdapter() ] ],
-			'throws'                     => [ [ 'mock' => static fn () => throw new \RuntimeException( 'boom' ) ] ],
-			'reports another id'         => [ [ 'mock' => static fn (): MockCommerceAdapter => new MockCommerceAdapter( platform_id: 'other' ) ] ],
+			'returns a platform adapter' => [ [ 'mock' => static fn (): MockPlatformAdapter => new MockPlatformAdapter() ], 'not_a_commerce_adapter' ],
+			'throws'                     => [ [ 'mock' => static fn () => throw new \LogicException( 'boom' ) ], 'LogicException' ],
+			'reports another id'         => [ [ 'mock' => static fn (): MockCommerceAdapter => new MockCommerceAdapter( platform_id: 'other' ) ], 'id_mismatch' ],
+			// 組み立ては通り、`id()` だけが投げる（組み立ての例外とは別の try。R3-6c1 review-loop R1-1）。
 			'id throws'                  => [
 				[
-					'mock' => static fn () => new class() extends \CartBridgeJP\Adapters\CommerceAdapter {
+					'mock' => static fn () => new class() extends \CartBridgeJP\Pro\Adapters\CommerceAdapter {
 
 						public function id(): string {
 							throw new \RuntimeException( 'id' );
 						}
 
-						public function capabilities(): \CartBridgeJP\Adapters\CommerceCapabilities {
+						public function capabilities(): \CartBridgeJP\Pro\Adapters\CommerceCapabilities {
 							throw new \RuntimeException( 'capabilities' );
 						}
 					},
 				],
+				'RuntimeException',
 			],
 		];
 	}
@@ -96,17 +100,21 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 	 *
 	 * @dataProvider broken_registrations
 	 *
-	 * @param mixed $registration フィルターの戻り値。
+	 * @param mixed   $registration フィルターの戻り値。
+	 * @param ?string $reason       記録する理由（null は記録しない）。
 	 */
-	public function test_a_broken_registration_counts_as_none_and_is_logged( mixed $registration ): void {
+	public function test_a_broken_registration_counts_as_none_and_is_logged( mixed $registration, ?string $reason ): void {
 		add_filter( CommerceAdapters::FILTER, static fn () => $registration );
 		CommerceAdapters::reset_cache();
 
 		$this->assertNull( CommerceAdapters::get( new MockPlatformAdapter() ) );
 
-		if ( is_array( $registration ) ) {
-			$this->assertNotEmpty( ( new LogRepository() )->list( null, 'warning' ) );
-		}
+		$reasons = array_map(
+			static fn ( array $log ): mixed => json_decode( (string) $log['context_json'], true )['reason'] ?? null,
+			( new LogRepository() )->list( null, 'warning' )
+		);
+
+		$this->assertSame( null === $reason ? [] : [ $reason ], $reasons );
 	}
 
 	public function test_get_required_throws_when_the_platform_has_none(): void {

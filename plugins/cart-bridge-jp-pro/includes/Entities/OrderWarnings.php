@@ -44,7 +44,7 @@ final class OrderWarnings {
 			// R3-0m: 決済/配送方法が未マッピングのまま取り込んだ受注。checksum をキャッシュすると、後から
 			// マッピングを設定しても checksum 一致で飛ばされ、受注は空の決済/配送方法のまま直らない（再 dry-run も
 			// 検証を飛ばして警告だけが消える）。キャッシュせず、次回のインポートで付け直させる。エクスポート方向では
-			// 未マッピングの受注は送信されない（`ColorMeAdapter::order_skip_warnings()`）ため、この判定に届かない。
+			// 未マッピングの受注は送信されない（`ColorMeCommerceAdapter::order_skip_warnings()`）ため、この判定に届かない。
 			CommerceWarningCode::PAYMENT_METHOD_UNMAPPED   => [ WarningFlag::UNRESOLVED_REFERENCE, WarningFlag::MAPPING_REQUIRED ],
 			CommerceWarningCode::SHIPPING_METHOD_UNMAPPED  => [ WarningFlag::UNRESOLVED_REFERENCE, WarningFlag::MAPPING_REQUIRED ],
 			CommerceWarningCode::ORDER_STATUS_UNKNOWN      => [],
@@ -61,7 +61,7 @@ final class OrderWarnings {
 			// 実際の明細と一緒に「¥0の注文」としてpushしない。
 			CommerceWarningCode::ORDER_TOTALS_INVALID      => [ WarningFlag::EXPORT_BLOCKING ],
 			// `Woo\Reader\OrderReader::line_item_amounts()`: 明細の小計/税額が数値として不正
-			// （非数値・負値）なため`0`へフェイルクローズ済み。`ColorMeAdapter::push_order()`の
+			// （非数値・負値）なため`0`へフェイルクローズ済み。`ColorMeCommerceAdapter::push_order()`の
 			// `sale.details[].price`は明示指定するとColorMeに実際の金額として恒久的に記録される
 			// ため、`PRODUCT_PRICE_INVALID`と同じ理由（金銭的リスク。CLAUDE.mdアーキテクチャ
 			// 原則9）で無警告のままpushしない（E2-3 PR-Cレビュー指摘）。
@@ -86,7 +86,7 @@ final class OrderWarnings {
 			// `Woo\Reader\OrderReader`: 明細の`tax_class`が標準/軽減税率以外（非課税・送料のみ
 			// 課税・zero-rate・カスタム税区分）。`CanonicalOrder::$line_items[].tax_reduced`は
 			// bool（標準/軽減税率の2値）しか運べずこの状態自体を伝えられないため、無警告のまま
-			// pushすると`ColorMeAdapter::push_order()`がマップ先商品の現在の税設定（標準/軽減の
+			// pushすると`ColorMeCommerceAdapter::push_order()`がマップ先商品の現在の税設定（標準/軽減の
 			// いずれか）で課税された受注を恒久的に作成してしまう（例: 実際は非課税だった受注が
 			// 通常課税として記録される。Codexレビュー指摘、金銭的リスク）。
 			CommerceWarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED => [ WarningFlag::EXPORT_BLOCKING ],

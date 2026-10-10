@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-10T02:17:09+00:00\n"
+"POT-Creation-Date: 2026-10-10T02:48:24+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -29,11 +29,11 @@ msgstr ""
 msgid "Artisan Workshop"
 msgstr ""
 
-#: cart-bridge-jp.php:87
+#: cart-bridge-jp.php:88
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr ""
 
-#: cart-bridge-jp.php:100
+#: cart-bridge-jp.php:101
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
@@ -1179,7 +1179,7 @@ msgid "Totals differ"
 msgstr ""
 
 #: build/index.js:17
-msgid "Some records could not be checked because their type is not available on this site."
+msgid "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed."
 msgstr ""
 
 #: build/index.js:17

@@ -72,7 +72,7 @@ final class CustomerTransformer {
 	 * 電話番号から解決できない場合がある（`Woo\Reader\CustomerReader`はWooネイティブの住所を
 	 * そのまま運ぶだけで、ColorMe固有スキームへの変換はここが責務を持つ）。`name`はWooの表示名が
 	 * swaggerの`maxLength: 50`を超えうる（空白だけ・空の表示名も422）。いずれも解決できなければ`null`を返し、呼び出し元
-	 * （`ColorMeAdapter::push_customer()`）にフェイルクローズさせる（送信すると確実に422になる
+	 * （`ColorMeCommerceAdapter::push_customer()`）にフェイルクローズさせる（送信すると確実に422になる
 	 * ため。理由を問わず`CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`で一律に警告する。
 	 * 呼び出し元は`to_create_payload()`が`null`を返した理由を区別しない）。
 	 * `add_member: true`を常に付与し、ColorMeの`member`（会員登録済みフラグ）を立てる

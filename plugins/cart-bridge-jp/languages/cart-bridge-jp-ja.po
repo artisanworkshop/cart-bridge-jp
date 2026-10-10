@@ -23,11 +23,11 @@ msgstr "Cart Bridge JP – Migrate for WooCommerce"
 msgid "Artisan Workshop"
 msgstr "Artisan Workshop"
 
-#: cart-bridge-jp.php:87
+#: cart-bridge-jp.php:88
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr "Cart Bridge JP を使うには、WooCommerce をインストールして有効化してください。"
 
-#: cart-bridge-jp.php:100
+#: cart-bridge-jp.php:101
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
@@ -1550,5 +1550,5 @@ msgid "Not checked"
 msgstr "未確認"
 
 #: build/index.js:17
-msgid "Some records could not be checked because their type is not available on this site."
-msgstr "このサイトでは種類が使えないため、確認できなかったデータがあります。"
+msgid "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed."
+msgstr "WooCommerce 側を確認できなかったデータがあります。このサイトで種類が使えない（アドオンを無効にした後など）か、確認に失敗しました。"

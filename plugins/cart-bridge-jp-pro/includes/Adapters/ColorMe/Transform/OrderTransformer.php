@@ -80,7 +80,7 @@ final class OrderTransformer {
 	 *
 	 * WarningCode（`Woo\WarningCode`）はこのクラスの責務外（`Adapters\ColorMe\Transform`は
 	 * ColorMeAdapterからのみ参照される変換層であり、`CustomerTransformer`と同様に`Woo\WarningCode`
-	 * へ依存しない。呼び出し元の`ColorMeAdapter::push_order()`が戻り値を対応する警告へ翻訳する）。
+	 * へ依存しない。呼び出し元の`ColorMeCommerceAdapter::push_order()`が戻り値を対応する警告へ翻訳する）。
 	 *
 	 * 明細の`remote_product_id`が1行でも未解決（商品が未エクスポート・削除済み等）の場合は
 	 * `line_items_unresolved=true`で`payload=null`を返す。この場合の警告は本メソッドからは
@@ -98,7 +98,7 @@ final class OrderTransformer {
 	 * 受注自体はpushしていた）。
 	 *
 	 * @param ?string $tax_type `shop.json`の`tax_type`（`excluded`/`included`）。既知の値の場合のみ
-	 *   明細へ`price`を明示指定する（`line_price()`参照。`ColorMeAdapter::push_order()`が
+	 *   明細へ`price`を明示指定する（`line_price()`参照。`ColorMeCommerceAdapter::push_order()`が
 	 *   必要になった時点でのみ`shop.json`を取得して渡す。import方向の`transform()`は
 	 *   このデータを使わないため、`order_transformer()`の共有インスタンスには持たせない）。
 	 * @return array{
@@ -173,7 +173,7 @@ final class OrderTransformer {
 
 	/**
 	 * 受注にWooクーポン等の割引額（`totals.discount`）が付いているか。`to_create_payload()`が
-	 * 積む`discount_not_pushed`結果フィールドと同じ判定だが、`ColorMeAdapter::push_order()`が
+	 * 積む`discount_not_pushed`結果フィールドと同じ判定だが、`ColorMeCommerceAdapter::push_order()`が
 	 * 既にエクスポート済みの受注（`$remote_id`が非null）をAPIを呼ばず即スキップする経路でも
 	 * `ORDER_DISCOUNT_NOT_PUSHED`を積めるよう、`to_create_payload()`を呼ばずに独立して判定
 	 * できる公開メソッドにしてある（Copilot指摘: 当初は`to_create_payload()`内部だけの判定

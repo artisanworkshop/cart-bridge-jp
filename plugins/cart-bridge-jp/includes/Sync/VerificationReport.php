@@ -23,8 +23,8 @@ use Throwable;
  * 件数・金額が一致すれば完全に整合している。
  *
  * 実在の確認と金額の集計は実体の種類が持つ（`Entities\EntityType::existing_local_ids()`・`local_amount_summary()`。R3-6b1）。
- * 登録の無い種類（ジョブは残っている）は実在 0 件として数える。確かめられない種類・例外を投げた種類は `existing`/`missing` を null
- * （不明）にする。
+ * 登録の無い種類（ジョブは残っている。Pro アドオンを止めたサイトの過去の顧客・受注など。R3-6c1 より前は実在 0 件と数えていた）・
+ * 確かめられない種類・例外を投げた種類は `existing`/`missing` を null（不明）にする。
  */
 final class VerificationReport {
 

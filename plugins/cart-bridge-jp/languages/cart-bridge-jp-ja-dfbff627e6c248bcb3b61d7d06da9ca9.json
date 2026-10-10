@@ -484,8 +484,8 @@
             "Not checked": [
                 "\u672a\u78ba\u8a8d"
             ],
-            "Some records could not be checked because their type is not available on this site.": [
-                "\u3053\u306e\u30b5\u30a4\u30c8\u3067\u306f\u7a2e\u985e\u304c\u4f7f\u3048\u306a\u3044\u305f\u3081\u3001\u78ba\u8a8d\u3067\u304d\u306a\u304b\u3063\u305f\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u3059\u3002"
+            "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed.": [
+                "WooCommerce \u5074\u3092\u78ba\u8a8d\u3067\u304d\u306a\u304b\u3063\u305f\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u3059\u3002\u3053\u306e\u30b5\u30a4\u30c8\u3067\u7a2e\u985e\u304c\u4f7f\u3048\u306a\u3044\uff08\u30a2\u30c9\u30aa\u30f3\u3092\u7121\u52b9\u306b\u3057\u305f\u5f8c\u306a\u3069\uff09\u304b\u3001\u78ba\u8a8d\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002"
             ]
         }
     }

@@ -52,9 +52,15 @@ add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_bootstrap', 20 );
  */
 function cbjp_pro_bootstrap(): void {
 	$requirements_met = class_exists( \WooCommerce::class ) && class_exists( \CartBridgeJP\Core\Plugin::class );
+	$free_api         = cbjp_pro_free_extension_api();
 
-	// 前提が欠けていれば Pro のクラスを読み込まない（Pro のクラスが無料版の型を継承・実装すると、無料版が無いときの autoload が fatal になる）。
-	cbjp_pro_maybe_boot( $requirements_met, $requirements_met && class_exists( Core\Plugin::class ), cbjp_pro_free_extension_api() );
+	// 前提が欠けている・無料版が古いときは Pro のクラスを読み込まない（Pro のクラスが無料版の型を継承・実装すると、無料版が無い・古いときの
+	// autoload が fatal になる）。どちらの通知を出すかは `cbjp_pro_maybe_boot()` が決める。
+	cbjp_pro_maybe_boot(
+		$requirements_met,
+		$requirements_met && $free_api >= CBJP_PRO_REQUIRED_EXTENSION_API && class_exists( Core\Plugin::class ),
+		$free_api
+	);
 }
 
 /**

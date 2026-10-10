@@ -885,7 +885,8 @@ R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す�
 - R3-6c1 で一覧から外した（顧客・受注のコードなので Pro へ移した。無料版に顧客・受注・クーポンのコードを残さない）: `Canonical\{CanonicalCustomer, CanonicalOrder, CanonicalCoupon}`、
   `Woo\Support\AddressMapper`、`LocalEntityLookup::existing_users()`・`existing_orders()`・`summarize_orders()`、`EntityOrigin` の顧客・受注の判定、
   `MappingCandidates` の決済・配送・ステータス、`MethodMap` の決済・配送・ステータスの読取り（Pro の `OrderMethodMap`・`OrderMappingCandidates`・`CommerceLookup`・`CommerceOrigin`）
-- 確認の限界: `FreeApiSurfaceTest` はクラス単位で、メソッド（`WooServices::media()` を使わない等）はレビューで守る。フィルター名・定数の参照は見ない
+- 確認の限界: `FreeApiSurfaceTest` はクラス単位（`use`・完全修飾名・クラス名だけの文字列。`use` のグループ構文・別名は接頭辞の名前空間が一覧に無いので落ちる側に倒れる）で、
+  メソッド（`WooServices::media()` を使わない等）はレビューで守る。フィルター名・定数の参照、文中に埋め込んだクラス名は見ない
 
 #### R3-6b2 の実装（2026-10-10。ブランチ `feat/r3-6b2-entity-driven-ui`）
 
@@ -959,14 +960,17 @@ Tools の件数と、一時的に登録した走査に失敗する種類の警�
 無料版の `FreeScopeTest`（`PlatformAdapter` に顧客・受注・クーポンのメソッドが無い・`includes/` にその名前のクラスファイルが無い・`WarningCode` にそのコードが無い・
 種類が登録されていない）、Pro の `CommerceAdapterContractTest`（既定実装が例外を投げ、候補は空）、`BootstrapTest`（古い無料版の通知）。
 
-**振る舞いの証拠**: 移す前の最初のコミットで Pro のテストに `DispatchCharacterizationTest` の写し（`CommerceDispatchCharacterizationTest`。警告の判定の表・CSV の note・
-カタログの文言のハッシュ `df668212…`・実行順）を置き、移動後も期待値を変えずに通る（判定の名前の改名は表のキーだけ）。無料版の `DispatchCharacterizationTest` は無料版のコードだけの
+**振る舞いの証拠**: 移動の直前のコミットまで無料版の `DispatchCharacterizationTest`（警告の判定の表・CSV の note・カタログの文言のハッシュ `df668212…`・実行順）の期待値を保ち、
+移動のコミットで同じ期待値のまま Pro の `CommerceDispatchCharacterizationTest` へ写して通した（判定の名前の改名は表のキーだけ）。無料版の `DispatchCharacterizationTest` は無料版のコードだけの
 表・ハッシュに更新し、そのハッシュは Pro の有無で変わらない（dev サイトで確認）。混在していたテストは、無料版に商品系・汎用の部分（必要なら外部の種類 `Gizmo`）を残し、
 顧客・受注・クーポンの部分を Pro の `Commerce*Test` へ分けた。
 
 **変わった振る舞い**（意図したもの）: 検証レポートの登録の無い種類が「不明」になる（上記）。`cbjp/adapters/register` で足した外部のアダプタは、Pro の
 `cbjp/pro/commerce_adapters/register` にも登録しないと顧客・受注・クーポンが出ない。ColorMe の注文ステータスの候補は、決済の取得に失敗しても出る（種類ごとに取得するため）。
-Pro が無効なら REST の `/runs/{run_id}/report?entity=order` は 400（種類が登録されていない。backlog）。
+Pro が無効なら REST の `/runs/{run_id}/report?entity=order` は 400（種類が登録されていない。backlog）、検証レポート・結果の表示名は種類のキー
+（`order` など）になる（表示名は登録された種類から引く。backlog）。**Pro へ移した文字列（種類名・マッピングの節・受注などの警告の説明・push intent の要約）は
+テキストドメインが `cart-bridge-jp-pro` になり、Pro の翻訳ができるまで日本語のサイトでも英語になる**（無料版の訳から外れた。Pro の i18n は「Pro の公開準備」。
+main の ja の訳を引き継ぐ。backlog）。
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 

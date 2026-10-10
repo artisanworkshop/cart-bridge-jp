@@ -77,8 +77,9 @@ function buildNotices(
 	if ( statuses.has( 'unknown' ) ) {
 		notices.push( {
 			status: 'info',
+			// 不明になるのは、登録の無い種類（Pro アドオンを止めた後の過去の受注など）と、確かめるときに失敗した種類。
 			message: __(
-				'Some records could not be checked because their type is not available on this site.',
+				'Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed.',
 				'cart-bridge-jp'
 			),
 		} );

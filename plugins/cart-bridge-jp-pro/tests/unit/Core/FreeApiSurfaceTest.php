@@ -97,7 +97,8 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 
 	/**
 	 * Pro の PHP（`includes/` とメインファイル）が名前で参照する、`CartBridgeJP\Pro\` 以外の `CartBridgeJP\` のクラス。
-	 * `use` の取込み・完全修飾名の両方を数える（同じ名前空間の暗黙の参照は、Pro と無料版で名前空間が違うので起きない）。
+	 * `use` の取込み・完全修飾名・クラス名だけの文字列（`class_exists( 'CartBridgeJP\\…' )` など）を数える（同じ名前空間の暗黙の参照は、
+	 * Pro と無料版で名前空間が違うので起きない。`use` のグループ構文・別名は接頭辞の名前空間が一覧に無いので落ちる側に倒れる）。
 	 *
 	 * @return array<int,string>
 	 */
@@ -116,11 +117,20 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 		foreach ( $files as $file ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- テストがリポジトリの PHP を字句解析する（WP の HTTP・JSON の読込みではない）。
 			foreach ( PhpToken::tokenize( (string) file_get_contents( $file ) ) as $token ) {
-				if ( ! $token->is( [ T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED ] ) ) {
+				if ( $token->is( T_CONSTANT_ENCAPSED_STRING ) ) {
+					// 引用符を外し、エスケープした `\\` を戻す。クラス名だけの文字列のときだけ数える（文中の言及は数えない）。
+					$name = str_replace( '\\\\', '\\', substr( $token->text, 1, -1 ) );
+
+					if ( 1 !== preg_match( '/\A\\\\?CartBridgeJP(\\\\[A-Za-z_][A-Za-z0-9_]*)+\z/', $name ) ) {
+						continue;
+					}
+				} elseif ( $token->is( [ T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED ] ) ) {
+					$name = $token->text;
+				} else {
 					continue;
 				}
 
-				$name = ltrim( $token->text, '\\' );
+				$name = ltrim( $name, '\\' );
 
 				// `CartBridgeJP\\Pro` そのもの（メインファイルの名前空間の宣言）も Pro。
 				if ( str_starts_with( $name, 'CartBridgeJP\\' ) && 'CartBridgeJP\\Pro' !== $name && ! str_starts_with( $name, 'CartBridgeJP\\Pro\\' ) ) {

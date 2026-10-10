@@ -19,7 +19,7 @@ final class CommerceWarningCodeTest extends WP_UnitTestCase {
 
 	/**
 	 * E2-3 PR-Cレビュー指摘: `Woo\Reader\OrderReader::line_item_amounts()`が壊れた明細金額を
-	 * `0`へフェイルクローズ済みでも、`ColorMeAdapter::push_order()`の`sale.details[].price`は
+	 * `0`へフェイルクローズ済みでも、`ColorMeCommerceAdapter::push_order()`の`sale.details[].price`は
 	 * 明示指定するとColorMeに恒久的な金額として記録されるため、`PRODUCT_PRICE_INVALID`と同じ
 	 * 金銭的リスクでexport blocking対象であることを固定する。
 	 */

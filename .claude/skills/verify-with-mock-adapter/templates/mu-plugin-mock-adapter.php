@@ -71,6 +71,11 @@ add_action(
 				$pro = class_exists( 'CartBridgeJP\\Pro\\Tests\\Fixtures\\MockCommerceAdapter' );
 
 				foreach ( $pro ? $rows( 'customers' ) : [] as $c ) {
+					// 型付きの引数に文字列以外を渡すと TypeError（mu-plugin の fatal）になるので、読めない行は読み飛ばす。
+					if ( ! is_string( $c['email'] ?? null ) || ! is_string( $c['remote_id'] ?? null ) ) {
+						continue;
+					}
+
 					$customers[] = new CartBridgeJP\Pro\Canonical\CanonicalCustomer(
 						$c['email'],
 						'Verify User',
@@ -90,6 +95,10 @@ add_action(
 				$method = static fn ( array $o, string $key ): ?string => is_string( $o[ $key ] ?? null ) ? $o[ $key ] : null;
 
 				foreach ( $pro ? $rows( 'orders' ) : [] as $o ) {
+					if ( ! is_string( $o['number'] ?? null ) ) {
+						continue;
+					}
+
 					$orders[] = new CartBridgeJP\Pro\Canonical\CanonicalOrder(
 						$o['number'],
 						'processing',
