@@ -53,6 +53,8 @@ export interface Connection {
 	label: string;
 	connected: boolean;
 	needs_reconnect: boolean;
+	/** 要求するスコープのうち、接続済みのトークンに付与されていないもの（R3-6c2）。読むのは `missingScopes()`。 */
+	missing_scopes: string[];
 	has_settings: boolean;
 	masked_token: string | null;
 	capabilities: Capabilities;

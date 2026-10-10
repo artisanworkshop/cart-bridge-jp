@@ -16,7 +16,7 @@ use WP_UnitTestCase;
  * Pro のコードが参照する無料版のクラスは、`docs/03-design-decisions.md` §10.0「Pro が使ってよい無料版の API」の一覧のものだけ
  * （R3-6c1。公開後に互換を保つ範囲。一覧に無いクラスを使うと、無料版の内部の変更で Pro が壊れる）。
  *
- * 確かめるのはクラス単位で、メソッドまでは見ない（`ColorMeAdapter` は `api()`・`is_premium_plan()`、`WooServices` は `mappings()`・
+ * 確かめるのはクラス単位で、メソッドまでは見ない（`ColorMeAdapter` は `api()`・`is_premium_plan()`・`granted_scopes()`、`WooServices` は `mappings()`・
  * `product_resolver()`・`method_map()` だけを使う約束は、レビューで守る）。一覧を変えるときは docs/03 も一緒に直す。
  */
 final class FreeApiSurfaceTest extends WP_UnitTestCase {
@@ -29,6 +29,7 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 	private const ALLOWED = [
 		// 拡張点。
 		'CartBridgeJP\Adapters\AdapterRegistry',
+		'CartBridgeJP\Adapters\OAuthScopes',
 		'CartBridgeJP\Entities\EntityType',
 		'CartBridgeJP\Entities\EntityTypeRegistry',
 		'CartBridgeJP\Entities\LinkSource',

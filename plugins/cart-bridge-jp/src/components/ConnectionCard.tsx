@@ -9,6 +9,8 @@ import {
 	TextControl,
 } from '@wordpress/components';
 import apiFetch from '../api';
+import { missingScopes } from '../connection-scopes';
+import { joinList } from '../i18n';
 import type {
 	AuthorizeUrlResponse,
 	Connection,
@@ -58,6 +60,8 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 	const hasOAuth = connection.connection_fields.some(
 		( field ) => field.type === 'oauth_button'
 	);
+	// 案内は「再接続」ボタンを指すので、OAuth の接続先だけ（サーバーも OAuth でない接続先には返さない）。
+	const missing = hasOAuth ? missingScopes( connection ) : [];
 
 	const [ values, setValues ] = useState< Record< string, string > >( {} );
 	const [ manualCode, setManualCode ] = useState( '' );
@@ -251,6 +255,22 @@ export default function ConnectionCard( { connection, onChange }: Props ) {
 						{ __(
 							'Stored credentials could not be decrypted. Please reconnect.',
 							'cart-bridge-jp'
+						) }
+					</Notice>
+				) }
+
+				{ /* 拡張（Pro アドオンなど）が要求するスコープを足した後も、前の接続のトークンには付与されていない（R3-6c2）。
+				     接続は使えるので、再接続を促すだけ。 */ }
+				{ missing.length > 0 && (
+					<Notice status="warning" isDismissible={ false }>
+						{ sprintf(
+							/* translators: 1: list of OAuth permission names, e.g. "read_sales, write_sales", 2: platform label, e.g. "Color Me Shop" */
+							__(
+								'This connection does not have the permissions that some kinds of records need (%1$s). Click “Reconnect to %2$s” to grant them.',
+								'cart-bridge-jp'
+							),
+							joinList( missing ),
+							connection.label
 						) }
 					</Notice>
 				) }

@@ -10,6 +10,8 @@ namespace CartBridgeJP\Tests\Admin;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
@@ -67,6 +69,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
+		OAuthScopes::reset();
 		global $wp_rest_server;
 		$wp_rest_server = null; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
 		$this->forget_entity_types();
@@ -558,6 +561,98 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
 		$this->assertTrue( $data[0]['has_settings'] );
 		$this->assertFalse( $data[0]['connected'] );
+	}
+
+	/**
+	 * R3-6c2: 要求するスコープ（拡張が足したものを含む）のうち、接続済みのトークンに付与されていないものを返す（画面が再接続を促す）。
+	 * OAuth でない接続先は空。
+	 */
+	public function test_get_connections_lists_the_oauth_scopes_the_token_is_missing(): void {
+		$this->register_colorme_adapter();
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$store = new TokenStore( ColorMeAdapter::ID );
+		$store->save_settings(
+			[
+				'client_id'     => 'id',
+				'client_secret' => 'secret',
+			]
+		);
+		$store->save_token_if_credentials_match( 'id', 'secret', 'token', [ 'read_products', 'write_products' ] );
+
+		$missing = fn (): array => array_column( $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data(), 'missing_scopes', 'platform' );
+
+		$this->assertSame(
+			[
+				ColorMeAdapter::ID => [],
+				'mock'             => [],
+			],
+			$missing()
+		);
+
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'read_shop_coupons' ] );
+
+		$this->assertSame(
+			[
+				ColorMeAdapter::ID => [ 'read_sales', 'read_shop_coupons' ],
+				'mock'             => [],
+			],
+			$missing()
+		);
+	}
+
+	/**
+	 * `colorme` のキーを OAuth の接続ボタンを持たないアダプタ（検証用の mock など）で置き換えたときは、ColorMe のトークンのスコープを返さない
+	 * （再接続のボタンが無いのに再接続を促さない。R3-6c2 G1-2）。
+	 */
+	public function test_get_connections_reports_no_missing_scopes_for_a_non_oauth_adapter_under_the_colorme_key(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new MockPlatformAdapter( platform_id: ColorMeAdapter::ID );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products' ],
+			]
+		);
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+
+		$this->assertTrue( $data[0]['connected'] );
+		$this->assertSame( [], $data[0]['missing_scopes'] );
+	}
+
+	/**
+	 * 読めない宣言があっても `/connections` は落ちない（その値を捨てる）。
+	 */
+	public function test_get_connections_survives_an_unreadable_scope_declaration(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+		OAuthScopes::add( ColorMeAdapter::ID, [ new \stdClass(), [ 'read_sales' ], 'not_a_scope' ] );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], $response->get_data()[0]['missing_scopes'] );
 	}
 
 	public function test_save_connection_returns_404_for_unknown_platform(): void {
@@ -1231,6 +1326,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$authorize_request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' );
 		$authorize_response = $this->server->dispatch( $authorize_request );
 		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+		// 認可の後で拡張がスコープを足しても、記録するのは認可で要求したもの（state で引く。R3-6c2 G1-1）。
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 
 		add_filter(
 			'pre_http_request',
@@ -1256,6 +1353,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$headers = $response->get_headers();
 		$this->assertStringContainsString( 'cbjp_connected=colorme', $headers['Location'] );
 		$this->assertTrue( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, ( new TokenStore( ColorMeAdapter::ID ) )->granted_scopes() );
 
 		remove_all_filters( 'pre_http_request' );
 	}

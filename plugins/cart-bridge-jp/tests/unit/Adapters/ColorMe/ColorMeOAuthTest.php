@@ -7,17 +7,22 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthScopes;
+use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
 use CartBridgeJP\Support\RateLimiter;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\LogRepository;
 use WP_UnitTestCase;
 
 final class ColorMeOAuthTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_all_filters( 'pre_http_request' );
+		OAuthScopes::reset();
 		parent::tear_down();
 	}
 
@@ -59,8 +64,18 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'client_id=my-client-id', $url );
 		$this->assertStringContainsString( 'response_type=code', $url );
 		$this->assertStringContainsString( 'redirect_uri=https%3A%2F%2Fexample.test%2Fcallback', $url );
-		$this->assertStringContainsString( 'scope=read_products+write_products+read_sales+write_sales+read_shop_coupons', $url );
+		// R3-6c2: 無料版だけ（拡張がスコープを足さない）では商品のスコープだけを要求する（受注・顧客・クーポンの権限を求めない）。
+		$this->assertSame( 'read_products write_products', $this->query_of( $url )['scope'] );
 		$this->assertStringContainsString( 'state=', $url );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function query_of( string $url ): array {
+		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+
+		return $query;
 	}
 
 	public function test_authorize_url_separator_ignores_the_arg_separator_ini_setting(): void {
@@ -333,5 +348,336 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 			$this->assertSame( 'クライアントシークレットが正しくありません。', $exception->getMessage() );
 			$this->assertSame( 401, $exception->status_code() );
 		}
+	}
+
+	/**
+	 * トークン応答（`scope` は省略可）を返す HTTP のモック。
+	 *
+	 * @param array<string,mixed> $response
+	 */
+	private function respond_with_token( array $response ): void {
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [],
+				'body'     => wp_json_encode( $response ),
+			],
+			10,
+			3
+		);
+	}
+
+	/**
+	 * @return array<int,mixed> 記録した理由（`Logger` の context の `reason`）。
+	 */
+	private function logged_reasons(): array {
+		return array_map(
+			static fn ( array $log ): mixed => json_decode( (string) $log['context_json'], true )['reason'] ?? null,
+			( new LogRepository() )->list( null, 'warning' )
+		);
+	}
+
+	/**
+	 * R3-6c2: 拡張が宣言したスコープを、既知のものだけ `KNOWN_SCOPES` の順に、重複を除いて要求する（Pro が宣言する 3 つで、R3-6c2 より前と同じ文字列に
+	 * なる）。ほかの接続先への宣言は使わない。
+	 */
+	public function test_declared_scopes_are_requested_in_a_fixed_order(): void {
+		Activator::activate();
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_shop_coupons', 'write_sales' ] );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales' ] );
+		OAuthScopes::add( 'other', [ 'write_templates' ] );
+
+		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
+		// 既知のスコープだけなら記録しない（`GET /connections` のたびに書かない。R3-6c2 review-loop R2-1）。
+		$this->assertSame( [], $this->logged_reasons() );
+
+		[ $oauth ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$this->assertSame(
+			'read_products write_products read_sales write_sales read_shop_coupons',
+			$this->query_of( $oauth->authorize_url( 'https://example.test/callback', 42 ) )['scope']
+		);
+	}
+
+	/**
+	 * 宣言は足すだけで、無料版の商品のスコープは常に要求する。
+	 */
+	public function test_declared_scopes_keep_the_base_scopes(): void {
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+	}
+
+	/**
+	 * 既知でない値（ColorMe に無いスコープ・文字列でない値）はその値だけ捨てて記録する（1 回の呼び出しで 1 行。R3-6c2 review-loop R1-4）。
+	 * 正しく宣言されたスコープは残す。
+	 */
+	public function test_unknown_declared_scopes_are_dropped_and_logged(): void {
+		Activator::activate();
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'admin', 42, [ 'write_sales' ], 'READ_SALES' ] );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+		$this->assertSame( [ 'unknown_scope' ], $this->logged_reasons() );
+		$this->assertSame( 4, json_decode( (string) ( new LogRepository() )->list( null, 'warning' )[0]['context_json'], true )['count'] );
+	}
+
+	/**
+	 * 配列でない宣言は 1 つの値として読む（文字列なら 1 つのスコープ、そうでなければ捨てて記録する）。
+	 */
+	public function test_a_declaration_that_is_not_a_list_is_read_as_one_value(): void {
+		Activator::activate();
+		OAuthScopes::add( ColorMeAdapter::ID, 'read_sales' );
+		OAuthScopes::add( ColorMeAdapter::ID, null );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+		$this->assertSame( [ 'unknown_scope' ], $this->logged_reasons() );
+	}
+
+	/**
+	 * 交換は応答の `scope`（付与されたスコープ）をトークンと一緒に記録する。
+	 */
+	public function test_exchange_code_records_the_granted_scopes_from_the_response(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => " read_products  write_products\tread_sales read_products ",
+			]
+		);
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+	}
+
+	/**
+	 * 応答に `scope` が無ければ要求したとおりに付与されている（RFC 6749 §5.1）。要求は認可を始めたときに控えたもの
+	 * （交換までに拡張を有効・無効にしても変わらない。R3-6c2 G1-1）。OOB は今のユーザーごとに控える。
+	 *
+	 * @return array<string,array{0:array<string,mixed>}>
+	 */
+	public static function responses_without_scope(): array {
+		return [
+			'missing' => [ [ 'access_token' => 'issued-access-token' ] ],
+			'null'    => [
+				[
+					'access_token' => 'issued-access-token',
+					'scope'        => null,
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider responses_without_scope
+	 *
+	 * @param array<string,mixed> $response トークン応答。
+	 */
+	public function test_exchange_code_records_the_scopes_requested_when_authorizing_out_of_band( array $response ): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+
+		// 認可の後で拡張を止めても、控えた要求を記録する。
+		OAuthScopes::reset();
+		$this->respond_with_token( $response );
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+	}
+
+	/**
+	 * OOB の手動のリンクを取り直すと、どの認可のコードが貼り付けられるか分からない。まだ使っていない控えがあれば両方が要求したスコープだけを残し、
+	 * どちらのコードでも実際に要求していないスコープを記録しない（PR #118 G2-1）。順序によらない。
+	 *
+	 * @return array<string,array{0:bool}>
+	 */
+	public static function oob_attempt_orders(): array {
+		return [
+			'broader first'  => [ true ],
+			'narrower first' => [ false ],
+		];
+	}
+
+	/**
+	 * @dataProvider oob_attempt_orders
+	 *
+	 * @param bool $broader_first 先の認可が拡張のスコープも要求したか。
+	 */
+	public function test_repeated_out_of_band_authorizations_record_only_the_scopes_both_requested( bool $broader_first ): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		foreach ( [ $broader_first, ! $broader_first ] as $broader ) {
+			if ( $broader ) {
+				OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+			} else {
+				OAuthScopes::reset();
+			}
+
+			$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		}
+
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+	}
+
+	/**
+	 * 控えを使った後（交換の後）の認可は、前の控えと重ねない。
+	 */
+	public function test_an_out_of_band_authorization_after_an_exchange_starts_a_new_record(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->respond_with_token( [ 'access_token' => 'first-token' ] );
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$oauth->exchange_code( 'auth-code-2', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+	}
+
+	/**
+	 * リダイレクトの認可は state ごとに控える（コールバックは未ログインで、ユーザーでは引けない）。拡張を後から有効にしても、
+	 * 実際に要求した 2 つを記録する（足りないスコープとして再接続を促す）。
+	 */
+	public function test_exchange_code_records_the_scopes_requested_for_the_state(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$state = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
+
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+		wp_set_current_user( 0 );
+		$this->assertTrue( $oauth->verify_state( $state ) );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+		$oauth->exchange_code( 'auth-code', 'https://example.test/callback', $state );
+
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+		$this->assertSame( [ 'read_sales' ], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 控えが無い（期限切れ・別の認可）うえに応答にも `scope` が無ければ、何を付与されたか分からないので何も付与されていない扱い（フェイルクローズ）。
+	 * 控えは一度きり（2 回目の交換では使わない）。
+	 */
+	public function test_exchange_code_records_no_scopes_without_a_record_of_the_request(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+
+		$oauth->exchange_code( 'auth-code-2', ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->assertSame( [], $token_store->granted_scopes() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 読めない控え（リストでない・文字列でない要素）は控えが無いのと同じ（応答に `scope` も無ければ何も付与されていない扱い）。
+	 *
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function broken_requested_scope_records(): array {
+		return [
+			'string'            => [ 'read_products write_products' ],
+			'map'               => [ [ 'a' => 'read_products' ] ],
+			'non-string member' => [ [ 'read_products', 7 ] ],
+		];
+	}
+
+	/**
+	 * @dataProvider broken_requested_scope_records
+	 *
+	 * @param mixed $record 控えの transient の値。
+	 */
+	public function test_exchange_code_ignores_a_broken_record_of_the_request( mixed $record ): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		set_transient( 'cbjp_colorme_oauth_scopes_user_' . get_current_user_id(), $record, 600 );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [], $token_store->granted_scopes() );
+	}
+
+	/**
+	 * 読めない `scope`（文字列でない）は何も付与されていない扱い（フェイルクローズ）。要求するスコープがすべて足りないとして再接続を促す。
+	 */
+	public function test_exchange_code_records_no_scopes_when_the_response_scope_is_unreadable(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertTrue( $token_store->is_connected() );
+		$this->assertSame( [], $token_store->granted_scopes() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 未接続は「足りない」と言わない（未接続・要再接続の案内は別にある）。
+	 */
+	public function test_missing_scopes_is_empty_when_not_connected(): void {
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
+		[ $oauth, $token_store ] = $this->make_oauth();
+
+		$this->assertNull( ColorMeOAuth::granted_scopes_in( $token_store ) );
+		$this->assertSame( [], $oauth->missing_scopes() );
+
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$this->assertNull( ColorMeOAuth::granted_scopes_in( $token_store ), 'client_id/secret だけでは未接続' );
+		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 付与されたスコープを記録していないトークン（R3-6c2 より前の版が保存した）は、その版が要求した 5 つを持つ。Pro のスコープを足しても足りている。
+	 */
+	public function test_a_token_without_a_record_has_the_legacy_scopes(): void {
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] );
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$token_store->save( [ 'access_token' => 'token-saved-before-r3-6c2' ] );
+
+		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::granted_scopes_in( $token_store ) );
+		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 無料版だけで接続した（商品のスコープだけの）トークンに、拡張が足したスコープは足りない。
+	 */
+	public function test_missing_scopes_lists_the_scopes_an_extension_added_after_connecting(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => 'read_products write_products',
+			]
+		);
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [], $oauth->missing_scopes() );
+
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] );
+
+		$this->assertSame( [ 'read_sales', 'write_sales', 'read_shop_coupons' ], $oauth->missing_scopes() );
 	}
 }

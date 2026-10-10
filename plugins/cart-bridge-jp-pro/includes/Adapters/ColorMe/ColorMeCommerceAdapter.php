@@ -47,6 +47,13 @@ final class ColorMeCommerceAdapter extends CommerceAdapter {
 	private const HISTORY_FLOOR = '2000-01-01';
 
 	/**
+	 * 顧客・受注・クーポンに要る OAuth のスコープ（R3-6c2）。無料版は商品のスコープだけを要求するので、Pro が無料版の認可に宣言する
+	 * （`CommerceAdapters::declare_oauth_scopes()`）。swagger の表では `read_sales` が受注・顧客の参照、`write_sales` が受注データの更新、
+	 * `read_shop_coupons` がショップクーポンの参照（R3-6c2 より前の無料版が要求していた 5 つのうち、商品以外の 3 つ）。
+	 */
+	public const OAUTH_SCOPES = [ 'read_sales', 'write_sales', 'read_shop_coupons' ];
+
+	/**
 	 * `payments.json`/`deliveries.json` から組み立てた名称マップを持つ`OrderTransformer`。
 	 * `AdapterRegistry::get()`はプラットフォーム単位でアダプタインスタンスを静的キャッシュするため、
 	 * このキャッシュの実際の寿命は「同一PHPプロセス内で処理された全ジョブアクション」（Action
@@ -69,6 +76,17 @@ final class ColorMeCommerceAdapter extends CommerceAdapter {
 		private readonly ColorMeAdapter $adapter,
 		private readonly Logger $logger = new Logger()
 	) {}
+
+	/**
+	 * 接続済みのトークンが `OAUTH_SCOPES` をすべて持つか（R3-6c2）。欠けていれば（Pro を有効にする前に無料版だけで接続した）顧客・受注・クーポンを
+	 * 扱わず、管理画面が再接続を促す（無料版の `GET /connections` の `missing_scopes`）。未接続（要再接続を含む）は真: 今までどおり API の
+	 * 呼び出しが「未接続」で失敗し、その案内（push intent の `not_connected` など）に任せる。
+	 */
+	public static function has_required_scopes( ColorMeAdapter $adapter ): bool {
+		$granted = $adapter->granted_scopes();
+
+		return null === $granted || [] === array_diff( self::OAUTH_SCOPES, $granted );
+	}
 
 	public function id(): string {
 		return ColorMeAdapter::ID;

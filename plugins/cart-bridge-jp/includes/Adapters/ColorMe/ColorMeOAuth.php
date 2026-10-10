@@ -7,8 +7,10 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
+use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimiter;
 use CartBridgeJP\Support\TokenStore;
 
@@ -17,6 +19,8 @@ use CartBridgeJP\Support\TokenStore;
  *
  * - アクセストークンは無期限（リフレッシュ処理不要。取得したら `TokenStore` にそのまま保存する）
  * - 認可コードは発行から10分・1回のみ交換可能
+ * - スコープは無料版が使う商品のものだけを要求し、拡張（Pro アドオン）が `Adapters\OAuthScopes` に宣言したものを足す。付与されたスコープをトークンと一緒に
+ *   記録し、要求するスコープが足りない接続には再接続を促す（R3-6c2。`docs/03-design-decisions.md` §10.0 決め残し 9）
  * - リダイレクトURIに `urn:ietf:wg:oauth:2.0:oob`（{@see self::OOB_REDIRECT_URI}）を指定した場合、
  *   カラーミー側は自サイトの `https://api.shop-pro.jp/oauth/authorize/{code}` へリダイレクトし、
  *   コード末尾がそのまま認可コードになる。これをローカル開発等、httpsの公開コールバックURLを
@@ -29,9 +33,29 @@ final class ColorMeOAuth {
 	private const TOKEN_URL     = 'https://api.shop-pro.jp/oauth/token';
 
 	/**
-	 * 01-plan-colorme.md §1で確定したスコープ。
+	 * 無料版が要求するスコープ（商品・在庫の読取りと更新。R3-6c2。`docs/03` §10.0 決め残し 9）。
 	 */
-	private const SCOPE = 'read_products write_products read_sales write_sales read_shop_coupons';
+	public const BASE_SCOPES = [ 'read_products', 'write_products' ];
+
+	/**
+	 * R3-6c2 より前の全版が要求したスコープ。付与されたスコープを記録していない（その版が保存した）トークンはこれを持つとみなす
+	 * （ColorMe の認可画面はスコープを選ばせないので、要求したものがそのまま付与された）。
+	 */
+	public const LEGACY_SCOPES = [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ];
+
+	/**
+	 * ColorMe のスコープ（`tests/fixtures/colorme/swagger.json` の `info.description` の表）。拡張が宣言できるのはこれだけで、要求はこの順に並べる。
+	 */
+	public const KNOWN_SCOPES = [
+		'read_products',
+		'write_products',
+		'read_sales',
+		'write_sales',
+		'read_shop_coupons',
+		'write_shop_coupons',
+		'read_templates',
+		'write_templates',
+	];
 
 	private const RATE_LIMIT_PER_MINUTE = 100;
 
@@ -67,6 +91,79 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * 認可で要求するスコープ（R3-6c2）。無料版の `BASE_SCOPES` に、拡張が `OAuthScopes::add()` で宣言したものを加える（Pro アドオンは起動時に
+	 * 顧客・受注・クーポンのスコープを宣言する。無料版だけのサイトは使わない受注・顧客への権限を求めない）。
+	 *
+	 * 宣言の値は信用しない（原則 8）: `KNOWN_SCOPES` に無い値（文字列でない値を含む）はその値だけ捨てて 1 行記録する（スコープは互いに独立で、
+	 * 要求しなかったスコープは、それを要る拡張の機能が使えないだけ。別の拡張の誤りで正しい拡張のスコープまで捨てない）。並びは `KNOWN_SCOPES` の順で、
+	 * 同じ組なら同じ文字列になる。宣言はデータなので、別の拡張の例外・置き換えで失われない（以前のフィルターの問題。PR #118 G3-B1）。
+	 *
+	 * @return array<int,string>
+	 */
+	public static function scopes(): array {
+		$requested = self::BASE_SCOPES;
+		$unknown   = 0;
+
+		foreach ( OAuthScopes::declared( ColorMeAdapter::ID ) as $scope ) {
+			if ( ! is_string( $scope ) || ! in_array( $scope, self::KNOWN_SCOPES, true ) ) {
+				++$unknown;
+
+				continue;
+			}
+
+			$requested[] = $scope;
+		}
+
+		// 1 回の呼び出しにつき 1 行（`GET /connections` はタブを開くたびに呼ばれる。値ごとに書くと Logs タブが埋まる。R3-6c2 review-loop R1-4）。
+		if ( $unknown > 0 ) {
+			self::log_rejected_scopes( 'unknown_scope', $unknown );
+		}
+
+		return array_values( array_intersect( self::KNOWN_SCOPES, $requested ) );
+	}
+
+	/**
+	 * `$store` のトークンに付与されたスコープ（R3-6c2）。付与されたスコープを記録していない接続済みのトークン（R3-6c2 より前の版が保存した）は
+	 * `LEGACY_SCOPES`（その版はすべて 5 つを要求した）。
+	 *
+	 * @return array<int,string>|null 未接続（要再接続を含む）は null。
+	 */
+	public static function granted_scopes_in( TokenStore $store ): ?array {
+		if ( ! $store->is_connected() ) {
+			return null;
+		}
+
+		return $store->granted_scopes() ?? self::LEGACY_SCOPES;
+	}
+
+	/**
+	 * 要求するスコープ（{@see self::scopes()}）のうち、保存したトークンに付与されていないもの（R3-6c2）。空でなければ管理画面が再接続を促す
+	 * （`GET /connections` の `missing_scopes`）。未接続は空（未接続・要再接続の案内は別にある）。
+	 *
+	 * @return array<int,string>
+	 */
+	public function missing_scopes(): array {
+		$granted = self::granted_scopes_in( $this->token_store );
+
+		if ( null === $granted ) {
+			return [];
+		}
+
+		return array_values( array_diff( self::scopes(), $granted ) );
+	}
+
+	private static function log_rejected_scopes( string $reason, int $count = 1 ): void {
+		( new Logger() )->warning(
+			'Ignored OAuth scopes declared by an extension.',
+			[
+				'platform' => ColorMeAdapter::ID,
+				'reason'   => $reason,
+				'count'    => $count,
+			]
+		);
+	}
+
+	/**
 	 * @throws \RuntimeException client_id/client_secret が未設定の場合。
 	 */
 	public function authorize_url( string $redirect_uri, ?int $state_user_id = null ): string {
@@ -78,11 +175,12 @@ final class ColorMeOAuth {
 			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
-		$args = [
+		$scopes = self::scopes();
+		$args   = [
 			'response_type' => 'code',
 			'client_id'     => $client_id,
 			'redirect_uri'  => $redirect_uri,
-			'scope'         => self::SCOPE,
+			'scope'         => implode( ' ', $scopes ),
 		];
 
 		// stateはコールバックでのCSRF検証用（03 §6）。OOBフローは我々への redirect が発生しないため
@@ -90,6 +188,11 @@ final class ColorMeOAuth {
 		if ( null !== $state_user_id ) {
 			$args['state'] = $this->issue_state( $state_user_id );
 		}
+
+		// トークン応答に `scope` が無いときに記録する「要求したスコープ」を、この認可の単位で控える（交換の時点で求め直すと、その間に拡張を
+		// 有効・無効にしたとき実際の要求とずれる。R3-6c2 G1-1）。リダイレクトは state ごと、OOB（state が無い）はコードを貼り付ける管理者
+		// （今のユーザー）ごと。期限は認可コードと同じ 10 分。
+		$this->remember_requested_scopes( $args['state'] ?? null, $scopes );
 
 		// add_query_arg()は値をurlencodeしない（WP側の既知の挙動）ため、PHP標準の
 		// http_build_query()でクエリ文字列を組み立てる。セパレータは明示（ini設定
@@ -132,6 +235,68 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * 認可で要求したスコープの控え（{@see self::authorize_url()}）の transient のキー。`$state` が null（OOB）なら今のユーザーごと。
+	 */
+	private function requested_scopes_key( ?string $state ): string {
+		return 'cbjp_colorme_oauth_scopes_' . ( null === $state ? 'user_' . get_current_user_id() : $state );
+	}
+
+	/**
+	 * 認可で要求したスコープを控える。OOB はユーザーごとの 1 つの控えで、どの認可のコードが貼り付けられるか分からない（手動のリンクは何度でも
+	 * 取り直せる）ので、まだ使っていない控えがあれば両方が要求したスコープだけを残す（PR #118 G2-1）。どの認可のコードでも、実際に要求して
+	 * いないスコープを記録しない（足りなければ再接続を促す側に倒れる）。リダイレクトは state ごとなので重ならない。
+	 *
+	 * @param array<int,string> $scopes
+	 */
+	private function remember_requested_scopes( ?string $state, array $scopes ): void {
+		if ( null === $state ) {
+			$previous = $this->read_requested_scopes( $this->requested_scopes_key( null ) );
+
+			if ( null !== $previous ) {
+				$scopes = array_values( array_intersect( $scopes, $previous ) );
+			}
+		}
+
+		set_transient( $this->requested_scopes_key( $state ), $scopes, self::STATE_TTL_SECONDS );
+	}
+
+	/**
+	 * 控えを読む（消さない）。無い・読めない控えは null。
+	 *
+	 * @return array<int,string>|null
+	 */
+	private function read_requested_scopes( string $key ): ?array {
+		$scopes = get_transient( $key );
+
+		if ( ! is_array( $scopes ) || ! array_is_list( $scopes ) ) {
+			return null;
+		}
+
+		foreach ( $scopes as $scope ) {
+			if ( ! is_string( $scope ) ) {
+				return null;
+			}
+		}
+
+		return $scopes;
+	}
+
+	/**
+	 * 認可で要求したスコープの控えを読んで消す（一度きり）。無い・期限切れ・読めない控えは空（何を要求したか分からない。トークン応答に
+	 * `scope` も無ければ何も付与されていない扱いになり、管理画面が再接続を促す。フェイルクローズ）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function take_requested_scopes( ?string $state ): array {
+		$key    = $this->requested_scopes_key( $state );
+		$scopes = $this->read_requested_scopes( $key );
+
+		delete_transient( $key );
+
+		return $scopes ?? [];
+	}
+
+	/**
 	 * カラーミー側のOOBリダイレクト先 `https://api.shop-pro.jp/oauth/authorize/{code}` や、
 	 * ユーザーが貼り付けた生の認可コードの両方を受け付ける。
 	 */
@@ -149,9 +314,12 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * @param string      $code         認可コード。
+	 * @param string      $redirect_uri 認可で使ったリダイレクト URI。
+	 * @param string|null $state        リダイレクトの認可の state（{@see self::verify_state()} で確かめた後）。OOB は null（今のユーザーの控えを使う）。
 	 * @throws ApiException トークン交換に失敗した場合。
 	 */
-	public function exchange_code( string $code, string $redirect_uri ): void {
+	public function exchange_code( string $code, string $redirect_uri, ?string $state = null ): void {
 		$settings      = $this->token_store->settings();
 		$client_id     = (string) ( $settings['client_id'] ?? '' );
 		$client_secret = (string) ( $settings['client_secret'] ?? '' );
@@ -159,6 +327,10 @@ final class ColorMeOAuth {
 		if ( '' === $client_id || '' === $client_secret ) {
 			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
+
+		// 応答に `scope` が無いときに記録する値（要求したとおりに付与された。RFC 6749 §5.1）。認可を始めたときに控えたもの（R3-6c2 G1-1。
+		// ColorMe の応答は `scope` を含む〔swagger の説明〕ので、通常はこちらを使わない）。
+		$requested = $this->take_requested_scopes( $state );
 
 		$body = [
 			'grant_type'    => 'authorization_code',
@@ -191,11 +363,12 @@ final class ColorMeOAuth {
 		// 交換開始時に読んだスナップショットを書き戻すと、削除済み資格情報の復活や
 		// 新しい設定の上書きが起きるため、TokenStore側のCAS（トークン取得に使った
 		// client_id/secretが現在も保存されている場合のみ原子的に保存。あわせて
-		// 前のショップのextrasを破棄）に委ねる。
+		// 前のショップのextrasを破棄）に委ねる。付与されたスコープも同じ書込みで記録する（R3-6c2）。
 		$saved = $this->token_store->save_token_if_credentials_match(
 			$client_id,
 			$client_secret,
-			$decoded['access_token']
+			$decoded['access_token'],
+			self::granted_scopes_from( $decoded, $requested )
 		);
 
 		if ( ! $saved ) {
@@ -203,6 +376,28 @@ final class ColorMeOAuth {
 				'The stored credentials were changed or removed while the token exchange was in flight. Please try connecting again.'
 			);
 		}
+	}
+
+	/**
+	 * トークン応答から、付与されたスコープを読む（R3-6c2）。`scope` が無い（null を含む）ときは要求したとおりに付与されている（RFC 6749 §5.1）。
+	 * 文字列でない `scope` は読めないので、何も付与されていない扱いにする（フェイルクローズ。管理画面が再接続を促す側に倒れる）。
+	 *
+	 * @param array<mixed>      $response  トークン応答。
+	 * @param array<int,string> $requested 要求したスコープ。
+	 * @return array<int,string>
+	 */
+	private static function granted_scopes_from( array $response, array $requested ): array {
+		if ( ! isset( $response['scope'] ) ) {
+			return $requested;
+		}
+
+		if ( ! is_string( $response['scope'] ) ) {
+			return [];
+		}
+
+		$scopes = preg_split( '/\s+/', $response['scope'], -1, PREG_SPLIT_NO_EMPTY );
+
+		return false === $scopes ? [] : array_values( array_unique( $scopes ) );
 	}
 
 	/**

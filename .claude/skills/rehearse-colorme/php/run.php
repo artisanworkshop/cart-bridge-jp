@@ -20,6 +20,7 @@
 
 require_once __DIR__ . '/_lib.php';
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\JobManager;
 
@@ -107,6 +108,32 @@ if ( isset( $cbjp_opts['attach'] ) ) {
 		cbjp_rh_abort( "no colorme run of type {$cbjp_type} with run_id {$cbjp_run_id}" );
 	}
 } else {
+	// `JobManager::start_run()` は接続先で扱えない種類を黙って外す。顧客・受注・クーポンは、Pro が無効だと種類が登録されず（R3-6c1）、
+	// トークンにそのスコープが無いと Pro が組み立てない（R3-6c2。Pro を無効にしたまま接続した）。外れた種類を「リハーサルした」と読み違えないよう、
+	// 始める前に止める（読めない応答も止める）。受注のエクスポートのようにプランで外れる種類は、ここでは止めない。
+	$cbjp_unregistered = array_values( array_diff( $cbjp_entities, EntityTypeRegistry::keys() ) );
+
+	if ( [] !== $cbjp_unregistered ) {
+		cbjp_rh_abort( 'entity types not registered: ' . implode( ',', $cbjp_unregistered ) . ' (activate Cart Bridge JP Pro, or pass entities=)' );
+	}
+
+	$cbjp_connections = cbjp_rh_rest( 'GET', '/cbjp/v1/connections' );
+	$cbjp_missing     = null;
+
+	foreach ( 200 === $cbjp_connections['status'] && is_array( $cbjp_connections['data'] ) ? $cbjp_connections['data'] : [] as $cbjp_row ) {
+		if ( is_array( $cbjp_row ) && 'colorme' === ( $cbjp_row['platform'] ?? null ) && is_array( $cbjp_row['missing_scopes'] ?? null ) ) {
+			$cbjp_missing = $cbjp_row['missing_scopes'];
+		}
+	}
+
+	if ( null === $cbjp_missing ) {
+		cbjp_rh_abort( "GET /connections did not report the colorme scopes ({$cbjp_connections['status']})" );
+	}
+
+	if ( [] !== $cbjp_missing ) {
+		cbjp_rh_abort( 'the colorme token lacks scopes: ' . implode( ' ', array_map( 'strval', $cbjp_missing ) ) . ' (reconnect on the Connections tab with Cart Bridge JP Pro active)' );
+	}
+
 	$cbjp_started = cbjp_rh_rest( 'POST', '/cbjp/v1/runs', $cbjp_params );
 	$cbjp_run_id  = is_array( $cbjp_started['data'] ) ? ( $cbjp_started['data']['run_id'] ?? null ) : null;
 

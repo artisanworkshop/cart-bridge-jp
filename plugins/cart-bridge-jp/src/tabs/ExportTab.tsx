@@ -13,6 +13,7 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
+import MissingScopesNotice from '../components/MissingScopesNotice';
 import PushIntentsPanel from '../components/PushIntentsPanel';
 import RunProgress from '../components/RunProgress';
 import { entityLabel, entityLabels } from '../entity-labels';
@@ -721,6 +722,8 @@ export default function ExportTab() {
 					<strong>{ __( 'Export setup', 'cart-bridge-jp' ) }</strong>
 				</CardHeader>
 				<CardBody>
+					<MissingScopesNotice connection={ currentConnection } />
+
 					<p>
 						<strong>
 							{ __( 'Entities to export', 'cart-bridge-jp' ) }

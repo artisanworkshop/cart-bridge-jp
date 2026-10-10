@@ -10,11 +10,12 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Core;
 
 use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Entities\CommerceEntityTypes;
 
 /**
  * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類を無料版の拡張点（`cbjp/entity_types/register`）に
- * 登録する（R3-6c1 で無料版から移した。D27）。
+ * 登録し（R3-6c1 で無料版から移した。D27）、それらに要る OAuth のスコープを無料版の認可の要求に足す（R3-6c2）。
  */
 final class Plugin {
 
@@ -45,6 +46,10 @@ final class Plugin {
 		// （`EntityTypeRegistry` は plugins_loaded の途中の結果をキャッシュしないが、外部コードが早く呼ぶ経路もある）。
 		add_filter( EntityTypeRegistry::FILTER, [ CommerceEntityTypes::class, 'register' ] );
 		EntityTypeRegistry::reset_cache();
+
+		// 無料版は商品のスコープだけを要求する。顧客・受注・クーポンのスコープは Pro が無料版の認可に宣言する（R3-6c2。`docs/03` §10.0 決め残し 9。
+		// フィルターでなく宣言にするのは、別の拡張の例外・置き換えで失われず、認可の要求と Pro の判定がずれないため。PR #118 G1-3・G3-B1）。
+		CommerceAdapters::declare_oauth_scopes();
 	}
 
 	public function is_booted(): bool {

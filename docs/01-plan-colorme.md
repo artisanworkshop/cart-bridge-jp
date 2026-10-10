@@ -14,7 +14,7 @@
 | 認証 | OAuth2 認可コードフロー。**アクセストークン無期限**（リフレッシュ処理不要） |
 | 認可URL | `https://api.shop-pro.jp/oauth/authorize`（`response_type=code`） |
 | トークンURL | `https://api.shop-pro.jp/oauth/token`（認可コードの有効期限10分、交換は1回のみ） |
-| スコープ | `read_products write_products read_sales write_sales read_shop_coupons` |
+| スコープ | 無料版は `read_products write_products`。Pro アドオンが有効なとき `read_sales write_sales read_shop_coupons` を足す（R3-6c2。`03` §10.0 決め残し 9。R3-6c2 より前は無料版が 5 つとも要求していた） |
 | レート制限 | **120リクエスト/分/トークン**（目安。RateLimiterで100/分に抑える） |
 | エラー形式 | `{ "errors": [ { "code": 404100, "message": "...", "status": 404 } ] }` |
 

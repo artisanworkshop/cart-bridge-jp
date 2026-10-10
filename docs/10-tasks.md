@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は完了（PR #104〜#107）で、テストショップでの再リハーサル（まとめて 1 回）も 2026-10-08 に済ませた。R3-2（i18n・日本語訳の同梱、PR #109）・R3-3（readme・スクリーンショット・説明文の v1.0 化）完了。R3-7（モノレポ化。D29）完了。R3-6（無料版と Pro の境目の切り替え。D27）は a〜d の 4 PR に分け、R3-6a（上限・サンプル・クリーンアップ・県コード修復の削除）・R3-6b（実体の種類の拡張点。b1 backend・b2 画面）完了。残りは R3-6c〜d → Pro の公開準備（v1.0 と同時に出す。範囲は移行・試用・ライセンスと更新配信）→ R3-4・R3-5 |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は完了（PR #104〜#107）で、テストショップでの再リハーサル（まとめて 1 回）も 2026-10-08 に済ませた。R3-2（i18n・日本語訳の同梱、PR #109）・R3-3（readme・スクリーンショット・説明文の v1.0 化）完了。R3-7（モノレポ化。D29）完了。R3-6（無料版と Pro の境目の切り替え。D27）は a〜d の 4 PR に分け、R3-6a（上限・サンプル・クリーンアップ・県コード修復の削除）・R3-6b（実体の種類の拡張点。b1 backend・b2 画面）・R3-6c（顧客・受注・クーポンを Pro へ。c1 移動・c2 OAuth スコープの分割）完了。残りは R3-6d → Pro の公開準備（v1.0 と同時に出す。範囲は移行・試用・ライセンスと更新配信）→ R3-4・R3-5 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 顧客・受注・クーポンの移行（ライセンスが無い間は試用で各 100 件まで、ライセンスで無制限）・パスワード設定メール・301 リダイレクト CSV（D27・D28。~~無料版上限の解除~~） | — | ~~別リポジトリ~~ → このリポジトリの `plugins/cart-bridge-jp-pro/`（D29。R3-7 で作る）。v1.0 と同時に公開（2026-10-09 決定） |
@@ -799,7 +799,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
       `ENTITY_LABELS`・能力の switch・受注の文言を持たず、`entity-options.ts`・`entityLabel()`・`kinds` から組み立てる（`OrderMappingNotice` → 汎用の `MappingNotice`）。
       選べる種類・既定の選択は変えず、受注・決済・配送を名指ししていた文言（Mappings・Export の冒頭、Import の確認と案内、検証レポート）を汎用にした（訳も更新）。
       dev サイトで mock アダプタの REST と 4 つのタブを確かめた。詳細は `docs/03` §10.0「R3-6b2 の実装」
-  - [ ] **R3-6c: 顧客・受注・クーポンを Pro へ移す**（上の (2)。`git mv`、`PlatformAdapter`/`Capabilities` から外す、警告コード・カタログ、テスト・フィクスチャ、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` 原則 7 の書き換え）。
+  - [x] **R3-6c: 顧客・受注・クーポンを Pro へ移す**（上の (2)。`git mv`、`PlatformAdapter`/`Capabilities` から外す、警告コード・カタログ、テスト・フィクスチャ、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` 原則 7 の書き換え）。
     **2 PR に分けた**（2026-10-10）
     - [x] **R3-6c1: 移動**（`git mv`・Pro のアダプタ層・無料版の汎用化・境目のテスト・`CLAUDE.md` 原則 7）
       **実装サマリ（2026-10-10。ブランチ `feat/r3-6c1-move-commerce-to-pro`）**: 顧客・受注・クーポンの種類・Canonical・Writer/Reader・`AddressMapper`・ColorMe の変換器と、
@@ -808,8 +808,13 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
       `ColorMeAdapter`・`WarningCode` から外した。無料版は `MappingKind::platform_candidates()`・`MethodMap::lookup()`/`reverse_lookup()`・`indicates_reference_not_found()`・
       `CBJP_EXTENSION_API_VERSION` を足し、検証レポートは登録の無い種類を「不明」にする。Pro は古い無料版では起動しない。境目は Pro の `FreeApiSurfaceTest` と無料版の `FreeScopeTest` が固定する。
       Pro を有効にしたときの振る舞いは、移す前に置いた特性テスト（カタログのハッシュを含む）が期待値を変えずに通ることで確かめた。詳細は `docs/03` §10.0「R3-6c1 の実装」
-    - [ ] **R3-6c2: OAuth スコープの分割**（決め残し 9。無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す。
+    - [x] **R3-6c2: OAuth スコープの分割**（決め残し 9。無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す。
       要求したスコープを記録し、足りない接続には再接続を促す。**R3-4 の前に必須**）
+      **実装サマリ（2026-10-10。ブランチ `feat/r3-6c2-oauth-scope-split`）**: `ColorMeOAuth::scopes()` が商品の 2 つに、拡張が `Adapters\OAuthScopes::add()` で宣言したスコープ（既知のものだけ）を足し、
+      Pro の `Core\Plugin::boot()` が顧客・受注・クーポンの 3 つを宣言する（フィルターにしないのは、別の拡張の例外・置き換えで失われないため。PR #118 G3-B1）。トークン応答の `scope`（付与されたスコープ）をトークンと同じ CAS で `TokenStore` の `scopes` に記録し（無ければ要求したもの、
+      読めなければ空）、記録の無い既存のトークンは旧版の 5 つを持つとみなす。`GET /connections` の `missing_scopes` を、接続カードの警告と Import／Export タブの案内（Connections タブへのリンク）が使う。
+      Pro はトークンに 3 つがそろわない ColorMe では顧客・受注・クーポンを組み立てない（選択肢・マッピングの節に出ない。未接続は従来どおり）。`ColorMeAdapter::granted_scopes()` を足し、
+      `CBJP_EXTENSION_API_VERSION` を 2 にした。dev サイトで Pro 有効／無効とトークンの記録 4 通りの REST と画面を確かめた。詳細は `docs/03` §10.0「R3-6c2 の実装」
   - [ ] **R3-6d: readme・スクリーンショット・i18n を新しい範囲に書き直す**（上の (4)。Pro への案内〔決め残し 5〕、0.1.0 のサイト向けの changelog〔決め残し 7: 取込みの上限が無くなったこと・顧客・受注・クーポンが Pro へ移ったこと・
     0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること〕。スクリーンショットは Pro を無効にして全部撮り直す。撮る前に `wporg-screenshots` の `shots.json`〔`dry_run_entities`・
     `uncheck`・Mappings の `wait_for`〕を無料版だけの画面に合わせる。readme の「顧客・受注を取り込む」等の事実の記述も R3-6c1 の後は古い）

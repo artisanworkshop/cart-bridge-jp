@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
+use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WC_Coupon;
@@ -69,6 +70,53 @@ final class CommerceRestControllerTest extends WP_UnitTestCase {
 		if ( null !== $commerce ) {
 			$this->register_commerce_adapter( $commerce );
 		}
+	}
+
+	/**
+	 * R3-6c2: 無料版だけで接続した（商品のスコープだけの）トークンでは、顧客・受注・クーポンを選択肢に出さず、足りないスコープを返す
+	 * （画面が再接続を促す）。5 つを持つトークンは今までどおり。
+	 */
+	public function test_a_products_only_colorme_token_hides_the_commerce_entities_until_reconnected(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$connection = function ( array $scopes ): array {
+			( new TokenStore( ColorMeAdapter::ID ) )->save(
+				[
+					'access_token' => 'token',
+					'scopes'       => $scopes,
+				]
+			);
+			AdapterRegistry::reset_cache();
+			$this->forget_commerce_adapters();
+
+			$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data()[0];
+
+			return [
+				'missing' => $data['missing_scopes'],
+				'import'  => array_column( $data['entities']['import'], 'key' ),
+				'export'  => array_column( $data['entities']['export'], 'key' ),
+			];
+		};
+
+		$products_only = $connection( [ 'read_products', 'write_products' ] );
+
+		$this->assertSame( [ 'read_sales', 'write_sales', 'read_shop_coupons' ], $products_only['missing'] );
+		$this->assertSame( [], array_values( array_intersect( [ 'customer', 'order', 'coupon' ], $products_only['import'] ) ) );
+		$this->assertSame( [], array_values( array_intersect( [ 'customer', 'order', 'coupon' ], $products_only['export'] ) ) );
+
+		$all = $connection( [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ] );
+
+		$this->assertSame( [], $all['missing'] );
+		$this->assertSame( [ 'customer', 'order', 'coupon' ], array_values( array_intersect( $all['import'], [ 'customer', 'order', 'coupon' ] ) ) );
+		$this->assertContains( 'customer', $all['export'] );
 	}
 
 	/**
@@ -317,6 +365,58 @@ final class CommerceRestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 422, $response->get_status() );
 		$this->assertSame( 'cbjp_link_unsupported', $response->as_error()->get_error_code() );
 		$this->assertTrue( $intents->has_unresolved( 'mock', 'coupon', $coupon_id ) );
+	}
+
+	/**
+	 * R3-6c2 review-loop R1-1: トークンに顧客・受注のスコープが無い ColorMe で「リンクして解除」すると、「扱えない（未作成で解除して）」ではなく
+	 * 「接続し直して」（409 `cbjp_not_connected`）と答え、印を残す。未作成で解除させると、送信済みだった顧客が再接続の後に重複して作られうる。
+	 * ColorMe へは何も送らない（スコープの判定で止まる）。
+	 */
+	public function test_resolve_push_intent_link_asks_to_reconnect_when_the_token_lacks_the_scopes(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$requests ) {
+				++$requests;
+
+				return new \WP_Error( 'http_blocked', 'blocked' );
+			}
+		);
+
+		$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+		$intents = new PushIntentRepository();
+		$intents->begin( ColorMeAdapter::ID, 'customer', $user_id, null, null );
+		$id = $intents->find_unresolved( ColorMeAdapter::ID )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/colorme/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => '12345',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_not_connected', $response->as_error()->get_error_code() );
+		$this->assertTrue( $intents->has_unresolved( ColorMeAdapter::ID, 'customer', $user_id ) );
+		$this->assertSame( 0, $requests );
 	}
 
 	/**

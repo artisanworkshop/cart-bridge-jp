@@ -11,9 +11,10 @@ namespace CartBridgeJP\Support;
  * プラットフォームのAPI資格情報を暗号化して保存する。
  *
  * - 暗号化: `sodium_crypto_secretbox`（鍵は AUTH_KEY/AUTH_SALT から導出）
- * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?, settings?}`（D13）。
+ * - 保存単位は構造化ペイロード `{access_token, refresh_token?, expires_at?, extras?, settings?, scopes?}`（D13）。
  *   無期限トークン（カラーミー/MakeShop）も同構造に格納する。`settings`はOAuth接続前のclient_id/secret等、
- *   `extras`はOAuth完了後にアダプタが保存する付随情報（例: shop.jsonのcontract_plan）を想定した区分
+ *   `extras`はOAuth完了後にアダプタが保存する付随情報（例: shop.jsonのcontract_plan）を想定した区分、
+ *   `scopes`はトークンに付与されたOAuthのスコープ（R3-6c2。R3-6c2より前に保存したトークンには無い）
  * - `access_token`が空文字のpayload（`save_settings()`経由）は「設定済みだが未接続」を表す
  * - AUTH_KEY変更等による復号失敗、リフレッシュトークン失効時は例外にせず「再接続が必要」を意味する null を返す
  */
@@ -41,7 +42,7 @@ final class TokenStore {
 	public function __construct( private readonly string $platform ) {}
 
 	/**
-	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>} $payload
+	 * @param array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>,scopes?:array<int,string>} $payload
 	 */
 	public function save( array $payload ): void {
 		if ( '' === $payload['access_token'] ) {
@@ -115,7 +116,7 @@ final class TokenStore {
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>,scopes?:mixed}|null
 	 *         復号失敗・未接続の場合は null（呼び出し側は「再接続が必要」として扱う）。
 	 */
 	public function get(): ?array {
@@ -171,10 +172,15 @@ final class TokenStore {
 	 * 破棄すると管理者にOAuthのやり直しを強いてしまうため、資格情報の不一致
 	 * （中止）と単なる書き込み衝突（再試行可）を区別し、後者のみ有限回リトライする。
 	 *
+	 * 付与されたスコープ（`$scopes`）はトークンと同じ書込みで保存する（R3-6c2）。別の書込みにすると、その間に読んだ側が
+	 * 「記録が無い」＝ R3-6c2 より前の版が保存したトークンと読み違える（{@see self::granted_scopes()}）。
+	 *
+	 * @param array<int,string> $scopes このトークンに付与されたスコープ。
 	 * @return bool 書き込んだ場合true。資格情報の不一致・削除済み・リトライ上限到達はfalse。
 	 */
-	public function save_token_if_credentials_match( string $client_id, string $client_secret, string $access_token ): bool {
-		$mutate = static function ( array $payload ) use ( $client_id, $client_secret, $access_token ): ?array {
+	public function save_token_if_credentials_match( string $client_id, string $client_secret, string $access_token, array $scopes ): bool {
+		$scopes = array_values( $scopes );
+		$mutate = static function ( array $payload ) use ( $client_id, $client_secret, $access_token, $scopes ): ?array {
 			$settings = is_array( $payload['settings'] ?? null ) ? $payload['settings'] : [];
 
 			if ( ( $settings['client_id'] ?? null ) !== $client_id || ( $settings['client_secret'] ?? null ) !== $client_secret ) {
@@ -182,6 +188,7 @@ final class TokenStore {
 			}
 
 			$payload['access_token'] = $access_token;
+			$payload['scopes']       = $scopes;
 			unset( $payload['extras'] );
 
 			return $payload;
@@ -257,7 +264,7 @@ final class TokenStore {
 	}
 
 	/**
-	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>}|null
+	 * @return array{access_token:string,refresh_token?:string,expires_at?:int,extras?:array<string,mixed>,settings?:array<string,mixed>,scopes?:mixed}|null
 	 */
 	private function load_payload(): ?array {
 		$stored = get_option( $this->option_name() );
@@ -298,6 +305,38 @@ final class TokenStore {
 		$payload = $this->get();
 
 		return null !== $payload && '' !== $payload['access_token'];
+	}
+
+	/**
+	 * 保存したトークンに付与されたスコープ（R3-6c2。{@see self::save_token_if_credentials_match()} が書く）。
+	 *
+	 * @return array<int,string>|null 未接続・記録の無いトークン（R3-6c2 より前の版が保存した）は null。記録が文字列の配列でない
+	 *         （壊れた）ときは空配列（何も付与されていない扱い。呼び出し側は再接続を促す側に倒れる）。
+	 */
+	public function granted_scopes(): ?array {
+		if ( ! $this->is_connected() ) {
+			return null;
+		}
+
+		$payload = (array) $this->get();
+
+		if ( ! array_key_exists( 'scopes', $payload ) ) {
+			return null;
+		}
+
+		$scopes = $payload['scopes'];
+
+		if ( ! is_array( $scopes ) || ! array_is_list( $scopes ) ) {
+			return [];
+		}
+
+		foreach ( $scopes as $scope ) {
+			if ( ! is_string( $scope ) ) {
+				return [];
+			}
+		}
+
+		return $scopes;
 	}
 
 	public function is_expired(): bool {

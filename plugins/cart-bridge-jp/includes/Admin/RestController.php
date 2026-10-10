@@ -381,11 +381,17 @@ final class RestController {
 				static fn( ConnectionField $field ): bool => 'oauth_button' === $field->type
 			);
 
+			// 登録キーで選ぶので、`colorme` を OAuth でないアダプタ（検証用の mock など）で置き換えたときは使わない（`$has_oauth`。R3-6c2 G1-2）。
+			$oauth = $this->oauth_for( $id );
+
 			$connections[] = [
 				'platform'          => $id,
 				'label'             => $adapter->label(),
 				'connected'         => $token_store->is_connected(),
 				'needs_reconnect'   => $token_store->needs_reconnect(),
+				// 要求するスコープ（拡張が足したものを含む）のうち、接続済みのトークンに付与されていないもの（R3-6c2）。空でなければ画面が
+				// 再接続を促す。OAuth の接続ボタンを持たない接続先・未接続は空。
+				'missing_scopes'    => $has_oauth && null !== $oauth ? $oauth->missing_scopes() : [],
 				// OAuth完了前にclient_id/secret等だけが保存されている状態。UI側は
 				// これを見て、未接続でも資格情報の削除操作を出せるようにする。
 				'has_settings'      => [] !== $token_store->settings(),
@@ -1181,7 +1187,7 @@ final class RestController {
 		}
 
 		try {
-			$oauth->exchange_code( $code, $this->oauth_callback_url( $platform ) );
+			$oauth->exchange_code( $code, $this->oauth_callback_url( $platform ), $state );
 		} catch ( Throwable $exception ) {
 			return $this->redirect_to_connections( [ 'cbjp_connect_error' => $exception->getMessage() ] );
 		}
@@ -1688,7 +1694,8 @@ final class RestController {
 			// 以下3件は「ASPへの照会に失敗して中断」の応答（R3-6a で削除した県コード修復と揃えていたコード・ステータス・文言）。
 			PushIntentResolutionException::NOT_CONNECTED     => new WP_Error(
 				'cbjp_not_connected',
-				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
+				// スコープが足りない接続も同じ案内になる（R3-6c2。Pro の `CommerceAdapters::get_required()`）。
+				__( 'The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
 				[ 'status' => 409 ]
 			),
 			PushIntentResolutionException::RATE_LIMITED      => $this->rate_limited_response(),

@@ -107,4 +107,93 @@ final class TokenStoreTest extends WP_UnitTestCase {
 		$this->assertFalse( $store->is_connected() );
 		$this->assertFalse( get_option( 'cbjp_token_lock_' . $platform ) );
 	}
+
+	/**
+	 * R3-6c2: 付与されたスコープはトークンと同じ書込みで保存し、設定の保存・extras の更新（別の CAS）で消えない。
+	 */
+	public function test_granted_scopes_are_saved_with_the_token_and_survive_other_writes(): void {
+		[ $store, $platform ] = $this->make_store();
+		$store->save_settings(
+			[
+				'client_id'     => 'id',
+				'client_secret' => 'secret',
+			]
+		);
+
+		$this->assertNull( $store->granted_scopes(), '未接続' );
+		$this->assertTrue(
+			$store->save_token_if_credentials_match(
+				'id',
+				'secret',
+				'token',
+				[
+					1 => 'read_products',
+					3 => 'write_products',
+				]
+			)
+		);
+		$this->assertSame( [ 'read_products', 'write_products' ], $store->granted_scopes() );
+
+		$store->save_settings( [ 'client_id' => 'id' ] );
+		$store->update_extras_if_token_matches( 'token', static fn (): array => [ 'contract_plan' => 'premium' ] );
+
+		$this->assertSame( [ 'read_products', 'write_products' ], ( new TokenStore( $platform ) )->granted_scopes() );
+	}
+
+	/**
+	 * 資格情報が変わっていれば、トークンと一緒にスコープも書かない。
+	 */
+	public function test_granted_scopes_are_not_saved_when_the_credentials_changed(): void {
+		[ $store ] = $this->make_store();
+		$store->save_settings(
+			[
+				'client_id'     => 'new-id',
+				'client_secret' => 'secret',
+			]
+		);
+
+		$this->assertFalse( $store->save_token_if_credentials_match( 'old-id', 'secret', 'token', [ 'read_products' ] ) );
+		$this->assertArrayNotHasKey( 'scopes', (array) $store->get() );
+	}
+
+	/**
+	 * 記録の無いトークン（R3-6c2 より前に保存した）は null。どう読むかは呼び出し側（`ColorMeOAuth::granted_scopes_in()`）が決める。
+	 */
+	public function test_granted_scopes_is_null_for_a_token_without_a_record(): void {
+		[ $store ] = $this->make_store();
+		$store->save( [ 'access_token' => 'token' ] );
+
+		$this->assertNull( $store->granted_scopes() );
+	}
+
+	/**
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function broken_scope_records(): array {
+		return [
+			'string'            => [ 'read_products write_products' ],
+			'null'              => [ null ],
+			'map'               => [ [ 'a' => 'read_products' ] ],
+			'non-string member' => [ [ 'read_products', 7 ] ],
+		];
+	}
+
+	/**
+	 * 壊れた記録は何も付与されていない扱い（要素を選り分けない。呼び出し側は再接続を促す側に倒れる）。
+	 *
+	 * @dataProvider broken_scope_records
+	 *
+	 * @param mixed $record 保存されている `scopes`。
+	 */
+	public function test_a_broken_scope_record_grants_nothing( mixed $record ): void {
+		[ $store ] = $this->make_store();
+		$store->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => $record,
+			]
+		);
+
+		$this->assertSame( [], $store->granted_scopes() );
+	}
 }
