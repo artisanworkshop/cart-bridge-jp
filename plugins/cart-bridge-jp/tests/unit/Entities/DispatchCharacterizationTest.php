@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Entities;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
+use CartBridgeJP\Adapters\CommerceCapabilities;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Admin\DryRunReportCsv;
 use CartBridgeJP\Canonical\CanonicalCategory;
@@ -22,7 +23,9 @@ use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Tests\Fixtures\RegistersCommerceAdapters;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Tools\LocalEntityLookup;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
@@ -46,6 +49,8 @@ use WP_UnitTestCase;
  * 変わらないことを確かめる。
  */
 final class DispatchCharacterizationTest extends WP_UnitTestCase {
+
+	use RegistersCommerceAdapters;
 
 	/**
 	 * 警告の判定関数ごとに、真になるコード（`WarningCode` の全定数のうち）。R3-6b1 の前のコードで算出した。
@@ -105,7 +110,9 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
+		$this->forget_commerce_adapters();
 		parent::tear_down();
+		$this->forget_commerce_adapters();
 	}
 
 	/**
@@ -206,23 +213,13 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * @return array<string,array{0:string,1:?Capabilities,2:array<int,string>,3:array<int,string>}>
+	 * 能力の上書き（R3-6c1 で顧客・受注・クーポンの能力は `CommerceCapabilities` へ移した。キーは以前の `Capabilities` と同じ）。
+	 *
+	 * @return array<string,array{0:string,1:array<string,bool>,2:array<int,string>,3:array<int,string>}>
 	 */
 	public static function run_entity_cases(): array {
 		$all       = [ 'review', 'coupon', 'stock', 'order', 'customer', 'product', 'tag', 'category', 'widget', 'variant' ];
-		$caps      = static fn ( array $overrides ): Capabilities => new Capabilities(
-			$overrides['can_create_category'] ?? true,
-			$overrides['can_create_order'] ?? true,
-			$overrides['can_fetch_customers'] ?? true,
-			$overrides['can_update_customer'] ?? true,
-			true,
-			$overrides['can_create_coupon'] ?? true,
-			$overrides['has_coupons'] ?? true,
-			$overrides['has_tags'] ?? true,
-			$overrides['has_reviews'] ?? true,
-			true,
-			600
-		);
+		$caps      = static fn ( array $overrides ): array => $overrides;
 		$import    = JobManager::TYPE_IMPORT;
 		$export    = JobManager::TYPE_EXPORT;
 		$dry_run   = JobManager::TYPE_DRY_RUN;
@@ -233,8 +230,8 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 		$no_coupon = $without( $full_out, 'coupon' );
 
 		return [
-			'import all'                       => [ $import, null, $all, $full_in ],
-			'dry run all'                      => [ $dry_run, null, $all, $full_in ],
+			'import all'                       => [ $import, [], $all, $full_in ],
+			'dry run all'                      => [ $dry_run, [], $all, $full_in ],
 			'import without tags'              => [ $import, $caps( [ 'has_tags' => false ] ), $all, $without( $full_in, 'tag' ) ],
 			'import without coupons'           => [ $import, $caps( [ 'has_coupons' => false ] ), $all, $without( $full_in, 'coupon' ) ],
 			'import without reviews'           => [ $import, $caps( [ 'has_reviews' => false ] ), $all, $without( $full_in, 'review' ) ],
@@ -251,9 +248,9 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 				$all,
 				$full_in,
 			],
-			'import subset'                    => [ $import, null, [ 'order', 'product' ], [ 'product', 'order' ] ],
-			'export all'                       => [ $export, null, $all, $full_out ],
-			'dry run export all'               => [ $dry_out, null, $all, $full_out ],
+			'import subset'                    => [ $import, [], [ 'order', 'product' ], [ 'product', 'order' ] ],
+			'export all'                       => [ $export, [], $all, $full_out ],
+			'dry run export all'               => [ $dry_out, [], $all, $full_out ],
 			'export without customer update'   => [ $export, $caps( [ 'can_update_customer' => false ] ), $all, $without( $full_out, 'customer' ) ],
 			'export without order create'      => [ $export, $caps( [ 'can_create_order' => false ] ), $all, $without( $full_out, 'order' ) ],
 			'export without coupons'           => [ $export, $caps( [ 'has_coupons' => false ] ), $all, $no_coupon ],
@@ -270,18 +267,41 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 				$all,
 				$full_out,
 			],
-			'export subset'                    => [ $export, null, [ 'stock', 'category', 'product' ], [ 'product', 'stock' ] ],
+			'export subset'                    => [ $export, [], [ 'stock', 'category', 'product' ], [ 'product', 'stock' ] ],
 		];
 	}
 
 	/**
 	 * @dataProvider run_entity_cases
 	 *
-	 * @param array<int,string> $requested
-	 * @param array<int,string> $expected
+	 * @param array<string,bool> $overrides
+	 * @param array<int,string>  $requested
+	 * @param array<int,string>  $expected
 	 */
-	public function test_run_creates_jobs_in_the_fixed_order_for_supported_entities( string $type, ?Capabilities $capabilities, array $requested, array $expected ): void {
-		$this->register( new MockPlatformAdapter( capabilities_override: $capabilities ) );
+	public function test_run_creates_jobs_in_the_fixed_order_for_supported_entities( string $type, array $overrides, array $requested, array $expected ): void {
+		$this->register(
+			new MockPlatformAdapter(
+				capabilities_override: new Capabilities(
+					can_create_category: $overrides['can_create_category'] ?? true,
+					can_push_images: true,
+					has_tags: $overrides['has_tags'] ?? true,
+					has_reviews: $overrides['has_reviews'] ?? true,
+					has_variants: true,
+					rate_limit_per_minute: 600
+				)
+			)
+		);
+		$this->register_commerce_adapter(
+			new MockCommerceAdapter(
+				capabilities_override: new CommerceCapabilities(
+					can_fetch_customers: $overrides['can_fetch_customers'] ?? true,
+					can_update_customer: $overrides['can_update_customer'] ?? true,
+					can_create_order: $overrides['can_create_order'] ?? true,
+					has_coupons: $overrides['has_coupons'] ?? true,
+					can_create_coupon: $overrides['can_create_coupon'] ?? true
+				)
+			)
+		);
 
 		$run_id = JobManager::create()->start_run( $type, 'mock', $requested );
 		$jobs   = ( new JobRepository() )->find_by_run( $run_id );
@@ -328,7 +348,7 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	 * @dataProvider pushable_entities
 	 */
 	public function test_platform_writer_rejects_a_model_of_another_type( string $entity ): void {
-		$writer = new AdapterPlatformWriter( new MockPlatformAdapter( push_products_supported: true, push_others_supported: true ) );
+		$writer = new AdapterPlatformWriter( new MockPlatformAdapter( push_products_supported: true, push_stocks_supported: true ) );
 
 		$this->expectException( RuntimeException::class );
 		$this->expectExceptionMessage( "AdapterPlatformWriter received an unsupported Canonical model for \"{$entity}\"." );

@@ -12,7 +12,7 @@ use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\CommerceWarningCode;
-use CartBridgeJP\Woo\Support\EntityOrigin;
+use CartBridgeJP\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
 use CartBridgeJP\Woo\WarningCode;
@@ -208,7 +208,7 @@ final class OrderReader implements EntityReader {
 			$warnings,
 			! WarningCode::indicates_unresolved_reference( $warnings ),
 			[],
-			EntityOrigin::order_linked_by_import( $order, $this->platform )
+			CommerceOrigin::order_linked_by_import( $order, $this->platform )
 		);
 	}
 

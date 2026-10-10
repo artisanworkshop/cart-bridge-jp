@@ -9,7 +9,7 @@ namespace CartBridgeJP\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCustomer;
-use CartBridgeJP\Woo\Support\EntityOrigin;
+use CartBridgeJP\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WP_User;
 use WP_User_Query;
@@ -83,7 +83,7 @@ final class CustomerReader implements EntityReader {
 			[]
 		);
 
-		return new ReadItem( $user->ID, $canonical, [], true, [], EntityOrigin::user_linked_by_import( $user->ID, $this->platform ) );
+		return new ReadItem( $user->ID, $canonical, [], true, [], CommerceOrigin::user_linked_by_import( $user->ID, $this->platform ) );
 	}
 
 	/**

@@ -7,8 +7,10 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Entities\Commerce;
 
+use CartBridgeJP\Adapters\CommerceAdapters;
+use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Entities\MappingKind;
-use CartBridgeJP\Woo\Support\MappingCandidates;
+use CartBridgeJP\Woo\Support\OrderMappingCandidates;
 
 /**
  * 注文ステータス（`status_map`: ASP の受注ステータス → Woo の注文ステータス）。受注の取込みが使う。未設定は既定のステータスに落ちる（警告にならないので取込み前の案内はしない）。
@@ -53,7 +55,22 @@ final class OrderStatusMappingKind extends MappingKind {
 		return self::SOURCE_ASP;
 	}
 
+	/**
+	 * 受注を取り込める接続先（`CommerceAdapter` がある）だけで使う（R3-6c1）。
+	 */
+	public function applies_to( PlatformAdapter $adapter ): bool {
+		return null !== CommerceAdapters::get( $adapter );
+	}
+
+	/**
+	 * ASP 側の注文ステータスの候補は接続先の `CommerceAdapter` が持つ（R3-6c1 で `PlatformAdapter::mapping_candidates()` から移した）。
+	 * 無い接続先は空（アダプタの `mapping_candidates()` には無いので、null を返して探させない）。
+	 */
+	public function platform_candidates( PlatformAdapter $adapter ): array {
+		return CommerceAdapters::get( $adapter )?->status_candidates() ?? [];
+	}
+
 	public function woo_candidates(): array {
-		return MappingCandidates::order_statuses();
+		return OrderMappingCandidates::order_statuses();
 	}
 }

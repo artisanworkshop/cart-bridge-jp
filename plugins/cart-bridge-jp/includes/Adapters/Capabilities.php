@@ -18,8 +18,12 @@ namespace CartBridgeJP\Adapters;
  * （`Sync\Exporter`。`WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED`）。
  *
  * `beta_features`（D24）は、宣言済みの能力のうち「実店舗で未検証のベータ機能」に当たるものの識別子
- * （`BETA_*` 定数）。UI は「Beta」表示と既定オフにだけ使い、可否そのもの（`can_create_order` /
- * `can_push_images`）は従来どおりそれぞれの能力が決める。宣言しない外部アダプタの既定は空（ベータなし）。
+ * （`BETA_*` 定数）。UI は「Beta」表示と既定オフにだけ使い、可否そのもの（`can_push_images`）は従来どおり
+ * それぞれの能力が決める。宣言しない外部アダプタの既定は空（ベータなし）。
+ *
+ * 顧客・受注・クーポンの能力（`can_fetch_customers`・`can_update_customer`・`can_create_order`・`has_coupons`・`can_create_coupon`・
+ * 受注のエクスポートのベータ）は R3-6c1 で Pro アドオンの `CommerceCapabilities` へ移した（D27。v1.0 前なので引数の位置の変更は D20 で許容）。
+ * 呼び出しは名前付き引数で書く（位置で書くと、引数を外したときに同じ型の能力が黙って入れ替わる）。
  *
  * **`can_push_images` の契約（D24）**: 宣言するアダプタは、実際に画像を送るかを
  * `Support\ExportOptions::push_images_enabled( $this->id() )`（Export タブの「商品画像をアップロードする」。
@@ -29,11 +33,6 @@ namespace CartBridgeJP\Adapters;
  * （`ColorMeAdapter::should_push_images()` が参照実装）。
  */
 final readonly class Capabilities {
-
-	/**
-	 * 受注のエクスポート（`can_create_order`）。
-	 */
-	public const BETA_ORDER_EXPORT = 'order_export';
 
 	/**
 	 * 商品画像のアップロード（`can_push_images`）。
@@ -48,12 +47,7 @@ final readonly class Capabilities {
 	 */
 	public function __construct(
 		public bool $can_create_category,
-		public bool $can_create_order,
-		public bool $can_fetch_customers,
-		public bool $can_update_customer,
 		public bool $can_push_images,
-		public bool $can_create_coupon,
-		public bool $has_coupons,
 		public bool $has_tags,
 		public bool $has_reviews,
 		public bool $has_variants,
@@ -68,12 +62,7 @@ final readonly class Capabilities {
 	public function to_array(): array {
 		return [
 			'can_create_category'                   => $this->can_create_category,
-			'can_create_order'                      => $this->can_create_order,
-			'can_fetch_customers'                   => $this->can_fetch_customers,
-			'can_update_customer'                   => $this->can_update_customer,
 			'can_push_images'                       => $this->can_push_images,
-			'can_create_coupon'                     => $this->can_create_coupon,
-			'has_coupons'                           => $this->has_coupons,
 			'has_tags'                              => $this->has_tags,
 			'has_reviews'                           => $this->has_reviews,
 			'has_variants'                          => $this->has_variants,

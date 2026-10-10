@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\ColorMe\Transform\OrderTransformer;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
 use RuntimeException;
 use WP_UnitTestCase;
 
@@ -733,7 +734,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'customer_ref' => '9001' ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'excluded' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'excluded' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertFalse( $result['line_items_unresolved'] );
@@ -761,7 +762,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertSame(
@@ -785,7 +786,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => null ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertFalse( $result['shipping_address_incomplete'] );
@@ -803,7 +804,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'address_1' => '   ' ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertSame( '千代田区1-1', $result['payload']['sale_deliveries'][0]['address1'] );
@@ -820,7 +821,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'tel' => null ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		// 配送先住所・氏名自体（city/address_1/name。`default_shipping()`は請求先と意図的に
@@ -848,7 +849,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				],
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['shipping_address_incomplete'] );
@@ -862,7 +863,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
@@ -886,7 +887,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		);
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'bacs', $result['unmapped_payment_method_id'] );
@@ -899,7 +900,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertSame( 'flat_rate:6', $result['unmapped_shipping_method_id'] );
@@ -921,7 +922,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				],
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['line_items_unresolved'] );
@@ -937,7 +938,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'line_items' => [] ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['line_items_unresolved'] );
@@ -953,7 +954,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'totals' => array_merge( $this->default_totals(), [ 'discount' => '500' ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertNotNull( $result['payload'] );
 		$this->assertTrue( $result['discount_not_pushed'] );
@@ -963,7 +964,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertFalse( $result['discount_not_pushed'] );
 	}
@@ -985,7 +986,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				],
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertTrue( $result['fee_not_pushed'] );
 	}
@@ -994,7 +995,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order( [ 'shipping' => array_merge( $this->default_shipping(), [ 'fee' => '500' ] ) ] );
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertTrue( $result['fee_not_pushed'] );
 	}
@@ -1012,7 +1013,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 				'shipping' => array_merge( $this->default_shipping(), [ 'fee' => '0' ] ),
 			]
 		);
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertFalse( $result['fee_not_pushed'] );
 	}
@@ -1028,7 +1029,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), null );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), null );
 
 		$this->assertNull( $result['payload'] );
 		$this->assertTrue( $result['line_price_unresolved'] );
@@ -1041,7 +1042,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 		$this->set_method_maps( [ 'bacs' => '751' ], [ 'flat_rate:6' => '640580' ] );
 
 		$order  = $this->make_export_order();
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		// 税込単価1100.00円が整数円1100へ変換されることを確認する。
 		$this->assertSame( 1100, $result['payload']['details'][0]['price'] );
@@ -1073,11 +1074,11 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			]
 		);
 
-		$included = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$included = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 		$this->assertNull( $included['payload'] );
 		$this->assertTrue( $included['line_price_unresolved'] );
 
-		$excluded = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'excluded' );
+		$excluded = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'excluded' );
 		$this->assertNull( $excluded['payload'] );
 		$this->assertTrue( $excluded['line_price_unresolved'] );
 	}
@@ -1105,7 +1106,7 @@ final class OrderTransformerTest extends WP_UnitTestCase {
 			]
 		);
 
-		$result = $this->make_export_transformer()->to_create_payload( $order, new MethodMap( 'colorme' ), 'included' );
+		$result = $this->make_export_transformer()->to_create_payload( $order, new OrderMethodMap( new MethodMap( 'colorme' ) ), 'included' );
 
 		$this->assertSame( 1100, $result['payload']['details'][0]['price'] );
 	}

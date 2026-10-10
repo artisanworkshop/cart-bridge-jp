@@ -15,9 +15,6 @@ use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Canonical\CanonicalCategory;
-use CartBridgeJP\Canonical\CanonicalCoupon;
-use CartBridgeJP\Canonical\CanonicalCustomer;
-use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use Throwable;
@@ -73,20 +70,8 @@ final class DelegatingPlatformAdapter extends AbstractPlatformAdapter {
 		return $this->inner->fetch_tags();
 	}
 
-	public function fetch_customers( Cursor $cursor ): Page {
-		return $this->inner->fetch_customers( $cursor );
-	}
-
-	public function fetch_orders( Cursor $cursor ): Page {
-		return $this->inner->fetch_orders( $cursor );
-	}
-
 	public function fetch_stocks( Cursor $cursor ): Page {
 		return $this->inner->fetch_stocks( $cursor );
-	}
-
-	public function fetch_coupons( Cursor $cursor ): Page {
-		return $this->inner->fetch_coupons( $cursor );
 	}
 
 	public function fetch_reviews( Cursor $cursor ): Page {
@@ -97,14 +82,6 @@ final class DelegatingPlatformAdapter extends AbstractPlatformAdapter {
 		return $this->inner->fetch_product_by_remote_id( $remote_id );
 	}
 
-	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
-		return $this->inner->fetch_customer_by_remote_id( $remote_id );
-	}
-
-	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
-		return $this->inner->fetch_order_by_remote_id( $remote_id );
-	}
-
 	public function push_product( CanonicalProduct $product, ?string $remote_id ): PushResult {
 		return $this->inner->push_product( $product, $remote_id );
 	}
@@ -113,19 +90,7 @@ final class DelegatingPlatformAdapter extends AbstractPlatformAdapter {
 		return $this->inner->push_category( $category );
 	}
 
-	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult {
-		return $this->inner->push_customer( $customer, $remote_id );
-	}
-
-	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult {
-		return $this->inner->push_order( $order, $remote_id );
-	}
-
 	public function push_stock( CanonicalStock $stock ): PushResult {
 		return $this->inner->push_stock( $stock );
-	}
-
-	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {
-		return $this->inner->push_coupon( $coupon, $remote_id );
 	}
 }

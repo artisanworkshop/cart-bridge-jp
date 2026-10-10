@@ -10,94 +10,60 @@ namespace CartBridgeJP\Tests\Woo\Support;
 use CartBridgeJP\Woo\Support\MethodMap;
 use WP_UnitTestCase;
 
+/**
+ * マッピング設定の汎用の読取り（R3-6c1 で受注の決済・配送・ステータスを `OrderMethodMap` へ分け、`lookup()`・`reverse_lookup()` を
+ * Pro アドオンも使う口として公開した）。
+ */
 final class MethodMapTest extends WP_UnitTestCase {
 
-	protected function tearDown(): void {
+	public function tear_down(): void {
 		delete_option( 'cbjp_settings_colorme' );
 
-		parent::tearDown();
+		parent::tear_down();
 	}
 
-	/**
-	 * `payment_map`（ASP側ID=>Woo側ID）の値がWoo側IDにちょうど1件対応する場合のみ、
-	 * その ASP側IDを逆引きできる（D19）。
-	 */
-	public function test_asp_payment_id_resolves_a_unique_match(): void {
+	public function test_lookup_reads_the_value_of_a_map_key(): void {
 		update_option(
 			'cbjp_settings_colorme',
 			[
-				'payment_map' => [
-					'751'  => 'bacs',
-					'1032' => 'cod',
-				],
+				'category_map' => [ '15' => '200' ],
+				'gizmo_map'    => [ 'red' => 'blue' ],
 			]
 		);
+		$map = new MethodMap( 'colorme' );
 
-		$method_map = new MethodMap( 'colorme' );
-
-		$this->assertSame( '751', $method_map->asp_payment_id( 'bacs' ) );
-		$this->assertSame( '1032', $method_map->asp_payment_id( 'cod' ) );
+		$this->assertSame( '200', $map->mapped_asp_category_id( '15' ) );
+		$this->assertSame( 'blue', $map->lookup( 'gizmo_map', 'red' ) );
+		$this->assertNull( $map->lookup( 'gizmo_map', 'green' ) );
+		$this->assertNull( $map->lookup( 'missing_map', 'red' ) );
 	}
 
-	/**
-	 * Woo側IDにマッピングされたASP側IDが1件も無い場合はnull（未マッピング）。
-	 */
-	public function test_asp_payment_id_returns_null_when_unmapped(): void {
-		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '751' => 'bacs' ] ] );
+	public function test_lookup_treats_a_broken_setting_as_unmapped(): void {
+		update_option( 'cbjp_settings_colorme', [ 'gizmo_map' => 'not-a-map' ] );
 
-		$this->assertNull( ( new MethodMap( 'colorme' ) )->asp_payment_id( 'stripe' ) );
+		$this->assertNull( ( new MethodMap( 'colorme' ) )->lookup( 'gizmo_map', 'red' ) );
+
+		update_option( 'cbjp_settings_colorme', 'not-an-array' );
+
+		$this->assertNull( ( new MethodMap( 'colorme' ) )->lookup( 'gizmo_map', 'red' ) );
+		$this->assertNull( ( new MethodMap( 'colorme' ) )->reverse_lookup( 'gizmo_map', 'blue' ) );
 	}
 
-	/**
-	 * `payment_map`はASP側ID=>Woo側IDで単射とは限らない（複数のASP決済方法が同じWooゲートウェイへ
-	 * 寄せられうる）。Woo側IDに対応するASP側IDが2件以上あると、どちらが実際にこの受注で使われた
-	 * 決済方法か機械的に判定できないため、未マッピングと同じくnullへフェイルクローズする
-	 * （D19の申し送りが提案する「複数一致時はフェイルクローズする」を採用）。
-	 */
-	public function test_asp_payment_id_returns_null_when_ambiguous(): void {
+	public function test_reverse_lookup_resolves_only_a_unique_match(): void {
 		update_option(
 			'cbjp_settings_colorme',
 			[
-				'payment_map' => [
-					'751' => 'stripe',
-					'900' => 'stripe',
+				'gizmo_map' => [
+					'red'    => 'blue',
+					'orange' => 'yellow',
+					'pink'   => 'yellow',
 				],
 			]
 		);
+		$map = new MethodMap( 'colorme' );
 
-		$this->assertNull( ( new MethodMap( 'colorme' ) )->asp_payment_id( 'stripe' ) );
-	}
-
-	public function test_asp_payment_id_returns_null_when_no_settings_saved(): void {
-		$this->assertNull( ( new MethodMap( 'colorme' ) )->asp_payment_id( 'bacs' ) );
-	}
-
-	/**
-	 * `shipping_map`の逆引きも`payment_map`と同じ規則（一意一致のみ解決、0件・複数一致はnull）。
-	 */
-	public function test_asp_delivery_id_resolves_a_unique_match(): void {
-		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ '640580' => 'flat_rate:6' ] ] );
-
-		$this->assertSame( '640580', ( new MethodMap( 'colorme' ) )->asp_delivery_id( 'flat_rate:6' ) );
-	}
-
-	public function test_asp_delivery_id_returns_null_when_ambiguous(): void {
-		update_option(
-			'cbjp_settings_colorme',
-			[
-				'shipping_map' => [
-					'640580' => 'flat_rate:6',
-					'640581' => 'flat_rate:6',
-				],
-			]
-		);
-
-		$this->assertNull( ( new MethodMap( 'colorme' ) )->asp_delivery_id( 'flat_rate:6' ) );
-	}
-
-	public function test_asp_delivery_id_returns_null_when_unmapped(): void {
-		update_option( 'cbjp_settings_colorme', [ 'shipping_map' => [ '640580' => 'flat_rate:6' ] ] );
-
-		$this->assertNull( ( new MethodMap( 'colorme' ) )->asp_delivery_id( 'flat_rate:7' ) );
+		$this->assertSame( 'red', $map->reverse_lookup( 'gizmo_map', 'blue' ) );
+		$this->assertNull( $map->reverse_lookup( 'gizmo_map', 'yellow' ), '複数の ASP 側の値が同じ Woo 側の値を指すと曖昧（D19）' );
+		$this->assertNull( $map->reverse_lookup( 'gizmo_map', 'purple' ) );
 	}
 }

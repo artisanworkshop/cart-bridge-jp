@@ -10,7 +10,7 @@ namespace CartBridgeJP\Adapters\ColorMe\Transform;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Support\AddressMapper;
-use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
 use RuntimeException;
 
 /**
@@ -112,7 +112,7 @@ final class OrderTransformer {
 	 *   fee_not_pushed: bool,
 	 * }
 	 */
-	public function to_create_payload( CanonicalOrder $order, MethodMap $method_map, ?string $tax_type ): array {
+	public function to_create_payload( CanonicalOrder $order, OrderMethodMap $method_map, ?string $tax_type ): array {
 		[ $details, $line_price_unresolved ] = $this->details( $order->line_items, $tax_type );
 
 		$payment_method_id = Cast::to_string_or_null( $order->payment['method_id'] ?? null );
@@ -343,7 +343,7 @@ final class OrderTransformer {
 	 * 採用してしまう（Copilotレビュー指摘）。
 	 *
 	 * **既知の制限**: 配送方法自体が無い（配送不要な仮想商品のみの）受注は、この住所解決とは
-	 * 別に`MethodMap::asp_delivery_id()`が`shipping.method_id=null`を解決できず
+	 * 別に`OrderMethodMap::asp_delivery_id()`が`shipping.method_id=null`を解決できず
 	 * `SHIPPING_METHOD_UNMAPPED`でスキップされる（`CanonicalOrder`が配送要否を運ぶフィールドを
 	 * 持たず`sale_deliveries`自体の省略に対応していないため）。
 	 *

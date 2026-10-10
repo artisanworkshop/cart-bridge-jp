@@ -11,8 +11,6 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ConnectionField;
-use CartBridgeJP\Canonical\CanonicalCustomer;
-use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
@@ -616,7 +614,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 	/**
 	 * ColorMeアダプタは未接続（トークン未保存）のためmapping_candidates()内部の
 	 * `client()`呼び出しが`ApiException`を投げるが、マップ本体の読み取り自体は
-	 * 引きずられて失敗せず、candidatesは4キー空配列に正規化されることを確認する。
+	 * 引きずられて失敗せず、カテゴリの候補は空配列に正規化されることを確認する（決済・配送・注文ステータスは
+	 * Pro の `CommerceRestControllerTest`。R3-6c1）。
 	 */
 	public function test_get_settings_mappings_normalizes_asp_candidates_when_adapter_is_unconnected(): void {
 		$this->register_colorme_adapter();
@@ -625,15 +624,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame(
-			[
-				'category' => [],
-				'payment'  => [],
-				'shipping' => [],
-				'status'   => [],
-			],
-			$response->get_data()['asp_candidates']
-		);
+		$this->assertSame( [], $response->get_data()['asp_candidates']['category'] );
 	}
 
 	/**
@@ -667,12 +658,6 @@ final class RestControllerTest extends WP_UnitTestCase {
 								'name' => 'Books',
 							],
 						],
-						'payment'  => [
-							[
-								'id'   => '3',
-								'name' => 'Bank transfer',
-							],
-						],
 					]
 				);
 
@@ -684,7 +669,6 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' );
 		$response = $this->server->dispatch( $request );
 
-		$data = $response->get_data();
 		$this->assertSame(
 			[
 				[
@@ -692,21 +676,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 					'name' => 'Books',
 				],
 			],
-			$data['asp_candidates']['category']
+			$response->get_data()['asp_candidates']['category']
 		);
-		$this->assertSame(
-			[
-				[
-					'id'   => '3',
-					'name' => 'Bank transfer',
-				],
-			],
-			$data['asp_candidates']['payment']
-		);
-		// mapping_candidates_override はshipping/statusキーを省略しているが、
-		// 常に4キー揃えて返す正規化（RestController::asp_mapping_candidates()）を確認する。
-		$this->assertSame( [], $data['asp_candidates']['shipping'] );
-		$this->assertSame( [], $data['asp_candidates']['status'] );
 	}
 
 	/**
@@ -722,8 +693,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 			static function ( array $adapters ) {
 				$adapters['mock'] = new MockPlatformAdapter(
 					mapping_candidates_override: [
-						'category' => 'not-an-array',
-						'payment'  => [
+						'category' => [
 							[
 								'id'   => '1',
 								'name' => 'Valid',
@@ -768,7 +738,6 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
-		$this->assertSame( [], $data['asp_candidates']['category'] );
 		$this->assertSame(
 			[
 				[
@@ -782,8 +751,28 @@ final class RestControllerTest extends WP_UnitTestCase {
 					'name' => 'Trimmed name',
 				],
 			],
-			$data['asp_candidates']['payment']
+			$data['asp_candidates']['category']
 		);
+	}
+
+	/**
+	 * 候補の一覧が配列でない（契約違反）なら空にする。
+	 */
+	public function test_get_settings_mappings_treats_a_non_array_candidate_list_as_empty(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter( mapping_candidates_override: [ 'category' => 'not-an-array' ] );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], $response->get_data()['asp_candidates']['category'] );
 	}
 
 	public function test_get_settings_mappings_includes_woo_candidates(): void {
@@ -2145,15 +2134,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 	 * クーポンは`PlatformAdapter`にID指定取得メソッドが無い（ColorMe側が読取専用のため元々
 	 * 非対応）ため、実在を確認できず`link`は常に422で拒否する（`not_created`のみ可）。
 	 */
-	public function test_resolve_push_intent_link_is_unsupported_for_coupons(): void {
+	/**
+	 * ID で取得しない種類（在庫）は「リンクして解除」できない（422。クーポンは Pro の `CommerceRestControllerTest`。R3-6c1）。
+	 */
+	public function test_resolve_push_intent_link_is_unsupported_for_a_type_without_a_lookup(): void {
 		$this->register_mock_adapter();
 
-		$coupon = new WC_Coupon();
-		$coupon->set_code( 'save10' );
-		$coupon_id = $coupon->save();
-
 		$intents = new PushIntentRepository();
-		$intents->begin( 'mock', 'coupon', $coupon_id, null, null );
+		$intents->begin( 'mock', 'stock', 303, null, null );
 		$id = $intents->find_unresolved( 'mock' )[0]['id'];
 
 		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
@@ -2186,14 +2174,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		AdapterRegistry::reset_cache();
 
 		$intents = new PushIntentRepository();
-		$intents->begin( 'mock', 'customer', 101, null, null );
+		$intents->begin( 'mock', 'product', 101, null, null );
 		$id = $intents->find_unresolved( 'mock' )[0]['id'];
 
 		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
 		$request->set_body_params(
 			[
 				'action'    => 'link',
-				'remote_id' => 'remote-c1',
+				'remote_id' => 'remote-p1',
 			]
 		);
 		$response = $this->server->dispatch( $request );
@@ -2214,14 +2202,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		AdapterRegistry::reset_cache();
 
 		$intents = new PushIntentRepository();
-		$intents->begin( 'mock', 'customer', 101, null, null );
+		$intents->begin( 'mock', 'product', 101, null, null );
 		$id = $intents->find_unresolved( 'mock' )[0]['id'];
 
 		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
 		$request->set_body_params(
 			[
 				'action'    => 'link',
-				'remote_id' => 'remote-c1',
+				'remote_id' => 'remote-p1',
 			]
 		);
 		$response = $this->server->dispatch( $request );
@@ -2231,21 +2219,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `MockPlatformAdapter`に`$product`/`$customer`/`$order`のいずれかを渡すと、対応する
-	 * `fetch_*_by_remote_id()`がその実体を返す（`link`のテスト用）。
+	 * `MockPlatformAdapter`に`$product`を渡すと、`fetch_product_by_remote_id()`がその商品を返す（`link`のテスト用）。
 	 */
-	private function register_mock_adapter_with_lookup(
-		?CanonicalProduct $product = null,
-		?CanonicalCustomer $customer = null,
-		?CanonicalOrder $order = null
-	): void {
+	private function register_mock_adapter_with_lookup( ?CanonicalProduct $product = null ): void {
 		add_filter(
 			'cbjp/adapters/register',
-			static function ( array $adapters ) use ( $product, $customer, $order ) {
+			static function ( array $adapters ) use ( $product ) {
 				$adapters['mock'] = new MockPlatformAdapter(
-					products: null !== $product ? [ $product ] : [],
-					customers: null !== $customer ? [ $customer ] : [],
-					orders: null !== $order ? [ $order ] : []
+					products: null !== $product ? [ $product ] : []
 				);
 
 				return $adapters;
@@ -2302,7 +2283,15 @@ final class RestControllerTest extends WP_UnitTestCase {
 			'cbjp/adapters/register',
 			static function ( array $adapters ) use ( $can_push_images, $beta_features ) {
 				$adapters['mock'] = new MockPlatformAdapter(
-					capabilities_override: new Capabilities( true, true, true, true, $can_push_images, true, true, true, true, true, 600, false, $beta_features )
+					capabilities_override: new Capabilities(
+						can_create_category: true,
+						can_push_images: $can_push_images,
+						has_tags: true,
+						has_reviews: true,
+						has_variants: true,
+						rate_limit_per_minute: 600,
+						beta_features: $beta_features
+					)
 				);
 
 				return $adapters;
@@ -2312,7 +2301,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 選択肢の説明と取込みの案内の印（R3-6b2）: 受注だけが説明を持ち、決済・配送の案内が要る。
+	 * 選択肢の説明と取込みの案内の印（R3-6b2）: 無料版の種類は説明を持たず、取込みの前の案内も要らない（受注は Pro の
+	 * `CommerceRestControllerTest`。R3-6c1）。
 	 */
 	public function test_get_connections_describes_the_entity_options_for_the_screen(): void {
 		$this->register_mock_adapter();
@@ -2321,12 +2311,10 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$export   = array_column( $entities['export'], 'description', 'key' );
 		$import   = array_column( $entities['import'], 'mapping_notice', 'key' );
 
-		$this->assertSame( 'Creates orders (sales) in the connected shop.', $export['order'] );
 		$this->assertSame( '', $export['product'] );
-		$this->assertSame( '', $export['customer'] );
-		$this->assertTrue( $import['order'] );
+		$this->assertSame( '', $export['stock'] );
 		$this->assertFalse( $import['product'] );
-		$this->assertFalse( $import['customer'] );
+		$this->assertFalse( $import['category'] );
 	}
 
 	public function test_get_connections_exposes_the_beta_features_of_the_colorme_adapter(): void {
@@ -2334,7 +2322,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
 
-		$this->assertSame( [ 'order_export', 'image_push' ], $data[0]['capabilities']['beta_features'] );
+		// 受注のエクスポートのベータは Pro の `CommerceCapabilities`（R3-6c1）。
+		$this->assertSame( [ 'image_push' ], $data[0]['capabilities']['beta_features'] );
 	}
 
 	/**

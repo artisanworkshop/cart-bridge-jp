@@ -37,8 +37,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		remove_all_filters( 'cbjp/limits/product' );
-		remove_all_filters( 'cbjp/limits/customer' );
-		remove_all_filters( 'cbjp/limits/order' );
 		remove_all_filters( 'cbjp/limits/stock' );
 		AdapterRegistry::reset_cache();
 		parent::tear_down();
@@ -46,12 +44,10 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 	/**
 	 * @param array<int,\CartBridgeJP\Canonical\CanonicalProduct>  $products
-	 * @param array<int,\CartBridgeJP\Canonical\CanonicalCustomer> $customers
-	 * @param array<int,\CartBridgeJP\Canonical\CanonicalOrder>    $orders
 	 * @param array<int,\CartBridgeJP\Canonical\CanonicalCategory> $categories
 	 */
-	private function register_adapter( array $products = [], array $customers = [], array $orders = [], array $categories = [] ): MockPlatformAdapter {
-		$adapter = new MockPlatformAdapter( $products, $customers, $orders, $categories );
+	private function register_adapter( array $products = [], array $categories = [] ): MockPlatformAdapter {
+		$adapter = new MockPlatformAdapter( products: $products, categories: $categories );
 
 		add_filter(
 			'cbjp/adapters/register',
@@ -179,19 +175,17 @@ final class JobManagerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * D27（R3-6a）: 無料版に件数の上限は無い。D15 の上限（商品 50・顧客 10・受注 10）を超える件数を、
-	 * カーソル走査で全件取り込む（サンプルの選定・ID 指定取得の経路は無い）。
+	 * D27（R3-6a）: 無料版に件数の上限は無い。D15 の上限（商品 50）を超える件数を、
+	 * カーソル走査で全件取り込む（サンプルの選定・ID 指定取得の経路は無い）。顧客・受注は R3-6c1 で Pro へ移った（Pro は試用の上限を意図して持つ）。
 	 */
 	public function test_import_has_no_count_limit(): void {
-		$products  = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 55 ) );
-		$customers = array_map( static fn ( int $n ) => CanonicalFactory::customer( "c{$n}", "c{$n}@example.com" ), range( 1, 12 ) );
-		$orders    = array_map( static fn ( int $n ) => CanonicalFactory::order( (string) ( 1000 + $n ), "c{$n}", [ "p{$n}" ] ), range( 1, 12 ) );
-		$this->register_adapter( $products, $customers, $orders );
+		$products = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 55 ) );
+		$this->register_adapter( $products );
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );
 
-		$run_id = $manager->start_run( 'import', 'mock', [ 'product', 'customer', 'order' ] );
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product' ] );
 		$manager->run_to_completion( $run_id );
 
 		foreach ( $this->jobs->find_by_run( $run_id ) as $job ) {
@@ -199,8 +193,6 @@ final class JobManagerTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( 55, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertSame( 12, $this->mappings->count( 'mock', 'customer' ) );
-		$this->assertSame( 12, $this->mappings->count( 'mock', 'order' ) );
 	}
 
 	/**
@@ -208,23 +200,19 @@ final class JobManagerTest extends WP_UnitTestCase {
 	 * フィルターを無料版に置かない（D27）。上限を再び足す退行を検出する。
 	 */
 	public function test_former_limit_filters_do_not_restrict_imports(): void {
-		foreach ( [ 'product', 'customer', 'order', 'stock' ] as $entity ) {
+		foreach ( [ 'product', 'stock' ] as $entity ) {
 			add_filter( "cbjp/limits/{$entity}", static fn () => 1 );
 		}
 
-		$products  = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 3 ) );
-		$customers = array_map( static fn ( int $n ) => CanonicalFactory::customer( "c{$n}", "c{$n}@example.com" ), range( 1, 3 ) );
-		$orders    = array_map( static fn ( int $n ) => CanonicalFactory::order( (string) ( 1000 + $n ), null, [ "p{$n}" ] ), range( 1, 3 ) );
-		$this->register_adapter( $products, $customers, $orders );
+		$products = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 3 ) );
+		$this->register_adapter( $products );
 
 		$manager = $this->make_manager( new InMemoryWriter() );
 
-		$run_id = $manager->start_run( 'import', 'mock', [ 'product', 'customer', 'order', 'stock' ] );
+		$run_id = $manager->start_run( 'import', 'mock', [ 'product', 'stock' ] );
 		$manager->run_to_completion( $run_id );
 
 		$this->assertSame( 3, $this->mappings->count( 'mock', 'product' ) );
-		$this->assertSame( 3, $this->mappings->count( 'mock', 'customer' ) );
-		$this->assertSame( 3, $this->mappings->count( 'mock', 'order' ) );
 		$this->assertSame( 3, $this->mappings->count( 'mock', 'stock' ) );
 	}
 
@@ -234,9 +222,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 			CanonicalFactory::product( 'p2', 'SKU-2' ),
 			CanonicalFactory::product( 'p3', 'SKU-3' ),
 		];
-		$orders   = [ CanonicalFactory::order( '1001', null, [ 'p1' ] ) ];
-
-		$this->register_adapter( products: $products, orders: $orders );
+		$this->register_adapter( products: $products );
 
 		$writer  = new InMemoryWriter();
 		$manager = $this->make_manager( $writer );

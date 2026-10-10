@@ -21,7 +21,9 @@ use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Tests\Fixtures\Gizmo\CanonicalGizmo;
 use CartBridgeJP\Tests\Fixtures\Gizmo\GizmoType;
+use CartBridgeJP\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Tests\Fixtures\RegistersCommerceAdapters;
 use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\WarningCatalog;
@@ -37,6 +39,7 @@ use WP_UnitTestCase;
  */
 final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
+	use RegistersCommerceAdapters;
 	use RegistersEntityTypes;
 
 	private GizmoType $gizmo;
@@ -57,7 +60,7 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 				],
 			],
 			push_products_supported: true,
-			push_others_supported: true
+			push_stocks_supported: true
 		);
 		add_filter(
 			'cbjp/adapters/register',
@@ -68,6 +71,8 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 			}
 		);
 		AdapterRegistry::reset_cache();
+
+		$this->register_commerce_adapter( new MockCommerceAdapter( push_supported: true ) );
 
 		$this->gizmo = new GizmoType();
 		$this->register_entity_types( [ $this->gizmo ] );
@@ -88,8 +93,10 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
 		$this->forget_entity_types();
+		$this->forget_commerce_adapters();
 		parent::tear_down();
 		$this->forget_entity_types();
+		$this->forget_commerce_adapters();
 	}
 
 	/**

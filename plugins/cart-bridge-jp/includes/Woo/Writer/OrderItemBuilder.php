@@ -8,7 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Writer;
 
 use CartBridgeJP\Woo\CommerceWarningCode;
-use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\Value;
@@ -214,12 +214,12 @@ final class OrderItemBuilder {
 		// 記録され、拡張機能等の配送方法判定処理が誤動作しうる。マッピング値が`flat_rate:5`
 		// のようなゾーンインスタンスID付きの場合、`method_id`（方式）と`instance_id`
 		// （インスタンス番号）へ分割して別プロパティとして設定する
-		// （`MethodMap::split_shipping_method_id()`参照。両者を1つの複合文字列のまま
+		// （`OrderMethodMap::split_shipping_method_id()`参照。両者を1つの複合文字列のまま
 		// `set_method_id()`へ渡すと`get_method_id()`が実在しない方式IDを返してしまう）。
 		// `OrderWriter::build_shipping_and_fees()`が形式不正なマッピング値を事前にnullへ
 		// 落としているため通常はここに到達しないが、防御的に同じ規約（未マッピングと同じ
 		// 空扱い）を守る。
-		$split = null !== $mapped_method_id ? MethodMap::split_shipping_method_id( $mapped_method_id ) : null;
+		$split = null !== $mapped_method_id ? OrderMethodMap::split_shipping_method_id( $mapped_method_id ) : null;
 
 		if ( null !== $split ) {
 			$item->set_method_id( $split[0] );

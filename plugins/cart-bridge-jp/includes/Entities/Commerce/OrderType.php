@@ -7,7 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Entities\Commerce;
 
-use CartBridgeJP\Adapters\Capabilities;
+use CartBridgeJP\Adapters\CommerceAdapters;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
@@ -20,8 +20,9 @@ use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Woo\Reader\EntityReader;
 use CartBridgeJP\Woo\Reader\OrderReader;
-use CartBridgeJP\Woo\Support\EntityOrigin;
-use CartBridgeJP\Woo\Tools\LocalEntityLookup;
+use CartBridgeJP\Woo\Support\CommerceOrigin;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
+use CartBridgeJP\Woo\Tools\CommerceLookup;
 use CartBridgeJP\Woo\Writer\EntityWriter;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
 use CartBridgeJP\Woo\Writer\OrderWriter;
@@ -49,27 +50,30 @@ final class OrderType extends EntityType {
 		return 50;
 	}
 
+	/**
+	 * 受注の取込みは、接続先に `CommerceAdapter` があれば常にできる（R3-6c1 より前は全アダプタの必須メソッドだった）。
+	 */
 	public function supports_import( PlatformAdapter $adapter ): bool {
-		return true;
+		return null !== CommerceAdapters::get( $adapter );
 	}
 
 	public function fetch_page( PlatformAdapter $adapter, Cursor $cursor ): Page {
-		return $adapter->fetch_orders( $cursor );
+		return CommerceAdapters::get_required( $adapter, 'fetch_orders' )->fetch_orders( $cursor );
 	}
 
 	public function writer( string $platform, WooServices $services ): EntityWriter {
-		return new OrderWriter( $platform, $services->mappings(), new OrderItemBuilder( $services->product_resolver() ), $services->method_map() );
+		return new OrderWriter( $platform, $services->mappings(), new OrderItemBuilder( $services->product_resolver() ), new OrderMethodMap( $services->method_map() ) );
 	}
 
 	public function supports_export( PlatformAdapter $adapter ): bool {
-		return $adapter->capabilities()->can_create_order;
+		return CommerceAdapters::get( $adapter )?->capabilities()->can_create_order ?? false;
 	}
 
 	/**
 	 * D24: 受注のエクスポートは接続先に受注（売上）を作るため、アダプタがベータと宣言していれば既定で選ばない。
 	 */
 	public function is_export_beta( PlatformAdapter $adapter ): bool {
-		return in_array( Capabilities::BETA_ORDER_EXPORT, (array) $adapter->capabilities()->to_array()['beta_features'], true );
+		return CommerceAdapters::get( $adapter )?->capabilities()->order_export_beta ?? false;
 	}
 
 	public function export_description( PlatformAdapter $adapter ): string {
@@ -85,7 +89,7 @@ final class OrderType extends EntityType {
 			throw new RuntimeException( 'AdapterPlatformWriter received an unsupported Canonical model for "order".' );
 		}
 
-		return $adapter->push_order( $item, $remote_id );
+		return CommerceAdapters::get_required( $adapter, 'push_order' )->push_order( $item, $remote_id );
 	}
 
 	public function records_push_intent(): bool {
@@ -93,7 +97,7 @@ final class OrderType extends EntityType {
 	}
 
 	public function fetch_by_remote_id( PlatformAdapter $adapter, string $remote_id ): ?CanonicalModel {
-		return $adapter->fetch_order_by_remote_id( $remote_id );
+		return CommerceAdapters::get_required( $adapter, 'fetch_order_by_remote_id' )->fetch_order_by_remote_id( $remote_id );
 	}
 
 	public function describe_local( int $local_id ): array {
@@ -129,7 +133,7 @@ final class OrderType extends EntityType {
 	}
 
 	public function is_linked_by_export( string $platform, int $local_id ): bool {
-		return EntityOrigin::order_linked_by_export( $local_id, $platform );
+		return CommerceOrigin::order_linked_by_export( $local_id, $platform );
 	}
 
 	public function link_sources(): array {
@@ -137,7 +141,7 @@ final class OrderType extends EntityType {
 	}
 
 	public function existing_local_ids( array $local_ids ): array {
-		return ( new LocalEntityLookup() )->existing_orders( $local_ids );
+		return ( new CommerceLookup() )->existing_orders( $local_ids );
 	}
 
 	/**
@@ -153,7 +157,7 @@ final class OrderType extends EntityType {
 	}
 
 	public function local_amount_summary( array $local_ids ): array {
-		return ( new LocalEntityLookup() )->summarize_orders( $local_ids );
+		return ( new CommerceLookup() )->summarize_orders( $local_ids );
 	}
 
 	public function dry_run_label( CanonicalModel $item ): string {

@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Entities\Commerce;
 
-use CartBridgeJP\Entities\WarningFlag;
 use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;

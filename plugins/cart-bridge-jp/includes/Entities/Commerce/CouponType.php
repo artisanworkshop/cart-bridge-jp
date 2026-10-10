@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Entities\Commerce;
 
+use CartBridgeJP\Adapters\CommerceAdapters;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
@@ -49,11 +50,11 @@ final class CouponType extends EntityType {
 	}
 
 	public function supports_import( PlatformAdapter $adapter ): bool {
-		return $adapter->capabilities()->has_coupons;
+		return CommerceAdapters::get( $adapter )?->capabilities()->has_coupons ?? false;
 	}
 
 	public function fetch_page( PlatformAdapter $adapter, Cursor $cursor ): Page {
-		return $adapter->fetch_coupons( $cursor );
+		return CommerceAdapters::get_required( $adapter, 'fetch_coupons' )->fetch_coupons( $cursor );
 	}
 
 	public function writer( string $platform, WooServices $services ): EntityWriter {
@@ -61,9 +62,9 @@ final class CouponType extends EntityType {
 	}
 
 	public function supports_export( PlatformAdapter $adapter ): bool {
-		$capabilities = $adapter->capabilities();
+		$capabilities = CommerceAdapters::get( $adapter )?->capabilities();
 
-		return $capabilities->has_coupons && $capabilities->can_create_coupon;
+		return null !== $capabilities && $capabilities->has_coupons && $capabilities->can_create_coupon;
 	}
 
 	public function reader( string $platform, WooServices $services ): EntityReader {
@@ -75,7 +76,7 @@ final class CouponType extends EntityType {
 			throw new RuntimeException( 'AdapterPlatformWriter received an unsupported Canonical model for "coupon".' );
 		}
 
-		return $adapter->push_coupon( $item, $remote_id );
+		return CommerceAdapters::get_required( $adapter, 'push_coupon' )->push_coupon( $item, $remote_id );
 	}
 
 	public function records_push_intent(): bool {

@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Entities;
 
-use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Entities\Commerce\CommerceEntityTypes;
 use CartBridgeJP\Entities\Core\ProductType;
 use CartBridgeJP\Entities\EntityType;
@@ -182,7 +181,7 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		};
 		$this->register_entity_types( [ $throwing ] );
 
-		$this->assertSame( [ 'product', 'order' ], EntityTypeRegistry::importable( new MockPlatformAdapter(), [ 'order', 'boom', 'product', 'nope' ] ) );
+		$this->assertSame( [ 'product', 'stock' ], EntityTypeRegistry::importable( new MockPlatformAdapter(), [ 'stock', 'boom', 'product', 'nope' ] ) );
 	}
 
 	public function test_warning_flags_come_from_registered_types_but_not_for_free_codes(): void {
@@ -273,15 +272,6 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 			],
 			$records
 		);
-	}
-
-	public function test_order_export_is_beta_only_when_the_adapter_declares_it(): void {
-		$beta    = new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, false, [ Capabilities::BETA_ORDER_EXPORT ] ) );
-		$regular = new MockPlatformAdapter();
-
-		$this->assertTrue( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'order' ), $beta ) );
-		$this->assertFalse( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'order' ), $regular ) );
-		$this->assertFalse( EntityTypeRegistry::is_export_beta( EntityTypeRegistry::get( 'product' ), $beta ) );
 	}
 
 	public function test_a_beta_check_that_throws_counts_as_beta(): void {

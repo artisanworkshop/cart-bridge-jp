@@ -1046,7 +1046,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
 		ExportOptions::save_push_images( 'mock', true );
 
-		$adapter = new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, false, true, true, true, true, true, 600 ) );
+		$adapter = new MockPlatformAdapter( capabilities_override: new Capabilities( can_create_category: true, can_push_images: false, has_tags: true, has_reviews: true, has_variants: true, rate_limit_per_minute: 600 ) );
 		$writer  = new InMemoryPlatformWriter();
 		$result  = ( new Exporter( $this->mappings ) )->run_page( $adapter, $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
 
@@ -1091,7 +1091,7 @@ final class ExporterTest extends WP_UnitTestCase {
 	 * @param bool $supports_per_variant_stock `Capabilities::$supports_per_variant_stock_management`。
 	 */
 	private function adapter_with_per_variant_stock( bool $supports_per_variant_stock ): MockPlatformAdapter {
-		return new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, $supports_per_variant_stock ) );
+		return new MockPlatformAdapter( capabilities_override: new Capabilities( can_create_category: true, can_push_images: true, has_tags: true, has_reviews: true, has_variants: true, rate_limit_per_minute: 600, supports_per_variant_stock_management: $supports_per_variant_stock ) );
 	}
 
 	/**

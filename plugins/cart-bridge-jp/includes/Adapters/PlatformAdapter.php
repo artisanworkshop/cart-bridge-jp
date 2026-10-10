@@ -8,9 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Adapters;
 
 use CartBridgeJP\Canonical\CanonicalCategory;
-use CartBridgeJP\Canonical\CanonicalCoupon;
-use CartBridgeJP\Canonical\CanonicalCustomer;
-use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
 use CartBridgeJP\Canonical\CanonicalTag;
@@ -21,6 +18,8 @@ use CartBridgeJP\Canonical\CanonicalTag;
  * 注: 設計ドキュメントではメソッド名をcamelCaseで表記しているが、本インターフェースは
  * WordPress Coding Standards（snake_case）に合わせて変換している。パラメータ・戻り値・
  * 意味論は設計ドキュメントと同一。
+ *
+ * 顧客・受注・クーポンの取得・送信は R3-6c1 で Pro アドオンへ移した（Pro の `CommerceAdapter`。D27）。
  *
  * 外部（Pro版・サードパーティ）実装は本インターフェースを直接 implements せず
  * {@see AbstractPlatformAdapter} を継承すること（D20）。v1.0.0 公開後はここへの
@@ -49,8 +48,9 @@ interface PlatformAdapter {
 	/**
 	 * `/settings/mappings/{platform}` UIが選択肢を動的に描画するための、ASP側マッピング候補一覧
 	 * （D19。`connection_fields()`と同じ「自己記述スキーマをUIが消費する」設計）。
-	 * キーは `category`/`payment`/`shipping`/`status`。該当エンティティ・機能を持たない
-	 * プラットフォームはそのキーを省略するか空配列を返してよい。
+	 * キーはマッピングの種類のキー（無料版は `category`）。該当エンティティ・機能を持たない
+	 * プラットフォームはそのキーを省略するか空配列を返してよい。決済・配送・注文ステータス（Pro アドオン）の候補は、
+	 * その種類が自分で返す（`Entities\MappingKind::platform_candidates()`。R3-6c1 でこのメソッドから外した）。
 	 *
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
@@ -68,13 +68,7 @@ interface PlatformAdapter {
 	 */
 	public function fetch_tags(): array;
 
-	public function fetch_customers( Cursor $cursor ): Page;
-
-	public function fetch_orders( Cursor $cursor ): Page;
-
 	public function fetch_stocks( Cursor $cursor ): Page;
-
-	public function fetch_coupons( Cursor $cursor ): Page;
 
 	/**
 	 * makeshopのみ対応。非対応プラットフォームは UnsupportedOperationException。
@@ -86,19 +80,6 @@ interface PlatformAdapter {
 	 * （`Woo\Tools\PushIntentResolver`。D21-B）が、リモートに実体があるかを確かめるために使う。
 	 */
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct;
-
-	/**
-	 * 顧客をID指定で1件取得する。404はnullを返す（例外にしない）。用途は `fetch_product_by_remote_id()` と同じ。
-	 * base: UnsupportedOperationException（D12。受注購入者から抽出）。
-	 */
-	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer;
-
-	/**
-	 * 受注をID指定で1件取得する。404はnullを返す（例外にしない）。用途は `fetch_product_by_remote_id()` と同じ。
-	 * 期間指定付きの一覧取得と違い、ID指定の単一取得は日付範囲の暗黙の絞り込み（カラーミー: 直近7日。03 §9 #14）の
-	 * 影響を受けない。未対応のASPは UnsupportedOperationException。
-	 */
-	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder;
 
 	/**
 	 * capabilityで不可の場合は UnsupportedOperationException。
@@ -119,16 +100,5 @@ interface PlatformAdapter {
 
 	public function push_category( CanonicalCategory $category ): PushResult;
 
-	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult;
-
-	/**
-	 * `$remote_id`が非nullの場合、対応ASPが受注の内容更新（明細・決済/配送方法の変更）を
-	 * 実サポートしない限り、実装はAPIを呼ばず`PushResult('', PushResult::OPERATION_SKIPPED, [...])`
-	 * を返すこと（再作成すると重複した受注ができるため）。
-	 */
-	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult;
-
 	public function push_stock( CanonicalStock $stock ): PushResult;
-
-	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult;
 }

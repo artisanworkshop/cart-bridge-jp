@@ -16,8 +16,8 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\AddressMapper;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
-use CartBridgeJP\Woo\Support\MappingCandidates;
-use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\OrderMappingCandidates;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -38,7 +38,7 @@ final class OrderWriter implements EntityWriter {
 		private readonly string $platform,
 		private readonly MappingRepository $mappings,
 		private readonly OrderItemBuilder $items,
-		private readonly MethodMap $methods
+		private readonly OrderMethodMap $methods
 	) {}
 
 	/**
@@ -313,7 +313,7 @@ final class OrderWriter implements EntityWriter {
 		// または形式は正しくても実在しない（ゾーンから削除された等）場合、それらしい組へ
 		// 黙って解決せず「未マッピング」と同じ経路（下のSHIPPING_METHOD_UNMAPPED警告）へ倒す
 		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
-		if ( null !== $mapped_method_id && ! MethodMap::shipping_method_exists( $mapped_method_id ) ) {
+		if ( null !== $mapped_method_id && ! OrderMethodMap::shipping_method_exists( $mapped_method_id ) ) {
 			$mapped_method_id = null;
 		}
 
@@ -417,12 +417,12 @@ final class OrderWriter implements EntityWriter {
 		$status = str_starts_with( $mapped, 'wc-' ) ? substr( $mapped, 3 ) : $mapped;
 		$known  = wc_get_order_statuses();
 
-		// `MappingCandidates::is_disallowed_order_status()`が除外する値（`checkout-draft`）は
+		// `OrderMappingCandidates::is_disallowed_order_status()`が除外する値（`checkout-draft`）は
 		// マッピング候補一覧には出ないが、REST直PUTや過去に保存済みの`status_map`から
 		// 紛れ込みうる。この状態へ受注を書き込むと`woocommerce_cleanup_draft_orders`（日次cron）が
 		// 24時間後に受注を完全削除するため、候補一覧の除外だけでなくここでもフェイルクローズする
 		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
-		if ( MappingCandidates::is_disallowed_order_status( $status ) ) {
+		if ( OrderMappingCandidates::is_disallowed_order_status( $status ) ) {
 			$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, $status );
 			$status     = 'on-hold';
 		} elseif ( ! array_key_exists( "wc-{$status}", $known ) ) {
@@ -558,7 +558,7 @@ final class OrderWriter implements EntityWriter {
 		// 実在しないゲートウェイを注文へ書き込んでしまう。実在確認できないマッピングは
 		// 「未マッピング」と同じ経路（下のPAYMENT_METHOD_UNMAPPED警告）へ倒す
 		// （境界データはフェイルクローズで検証する。CLAUDE.md参照。Codexレビュー指摘）。
-		if ( null !== $mapped_id && ! MethodMap::payment_gateway_exists( $mapped_id ) ) {
+		if ( null !== $mapped_id && ! OrderMethodMap::payment_gateway_exists( $mapped_id ) ) {
 			$mapped_id = null;
 		}
 

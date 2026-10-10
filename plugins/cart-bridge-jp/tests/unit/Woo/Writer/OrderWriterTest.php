@@ -17,6 +17,7 @@ use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
+use CartBridgeJP\Woo\Support\OrderMethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\OrderItemBuilder;
@@ -36,7 +37,7 @@ final class OrderWriterTest extends WooTestCase {
 	private function make_writer(): OrderWriter {
 		$resolver = new ProductResolver( 'colorme', $this->mappings );
 
-		return new OrderWriter( 'colorme', $this->mappings, new OrderItemBuilder( $resolver ), new MethodMap( 'colorme' ) );
+		return new OrderWriter( 'colorme', $this->mappings, new OrderItemBuilder( $resolver ), new OrderMethodMap( new MethodMap( 'colorme' ) ) );
 	}
 
 	/**
@@ -1126,7 +1127,7 @@ final class OrderWriterTest extends WooTestCase {
 	}
 
 	/**
-	 * `MappingCandidates::order_statuses()`（E2-1のマッピングUI）は`checkout-draft`を候補から
+	 * `OrderMappingCandidates::order_statuses()`（E2-1のマッピングUI）は`checkout-draft`を候補から
 	 * 除外しているが、UIを経由しないREST直PUTや、除外前に保存済みの`status_map`から紛れ込む
 	 * 経路は候補一覧の除外だけでは防げない。この状態へ受注を書き込むと
 	 * `woocommerce_cleanup_draft_orders`（日次cron）が24時間後に受注を完全削除するため、

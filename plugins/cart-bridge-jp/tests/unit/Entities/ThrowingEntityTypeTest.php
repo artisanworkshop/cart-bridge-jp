@@ -19,6 +19,7 @@ use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Tests\Fixtures\DelegatingPlatformAdapter;
+use CartBridgeJP\Tests\Fixtures\Gizmo\GizmoType;
 use CartBridgeJP\Tests\Fixtures\Gizmo\ThrowingEntityType;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
@@ -470,7 +471,7 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 				return $this->kinds;
 			}
 		};
-		$this->register_entity_types( [ $shaky ] );
+		$this->register_entity_types( [ $shaky, new GizmoType() ] );
 		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
 
 		global $wp_rest_server;
@@ -502,8 +503,8 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertFalse( $kinds['shaky_label']['import_notice'] );
 		$this->assertTrue( $kinds['shaky_inapplicable']['import_notice'] );
 		$this->assertFalse( $kinds['shaky_inapplicable']['applies'] );
-		$this->assertTrue( $kinds['payment']['applies'], 'ほかの kind は影響を受けない' );
-		$this->assertSame( 'Payment method mapping', $kinds['payment']['label'] );
+		$this->assertTrue( $kinds['gizmo']['applies'], 'ほかの kind は影響を受けない' );
+		$this->assertSame( 'Gizmo colour mapping', $kinds['gizmo']['label'] );
 	}
 
 	/**
@@ -524,7 +525,7 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'capabilities failed' );
 
-		JobManager::create()->start_run( JobManager::TYPE_IMPORT, 'mock', [ 'category', 'customer' ] );
+		JobManager::create()->start_run( JobManager::TYPE_IMPORT, 'mock', [ 'category', 'tag' ] );
 	}
 
 	/**
