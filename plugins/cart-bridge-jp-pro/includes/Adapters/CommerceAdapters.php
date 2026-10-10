@@ -86,8 +86,9 @@ final class CommerceAdapters {
 	}
 
 	/**
-	 * 無料版の `cbjp/oauth/scopes` のコールバック（R3-6c2）: 同梱の接続先に、顧客・受注・クーポンに要るスコープを足す。先行するフィルターが
-	 * 配列以外を返していても落ちないよう、型を宣言せず受ける（配列でなければ足さずにそのまま返し、無料版の検証に任せる）。
+	 * 無料版の `cbjp/oauth/scopes` のコールバック（R3-6c2）: 同梱の接続先に、顧客・受注・クーポンに要るスコープを足す。`Core\Plugin::boot()` が
+	 * 最後の優先度で登録する。先行するフィルターが配列以外を返していても落ちないよう、型を宣言せず受け、同梱の接続先なら自分の分だけを返す
+	 * （無料版が商品のスコープを足し直す。先行する拡張が壊した分は戻らない）。Pro の判定（`lacks_scopes()`）と認可の要求をずらさないため（G1-3）。
 	 *
 	 * @param mixed $scopes   要求するスコープ。
 	 * @param mixed $platform 接続先の ID。
@@ -96,11 +97,11 @@ final class CommerceAdapters {
 	public static function add_oauth_scopes( mixed $scopes, mixed $platform ): mixed {
 		$extra = self::bundled_oauth_scopes()[ is_string( $platform ) ? $platform : '' ] ?? [];
 
-		if ( ! is_array( $scopes ) || [] === $extra ) {
+		if ( [] === $extra ) {
 			return $scopes;
 		}
 
-		return array_merge( $scopes, $extra );
+		return array_merge( is_array( $scopes ) ? $scopes : [], $extra );
 	}
 
 	/**
