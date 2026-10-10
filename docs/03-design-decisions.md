@@ -56,7 +56,8 @@ interface PlatformAdapter {
     public function connectionFields(): array;        // ConnectionField[]
 
     // `/settings/mappings/{platform}` UI向けのASP側マッピング候補一覧（D19。connectionFields()と
-    // 同じ「自己記述スキーマをUIが消費する」設計）。キーは category/payment/shipping/status。
+    // 同じ「自己記述スキーマをUIが消費する」設計）。キーは category（R3-6c1 より前は payment/shipping/status も。
+    // 受注のマッピングの候補は Pro の CommerceAdapter が返す。§10.0「R3-6c1 の実装」）。
     // 該当エンティティ・機能を持たないプラットフォームはキー省略・空配列可。
     public function mappingCandidates(): array;        // array<string, array<{id,name}>>
 
@@ -64,27 +65,27 @@ interface PlatformAdapter {
     public function fetchProducts( Cursor $cursor ): Page;   // Page<CanonicalProduct>
     public function fetchCategories(): array;                // CanonicalCategory[]
     public function fetchTags(): array;                      // CanonicalTag[]（colorme: groups）
-    public function fetchCustomers( Cursor $cursor ): Page;  // Page<CanonicalCustomer>
-    public function fetchOrders( Cursor $cursor ): Page;     // Page<CanonicalOrder>
+    // ~~fetchCustomers / fetchOrders / fetchCoupons~~                                   // R3-6c1 で Pro の CommerceAdapter へ移した（D27）
     public function fetchStocks( Cursor $cursor ): Page;     // Page<CanonicalStock>
-    public function fetchCoupons( Cursor $cursor ): Page;    // Page<CanonicalCoupon>
     public function fetchReviews( Cursor $cursor ): Page;    // Page<CanonicalReview>（makeshopのみ）
 
     // ID指定取得（送信の結果が不明な実体の確定〔push intent の解除。D21-B〕が使う。API対応可否は要検証#15）
     // ~~public function fetchLatestOrders( int $limit ): array;~~                    // R3-6a で削除（D27。無料版のサンプル選定〔D15〕専用だった）
     public function fetchProductByRemoteId( string $remoteId ): ?CanonicalProduct;   // 404はnull
-    public function fetchCustomerByRemoteId( string $remoteId ): ?CanonicalCustomer; // base: UnsupportedOperationException（D12）
-    public function fetchOrderByRemoteId( string $remoteId ): ?CanonicalOrder;       // 404はnull。県コード修復（issue #46。R3-6a で削除）のときに追加。ID指定の単一取得は日付窓（colorme: 直近7日）の影響を受けない
+    // ~~fetchCustomerByRemoteId / fetchOrderByRemoteId~~                               // R3-6c1 で Pro の CommerceAdapter へ移した（契約は同じ）
 
     // 書き込み（capabilityで不可のものは UnsupportedOperationException）
     public function pushProduct( CanonicalProduct $p, ?string $remoteId ): PushResult;
     public function pushCategory( CanonicalCategory $c ): PushResult;
-    public function pushCustomer( CanonicalCustomer $c, ?string $remoteId ): PushResult;
-    public function pushOrder( CanonicalOrder $o ): PushResult;
+    // ~~pushCustomer / pushOrder / pushCoupon~~                                        // R3-6c1 で Pro の CommerceAdapter へ移した
     public function pushStock( CanonicalStock $s ): PushResult;
-    public function pushCoupon( CanonicalCoupon $c, ?string $remoteId ): PushResult;
 }
 ```
+
+顧客・受注・クーポンの取得・送信は R3-6c1 から Pro アドオンの `CartBridgeJP\Pro\Adapters\CommerceAdapter`（抽象クラス。プラットフォームごとに 1 つ）が持つ。
+`fetch_customers`/`fetch_orders`/`fetch_coupons`（Cursor）・`fetch_customer_by_remote_id`/`fetch_order_by_remote_id`・`push_customer`/`push_order`/`push_coupon` の契約は
+移す前と同じで、既定実装は `UnsupportedOperationException`。決済・配送・注文ステータスの候補は `payment_candidates()`/`shipping_candidates()`/`status_candidates()`（既定は空）。
+登録は `cbjp/pro/commerce_adapters/register`（`platform => callable(PlatformAdapter): ?CommerceAdapter`）。§10.0「R3-6c1 の実装」。
 
 ### 外部互換ポリシー（D20）
 
@@ -148,13 +149,8 @@ interface PlatformAdapter {
 final class Capabilities {
     public function __construct(
         public readonly bool $canCreateCategory,
-        public readonly bool $canCreateOrder,     // base: false（注文作成APIなし）
-        public readonly bool $canFetchCustomers,  // colorme/makeshop: true / base: false（受注から抽出=D12）
-        public readonly bool $canUpdateCustomer,
         public readonly bool $canPushImages,      // 要検証#1/#4の結果で確定。base: true（URL指定方式）
                                                    // colorme: 接続先ショップのcontract_plan（shop.json）を見てプラン依存で算出（§9 #1）
-        public readonly bool $canCreateCoupon,
-        public readonly bool $hasCoupons,         // colorme: true（読取のみ）/ makeshop: true / base: false
         public readonly bool $hasTags,            // colorme: true（groups）/ makeshop: false / base: false
         public readonly bool $hasReviews,         // colorme: false / makeshop: true / base: false
         public readonly bool $hasVariants,        // base: true（ただし1軸のみ）
@@ -165,6 +161,11 @@ final class Capabilities {
 
 UI・JobManager は capability が false のエンティティを選択肢から除外する。アダプタ側は
 非対応メソッドで `UnsupportedOperationException` を投げる（防御の二重化）。
+
+R3-6c1 で `canCreateOrder`・`canFetchCustomers`・`canUpdateCustomer`・`canCreateCoupon`・`hasCoupons` と `BETA_ORDER_EXPORT` を外し、Pro の
+`CommerceCapabilities`（`can_fetch_customers`〔colorme/makeshop: true / base: false。受注から抽出=D12〕・`can_update_customer`・`can_create_order`〔base: false〕・
+`has_coupons`〔colorme: true（読取のみ）/ makeshop: true / base: false〕・`can_create_coupon`・`order_export_beta`。名前付き引数）へ移した。
+v1.0 前なので引数の位置の変更は D20 で許容する（呼び出しは名前付き引数にした）。
 
 ### 値オブジェクト仕様
 
@@ -747,6 +748,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
    無料版に残して Pro が呼ぶ形にするか、Pro へ移すか。無料版で使われないコードを残すと、審査で同梱された Pro の機能と読まれうる。インターフェースの形は R3-4 の凍結（D20）の前に決める。~~
    → **決定（2026-10-09）: Pro へ移す**。`PlatformAdapter` から顧客・受注・クーポンのメソッドを外し、`ColorMeAdapter` の顧客・受注・クーポンの変換器も Pro へ移す。
    Pro が ASP の API を呼ぶための拡張点（認証済みのクライアントの渡し方など）を無料版に設ける。形は R3-6 の計画で決める（凍結の前）。v2.0・v3.0 の BASE・MakeShop の顧客・受注・クーポンも Pro で実装する。
+   → **R3-6c1（2026-10-10）**: Pro に専用のアダプタ層（`CommerceAdapter`。プラットフォームごとに 1 つ）を作り、ColorMe は `ColorMeAdapter::api()` を使う（下の「R3-6c1 の実装」）。
 2. Pro が実体の種類を足す拡張点の形（Woo の Writer・Reader の登録、ジョブの実体一覧、Import/Export タブの選択肢）。
    → **決定（2026-10-10、R3-6b の計画）**: 実体の種類（`Entities\EntityType`）のレジストリと `cbjp/entity_types/register` フィルター。商品系も含め
    全実体を同じレジストリに載せる（無料版の商品系は内部で登録し、顧客・受注・クーポンは無料版自身もこのフィルターから登録する）。
@@ -761,7 +763,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
    リンク再構築の顧客・受注・クーポン、Mappings タブ、検証レポートの受注金額、`EntityOrigin`、受注エクスポートのベータは R3-6b/c の計画で決める。
    → **決定（2026-10-10、R3-6b の計画）**: リンク再構築の顧客・受注・クーポン（`link_sources()`）、Mappings タブの決済・配送・注文ステータス（`mapping_kinds()`）、
    検証レポートの受注金額（`remote_amount()`・`local_amount_summary()`）、D25 の顧客・受注・クーポンの判定（`is_linked_by_export()`）、受注エクスポートのベータ
-   （`is_export_beta()`）は**すべて実体の種類に付けて Pro へ移す**（R3-6c で `Entities/Commerce/` ごと）。カテゴリのマッピング（エクスポートの `category_map`）・
+   （`is_export_beta()`）は**すべて実体の種類に付けて Pro へ移す**（R3-6c で `Entities/Commerce/` ごと。R3-6c1 で移した）。カテゴリのマッピング（エクスポートの `category_map`）・
    商品画像のベータは無料版に残る。
 4. 試用 100 件の数え方と選び方（エンティティごとの累計か、最新の受注から選ぶか）。Pro の設計で決める。
 5. Pro への案内（リンクの置き場所と文言。`cbjp/limits/pro_url` を残すか）。
@@ -776,6 +778,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 9. ~~無料版が要求する OAuth のスコープ: 受注・顧客・クーポンにだけ使うスコープを無料版が要求し続けるか、Pro が足す形にするか。~~
    → **決定（2026-10-09、R3-6 の計画）**: 無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す
    （要求したスコープを記録し、足りない接続には再接続を促す）。使わない個人情報への権限を無料版が求めない。R3-6c で実装する。
+   → R3-6c を 2 PR に分けた（2026-10-10）ので **R3-6c2** で実装する（R3-4 の前に必須）。
 
 #### R3-6 の分け方（2026-10-09、R3-6 の計画で決定）
 
@@ -783,7 +786,7 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 |---|---|
 | R3-6a | 無料版から件数の上限・サンプル・Pro 案内と、役目を終えたツール（サンプルのクリーンアップ・県コード修復）を外す。全実体が件数無制限になる（顧客・受注・クーポンも R3-6c まで一時的に無制限。未公開の main なので許容） |
 | R3-6b | 無料版の中で拡張点を作り、顧客・受注・クーポンを拡張点経由の登録に作り替える（動作は変えない）。決め残し 2・8 と 3 の残りを決める。**2 PR に分けた**（2026-10-10）: R3-6b1＝backend（レジストリ・警告とマッピングの登録・REST の宣言・ColorMe の口・API の一覧）、R3-6b2＝frontend（画面を REST の宣言から組み立て、文言のフィールドをサーバーへ移す） |
-| R3-6c | 顧客・受注・クーポンを Pro へ `git mv` する（`PlatformAdapter`・`Capabilities` から外す、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` の原則 7 の書き換え） |
+| R3-6c | 顧客・受注・クーポンを Pro へ `git mv` する（`PlatformAdapter`・`Capabilities` から外す、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` の原則 7 の書き換え）。**2 PR に分けた**（2026-10-10）: R3-6c1＝移動（Pro のアダプタ層・無料版の汎用化・境目のテスト・原則 7）、R3-6c2＝OAuth スコープの分割（決め残し 9。R3-4 の前に必須） |
 | R3-6d | readme・スクリーンショット・i18n を新しい範囲に書き直す。Pro への案内（決め残し 5）、0.1.0 のサイト向けの changelog（決め残し 7。取込みの上限が無くなったこと、顧客・受注・クーポンが Pro へ移ったこと、0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること） |
 
 R3-6 の後に Pro の公開準備（試用・ライセンス・更新配信・Pro の翻訳・`Update URI`・販売サイト）のタスクを `docs/10` に起こす（中身は R3-6c の後に計画する）。
@@ -848,11 +851,11 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
 
 **登録**: 無料版の顧客・受注・クーポンは `Entities/Commerce/`（`CustomerType`・`OrderType`・`CouponType`、その警告・LinkSource・MappingKind）にまとめ、
 `Core\Plugin::boot()` が `CommerceEntityTypes::register` を `cbjp/entity_types/register` に足す。**R3-6c でこのディレクトリと登録を Pro へ移す。**
-今は `PlatformAdapter` の `fetch_customers()` 等と既存の Writer/Reader を呼ぶ。
+今は `PlatformAdapter` の `fetch_customers()` 等と既存の Writer/Reader を呼ぶ。→ **R3-6c1 で Pro へ移した**（下の「R3-6c1 の実装」）。
 
 **ColorMe の口**: `ColorMeAdapter::api()` が返す `ColorMeApi`（認証済みのクライアントと、一覧のエンベロープ・`meta.total`・カーソル・ID 指定取得〔404→null〕・
 行ごとの変換失敗の記録）。アダプタ自身もこれを通す（本体は移しただけ）。`client()` は呼ぶたびにトークンを読む。`ColorMeAdapter::is_premium_plan()` も public にした
-（Pro が受注のエクスポートの可否を決めるのに使う）。受注の変換器・`HISTORY_FLOOR` はアダプタに残る（R3-6c で Pro へ）。
+（Pro が受注のエクスポートの可否を決めるのに使う）。受注の変換器・`HISTORY_FLOOR` はアダプタに残る（R3-6c で Pro へ。R3-6c1 で Pro の `ColorMeCommerceAdapter` へ移した）。
 
 **通貨**: 対応 ASP の金額の通貨は `Support\Money::PLATFORM_CURRENCY`（JPY）。無料版の検証レポートが受注の Writer に依存しないよう `OrderWriter` から移した
 （`OrderWriter::PLATFORM_CURRENCY` は別名として残す）。
@@ -865,18 +868,24 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
 `EntityTypeContractTest` が公開シグネチャ（継承する基底クラスは protected も）と抽象メソッドの一覧を BASELINE で固定する（`WooServices`・`ColorMeApi` も）。
 R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す。
 
-**Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲）:
+**Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲。**R3-6c1 で更新した**。Pro の `FreeApiSurfaceTest` がクラス単位で照合する）:
 - 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、
-  `Entities\EntityType`・`MappingKind`・`LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
+  `Entities\EntityType`・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
+  `LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
   `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
-- 型・契約: `Canonical\*`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException, UnsupportedOperationException}`、
-  `Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
-- 補助: `Sync\MappingRepository`、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`）・`Woo\WarningCatalog`（`SEVERITY_*`）、
-  `Support\{Money, Logger, ApiException, RateLimitExhaustedException}`、`Woo\Support\{AddressMapper, Value, MethodMap, ExtrasMeta, EntityOrigin, TaxClass, VariationAxisResolver,
-  ProductResolver, PlatformOwnership, MappingCandidates, HtmlText}`、`Woo\Tools\LocalEntityLookup`（`existing_*()`・`summarize_orders()`）
+- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
+  無料版が読み込まれているかは `Core\Plugin` の有無で見る（`cbjp_pro_bootstrap()`）
+- 型・契約: `Canonical\CanonicalModel`・`Concerns\{ChecksumTrait, RemoteIdFromExtrasTrait}`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException,
+  UnsupportedOperationException}`、`Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
+- 補助: `Sync\MappingRepository`、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`。R3-6c1 で `indicates_order_reference_unresolved()` を
+  `indicates_reference_not_found()` に改名）・`Woo\WarningCatalog`（`SEVERITY_*`）、`Support\{Money, Logger, ApiException, RateLimitExhaustedException}`、
+  `Woo\Support\{Value, MethodMap（R3-6c1 で汎用の読取り `lookup()`・`reverse_lookup()` を public にした）, ExtrasMeta, EntityOrigin（`post_linked_by_import()`・`blocks_import()`・`is_linked_by_export()` 等の汎用の判定）,
+  TaxClass, VariationAxisResolver, ProductResolver, PlatformOwnership, HtmlText}`、`Woo\Tools\LocalEntityLookup`（汎用の `existing_ids()`・`existing_posts()`・`existing_terms()`・`existing_comments()`）
 - ColorMe: `ColorMeAdapter::api()`・`is_premium_plan()`、`ColorMeApi`、`ColorMeClient`、`Adapters\ColorMe\Transform\Cast`
-- R3-6c で決めること: Pro が無料版の最低バージョンを確かめる方法（今の `cbjp_pro_bootstrap()` はクラスの有無だけを見る）、ColorMe の OAuth スコープを Pro が足す口（決め残し 9）、
-  この一覧に無いクラスを Pro が参照していないことの機械的な確認
+- R3-6c1 で一覧から外した（顧客・受注のコードなので Pro へ移した。無料版に顧客・受注・クーポンのコードを残さない）: `Canonical\{CanonicalCustomer, CanonicalOrder, CanonicalCoupon}`、
+  `Woo\Support\AddressMapper`、`LocalEntityLookup::existing_users()`・`existing_orders()`・`summarize_orders()`、`EntityOrigin` の顧客・受注の判定、
+  `MappingCandidates` の決済・配送・ステータス、`MethodMap` の決済・配送・ステータスの読取り（Pro の `OrderMethodMap`・`OrderMappingCandidates`・`CommerceLookup`・`CommerceOrigin`）
+- 確認の限界: `FreeApiSurfaceTest` はクラス単位で、メソッド（`WooServices::media()` を使わない等）はレビューで守る。フィルター名・定数の参照は見ない
 
 #### R3-6b2 の実装（2026-10-10。ブランチ `feat/r3-6b2-entity-driven-ui`）
 
@@ -915,6 +924,49 @@ Tools タブの件数は LinkSource の `position()` 順（クーポン 50 が�
 **確認**: 品質チェック一式、dev サイトで mock アダプタ（`mockv`。プレミアム相当の能力・決済と配送の候補）の `/connections`・`/settings/mappings`・`/push-intents`・
 `/tools/rebuild-mappings` と、Mappings・Import・Export・Tools タブの表示（Import の案内が受注の選択に連動する、Export の Orders が Beta・既定で未選択・説明つき、
 Tools の件数と、一時的に登録した走査に失敗する種類の警告）。撤去後に `inspect` が検証前と一致。
+
+#### R3-6c1 の実装（2026-10-10。ブランチ `feat/r3-6c1-move-commerce-to-pro`）
+
+**目的**: 顧客・受注・クーポンのコードを無料版から Pro アドオンへ移す（D27）。OAuth スコープの分割（決め残し 9）は R3-6c2。readme の書き直しは R3-6d。
+**Pro を有効にしたときの振る舞いは変えない**（下の「振る舞いの証拠」）。
+
+**移したもの**（`git mv`。相対パスを保つ。名前空間 `CartBridgeJP\Pro\…`・テキストドメイン `cart-bridge-jp-pro`）: `Entities/Commerce/*` → Pro の `Entities/`、
+`Canonical\{CanonicalCustomer, CanonicalOrder, CanonicalCoupon}`、`Woo\Writer\{CustomerWriter, CustomerResolution, OrderWriter, OrderPrepared, OrderItemBuilder, CouponWriter, CouponPrepared}`、
+`Woo\Reader\{Customer,Order,Coupon}Reader`、`Woo\Support\AddressMapper`、`Adapters\ColorMe\Transform\{Customer,Order,Coupon}Transformer`、それらのテストとフィクスチャ
+（`customers.json`・`sales.json`・`sale_*`・`payments.json`・`deliveries.json`・`gift.json` ほか。匿名化ルールの README も Pro に置いた）。
+
+**Pro のアダプタ層**（新規。`plugins/cart-bridge-jp-pro/includes/Adapters/`）: `CommerceAdapter`（§2 の後ろの段落）・`CommerceCapabilities`・
+`CommerceAdapters`（`get( PlatformAdapter ): ?CommerceAdapter`・`get_required()`・`reset_cache()`。無料版のアダプタのインスタンスごとに `WeakMap` で保持し、
+`cbjp/pro/commerce_adapters/register` の戻り値は callable か・`CommerceAdapter` か・`id()` が接続先と同じかを確かめ、例外は記録して「無し」にする。原則 8）・
+`ColorMe\ColorMeCommerceAdapter`（`ColorMeAdapter` から顧客・受注・クーポンの取得・送信・変換器・`HISTORY_FLOOR`・決済と配送の候補を移した。本体は移しただけ。
+注文ステータスの候補は固定の一覧）。種類（`CustomerType` 等）は `CommerceAdapters::get()` を引くだけで、プラットフォームで分岐しない。
+受注の取込みは「アダプタがあれば可」（以前は全アダプタ必須の `fetch_orders()` だったので常に可）。
+
+**無料版で汎用にしたもの**: `MappingKind::platform_candidates()`（`RestController::asp_mapping_candidates()` が種類ごとに try で呼び、null の種類だけアダプタの
+`mapping_candidates()` を 1 回呼ぶ）、`MethodMap::lookup()`・`reverse_lookup()`（public。カテゴリの `mapped_asp_category_id()` は残した）、
+`WarningCode::indicates_reference_not_found()`（`indicates_order_reference_unresolved()` から改名。判定は印だけ）、`VerificationReport` の登録の無い種類（`existing`・`missing` を null〔不明〕にし、
+画面は「Not checked」と案内を出す。Pro を止めたサイトで過去の受注が全件 missing と出ないように。backlog `r3-6b1/R1-L8`）、`CBJP_EXTENSION_API_VERSION`。
+
+**無料版から外したもの**: `PlatformAdapter` の 8 メソッド（`AbstractPlatformAdapterTest::BASELINE` も）、`Capabilities` の 5 引数と `BETA_ORDER_EXPORT`、`ColorMeAdapter` の顧客・受注・クーポン、
+`WarningCode` の顧客・受注・クーポンのコード（Pro の `Woo\CommerceWarningCode`。`CURRENCY_MISMATCH` の `EXPORT_BLOCKING` の印は受注の種類が付ける）、
+`Core\Plugin::boot()` の登録、`src/types.ts` の能力のフィールド、readme の FAQ の 3 件（Pro へ移った警告。残りの記述は R3-6d）。
+
+**Pro の起動**: `Core\Plugin::boot()` が `CommerceEntityTypes::register` を `cbjp/entity_types/register` に足す。`cbjp_pro_maybe_boot()` は要件 → 無料版の拡張点の版
+（`CBJP_EXTENSION_API_VERSION` が `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、管理者に「Cart Bridge JP を更新して」の通知）→ オートロードの順に確かめる
+（無料版の版の文字列は R3-4 まで 0.1.0 のままで比べられないため、整数の版を足した）。
+
+**境目のテスト**: Pro の `FreeApiSurfaceTest`（Pro の PHP を `PhpToken` で読み、`CartBridgeJP\Pro\` 以外の `CartBridgeJP\` のクラスが上の一覧にあるか）、
+無料版の `FreeScopeTest`（`PlatformAdapter` に顧客・受注・クーポンのメソッドが無い・`includes/` にその名前のクラスファイルが無い・`WarningCode` にそのコードが無い・
+種類が登録されていない）、Pro の `CommerceAdapterContractTest`（既定実装が例外を投げ、候補は空）、`BootstrapTest`（古い無料版の通知）。
+
+**振る舞いの証拠**: 移す前の最初のコミットで Pro のテストに `DispatchCharacterizationTest` の写し（`CommerceDispatchCharacterizationTest`。警告の判定の表・CSV の note・
+カタログの文言のハッシュ `df668212…`・実行順）を置き、移動後も期待値を変えずに通る（判定の名前の改名は表のキーだけ）。無料版の `DispatchCharacterizationTest` は無料版のコードだけの
+表・ハッシュに更新し、そのハッシュは Pro の有無で変わらない（dev サイトで確認）。混在していたテストは、無料版に商品系・汎用の部分（必要なら外部の種類 `Gizmo`）を残し、
+顧客・受注・クーポンの部分を Pro の `Commerce*Test` へ分けた。
+
+**変わった振る舞い**（意図したもの）: 検証レポートの登録の無い種類が「不明」になる（上記）。`cbjp/adapters/register` で足した外部のアダプタは、Pro の
+`cbjp/pro/commerce_adapters/register` にも登録しないと顧客・受注・クーポンが出ない。ColorMe の注文ステータスの候補は、決済の取得に失敗しても出る（種類ごとに取得するため）。
+Pro が無効なら REST の `/runs/{run_id}/report?entity=order` は 400（種類が登録されていない。backlog）。
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 

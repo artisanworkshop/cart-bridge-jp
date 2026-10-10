@@ -799,11 +799,22 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
       `ENTITY_LABELS`・能力の switch・受注の文言を持たず、`entity-options.ts`・`entityLabel()`・`kinds` から組み立てる（`OrderMappingNotice` → 汎用の `MappingNotice`）。
       選べる種類・既定の選択は変えず、受注・決済・配送を名指ししていた文言（Mappings・Export の冒頭、Import の確認と案内、検証レポート）を汎用にした（訳も更新）。
       dev サイトで mock アダプタの REST と 4 つのタブを確かめた。詳細は `docs/03` §10.0「R3-6b2 の実装」
-  - [ ] **R3-6c: 顧客・受注・クーポンを Pro へ移す**（上の (2)。`git mv`、`PlatformAdapter`/`Capabilities` から外す、警告コード・カタログ、テスト・フィクスチャ、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` 原則 7 の書き換え）
+  - [ ] **R3-6c: 顧客・受注・クーポンを Pro へ移す**（上の (2)。`git mv`、`PlatformAdapter`/`Capabilities` から外す、警告コード・カタログ、テスト・フィクスチャ、OAuth スコープの分割〔決め残し 9〕、`CLAUDE.md` 原則 7 の書き換え）。
+    **2 PR に分けた**（2026-10-10）
+    - [x] **R3-6c1: 移動**（`git mv`・Pro のアダプタ層・無料版の汎用化・境目のテスト・`CLAUDE.md` 原則 7）
+      **実装サマリ（2026-10-10。ブランチ `feat/r3-6c1-move-commerce-to-pro`）**: 顧客・受注・クーポンの種類・Canonical・Writer/Reader・`AddressMapper`・ColorMe の変換器と、
+      そのテスト・フィクスチャを Pro へ `git mv` した（`CartBridgeJP\Pro\…`・`cart-bridge-jp-pro`）。Pro に `CommerceAdapter`・`CommerceCapabilities`・`CommerceAdapters`
+      （`cbjp/pro/commerce_adapters/register`）・`ColorMeCommerceAdapter` を作り、無料版の `PlatformAdapter`（8 メソッド）・`Capabilities`（5 引数と `BETA_ORDER_EXPORT`）・
+      `ColorMeAdapter`・`WarningCode` から外した。無料版は `MappingKind::platform_candidates()`・`MethodMap::lookup()`/`reverse_lookup()`・`indicates_reference_not_found()`・
+      `CBJP_EXTENSION_API_VERSION` を足し、検証レポートは登録の無い種類を「不明」にする。Pro は古い無料版では起動しない。境目は Pro の `FreeApiSurfaceTest` と無料版の `FreeScopeTest` が固定する。
+      Pro を有効にしたときの振る舞いは、移す前に置いた特性テスト（カタログのハッシュを含む）が期待値を変えずに通ることで確かめた。詳細は `docs/03` §10.0「R3-6c1 の実装」
+    - [ ] **R3-6c2: OAuth スコープの分割**（決め残し 9。無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す。
+      要求したスコープを記録し、足りない接続には再接続を促す。**R3-4 の前に必須**）
   - [ ] **R3-6d: readme・スクリーンショット・i18n を新しい範囲に書き直す**（上の (4)。Pro への案内〔決め残し 5〕、0.1.0 のサイト向けの changelog〔決め残し 7: 取込みの上限が無くなったこと・顧客・受注・クーポンが Pro へ移ったこと・
-    0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること〕。スクリーンショットは Pro を無効にして全部撮り直す）
+    0.1.0 で取り込んだ顧客・受注の県が 23 県で誤っていること〕。スクリーンショットは Pro を無効にして全部撮り直す。撮る前に `wporg-screenshots` の `shots.json`〔`dry_run_entities`・
+    `uncheck`・Mappings の `wait_for`〕を無料版だけの画面に合わせる。readme の「顧客・受注を取り込む」等の事実の記述も R3-6c1 の後は古い）
 - [ ] **Pro の公開準備**（R3-6 の後。v1.0 と同時に出す。範囲は顧客・受注・クーポンの移行・試用〔各 100 件。決め残し 4〕・ライセンス〔WooCommerce API Manager〕と更新配信・Pro の翻訳〔backlog `r3-7-monorepo/G1-1`〕・
-  `Update URI`〔backlog `r3-7-monorepo/R1-L4`〕・販売サイト。パスワード設定メール〔D28〕と 301 リダイレクト CSV〔D17〕は公開の後。タスクは R3-6c の後に分ける）
+  `Update URI`〔backlog `r3-7-monorepo/R1-L4`〕・販売サイト。パスワード設定メール〔D28〕と 301 リダイレクト CSV〔D17〕は公開の後。タスクは R3-6c の後に分ける。Pro の i18n〔POT・ja〕もここ）
 - [x] **R3-7: モノレポ化（D29）**（**R3-6 の前**に行う。動作を変えない、構成だけの PR）: 無料版を `plugins/cart-bridge-jp/` へ `git mv` で移し、開発ツール（composer・npm・phpcs・phpstan・phpunit・wp-env・CI・`bin/`）をルートに置く。中身の無い Pro アドオン `plugins/cart-bridge-jp-pro/`（プラグインヘッダー、無料版・WooCommerce が無いときに通知を出して止まる処理、テストの置き場）を作る。
   直すもの: `.wp-env.json`（両方のプラグインを読み込む。ポートは 10010/10011 のまま）、`.github/workflows/`、`composer.json`（無料版は `vendor/autoload.php` を同梱して読み込むので、プラグインごとの composer と開発ツールの置き場所を決める）、`phpcs.xml.dist`・`phpstan.neon.dist`・`phpunit.xml.dist`、`package.json`（ビルド・i18n・Jest）、`.distignore`、スキルのスクリプトと SKILL.md（`rehearse-colorme`・`verify-with-mock-adapter`・`wporg-screenshots`・`cbj-dev-cycle` ほか）、`.claude/rules/` の対象パス、`CLAUDE.md`・`AGENTS.md` のコマンドとパス、パスを持つテスト（`ReadmeTest` など）、`docs/00` のディレクトリ構成。
   CI に、ビルドした無料版の zip に Pro のコードが入っていないことと必要なものが入っていることの検査、無料版だけで静的解析・テストが通ることの確認（依存の向き）を足す。参考: saai-knowledge（`plugins/*` の配置、ビルドした zip を展開して Plugin Check・wordpress.org へのデプロイ）。
