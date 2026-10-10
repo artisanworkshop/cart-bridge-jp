@@ -3,7 +3,7 @@
 - 開始: 2026-10-10
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: #118 https://github.com/artisanworkshop/cart-bridge-jp/pull/118
-- 現在のステップ: 7（G3 の修正を push・CI 待ち。再依頼しない）
+- 現在のステップ: 8（完了。最終報告済み・マージ待ち）
 - Copilot: 依頼 3 回 / 上限（G1 で 2 件・G2 で 2 件・G3 で 1 件）
 - Codex: 依頼 2 回 / 収束（G2 で「Didn't find any major issues」）
 
@@ -22,3 +22,4 @@
 | 2026-10-10 22:53 | 7 | G2: Codex 収束・Copilot 2 件（OOB の控えの上書き・`get_required()` の理由の区別〔本文の Previously missed〕）→ 2 件とも修正（a6bde5c・077ca80。auto-commit） |
 | 2026-10-10 22:59 | 7 | G2 の修正と記録を push（ca32bd6）、返信・Resolve・サマリコメント → G3 で Copilot に 3 回目の依頼 |
 | 2026-10-10 23:16 | 7 | G3: Copilot 本文 1 件（先の拡張の例外でフィルターの鎖が止まり Pro のスコープが消える）→ フィルターをやめ `Adapters\OAuthScopes` の宣言にした（a6c949d・279485b。auto-commit） |
+| 2026-10-10 23:22 | 7〜8 | G3 の修正と記録を push（40ae7df）・サマリコメント・PR 本文を更新。CI 全ジョブ green。最終報告（final-report.md）。マージせず停止 |
