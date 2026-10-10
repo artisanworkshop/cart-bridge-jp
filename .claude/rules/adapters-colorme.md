@@ -73,7 +73,7 @@ paths:
   ただしストアフロントの商品ページ（標準テンプレート）は名前を見出しにエスケープせずに出す（`<set>` は要素として消える。`<title>` はタグを除き、`alt` はエスケープする。
   2026-10-08 の再リハーサルで実測）。そこで**取込みは ColorMe の名前を `Cast::product_name()`（＝`HtmlText::visible_text()`）でストアフロントに表示される文字にする**
   （タグを除き実体参照を戻す。R3-1f）。ColorMe の名前を読む新しい経路も同じ関数を通す。エクスポートは Woo の名前の `<…>` をそのまま送る（ColorMe で HTML になる既知の限界）
-- **ColorMe の OAuth スコープ（R3-6c2）**: 無料版は商品の 2 つ（`ColorMeOAuth::BASE_SCOPES`）だけを要求し、拡張（Pro）が `cbjp/oauth/scopes` で足す。付与されたスコープ（トークン応答の `scope`）は
+- **ColorMe の OAuth スコープ（R3-6c2）**: 無料版は商品の 2 つ（`ColorMeOAuth::BASE_SCOPES`）だけを要求し、拡張（Pro）は `Adapters\OAuthScopes::add()` で宣言する（**フィルターにしない**: 鎖の途中の別の拡張の例外・置き換えで失われ、認可の要求と Pro の判定がずれる。PR #118 G1-3・G3-B1）。付与されたスコープ（トークン応答の `scope`）は
   `TokenStore` の payload の `scopes` に**トークンと同じ CAS で**書く（`save_token_if_credentials_match()` の第 4 引数。別の書込みにすると、間に読んだ側が「記録なし」と読む）。
   応答に `scope` が無いときの「要求したもの」は、交換の時点で求め直さず `authorize_url()` が認可ごとに控えたもの（state／OOB はユーザー）を使う（PR #118 G1-1）。
   **記録の無いトークンは R3-6c2 より前の版のものとして 5 つ（`LEGACY_SCOPES`）を持つと読む**（`ColorMeOAuth::granted_scopes_in()`）ので、テスト・検証スクリプト・スキルで

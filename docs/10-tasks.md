@@ -810,8 +810,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
       Pro を有効にしたときの振る舞いは、移す前に置いた特性テスト（カタログのハッシュを含む）が期待値を変えずに通ることで確かめた。詳細は `docs/03` §10.0「R3-6c1 の実装」
     - [x] **R3-6c2: OAuth スコープの分割**（決め残し 9。無料版は `read_products write_products` だけを要求し、Pro が有効なときに `read_sales write_sales read_shop_coupons` を足す。
       要求したスコープを記録し、足りない接続には再接続を促す。**R3-4 の前に必須**）
-      **実装サマリ（2026-10-10。ブランチ `feat/r3-6c2-oauth-scope-split`）**: `ColorMeOAuth::scopes()` が商品の 2 つにフィルター `cbjp/oauth/scopes`（既知のスコープだけ・商品の 2 つは外せない）の分を足し、
-      Pro の `Core\Plugin::boot()` が顧客・受注・クーポンの 3 つを足す。トークン応答の `scope`（付与されたスコープ）をトークンと同じ CAS で `TokenStore` の `scopes` に記録し（無ければ要求したもの、
+      **実装サマリ（2026-10-10。ブランチ `feat/r3-6c2-oauth-scope-split`）**: `ColorMeOAuth::scopes()` が商品の 2 つに、拡張が `Adapters\OAuthScopes::add()` で宣言したスコープ（既知のものだけ）を足し、
+      Pro の `Core\Plugin::boot()` が顧客・受注・クーポンの 3 つを宣言する（フィルターにしないのは、別の拡張の例外・置き換えで失われないため。PR #118 G3-B1）。トークン応答の `scope`（付与されたスコープ）をトークンと同じ CAS で `TokenStore` の `scopes` に記録し（無ければ要求したもの、
       読めなければ空）、記録の無い既存のトークンは旧版の 5 つを持つとみなす。`GET /connections` の `missing_scopes` を、接続カードの警告と Import／Export タブの案内（Connections タブへのリンク）が使う。
       Pro はトークンに 3 つがそろわない ColorMe では顧客・受注・クーポンを組み立てない（選択肢・マッピングの節に出ない。未接続は従来どおり）。`ColorMeAdapter::granted_scopes()` を足し、
       `CBJP_EXTENSION_API_VERSION` を 2 にした。dev サイトで Pro 有効／無効とトークンの記録 4 通りの REST と画面を確かめた。詳細は `docs/03` §10.0「R3-6c2 の実装」

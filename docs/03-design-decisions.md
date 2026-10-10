@@ -870,7 +870,7 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
 R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す。
 
 **Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲。**R3-6c1 で更新した**。Pro の `FreeApiSurfaceTest` がクラス単位で照合する）:
-- 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`・`cbjp/oauth/scopes`（R3-6c2。`( array $scopes, string $platform )`。ColorMe の既知のスコープだけを足せ、商品の 2 つは外せない）、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、
+- 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、`Adapters\OAuthScopes::add()`（R3-6c2。接続先の認可に足すスコープの宣言。ColorMe の既知のスコープだけが要求に入る）、
   `Entities\EntityType`・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
   `LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
   `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
@@ -979,9 +979,12 @@ main の ja の訳を引き継ぐ。backlog）。
 （`read_sales write_sales read_shop_coupons`）を足す。付与されたスコープを記録し、足りない接続には再接続を促す。無料版だけのサイトは使わない受注・顧客への権限を求めない。
 
 **無料版**:
-- `ColorMeOAuth::scopes()`: `BASE_SCOPES` に、フィルター `cbjp/oauth/scopes`（`( array $scopes, string $platform )`）が足したものを加える。戻り値は信用しない（原則 8）:
-  例外・配列でない値は拡張の分を捨てて `BASE_SCOPES` に倒し、`KNOWN_SCOPES`（swagger の表の 8 つ）に無い値はその値だけ捨てて記録する（スコープは互いに独立で、要求しなかったものは
-  それを要る機能が使えないだけ。別の拡張の誤りで正しい拡張の分まで捨てない）。`BASE_SCOPES` は外せない。並びは `KNOWN_SCOPES` の順（Pro 有効時は旧 `SCOPE` と同じ文字列）。
+- `ColorMeOAuth::scopes()`: `BASE_SCOPES` に、拡張が `Adapters\OAuthScopes::add( $platform, $scopes )` で宣言したものを加える。宣言の値は信用しない（原則 8）:
+  `KNOWN_SCOPES`（swagger の表の 8 つ）に無い値（文字列でない値を含む）はその値だけ捨てて記録する（スコープは互いに独立で、要求しなかったものはそれを要る機能が使えないだけ。
+  別の拡張の誤りで正しい拡張の分まで捨てない）。並びは `KNOWN_SCOPES` の順（Pro 有効時は旧 `SCOPE` と同じ文字列）。
+  **フィルターにしない**: 当初はフィルター `cbjp/oauth/scopes` にしたが、フィルターの鎖は先に登録された別の拡張の例外・後の拡張の値の置き換えで途中から失われ、認可は Pro の分を
+  要求しないのに Pro は足りないと判定して、`missing_scopes` も空で案内が出ないまま顧客・受注・クーポンが隠れる（PR #118 G1-3〔Codex〕・G3-B1〔Copilot〕。G1 では Pro を最後の
+  優先度にしたが、先の例外は防げなかった）。宣言はデータで何も実行しないので失われない。宣言はプロセスの中だけ（静的。拡張は `plugins_loaded` で毎回宣言する）。
 - **付与されたスコープの記録**: `exchange_code()` がトークン応答の `scope`（swagger の説明では応答に含まれる）を空白で分けて、`TokenStore::save_token_if_credentials_match()` の
   **トークンと同じ CAS** で payload の `scopes` に書く（別の書込みにすると、間に読んだ側が「記録なし」＝旧版と読み違える）。`scope` が無い・null なら要求したもの（RFC 6749 §5.1）、
   文字列でなければ `[]`（フェイルクローズ）。「要求したもの」は `authorize_url()` が認可の単位で控えた transient（リダイレクトは state ごと、OOB はコードを貼り付ける今のユーザーごと。
@@ -999,10 +1002,8 @@ main の ja の訳を引き継ぐ。backlog）。
   種類の名前・Pro は挙げない）。未知のスコープの記録は `scopes()` の 1 回の呼び出しにつき 1 行（`GET /connections` はタブを開くたびに呼ばれる。review-loop R1-4）。
   接続（`connected`）の判定は変えない（スコープが欠けても商品系は使える）。
 
-**Pro**: `Core\Plugin::boot()` が `cbjp/oauth/scopes` に `CommerceAdapters::add_oauth_scopes()`（同梱の接続先 → `ColorMeCommerceAdapter::OAUTH_SCOPES`）を**最後の優先度**
-（`PHP_INT_MAX`）で足し、配列でない値を受けたら自分の分だけを返す（後から登録された拡張が値を壊す・置き換えると、認可は Pro の分を要求しないのに Pro は足りないと判定し、
-`missing_scopes` も空で案内が出ないまま顧客・受注・クーポンが隠れる。PR #118 G1-3。review-loop R1-3 で backlog に送ったものを Codex が再指摘）。
-フィルター名は文字列で書く（`ColorMeOAuth` は「Pro が使ってよい無料版の API」に無い）。同梱の ColorMe の組み立ては、接続済みのトークンに `OAUTH_SCOPES` が 1 つでも欠けていれば null
+**Pro**: `Core\Plugin::boot()` が `CommerceAdapters::declare_oauth_scopes()`（同梱の接続先 → `ColorMeCommerceAdapter::OAUTH_SCOPES`）で無料版の認可に宣言する
+（認可の要求と Pro の判定が同じ `OAUTH_SCOPES` から決まる。review-loop R1-3 で backlog に送ったずれを、PR #118 の G1-3・G3-B1 で bot が再指摘して閉じた）。同梱の ColorMe の組み立ては、接続済みのトークンに `OAUTH_SCOPES` が 1 つでも欠けていれば null
 （`ColorMeCommerceAdapter::has_required_scopes()`）→ 顧客・受注・クーポンは取込み・エクスポートの選択肢に出ず、決済・配送・ステータスのマッピングの節も出ない。
 未接続（要再接続を含む）は今までどおり組み立て、API の「未接続」の案内（push intent の `not_connected` など）に任せる。部分的な付与は全部欠けているのと同じ扱い（Pro は 3 つを一緒に要求する）。
 組み立てない状態で取得・送信の入口（`CommerceAdapters::get_required()`。残った push intent の紐づけ・既存のジョブの Retry が届く）に来たときは、「扱えない」
