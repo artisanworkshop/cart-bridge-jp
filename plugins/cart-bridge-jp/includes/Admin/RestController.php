@@ -1693,7 +1693,8 @@ final class RestController {
 			// 以下3件は「ASPへの照会に失敗して中断」の応答（R3-6a で削除した県コード修復と揃えていたコード・ステータス・文言）。
 			PushIntentResolutionException::NOT_CONNECTED     => new WP_Error(
 				'cbjp_not_connected',
-				__( 'The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
+				// スコープが足りない接続も同じ案内になる（R3-6c2。Pro の `CommerceAdapters::get_required()`）。
+				__( 'The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue.', 'cart-bridge-jp' ),
 				[ 'status' => 409 ]
 			),
 			PushIntentResolutionException::RATE_LIMITED      => $this->rate_limited_response(),

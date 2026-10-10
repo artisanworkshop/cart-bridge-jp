@@ -380,6 +380,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 * R3-6c2: 拡張が足したスコープを、既知のものだけ `KNOWN_SCOPES` の順に、重複を除いて要求する（Pro が足す 3 つで、R3-6c2 より前と同じ文字列になる）。
 	 */
 	public function test_extensions_add_known_scopes_in_a_fixed_order(): void {
+		Activator::activate();
 		add_filter(
 			ColorMeOAuth::SCOPES_FILTER,
 			static fn ( array $scopes, string $platform ): array => 'colorme' === $platform
@@ -390,6 +391,8 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		);
 
 		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
+		// 既知のスコープだけなら記録しない（`GET /connections` のたびに書かない。R3-6c2 review-loop R2-1）。
+		$this->assertSame( [], $this->logged_reasons() );
 
 		[ $oauth ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );

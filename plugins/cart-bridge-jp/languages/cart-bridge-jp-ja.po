@@ -157,10 +157,6 @@ msgstr "検証レポートはインポートの実行でのみ使えます。"
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1696
-msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
-msgstr "プラットフォームとの接続が無いか、期限が切れています。「接続」タブで接続し直してから続けてください。"
-
 #: includes/Admin/RestController.php:1630
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
@@ -181,28 +177,28 @@ msgstr "指定した remote_id はすでに別のローカルの項目に紐づ�
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1702
+#: includes/Admin/RestController.php:1703
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1707
+#: includes/Admin/RestController.php:1708
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1717
+#: includes/Admin/RestController.php:1718
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1795
+#: includes/Admin/RestController.php:1796
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1796
+#: includes/Admin/RestController.php:1797
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1808
+#: includes/Admin/RestController.php:1809
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -1568,3 +1564,7 @@ msgstr "この接続には、一部の種類の記録に必要な権限（%1$s�
 #, js-format
 msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
 msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、接続し直すまでそれらの種類は表示されないか、動作しないことがあります。"
+
+#: includes/Admin/RestController.php:1697
+msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
+msgstr "プラットフォームとの接続が無いか、期限が切れているか、権限が足りません。「接続」タブで接続し直してから続けてください。"
