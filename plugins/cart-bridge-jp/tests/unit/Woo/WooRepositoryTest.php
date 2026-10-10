@@ -18,7 +18,6 @@ use CartBridgeJP\Woo\WooRepository;
 use CartBridgeJP\Woo\WooRepositoryFactory;
 use CartBridgeJP\Woo\Writer\EntityWriter;
 use CartBridgeJP\Woo\Writer\ValidationResult;
-use WC_Coupon;
 use WC_Product_Simple;
 
 final class WooRepositoryTest extends WooTestCase {
@@ -161,55 +160,26 @@ final class WooRepositoryTest extends WooTestCase {
 	 * D25 用: エンティティごとの Woo の実体を作り、`$platform`があれば取込みの writer と同じく`_cbjp_platform`を書く。
 	 */
 	private function make_entity( string $entity, ?string $platform ): int {
-		switch ( $entity ) {
-			case 'product':
-				$product = new WC_Product_Simple();
-				$product->set_name( 'P' );
-				$id = $product->save();
+		$this->assertSame( 'product', $entity );
 
-				if ( null !== $platform ) {
-					update_post_meta( $id, '_cbjp_platform', $platform );
-				}
+		$product = new WC_Product_Simple();
+		$product->set_name( 'P' );
+		$id = $product->save();
 
-				return $id;
-			case 'coupon':
-				$coupon = new WC_Coupon();
-				$coupon->set_code( 'd25-coupon' );
-				$id = $coupon->save();
-
-				if ( null !== $platform ) {
-					update_post_meta( $id, '_cbjp_platform', $platform );
-				}
-
-				return $id;
-			case 'customer':
-				$id = self::factory()->user->create( [ 'role' => 'customer' ] );
-
-				if ( null !== $platform ) {
-					update_user_meta( $id, '_cbjp_platform', $platform );
-				}
-
-				return $id;
-			default:
-				$order = wc_create_order();
-
-				if ( null !== $platform ) {
-					$order->update_meta_data( '_cbjp_platform', $platform );
-				}
-
-				return $order->save();
+		if ( null !== $platform ) {
+			update_post_meta( $id, '_cbjp_platform', $platform );
 		}
+
+		return $id;
 	}
 
 	/**
 	 * @return array<string,array{0:string}>
 	 */
 	public function guarded_entity_provider(): array {
+		// 顧客・受注・クーポンは Pro の `CommerceWooRepositoryTest`（R3-6c1）。
 		return [
-			'product'  => [ 'product' ],
-			'customer' => [ 'customer' ],
-			'order'    => [ 'order' ],
-			'coupon'   => [ 'coupon' ],
+			'product' => [ 'product' ],
 		];
 	}
 
@@ -281,45 +251,11 @@ final class WooRepositoryTest extends WooTestCase {
 
 		$local_id = $this->make_entity( $entity, null );
 
-		if ( 'customer' === $entity ) {
-			$wpdb->delete( $wpdb->users, [ 'ID' => $local_id ] );
-			clean_user_cache( $local_id );
-		} elseif ( 'order' === $entity ) {
-			wc_get_order( $local_id )->delete( true );
-		} else {
-			$wpdb->delete( $wpdb->posts, [ 'ID' => $local_id ] );
-			clean_post_cache( $local_id );
-		}
+		$wpdb->delete( $wpdb->posts, [ 'ID' => $local_id ] );
+		clean_post_cache( $local_id );
 
 		$writer = $this->spy_writer();
 		( new WooRepository( new SideEffectGuard(), [ $entity => $writer ], 'colorme' ) )->write( $entity, new CanonicalCategory( '1', 'Cat', null, null ), $local_id );
-
-		$this->assertSame( 1, $writer->write_calls );
-	}
-
-	/**
-	 * D25: 保護ロールの顧客は取込みが印を書かない（`CustomerWriter`が触らない）ので、出自を判定せず writer に任せる
-	 * （`CUSTOMER_ACCOUNT_PROTECTED`のまま）。
-	 */
-	public function test_a_protected_role_customer_is_left_to_the_writer(): void {
-		$admin_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
-		$writer   = $this->spy_writer();
-
-		( new WooRepository( new SideEffectGuard(), [ 'customer' => $writer ], 'colorme' ) )->write( 'customer', new CanonicalCategory( '1', 'Cat', null, null ), $admin_id );
-
-		$this->assertSame( 1, $writer->write_calls );
-	}
-
-	/**
-	 * D25: このプラットフォームの取込みで作った顧客（作成の印）は、別プラットフォームがメールで採用し直して`_cbjp_platform`が
-	 * 書き換わっても、取込みで結ばれた顧客として更新を続ける。
-	 */
-	public function test_a_customer_created_by_this_platform_import_is_still_written_after_another_platform_adopted_it(): void {
-		$customer_id = $this->make_entity( 'customer', 'makeshop' );
-		update_user_meta( $customer_id, '_cbjp_created_by_import', 'colorme' );
-		$writer = $this->spy_writer();
-
-		( new WooRepository( new SideEffectGuard(), [ 'customer' => $writer ], 'colorme' ) )->write( 'customer', new CanonicalCategory( '1', 'Cat', null, null ), $customer_id );
 
 		$this->assertSame( 1, $writer->write_calls );
 	}

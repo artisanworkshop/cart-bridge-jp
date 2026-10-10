@@ -3,33 +3,37 @@
  * cbjp-verify-mock-adapter: managed by .claude/skills/verify-with-mock-adapter
  *
  * TEMPORARY. 手動検証専用: mock アダプタを「__PLATFORM_KEY__」というキーで `cbjp/adapters/register` に登録する。
+ * Pro アドオンが有効なら、顧客・受注の mock（Pro の `MockCommerceAdapter`）も同じキーで `cbjp/pro/commerce_adapters/register` に
+ * 登録する（R3-6c1。Pro が無効なら商品系だけの接続先になる）。
  * 検証が終わったら `mock-adapter.sh uninstall` で削除すること（コミットしない）。
  *
  * - mock の中身（顧客・受注）は、オプション `cbjp_verify_seed`（配列。seed スクリプトが保存する）から組み立てる。
  *   形は { customers: [{remote_id,email,pref}], orders: [{number,billing_pref,shipping_pref}],
  *   push: {enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null} }。`push.enabled=true` で
- *   push_product()/push_customer()/push_order()/push_coupon() が成功を返すようになる
+ *   push_product()/push_stock()（無料版の mock）と push_customer()/push_order()/push_coupon()（Pro の mock）が成功を返すようになる
  *   （既定では全て`UnsupportedOperationException`で失敗する）。`push.create_failure='ambiguous_5xx'`は
  *   D21-B（issue #73）の「作成結果が不明」経路（`cbjp_push_intents`に印が残る）を再現する
- *   （作成経路`$remote_id===null`のみに効く。`tests/unit/Fixtures/MockPlatformAdapter`の
+ *   （作成経路`$remote_id===null`のみに効く。`tests/unit/Fixtures/MockPlatformAdapter`・Pro の `MockCommerceAdapter` の
  *   `create_push_failure`参照）。`'partial_push'`／`'partial_rate_limit'`は D21-A（R3-0a）の「作成は確定したが後続で止まった」
  *   経路（`PartialPushException`。mapping は書くが checksum は null、後者はレート制限でジョブが paused になる）を再現する。
  *   remote_id は固定の `ZZV-PARTIAL-API`／`ZZV-PARTIAL-RL`（`examples/partial-push/`）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
  *   （テンプレートなので）。
  * - `capabilities`（配列。任意）があれば mock の `capabilities()` を上書きする（D24。Export タブの Beta 表示・
  *   既定オフ・非プレミアム相当の出し分けの確認用）。形は { can_create_order: bool, can_push_images: bool,
- *   beta_features: string[] }。省略したキーは mock の既定（`can_*` は true、`beta_features` は空）。
+ *   beta_features: string[] }。省略したキーは mock の既定（`can_*` は true、`beta_features` は空）。`can_push_images` と
+ *   `beta_features` の `image_push` は無料版の `Capabilities`、`can_create_order` と `order_export` は Pro の `CommerceCapabilities`
+ *   （`order_export_beta`）へ渡す（R3-6c1 で分かれた）。
  *   例: プレミアム相当のベータ機能 → { can_create_order: true, can_push_images: true, beta_features: ['order_export', 'image_push'] } /
  *   非プレミアム相当 → { can_create_order: false, can_push_images: false, beta_features: ['order_export', 'image_push'] }。
- * - `mapping_candidates`（配列。任意）は mock の `mapping_candidates()` がそのまま返す ASP 側の候補（R3-0m の Mappings タブ・
- *   Import タブの事前チェックの確認用）。形は { payment: [{id,name}], shipping: [{id,name}], category: [...], status: [...] }
- *   （省略したキーは空。`RestController` が正規化する）。受注の `payment_method_id`/`payment_method_name`/`shipping_method_id`/
+ * - `mapping_candidates`（配列。任意）は ASP 側の候補（R3-0m の Mappings タブ・Import タブの事前チェックの確認用）。形は
+ *   { payment: [{id,name}], shipping: [{id,name}], category: [...], status: [...] }（省略したキーは空。`RestController` が正規化する）。
+ *   `category` は無料版の mock の `mapping_candidates()`、`payment`・`shipping`・`status` は Pro の mock の `*_candidates()` が返す。受注の `payment_method_id`/`payment_method_name`/`shipping_method_id`/
  *   `shipping_method_name`（任意）は canonical の `payment`/`shipping` の `method_id`/`method_name` になり、`payment_map`/`shipping_map`
  *   が未設定なら dry-run で `payment_method_unmapped`/`shipping_method_unmapped` が付く。
  * - クラス定義をこのファイルのトップレベルに書かない。mu-plugins は通常プラグインより先に読み込まれ、
  *   composer の autoloader がまだ無い。`plugins_loaded` のコールバック内で `new` すればよい。
- * - `CartBridgeJP\Tests\Fixtures\MockPlatformAdapter` は composer の autoload-dev（tests/unit/）。
- *   ホストで `composer install`（dev 依存込み）済みであること。
+ * - `CartBridgeJP\Tests\Fixtures\MockPlatformAdapter`・`CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter` は各プラグインの
+ *   composer の autoload-dev（tests/unit/）。ホスト（リポジトリのルート）で `composer install`（dev 依存込み）済みであること。
  */
 add_action(
 	'plugins_loaded',
@@ -63,8 +67,16 @@ add_action(
 					'country'   => 'JP',
 				];
 
-				foreach ( $rows( 'customers' ) as $c ) {
-					$customers[] = new CartBridgeJP\Canonical\CanonicalCustomer(
+				// 顧客・受注の mock は Pro アドオンの型を使う。Pro が無効（クラスが無い）なら作らない（fatal を避ける既存方針）。
+				$pro = class_exists( 'CartBridgeJP\\Pro\\Tests\\Fixtures\\MockCommerceAdapter' );
+
+				foreach ( $pro ? $rows( 'customers' ) : [] as $c ) {
+					// 型付きの引数に文字列以外を渡すと TypeError（mu-plugin の fatal）になるので、読めない行は読み飛ばす。
+					if ( ! is_string( $c['email'] ?? null ) || ! is_string( $c['remote_id'] ?? null ) ) {
+						continue;
+					}
+
+					$customers[] = new CartBridgeJP\Pro\Canonical\CanonicalCustomer(
 						$c['email'],
 						'Verify User',
 						null,
@@ -82,8 +94,12 @@ add_action(
 				// 受注の決済/配送方法（任意。R3-0m）。文字列以外は読み飛ばす（mu-plugin の fatal を避ける既存方針）。
 				$method = static fn ( array $o, string $key ): ?string => is_string( $o[ $key ] ?? null ) ? $o[ $key ] : null;
 
-				foreach ( $rows( 'orders' ) as $o ) {
-					$orders[] = new CartBridgeJP\Canonical\CanonicalOrder(
+				foreach ( $pro ? $rows( 'orders' ) : [] as $o ) {
+					if ( ! is_string( $o['number'] ?? null ) ) {
+						continue;
+					}
+
+					$orders[] = new CartBridgeJP\Pro\Canonical\CanonicalOrder(
 						$o['number'],
 						'processing',
 						null,
@@ -137,39 +153,69 @@ add_action(
 				$caps_bool      = static fn ( string $key ): bool => ! is_array( $caps_seed ) || ! array_key_exists( $key, $caps_seed ) || true === $caps_seed[ $key ];
 				$caps_beta_seed = null !== $caps_seed && is_array( $caps_seed['beta_features'] ?? null ) ? $caps_seed['beta_features'] : [];
 
+				$commerce_caps = null;
+
 				if ( null !== $caps_seed ) {
 					$caps_override = new CartBridgeJP\Adapters\Capabilities(
-						true,                             // can_create_category
-						$caps_bool( 'can_create_order' ),
-						true,                             // can_fetch_customers
-						true,                             // can_update_customer
-						$caps_bool( 'can_push_images' ),
-						true,                             // can_create_coupon
-						true,                             // has_coupons
-						true,                             // has_tags
-						true,                             // has_reviews
-						true,                             // has_variants
-						600,
-						false,                            // supports_per_variant_stock_management
-						$caps_beta_seed
+						can_create_category: true,
+						can_push_images: $caps_bool( 'can_push_images' ),
+						has_tags: true,
+						has_reviews: true,
+						has_variants: true,
+						rate_limit_per_minute: 600,
+						supports_per_variant_stock_management: false,
+						beta_features: array_values( array_diff( array_filter( $caps_beta_seed, 'is_string' ), [ 'order_export' ] ) )
 					);
+
+					if ( $pro ) {
+						$commerce_caps = new CartBridgeJP\Pro\Adapters\CommerceCapabilities(
+							can_fetch_customers: true,
+							can_update_customer: true,
+							can_create_order: $caps_bool( 'can_create_order' ),
+							has_coupons: true,
+							can_create_coupon: true,
+							order_export_beta: in_array( 'order_export', $caps_beta_seed, true )
+						);
+					}
 				}
 
-				// R3-0m 検証用: `mapping_candidates` が配列のときだけ mock の `mapping_candidates()` に渡す（配列でなければ既定の空）。
+				// R3-0m 検証用: `mapping_candidates` が配列のときだけ mock に渡す（配列でなければ既定の空）。カテゴリは無料版の mock、
+				// 決済・配送・ステータスは Pro の mock（R3-6c1）。
 				$candidates_seed = is_array( $seed ) && is_array( $seed['mapping_candidates'] ?? null ) ? $seed['mapping_candidates'] : null;
 
 				// `platform_id` は登録キーと同じ値にする。Importer/Exporter/JobManager は mapping・上限のキーを登録キーではなく
 				// `$adapter->id()` から決める（既定の 'mock' のままだと、別キーで登録しても mapping が 'mock' 名前空間へ書かれる）。
 				$adapters['__PLATFORM_KEY__'] = new CartBridgeJP\Tests\Fixtures\MockPlatformAdapter(
-					customers: $customers,
-					orders: $orders,
 					push_products_supported: $push_enabled,
-					push_others_supported: $push_enabled,
+					push_stocks_supported: $push_enabled,
 					create_push_failure: $create_push_fail,
 					capabilities_override: $caps_override,
-					mapping_candidates_override: $candidates_seed,
+					mapping_candidates_override: null === $candidates_seed ? null : array_intersect_key( $candidates_seed, [ 'category' => true ] ),
 					platform_id: '__PLATFORM_KEY__'
 				);
+
+				if ( $pro ) {
+					$commerce = new CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter(
+						customers: $customers,
+						orders: $orders,
+						push_supported: $push_enabled,
+						capabilities_override: $commerce_caps,
+						create_push_failure: $create_push_fail,
+						platform_id: '__PLATFORM_KEY__',
+						candidates: null === $candidates_seed ? [] : array_intersect_key( $candidates_seed, array_flip( [ 'payment', 'shipping', 'status' ] ) )
+					);
+
+					add_filter(
+						'cbjp/pro/commerce_adapters/register',
+						static function ( $factories ) use ( $commerce ) {
+							$factories                     = is_array( $factories ) ? $factories : [];
+							$factories['__PLATFORM_KEY__'] = static fn () => $commerce;
+
+							return $factories;
+						},
+						99
+					);
+				}
 
 				return $adapters;
 			},

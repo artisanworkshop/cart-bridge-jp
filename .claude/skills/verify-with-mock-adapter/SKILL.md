@@ -31,20 +31,23 @@ description: >
    `$S/scripts/mock-adapter.sh inspect` — `cbjp_mappings` の platform 別件数・`cbjp_*` オプション・ユーザー数・受注数を出す。
    実 platform（例: `colorme`）の行が既にある場合、その platform の mock 登録は「追加のみ・撤去は自分の投入分だけ」で行う。
 2. **mock アダプタを登録する**: `$S/scripts/mock-adapter.sh install <platform-key>`
-   （例: `colorme`。`AddressMapper` のように `colorme` だけを解釈するコードを通すときは、そのキーで登録する必要がある）。
-   `templates/mu-plugin-mock-adapter.php` を wp-env の `mu-plugins/` へ置く。mock は `plugins/cart-bridge-jp/tests/unit/Fixtures/MockPlatformAdapter`
-   （無料版の composer の autoload-dev。ルートで `composer install` すれば無料版の autoload も作られ、dev サイトから使える）で、オプション `cbjp_verify_seed` から
+   （例: `colorme`。Pro の `AddressMapper` のように `colorme` だけを解釈するコードを通すときは、そのキーで登録する必要がある）。
+   `templates/mu-plugin-mock-adapter.php` を wp-env の `mu-plugins/` へ置く。mock は商品系が `plugins/cart-bridge-jp/tests/unit/Fixtures/MockPlatformAdapter`、
+   顧客・受注・クーポンが Pro の `plugins/cart-bridge-jp-pro/tests/unit/Fixtures/MockCommerceAdapter`（R3-6c1 で分けた。`cbjp/pro/commerce_adapters/register` に
+   同じキーで登録する）で、どちらも各プラグインの composer の autoload-dev（ルートで `composer install` すれば両方の autoload が作られ、dev サイトから使える）。
+   **Pro アドオンが無効なら顧客・受注の mock は登録されず、接続先は商品系だけになる**（Pro を止めたときの画面を見るのに使える）。オプション `cbjp_verify_seed` から
    顧客・受注を組み立てる。このオプションは **PHP 配列を `update_option()` で保存する**（JSON 文字列ではない。mu-plugin は
    `get_option()` の戻り値を配列として読む。配列でない値・配列でない行は読み飛ばす）。
-   `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null }`）は mock の `push_*()` を有効にし（既定は全て
+   `cbjp_verify_seed.push`（`{ enabled: bool, create_failure: 'ambiguous_5xx'|'partial_push'|'partial_rate_limit'|null }`）は両方の mock の `push_*()` を有効にし（既定は全て
    `UnsupportedOperationException`）、`create_failure` は作成 POST が 5xx（結果不明）になる経路（D21-B）か、作成は確定したが後続で止まった経路
    （`PartialPushException`。D21-A。`partial_rate_limit` はレート制限でジョブを一時停止させる）を再現する。後の 2 つは remote_id が固定なので、1 回の export で
    作成経路を通る商品を 1 件に絞る（`examples/partial-push/`）。
    Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
    （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
-   （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`）。
+   （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`。`can_create_order` と `order_export` は
+   Pro の `CommerceCapabilities` へ渡る）。
    Mappings タブと Import タブの事前チェック（R3-0m）を見るときは、`cbjp_verify_seed.mapping_candidates`（`{ payment: [{id,name}], shipping: [...] }`。
-   mock の `mapping_candidates()` がそのまま返す）と、受注ごとの `payment_method_id`/`payment_method_name`/`shipping_method_id`/`shipping_method_name`
+   `category` は無料版の mock の `mapping_candidates()`、`payment`・`shipping`・`status` は Pro の mock の `*_candidates()` が返す）と、受注ごとの `payment_method_id`/`payment_method_name`/`shipping_method_id`/`shipping_method_name`
    （canonical の `payment`/`shipping` の `method_id`/`method_name`）を入れる。マッピングの設定（`cbjp_settings_{platform}`）は Mappings タブ
    （`#/mappings`）か `PUT /settings/mappings/{platform}` で行い、撤去時はそのオプションも消す。
    **クラス定義を mu-plugin のトップレベルに書かない**（mu-plugins は通常プラグインより先に読み込まれ、
@@ -54,7 +57,7 @@ description: >
    実 `colorme` の mapping を共有する。Import/Export の配線だけを見たいなら、実 platform と
    衝突しないキー（例: `mockv`）で登録する。`colorme` で回すなら `ZZV-` の remote_id と手順 6 の撤去を必ず守る。
 3. **修正前のデータを再現して投入する**（実 Writer を使う）: `$S/scripts/mock-adapter.sh run <seed.php>`。
-   seed は `WooRepositoryFactory::for_platform()->write()` / `OrderWriter` で実際に取り込み → 旧コードの出力へ書き戻す（例:
+   seed は `WooRepositoryFactory::for_platform()->write()` / Pro の `OrderWriter` で実際に取り込み → 旧コードの出力へ書き戻す（例:
    県コードは `JP{pref_id}` の恒等変換）。投入した ID を `cbjp_verify_ids` オプションに記録し、`cbjp_verify_seed` に mock へ渡す
    データを保存する（R3-6a で削除した県コード修復の検証 `examples/prefecture-repair/seed.php` が実例。git の履歴にある）。投入する実体の
    `remote_id` は `ZZV-` 接頭辞にする（撤去時の目印）。
@@ -81,7 +84,7 @@ description: >
 - **「見失った run」（run_id がブラウザに届かなかった run）を再現するには**、`JobRepository::create()` でジョブを直接作り、`update_status()`/`mark_failed()` で running・paused・失敗で停止（先頭 failed＋兄弟 pending）にする。Action Scheduler の action を作らないので run は動かず、画面を開いても進まない（`JobManager::start_run()` だと管理画面を開いた時点で async runner が処理してしまう）。撤去は `cbjp_jobs` の該当 platform の行を消す（R3-0i）。
 - **検証中だけ効かせたいフィルター**は、ブラウザからの REST にも効かせる必要があるなら mu-plugin に置く（CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
-- **dev サイトには配送ゾーンが無く、Woo 側の配送候補（`MappingCandidates::shipping_methods()`）が 0 件**（R3-0m）。配送マッピングの解消まで確かめるなら、名前に `ZZV` を含む一時ゾーンに `flat_rate` を足し（`WC_Shipping_Zone` → `add_shipping_method()`）、撤去時にゾーン名を確かめてから `delete()` する。候補 0 件の表示（「先に WooCommerce 側で設定を」）を見たいならゾーンを作る前に確認する
+- **dev サイトには配送ゾーンが無く、Woo 側の配送候補（Pro の `OrderMappingCandidates::shipping_methods()`）が 0 件**（R3-0m）。配送マッピングの解消まで確かめるなら、名前に `ZZV` を含む一時ゾーンに `flat_rate` を足し（`WC_Shipping_Zone` → `add_shipping_method()`）、撤去時にゾーン名を確かめてから `delete()` する。候補 0 件の表示（「先に WooCommerce 側で設定を」）を見たいならゾーンを作る前に確認する
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
 
 - **`http://localhost:<port>/wp-admin/...` が別ホスト（例: `*.wp.local`）のログイン画面へ飛ぶときは、wp-env ではなく別のローカル環境が応答している**

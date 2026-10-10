@@ -200,7 +200,7 @@ BASE/MakeShop を見込んで先行実装した基盤（TokenStoreのリフレ�
 
 
 - ライセンス統合: WooCommerce API Manager クライアント（アクティベーション・アップデート取得。期限起点は初回アクティベーション=D14）
-- ~~`cbjp/limits/*` フィルターによる無料版上限の解除（プラットフォーム非依存。v2.0/v3.0 のアダプタ追加で Pro 側の変更は不要）~~ → **D27（2026-10-09）**: 顧客・受注・クーポンの dry-run・取込み・エクスポート（R3-6 で無料版から移すコード。受注のエクスポートは D24 のベータのまま）と試用（ライセンスが無い間は各 100 件まで。上限は Pro のコードだけが持つ）
+- ~~`cbjp/limits/*` フィルターによる無料版上限の解除（プラットフォーム非依存。v2.0/v3.0 のアダプタ追加で Pro 側の変更は不要）~~ → **D27（2026-10-09）**: 顧客・受注・クーポンの dry-run・取込み・エクスポート（R3-6c1 で無料版から移した。受注のエクスポートは D24 のベータのまま）と試用（ライセンスが無い間は各 100 件まで。上限は Pro のコードだけが持つ）
 - ~~無料版の Pro 案内の導線先は `cbjp/limits/pro_url` フィルター（既定 `''`＝Pro 版に触れない）で渡す（issue #55。`03` §10.3「アップセル表示」）~~ → D27 で無料版の上限の案内は外す（R3-6a で `cbjp/limits/pro_url` ごと削除）。Pro への案内の置き場所・文言は R3-6d で決める（`03` §10.0「決め残し」5）
 - パスワード設定メール（D28・`03` §10.5）。**v1.0 の後**（2026-10-09 決定。`03` §10.0「決め残し」6）
 - 301リダイレクトCSV生成（旧商品URL→新商品URL、mappingsから生成）。**v1.0 の後**（同上）
@@ -273,7 +273,8 @@ cart-bridge-jp/                     # リポジトリのルート = 開発ツー
     │   │   │   ├── ColorMe/        # ColorMeAdapter, ColorMeClient, OAuth, 変換クラス（v1.0）
     │   │   │   ├── Base/           # BaseAdapter, BaseClient, BaseOAuth, 変換クラス（v2.0で追加）
     │   │   │   └── MakeShop/       # MakeShopAdapter, GraphQLClient, 変換クラス（v3.0で追加）
-    │   │   ├── Canonical/          # CanonicalProduct 等
+    │   │   ├── Canonical/          # CanonicalProduct 等（顧客・受注・クーポンは Pro）
+    │   │   ├── Entities/           # 実体の種類のレジストリ（EntityType・MappingKind・LinkSource。R3-6b1）と商品系の種類
     │   │   ├── Sync/               # JobManager, Importer, Exporter, MappingRepository
     │   │   ├── Woo/                # Writer・Reader・Tools（WC CRUD）
     │   │   ├── Admin/              # Menu, RestController, Assets
@@ -283,8 +284,13 @@ cart-bridge-jp/                     # リポジトリのルート = 開発ツー
     │   ├── tests/                  # bootstrap.php・unit/・fixtures/（実APIレスポンスのサンプルJSON）
     │   ├── phpunit.xml.dist
     │   └── .wordpress-org/         # wordpress.org のスクリーンショット（SVN の assets/ へ置く）
-    └── cart-bridge-jp-pro/         # Pro アドオン（自社サイト）。顧客・受注・クーポンは R3-6 で移す
+    └── cart-bridge-jp-pro/         # Pro アドオン（自社サイト）。顧客・受注・クーポン（R3-6c1 で無料版から移した）
         ├── cart-bridge-jp-pro.php / composer.json / phpunit.xml.dist
-        ├── includes/Core/          # Plugin
-        └── tests/
+        ├── includes/
+        │   ├── Core/               # Plugin（種類を cbjp/entity_types/register に登録する）
+        │   ├── Adapters/           # CommerceAdapter・CommerceCapabilities・CommerceAdapters、ColorMe/（ColorMeCommerceAdapter・変換器）
+        │   ├── Canonical/          # CanonicalCustomer・CanonicalOrder・CanonicalCoupon
+        │   ├── Entities/           # CustomerType・OrderType・CouponType とその警告・LinkSource・MappingKind
+        │   └── Woo/                # Writer・Reader・Support（AddressMapper・OrderMethodMap ほか）・CommerceWarningCode
+        └── tests/                  # unit/・fixtures/（顧客・受注のフィクスチャ）
 ```

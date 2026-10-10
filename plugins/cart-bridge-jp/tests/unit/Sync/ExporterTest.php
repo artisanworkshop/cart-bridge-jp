@@ -871,14 +871,14 @@ final class ExporterTest extends WP_UnitTestCase {
 
 	/**
 	 * アダプタが「実際には送信しなかった」ことを明示的に返す場合（例:
-	 * `CUSTOMER_REQUIRED_FIELD_MISSING`で送信前にフェイルクローズ）、未送信が確定しているため
+	 * `PRODUCT_PRICE_NOT_CONVERTIBLE`で送信前にフェイルクローズ）、未送信が確定しているため
 	 * 印を消す。
 	 */
 	public function test_a_push_result_reporting_nothing_was_sent_clears_the_intent(): void {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
 		$writer   = new class() implements PlatformWriter {
 			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
-				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE ] );
 			}
 		};
 		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );
@@ -1045,7 +1045,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$this->mappings->upsert( 'mock', 'product', 'remote-1', 101, Exporter::export_checksum( $product ) );
 		ExportOptions::save_push_images( 'mock', true );
 
-		$adapter = new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, false, true, true, true, true, true, 600 ) );
+		$adapter = new MockPlatformAdapter( capabilities_override: new Capabilities( can_create_category: true, can_push_images: false, has_tags: true, has_reviews: true, has_variants: true, rate_limit_per_minute: 600 ) );
 		$writer  = new InMemoryPlatformWriter();
 		$result  = ( new Exporter( $this->mappings ) )->run_page( $adapter, $writer, new FixedWooReader( [ new ReadItem( 101, $product ) ] ), 'product', Cursor::start(), false );
 
@@ -1090,7 +1090,7 @@ final class ExporterTest extends WP_UnitTestCase {
 	 * @param bool $supports_per_variant_stock `Capabilities::$supports_per_variant_stock_management`。
 	 */
 	private function adapter_with_per_variant_stock( bool $supports_per_variant_stock ): MockPlatformAdapter {
-		return new MockPlatformAdapter( capabilities_override: new Capabilities( true, true, true, true, true, true, true, true, true, true, 600, $supports_per_variant_stock ) );
+		return new MockPlatformAdapter( capabilities_override: new Capabilities( can_create_category: true, can_push_images: true, has_tags: true, has_reviews: true, has_variants: true, rate_limit_per_minute: 600, supports_per_variant_stock_management: $supports_per_variant_stock ) );
 	}
 
 	/**

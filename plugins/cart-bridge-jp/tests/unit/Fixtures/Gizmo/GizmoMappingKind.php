@@ -7,12 +7,21 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Fixtures\Gizmo;
 
+use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Entities\MappingKind;
+use Throwable;
+
+// phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- `MappingKind` のシグネチャに合わせる。
 
 /**
  * gizmo の色のマッピング（`gizmo_map`。ASP の色 → Woo の色）。
  */
 final class GizmoMappingKind extends MappingKind {
+
+	/**
+	 * @param array<int,mixed>|Throwable|null $own_candidates `platform_candidates()` が返す値（null はアダプタの候補を使う）。例外は投げる。
+	 */
+	public function __construct( private readonly array|Throwable|null $own_candidates = null ) {}
 
 	public function key(): string {
 		return 'gizmo';
@@ -46,6 +55,14 @@ final class GizmoMappingKind extends MappingKind {
 				'name' => 'Tab only',
 			],
 		];
+	}
+
+	public function platform_candidates( PlatformAdapter $adapter ): ?array {
+		if ( $this->own_candidates instanceof Throwable ) {
+			throw $this->own_candidates;
+		}
+
+		return $this->own_candidates;
 	}
 
 	public function import_notice(): bool {

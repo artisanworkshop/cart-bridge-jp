@@ -162,7 +162,7 @@ final class DryRunReportCsv {
 				// D26: WooCommerce の税の設定（軽減税率の税区分と JP の 8% の税率）を先に作るよう促す。
 				WarningCode::indicates_tax_setup_required( $warning ) => 'tax_setup_required',
 				WarningCode::indicates_pending_export( $warning ) => 'reference_pending_export',
-				WarningCode::indicates_order_reference_unresolved( $warning ) => 'reference_unresolved',
+				WarningCode::indicates_reference_not_found( $warning ) => 'reference_unresolved',
 				WarningCode::indicates_pending_import( $warning ) => 'reference_pending_import',
 				default => '',
 			};

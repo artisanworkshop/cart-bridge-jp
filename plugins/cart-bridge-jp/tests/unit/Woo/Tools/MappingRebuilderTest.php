@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Tools;
 
-use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalTag;
@@ -19,6 +18,9 @@ use CartBridgeJP\Woo\WooRepositoryFactory;
 use InvalidArgumentException;
 use WC_Product_Simple;
 
+/**
+ * リンク再構築（無料版の種類。顧客・受注・クーポンは Pro の `CommerceMappingRebuilderTest`。R3-6c1）。
+ */
 final class MappingRebuilderTest extends WooTestCase {
 
 	/**
@@ -73,18 +75,12 @@ final class MappingRebuilderTest extends WooTestCase {
 		);
 		$variation_id = $this->mappings->find_local_id( 'mock', 'variant', 'v1' );
 		$this->assertNotNull( $variation_id );
-		$coupon_id = $this->import( 'mock', 'coupon', new CanonicalCoupon( 'REBUILD10', 'percent', '10', null, null, null, [ 'remote_id' => 'cp1' ], has_unsupported_restrictions: false ) );
-		$user_id   = $this->import( 'mock', 'customer', CanonicalFactory::customer( 'cu1', 'cu1@example.com' ) );
-		$order_id  = $this->import( 'mock', 'order', CanonicalFactory::order( '1001', 'cu1', [ 'p1' ] ) );
 
 		return [
 			[ 'category', 'c1', $category_id ],
 			[ 'tag', 't1', $tag_id ],
 			[ 'product', 'p1', $product_id ],
 			[ 'variant', 'v1', $variation_id ],
-			[ 'coupon', 'cp1', $coupon_id ],
-			[ 'customer', 'cu1', $user_id ],
-			[ 'order', '1001', $order_id ],
 		];
 	}
 
@@ -113,9 +109,6 @@ final class MappingRebuilderTest extends WooTestCase {
 				'tag'      => 1,
 				'product'  => 1,
 				'variant'  => 1,
-				'coupon'   => 1,
-				'customer' => 1,
-				'order'    => 1,
 			],
 			$result['counts']
 		);
@@ -167,7 +160,7 @@ final class MappingRebuilderTest extends WooTestCase {
 		$second    = $rebuilder->run( 'mock' );
 
 		$this->assertSame( $first['counts'], $second['counts'] );
-		$this->assertSame( 1, $this->mappings->count( 'mock', 'order' ) );
+		$this->assertSame( 1, $this->mappings->count( 'mock', 'variant' ) );
 	}
 
 	public function test_rejects_an_invalid_cursor(): void {

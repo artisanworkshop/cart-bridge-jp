@@ -9,8 +9,12 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Core;
 
+use CartBridgeJP\Entities\EntityTypeRegistry;
+use CartBridgeJP\Pro\Entities\CommerceEntityTypes;
+
 /**
- * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類は、R3-6 で無料版の拡張点に登録する。
+ * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類を無料版の拡張点（`cbjp/entity_types/register`）に
+ * 登録する（R3-6c1 で無料版から移した。D27）。
  */
 final class Plugin {
 
@@ -36,6 +40,11 @@ final class Plugin {
 			return;
 		}
 		$this->booted = true;
+
+		// 無料版の起動（plugins_loaded の優先度 10）より後なので、ここより前に一覧が引かれていた場合に備えて登録後にキャッシュを捨てる
+		// （`EntityTypeRegistry` は plugins_loaded の途中の結果をキャッシュしないが、外部コードが早く呼ぶ経路もある）。
+		add_filter( EntityTypeRegistry::FILTER, [ CommerceEntityTypes::class, 'register' ] );
+		EntityTypeRegistry::reset_cache();
 	}
 
 	public function is_booted(): bool {

@@ -66,6 +66,14 @@ final class GizmoType extends EntityType {
 	 */
 	public bool $describe_without_summary = false;
 
+	/**
+	 * マッピングの種類が自分で返す ASP 側の候補（`MappingKind::platform_candidates()`。R3-6c1）。null はアダプタの候補を使う、
+	 * 例外を入れるとそれを投げる。
+	 *
+	 * @var array<int,mixed>|Throwable|null
+	 */
+	public array|Throwable|null $own_candidates = null;
+
 	private int $next_remote_id = 900;
 
 	public function key(): string {
@@ -228,6 +236,6 @@ final class GizmoType extends EntityType {
 	}
 
 	public function mapping_kinds(): array {
-		return [ new GizmoMappingKind() ];
+		return [ new GizmoMappingKind( $this->own_candidates ) ];
 	}
 }

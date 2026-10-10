@@ -1,11 +1,6 @@
 export interface Capabilities {
 	can_create_category: boolean;
-	can_create_order: boolean;
-	can_fetch_customers: boolean;
-	can_update_customer: boolean;
 	can_push_images: boolean;
-	can_create_coupon: boolean;
-	has_coupons: boolean;
 	has_tags: boolean;
 	has_reviews: boolean;
 	has_variants: boolean;
@@ -13,7 +8,8 @@ export interface Capabilities {
 	supports_per_variant_stock_management: boolean;
 	/**
 	 * 実店舗で未検証のベータ機能の識別子（`Adapters\Capabilities::BETA_*`。D24）。UI は「Beta」表示と、既定で
-	 * 選択しない扱いにだけ使う（可否そのものは`can_create_order`/`can_push_images`が決める）。
+	 * 選択しない扱いにだけ使う（可否そのものは`can_push_images`が決める。受注のエクスポートのベータは R3-6c1 から Pro の
+	 * 実体の種類の宣言〔`entities[].export.beta`〕で届く）。
 	 * サーバーが文字列だけの配列へ正規化して返す。
 	 */
 	beta_features: string[];
@@ -220,8 +216,9 @@ export interface VerificationEntity {
 	skipped: number;
 	warned: number;
 	linked: number;
-	existing: number;
-	missing: number;
+	/** Woo 側に実在する件数。null は確かめられない（その種類がこのサイトに登録されていない。R3-6c1）。 */
+	existing: number | null;
+	missing: number | null;
 	remote_amount: string | null;
 	local_amount: string | null;
 }

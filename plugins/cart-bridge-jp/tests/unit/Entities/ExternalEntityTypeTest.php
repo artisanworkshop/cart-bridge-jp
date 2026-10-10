@@ -26,6 +26,7 @@ use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
+use RuntimeException;
 use WP_REST_Request;
 use WP_REST_Server;
 use WP_UnitTestCase;
@@ -56,7 +57,7 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 				],
 			],
 			push_products_supported: true,
-			push_others_supported: true
+			push_stocks_supported: true
 		);
 		add_filter(
 			'cbjp/adapters/register',
@@ -123,12 +124,13 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 	public function test_the_type_runs_in_its_position(): void {
 		$manager = JobManager::create();
-		$import  = $manager->start_run( JobManager::TYPE_DRY_RUN, 'mock', [ 'order', 'gizmo', 'customer', 'product' ] );
+		$import  = $manager->start_run( JobManager::TYPE_DRY_RUN, 'mock', [ 'stock', 'gizmo', 'product' ] );
 		( new JobRepository() )->cancel_run( $import );
-		$export = $manager->start_run( JobManager::TYPE_DRY_RUN_EXPORT, 'mock', [ 'order', 'gizmo', 'customer', 'product' ] );
+		$export = $manager->start_run( JobManager::TYPE_DRY_RUN_EXPORT, 'mock', [ 'stock', 'gizmo', 'product' ] );
 
-		$this->assertSame( [ 'product', 'customer', 'gizmo', 'order' ], $this->job_entities( $import ) );
-		$this->assertSame( [ 'product', 'customer', 'gizmo', 'order' ], $this->job_entities( $export ) );
+		// gizmo（45）は商品（30）と在庫（60）の間。
+		$this->assertSame( [ 'product', 'gizmo', 'stock' ], $this->job_entities( $import ) );
+		$this->assertSame( [ 'product', 'gizmo', 'stock' ], $this->job_entities( $export ) );
 	}
 
 	public function test_import_writes_links_and_reports_the_amounts(): void {
@@ -251,7 +253,7 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 		$this->assertNull( $result['cursor'] );
 		$this->assertSame( [], $result['skipped'] );
-		$this->assertSame( [ 'category', 'tag', 'product', 'variant', 'gizmo', 'coupon', 'customer', 'order' ], array_keys( $result['counts'] ) );
+		$this->assertSame( [ 'category', 'tag', 'product', 'variant', 'gizmo' ], array_keys( $result['counts'] ) );
 		$this->assertSame( 1, $result['counts']['gizmo'] );
 		$this->assertSame( $local_id, $mappings->find_local_id( 'mock', 'gizmo', 'g1' ) );
 	}
@@ -277,19 +279,16 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 			],
 			$connection['entities']['export']
 		);
-		$this->assertSame( [ 'product', 'customer', 'gizmo', 'order', 'stock', 'coupon' ], array_column( $connection['entities']['export'], 'key' ) );
-		$this->assertSame( [ false, false, true, false, false, false ], array_column( $connection['entities']['export'], 'beta' ) );
-		// 案内の要るマッピング（`import_notice`）を持つのは gizmo と受注（決済・配送）だけ（R3-6b2）。
+		$this->assertSame( [ 'product', 'gizmo', 'stock' ], array_column( $connection['entities']['export'], 'key' ) );
+		$this->assertSame( [ false, true, false ], array_column( $connection['entities']['export'], 'beta' ) );
+		// 案内の要るマッピング（`import_notice`）を持つのは gizmo だけ（R3-6b2。無料版の種類は持たない）。
 		$this->assertSame(
 			[
 				'category' => false,
 				'tag'      => false,
 				'product'  => false,
-				'customer' => false,
 				'gizmo'    => true,
-				'order'    => true,
 				'stock'    => false,
-				'coupon'   => false,
 				'review'   => false,
 			],
 			array_column( $connection['entities']['import'], 'mapping_notice', 'key' )
@@ -321,14 +320,11 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 			[
 				'category' => 'product',
 				'gizmo'    => 'gizmo',
-				'payment'  => 'order',
-				'shipping' => 'order',
-				'status'   => 'order',
 			],
 			array_column( $data['kinds'], 'entity', 'key' )
 		);
-		// 種類の実行順（gizmo 45 は受注 50 より前）→ 種類の中の順。
-		$this->assertSame( [ 'category', 'gizmo', 'payment', 'shipping', 'status' ], array_column( $data['kinds'], 'key' ) );
+		// 種類の実行順（gizmo 45 は商品 30 より後）→ 種類の中の順。
+		$this->assertSame( [ 'category', 'gizmo' ], array_column( $data['kinds'], 'key' ) );
 		$this->assertSame(
 			[
 				[
@@ -367,6 +363,45 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'gizmo_map', $saved );
 		$this->assertSame( [ '1' => 'red' ], get_option( 'cbjp_settings_mock' )['gizmo_map'] );
 		$this->assertSame( [ '5' => '7' ], get_option( 'cbjp_settings_mock' )['category_map'] );
+	}
+
+	/**
+	 * R3-6c1: マッピングの種類が自分で ASP 側の候補を返すとき（Pro の決済・配送・注文ステータス）、REST はアダプタの候補ではなくそれを使い、
+	 * 保存時と同じ正規化を通す。アダプタの `mapping_candidates()` は、それを使う種類（カテゴリ）のために 1 要求で 1 回だけ呼ぶ。
+	 */
+	public function test_a_mapping_kind_can_supply_its_own_platform_candidates(): void {
+		$this->gizmo->own_candidates = [
+			[
+				'id'   => ' 7 ',
+				'name' => 'Green',
+			],
+			'not-a-candidate',
+			[ 'id' => '8' ],
+		];
+		$adapter                     = AdapterRegistry::get( 'mock' );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data();
+
+		$this->assertSame(
+			[
+				[
+					'id'   => '7',
+					'name' => 'Green',
+				],
+			],
+			$data['asp_candidates']['gizmo']
+		);
+		$this->assertSame( 1, $adapter->mapping_candidates_calls );
+	}
+
+	public function test_a_mapping_kind_whose_candidates_fail_gets_none_and_does_not_fall_back_to_the_adapter(): void {
+		$this->gizmo->own_candidates = new RuntimeException( 'platform down' );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data();
+
+		$this->assertSame( [], $data['asp_candidates']['gizmo'] );
+		// ほかの種類は影響を受けない（カテゴリはアダプタの候補を使う）。
+		$this->assertArrayHasKey( 'category', $data['asp_candidates'] );
 	}
 
 	public function test_report_entity_filter_accepts_registered_types_only(): void {

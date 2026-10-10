@@ -19,7 +19,7 @@ use UnexpectedValueException;
 /**
  * 認証済みの ColorMe API の呼び出しと、応答の共通処理（一覧のエンベロープ・`meta.total`・カーソル・ID 指定取得・行ごとの変換失敗の記録）。
  *
- * `ColorMeAdapter::api()` が返す。Pro アドオンが ColorMe の顧客・受注・クーポンを取得・送信するとき（R3-6c）に、
+ * `ColorMeAdapter::api()` が返す。Pro アドオンが ColorMe の顧客・受注・クーポンを取得・送信するとき（R3-6c1 の `ColorMeCommerceAdapter`）に、
  * 同じ処理を重複して持たずに使う口（R3-6b1。`docs/03-design-decisions.md` §10.0「Pro が使ってよい無料版の API」）。
  * レート制限はプラットフォーム単位のバケット（`ColorMeClient::for_access_token()`）を共有する。
  *

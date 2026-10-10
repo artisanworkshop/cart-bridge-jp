@@ -86,7 +86,7 @@ No. The plugin is built for a one-way migration. Items imported from Color Me Sh
 
 Exporting orders and uploading product images use parts of the Color Me Shop API that are available only on the premium plan. They have been tested with mock data but not yet on a real premium-plan shop, so they are marked Beta and are off by default: the "Orders (Beta)" checkbox is unchecked, and "Upload product images (Beta)" is off. They appear only when the connected shop is on the premium plan. Turning on image upload replaces the shop's existing images at the same positions.
 
-= The export skipped a product, a stock row, or an order with a warning. How do I fix it? =
+= The export skipped a product or a stock row with a warning. How do I fix it? =
 
 The dry run's CSV report lists the warnings it finds for each item, with the cause and, where possible, a fix. These are the most common warnings that stop an item from being exported:
 
@@ -101,9 +101,6 @@ The dry run's CSV report lists the warnings it finds for each item, with the cau
 * `variation_axis_limit_exceeded` – The product uses three or more attributes for variations, but the platform supports at most two, so the product is not exported. **Fix**: Use at most two attributes for variations (combine attributes, or turn off “Used for variations” on the others).
 * `stock_product_not_exported` – The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock. **Fix**: Include products in the export. If the product or this variation is not exported because of other warnings, fix those first.
 * `push_outcome_unconfirmed` – An earlier export of this item ended without confirming whether it was created on the platform, so it is not sent again until you check. **Fix**: In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”.
-* `currency_mismatch` – The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).
-* `order_refunded` – The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported. **Fix**: Create the order on the platform by hand if you need it.
-* `order_line_variation_unresolved` – The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported. **Fix**: If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand.
 
 = In the CSV report, one warning says an item is exported and another says it is not. Which is right? =
 

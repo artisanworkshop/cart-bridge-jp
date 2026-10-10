@@ -8,9 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Canonical;
 
 use CartBridgeJP\Canonical\CanonicalCategory;
-use CartBridgeJP\Canonical\CanonicalCoupon;
-use CartBridgeJP\Canonical\CanonicalCustomer;
-use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Canonical\CanonicalStock;
@@ -18,7 +15,8 @@ use CartBridgeJP\Canonical\CanonicalTag;
 use WP_UnitTestCase;
 
 /**
- * 8種のCanonicalモデル共通: to_array()/from_array()の往復、checksumのキー順非依存性を検証する。
+ * 無料版の Canonical モデル共通: to_array()/from_array()の往復、checksumのキー順非依存性を検証する（顧客・受注・クーポンは Pro の
+ * `CommerceModelRoundTripTest`。R3-6c1）。
  */
 final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 
@@ -66,42 +64,6 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 					'extras' => [],
 				],
 			],
-			'customer' => [
-				CanonicalCustomer::class,
-				[
-					'email'          => 'taro@example.com',
-					'name'           => '山田 太郎',
-					'kana'           => 'ヤマダ タロウ',
-					'company'        => null,
-					'department'     => null,
-					'address'        => [ 'postal_code' => '100-0001' ],
-					'phone'          => '090-0000-0001',
-					'birthday'       => '1990-01-01',
-					'mailmag_opt_in' => true,
-					'note'           => null,
-					'extras'         => [],
-				],
-			],
-			'order'    => [
-				CanonicalOrder::class,
-				[
-					'number'       => '1000000001',
-					'status'       => 'processing',
-					'customer_ref' => 'cust-1',
-					'line_items'   => [
-						[
-							'sku'      => 'SKU-1',
-							'quantity' => 1,
-						],
-					],
-					'shipping'     => [ 'method' => 'standard' ],
-					'payment'      => [ 'method' => 'credit_card' ],
-					'totals'       => [ 'total' => '1000' ],
-					'placed_at'    => '2026-07-01 00:00:00',
-					'note'         => null,
-					'extras'       => [],
-				],
-			],
 			'stock'    => [
 				CanonicalStock::class,
 				[
@@ -111,21 +73,6 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 					'quantity'    => 5,
 					'in_stock'    => true,
 					'extras'      => [],
-				],
-			],
-			'coupon'   => [
-				CanonicalCoupon::class,
-				[
-					'code'                         => 'SAVE10',
-					'type'                         => 'percent',
-					'amount'                       => '10',
-					'min_amount'                   => null,
-					'expires_at'                   => null,
-					'usage_limit'                  => 100,
-					'extras'                       => [],
-					'free_shipping'                => false,
-					'usage_limit_per_user'         => null,
-					'has_unsupported_restrictions' => false,
 				],
 			],
 			'review'   => [
@@ -186,46 +133,5 @@ final class CanonicalModelRoundTripTest extends WP_UnitTestCase {
 		}
 
 		$this->assertNotSame( $model_a->checksum(), $model_b->checksum() );
-	}
-
-	/**
-	 * @dataProvider coupon_restriction_flag_provider
-	 * @param array<string,mixed> $source
-	 */
-	public function test_coupon_restriction_flag_survives_the_round_trip( array $source, ?bool $expected ): void {
-		// 復元経路だけが「キーが無い＝制限なし」へ倒れると、`Woo\Writer\CouponWriter`の
-		// フェイルクローズ（未宣言は保存しない）をシリアライズ往復で回避できてしまう（issue #15）。
-		// `from_array()`は`isset()`判定のため明示的な`null`とキー欠損は同じ`null`に落ちる。
-		$coupon = CanonicalCoupon::from_array(
-			array_merge(
-				[
-					'code'   => 'SAVE10',
-					'type'   => 'percent',
-					'amount' => '10',
-				],
-				$source
-			)
-		);
-
-		$this->assertSame( $expected, $coupon->has_unsupported_restrictions );
-		$this->assertSame( $expected, $coupon->to_array()['has_unsupported_restrictions'] );
-	}
-
-	/**
-	 * @return array<string,array{0:array<string,mixed>,1:?bool}>
-	 */
-	public static function coupon_restriction_flag_provider(): array {
-		return [
-			'key omitted'    => [ [], null ],
-			'explicit null'  => [ [ 'has_unsupported_restrictions' => null ], null ],
-			'declared false' => [ [ 'has_unsupported_restrictions' => false ], false ],
-			'declared true'  => [ [ 'has_unsupported_restrictions' => true ], true ],
-			// 非boolは「不明」へ倒す。`(bool)`キャストだと`'0'`が`false`（＝保存してよい）に
-			// 化けて`CouponWriter`のフェイルクローズを迂回できてしまう（Copilot指摘 G1-2）。
-			'string zero'    => [ [ 'has_unsupported_restrictions' => '0' ], null ],
-			'string false'   => [ [ 'has_unsupported_restrictions' => 'false' ], null ],
-			'int one'        => [ [ 'has_unsupported_restrictions' => 1 ], null ],
-			'array'          => [ [ 'has_unsupported_restrictions' => [] ], null ],
-		];
 	}
 }

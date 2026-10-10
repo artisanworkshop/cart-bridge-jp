@@ -8,8 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Support;
 
 use CartBridgeJP\Entities\EntityTypeRegistry;
-use CartBridgeJP\Woo\Writer\CustomerWriter;
-use WC_Order;
 
 /**
  * D25「実体は作られた向きにだけ更新する」の判定（`docs/03-design-decisions.md` §10.2「往復の扱い（D25）」）。
@@ -20,9 +18,8 @@ use WC_Order;
  * 「エクスポートで結ばれた」のどちらか一方になる。判定は「誰が作ったか」ではなく「誰が紐づけたか」: メールで採用した既存の
  * Woo 顧客は、紐づけたのが取込みなので取込み側（取込みは毎回その顧客を更新する）。
  *
- * 顧客は、作成時にだけ書く不変の印`_cbjp_created_by_import`の一致も取込み側に含める（別プラットフォームがメールで採用し直して
- * `_cbjp_platform`が書き換わっても、作成元を見失わない）。エクスポートの Reader（送らない判定）とインポート側のガード
- * （上書きしない判定）は同じ関数を使い、同じ事実を 1 か所で判定する。
+ * エクスポートの Reader（送らない判定）とインポート側のガード（上書きしない判定）は同じ関数を使い、同じ事実を 1 か所で判定する。
+ * 顧客（ユーザー）・受注の判定は `CommerceOrigin`（R3-6c1 でこのクラスから分けた）。
  */
 final class EntityOrigin {
 
@@ -58,25 +55,6 @@ final class EntityOrigin {
 	 */
 	public static function post_linked_by_import( int $post_id, string $platform ): bool {
 		return '' !== $platform && PlatformOwnership::owns_post( $post_id, $platform );
-	}
-
-	/**
-	 * 顧客（WP ユーザー）が`$platform`からの取込みで結ばれているか（リンクの印か作成の印のどちらかが一致）。
-	 */
-	public static function user_linked_by_import( int $user_id, string $platform ): bool {
-		if ( '' === $platform ) {
-			return false;
-		}
-
-		return get_user_meta( $user_id, '_cbjp_platform', true ) === $platform
-			|| get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) === $platform;
-	}
-
-	/**
-	 * 受注が`$platform`からの取込みで結ばれているか（HPOS でも読めるよう`WC_Order::get_meta()`で読む）。
-	 */
-	public static function order_linked_by_import( WC_Order $order, string $platform ): bool {
-		return '' !== $platform && $order->get_meta( '_cbjp_platform' ) === $platform;
 	}
 
 	/**
@@ -116,14 +94,5 @@ final class EntityOrigin {
 		$post = get_post( $post_id );
 
 		return null !== $post && in_array( $post->post_type, [ 'product', 'product_variation' ], true );
-	}
-
-	/**
-	 * `OrderWriter::write()`の stale-ID 判定（`wc_get_order() instanceof WC_Order`）と同じ条件で受注を読む。
-	 */
-	public static function order_linked_by_export( int $order_id, string $platform ): bool {
-		$order = wc_get_order( $order_id );
-
-		return $order instanceof WC_Order && ! self::order_linked_by_import( $order, $platform );
 	}
 }

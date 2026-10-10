@@ -28,7 +28,7 @@ use ValueError;
  * - `unknown`: カタログに無いコード（外部アダプタ独自のコード等）・知らない向き。楽観的に `info` へ倒さない（原則 9）
  *
  * 顧客・受注・クーポンのコードは実体の種類が説明する（`Entities\EntityType::describe_warning()`。R3-6b1 で `Entities\Commerce\*Warnings` へ移し、
- * R3-6c で Pro アドオンへ移す）。行の種別（entity）は、その行の種類の説明を先に引くのに使う。`CUSTOMER_ACCOUNT_PROTECTED` は
+ * R3-6c1 で Pro アドオンへ移した）。行の種別（entity）は、その行の種類の説明を先に引くのに使う。`CUSTOMER_ACCOUNT_PROTECTED` は
  * 顧客の行（プロフィールを書かずに飛ばす。`CustomerWriter`）と受注の行（ゲスト受注として書く。`OrderWriter`）で説明が違い、
  * 種別が分からなければ重いほう（顧客の行）に倒す（原則 9）。
  *
@@ -210,19 +210,6 @@ final class WarningCatalog {
 				__( 'WooCommerce does not treat entered prices as including tax, while the platform’s prices include tax and are imported as they are. This is a store-wide setting; only one product per batch is flagged.', 'cart-bridge-jp' ),
 				__( 'If WooCommerce calculates tax, set “Prices entered with tax” to “Yes, I will enter prices inclusive of tax” in WooCommerce > Settings > Tax. Otherwise tax is added on top at checkout. If tax calculation is turned off, no change is needed.', 'cart-bridge-jp' )
 			),
-			WarningCode::CURRENCY_MISMATCH => $import
-				? self::make(
-					$action,
-					__( 'The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency).', 'cart-bridge-jp' ),
-					__( 'Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency.', 'cart-bridge-jp' )
-				)
-				: self::make(
-					$blocking,
-					__( 'The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' ),
-					'',
-					/* translators: %s: a currency code, such as USD. */
-					__( 'The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' )
-				),
 			WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE => self::make(
 				$info,
 				__( 'Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way.', 'cart-bridge-jp' )

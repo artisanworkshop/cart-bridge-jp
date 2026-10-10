@@ -5,9 +5,9 @@ import apiFetch from '../api';
 import { displayLocale } from '../i18n';
 import type {
 	EntityType,
-	VerificationEntity,
 	VerificationReport as VerificationReportData,
 } from '../types';
+import { rowStatus, type RowStatus } from './verification-status';
 
 interface Props {
 	runId: string;
@@ -43,45 +43,6 @@ export function formatAmount( amount: string, currency: string ): string {
 }
 
 /**
- * ASP側（この run で取得した全件）と Woo側（リンク済みで実在する全件）はスコープが違う
- * （後者はプラットフォーム全体・全期間）ため、単なる一致/不一致ではなく差の向きを返す:
- * - `missing`: mapping はあるが Woo 側の実体が無い（要 Rebuild links / 再 import）
- * - `fewer`: 取得件数より Woo 側が少ない（スキップ・警告）
- * - `more`: 取得件数より Woo 側が多い（過去の run で取り込んだ分。ASP 側で減った場合など）
- * - `amount`: 件数は一致するが合計金額が一致しない（金額を突合する種類〈受注など〉だけ）
- * - `reconciled`: 件数・金額とも一致し missing も無い
- * @param row
- */
-export type RowStatus = 'reconciled' | 'missing' | 'fewer' | 'more' | 'amount';
-
-export function rowStatus(
-	row: VerificationEntity,
-	amountsComparable: boolean
-): RowStatus {
-	if ( row.missing > 0 ) {
-		return 'missing';
-	}
-
-	if ( row.existing < row.processed ) {
-		return 'fewer';
-	}
-
-	if ( row.existing > row.processed ) {
-		return 'more';
-	}
-
-	if (
-		amountsComparable &&
-		null !== row.remote_amount &&
-		row.remote_amount !== row.local_amount
-	) {
-		return 'amount';
-	}
-
-	return 'reconciled';
-}
-
-/**
  * 金額の突合が成立した行があるか（金額を突合しない種類・旧ジョブは ASP 側合計が null、通貨不一致時は比較不能）。
  * 文言は種類の名前を出さない（金額を突合する種類はサーバーが決める。R3-6b2）。
  * @param report
@@ -95,6 +56,7 @@ function hasComparedTotals( report: VerificationReportData ): boolean {
 
 const STATUS_LABELS: Record< RowStatus, string > = {
 	reconciled: __( 'Reconciled', 'cart-bridge-jp' ),
+	unknown: __( 'Not checked', 'cart-bridge-jp' ),
 	missing: __( 'Missing links', 'cart-bridge-jp' ),
 	fewer: __( 'Fewer in WooCommerce', 'cart-bridge-jp' ),
 	more: __( 'More in WooCommerce', 'cart-bridge-jp' ),
@@ -111,6 +73,17 @@ function buildNotices(
 	report: VerificationReportData
 ): StatusNotice[] {
 	const notices: StatusNotice[] = [];
+
+	if ( statuses.has( 'unknown' ) ) {
+		notices.push( {
+			status: 'info',
+			// 不明になるのは、登録の無い種類（Pro アドオンを止めた後の過去の受注など）と、確かめるときに失敗した種類。
+			message: __(
+				'Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed.',
+				'cart-bridge-jp'
+			),
+		} );
+	}
 
 	if ( statuses.has( 'missing' ) ) {
 		// “Rebuild links” は残っている実体から mapping を作り直すだけで、消えた実体は戻せない。
@@ -300,8 +273,12 @@ export default function VerificationReport( { runId, entityLabels }: Props ) {
 								<td className="cbjp-num">{ row.processed }</td>
 								<td className="cbjp-num">{ row.written }</td>
 								<td className="cbjp-num">{ row.skipped }</td>
-								<td className="cbjp-num">{ row.existing }</td>
-								<td className="cbjp-num">{ row.missing }</td>
+								<td className="cbjp-num">
+									{ row.existing ?? '—' }
+								</td>
+								<td className="cbjp-num">
+									{ row.missing ?? '—' }
+								</td>
 								{ hasAmounts && (
 									<>
 										<td className="cbjp-num">

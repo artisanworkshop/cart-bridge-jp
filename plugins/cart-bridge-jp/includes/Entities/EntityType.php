@@ -27,7 +27,7 @@ use RuntimeException;
  * （R3-6b1。`docs/03-design-decisions.md` §10.0「実体の種類の拡張点」）。
  *
  * 無料版の商品系（カテゴリ・タグ・商品・在庫・レビュー）は `EntityTypeRegistry` が内部で登録し、それ以外は
- * `cbjp/entity_types/register` フィルターで登録する（Pro アドオンが顧客・受注・クーポンを足す口。R3-6c まで無料版自身もこの口から登録する）。
+ * `cbjp/entity_types/register` フィルターで登録する（Pro アドオンが顧客・受注・クーポンを足す口。R3-6c1 より前は無料版自身もこの口から登録していた）。
  *
  * **互換方針（D20 と同じ）**: Pro・外部コードはこのクラスを継承する。抽象メソッドは `key()`・`label()`・`position()` だけで、
  * ほかは既定実装を持つ。v1.0.0 公開後はシグネチャを変えず、新しいメソッドは既定実装つきで足す（`EntityTypeContractTest` が固定する）。
