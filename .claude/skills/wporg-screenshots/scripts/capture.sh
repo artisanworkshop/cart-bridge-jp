@@ -163,6 +163,9 @@ case "$cmd" in
     cp "$TEMPLATE" "$dest"
     echo "installed $dest"
 
+    # readme の画面は無料版だけのもの。wp-env の起動で tests サイトの Pro も有効になるので、無料版の画面に Pro の種類・節が
+    # 写らないよう無効にする（R3-6d。setup.php が Pro の無いことを確かめる）。PHPUnit の後は全部無効なので、撮影の後に戻さない。
+    twp plugin deactivate cart-bridge-jp-pro
     twp plugin activate woocommerce cart-bridge-jp
     twp rewrite structure '/%postname%/' --hard
 

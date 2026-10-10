@@ -6,10 +6,10 @@
  * （api.shop-pro.jp）への HTTP を匿名化済みフィクスチャ（tests/fixtures/colorme/）で返す。実店舗・テストショップへは接続しない。
  * 撮影が終わると `capture.sh` が削除する（tests サイトの mu-plugin は PHPUnit にも読み込まれるので、残さない。コミットしない）。
  *
- * - GET はパスの末尾のファイル名（`products.json` など）と同じ名前のフィクスチャを返す。一覧（商品・顧客・受注・クーポン）は
- *   2 ページ目以降と、フィクスチャの無いものを空の一覧で返す。GET 以外と、フィクスチャの無い取得は WP_Error にする。
- * - 撮影向けの差し替え: 顧客は全員を会員にする（フィクスチャは非会員で、取込みの対象にならない）。グループは表示中にして
- *   名前を `Sale` にする。ショップはプレミアムプランにする（Export タブにベータの機能を出す）。
+ * - GET はパスの末尾のファイル名（`products.json` など）と同じ名前のフィクスチャを返す。商品の一覧は 2 ページ目以降を空の一覧で返す。
+ *   GET 以外と、フィクスチャの無い取得は WP_Error にする（撮るのは無料版だけの画面で、顧客・受注・クーポンの API は呼ばない。
+ *   そのフィクスチャは R3-6c1 で Pro へ移った。R3-6d）。
+ * - 撮影向けの差し替え: グループは表示中にして名前を `Sale` にする。ショップはプレミアムプランにする（Export タブにベータの機能を出す）。
  * - tests サイトでは WP-Cron が自走しないので、Action Scheduler の「過去の予定が残っている」通知を出さない。
  *
  * @package CartBridgeJP
@@ -38,12 +38,7 @@ add_filter(
 		$query = [];
 		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
 		$offset = is_scalar( $query['offset'] ?? null ) ? (int) $query['offset'] : 0;
-		$lists  = [
-			'products.json'     => 'products',
-			'customers.json'    => 'customers',
-			'sales.json'        => 'sales',
-			'shop_coupons.json' => 'shop_coupons',
-		];
+		$lists  = [ 'products.json' => 'products' ];
 
 		if ( isset( $lists[ $file ] ) && ( $offset > 0 || ! is_readable( $path ) ) ) {
 			$data = [
@@ -56,14 +51,6 @@ add_filter(
 
 		if ( ! is_array( $data ) ) {
 			return new WP_Error( 'cbjp_screenshot_offline', 'No fixture for this request while taking screenshots: ' . $url );
-		}
-
-		if ( 'customers.json' === $file && is_array( $data['customers'] ?? null ) ) {
-			foreach ( $data['customers'] as $i => $row ) {
-				if ( is_array( $row ) ) {
-					$data['customers'][ $i ]['member'] = true;
-				}
-			}
 		}
 
 		if ( 'groups.json' === $file && is_array( $data['groups'] ?? null ) ) {

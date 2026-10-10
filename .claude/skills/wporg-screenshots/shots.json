@@ -1,9 +1,9 @@
 {
-	"dry_run_entities": [ "category", "tag", "product", "customer", "order" ],
+	"dry_run_entities": [ "category", "tag", "product" ],
 	"shots": [
 		{ "tab": "connections", "wait_for": "Test connection" },
-		{ "tab": "import", "wait_for": "Download full report", "uncheck": [ "Stock", "Coupons" ] },
-		{ "tab": "mappings", "wait_for": "Payment method mapping" },
+		{ "tab": "import", "wait_for": "Download full report", "uncheck": [ "Stock" ] },
+		{ "tab": "mappings", "wait_for": "Category mapping" },
 		{ "tab": "export", "wait_for": "Upload product images (Beta)" },
 		{ "tab": "tools", "wait_for": "Rebuild links" }
 	]

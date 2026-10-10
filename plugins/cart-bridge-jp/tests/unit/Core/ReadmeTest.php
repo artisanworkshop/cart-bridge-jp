@@ -42,6 +42,30 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 	private const FAQ_EXPORT_BLOCKING_QUESTION = 'The export skipped a product or a stock row with a warning. How do I fix it?';
 
+	/**
+	 * D27（R3-6d）: 顧客・受注・クーポンは Pro アドオンが移す。無料版の readme はこの FAQ で案内する（`docs/03` §10.0 決め残し 5）。
+	 */
+	private const FAQ_PRO_ADD_ON_QUESTION = 'Can it migrate customers, orders, and coupons?';
+
+	private const PRO_ADD_ON_NAME = 'Cart Bridge JP Pro';
+
+	/**
+	 * 無料版の機能・API とやり取りするものを書いた `== Description ==` の小見出し。R3-6c1 で顧客・受注・クーポンを Pro へ移した後、
+	 * ここが古いまま残っていた（R3-6d で直した）。Pro に触れる箇所（Description の冒頭の段落・Pro の FAQ・changelog・Upgrade Notice）は対象外。
+	 */
+	private const FREE_SCOPE_SUBSECTIONS = [ 'Import from Color Me Shop', 'Export to Color Me Shop', 'Before and after the migration', 'External services' ];
+
+	private const FAQ_BETA_QUESTION = 'What is the Beta feature?';
+
+	private const FAQ_ROUND_TRIP_QUESTION = 'Can I keep the two stores in sync, or import and export the same items back and forth?';
+
+	private const FAQ_UNINSTALL_QUESTION = 'What happens to my data when I uninstall the plugin?';
+
+	/**
+	 * 顧客・受注・クーポンと、受注のマッピングにだけ使う決済・配送を名指しする語。HPOS の正式名（High-Performance Order Storage）は除く。
+	 */
+	private const COMMERCE_ENTITY_PATTERN = '/\b(?:customers?|orders?(?! Storage)|coupons?|payment methods?|shipping methods?)\b/i';
+
 	private static ?string $readme = null;
 
 	public function test_readme_headers_match_the_plugin_header(): void {
@@ -160,6 +184,70 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 		$this->assertArrayNotHasKey( 'Free version limits', $this->split_by_headings( $description, '/^= (.+) =$/m' ) );
 		$this->assertDoesNotMatchRegularExpression( '/\(up to \d+\)|limited to \d+/i', self::readme() );
+	}
+
+	/**
+	 * D27（R3-6c1）: 無料版は顧客・受注・クーポンのコードを持たない（`FreeScopeTest`）。無料版の機能・取り込む・送る・API で読むものの説明
+	 * （短い説明・ヘッダーの Description・Description の小見出し・Installation・キャプション・Beta・往復・アンインストールの FAQ）にそれらを書かない
+	 * （決済・配送の方法は受注のマッピングにだけ使う）。R3-6c1 の後、これらがすべて古いまま残っていた。
+	 */
+	public function test_free_scope_descriptions_do_not_describe_commerce_entities(): void {
+		$texts = [
+			'short description'  => $this->short_description(),
+			'plugin header'      => get_file_data( CBJP_FILE, [ 'description' => 'Description' ] )['description'],
+			'Installation'       => $this->section( 'Installation' ),
+			'Screenshots'        => $this->section( 'Screenshots' ),
+			'FAQ: Beta features' => $this->faq_answer( self::FAQ_BETA_QUESTION ),
+			'FAQ: round trip'    => $this->faq_answer( self::FAQ_ROUND_TRIP_QUESTION ),
+			'FAQ: uninstall'     => $this->faq_answer( self::FAQ_UNINSTALL_QUESTION ),
+		];
+
+		foreach ( self::FREE_SCOPE_SUBSECTIONS as $heading ) {
+			$texts[ $heading ] = $this->subsection( 'Description', $heading );
+		}
+
+		foreach ( $texts as $where => $text ) {
+			$this->assertNotSame( '', trim( $text ), $where );
+			$this->assertDoesNotMatchRegularExpression( self::COMMERCE_ENTITY_PATTERN, $text, $where );
+		}
+	}
+
+	/**
+	 * D27（R3-6d）: 顧客・受注・クーポンを探す利用者を Pro アドオンへ案内する（ガイドライン 9・11: リンク程度にする）。
+	 * 販売サイトの URL は Pro の公開準備で足す。1.0.0 へ上げる時点で URL が無ければ止める（Contributors の仮の値と同じ）。
+	 */
+	public function test_pro_add_on_faq_names_the_add_on(): void {
+		$answer = $this->faq_answer( self::FAQ_PRO_ADD_ON_QUESTION );
+
+		$this->assertStringContainsString( self::PRO_ADD_ON_NAME, $answer );
+		$this->assertStringContainsString( self::PRO_ADD_ON_NAME, $this->section( 'Description' ) );
+
+		if ( version_compare( CBJP_VERSION, '1.0.0', '>=' ) ) {
+			$this->assertMatchesRegularExpression( '#https://[^\s)]+#', $answer, 'Link the Pro add-on before releasing 1.0.0.' );
+		}
+	}
+
+	/**
+	 * wordpress.org は更新の通知（`== Upgrade Notice ==` の各版）を 300 文字までしか表示しない（マークアップなし）。
+	 * 0.1.0 から更新するサイトへの案内（R3-6d）が切れないようにする。
+	 */
+	public function test_upgrade_notices_fit_the_directory_limits(): void {
+		$notices = $this->split_by_headings( $this->section( 'Upgrade Notice' ), '/^= (.+) =$/m' );
+
+		$this->assertNotSame( [], $notices );
+
+		// 0.1.0 のサイトが wordpress.org の 1.0.0 へ更新するときに読む通知（顧客・受注・クーポンの移動と、県・税区分の誤り）。
+		if ( version_compare( CBJP_VERSION, '1.0.0', '<=' ) ) {
+			$this->assertArrayHasKey( '1.0.0', $notices );
+		}
+
+		foreach ( $notices as $version => $notice ) {
+			$notice = trim( $notice );
+
+			$this->assertNotSame( '', $notice, $version );
+			$this->assertLessThanOrEqual( 300, mb_strlen( $notice ), $version );
+			$this->assertSame( 0, preg_match( '/[<>*`\[\]]/', $notice ), "The upgrade notice for {$version} must not contain markup." );
+		}
 	}
 
 	/**

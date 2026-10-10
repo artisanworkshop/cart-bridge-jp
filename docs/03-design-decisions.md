@@ -634,7 +634,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 ```php
 /**
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
- * Description: Migrate products, customers, and orders between Color Me Shop and WooCommerce.
+ * Description: Migrate products and stock between Color Me Shop and WooCommerce.
  * Version: 0.1.0
  * Requires at least: 6.9
  * Requires PHP: 8.2
@@ -649,13 +649,17 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
  */
 ```
 
-- **Description の v1.0 化（D18）**: ヘッダーと `composer.json` の Description は、以前は3ASPを併記していたが、R3-3（2026-10-09）で「Color Me Shop」のみへ改めた。BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する（readme も同じ。`ReadmeTest` が「Description と readme に MakeShop・BASE が無い」ことを確かめるので、追記する PR でテストも改める）。ヘッダーの Description は POT に入るので、変えたら日本語訳も更新する
+- **Description の v1.0 化（D18）**: ヘッダーと `composer.json` の Description は、以前は3ASPを併記していたが、R3-3（2026-10-09）で「Color Me Shop」のみへ改めた。
+  R3-6d（2026-10-11）で無料版の範囲（D27）に合わせ「Migrate products and stock …」にした（以前は「products, customers, and orders」）。BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する（readme も同じ。`ReadmeTest` が「Description と readme に MakeShop・BASE が無い」ことを確かめるので、追記する PR でテストも改める）。ヘッダーの Description は POT に入るので、変えたら日本語訳も更新する
 - **`readme.txt`（R3-3）**: wordpress.org 用の英語の readme（日本語は承認後に translate.wordpress.org）。ヘッダーの `Stable tag` はプラグインヘッダーの Version・`CBJP_VERSION` と一致させ（`ReadmeTest`）、1.0.0 への引き上げは R3-4 で一括する。`Contributors` は仮の値で、R3-4 の申請前に wordpress.org のユーザー名へ差し替える。
-  Pro 版には触れない（§10.3 R3-0h の「購入 URL が無い間は Pro に触れない」と同じ。無料版の上限は事実として書く）。BASE・MakeShop の対応予定も載せない（2026-10-09 ユーザー決定）。
+  ~~Pro 版には触れない（§10.3 R3-0h の「購入 URL が無い間は Pro に触れない」と同じ。無料版の上限は事実として書く）。~~ BASE・MakeShop の対応予定も載せない（2026-10-09 ユーザー決定）。
   **D27（2026-10-09、§10.0）で無料版の上限を無くし、顧客・受注・クーポンを Pro アドオンへ移すので、R3-6 で readme を書き直す**（「Free version limits」の節・無料版と顧客・受注・クーポンの FAQ・スクリーンショット、`ReadmeTest` の上限の照合。Pro への言及はリンク程度〔ガイドライン 9・11〕）。
-  FAQ の「エクスポートが止まる警告」は、止める警告（48 種）のうち dry-run の CSV に出て出会いやすいものだけを（送信時にだけ出る `product_price_not_convertible` などは dry-run が `push_*()` を呼ばないので CSV に出ず、載せない）、`WarningCatalog::describe( code, EXPORT )` の原因・対処をそのまま載せる（`ReadmeTest` が箇条書きの全行がカタログと文字どおり一致することと、載せたコードが `blocking` であることを確かめる。カタログの文言を変えたら同じ PR で readme も直す）。無料版の上限の数字は `LimitPolicy` の既定値と照合する。
+  → **R3-6a で上限の節を外し、R3-6d（2026-10-11）で無料版の範囲に書き直した**。Pro には、Description の 1 文・FAQ「Can it migrate customers, orders, and coupons?」・changelog・Upgrade Notice で名前だけ触れる
+  （販売サイトの URL は Pro の公開準備で FAQ に足す。`ReadmeTest` が 1.0.0 以上で URL の無い FAQ を止める。2026-10-11 ユーザー決定。§10.0「決め残し」5）。管理画面には Pro の案内を出さない。
+  `== Upgrade Notice ==`（wordpress.org の更新画面に出る。各版 300 字まで・マークアップなし。`ReadmeTest`）に、0.1.0 から更新するサイト向けの要点を書く（§10.0「決め残し」7）。
+  FAQ の「エクスポートが止まる警告」は、止める警告（48 種）のうち dry-run の CSV に出て出会いやすいものだけを（送信時にだけ出る `product_price_not_convertible` などは dry-run が `push_*()` を呼ばないので CSV に出ず、載せない）、`WarningCatalog::describe( code, EXPORT )` の原因・対処をそのまま載せる（`ReadmeTest` が箇条書きの全行がカタログと文字どおり一致することと、載せたコードが `blocking` であることを確かめる。カタログの文言を変えたら同じ PR で readme も直す）。~~無料版の上限の数字は `LimitPolicy` の既定値と照合する。~~（R3-6a で上限ごと削除し、上限の記述が無いことを照合する形にした）
   Requirements の「店舗オーナーのアカウントで認可する（副管理者のアカウントは認可できない）」は、2026-09-08 に副管理者で認可を試みて Color Me Shop に拒否された事実による（docs の要検証には未記載だった）。
-  サンプルのクリーンアップは取込みのサンプル用で、エクスポートの後に使うと紐づけとエクスポートのサンプルが消え、次のエクスポートで Color Me Shop に重複を作る（§10.2「E2-2 PR-A」の既知の制限。ツール側の対処は backlog `r3-3-readme-v1/R1-X1`）ので、readme にそう書いた。
+  ~~サンプルのクリーンアップは取込みのサンプル用で、エクスポートの後に使うと紐づけとエクスポートのサンプルが消え、次のエクスポートで Color Me Shop に重複を作る（§10.2「E2-2 PR-A」の既知の制限。ツール側の対処は backlog `r3-3-readme-v1/R1-X1`）ので、readme にそう書いた。~~（R3-6a でサンプルのクリーンアップごと削除し、readme からも外した）
   External services 節（ガイドライン）に Color Me Shop API（`api.shop-pro.jp`）へ送る・読むデータと規約の URL を書いた（2026-10-09 に確認: API 利用規約 `https://api.shop-pro.jp/developers/tos`、サービス利用規約 `https://shop-pro.jp/terms/colorme-terms/`、GMO ペパボのプライバシーポリシー `https://pepabo.com/company/privacy/`。`ReadmeTest` は接続先のホストが節に書かれていることを確かめる）。
   スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、R3-4 で SVN の `assets/` へ置く）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
@@ -768,11 +772,15 @@ D15（無料版のサンプル上限）は廃止し、§10.2 の仕組み（`Lim
 4. 試用 100 件の数え方と選び方（エンティティごとの累計か、最新の受注から選ぶか）。Pro の設計で決める。
 5. Pro への案内（リンクの置き場所と文言。`cbjp/limits/pro_url` を残すか）。
    → **一部決定（2026-10-09）**: `cbjp/limits/pro_url` は上限の案内（`LimitsUpsellNotice`）と一緒に R3-6a で削除した。置き場所と文言は R3-6d で決める。
+   → **決定（2026-10-11、R3-6d の計画）**: readme だけで案内する（Description の 1 文と FAQ 1 件。「このプラグインは顧客・受注・クーポンを移さない。別のアドオン Cart Bridge JP Pro が移す」）。
+   販売サイトの URL は Pro の公開準備で FAQ に足す（`ReadmeTest` が版 1.0.0 以上で URL の無い FAQ を止める）。管理画面には出さない（ガイドライン 11 の通知・押せない UI を作らない）。下の「R3-6d の実装」。
 6. ~~Pro の公開時期: 無料版 v1.0 だけでは顧客・受注を移せないため、v1.0 と同時に Pro を出すか。~~
    → **決定（2026-10-09）: v1.0 と同時に出す**。公開に必須とする Pro の範囲（試用・ライセンス〔WooCommerce API Manager〕・販売サイト・パスワード設定メール〔D28〕・301 リダイレクト CSV）は R3-6 の計画で決める。
    → **決定（2026-10-09、R3-6 の計画）**: 公開に必須とするのは、顧客・受注・クーポンの移行・試用（各 100 件）・ライセンスと更新配信（と販売サイト）。
    パスワード設定メール（D28）と 301 リダイレクト CSV（D17）は公開の後に出す。
 7. 0.1.0（GitHub Release）で顧客・受注を取り込んだサイトが無料版を更新したときの扱い（取り込んだデータは Woo に残るが、無料版からは再取込みもツールも使えなくなる）。
+   → **決定（2026-10-11、R3-6d の計画）**: readme の changelog と `== Upgrade Notice ==` で知らせる（0.1.0 は同じスラッグ・フォルダ〔`cart-bridge-jp/`〕なので、wordpress.org の公開後は更新画面に通知が出る）。
+   データの移行・修復の処理は足さない（県コード修復は決め残し 3 で廃止済み）。下の「R3-6d の実装」。
 8. Pro が使ってよい無料版のクラス・フックの範囲（D29）。公開後に互換を保つ範囲になる。
    → **決定（2026-10-10、R3-6b の計画）**: 下の「Pro が使ってよい無料版の API」。R3-6c で Pro へ移すファイルが参照する無料版のクラスから洗い出した。
 9. ~~無料版が要求する OAuth のスコープ: 受注・顧客・クーポンにだけ使うスコープを無料版が要求し続けるか、Pro が足す形にするか。~~
@@ -1015,6 +1023,32 @@ main の ja の訳を引き継ぐ。backlog）。
 **確認**: 品質チェック一式。ガード（記録なし → 5 つ・読めない `scope` → `[]`・`BASE_SCOPES` を外せない・未知の値の記録・並び・壊れた記録・Pro の判定と未接続・フィルター・画面の読み）を
 変異で外してテストが落ちることを確かめた。dev サイトで Pro 有効／無効のそれぞれで、トークンの記録を商品の 2 つ・記録なし・5 つ・`[]` にしたときの `/connections` の `missing_scopes`・
 `entities`・`/settings/mappings` の `kinds`、画面（接続カードの警告・Import／Export の案内）を見た（元のトークンを退避して戻し、同一を確認）。
+
+#### R3-6d の実装（2026-10-11。ブランチ `feat/r3-6d-readme-free-scope`）
+
+**目的**: 配布物の readme・Description・スクリーンショットを、R3-6a〜c2 の後の無料版（商品系だけ・件数無制限）に合わせる。決め残し 5（Pro への案内）と 7（0.1.0 のサイト）を決める。
+
+**readme**（事実は実装から書いた。無料版が API で読むのは `shop.json`・商品・`categories.json`・`groups.json`、書くのは商品・オプション・バリエーション・在庫・画像〔Beta〕だけ）:
+- 短い説明・Description: 商品データ（カテゴリ・グループ・商品〔オプション・画像〕・在庫）の移行。Import はカテゴリ・グループ・商品・在庫、Export は商品・在庫・商品画像のアップロード（Beta）。
+  Mappings はエクスポートのカテゴリだけ（決済・配送・注文ステータスは Pro）、検証レポートは件数とリンク（受注金額は Pro）、HPOS は「宣言する・受注を読み書きしない」。
+- External services: 送るデータ・読むデータから顧客・受注・クーポン・決済・配送を外した。接続のきっかけは Mappings タブ（カテゴリの一覧）・dry-run・取込み・エクスポートと、Export タブの「Link and resolve」（`PushIntentResolver` が `fetch_by_remote_id()` を呼ぶ）。無料版だけのときは Import タブを開いても API へ出ない（マッピングの案内を持つ種類が無い）ので挙げない。Tools タブのリンク再構築も API を呼ばない（review-loop R1-2）。
+- FAQ: 往復の例を商品だけに、Beta を商品画像だけに、アンインストールを「移したデータは残る」に。Pro の FAQ を新設（上の「決め残し」5）。
+- changelog 1.0.0: 初回公開の範囲と、0.1.0 から更新するサイト向けに (1) 件数の上限が無くなった（数字は書かない。`ReadmeTest` の上限の検出に掛かる）、(2) 顧客・受注・クーポンは移さなくなり Pro が移す。取り込み済みのものは WooCommerce に残り、無料版は変更しない、
+  (3) 0.1.0 で取り込んだ顧客・受注の県が 23 県で別の県になっている（例: 秋田 → 宮城。§10.3「県コード修復ツール」の記録）。再取込みでは直らないことがある（checksum 一致スキップ）ので手で直す、
+  (4) 日本語でインストールした WooCommerce では、0.1.0 が軽減税率の商品を標準の税区分に入れた（軽減税率の税区分のスラッグが `reduced-rate` でないため。§10.2「税区分の見分け方」の既知の限界。受注の明細の税区分も標準だが、税額は ColorMe の値を `set_taxes()` で保存したので受注の金額は誤っていない）。再取込みでは直らないことがあるので商品の税区分を手で変える（review-loop R1-1・R2-4）、
+  (5) OAuth は商品の権限だけを求める。既存の接続は付与済みの権限（顧客・受注・クーポンを含む）のまま動き、外したいときは Color Me Shop で認可を取り消して接続し直す（R3-6c2 review-loop R1-5）、(6) 商品名（R3-3 からの項目）。
+- `== Upgrade Notice ==` 1.0.0: 顧客・受注・クーポンはもう移さない（Pro が移す）・0.1.0 で取り込んだデータの県・税区分が誤っていることがある（changelog を参照）。
+
+**ヘッダー・i18n**: プラグインヘッダーと `composer.json` の Description を「Migrate products and stock between Color Me Shop and WooCommerce.」にし、POT・日本語訳（「カラーミーショップと WooCommerce の間で、商品と在庫を移行します。」）を更新。
+UI の文字列に顧客・受注を名指しするものは残っていない（POT を確認。税の警告の「取り込み済みの受注は標準税率のまま」は Pro を併用したときの事実なので残した）。
+
+**`ReadmeTest`**: 無料版の機能・API の説明（短い説明・ヘッダーの Description・Description の小見出し〔Import/Export/Before and after/External services〕・Installation・キャプション・Beta・往復・アンインストールの FAQ）に customer・order・coupon・payment method・shipping method が無い（HPOS の正式名は除く。R3-6c1 の後に readme が古いまま残った退行の検出。範囲は review-loop R1-4・R2-1 で広げた）、
+Pro の FAQ が Cart Bridge JP Pro を名指しし Description も名指しする・1.0.0 以上では `https://` の URL を含む、Upgrade Notice の各版が 300 字以内・マークアップなしで 1.0.0 の通知がある。
+変異（顧客の行・External services の決済と配送・FAQ の質問・Description の Pro・通知の長さ・マークアップ・1.0.0 の通知と、R1-4 で広げた各箇所に旧文言を戻すもの）がすべて検出された。
+
+**スクリーンショット**（`wporg-screenshots`）: Pro を無効にして撮る（`capture.sh` が `cart-bridge-jp-pro` を無効にし、`setup.php` が Pro の定数が無いこと・登録された種類が無料版のものだけであることを確かめる。Pro を有効にしたまま実行すると止まることを確認）。
+マッピングはカテゴリだけを作り、mu-plugin から顧客の差し替えと顧客・受注・クーポンの一覧を外した。在庫は dry-run に含めない（商品を書かない dry-run では在庫が全件「商品がまだ無い」でスキップと写る。試し撮りで確認）。
+撮り直して変わったのは 2（Import: 顧客・受注・クーポンの選択肢と結果が消えた）・3（Mappings: カテゴリの節だけ）・4（Export: 受注のベータが消えた）。1・5 はメニューのバッジ（WooCommerce 側の状態）だけの差なので元の画像のまま。
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 
@@ -2328,7 +2362,7 @@ Q3 エクスポートで税率が 1 件も無い既定名の税区分は軽減�
   payload の組立て（`base_payload()`）に記号以外の税区分が来たら `LogicException`（判定を通らない呼び出しが増えても `tax_reduced=false` を送らない）。以前の安全策で hidden 作成済みの商品は、Reader が止めるので hidden のまま残る。
 - **既知の限界**: 取込みでは標準の商品を常に標準の税区分 `''` に入れる。`''` に JP 10% 以外を入れた店舗（標準を 8% にした食品だけの店舗など）では、ColorMe の標準税率の商品が
   その税率で課税される（エクスポートと違い、取込みの標準側は税率で選ばない。review-loop R1 でユーザーがエクスポートだけ直すと決定。backlog `r3-1de-tax-class-detection/R1-X1`）。
-  この変更より前に日本語の Woo へ取り込んだ軽減税率の商品（`tax_class_missing` で標準に入った）は checksum 保存済みで、再取込みでは直らない（v0.1.0 を検証中のサイトが該当しうる。直すなら税区分を手で変えるか、クリーンアップして取り込み直す）。
+  この変更より前に日本語の Woo へ取り込んだ軽減税率の商品（`tax_class_missing` で標準に入った）は checksum 保存済みで、再取込みでは直らない（v0.1.0 を検証中のサイトが該当しうる。直すなら税区分を手で変えるか、クリーンアップして取り込み直す。→ R3-6a でクリーンアップを削除したので手で変える。R3-6d で readme の changelog に書いた）。
 - **検証**: PHPUnit（`TaxClassTest` 23 件〔日本語インストールの再現・標準の税区分の税率・記号との衝突・非文字列・基準所在地の州・分割税率・ワイルドカード・基準国 US・他地域のみ・税率なし・存在しない税区分・壊れたフィルター・キャッシュの追従・候補の順・フォールバック〕、
   `ProductReaderTest`・`OrderReaderTest`・`ProductWriterTest`・`OrderWriterTest`・`ColorMeAdapterTest`・`ProductTransformerTest`・`ExporterTest`〔実際の `ProductReader` を通した dry-run と本実行〕・`ImporterTest`〔作ってから取り込み直すと直る〕・`DryRunReportCsvTest`・`WarningCodeTest`）。
   `mutate-check.sh` で分類の各分岐・候補の順・フォールバック・キャッシュのキー・Reader の判定（商品・バリエーション・`tax_status`・記号への変換・detail）・blocking と CSV の登録・商品だけの checksum 判定・受注の明細・アダプタのスキップと LogicException の 36 種と、review-loop R1 の修正 7 種・ゲート G2 の 1 種〔`TaxInclusivePrice` の非文字列〕がすべて CAUGHT（ほかに等価な置換 1 種〔`OrderItemBuilder` の記号の定数を同じ値の文字列に〕は対象外）。
