@@ -195,11 +195,12 @@ final class ColorMeOAuth {
 			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
-		$args = [
+		$scopes = self::scopes();
+		$args   = [
 			'response_type' => 'code',
 			'client_id'     => $client_id,
 			'redirect_uri'  => $redirect_uri,
-			'scope'         => implode( ' ', self::scopes() ),
+			'scope'         => implode( ' ', $scopes ),
 		];
 
 		// stateはコールバックでのCSRF検証用（03 §6）。OOBフローは我々への redirect が発生しないため
@@ -207,6 +208,11 @@ final class ColorMeOAuth {
 		if ( null !== $state_user_id ) {
 			$args['state'] = $this->issue_state( $state_user_id );
 		}
+
+		// トークン応答に `scope` が無いときに記録する「要求したスコープ」を、この認可の単位で控える（交換の時点で求め直すと、その間に拡張を
+		// 有効・無効にしたとき実際の要求とずれる。R3-6c2 G1-1）。リダイレクトは state ごと、OOB（state が無い）はコードを貼り付ける管理者
+		// （今のユーザー）ごと。期限は認可コードと同じ 10 分。
+		set_transient( $this->requested_scopes_key( $args['state'] ?? null ), $scopes, self::STATE_TTL_SECONDS );
 
 		// add_query_arg()は値をurlencodeしない（WP側の既知の挙動）ため、PHP標準の
 		// http_build_query()でクエリ文字列を組み立てる。セパレータは明示（ini設定
@@ -249,6 +255,38 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * 認可で要求したスコープの控え（{@see self::authorize_url()}）の transient のキー。`$state` が null（OOB）なら今のユーザーごと。
+	 */
+	private function requested_scopes_key( ?string $state ): string {
+		return 'cbjp_colorme_oauth_scopes_' . ( null === $state ? 'user_' . get_current_user_id() : $state );
+	}
+
+	/**
+	 * 認可で要求したスコープの控えを読んで消す（一度きり）。無い・期限切れ・読めない控えは空（何を要求したか分からない。トークン応答に
+	 * `scope` も無ければ何も付与されていない扱いになり、管理画面が再接続を促す。フェイルクローズ）。
+	 *
+	 * @return array<int,string>
+	 */
+	private function take_requested_scopes( ?string $state ): array {
+		$key    = $this->requested_scopes_key( $state );
+		$scopes = get_transient( $key );
+
+		delete_transient( $key );
+
+		if ( ! is_array( $scopes ) || ! array_is_list( $scopes ) ) {
+			return [];
+		}
+
+		foreach ( $scopes as $scope ) {
+			if ( ! is_string( $scope ) ) {
+				return [];
+			}
+		}
+
+		return $scopes;
+	}
+
+	/**
 	 * カラーミー側のOOBリダイレクト先 `https://api.shop-pro.jp/oauth/authorize/{code}` や、
 	 * ユーザーが貼り付けた生の認可コードの両方を受け付ける。
 	 */
@@ -266,9 +304,12 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * @param string      $code         認可コード。
+	 * @param string      $redirect_uri 認可で使ったリダイレクト URI。
+	 * @param string|null $state        リダイレクトの認可の state（{@see self::verify_state()} で確かめた後）。OOB は null（今のユーザーの控えを使う）。
 	 * @throws ApiException トークン交換に失敗した場合。
 	 */
-	public function exchange_code( string $code, string $redirect_uri ): void {
+	public function exchange_code( string $code, string $redirect_uri, ?string $state = null ): void {
 		$settings      = $this->token_store->settings();
 		$client_id     = (string) ( $settings['client_id'] ?? '' );
 		$client_secret = (string) ( $settings['client_secret'] ?? '' );
@@ -277,9 +318,9 @@ final class ColorMeOAuth {
 			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
-		// 応答に `scope` が無いときに記録する値（要求したとおりに付与された。RFC 6749 §5.1）。認可の後に拡張を有効・無効にすると、
-		// 認可の要求とずれうる（ColorMe の応答は `scope` を含む〔swagger の説明〕ので、実際にはこちらを使わない）。
-		$requested = self::scopes();
+		// 応答に `scope` が無いときに記録する値（要求したとおりに付与された。RFC 6749 §5.1）。認可を始めたときに控えたもの（R3-6c2 G1-1。
+		// ColorMe の応答は `scope` を含む〔swagger の説明〕ので、通常はこちらを使わない）。
+		$requested = $this->take_requested_scopes( $state );
 
 		$body = [
 			'grant_type'    => 'authorization_code',

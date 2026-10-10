@@ -608,6 +608,33 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `colorme` のキーを OAuth の接続ボタンを持たないアダプタ（検証用の mock など）で置き換えたときは、ColorMe のトークンのスコープを返さない
+	 * （再接続のボタンが無いのに再接続を促さない。R3-6c2 G1-2）。
+	 */
+	public function test_get_connections_reports_no_missing_scopes_for_a_non_oauth_adapter_under_the_colorme_key(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new MockPlatformAdapter( platform_id: ColorMeAdapter::ID );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products' ],
+			]
+		);
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+
+		$this->assertTrue( $data[0]['connected'] );
+		$this->assertSame( [], $data[0]['missing_scopes'] );
+	}
+
+	/**
 	 * 拡張のフィルターが例外を投げても `/connections` は落ちない（拡張の分を捨てる）。
 	 */
 	public function test_get_connections_survives_a_throwing_scope_filter(): void {
@@ -1292,6 +1319,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$authorize_request  = new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' );
 		$authorize_response = $this->server->dispatch( $authorize_request );
 		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+		// 認可の後で拡張がスコープを足しても、記録するのは認可で要求したもの（state で引く。R3-6c2 G1-1）。
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
 
 		add_filter(
 			'pre_http_request',
@@ -1317,6 +1346,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$headers = $response->get_headers();
 		$this->assertStringContainsString( 'cbjp_connected=colorme', $headers['Location'] );
 		$this->assertTrue( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, ( new TokenStore( ColorMeAdapter::ID ) )->granted_scopes() );
 
 		remove_all_filters( 'pre_http_request' );
 	}

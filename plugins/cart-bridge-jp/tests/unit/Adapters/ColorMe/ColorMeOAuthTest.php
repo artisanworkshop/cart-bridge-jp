@@ -470,7 +470,8 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 応答に `scope` が無ければ要求したとおりに付与されている（RFC 6749 §5.1）。要求は交換の時点の `scopes()`。
+	 * 応答に `scope` が無ければ要求したとおりに付与されている（RFC 6749 §5.1）。要求は認可を始めたときに控えたもの
+	 * （交換までに拡張を有効・無効にしても変わらない。R3-6c2 G1-1）。OOB は今のユーザーごとに控える。
 	 *
 	 * @return array<string,array{0:array<string,mixed>}>
 	 */
@@ -491,16 +492,86 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 *
 	 * @param array<string,mixed> $response トークン応答。
 	 */
-	public function test_exchange_code_records_the_requested_scopes_when_the_response_has_none( array $response ): void {
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+	public function test_exchange_code_records_the_scopes_requested_when_authorizing_out_of_band( array $response ): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$add_sales               = static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] );
+		add_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
 		[ $oauth, $token_store ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
-		$this->respond_with_token( $response );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
 
+		// 認可の後で拡張を止めても、控えた要求を記録する。
+		remove_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+		$this->respond_with_token( $response );
 		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
 
 		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
-		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * リダイレクトの認可は state ごとに控える（コールバックは未ログインで、ユーザーでは引けない）。拡張を後から有効にしても、
+	 * 実際に要求した 2 つを記録する（足りないスコープとして再接続を促す）。
+	 */
+	public function test_exchange_code_records_the_scopes_requested_for_the_state(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$state = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
+
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		wp_set_current_user( 0 );
+		$this->assertTrue( $oauth->verify_state( $state ) );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+		$oauth->exchange_code( 'auth-code', 'https://example.test/callback', $state );
+
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+		$this->assertSame( [ 'read_sales' ], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 控えが無い（期限切れ・別の認可）うえに応答にも `scope` が無ければ、何を付与されたか分からないので何も付与されていない扱い（フェイルクローズ）。
+	 * 控えは一度きり（2 回目の交換では使わない）。
+	 */
+	public function test_exchange_code_records_no_scopes_without_a_record_of_the_request(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+
+		$oauth->exchange_code( 'auth-code-2', ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->assertSame( [], $token_store->granted_scopes() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 読めない控え（リストでない・文字列でない要素）は控えが無いのと同じ（応答に `scope` も無ければ何も付与されていない扱い）。
+	 *
+	 * @return array<string,array{0:mixed}>
+	 */
+	public static function broken_requested_scope_records(): array {
+		return [
+			'string'            => [ 'read_products write_products' ],
+			'map'               => [ [ 'a' => 'read_products' ] ],
+			'non-string member' => [ [ 'read_products', 7 ] ],
+		];
+	}
+
+	/**
+	 * @dataProvider broken_requested_scope_records
+	 *
+	 * @param mixed $record 控えの transient の値。
+	 */
+	public function test_exchange_code_ignores_a_broken_record_of_the_request( mixed $record ): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		set_transient( 'cbjp_colorme_oauth_scopes_user_' . get_current_user_id(), $record, 600 );
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [], $token_store->granted_scopes() );
 	}
 
 	/**
