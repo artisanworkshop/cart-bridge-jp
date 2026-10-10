@@ -14,6 +14,7 @@ use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\MediaImporter;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
@@ -166,7 +167,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'p-unmapped' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'p-unmapped' ), $result->warnings );
 	}
 
 	public function test_resolves_line_item_by_mapping_when_sku_missing(): void {
@@ -223,7 +224,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertSame( 'gone', $items[0]->get_meta( '_cbjp_remote_product_id' ) );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'gone' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'gone' ), $result->warnings );
 	}
 
 	public function test_line_item_resolving_to_variable_parent_is_treated_as_unresolved(): void {
@@ -260,8 +261,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp1' ), $result->warnings );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp1' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp1' ), $result->warnings );
 	}
 
 	/**
@@ -297,8 +298,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $order, null );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-deleted' ), $result->warnings );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-deleted' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-deleted' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-deleted' ), $result->warnings );
 	}
 
 	public function test_line_item_resolves_to_variation_by_single_axis_option_value(): void {
@@ -350,7 +351,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( $parent_id, $items[0]->get_product_id() );
 		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
 		$this->assertEmpty(
-			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) )
 		);
 	}
 
@@ -507,8 +508,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-nomatch' ), $result->warnings );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-nomatch' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-nomatch' ), $result->warnings );
 	}
 
 	public function test_line_item_ambiguous_variation_match_remains_unresolved(): void {
@@ -563,8 +564,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		// 商品は取り込み済みなので「先にインポートすれば消える」`ORDER_LINE_PRODUCT_UNRESOLVED`ではない（R3-0n）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-dup' ), $result->warnings );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-dup' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, 'vp-dup' ), $result->warnings );
 	}
 
 	public function test_real_colorme_variation_purchase_resolves_through_transformer_and_writer(): void {
@@ -607,7 +608,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertEmpty(
 			array_filter(
 				$order_result->warnings,
-				static fn ( string $w ): bool => str_starts_with( $w, WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) || str_starts_with( $w, WarningCode::ORDER_LINE_VARIATION_UNMATCHED )
+				static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED ) || str_starts_with( $w, CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED )
 			)
 		);
 	}
@@ -642,7 +643,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		// dry-run（`validate()`）も`write()`と同じ`prepare()`を通るので、同じ警告になる。
 		$dry_run = $this->make_writer()->validate( $canonical_order, null );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $dry_run->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $dry_run->warnings );
 
 		$result   = $this->make_writer()->write( $canonical_order, null );
 		$wc_order = wc_get_order( $result->local_id );
@@ -652,9 +653,9 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 0, $items[0]->get_product_id() );
 		$this->assertSame( 2, $items[0]->get_quantity() );
 		$this->assertSame( '900000052', $items[0]->get_meta( '_cbjp_remote_product_id' ) );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $result->warnings );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, '900000052' ), $result->warnings );
-		$this->assertContains( WarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, '900000052' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, '900000052' ), $result->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
 	}
 
 	/**
@@ -726,7 +727,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 1, (int) $items[0]->get_quantity() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'no-qty' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, 'no-qty' ), $result->warnings );
 	}
 
 	public function test_non_numeric_line_item_price_with_no_subtotal_fails_closed(): void {
@@ -757,7 +758,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( '0', $items[0]->get_total() );
 		// detailは金額の値自体ではなくremote_product_id（同メソッド内の他の警告・
 		// F1-6の結果レポートがどの明細か特定できるようにする契約と揃える）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, 'bad-price' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, 'bad-price' ), $result->warnings );
 	}
 
 	public function test_zero_or_negative_line_item_quantity_falls_back_to_one_with_warning(): void {
@@ -785,7 +786,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 1, (int) $items[0]->get_quantity() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'negative-qty' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, 'negative-qty' ), $result->warnings );
 	}
 
 	/**
@@ -840,7 +841,7 @@ final class OrderWriterTest extends WooTestCase {
 			array_values(
 				array_filter(
 					$result->warnings,
-					static fn ( string $w ): bool => str_starts_with( $w, 'order_line_' ) || str_starts_with( $w, WarningCode::ORDER_TAX_SPLIT_UNAVAILABLE )
+					static fn ( string $w ): bool => str_starts_with( $w, 'order_line_' ) || str_starts_with( $w, CommerceWarningCode::ORDER_TAX_SPLIT_UNAVAILABLE )
 				)
 			)
 		);
@@ -889,7 +890,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 1, (int) $items[0]->get_quantity() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'odd-qty' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, 'odd-qty' ), $result->warnings );
 	}
 
 	/**
@@ -930,7 +931,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( 1, $items[0]->get_quantity() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, '900000051' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, '900000051' ), $result->warnings );
 	}
 
 	/**
@@ -1055,7 +1056,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items    = array_values( $wc_order->get_items() );
 
 		$this->assertSame( '0', $items[0]->get_total_tax() );
-		$this->assertContains( WarningCode::ORDER_LINE_TAX_INCONSISTENT, $result->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_LINE_TAX_INCONSISTENT, $result->warnings );
 	}
 
 	public function test_customer_ref_pointing_to_deleted_user_is_treated_as_unresolved(): void {
@@ -1074,7 +1075,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( 0, $wc_order->get_customer_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, 'c-gone' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_UNRESOLVED, 'c-gone' ), $result->warnings );
 	}
 
 	public function test_discount_point_meta_is_deleted_when_no_longer_present(): void {
@@ -1121,7 +1122,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( 'on-hold', $wc_order->get_status() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $result->warnings );
 	}
 
 	/**
@@ -1139,7 +1140,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( 'on-hold', $wc_order->get_status() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'checkout-draft' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, 'checkout-draft' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -1163,7 +1164,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $order, null );
 
-		$this->assertContains( WarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_TAX_TOTAL_INCOMPLETE, $result->warnings );
 	}
 
 	public function test_totals_are_set_from_asp_values_without_recalculation(): void {
@@ -1214,7 +1215,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
 		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
 	}
 
@@ -1240,7 +1241,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'total' ), $result->warnings );
 		$this->assertCount( 0, wc_get_orders( [ 'limit' => -1 ] ) );
 	}
 
@@ -1472,7 +1473,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( 0, $wc_order->get_customer_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-admin' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-admin' ), $result->warnings );
 		// 管理者アカウントとの衝突は解決される見込みが無い終端状態のため（再試行しても
 		// 保護は解除されない）、`ORDER_CUSTOMER_UNRESOLVED`と異なりfully_resolvedはtrueのまま
 		// （falseにすると、解決される可能性が無いのに毎回無駄に再処理されてしまう）。
@@ -1485,7 +1486,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( 0, $wc_order->get_customer_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, 'missing-customer' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_UNRESOLVED, 'missing-customer' ), $result->warnings );
 		// `Importer::process_items()`はfully_resolved=falseの結果に対してchecksumを
 		// キャッシュしない（顧客参照が後から解決可能になった場合に再試行するため）。
 		$this->assertFalse( $result->fully_resolved );
@@ -1511,8 +1512,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $order, null );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTAL_RESIDUAL, '5' ), $result->warnings );
-		$this->assertContains( WarningCode::ORDER_SPLIT_TAX_UNKNOWN, $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTAL_RESIDUAL, '5' ), $result->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_SPLIT_TAX_UNKNOWN, $result->warnings );
 	}
 
 	public function test_re_run_does_not_duplicate_line_items(): void {
@@ -1654,8 +1655,8 @@ final class OrderWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $order, null );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
-		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
 
 		$wc_order = wc_get_order( $result->local_id );
 		$this->assertSame( '銀行振込', $wc_order->get_payment_method_title() );
@@ -1732,9 +1733,9 @@ final class OrderWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $order, null );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
 		$this->assertEmpty(
-			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::SHIPPING_METHOD_UNMAPPED ) )
 		);
 		$this->assertFalse( $result->fully_resolved );
 	}
@@ -1761,7 +1762,7 @@ final class OrderWriterTest extends WooTestCase {
 		// ASP側の生ID（'pay-1'）がそのまま入ってはならない。
 		$this->assertSame( 'bacs', $wc_order->get_payment_method() );
 		$this->assertEmpty(
-			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::PAYMENT_METHOD_UNMAPPED ) )
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::PAYMENT_METHOD_UNMAPPED ) )
 		);
 
 		delete_option( 'cbjp_settings_colorme' );
@@ -1791,7 +1792,7 @@ final class OrderWriterTest extends WooTestCase {
 		$wc_order = wc_get_order( $result->local_id );
 
 		$this->assertSame( '', $wc_order->get_payment_method() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, 'pay-1' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -1819,7 +1820,7 @@ final class OrderWriterTest extends WooTestCase {
 		// ASP側の生ID（'ship-1'）がそのまま入ってはならない。
 		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
 		$this->assertEmpty(
-			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::SHIPPING_METHOD_UNMAPPED ) )
 		);
 
 		delete_option( 'cbjp_settings_colorme' );
@@ -1861,7 +1862,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( 'flat_rate', $shipping_items[0]->get_method_id() );
 		$this->assertSame( (string) $instance_id, $shipping_items[0]->get_instance_id() );
 		$this->assertEmpty(
-			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, WarningCode::SHIPPING_METHOD_UNMAPPED ) )
+			array_filter( $result->warnings, static fn ( string $w ): bool => str_starts_with( $w, CommerceWarningCode::SHIPPING_METHOD_UNMAPPED ) )
 		);
 
 		delete_option( 'cbjp_settings_colorme' );
@@ -1891,7 +1892,7 @@ final class OrderWriterTest extends WooTestCase {
 		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
 		$this->assertCount( 1, $shipping_items );
 		$this->assertSame( '', $shipping_items[0]->get_method_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -1920,7 +1921,7 @@ final class OrderWriterTest extends WooTestCase {
 		$shipping_items = array_values( $wc_order->get_items( 'shipping' ) );
 		$this->assertCount( 1, $shipping_items );
 		$this->assertSame( '', $shipping_items[0]->get_method_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, 'ship-1' ), $result->warnings );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -1945,7 +1946,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
 		// テスト環境のデフォルト通貨がJPYでないため`CURRENCY_MISMATCH`が乗る。テストの主眼
 		// （このシナリオ固有の警告が出ないこと）とは無関係なので除外して比較する。
-		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::CURRENCY_MISMATCH ] ) );
+		$this->assertSame( [], array_diff( $validation->warnings, [ CommerceWarningCode::CURRENCY_MISMATCH ] ) );
 		$this->assertSame(
 			$before_count,
 			count(
@@ -1987,7 +1988,7 @@ final class OrderWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $order, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'total' ), $validation->warnings );
 		$this->assertSame(
 			$before_count,
 			count(
@@ -2015,7 +2016,7 @@ final class OrderWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $order, null );
 
 		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, 'some-unknown-status' ), $validation->warnings );
 		$this->assertSame(
 			$before_count,
 			count(
@@ -2044,7 +2045,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$validation = $this->make_writer()->validate( $order, null );
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'unmapped-pay' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, 'unmapped-pay' ), $validation->warnings );
 	}
 
 	public function test_validate_resolves_line_item_by_sku_without_creating_an_order(): void {
@@ -2085,7 +2086,7 @@ final class OrderWriterTest extends WooTestCase {
 		$this->assertSame( WriteResult::OPERATION_CREATED, $validation->operation );
 		// テスト環境のデフォルト通貨がJPYでないため`CURRENCY_MISMATCH`が乗る。テストの主眼
 		// （このシナリオ固有の警告が出ないこと）とは無関係なので除外して比較する。
-		$this->assertSame( [], array_diff( $validation->warnings, [ WarningCode::CURRENCY_MISMATCH ] ) );
+		$this->assertSame( [], array_diff( $validation->warnings, [ CommerceWarningCode::CURRENCY_MISMATCH ] ) );
 		$this->assertSame(
 			$before_count,
 			count(
@@ -2408,7 +2409,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertSame( 0, $result->local_id );
-		$this->assertSame( [ WarningCode::ORDER_CREATE_FAILED ], $result->warnings );
+		$this->assertSame( [ CommerceWarningCode::ORDER_CREATE_FAILED ], $result->warnings );
 		$this->assertSame(
 			$before_ids,
 			wc_get_orders(
@@ -2642,7 +2643,7 @@ final class OrderWriterTest extends WooTestCase {
 
 		$this->assertSame( $parent_id, $items[0]->get_product_id() );
 		$this->assertSame( $variation_id, $items[0]->get_variation_id() );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-exported' ), $result->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-exported' ), $result->warnings );
 	}
 
 	/**
@@ -2666,7 +2667,7 @@ final class OrderWriterTest extends WooTestCase {
 		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_variation_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-local' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-local' ), $result->warnings );
 	}
 
 	/**
@@ -2683,6 +2684,6 @@ final class OrderWriterTest extends WooTestCase {
 		$items  = array_values( wc_get_order( $result->local_id )->get_items() );
 
 		$this->assertSame( 0, $items[0]->get_variation_id() );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-foreign' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-foreign' ), $result->warnings );
 	}
 }

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Woo\Reader;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Tests\Fixtures\VariableProductFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Reader\OrderReader;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Order;
@@ -156,7 +157,7 @@ final class OrderReaderTest extends WooTestCase {
 
 		$this->assertNull( $read_item->item->customer_ref );
 		$this->assertFalse( $read_item->fully_resolved );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_NOT_EXPORTED, (string) $customer_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_NOT_EXPORTED, (string) $customer_id ), $read_item->warnings );
 	}
 
 	public function test_guest_order_has_null_customer_ref_without_warning(): void {
@@ -183,7 +184,7 @@ final class OrderReaderTest extends WooTestCase {
 
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
 		$this->assertFalse( $read_item->fully_resolved );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), $read_item->warnings );
 	}
 
 	/**
@@ -208,7 +209,7 @@ final class OrderReaderTest extends WooTestCase {
 		$this->assertSame( '0.00', $line['price'] );
 		$this->assertSame( '0.00', $line['subtotal'] );
 		$this->assertSame( '0.00', $line['unit_price_excl_tax'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, 'p-neg' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, 'p-neg' ), $read_item->warnings );
 	}
 
 	/**
@@ -224,7 +225,7 @@ final class OrderReaderTest extends WooTestCase {
 		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
 		$read_item = $page->items[0];
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
 		$this->assertSame( 'USD', $read_item->item->extras['currency'] );
 		// JPY以外の金額をそのままpushすると、ASP側がJPYとして誤って解釈しうる（例: USD 100が
 		// JPY 100として送信される）ため、importと異なりexportではblockingへ倒す（レビュー指摘）。
@@ -254,7 +255,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertFalse( $read_item->item->line_items[0]['tax_reduced'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-tax' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-tax' ), $read_item->warnings );
 	}
 
 	/**
@@ -295,7 +296,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] )->items[0];
 
 		$this->assertTrue( $read_item->item->line_items[0]['tax_reduced'] );
-		$this->assertNotContains( WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-reduced' ), $read_item->warnings );
+		$this->assertNotContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, 'p-reduced' ), $read_item->warnings );
 	}
 
 	/**
@@ -315,7 +316,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertSame( 1, $read_item->item->line_items[0]['quantity'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-qty' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-qty' ), $read_item->warnings );
 	}
 
 	/**
@@ -362,7 +363,7 @@ final class OrderReaderTest extends WooTestCase {
 		}
 
 		$this->assertSame( 2, $read_item->item->line_items[0]['quantity'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-frac' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, 'p-frac' ), $read_item->warnings );
 	}
 
 	/**
@@ -390,7 +391,7 @@ final class OrderReaderTest extends WooTestCase {
 		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
 		$read_item = $page->items[0];
 
-		$this->assertContains( WarningCode::ORDER_REFUNDED, $read_item->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_REFUNDED, $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -409,7 +410,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertSame( '0', $read_item->item->totals['total'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'total' ), $read_item->warnings );
 	}
 
 	/**
@@ -530,7 +531,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertSame( 0.0, (float) $read_item->item->payment['fee'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -550,7 +551,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertSame( 0.0, (float) $read_item->item->shipping['fee'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -615,7 +616,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $product_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $product_id ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 		$this->assertFalse( WarningCode::indicates_unresolved_reference( $read_item->warnings ) );
 	}
@@ -657,7 +658,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
-		$this->assertContains( WarningCode::ORDER_LINE_PRODUCT_MISSING, $read_item->warnings );
+		$this->assertContains( CommerceWarningCode::ORDER_LINE_PRODUCT_MISSING, $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -695,7 +696,7 @@ final class OrderReaderTest extends WooTestCase {
 		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
 		$read_item = $page->items[0];
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -744,7 +745,7 @@ final class OrderReaderTest extends WooTestCase {
 		$page      = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] );
 		$read_item = $page->items[0];
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -820,7 +821,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertNull( $read_item->item->line_items[0]['remote_product_id'] );
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $parent_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $parent_id ), $read_item->warnings );
 	}
 
 	public function test_checkout_draft_orders_are_excluded_from_cursor_walk(): void {
@@ -889,7 +890,7 @@ final class OrderReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 		$line      = $read_item->item->line_items[0];
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 		$this->assertNull( $line['option1_value_current'] );
 
@@ -933,7 +934,7 @@ final class OrderReaderTest extends WooTestCase {
 
 		$read_item = $this->make_reader()->query( Cursor::start(), [ $order->get_id() ] )->items[0];
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 

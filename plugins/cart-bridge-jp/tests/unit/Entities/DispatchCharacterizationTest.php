@@ -28,6 +28,7 @@ use CartBridgeJP\Woo\Tools\LocalEntityLookup;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
 use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
 use CartBridgeJP\Woo\Tools\PushIntentResolver;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\WooReaderRepositoryFactory;
@@ -111,7 +112,13 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	 * @return array<int,string>
 	 */
 	private static function all_codes(): array {
-		$codes = array_values( array_filter( ( new ReflectionClass( WarningCode::class ) )->getConstants(), 'is_string' ) );
+		// R3-6c1 で顧客・受注・クーポンのコードを `CommerceWarningCode` へ分けた。両方を合わせた一覧が以前の `WarningCode` の全定数と同じ。
+		$codes = array_values(
+			array_filter(
+				array_merge( ( new ReflectionClass( WarningCode::class ) )->getConstants(), ( new ReflectionClass( CommerceWarningCode::class ) )->getConstants() ),
+				'is_string'
+			)
+		);
 		sort( $codes );
 
 		return $codes;

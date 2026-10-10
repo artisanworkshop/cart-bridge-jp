@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Woo\Writer;
 
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\Support\ProductResolver;
 use CartBridgeJP\Woo\Support\TaxClass;
@@ -56,8 +57,8 @@ final class OrderItemBuilder {
 			// 明細でも注文履歴の欠落を防ぐ。商品は取り込み済みでvariationだけ特定できない場合は
 			// 別の警告にする（先に商品をインポートしても消えないため。R3-0n）。
 			$code       = $this->resolver->maps_to_variable_product( $remote_product_id )
-				? WarningCode::ORDER_LINE_VARIATION_UNMATCHED
-				: WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED;
+				? CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED
+				: CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED;
 			$warnings[] = WarningCode::with_detail( $code, $remote_product_id ?? '' );
 			$item->add_meta_data( '_cbjp_remote_product_id', $remote_product_id ?? '', true );
 
@@ -88,7 +89,7 @@ final class OrderItemBuilder {
 			// 注文の集計・返金計算が破綻しうるため、欠損時と同じフェイルクローズ扱いにする
 			// （数量0かつ明細合計0の行だけは上の分岐で数量0のまま残す。金額が0なので集計は崩れない）。
 			$quantity   = 1;
-			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
 		}
 
 		$item->set_quantity( $quantity );
@@ -157,7 +158,7 @@ final class OrderItemBuilder {
 		// 生き残る。`wc_format_decimal()`後は一見正常な数値に見えてしまい、直後の
 		// `$line_total_incl`側の検証をすり抜けて誤った金額が無警告で確定してしまう。
 		if ( ! is_numeric( $unit_price_incl ) || (float) $unit_price_incl < 0.0 ) {
-			return [ '0', '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
+			return [ '0', '0', WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
 		}
 
 		$line_total_incl = Value::string( $line_item['subtotal'] ?? null ) ?? wc_format_decimal( (float) $unit_price_incl * $quantity );
@@ -170,17 +171,17 @@ final class OrderItemBuilder {
 		// detailに入れると、1注文に複数明細がある場合にF1-6の結果レポートからどの明細が
 		// 壊れているか特定できない。
 		if ( ! is_numeric( $line_total_incl ) || (float) $line_total_incl < 0.0 ) {
-			return [ '0', '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
+			return [ '0', '0', WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
 		}
 
 		$unit_price_excl = Value::string( $line_item['unit_price_excl_tax'] ?? null );
 
 		if ( null === $unit_price_excl ) {
-			return [ $line_total_incl, '0', WarningCode::ORDER_TAX_SPLIT_UNAVAILABLE ];
+			return [ $line_total_incl, '0', CommerceWarningCode::ORDER_TAX_SPLIT_UNAVAILABLE ];
 		}
 
 		if ( ! is_numeric( $unit_price_excl ) || (float) $unit_price_excl < 0.0 ) {
-			return [ $line_total_incl, '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
+			return [ $line_total_incl, '0', WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ) ];
 		}
 
 		$line_total_excl = wc_format_decimal( (float) $unit_price_excl * $quantity );
@@ -192,7 +193,7 @@ final class OrderItemBuilder {
 			// ことがある。負の税額をそのまま`set_taxes()`へ書き込むと注文の税合計・検証レポートが
 			// 破綻するため、税抜/税込を分離できないケースと同様に税込金額を税抜側へ丸めて税額0に
 			// フェイルクローズし、警告で可視化する（合計金額自体は崩さない）。
-			return [ $line_total_incl, '0', WarningCode::ORDER_LINE_TAX_INCONSISTENT ];
+			return [ $line_total_incl, '0', CommerceWarningCode::ORDER_LINE_TAX_INCONSISTENT ];
 		}
 
 		return [ $line_total_excl, wc_format_decimal( $tax_amount ), null ];
@@ -305,7 +306,7 @@ final class OrderItemBuilder {
 		}
 
 		if ( ! is_numeric( $raw ) || (float) $raw < 0 ) {
-			return [ '0', WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $raw ) ];
+			return [ '0', WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, $raw ) ];
 		}
 
 		return [ $raw, null ];

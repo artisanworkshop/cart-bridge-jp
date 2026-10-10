@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Reader\CouponReader;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Coupon;
@@ -112,7 +113,7 @@ final class CouponReaderTest extends WooTestCase {
 			update_option( 'woocommerce_currency', 'JPY' );
 		}
 
-		$this->assertContains( WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CURRENCY_MISMATCH, 'USD' ), $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -163,7 +164,7 @@ final class CouponReaderTest extends WooTestCase {
 		$read_item = $page->items[0];
 
 		$this->assertTrue( $read_item->item->has_unsupported_restrictions );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $read_item->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $read_item->warnings );
 		$this->assertTrue( WarningCode::indicates_export_blocking( $read_item->warnings ) );
 	}
 
@@ -221,7 +222,7 @@ final class CouponReaderTest extends WooTestCase {
 
 		$this->assertNull( $read_item->item->min_amount );
 		$this->assertTrue( $read_item->item->has_unsupported_restrictions );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $read_item->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $read_item->warnings );
 	}
 
 	public function test_limit_usage_to_x_items_marks_unsupported(): void {
@@ -264,7 +265,7 @@ final class CouponReaderTest extends WooTestCase {
 
 		$page = $this->make_reader()->query( Cursor::start(), [ $coupon->get_id() ] );
 		$this->assertTrue( $page->items[0]->item->has_unsupported_restrictions );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $page->items[0]->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $page->items[0]->warnings );
 	}
 
 	/**

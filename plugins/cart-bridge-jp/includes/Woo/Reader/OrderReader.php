@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\Support\TaxClass;
 use CartBridgeJP\Woo\Support\VariationAxisResolver;
@@ -149,7 +150,7 @@ final class OrderReader implements EntityReader {
 		// インポート方向と同じ前提）ため、E2-3の`push_order()`が誤って日本円として送信しないよう
 		// ここで検知できるようにする（`extras['currency']`に実際の通貨コードも積む）。
 		if ( Money::PLATFORM_CURRENCY !== $order->get_currency() ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, $order->get_currency() );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::CURRENCY_MISMATCH, $order->get_currency() );
 		}
 
 		// 一部/全額返金済みの受注は、`get_total()`等の明細・合計系getterが返金前の金額のまま
@@ -158,7 +159,7 @@ final class OrderReader implements EntityReader {
 		// pushすると実際には回収していない金額を全額回収済みとしてASP側に作成してしまう
 		// （Codex指摘, PR #41 #12: 返金の有無を確認していなかった。金銭的リスク）。
 		if ( (float) $order->get_total_refunded() > 0 ) {
-			$warnings[] = WarningCode::ORDER_REFUNDED;
+			$warnings[] = CommerceWarningCode::ORDER_REFUNDED;
 		}
 
 		[ $line_items, $line_item_warnings ] = $this->line_items( $order );
@@ -290,7 +291,7 @@ final class OrderReader implements EntityReader {
 
 			if ( ! $quantity_is_exact || $quantity <= 0 ) {
 				$quantity   = max( 1, $quantity );
-				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
+				$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID, $remote_product_id ?? '' );
 			}
 
 			[ $subtotal_minor, $subtotal_tax_minor, $amount_warning ] = $this->line_item_amounts( $order_item, $remote_product_id );
@@ -310,7 +311,7 @@ final class OrderReader implements EntityReader {
 			// ゼロ税率等のその他税区分・非課税/送料のみ課税を表現できない
 			// （`Woo\Reader\ProductReader`の`TAX_STATUS_NOT_TAXABLE`と同じ理由）。
 			if ( ! in_array( $tax_category, [ TaxClass::STANDARD, TaxClass::REDUCED ], true ) || 'taxable' !== $order_item->get_tax_status() ) {
-				$warnings[] = WarningCode::with_detail( WarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, $remote_product_id ?? '' );
+				$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_TAX_CLASS_UNSUPPORTED, $remote_product_id ?? '' );
 			}
 
 			$items[] = [
@@ -373,7 +374,7 @@ final class OrderReader implements EntityReader {
 		$subtotal_tax_minor = Money::to_minor_units( $order_item->get_subtotal_tax() );
 
 		if ( null === $subtotal_minor || $subtotal_minor < 0 || null === $subtotal_tax_minor || $subtotal_tax_minor < 0 ) {
-			return [ 0, 0, WarningCode::with_detail( WarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ?? '' ) ];
+			return [ 0, 0, WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID, $remote_product_id ?? '' ) ];
 		}
 
 		return [ $subtotal_minor, $subtotal_tax_minor, null ];
@@ -434,16 +435,16 @@ final class OrderReader implements EntityReader {
 			$deleted_product_id = (int) get_metadata( 'order_item', $order_item->get_id(), '_product_id', true );
 
 			if ( 0 === $deleted_product_id ) {
-				return [ null, WarningCode::ORDER_LINE_PRODUCT_MISSING, null, null ];
+				return [ null, CommerceWarningCode::ORDER_LINE_PRODUCT_MISSING, null, null ];
 			}
 
-			return [ null, WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $deleted_product_id ), null, null ];
+			return [ null, WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_DELETED, (string) $deleted_product_id ), null, null ];
 		}
 
 		$remote_id = $this->product_refs[ $product_id ]['remote_id'] ?? null;
 
 		if ( null === $remote_id ) {
-			return [ null, WarningCode::with_detail( WarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), null, null ];
+			return [ null, WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_PRODUCT_NOT_EXPORTED, (string) $product_id ), null, null ];
 		}
 
 		$variation_id = $order_item->get_variation_id();
@@ -460,13 +461,13 @@ final class OrderReader implements EntityReader {
 				return [ $remote_id, null, null, null ];
 			}
 
-			return [ $remote_id, WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $deleted_variation_id ), null, null ];
+			return [ $remote_id, WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $deleted_variation_id ), null, null ];
 		}
 
 		[ $option1_value, $option2_value, $variation_resolved ] = $this->variation_option_values( $product_id, $variation_id );
 
 		if ( ! $variation_resolved ) {
-			return [ $remote_id, WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), null, null ];
+			return [ $remote_id, WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, (string) $variation_id ), null, null ];
 		}
 
 		return [ $remote_id, null, $option1_value, $option2_value ];
@@ -542,7 +543,7 @@ final class OrderReader implements EntityReader {
 			return [ null, null ];
 		}
 
-		return [ null, WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_NOT_EXPORTED, (string) $customer_id ) ];
+		return [ null, WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_NOT_EXPORTED, (string) $customer_id ) ];
 	}
 
 	/**
@@ -573,7 +574,7 @@ final class OrderReader implements EntityReader {
 			$has_invalid          = $has_invalid || $invalid;
 		}
 
-		$warning = $has_invalid ? WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ) : null;
+		$warning = $has_invalid ? WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'shipping_fee' ) : null;
 
 		/** @var ?WC_Order_Item_Shipping $primary */
 		$primary     = $shipping_items[0] ?? null;
@@ -664,7 +665,7 @@ final class OrderReader implements EntityReader {
 			}
 		}
 
-		return [ $total, $has_invalid ? WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ) : null ];
+		return [ $total, $has_invalid ? WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'payment_fee' ) : null ];
 	}
 
 	/**
@@ -715,7 +716,7 @@ final class OrderReader implements EntityReader {
 			if ( ! is_numeric( $value ) || (float) $value < 0.0 ) {
 				return [
 					array_merge( array_fill_keys( array_keys( $raw ), '0' ), $this->totals_meta( $order ) ),
-					WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, $key ),
+					WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, $key ),
 				];
 			}
 		}

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\AddressMapper;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\WarningCode;
@@ -76,7 +77,7 @@ final class CustomerWriter implements EntityWriter {
 				// 握りつぶすと結果レポートから欠落理由が分からなくなるため警告を積む。
 				// `validate()`では実際に作成を試みないため判定できない（dry-run除外・
 				// `Woo\WarningCode`のdocblock参照）。
-				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ] ) );
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $warnings, [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_CREATE_FAILED, $created->get_error_code() ) ] ) );
 			}
 
 			$user_id = $created;
@@ -96,7 +97,7 @@ final class CustomerWriter implements EntityWriter {
 			// のみは維持する。detailはOrderWriter側の同名警告・F1-6の結果レポート契約
 			// （ASP側remote_idで問題箇所を特定する）と揃え、Woo内部のuser IDではなく
 			// ASP側remote_idにする。
-			$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
 
 			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
@@ -124,7 +125,7 @@ final class CustomerWriter implements EntityWriter {
 				// detailはメールアドレス自体（PII）ではなくASP側remote_idにする。dry-runの
 				// 結果は`cbjp_dry_run_items`に最大30日間永続化されCSVにも出力されるため
 				// （`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
+				$warnings[] = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
 
 				// `wp_update_user()`はメール重複等のエラー時、渡した全フィールド（氏名・
 				// display_name含む）を一切適用しない。それにも関わらずここから先を続行すると、
@@ -142,7 +143,7 @@ final class CustomerWriter implements EntityWriter {
 		$this->apply_extras_meta( $user_id, $item );
 
 		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
-			$warnings[] = WarningCode::ADDRESS_OVERSEAS;
+			$warnings[] = CommerceWarningCode::ADDRESS_OVERSEAS;
 		}
 
 		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
@@ -174,7 +175,7 @@ final class CustomerWriter implements EntityWriter {
 			$user_id = $resolved->user_id ?? 0;
 
 			if ( self::has_protected_role( $user_id ) ) {
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
+				$warnings[] = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, $item->remote_id() ?? '' );
 
 				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 			}
@@ -190,7 +191,7 @@ final class CustomerWriter implements EntityWriter {
 			if ( 0 !== strcasecmp( $item->email, $current_email ) && false !== email_exists( $item->email ) ) {
 				// write()と同じくdetailはメールアドレス自体ではなくASP側remote_idにする
 				// （PII保護。上のwrite()側コメント参照）。
-				$warnings[] = WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
+				$warnings[] = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT, $item->remote_id() ?? '' );
 
 				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 			}
@@ -201,7 +202,7 @@ final class CustomerWriter implements EntityWriter {
 		// 呼ぶ: write()側でだけ判定すると、実際には移行後に付く警告がdry-runのCSVレポート
 		// から欠落する。
 		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
-			$warnings[] = WarningCode::ADDRESS_OVERSEAS;
+			$warnings[] = CommerceWarningCode::ADDRESS_OVERSEAS;
 		}
 
 		if ( $resolved->is_new ) {
@@ -254,7 +255,7 @@ final class CustomerWriter implements EntityWriter {
 				$existing_user->ID,
 				WriteResult::OPERATION_UPDATED,
 				false,
-				WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID )
+				WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID )
 			);
 		}
 

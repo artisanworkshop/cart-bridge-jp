@@ -210,19 +210,6 @@ final class WarningCatalog {
 				__( 'WooCommerce does not treat entered prices as including tax, while the platform’s prices include tax and are imported as they are. This is a store-wide setting; only one product per batch is flagged.', 'cart-bridge-jp' ),
 				__( 'If WooCommerce calculates tax, set “Prices entered with tax” to “Yes, I will enter prices inclusive of tax” in WooCommerce > Settings > Tax. Otherwise tax is added on top at checkout. If tax calculation is turned off, no change is needed.', 'cart-bridge-jp' )
 			),
-			WarningCode::CURRENCY_MISMATCH => $import
-				? self::make(
-					$action,
-					__( 'The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency).', 'cart-bridge-jp' ),
-					__( 'Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency.', 'cart-bridge-jp' )
-				)
-				: self::make(
-					$blocking,
-					__( 'The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' ),
-					'',
-					/* translators: %s: a currency code, such as USD. */
-					__( 'The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen).', 'cart-bridge-jp' )
-				),
 			WarningCode::PRICES_CONVERTED_TO_TAX_INCLUSIVE => self::make(
 				$info,
 				__( 'Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way.', 'cart-bridge-jp' )

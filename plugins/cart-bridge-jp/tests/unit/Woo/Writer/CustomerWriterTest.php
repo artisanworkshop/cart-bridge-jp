@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalCustomer;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\CustomerWriter;
 use WP_User;
@@ -71,7 +72,7 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$this->assertSame( $existing_id, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
 
 		$user = get_userdata( $existing_id );
 		$this->assertContains( 'customer', $user->roles );
@@ -111,7 +112,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		// detailはWoo内部のuser IDではなくASP側remote_id（OrderWriter側の同名警告・
 		// F1-6の結果レポート契約と揃える）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $result->warnings );
 
 		// 既存ユーザーのロール・氏名・住所は一切変更されていない。
 		$user = get_userdata( $existing_id );
@@ -146,7 +147,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertContains(
-			WarningCode::with_detail( WarningCode::CUSTOMER_CREATE_FAILED, 'registration-error-invalid-email' ),
+			WarningCode::with_detail( CommerceWarningCode::CUSTOMER_CREATE_FAILED, 'registration-error-invalid-email' ),
 			$result->warnings
 		);
 	}
@@ -196,7 +197,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$result   = $this->make_writer()->write( $customer, $existing_id );
 
 		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $result->warnings );
 
 		// 衝突のためメールは更新されず、既存アカウントの元のメールのまま残る。
 		$user = get_userdata( $existing_id );
@@ -247,7 +248,7 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$result = $this->make_writer()->write( $customer, null );
 
-		$this->assertContains( WarningCode::ADDRESS_OVERSEAS, $result->warnings );
+		$this->assertContains( CommerceWarningCode::ADDRESS_OVERSEAS, $result->warnings );
 		$this->assertSame( '', get_user_meta( $result->local_id, 'billing_state', true ) );
 	}
 
@@ -305,7 +306,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $customer, null );
 
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
 
 		// 何も永続化していない（氏名は未反映のまま）。
 		$user = get_userdata( $existing_id );
@@ -326,7 +327,7 @@ final class CustomerWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $customer, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $validation->warnings );
 	}
 
 	public function test_validate_updated_existing_mapping_without_persisting(): void {
@@ -372,7 +373,7 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$validation = $this->make_writer()->validate( $customer, null );
 
-		$this->assertContains( WarningCode::ADDRESS_OVERSEAS, $validation->warnings );
+		$this->assertContains( CommerceWarningCode::ADDRESS_OVERSEAS, $validation->warnings );
 		$this->assertFalse( get_user_by( 'email', 'overseas-dry-run@example.com' ) instanceof WP_User );
 	}
 
@@ -404,7 +405,7 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
 		// detailはメールアドレス（PII）ではなくASP側remote_id（`CUSTOMER_ACCOUNT_PROTECTED`と同じ方針）。
-		$this->assertContains( WarningCode::with_detail( WarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT, '1' ), $validation->warnings );
 
 		// 何も永続化していない。
 		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );

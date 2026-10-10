@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo;
 
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCode;
 use WP_UnitTestCase;
 
@@ -77,14 +78,14 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	 * 金銭的リスクでexport blocking対象であることを固定する。
 	 */
 	public function test_order_line_amount_invalid_is_export_blocking(): void {
-		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::ORDER_LINE_AMOUNT_INVALID ] ) );
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ CommerceWarningCode::ORDER_LINE_AMOUNT_INVALID ] ) );
 	}
 
 	/**
 	 * 捏造した数量（`max(1, ...)`）をColorMeへ恒久的な受注数量として送らないことを固定する。
 	 */
 	public function test_order_line_quantity_invalid_is_export_blocking(): void {
-		$this->assertTrue( WarningCode::indicates_export_blocking( [ WarningCode::ORDER_LINE_QUANTITY_INVALID ] ) );
+		$this->assertTrue( WarningCode::indicates_export_blocking( [ CommerceWarningCode::ORDER_LINE_QUANTITY_INVALID ] ) );
 	}
 
 	/**
@@ -119,8 +120,8 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	public static function mapping_required_codes(): array {
 		return [
 			'category_map_unresolved'  => [ WarningCode::CATEGORY_MAP_UNRESOLVED ],
-			'payment_method_unmapped'  => [ WarningCode::PAYMENT_METHOD_UNMAPPED ],
-			'shipping_method_unmapped' => [ WarningCode::SHIPPING_METHOD_UNMAPPED ],
+			'payment_method_unmapped'  => [ CommerceWarningCode::PAYMENT_METHOD_UNMAPPED ],
+			'shipping_method_unmapped' => [ CommerceWarningCode::SHIPPING_METHOD_UNMAPPED ],
 		];
 	}
 
@@ -141,7 +142,7 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	 * まま直らない。エクスポートの停止判定とエクスポート方向の注記は変えない。
 	 */
 	public function test_payment_and_shipping_unmapped_are_unresolved_but_not_export_blocking(): void {
-		foreach ( [ WarningCode::PAYMENT_METHOD_UNMAPPED, WarningCode::SHIPPING_METHOD_UNMAPPED ] as $code ) {
+		foreach ( [ CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, CommerceWarningCode::SHIPPING_METHOD_UNMAPPED ] as $code ) {
 			$warning = WarningCode::with_detail( $code, 'pay-1' );
 
 			$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
@@ -152,8 +153,8 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	}
 
 	public function test_other_warnings_do_not_indicate_mapping_required(): void {
-		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, 'x' ) ) );
-		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, '1' ) ) );
+		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, 'x' ) ) );
+		$this->assertFalse( WarningCode::indicates_mapping_required( WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_UNRESOLVED, '1' ) ) );
 		$this->assertFalse( WarningCode::indicates_mapping_required( 'payment_method_unmapped_extra:1' ) );
 		$this->assertFalse( WarningCode::indicates_mapping_required( '' ) );
 	}
@@ -164,7 +165,7 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	 * 未インポートなら後から解決しうるので checksum はキャッシュしない（`indicates_unresolved_reference()`）ままにする。
 	 */
 	public function test_order_product_and_customer_refs_are_unresolved_but_not_pending_import(): void {
-		foreach ( [ WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, WarningCode::ORDER_CUSTOMER_UNRESOLVED ] as $code ) {
+		foreach ( [ CommerceWarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, CommerceWarningCode::ORDER_CUSTOMER_UNRESOLVED ] as $code ) {
 			$warning = WarningCode::with_detail( $code, 'gone-1' );
 
 			$this->assertTrue( WarningCode::indicates_reference_not_found( $warning ), $code );
@@ -180,13 +181,13 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	 * （エクスポート方向の`ORDER_LINE_VARIATION_UNRESOLVED`とは別コード）。
 	 */
 	public function test_variation_unmatched_is_retry_worthy_without_a_pending_note(): void {
-		$warning = WarningCode::with_detail( WarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-axes' );
+		$warning = WarningCode::with_detail( CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED, 'vp-axes' );
 
 		$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ) );
 		$this->assertFalse( WarningCode::indicates_pending_import( $warning ) );
 		$this->assertFalse( WarningCode::indicates_reference_not_found( $warning ) );
 		$this->assertFalse( WarningCode::indicates_export_blocking( [ $warning ] ) );
-		$this->assertNotSame( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, WarningCode::ORDER_LINE_VARIATION_UNMATCHED );
+		$this->assertNotSame( CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED, CommerceWarningCode::ORDER_LINE_VARIATION_UNMATCHED );
 	}
 
 	/**

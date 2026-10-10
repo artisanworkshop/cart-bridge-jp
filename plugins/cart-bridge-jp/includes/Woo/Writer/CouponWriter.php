@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\PlatformOwnership;
 use CartBridgeJP\Woo\Support\Value;
@@ -38,7 +39,7 @@ final class CouponWriter implements EntityWriter {
 			// 通さない」方針。無警告のまま`WriteResult(0, CREATED, [])`を返すと、totals集計上は
 			// skippedへ正規化される（`Importer`参照）ものの、結果レポートから欠落理由が
 			// 分からなくなる。
-			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $prepared->warnings, [ WarningCode::COUPON_SAVE_FAILED ] ) );
+			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, array_merge( $prepared->warnings, [ CommerceWarningCode::COUPON_SAVE_FAILED ] ) );
 		}
 
 		return new WriteResult( $coupon_id, $prepared->operation, $prepared->warnings );
@@ -85,7 +86,7 @@ final class CouponWriter implements EntityWriter {
 		// 同じ行から対象を特定できる。同じ値をdetailにも載せる必要は無い
 		// （`COUPON_CODE_CONFLICT`のdetailは「衝突した別クーポンのID」＝行に無い情報なので別物）。
 		if ( true === $item->has_unsupported_restrictions ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] );
 		}
 
 		if ( null === $item->has_unsupported_restrictions ) {
@@ -93,7 +94,7 @@ final class CouponWriter implements EntityWriter {
 			// 信頼境界。CLAUDE.md参照）。「宣言が無い＝制限なし」という楽観的デフォルトへ倒すと、
 			// 上のフェイルクローズをフィールドの未設定だけで回避できてしまうため、不明は
 			// 安全側（保存しない）に倒す（アーキテクチャ原則9）。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ CommerceWarningCode::COUPON_RESTRICTIONS_UNKNOWN ] );
 		}
 
 		if ( ! in_array( $item->type, [ 'fixed', 'percent' ], true ) ) {
@@ -103,7 +104,7 @@ final class CouponWriter implements EntityWriter {
 			// と、想定外のtype文字列がそのまま実在の値引きクーポンとして公開されてしまう
 			// 金銭的リスクがある。既知の2値のみを許可するallow-listにし、それ以外は保存を
 			// 見送りフェイルクローズする。
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_TYPE_UNKNOWN, $item->type ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_TYPE_UNKNOWN, $item->type ) ] );
 		}
 
 		// `WC_Coupon::set_amount()`自身が負値・percent型で100超の場合に`WC_Data_Exception`を
@@ -113,7 +114,7 @@ final class CouponWriter implements EntityWriter {
 		// （dry-run/結果レポートからは欠落理由が分からない）。ここで事前検証し、他writerと
 		// 同じフェイルクローズ+専用警告の経路に揃える。
 		if ( ! is_numeric( $item->amount ) || (float) $item->amount < 0 || ( 'percent' === $item->type && (float) $item->amount > 100 ) ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, $item->amount ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_AMOUNT_INVALID, $item->amount ) ] );
 		}
 
 		// `expires_at`が`null`であること自体は「無期限クーポン」として正当（既存テスト・
@@ -123,7 +124,7 @@ final class CouponWriter implements EntityWriter {
 		// WarningCodeの無い「Writer threw...」ログ）に落ちるより、他フィールド（type/amount）
 		// と同じフェイルクローズ+専用警告の経路に揃える方が結果レポートから追跡しやすい。
 		if ( null !== $item->expires_at && false === strtotime( $item->expires_at ) ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_EXPIRES_AT_INVALID, $item->expires_at ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_EXPIRES_AT_INVALID, $item->expires_at ) ] );
 		}
 
 		// `min_amount`は`amount`と異なり`WC_Coupon::set_minimum_amount()`が`wc_format_decimal()`を
@@ -131,7 +132,7 @@ final class CouponWriter implements EntityWriter {
 		// （意図せずクーポン適用条件が緩む金銭的リスク）。欠損（null）自体は「制限なし」として
 		// 正当なため許可し、値が存在するのに非数値・負値の場合のみ保存を見送る。
 		if ( null !== $item->min_amount && ( ! is_numeric( $item->min_amount ) || (float) $item->min_amount < 0 ) ) {
-			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_MIN_AMOUNT_INVALID, $item->min_amount ) ] );
+			return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_MIN_AMOUNT_INVALID, $item->min_amount ) ] );
 		}
 
 		$warnings = [];
@@ -150,9 +151,9 @@ final class CouponWriter implements EntityWriter {
 			if ( 0 !== $conflict_id ) {
 				if ( PlatformOwnership::owns_post( $conflict_id, $this->platform ) ) {
 					$coupon     = new WC_Coupon( $conflict_id );
-					$warnings[] = WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $conflict_id );
+					$warnings[] = WarningCode::with_detail( CommerceWarningCode::COUPON_REUSED_EXISTING, (string) $conflict_id );
 				} else {
-					return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
+					return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
 				}
 			}
 		} elseif ( $coupon->get_code() !== $item->code ) {
@@ -171,7 +172,7 @@ final class CouponWriter implements EntityWriter {
 				// 衝突先が削除される等で解消された後も永久にリネームが再試行されなくなる。
 				// local_id 0を返してupsert自体を発生させず、既存の有効なmapping（旧コードの
 				// クーポンを指す）を変更せずに残し、次回実行時に再試行できるようにする。
-				return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
+				return new CouponPrepared( null, WriteResult::OPERATION_SKIPPED, [ WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $conflict_id ) ] );
 			}
 		}
 

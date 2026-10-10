@@ -36,6 +36,7 @@ use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\MethodMap;
 use CartBridgeJP\Woo\WarningCode;
 use RuntimeException;
@@ -1233,7 +1234,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	 * 部分完了の警告分類は不要。新規作成に必須の`pref_id`/`postal`/`address1`/`tel`が
 	 * Woo顧客の請求先情報から解決できない場合は`CustomerTransformer::to_create_payload()`が
 	 * `null`を返すため、送信自体を行わずフェイルクローズでスキップする
-	 * （`WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`。422を送って恒久的な4xxを積み重ねない）。
+	 * （`CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING`。422を送って恒久的な4xxを積み重ねない）。
 	 * 更新も名前と住所が無いと422になる（swagger と違う。issue #100）ので、`to_update_payload()`の`null`で同じくスキップする。
 	 * remote_id は空で返す（`push_order()`の更新スキップと同じ形。`Sync\Exporter`は既存の mapping に触れず checksum もキャッシュしないので、
 	 * 店舗が住所を補えば次回のエクスポートで送る）。
@@ -1243,7 +1244,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		$payload     = null === $remote_id ? $transformer->to_create_payload( $customer ) : $transformer->to_update_payload( $customer );
 
 		if ( null === $payload ) {
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, [ CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
 		}
 
 		if ( null === $remote_id ) {
@@ -1281,7 +1282,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			// I/Oを一切伴わない純粋な判定（`$order`のフィールドのみ参照）のため、この早期returnでも
 			// 呼べる（Copilot指摘: 当初はこの経路で情報提供の警告が一切積まれず、割引・手数料が
 			// 運べないという情報が既存受注の再エクスポートのたびに欠落していた）。
-			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ], self::informational_warnings( $order ) ) );
+			return new PushResult( '', PushResult::OPERATION_SKIPPED, array_merge( [ CommerceWarningCode::ORDER_UPDATE_NOT_SUPPORTED ], self::informational_warnings( $order ) ) );
 		}
 
 		// `order_transformer()`（import方向`transform()`と共有）は`payments.json`/`deliveries.json`の
@@ -1312,7 +1313,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 
 		// `ORDER_PLACED_AT_NOT_PRESERVED`は新規作成が成功した場合のみ（=このタイミングで初めて
 		// 実際に日時が失われる事象が発生するため）。skip経路では新たに何も作成されないので付けない。
-		$informational_warnings[] = WarningCode::ORDER_PLACED_AT_NOT_PRESERVED;
+		$informational_warnings[] = CommerceWarningCode::ORDER_PLACED_AT_NOT_PRESERVED;
 
 		return new PushResult( $order_remote_id, PushResult::OPERATION_CREATED, $informational_warnings );
 	}
@@ -1327,11 +1328,11 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		$warnings = [];
 
 		if ( OrderTransformer::has_discount( $order ) ) {
-			$warnings[] = WarningCode::ORDER_DISCOUNT_NOT_PUSHED;
+			$warnings[] = CommerceWarningCode::ORDER_DISCOUNT_NOT_PUSHED;
 		}
 
 		if ( OrderTransformer::has_non_representable_charges( $order ) ) {
-			$warnings[] = WarningCode::ORDER_FEE_NOT_PUSHED;
+			$warnings[] = CommerceWarningCode::ORDER_FEE_NOT_PUSHED;
 		}
 
 		return $warnings;
@@ -1351,23 +1352,23 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		$warnings = [];
 
 		if ( $result['line_items_empty'] ) {
-			$warnings[] = WarningCode::ORDER_LINE_ITEMS_EMPTY;
+			$warnings[] = CommerceWarningCode::ORDER_LINE_ITEMS_EMPTY;
 		}
 
 		if ( $result['line_price_unresolved'] ) {
-			$warnings[] = WarningCode::ORDER_LINE_PRICE_UNRESOLVED;
+			$warnings[] = CommerceWarningCode::ORDER_LINE_PRICE_UNRESOLVED;
 		}
 
 		if ( null !== $result['unmapped_payment_method_id'] ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $result['unmapped_payment_method_id'] );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, $result['unmapped_payment_method_id'] );
 		}
 
 		if ( null !== $result['unmapped_shipping_method_id'] ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $result['unmapped_shipping_method_id'] );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, $result['unmapped_shipping_method_id'] );
 		}
 
 		if ( $result['shipping_address_incomplete'] ) {
-			$warnings[] = WarningCode::ORDER_SHIPPING_ADDRESS_INCOMPLETE;
+			$warnings[] = CommerceWarningCode::ORDER_SHIPPING_ADDRESS_INCOMPLETE;
 		}
 
 		return $warnings;

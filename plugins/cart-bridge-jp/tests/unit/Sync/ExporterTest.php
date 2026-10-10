@@ -29,6 +29,7 @@ use CartBridgeJP\Sync\WooReader;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\InMemoryPlatformWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Export\DryRunPlatformWriter;
 use CartBridgeJP\Woo\Reader\ProductReader;
@@ -878,7 +879,7 @@ final class ExporterTest extends WP_UnitTestCase {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
 		$writer   = new class() implements PlatformWriter {
 			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
-				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
 			}
 		};
 		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );

@@ -10,6 +10,7 @@ namespace CartBridgeJP\Woo\Reader;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Support\Money;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\EntityOrigin;
 use CartBridgeJP\Woo\WarningCode;
 use WC_Coupon;
@@ -26,7 +27,7 @@ use WP_Query;
  * `fixed_product`は他の「Wooにはあるが運べない制限」（商品/カテゴリ/メールアドレス制限・
  * maximum_amount）と同じ`has_unsupported_restrictions=true`の扱いにする
  * （`Canonical\CanonicalCoupon`のdocblockが定める三値契約）。読出時点でも
- * `WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED`を`ReadItem`の警告に積み、
+ * `CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED`を`ReadItem`の警告に積み、
  * `indicates_export_blocking()`でpush前に確実にスキップされるようにする。
  *
  * `$coupon->get_amount()`の符号・上限（percent型で100超）はここで再検証しない:
@@ -152,7 +153,7 @@ final class CouponReader implements EntityReader {
 			$has_unsupported_restrictions
 		);
 
-		$warnings = $has_unsupported_restrictions ? [ WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] : [];
+		$warnings = $has_unsupported_restrictions ? [ CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ] : [];
 
 		// `percent`型以外の`amount`（金額そのものの値引き）と、型を問わず設定されうる
 		// `minimum_amount`（最低購入金額）は店舗通貨での金額であり、対応ASPは数値をJPYとして
@@ -162,7 +163,7 @@ final class CouponReader implements EntityReader {
 		$amount_is_currency_denominated = 'percent' !== $coupon->get_discount_type();
 
 		if ( ( $amount_is_currency_denominated || null !== $canonical->min_amount ) && Money::PLATFORM_CURRENCY !== get_woocommerce_currency() ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::CURRENCY_MISMATCH, get_woocommerce_currency() );
 		}
 
 		return new ReadItem( $coupon->get_id(), $canonical, $warnings, true, [], EntityOrigin::post_linked_by_import( $coupon->get_id(), $this->platform ) );

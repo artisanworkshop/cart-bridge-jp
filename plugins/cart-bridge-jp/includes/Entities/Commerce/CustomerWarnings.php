@@ -9,8 +9,8 @@ namespace CartBridgeJP\Entities\Commerce;
 
 use CartBridgeJP\Entities\WarningFlag;
 use CartBridgeJP\Entities\WarningText;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
-use CartBridgeJP\Woo\WarningCode;
 
 // phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- 向き・行の種類を使わない説明もある（`describe()` のシグネチャは共通）。
 
@@ -29,12 +29,12 @@ final class CustomerWarnings {
 	 */
 	public static function flags(): array {
 		return [
-			WarningCode::CUSTOMER_REUSED_EXISTING        => [],
-			WarningCode::CUSTOMER_ACCOUNT_PROTECTED      => [],
-			WarningCode::CUSTOMER_EMAIL_CONFLICT         => [],
-			WarningCode::CUSTOMER_CREATE_FAILED          => [],
-			WarningCode::ADDRESS_OVERSEAS                => [],
-			WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING => [],
+			CommerceWarningCode::CUSTOMER_REUSED_EXISTING => [],
+			CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED => [],
+			CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT  => [],
+			CommerceWarningCode::CUSTOMER_CREATE_FAILED   => [],
+			CommerceWarningCode::ADDRESS_OVERSEAS         => [],
+			CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING => [],
 		];
 	}
 
@@ -47,7 +47,7 @@ final class CustomerWarnings {
 		$info     = WarningCatalog::SEVERITY_INFO;
 
 		return match ( $code ) {
-			WarningCode::CUSTOMER_REUSED_EXISTING => self::make(
+			CommerceWarningCode::CUSTOMER_REUSED_EXISTING => self::make(
 				$info,
 				__( 'A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp' ),
 				__( 'Check that the existing account belongs to the same person.', 'cart-bridge-jp' ),
@@ -55,31 +55,31 @@ final class CustomerWarnings {
 				__( 'A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp' )
 			),
 			// 受注の行（`order`）は `OrderWarnings` が説明する（ゲスト受注として書く）。それ以外の行は顧客の行として扱う（重いほうに倒す）。
-			WarningCode::CUSTOMER_ACCOUNT_PROTECTED => 'order' === $row_entity
+			CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED => 'order' === $row_entity
 				? null
 				: self::make(
 					$blocking,
 					__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders.', 'cart-bridge-jp' ),
 					__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp' )
 				),
-			WarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(
+			CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(
 				$blocking,
 				__( 'The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated.', 'cart-bridge-jp' ),
 				__( 'Change or remove the email address on the other WordPress user, or correct it on the platform, then import again.', 'cart-bridge-jp' )
 			),
-			WarningCode::CUSTOMER_CREATE_FAILED => self::make(
+			CommerceWarningCode::CUSTOMER_CREATE_FAILED => self::make(
 				$blocking,
 				__( 'WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported.', 'cart-bridge-jp' ),
 				__( 'Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again.', 'cart-bridge-jp' ),
 				/* translators: %s: a WordPress error code. */
 				__( 'WooCommerce could not create the customer account (%s), so the customer is not imported.', 'cart-bridge-jp' )
 			),
-			WarningCode::ADDRESS_OVERSEAS => self::make(
+			CommerceWarningCode::ADDRESS_OVERSEAS => self::make(
 				$action,
 				__( 'The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty.', 'cart-bridge-jp' ),
 				__( 'Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce.', 'cart-bridge-jp' )
 			),
-			WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING => self::make(
+			CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING => self::make(
 				$blocking,
 				__( 'The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens).', 'cart-bridge-jp' ),
 				__( 'Fill in the customer’s name, billing address and phone number in WooCommerce, then export again.', 'cart-bridge-jp' )

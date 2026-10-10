@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Woo\Writer;
 use CartBridgeJP\Canonical\CanonicalCoupon;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\CouponWriter;
 
@@ -60,7 +61,7 @@ final class CouponWriterTest extends WooTestCase {
 		$result = $this->make_writer()->write( $coupon, null );
 
 		$this->assertSame( $existing_id, $result->local_id );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
 	}
 
 	public function test_code_conflict_with_another_platform_is_skipped_not_overwritten(): void {
@@ -75,7 +76,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $result->warnings );
 
 		// 他プラットフォーム由来のクーポンは一切上書きされていない。
 		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
@@ -111,7 +112,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $result->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
 	}
 
@@ -125,7 +126,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $result->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNKNOWN, $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'UNDECLARED' ) );
 	}
 
@@ -171,8 +172,8 @@ final class CouponWriterTest extends WooTestCase {
 	 */
 	public static function restriction_fail_close_provider(): array {
 		return [
-			'unsupported restrictions declared' => [ true, WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ],
-			'no declaration at all'             => [ null, WarningCode::COUPON_RESTRICTIONS_UNKNOWN ],
+			'unsupported restrictions declared' => [ true, CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED ],
+			'no declaration at all'             => [ null, CommerceWarningCode::COUPON_RESTRICTIONS_UNKNOWN ],
 		];
 	}
 
@@ -226,7 +227,7 @@ final class CouponWriterTest extends WooTestCase {
 		// mappingはImporter側でupsert自体が発生しないため変更されず残る）。
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $other->get_id() ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $other->get_id() ), $result->warnings );
 
 		// 元のクーポンのコード・金額は変更されていない（WC_Coupon側の仕様でコードは小文字化される）。
 		$reloaded = new \WC_Coupon( $existing_id );
@@ -245,7 +246,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_TYPE_UNKNOWN, 'buy_one_get_one' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_TYPE_UNKNOWN, 'buy_one_get_one' ), $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'WEIRD' ) );
 	}
 
@@ -259,7 +260,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '-100' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_AMOUNT_INVALID, '-100' ), $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'NEGATIVE' ) );
 	}
 
@@ -270,7 +271,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '150' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_AMOUNT_INVALID, '150' ), $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'TOOMUCH' ) );
 	}
 
@@ -285,7 +286,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_EXPIRES_AT_INVALID, 'not-a-date' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_EXPIRES_AT_INVALID, 'not-a-date' ), $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'BADDATE' ) );
 	}
 
@@ -309,7 +310,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_MIN_AMOUNT_INVALID, '-500' ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_MIN_AMOUNT_INVALID, '-500' ), $result->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'BADMIN' ) );
 	}
 
@@ -374,7 +375,7 @@ final class CouponWriterTest extends WooTestCase {
 
 		$this->assertSame( 0, $result->local_id );
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $foreign_id ), $result->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $foreign_id ), $result->warnings );
 
 		$untouched = new \WC_Coupon( $foreign_id );
 		$this->assertSame( '50', $untouched->get_amount() );
@@ -405,7 +406,7 @@ final class CouponWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_CODE_CONFLICT, (string) $existing_id ), $validation->warnings );
 		$this->assertSame( '9999', ( new \WC_Coupon( $existing_id ) )->get_amount() );
 	}
 
@@ -424,7 +425,7 @@ final class CouponWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $validation->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNSUPPORTED, $validation->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'MEMBERS-ONLY' ) );
 	}
 
@@ -433,7 +434,7 @@ final class CouponWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::COUPON_RESTRICTIONS_UNKNOWN, $validation->warnings );
+		$this->assertContains( CommerceWarningCode::COUPON_RESTRICTIONS_UNKNOWN, $validation->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'UNDECLARED' ) );
 	}
 
@@ -442,7 +443,7 @@ final class CouponWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_AMOUNT_INVALID, '-100' ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_AMOUNT_INVALID, '-100' ), $validation->warnings );
 		$this->assertSame( 0, wc_get_coupon_id_by_code( 'NEGATIVE' ) );
 	}
 
@@ -456,7 +457,7 @@ final class CouponWriterTest extends WooTestCase {
 		$validation = $this->make_writer()->validate( $coupon, null );
 
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( WarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::COUPON_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
 		// 金額は未設定のデフォルトのまま保たれている。dry-runの検証が何も保存していない証拠。
 		$this->assertSame( '0', ( new \WC_Coupon( $existing_id ) )->get_amount() );
 	}

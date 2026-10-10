@@ -9,6 +9,7 @@ namespace CartBridgeJP\Tests\Core;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use ReflectionClassConstant;
@@ -37,9 +38,9 @@ final class ReadmeTest extends WP_UnitTestCase {
 		WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED,
 		WarningCode::STOCK_PRODUCT_NOT_EXPORTED,
 		WarningCode::PUSH_OUTCOME_UNCONFIRMED,
-		WarningCode::CURRENCY_MISMATCH,
-		WarningCode::ORDER_REFUNDED,
-		WarningCode::ORDER_LINE_VARIATION_UNRESOLVED,
+		CommerceWarningCode::CURRENCY_MISMATCH,
+		CommerceWarningCode::ORDER_REFUNDED,
+		CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED,
 	];
 
 	private const FAQ_EXPORT_BLOCKING_QUESTION = 'The export skipped a product, a stock row, or an order with a warning. How do I fix it?';

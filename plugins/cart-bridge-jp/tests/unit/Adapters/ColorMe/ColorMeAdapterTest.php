@@ -29,6 +29,7 @@ use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\FixtureLoader;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\WarningCode;
@@ -2078,7 +2079,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertSame( [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
+		$this->assertSame( [ CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
 		$this->assertSame( [], $captured );
 	}
 
@@ -2114,7 +2115,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertSame( [ WarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
+		$this->assertSame( [ CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ], $result->warnings );
 		$this->assertSame( [], $captured );
 	}
 
@@ -2180,7 +2181,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', $result->remote_id );
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
-		$this->assertSame( [ WarningCode::ORDER_UPDATE_NOT_SUPPORTED ], $result->warnings );
+		$this->assertSame( [ CommerceWarningCode::ORDER_UPDATE_NOT_SUPPORTED ], $result->warnings );
 		$this->assertSame( [], $captured );
 	}
 
@@ -2201,7 +2202,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertSame(
-			[ WarningCode::ORDER_UPDATE_NOT_SUPPORTED, WarningCode::ORDER_DISCOUNT_NOT_PUSHED ],
+			[ CommerceWarningCode::ORDER_UPDATE_NOT_SUPPORTED, CommerceWarningCode::ORDER_DISCOUNT_NOT_PUSHED ],
 			$result->warnings
 		);
 		$this->assertSame( [], $captured );
@@ -2222,7 +2223,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertSame(
-			[ WarningCode::ORDER_UPDATE_NOT_SUPPORTED, WarningCode::ORDER_FEE_NOT_PUSHED ],
+			[ CommerceWarningCode::ORDER_UPDATE_NOT_SUPPORTED, CommerceWarningCode::ORDER_FEE_NOT_PUSHED ],
 			$result->warnings
 		);
 		$this->assertSame( [], $captured );
@@ -2258,7 +2259,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
 		// `POST /v1/sales`に受注日時を指定するフィールドが無いため、新規作成成功時は常に
 		// `ORDER_PLACED_AT_NOT_PRESERVED`が付く。
-		$this->assertSame( [ WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ], $result->warnings );
+		$this->assertSame( [ CommerceWarningCode::ORDER_PLACED_AT_NOT_PRESERVED ], $result->warnings );
 
 		$create_request = $this->find_captured( $captured, 'POST', 'sales.json' );
 		$this->assertNotNull( $create_request );
@@ -2300,7 +2301,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
 		$this->assertSame(
-			[ WarningCode::ORDER_DISCOUNT_NOT_PUSHED, WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
+			[ CommerceWarningCode::ORDER_DISCOUNT_NOT_PUSHED, CommerceWarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
 			$result->warnings
 		);
 	}
@@ -2331,7 +2332,7 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertSame( PushResult::OPERATION_CREATED, $result->operation );
 		$this->assertSame(
-			[ WarningCode::ORDER_FEE_NOT_PUSHED, WarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
+			[ CommerceWarningCode::ORDER_FEE_NOT_PUSHED, CommerceWarningCode::ORDER_PLACED_AT_NOT_PRESERVED ],
 			$result->warnings
 		);
 	}
@@ -2358,8 +2359,8 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 		$this->assertSame( PushResult::OPERATION_SKIPPED, $result->operation );
 		$this->assertSame(
 			[
-				WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, 'bacs' ),
-				WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, 'flat_rate:6' ),
+				WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, 'bacs' ),
+				WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, 'flat_rate:6' ),
 			],
 			$result->warnings
 		);

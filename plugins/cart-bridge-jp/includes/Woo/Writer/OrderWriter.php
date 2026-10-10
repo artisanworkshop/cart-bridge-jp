@@ -13,6 +13,7 @@ use CartBridgeJP\Canonical\CanonicalOrder;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\WriteResult;
+use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Support\AddressMapper;
 use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\MappingCandidates;
@@ -106,7 +107,7 @@ final class OrderWriter implements EntityWriter {
 				// `WC_Abstract_Order::save()`は保存前のフック（他プラグインの`woocommerce_before_order_object_save`）や
 				// 作成で出た`Exception`を握りつぶしてWooCommerceのログに残し、受注を作れなければIDの0を返す
 				// （既存受注の更新では0にならない）。何も作られていないので、例外ではなく作成失敗の警告で見送る。
-				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ WarningCode::ORDER_CREATE_FAILED ] );
+				return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, [ CommerceWarningCode::ORDER_CREATE_FAILED ] );
 			}
 
 			if ( $is_new_order && ! self::all_items_saved( $added_items ) ) {
@@ -323,7 +324,7 @@ final class OrderWriter implements EntityWriter {
 		$warnings = array_merge( $warnings, $shipping_built['warnings'] );
 
 		if ( null !== $shipping_method_id && null === $mapped_method_id ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::SHIPPING_METHOD_UNMAPPED, $shipping_method_id );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::SHIPPING_METHOD_UNMAPPED, $shipping_method_id );
 		}
 
 		$fee_built = $this->items->build_fee_items( $item->payment, $item->totals );
@@ -351,7 +352,7 @@ final class OrderWriter implements EntityWriter {
 		// 正当に欠損しうる（`apply_totals()`の既存フォールバックどおり0扱いでよい）ため、
 		// 存在しないこと自体はエラーにしない。
 		if ( ! isset( $totals['total'] ) ) {
-			return WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, 'total' );
+			return WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, 'total' );
 		}
 
 		foreach ( [ 'total', 'discount', 'shipping_fee', 'tax' ] as $key ) {
@@ -362,7 +363,7 @@ final class OrderWriter implements EntityWriter {
 			}
 
 			if ( ! is_numeric( $value ) || (float) $value < 0 ) {
-				return WarningCode::with_detail( WarningCode::ORDER_TOTALS_INVALID, $key );
+				return WarningCode::with_detail( CommerceWarningCode::ORDER_TOTALS_INVALID, $key );
 			}
 		}
 
@@ -399,7 +400,7 @@ final class OrderWriter implements EntityWriter {
 		$order->set_currency( $currency );
 
 		if ( self::PLATFORM_CURRENCY !== $currency ) {
-			$warnings[] = WarningCode::CURRENCY_MISMATCH;
+			$warnings[] = CommerceWarningCode::CURRENCY_MISMATCH;
 		}
 
 		$order->set_prices_include_tax( wc_prices_include_tax() );
@@ -422,14 +423,14 @@ final class OrderWriter implements EntityWriter {
 		// 24時間後に受注を完全削除するため、候補一覧の除外だけでなくここでもフェイルクローズする
 		// （境界データはフェイルクローズで検証する。CLAUDE.md参照）。
 		if ( MappingCandidates::is_disallowed_order_status( $status ) ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, $status );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, $status );
 			$status     = 'on-hold';
 		} elseif ( ! array_key_exists( "wc-{$status}", $known ) ) {
 			// 未知のステータス文字列をそのまま書き込むと、`wc_get_order_statuses()`を前提にした
 			// Woo標準の管理画面フィルタ・受注処理ワークフローから見えなくなる（境界データは
 			// フェイルクローズで検証する。CLAUDE.md参照）。Wooが「要確認」の意味で標準提供する
 			// `on-hold`へ倒し、元の値は警告のdetailとして残す。
-			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_STATUS_UNKNOWN, $status );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_STATUS_UNKNOWN, $status );
 			$status     = 'on-hold';
 		}
 
@@ -492,7 +493,7 @@ final class OrderWriter implements EntityWriter {
 		if ( null === $local_id || ! get_userdata( $local_id ) ) {
 			$order->set_customer_id( 0 );
 
-			return [ WarningCode::with_detail( WarningCode::ORDER_CUSTOMER_UNRESOLVED, $customer_ref ) ];
+			return [ WarningCode::with_detail( CommerceWarningCode::ORDER_CUSTOMER_UNRESOLVED, $customer_ref ) ];
 		}
 
 		// ASP側顧客のメールが店舗の管理者・スタッフアカウントと偶然一致した場合、
@@ -504,7 +505,7 @@ final class OrderWriter implements EntityWriter {
 		if ( CustomerWriter::has_protected_role( $local_id ) ) {
 			$order->set_customer_id( 0 );
 
-			return [ WarningCode::with_detail( WarningCode::CUSTOMER_ACCOUNT_PROTECTED, $customer_ref ) ];
+			return [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, $customer_ref ) ];
 		}
 
 		$order->set_customer_id( $local_id );
@@ -575,7 +576,7 @@ final class OrderWriter implements EntityWriter {
 		$order->set_payment_method_title( $method_name ?? '' );
 
 		if ( null !== $method_id ) {
-			return [ WarningCode::with_detail( WarningCode::PAYMENT_METHOD_UNMAPPED, $method_id ) ];
+			return [ WarningCode::with_detail( CommerceWarningCode::PAYMENT_METHOD_UNMAPPED, $method_id ) ];
 		}
 
 		return [];
@@ -626,18 +627,18 @@ final class OrderWriter implements EntityWriter {
 		$warnings = [];
 
 		if ( isset( $totals['residual'] ) ) {
-			$warnings[] = WarningCode::with_detail( WarningCode::ORDER_TOTAL_RESIDUAL, (string) $totals['residual'] );
+			$warnings[] = WarningCode::with_detail( CommerceWarningCode::ORDER_TOTAL_RESIDUAL, (string) $totals['residual'] );
 		}
 
 		$tax_source = $totals['tax_source'] ?? null;
 
 		if ( 'unavailable_for_split_order' === $tax_source ) {
-			$warnings[] = WarningCode::ORDER_SPLIT_TAX_UNKNOWN;
+			$warnings[] = CommerceWarningCode::ORDER_SPLIT_TAX_UNKNOWN;
 		} elseif ( 'sale.tax_incomplete_excludes_shipping_tax' === $tax_source ) {
 			// `sale.totals`が欠損しColorMe側の`sale.tax`（商品分のみ、送料分の税を含まない）へ
 			// フォールバックした場合。`apply_totals()`の`totals.tax`はこの不完全な値をそのまま
 			// 使うため、税額が実際より低い可能性があることをレポートで確認できるようにする。
-			$warnings[] = WarningCode::ORDER_TAX_TOTAL_INCOMPLETE;
+			$warnings[] = CommerceWarningCode::ORDER_TAX_TOTAL_INCOMPLETE;
 		}
 
 		return $warnings;
