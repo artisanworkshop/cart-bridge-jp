@@ -7,7 +7,9 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
@@ -20,7 +22,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_all_filters( 'pre_http_request' );
-		remove_all_filters( ColorMeOAuth::SCOPES_FILTER );
+		OAuthScopes::reset();
 		parent::tear_down();
 	}
 
@@ -377,18 +379,14 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * R3-6c2: 拡張が足したスコープを、既知のものだけ `KNOWN_SCOPES` の順に、重複を除いて要求する（Pro が足す 3 つで、R3-6c2 より前と同じ文字列になる）。
+	 * R3-6c2: 拡張が宣言したスコープを、既知のものだけ `KNOWN_SCOPES` の順に、重複を除いて要求する（Pro が宣言する 3 つで、R3-6c2 より前と同じ文字列に
+	 * なる）。ほかの接続先への宣言は使わない。
 	 */
-	public function test_extensions_add_known_scopes_in_a_fixed_order(): void {
+	public function test_declared_scopes_are_requested_in_a_fixed_order(): void {
 		Activator::activate();
-		add_filter(
-			ColorMeOAuth::SCOPES_FILTER,
-			static fn ( array $scopes, string $platform ): array => 'colorme' === $platform
-				? array_merge( [ 'read_shop_coupons', 'write_sales' ], $scopes, [ 'read_sales', 'write_sales' ] )
-				: $scopes,
-			10,
-			2
-		);
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_shop_coupons', 'write_sales' ] );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales' ] );
+		OAuthScopes::add( 'other', [ 'write_templates' ] );
 
 		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
 		// 既知のスコープだけなら記録しない（`GET /connections` のたびに書かない。R3-6c2 review-loop R2-1）。
@@ -404,21 +402,21 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 拡張は無料版の商品のスコープを外せない（戻り値に無くても要求する）。
+	 * 宣言は足すだけで、無料版の商品のスコープは常に要求する。
 	 */
-	public function test_extensions_cannot_remove_the_base_scopes(): void {
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn (): array => [ 'read_sales' ] );
+	public function test_declared_scopes_keep_the_base_scopes(): void {
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 
 		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
 	}
 
 	/**
 	 * 既知でない値（ColorMe に無いスコープ・文字列でない値）はその値だけ捨てて記録する（1 回の呼び出しで 1 行。R3-6c2 review-loop R1-4）。
-	 * 正しく足されたスコープは残す。
+	 * 正しく宣言されたスコープは残す。
 	 */
-	public function test_unknown_scopes_from_extensions_are_dropped_and_logged(): void {
+	public function test_unknown_declared_scopes_are_dropped_and_logged(): void {
 		Activator::activate();
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'admin', 42, [ 'write_sales' ], 'READ_SALES' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'admin', 42, [ 'write_sales' ], 'READ_SALES' ] );
 
 		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
 		$this->assertSame( [ 'unknown_scope' ], $this->logged_reasons() );
@@ -426,29 +424,15 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * @return array<string,array{0:callable,1:string}>
+	 * 配列でない宣言は 1 つの値として読む（文字列なら 1 つのスコープ、そうでなければ捨てて記録する）。
 	 */
-	public static function broken_scope_filters(): array {
-		return [
-			'not an array' => [ static fn (): string => 'read_sales', 'not_an_array' ],
-			'throws'       => [ static fn () => throw new \LogicException( 'boom' ), 'LogicException' ],
-		];
-	}
-
-	/**
-	 * 配列でない戻り値・例外は拡張の分を捨てて商品のスコープだけを要求し、記録する（`/connections`・認可を落とさない）。
-	 *
-	 * @dataProvider broken_scope_filters
-	 *
-	 * @param callable $filter フィルターのコールバック。
-	 * @param string   $reason 記録する理由。
-	 */
-	public function test_a_broken_scope_filter_falls_back_to_the_base_scopes( callable $filter, string $reason ): void {
+	public function test_a_declaration_that_is_not_a_list_is_read_as_one_value(): void {
 		Activator::activate();
-		add_filter( ColorMeOAuth::SCOPES_FILTER, $filter );
+		OAuthScopes::add( ColorMeAdapter::ID, 'read_sales' );
+		OAuthScopes::add( ColorMeAdapter::ID, null );
 
-		$this->assertSame( ColorMeOAuth::BASE_SCOPES, ColorMeOAuth::scopes() );
-		$this->assertSame( [ $reason ], $this->logged_reasons() );
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+		$this->assertSame( [ 'unknown_scope' ], $this->logged_reasons() );
 	}
 
 	/**
@@ -494,14 +478,13 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 */
 	public function test_exchange_code_records_the_scopes_requested_when_authorizing_out_of_band( array $response ): void {
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
-		$add_sales               = static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] );
-		add_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 		[ $oauth, $token_store ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
 		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
 
 		// 認可の後で拡張を止めても、控えた要求を記録する。
-		remove_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+		OAuthScopes::reset();
 		$this->respond_with_token( $response );
 		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
 
@@ -527,15 +510,14 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 * @param bool $broader_first 先の認可が拡張のスコープも要求したか。
 	 */
 	public function test_repeated_out_of_band_authorizations_record_only_the_scopes_both_requested( bool $broader_first ): void {
-		$add_sales               = static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] );
 		[ $oauth, $token_store ] = $this->make_oauth();
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
 
 		foreach ( [ $broader_first, ! $broader_first ] as $broader ) {
 			if ( $broader ) {
-				add_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+				OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 			} else {
-				remove_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+				OAuthScopes::reset();
 			}
 
 			$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
@@ -557,7 +539,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$this->respond_with_token( [ 'access_token' => 'first-token' ] );
 		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
 
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
 		$oauth->exchange_code( 'auth-code-2', ColorMeOAuth::OOB_REDIRECT_URI );
 
@@ -573,7 +555,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
 		$state = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
 
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 		wp_set_current_user( 0 );
 		$this->assertTrue( $oauth->verify_state( $state ) );
 		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
@@ -654,7 +636,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 * 未接続は「足りない」と言わない（未接続・要再接続の案内は別にある）。
 	 */
 	public function test_missing_scopes_is_empty_when_not_connected(): void {
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 		[ $oauth, $token_store ] = $this->make_oauth();
 
 		$this->assertNull( ColorMeOAuth::granted_scopes_in( $token_store ) );
@@ -670,7 +652,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	 * 付与されたスコープを記録していないトークン（R3-6c2 より前の版が保存した）は、その版が要求した 5 つを持つ。Pro のスコープを足しても足りている。
 	 */
 	public function test_a_token_without_a_record_has_the_legacy_scopes(): void {
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] );
 		[ $oauth, $token_store ] = $this->make_oauth();
 		$token_store->save( [ 'access_token' => 'token-saved-before-r3-6c2' ] );
 
@@ -694,7 +676,7 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 
 		$this->assertSame( [], $oauth->missing_scopes() );
 
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] );
 
 		$this->assertSame( [ 'read_sales', 'write_sales', 'read_shop_coupons' ], $oauth->missing_scopes() );
 	}

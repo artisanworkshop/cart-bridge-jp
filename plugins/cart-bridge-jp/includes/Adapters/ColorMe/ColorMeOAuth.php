@@ -7,19 +7,19 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\RateLimiter;
 use CartBridgeJP\Support\TokenStore;
-use Throwable;
 
 /**
  * カラーミーショップ OAuth2 認可コードフロー（`01-plan-colorme.md` §1 / swagger.json 添付ドキュメント）。
  *
  * - アクセストークンは無期限（リフレッシュ処理不要。取得したら `TokenStore` にそのまま保存する）
  * - 認可コードは発行から10分・1回のみ交換可能
- * - スコープは無料版が使う商品のものだけを要求し、拡張（Pro アドオン）が `cbjp/oauth/scopes` で足す。付与されたスコープをトークンと一緒に
+ * - スコープは無料版が使う商品のものだけを要求し、拡張（Pro アドオン）が `Adapters\OAuthScopes` に宣言したものを足す。付与されたスコープをトークンと一緒に
  *   記録し、要求するスコープが足りない接続には再接続を促す（R3-6c2。`docs/03-design-decisions.md` §10.0 決め残し 9）
  * - リダイレクトURIに `urn:ietf:wg:oauth:2.0:oob`（{@see self::OOB_REDIRECT_URI}）を指定した場合、
  *   カラーミー側は自サイトの `https://api.shop-pro.jp/oauth/authorize/{code}` へリダイレクトし、
@@ -33,7 +33,7 @@ final class ColorMeOAuth {
 	private const TOKEN_URL     = 'https://api.shop-pro.jp/oauth/token';
 
 	/**
-	 * 無料版が要求するスコープ（商品・在庫の読取りと更新）。拡張（`cbjp/oauth/scopes`）でも外せない（R3-6c2。`docs/03` §10.0 決め残し 9）。
+	 * 無料版が要求するスコープ（商品・在庫の読取りと更新。R3-6c2。`docs/03` §10.0 決め残し 9）。
 	 */
 	public const BASE_SCOPES = [ 'read_products', 'write_products' ];
 
@@ -44,7 +44,7 @@ final class ColorMeOAuth {
 	public const LEGACY_SCOPES = [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ];
 
 	/**
-	 * ColorMe のスコープ（`tests/fixtures/colorme/swagger.json` の `info.description` の表）。拡張が足せるのはこれだけで、要求はこの順に並べる。
+	 * ColorMe のスコープ（`tests/fixtures/colorme/swagger.json` の `info.description` の表）。拡張が宣言できるのはこれだけで、要求はこの順に並べる。
 	 */
 	public const KNOWN_SCOPES = [
 		'read_products',
@@ -56,11 +56,6 @@ final class ColorMeOAuth {
 		'read_templates',
 		'write_templates',
 	];
-
-	/**
-	 * 要求するスコープを足すフィルター（`( array $scopes, string $platform )`）。Pro アドオンが顧客・受注・クーポンのスコープを足す口。
-	 */
-	public const SCOPES_FILTER = 'cbjp/oauth/scopes';
 
 	private const RATE_LIMIT_PER_MINUTE = 100;
 
@@ -96,35 +91,20 @@ final class ColorMeOAuth {
 	}
 
 	/**
-	 * 認可で要求するスコープ（R3-6c2）。無料版の `BASE_SCOPES` に、拡張が `cbjp/oauth/scopes` で足したものを加える
-	 * （Pro アドオンは有効なときに顧客・受注・クーポンのスコープを足す。無料版だけのサイトは使わない受注・顧客への権限を求めない）。
+	 * 認可で要求するスコープ（R3-6c2）。無料版の `BASE_SCOPES` に、拡張が `OAuthScopes::add()` で宣言したものを加える（Pro アドオンは起動時に
+	 * 顧客・受注・クーポンのスコープを宣言する。無料版だけのサイトは使わない受注・顧客への権限を求めない）。
 	 *
-	 * フィルターの戻り値は信用しない（原則 8）: 例外・配列でない戻り値は拡張の分を捨てて `BASE_SCOPES` に倒し、`KNOWN_SCOPES` に無い値は
-	 * その値だけ捨てる（スコープは互いに独立で、要求しなかったスコープは、それを要る拡張の機能が使えないだけ。別の拡張の誤りで正しい拡張の
-	 * スコープまで捨てない）。`BASE_SCOPES` は戻り値に無くても外さない。並びは `KNOWN_SCOPES` の順で、同じ組なら同じ文字列になる。
+	 * 宣言の値は信用しない（原則 8）: `KNOWN_SCOPES` に無い値（文字列でない値を含む）はその値だけ捨てて 1 行記録する（スコープは互いに独立で、
+	 * 要求しなかったスコープは、それを要る拡張の機能が使えないだけ。別の拡張の誤りで正しい拡張のスコープまで捨てない）。並びは `KNOWN_SCOPES` の順で、
+	 * 同じ組なら同じ文字列になる。宣言はデータなので、別の拡張の例外・置き換えで失われない（以前のフィルターの問題。PR #118 G3-B1）。
 	 *
 	 * @return array<int,string>
 	 */
 	public static function scopes(): array {
-		try {
-			// `self::SCOPES_FILTER`。PHPCS がフック名の接頭辞を定数では検査できないので文字列で書く。
-			$filtered = apply_filters( 'cbjp/oauth/scopes', self::BASE_SCOPES, ColorMeAdapter::ID );
-		} catch ( Throwable $exception ) {
-			self::log_rejected_scopes( $exception::class );
-
-			return self::BASE_SCOPES;
-		}
-
-		if ( ! is_array( $filtered ) ) {
-			self::log_rejected_scopes( 'not_an_array' );
-
-			return self::BASE_SCOPES;
-		}
-
 		$requested = self::BASE_SCOPES;
 		$unknown   = 0;
 
-		foreach ( $filtered as $scope ) {
+		foreach ( OAuthScopes::declared( ColorMeAdapter::ID ) as $scope ) {
 			if ( ! is_string( $scope ) || ! in_array( $scope, self::KNOWN_SCOPES, true ) ) {
 				++$unknown;
 
@@ -174,7 +154,7 @@ final class ColorMeOAuth {
 
 	private static function log_rejected_scopes( string $reason, int $count = 1 ): void {
 		( new Logger() )->warning(
-			'Ignored OAuth scopes added by an extension.',
+			'Ignored OAuth scopes declared by an extension.',
 			[
 				'platform' => ColorMeAdapter::ID,
 				'reason'   => $reason,

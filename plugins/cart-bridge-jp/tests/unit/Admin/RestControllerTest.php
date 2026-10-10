@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
@@ -68,6 +69,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
+		OAuthScopes::reset();
 		global $wp_rest_server;
 		$wp_rest_server = null; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
 		$this->forget_entity_types();
@@ -596,7 +598,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 			$missing()
 		);
 
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'read_shop_coupons' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales', 'read_shop_coupons' ] );
 
 		$this->assertSame(
 			[
@@ -635,12 +637,17 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 拡張のフィルターが例外を投げても `/connections` は落ちない（拡張の分を捨てる）。
+	 * 読めない宣言があっても `/connections` は落ちない（その値を捨てる）。
 	 */
-	public function test_get_connections_survives_a_throwing_scope_filter(): void {
+	public function test_get_connections_survives_an_unreadable_scope_declaration(): void {
 		$this->register_colorme_adapter();
-		( new TokenStore( ColorMeAdapter::ID ) )->save( [ 'access_token' => 'token' ] );
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn () => throw new \LogicException( 'boom' ) );
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+		OAuthScopes::add( ColorMeAdapter::ID, [ new \stdClass(), [ 'read_sales' ], 'not_a_scope' ] );
 
 		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
 
@@ -1320,7 +1327,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$authorize_response = $this->server->dispatch( $authorize_request );
 		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
 		// 認可の後で拡張がスコープを足しても、記録するのは認可で要求したもの（state で引く。R3-6c2 G1-1）。
-		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		OAuthScopes::add( ColorMeAdapter::ID, [ 'read_sales' ] );
 
 		add_filter(
 			'pre_http_request',

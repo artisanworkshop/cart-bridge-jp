@@ -31,7 +31,7 @@ define( 'CBJP_URL', plugin_dir_url( __FILE__ ) );
 // 拡張点（`cbjp/entity_types/register` など。docs/03 §10.0「Pro が使ってよい無料版の API」）の版。Pro アドオンが要る値より小さければ
 // Pro は起動しない（R3-6c1）。Pro が使う拡張点を足したら 1 つ上げる（プラグインの版とは別。版の文字列は公開前の 0.x では比べられないため）。
 // Pro は下限しか見ないので、拡張点の互換を壊す変更（メソッドの削除・シグネチャの変更）はしない（D20 と同じ。v1.0 前は Pro も同じ PR で直す）。
-// 2: R3-6c2（フィルター `cbjp/oauth/scopes`・`ColorMeAdapter::granted_scopes()`）。
+// 2: R3-6c2（`Adapters\OAuthScopes`・`ColorMeAdapter::granted_scopes()`）。
 define( 'CBJP_EXTENSION_API_VERSION', 2 );
 
 if ( file_exists( CBJP_PATH . 'vendor/autoload.php' ) ) {
