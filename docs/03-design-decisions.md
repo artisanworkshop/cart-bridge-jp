@@ -983,19 +983,23 @@ main の ja の訳を引き継ぐ。backlog）。
   例外・配列でない値は拡張の分を捨てて `BASE_SCOPES` に倒し、`KNOWN_SCOPES`（swagger の表の 8 つ）に無い値はその値だけ捨てて記録する（スコープは互いに独立で、要求しなかったものは
   それを要る機能が使えないだけ。別の拡張の誤りで正しい拡張の分まで捨てない）。`BASE_SCOPES` は外せない。並びは `KNOWN_SCOPES` の順（Pro 有効時は旧 `SCOPE` と同じ文字列）。
 - **付与されたスコープの記録**: `exchange_code()` がトークン応答の `scope`（swagger の説明では応答に含まれる）を空白で分けて、`TokenStore::save_token_if_credentials_match()` の
-  **トークンと同じ CAS** で payload の `scopes` に書く（別の書込みにすると、間に読んだ側が「記録なし」＝旧版と読み違える）。`scope` が無い・null なら要求したもの（RFC 6749 §5.1。
-  交換の時点の `scopes()`）、文字列でなければ `[]`（フェイルクローズ）。`TokenStore::granted_scopes()` は記録が無ければ null、壊れた記録（文字列のリストでない）は `[]`。
+  **トークンと同じ CAS** で payload の `scopes` に書く（別の書込みにすると、間に読んだ側が「記録なし」＝旧版と読み違える）。`scope` が無い・null なら要求したもの（RFC 6749 §5.1）、
+  文字列でなければ `[]`（フェイルクローズ）。「要求したもの」は `authorize_url()` が認可の単位で控えた transient（リダイレクトは state ごと、OOB はコードを貼り付ける今のユーザーごと。
+  10 分・一度きり）から読む（交換の時点で求め直すと、その間に拡張を有効・無効にしたとき実際の要求とずれる。PR #118 G1-1）。控えが無い・読めないときは `[]`。`TokenStore::granted_scopes()` は記録が無ければ null、壊れた記録（文字列のリストでない）は `[]`。
 - **記録の無いトークン**（R3-6c2 より前の版が保存した。0.1.0・開発サイト）は旧版の 5 つ（`ColorMeOAuth::LEGACY_SCOPES`）を持つとみなす（`ColorMeOAuth::granted_scopes_in()`）。
   それより前の全版が 5 つを要求し、ColorMe の認可画面はスコープを選ばせないため。Pro を入れた既存サイトに再接続を求めない。無料版だけの既存サイトのトークンは受注の権限を持ったまま
   （再接続すると保存するトークンは商品の 2 つになるが、プラグインは古いトークンを失効させない〔失効の API を呼ばない〕。ColorMe 側で失効させるのは管理画面の「許可済みアプリ一覧」〔swagger の説明〕で、アプリ単位かトークン単位かは未確認なので、取り消した後は接続し直す。R3-6d の changelog で案内する。R3-6c2 review-loop R1-5）。
-- `ColorMeOAuth::missing_scopes()`（接続済みのとき要求 − 付与。未接続・要再接続は空）を `GET /connections` の `missing_scopes` に出す（OAuth でない接続先は空）。
+- `ColorMeOAuth::missing_scopes()`（接続済みのとき要求 − 付与。未接続・要再接続は空）を `GET /connections` の `missing_scopes` に出す（OAuth の接続ボタンを持たない接続先は空。
+  `oauth_for()` は登録キーで選ぶので、`colorme` を mock などで置き換えたときに ColorMe のスコープを出さない。PR #118 G1-2）。
   `ColorMeAdapter::granted_scopes()`（Pro 用。未接続は null）。`CBJP_EXTENSION_API_VERSION` を 2 に上げた（Pro の `CBJP_PRO_REQUIRED_EXTENSION_API` も 2）。
 - 画面: `missingScopes()`（`src/connection-scopes.ts`。`connected` が `true` の接続の、自前のプロパティの文字列だけ）が空でなければ、Connections の接続カードに警告
   （足りないスコープの名前と「〜に接続し直す」の案内）、Import／Export／Mappings タブに案内（`MissingScopesNotice`。一部の種類が出ない・動かないかもしれない理由と Connections タブへのリンク。
   種類の名前・Pro は挙げない）。未知のスコープの記録は `scopes()` の 1 回の呼び出しにつき 1 行（`GET /connections` はタブを開くたびに呼ばれる。review-loop R1-4）。
   接続（`connected`）の判定は変えない（スコープが欠けても商品系は使える）。
 
-**Pro**: `Core\Plugin::boot()` が `cbjp/oauth/scopes` に `CommerceAdapters::add_oauth_scopes()`（同梱の接続先 → `ColorMeCommerceAdapter::OAUTH_SCOPES`）を足す。
+**Pro**: `Core\Plugin::boot()` が `cbjp/oauth/scopes` に `CommerceAdapters::add_oauth_scopes()`（同梱の接続先 → `ColorMeCommerceAdapter::OAUTH_SCOPES`）を**最後の優先度**
+（`PHP_INT_MAX`）で足し、配列でない値を受けたら自分の分だけを返す（後から登録された拡張が値を壊す・置き換えると、認可は Pro の分を要求しないのに Pro は足りないと判定し、
+`missing_scopes` も空で案内が出ないまま顧客・受注・クーポンが隠れる。PR #118 G1-3。review-loop R1-3 で backlog に送ったものを Codex が再指摘）。
 フィルター名は文字列で書く（`ColorMeOAuth` は「Pro が使ってよい無料版の API」に無い）。同梱の ColorMe の組み立ては、接続済みのトークンに `OAUTH_SCOPES` が 1 つでも欠けていれば null
 （`ColorMeCommerceAdapter::has_required_scopes()`）→ 顧客・受注・クーポンは取込み・エクスポートの選択肢に出ず、決済・配送・ステータスのマッピングの節も出ない。
 未接続（要再接続を含む）は今までどおり組み立て、API の「未接続」の案内（push intent の `not_connected` など）に任せる。部分的な付与は全部欠けているのと同じ扱い（Pro は 3 つを一緒に要求する）。
