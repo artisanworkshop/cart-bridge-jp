@@ -50,10 +50,17 @@ final class ReadmeTest extends WP_UnitTestCase {
 	private const PRO_ADD_ON_NAME = 'Cart Bridge JP Pro';
 
 	/**
-	 * 無料版が移す・API とやり取りするものを書いた小見出し（`== Description ==` の中）。R3-6c1 で顧客・受注・クーポンを Pro へ移した後、
-	 * ここが古いまま残っていた（R3-6d で直した）。
+	 * 無料版の機能・API とやり取りするものを書いた `== Description ==` の小見出し。R3-6c1 で顧客・受注・クーポンを Pro へ移した後、
+	 * ここが古いまま残っていた（R3-6d で直した）。Pro に触れる箇所（Description の冒頭の段落・Pro の FAQ・changelog・Upgrade Notice）は対象外。
 	 */
-	private const FREE_SCOPE_SUBSECTIONS = [ 'Import from Color Me Shop', 'Export to Color Me Shop', 'External services' ];
+	private const FREE_SCOPE_SUBSECTIONS = [ 'Import from Color Me Shop', 'Export to Color Me Shop', 'Before and after the migration', 'External services' ];
+
+	private const FAQ_BETA_QUESTION = 'What is the Beta feature?';
+
+	/**
+	 * 顧客・受注・クーポンと、受注のマッピングにだけ使う決済・配送を名指しする語。HPOS の正式名（High-Performance Order Storage）は除く。
+	 */
+	private const COMMERCE_ENTITY_PATTERN = '/\b(?:customers?|orders?(?! Storage)|coupons?|payment methods?|shipping methods?)\b/i';
 
 	private static ?string $readme = null;
 
@@ -176,16 +183,26 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * D27（R3-6c1）: 無料版は顧客・受注・クーポンのコードを持たない（`FreeScopeTest`）。取り込む・送る・API で読むものの説明にそれらを書かない
-	 * （決済・配送の方法は受注のマッピングにだけ使う）。
+	 * D27（R3-6c1）: 無料版は顧客・受注・クーポンのコードを持たない（`FreeScopeTest`）。無料版の機能・取り込む・送る・API で読むものの説明
+	 * （短い説明・ヘッダーの Description・Description の小見出し・Installation・キャプション・Beta の FAQ）にそれらを書かない
+	 * （決済・配送の方法は受注のマッピングにだけ使う）。R3-6c1 の後、これらがすべて古いまま残っていた。
 	 */
-	public function test_free_scope_subsections_do_not_describe_commerce_entities(): void {
+	public function test_free_scope_descriptions_do_not_describe_commerce_entities(): void {
+		$texts = [
+			'short description'  => $this->short_description(),
+			'plugin header'      => get_file_data( CBJP_FILE, [ 'description' => 'Description' ] )['description'],
+			'Installation'       => $this->section( 'Installation' ),
+			'Screenshots'        => $this->section( 'Screenshots' ),
+			'FAQ: Beta features' => $this->faq_answer( self::FAQ_BETA_QUESTION ),
+		];
+
 		foreach ( self::FREE_SCOPE_SUBSECTIONS as $heading ) {
-			$this->assertDoesNotMatchRegularExpression(
-				'/\b(?:customers?|orders?|coupons?|payment methods?|shipping methods?)\b/i',
-				$this->subsection( 'Description', $heading ),
-				$heading
-			);
+			$texts[ $heading ] = $this->subsection( 'Description', $heading );
+		}
+
+		foreach ( $texts as $where => $text ) {
+			$this->assertNotSame( '', trim( $text ), $where );
+			$this->assertDoesNotMatchRegularExpression( self::COMMERCE_ENTITY_PATTERN, $text, $where );
 		}
 	}
 
@@ -228,7 +245,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * ガイドライン（外部サービスの開示）:プラグインが接続する Color Me Shop API の起点（`https://<host>`）を「External services」節に
+	 * ガイドライン（外部サービスの開示）: プラグインが接続する Color Me Shop API の起点（`https://<host>`）を「External services」節に
 	 * コードとして書く（節の末尾の規約の URL もホストを含むので、ホスト名だけでは本文から接続先の説明が消えても通ってしまう）。
 	 */
 	public function test_external_services_section_names_the_hosts_the_plugin_contacts(): void {

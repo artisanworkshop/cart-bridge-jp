@@ -87,7 +87,7 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
 
 - `waitFor` のタイムアウト: `wait_for` の文言が UI と違う。画面が開けていない（Cookie が通らない・PHP のエラー）こともある。失敗した回の画像は出力先に写さないので、tests サイトに管理者でログインして同じタブを開いて確かめる。
 - `the … tab shows an error notice`: そのタブの API 呼び出しが失敗している。フィクスチャの無い API を呼んでいないか、`npx wp-env run tests-cli wp db query "SELECT level, message FROM wp_cbjp_logs ORDER BY id DESC LIMIT 10"` を見る。
-- `setup: … would be empty`: フィクスチャの決済・配送・カテゴリ・状態の候補が変わった。`setup.php` の対応の作り方を合わせる。
+- `setup: … would be empty`: フィクスチャのカテゴリの候補が変わった（無料版のマッピングはカテゴリだけ）。`setup.php` の対応の作り方を合わせる。
 - `the dry run did not complete for every entity: …`: 止まらなかったエンティティと状態（`product=failed` など）と、止まった理由（ジョブの失敗・5 分の期限・アクションを失ったジョブ）を出す。直前に出るエンティティごとの状態と `wp_cbjp_logs` を見る。run はキャンセル済みなので、原因を直してそのまま撮り直せる。
 - `no job was created for: …`: `dry_run_entities` に、アダプタが受け付けないエンティティがある。
 - `a colorme token other than the screenshot dummy …`（setup・teardown）: tests サイトに撮影用でないトークンが保存されている。誰かが tests サイトを店舗につないだので、撮影も後片付けも何も変えずに止まる（後片付けが止まると mu-plugin は残る）。そのトークンをどうするか決めてから撮り直す・`cleanup` を実行する。
