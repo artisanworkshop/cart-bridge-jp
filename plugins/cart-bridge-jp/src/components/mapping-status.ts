@@ -63,10 +63,10 @@ function ownMappedValue( map: unknown, key: string ): string | null {
 /**
  * 行に並べる側の候補（決済方法なら ASP 側）ごとに、使える設定があるかを数える。設定済みと数えるのは、マップに値があり、その値が
  * 現在の対応先の候補に存在するときだけ。候補に無い値（無効化・削除されたゲートウェイや
- * 配送方法インスタンス）は、インポート時に `Woo\Writer\OrderWriter` が実在チェックで未マッピング扱いに
+ * 配送方法インスタンス）は、インポート時に Pro アドオンの `Woo\Writer\OrderWriter` が実在チェックで未マッピング扱いに
  * 倒すため、ここでも未マッピングとして数える（フェイルクローズ）。
  * 例外として、配送の値が方式だけの ID（例: `flat_rate`。REST へ直接 PUT したときだけ保存されうる）は、
- * `MethodMap::shipping_method_exists()` は方式が登録されていれば使える値として受け付けるが、Woo 側の候補は
+ * Pro の `OrderMethodMap::shipping_method_exists()` は方式が登録されていれば使える値として受け付けるが、Woo 側の候補は
  * `method:instance` 形式しか無いのでここでは未マッピングと数える（案内が出る側の食い違いで、安全側）。
  * @param sources 行に並べる側の候補
  * @param targets 対応先の候補

@@ -369,7 +369,7 @@ export default function MappingSettings( {
 	const sections = kinds.filter( ( kind ) => kind.applies );
 
 	if ( 0 === sections.length ) {
-		// カテゴリを作れる接続先に無料版だけでつないだときなど（カテゴリのマッピングも要らない。R3-6c の後）。
+		// カテゴリを作れる接続先に無料版だけでつないだときなど（カテゴリのマッピングも要らない。R3-6c1 の後）。
 		return (
 			<p>
 				{ __(

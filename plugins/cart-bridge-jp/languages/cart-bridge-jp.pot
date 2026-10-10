@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-09T23:13:38+00:00\n"
+"POT-Creation-Date: 2026-10-10T02:17:09+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -29,61 +29,44 @@ msgstr ""
 msgid "Artisan Workshop"
 msgstr ""
 
-#: cart-bridge-jp.php:83
+#: cart-bridge-jp.php:87
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr ""
 
-#: cart-bridge-jp.php:96
+#: cart-bridge-jp.php:100
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:117
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:86
 msgid "Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:168
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:137
 msgid "Client ID"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:171
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:140
 msgid "From your Color Me Shop developer app registration."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:175
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:144
 msgid "Client Secret"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:182
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:151
 msgid "Connect to Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:195
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:164
 msgid "Not connected yet."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:208
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:177
 msgid "The platform returned an unexpected response. Please try again."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:239
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:208
 msgid "The connection changed while testing. Please try again."
-msgstr ""
-
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:325
-msgid "Unpaid"
-msgstr ""
-
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:329
-msgid "Paid (not shipped)"
-msgstr ""
-
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:333
-msgid "Shipped"
-msgstr ""
-
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:337
-#: build/index.js:14
-msgid "Cancelled"
 msgstr ""
 
 #: includes/Admin/Menu.php:20
@@ -105,760 +88,133 @@ msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:566
+#: includes/Admin/RestController.php:565
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:584
+#: includes/Admin/RestController.php:583
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:645
+#: includes/Admin/RestController.php:644
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:653
+#: includes/Admin/RestController.php:652
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:1066
+#: includes/Admin/RestController.php:1100
 #: build/index.js:4
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1108
+#: includes/Admin/RestController.php:1142
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1109
+#: includes/Admin/RestController.php:1143
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1133
+#: includes/Admin/RestController.php:1167
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1145
+#: includes/Admin/RestController.php:1179
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1175
+#: includes/Admin/RestController.php:1209
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1238
+#: includes/Admin/RestController.php:1272
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1250
+#: includes/Admin/RestController.php:1284
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1287
-#: includes/Admin/RestController.php:1328
-#: includes/Admin/RestController.php:1398
-#: includes/Admin/RestController.php:1490
+#: includes/Admin/RestController.php:1321
+#: includes/Admin/RestController.php:1362
+#: includes/Admin/RestController.php:1432
+#: includes/Admin/RestController.php:1524
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1412
+#: includes/Admin/RestController.php:1446
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1424
+#: includes/Admin/RestController.php:1458
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1496
+#: includes/Admin/RestController.php:1530
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1523
+#: includes/Admin/RestController.php:1557
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1591
+#: includes/Admin/RestController.php:1625
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1636
+#: includes/Admin/RestController.php:1670
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1641
+#: includes/Admin/RestController.php:1675
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1646
+#: includes/Admin/RestController.php:1680
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1651
+#: includes/Admin/RestController.php:1685
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1657
+#: includes/Admin/RestController.php:1691
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1663
+#: includes/Admin/RestController.php:1697
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1668
+#: includes/Admin/RestController.php:1702
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1678
+#: includes/Admin/RestController.php:1712
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1756
+#: includes/Admin/RestController.php:1790
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1757
+#: includes/Admin/RestController.php:1791
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1769
+#: includes/Admin/RestController.php:1803
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
 
-#: includes/Core/Plugin.php:143
+#: includes/Core/Plugin.php:136
 msgid "Cart Bridge JP requires the PHP sodium extension to store API credentials securely. Please contact your hosting provider."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponType.php:44
-msgid "Coupons"
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:60
-msgid "A coupon with the same code that was imported from this platform before already exists, so it is linked and updated."
-msgstr ""
-
-#. translators: %s: the WooCommerce ID of a coupon.
-#: includes/Entities/Commerce/CouponWarnings.php:63
-#, php-format
-msgid "A coupon with the same code that was imported from this platform before already exists (coupon ID %s), so it is linked and updated."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:68
-msgid "The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported or updated (without them, it could be used more widely). A coupon that was imported before is not changed or disabled, so it stays usable without these restrictions."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:69
-msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand with equivalent restrictions. If it was imported before, add the restrictions to it or disable it."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:73
-msgid "The coupon has settings the platform cannot represent (such as product, category or email restrictions, a maximum spend, “Individual use only”, or a fixed product discount), or it has already been used, so it is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:74
-msgid "Remove those settings, or create the coupon on the platform by hand. For a coupon that has been used, create a new coupon."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:78
-msgid "The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported or updated (to avoid creating it without them). A coupon that was imported before is not changed or disabled, so it stays usable as it was."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:79
-msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand. If it was imported before, check its restrictions, or disable it."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:83
-msgid "Another WooCommerce coupon already uses the same code, so this coupon is not imported or updated."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:84
-msgid "Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again."
-msgstr ""
-
-#. translators: %s: the WooCommerce ID of a coupon.
-#: includes/Entities/Commerce/CouponWarnings.php:86
-#, php-format
-msgid "Another WooCommerce coupon (coupon ID %s) already uses the same code, so this coupon is not imported or updated."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:90
-msgid "The coupon’s discount type is not supported (only a fixed amount or a percentage), so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:91
-#: includes/Entities/Commerce/CouponWarnings.php:105
-msgid "Create the coupon in WooCommerce by hand."
-msgstr ""
-
-#. translators: %s: the discount type received from the platform.
-#: includes/Entities/Commerce/CouponWarnings.php:93
-#, php-format
-msgid "The coupon’s discount type “%s” is not supported (only a fixed amount or a percentage), so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:97
-msgid "The coupon’s discount is not valid (not a number, negative, or a percentage over 100), so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:98
-msgid "Correct the discount on the platform, or create the coupon in WooCommerce by hand."
-msgstr ""
-
-#. translators: %s: the discount value received from the platform.
-#: includes/Entities/Commerce/CouponWarnings.php:100
-#, php-format
-msgid "The coupon’s discount (%s) is not valid (not a number, negative, or a percentage over 100), so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:104
-msgid "The coupon’s expiry date cannot be read, so it is not imported."
-msgstr ""
-
-#. translators: %s: the expiry date received from the platform.
-#: includes/Entities/Commerce/CouponWarnings.php:107
-#, php-format
-msgid "The coupon’s expiry date (%s) cannot be read, so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:111
-msgid "The coupon’s minimum spend is not a number or is negative, so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:112
-msgid "Correct the minimum spend on the platform, then import again."
-msgstr ""
-
-#. translators: %s: the minimum spend received from the platform.
-#: includes/Entities/Commerce/CouponWarnings.php:114
-#, php-format
-msgid "The coupon’s minimum spend (%s) is not a number or is negative, so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:118
-msgid "WooCommerce could not save the coupon, so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CouponWarnings.php:119
-#: includes/Woo/WarningCatalog.php:365
-msgid "Check the PHP error log for the cause, then import again."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerLinkSource.php:22
-#: includes/Entities/Commerce/CustomerType.php:43
-msgid "Customers"
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:52
-msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:53
-msgid "Check that the existing account belongs to the same person."
-msgstr ""
-
-#. translators: %s: the WordPress ID of a user.
-#: includes/Entities/Commerce/CustomerWarnings.php:55
-#, php-format
-msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:62
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:63
-msgid "If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:67
-msgid "The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:68
-msgid "Change or remove the email address on the other WordPress user, or correct it on the platform, then import again."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:72
-msgid "WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:73
-msgid "Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again."
-msgstr ""
-
-#. translators: %s: a WordPress error code.
-#: includes/Entities/Commerce/CustomerWarnings.php:75
-#, php-format
-msgid "WooCommerce could not create the customer account (%s), so the customer is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:79
-msgid "The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:80
-msgid "Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:84
-msgid "The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens)."
-msgstr ""
-
-#: includes/Entities/Commerce/CustomerWarnings.php:85
-msgid "Fill in the customer’s name, billing address and phone number in WooCommerce, then export again."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderLinkSource.php:30
-#: includes/Entities/Commerce/OrderType.php:45
-msgid "Orders"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:25
-msgid "Order status mapping"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:29
-msgid "Overrides the WooCommerce status an imported order gets for each platform status. Leave it at Default to use the standard status."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:33
-msgid "Platform order status"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:37
-msgid "WooCommerce order status"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:41
-msgid "— Default —"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderStatusMappingKind.php:45
-msgid "No WooCommerce order statuses are available."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderType.php:76
-msgid "Creates orders (sales) in the connected shop."
-msgstr ""
-
-#. translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time
-#: includes/Entities/Commerce/OrderType.php:114
-#, php-format
-msgid "#%1$s — %2$s %3$s (%4$s)"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderType.php:120
-msgid "date unknown"
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:117
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:118
-msgid "If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:123
-msgid "The product of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:124
-msgid "Import products before orders (a full import does this). If the product was deleted on the platform, the line stays without a product link."
-msgstr ""
-
-#. translators: %s: the platform's ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:126
-#, php-format
-msgid "The product %s of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:130
-msgid "The options of an order line do not identify one variation of the product (the product’s options may have changed after the order), so the line is added without a link to a product."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:131
-msgid "While this warning remains, the order’s lines are recreated each time the order is imported, so a line linked by hand is undone. Link the line to the right variation by hand only after you finish importing."
-msgstr ""
-
-#. translators: %s: the platform's ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:133
-#, php-format
-msgid "The options of an order line do not identify one variation of the product %s (the product’s options may have changed after the order), so the line is added without a link to a product."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:137
-msgid "The customer of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:138
-msgid "Import customers before orders (a full import does this). If the customer was deleted on the platform, the order stays a guest order."
-msgstr ""
-
-#. translators: %s: the platform's ID of a customer.
-#: includes/Entities/Commerce/OrderWarnings.php:140
-#, php-format
-msgid "The customer %s of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:145
-msgid "The quantity of an order line is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:146
-msgid "Check the order on the platform, and correct the quantity in the WooCommerce order after you finish importing (an order that is imported again is rewritten)."
-msgstr ""
-
-#. translators: %s: the platform's ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:148
-#, php-format
-msgid "The quantity of the order line for the product %s is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:152
-msgid "The quantity of an order line is not a positive whole number, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:153
-msgid "Correct the quantity on the WooCommerce order, or create the order on the platform by hand."
-msgstr ""
-
-#. translators: %s: the platform's ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:155
-#, php-format
-msgid "The quantity of the order line for the platform’s product %s is not a positive whole number, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:160
-msgid "The platform’s payment method is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:161
-msgid "Map the payment method in the Mappings tab. The order is updated the next time it is imported."
-msgstr ""
-
-#. translators: %s: the platform's ID of a payment method.
-#: includes/Entities/Commerce/OrderWarnings.php:163
-#, php-format
-msgid "The platform’s payment method %s is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:167
-msgid "The order has no payment method, so it is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:168
-msgid "In the Mappings tab, map exactly one of the platform’s payment methods to the order’s WooCommerce payment method (set a payment method on the order if it has none), then export again."
-msgstr ""
-
-#. translators: %s: the ID of a WooCommerce payment method, such as bacs.
-#: includes/Entities/Commerce/OrderWarnings.php:170
-#, php-format
-msgid "The payment method “%s” is not mapped to exactly one of the platform’s payment methods, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:175
-msgid "The platform’s delivery method is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:176
-msgid "Map the delivery method in the Mappings tab. The order is updated the next time it is imported."
-msgstr ""
-
-#. translators: %s: the platform's ID of a delivery method.
-#: includes/Entities/Commerce/OrderWarnings.php:178
-#, php-format
-msgid "The platform’s delivery method %s is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:182
-msgid "The order has no shipping (for example, it has only virtual products), so it is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:183
-msgid "In the Mappings tab, map exactly one of the platform’s delivery methods to the order’s WooCommerce shipping method, then export again. An order without shipping cannot be exported; create it on the platform by hand."
-msgstr ""
-
-#. translators: %s: the ID of a WooCommerce shipping method, such as flat_rate:3.
-#: includes/Entities/Commerce/OrderWarnings.php:185
-#, php-format
-msgid "The shipping method “%s” is not mapped to exactly one of the platform’s delivery methods, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:189
-msgid "The order status is not registered in WooCommerce, or cannot be used for imported orders (such as “checkout-draft”, which WooCommerce deletes after a day), so the order is imported as “On hold”."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:190
-msgid "In the order status mapping (Mappings tab), choose a regular WooCommerce order status that can be used for imported orders before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten)."
-msgstr ""
-
-#. translators: %s: an order status.
-#: includes/Entities/Commerce/OrderWarnings.php:192
-#, php-format
-msgid "The order status “%s” is not registered in WooCommerce, or cannot be used for imported orders, so the order is imported as “On hold”."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:196
-msgid "The order total from the platform does not equal the sum of its lines, shipping, fees and discount. The platform’s total is kept."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:197
-msgid "Compare the order with the platform, and correct it in WooCommerce after you finish importing if needed (an order that is imported again is rewritten)."
-msgstr ""
-
-#. translators: %s: an amount in yen.
-#: includes/Entities/Commerce/OrderWarnings.php:199
-#, php-format
-msgid "The order total from the platform differs from the sum of its lines, shipping, fees and discount by %s yen. The platform’s total is kept."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:203
-msgid "This order is part of a split order, and the platform does not give the tax for the part, so the order’s tax is recorded as 0."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:207
-msgid "The platform does not give an order line’s price before tax, so the line is recorded at its price including tax with a tax of 0. The order total and tax are not affected."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:211
-msgid "The platform does not give the tax breakdown for this order (older orders), so the order’s tax includes only the tax on products, not on shipping."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:215
-msgid "An order line’s amount including tax is less than its price before tax times the quantity (a discount or rounding on the platform), so the line is recorded at its amount including tax with a tax of 0."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:219
-msgid "WooCommerce could not create the order (another plugin may have stopped it while it was being saved), so it is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:220
-msgid "Check WooCommerce > Status > Logs for the error, fix or turn off the plugin that caused it, then import again."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:225
-msgid "An amount of the order (total, discount, shipping fee or tax) from the platform is missing, not a number, or negative, so the order is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:226
-msgid "Correct the order’s amounts on the platform, then import again."
-msgstr ""
-
-#. translators: %s: the name of an amount field, such as shipping_fee.
-#: includes/Entities/Commerce/OrderWarnings.php:228
-#, php-format
-msgid "The order’s amount “%s” from the platform is missing, not a number, or negative, so the order is not imported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:232
-msgid "An amount of the order (total, discount, shipping, a fee or tax) is not a number or is negative, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:233
-msgid "Correct the amounts on the WooCommerce order (a negative fee is a common cause), or create the order on the platform by hand."
-msgstr ""
-
-#. translators: %s: the name of an amount field, such as payment_fee.
-#: includes/Entities/Commerce/OrderWarnings.php:235
-#, php-format
-msgid "The order’s amount “%s” is not a number or is negative, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:240
-msgid "An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0 (for a line’s price before tax, the line’s tax is recorded as 0 instead). The order total from the platform is kept."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:241
-msgid "Compare the order with the platform, and correct the amounts in WooCommerce after you finish importing (an order that is imported again is rewritten)."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:245
-msgid "An order line’s amount or tax is not a number or is negative, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:246
-msgid "Recalculate or correct the line on the WooCommerce order, or create the order on the platform by hand."
-msgstr ""
-
-#. translators: %s: the platform's ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:248
-#, php-format
-msgid "The amount or tax of the order line for the platform’s product %s is not a number or is negative, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:254
-msgid "A product in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:255
-msgid "Include products in the export, or export them first. If the product is not exported because of its own warnings, fix those first."
-msgstr ""
-
-#. translators: %s: the WooCommerce ID of a product.
-#: includes/Entities/Commerce/OrderWarnings.php:257
-#, php-format
-msgid "The product %s in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:261
-msgid "The customer of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:262
-msgid "Include customers in the export (they are sent before orders), or export them first."
-msgstr ""
-
-#. translators: %s: the WordPress ID of a user.
-#: includes/Entities/Commerce/OrderWarnings.php:264
-#, php-format
-msgid "The customer (user ID %s) of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:268
-msgid "A product in this order has been deleted from WooCommerce, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:269
-#: includes/Entities/Commerce/OrderWarnings.php:276
-#: includes/Entities/Commerce/OrderWarnings.php:288
-#: includes/Entities/Commerce/OrderWarnings.php:310
-msgid "Create the order on the platform by hand if you need it."
-msgstr ""
-
-#. translators: %s: the WooCommerce ID of a deleted product.
-#: includes/Entities/Commerce/OrderWarnings.php:271
-#, php-format
-msgid "The product %s in this order has been deleted from WooCommerce, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:275
-msgid "An order line is not linked to any product, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:280
-msgid "The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:281
-msgid "If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand."
-msgstr ""
-
-#. translators: %s: the WooCommerce ID of a variation.
-#: includes/Entities/Commerce/OrderWarnings.php:283
-#, php-format
-msgid "The variation %s of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:287
-msgid "The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:292
-msgid "An order line’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), or its product is not taxable, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:293
-msgid "If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
-msgstr ""
-
-#. translators: %s: the platform's ID of a product. Write a literal percent sign as %%.
-#: includes/Entities/Commerce/OrderWarnings.php:295
-#, php-format
-msgid "The tax class of the order line for the platform’s product %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), or its product is not taxable, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:299
-msgid "The order was already exported, and the platform cannot update an order’s items, payment or delivery, so it is not sent again (that would create a duplicate)."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:300
-msgid "If the order changed, update it on the platform by hand."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:304
-msgid "The order’s delivery address is incomplete (a name, phone number, postcode, prefecture and address are required), so the order is not exported. A partly filled shipping address is not completed from the billing address."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:305
-msgid "Complete the shipping address on the WooCommerce order, or clear it so that the billing address is used, then export again."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:309
-msgid "The order has no product lines, and the platform requires at least one, so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:314
-msgid "The unit price of an order line cannot be worked out (the line total does not divide evenly by the quantity, or the platform’s tax setting is unknown), so the order is not exported."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:315
-msgid "Check the platform’s tax setting. If a line total does not divide evenly by its quantity, create the order on the platform by hand."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:319
-msgid "The order has a discount (such as a coupon), but the platform cannot receive discounts. When the order is sent, it is sent at prices before the discount, so its total on the platform is higher than the amount paid."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:320
-msgid "Adjust the order’s amount on the platform by hand if needed."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:324
-msgid "The order’s shipping and other fees cannot be sent. When the order is sent, the platform applies its own fees for the payment and delivery methods, so the totals can differ."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:325
-msgid "Check the fees on the platform’s order if needed."
-msgstr ""
-
-#: includes/Entities/Commerce/OrderWarnings.php:329
-msgid "The platform cannot receive the order date, so the order date on the platform is the date of the export."
-msgstr ""
-
-#: includes/Entities/Commerce/PaymentMappingKind.php:25
-msgid "Payment method mapping"
-msgstr ""
-
-#: includes/Entities/Commerce/PaymentMappingKind.php:29
-msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning. When exporting orders, the same mapping is used, where possible, to choose the platform payment method."
-msgstr ""
-
-#: includes/Entities/Commerce/PaymentMappingKind.php:33
-msgid "Platform payment method"
-msgstr ""
-
-#: includes/Entities/Commerce/PaymentMappingKind.php:37
-msgid "WooCommerce payment method"
-msgstr ""
-
-#: includes/Entities/Commerce/PaymentMappingKind.php:41
-msgid "No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first."
-msgstr ""
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:25
-msgid "Shipping method mapping"
-msgstr ""
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:29
-msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning. When exporting orders, the same mapping is used, where possible, to choose the platform shipping method."
-msgstr ""
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:33
-msgid "Platform shipping method"
-msgstr ""
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:37
-msgid "WooCommerce shipping method"
-msgstr ""
-
-#: includes/Entities/Commerce/ShippingMappingKind.php:41
-msgid "No WooCommerce shipping methods are available. Add a shipping zone with a shipping method in WooCommerce > Settings > Shipping first."
 msgstr ""
 
 #: includes/Entities/Core/CategoryMappingKind.php:25
@@ -915,22 +271,22 @@ msgstr ""
 msgid "Tags"
 msgstr ""
 
-#: includes/Entities/MappingKind.php:93
-#: includes/Entities/MappingKind.php:103
+#: includes/Entities/MappingKind.php:104
+#: includes/Entities/MappingKind.php:114
 msgid "WooCommerce value"
 msgstr ""
 
-#: includes/Entities/MappingKind.php:94
-#: includes/Entities/MappingKind.php:102
+#: includes/Entities/MappingKind.php:105
+#: includes/Entities/MappingKind.php:113
 msgid "Platform value"
 msgstr ""
 
-#: includes/Entities/MappingKind.php:110
+#: includes/Entities/MappingKind.php:121
 #: build/index.js:13
 msgid "— Unmapped —"
 msgstr ""
 
-#: includes/Entities/MappingKind.php:117
+#: includes/Entities/MappingKind.php:128
 msgid "There are no options to choose from yet."
 msgstr ""
 
@@ -973,576 +329,546 @@ msgstr ""
 msgid "If WooCommerce calculates tax, set “Prices entered with tax” to “Yes, I will enter prices inclusive of tax” in WooCommerce > Settings > Tax. Otherwise tax is added on top at checkout. If tax calculation is turned off, no change is needed."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:216
-msgid "The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency)."
-msgstr ""
-
-#: includes/Woo/WarningCatalog.php:217
-msgid "Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency."
-msgstr ""
-
-#: includes/Woo/WarningCatalog.php:221
-msgid "The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
-msgstr ""
-
-#. translators: %s: a currency code, such as USD.
-#: includes/Woo/WarningCatalog.php:224
-#, php-format
-msgid "The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
-msgstr ""
-
-#: includes/Woo/WarningCatalog.php:228
+#: includes/Woo/WarningCatalog.php:215
 msgid "Prices in WooCommerce are entered without tax, so they are exported with tax added at the rate for the store’s address. Only the first product in each batch is flagged; the others are converted the same way."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:232
+#: includes/Woo/WarningCatalog.php:219
 msgid "The sale price is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:233
+#: includes/Woo/WarningCatalog.php:220
 msgid "After the sale ends, export the product again or change the price on the platform."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation.
-#: includes/Woo/WarningCatalog.php:235
+#: includes/Woo/WarningCatalog.php:222
 #, php-format
 msgid "The sale price of variation %s is exported, but the sale’s end date cannot be sent, so the platform keeps the sale price after the sale ends in WooCommerce."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:239
+#: includes/Woo/WarningCatalog.php:226
 msgid "The price cannot be converted to a price including tax: the tax class has tax rates, but none of them applies to the store’s address. The product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:240
+#: includes/Woo/WarningCatalog.php:227
 msgid "Add a tax rate that applies to the store’s address (or to all locations) to the tax class in WooCommerce > Settings > Tax, or correct the store address."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation.
-#: includes/Woo/WarningCatalog.php:242
+#: includes/Woo/WarningCatalog.php:229
 #, php-format
 msgid "The price of variation %s cannot be converted to a price including tax: its tax class has tax rates, but none of them applies to the store’s address. The product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:246
+#: includes/Woo/WarningCatalog.php:233
 msgid "The tax class given by the platform does not exist in WooCommerce, so the item uses the standard tax class."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:247
+#: includes/Woo/WarningCatalog.php:234
 msgid "Create the tax class in WooCommerce > Settings > Tax and set it on the item. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed."
 msgstr ""
 
 #. translators: %s: the slug of a tax class.
-#: includes/Woo/WarningCatalog.php:249
+#: includes/Woo/WarningCatalog.php:236
 #, php-format
 msgid "The tax class “%s” given by the platform does not exist in WooCommerce, so the item uses the standard tax class."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:253
+#: includes/Woo/WarningCatalog.php:240
 msgid "The item is put in a tax class that has no tax rates (for a reduced-rate item, the default reduced rate class), so WooCommerce charges no tax on it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:254
+#: includes/Woo/WarningCatalog.php:241
 msgid "If WooCommerce calculates tax, add the correct Japanese tax rate to that tax class in WooCommerce > Settings > Tax (for the reduced rate class, 8%); you do not need to import again. If tax calculation is turned off in WooCommerce > Settings > General, no change is needed."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:258
+#: includes/Woo/WarningCatalog.php:245
 msgid "WooCommerce has no tax class with a Japanese rate (8%) for reduced-rate items, so the item uses the standard tax class."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:259
+#: includes/Woo/WarningCatalog.php:246
 msgid "In WooCommerce > Settings > Tax (shown when tax calculation is turned on in WooCommerce > Settings > General), give a tax class for the reduced rate (such as “Reduced rate”) a Japanese rate of 8%. Then import again: products are corrected, but orders that were already imported keep the standard tax class."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:263
+#: includes/Woo/WarningCatalog.php:250
 msgid "The product’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported (it would be sold with the wrong tax)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:264
+#: includes/Woo/WarningCatalog.php:251
 msgid "Change the product’s tax class to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
 msgstr ""
 
 #. translators: %s: the name of a tax class. Write a literal percent sign as %%.
-#: includes/Woo/WarningCatalog.php:266
+#: includes/Woo/WarningCatalog.php:253
 #, php-format
 msgid "The tax class “%s” has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported (it would be sold with the wrong tax)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:270
+#: includes/Woo/WarningCatalog.php:257
 msgid "The tax class of a published variation has no Japanese tax rate of 10% (standard) or 8% (reduced), so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:271
+#: includes/Woo/WarningCatalog.php:258
 msgid "Change the variation’s tax class (or the product’s, if the variation uses the same as its parent) to the standard or reduced rate, or give the tax class a Japanese tax rate: 10% (standard) or 8% (reduced). (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation. Write a literal percent sign as %%.
-#: includes/Woo/WarningCatalog.php:273
+#: includes/Woo/WarningCatalog.php:260
 #, php-format
 msgid "The tax class of variation %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:277
+#: includes/Woo/WarningCatalog.php:264
 msgid "The product’s tax status is “Shipping only” or “None”, which the platform cannot represent, so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:278
+#: includes/Woo/WarningCatalog.php:265
 msgid "If the product is taxed, set its tax status to “Taxable”. Otherwise, add the product on the platform by hand. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:282
+#: includes/Woo/WarningCatalog.php:269
 msgid "The product’s prices cannot be converted to the platform’s prices because the platform’s tax settings cannot be used, so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:283
+#: includes/Woo/WarningCatalog.php:270
 msgid "Check the tax settings on the platform (prices including or excluding tax, the standard and reduced rates, and rounding), then export again."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:289
+#: includes/Woo/WarningCatalog.php:276
 msgid "The SKU is already used by another product in WooCommerce, so the item is imported without a SKU."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:290
+#: includes/Woo/WarningCatalog.php:277
 msgid "Make the SKU unique (change it on the platform, or change or delete the WooCommerce product that uses it), then enter the SKU on the imported item."
 msgstr ""
 
 #. translators: %s: a SKU.
-#: includes/Woo/WarningCatalog.php:292
+#: includes/Woo/WarningCatalog.php:279
 #, php-format
 msgid "The SKU “%s” is already used by another product in WooCommerce, so the item is imported without a SKU."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:297
+#: includes/Woo/WarningCatalog.php:284
 msgid "The product’s price from the platform is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:298
+#: includes/Woo/WarningCatalog.php:285
 msgid "Correct the price on the platform and import again, or set the price in WooCommerce."
 msgstr ""
 
 #. translators: %s: the price value received from the platform.
-#: includes/Woo/WarningCatalog.php:300
+#: includes/Woo/WarningCatalog.php:287
 #, php-format
 msgid "The product’s price from the platform (%s) is not a number or is negative, so the price is not set. A new product cannot be bought until it has a price; an existing product keeps its previous price."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:304
+#: includes/Woo/WarningCatalog.php:291
 msgid "The product has no valid price, or its price cannot be converted to a price including tax, so it is not exported. A simple product needs a regular price; a variable product needs at least one enabled variation with a price that is shown in the store."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:305
+#: includes/Woo/WarningCatalog.php:292
 msgid "Set a regular price. For a variable product, enable a variation with a price; if “Hide out of stock items” is on, at least one variation must be in stock. If the product also has a warning that its price cannot be converted to a price including tax, fix the tax rate as that warning describes."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:309
+#: includes/Woo/WarningCatalog.php:296
 msgid "The sale price from the platform is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:310
+#: includes/Woo/WarningCatalog.php:297
 msgid "Correct the sale price on the platform, then import again."
 msgstr ""
 
 #. translators: %s: the sale price value received from the platform.
-#: includes/Woo/WarningCatalog.php:312
+#: includes/Woo/WarningCatalog.php:299
 #, php-format
 msgid "The sale price from the platform (%s) is not valid (it must be more than 0 and lower than the regular price), so the product is imported without a sale."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:316
+#: includes/Woo/WarningCatalog.php:303
 msgid "An image could not be downloaded from the platform, so it is not added. The item’s other images are added."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:317
+#: includes/Woo/WarningCatalog.php:304
 msgid "Check that the image can be opened from your server, then add it to the item in WooCommerce."
 msgstr ""
 
 #. translators: %s: the URL of an image.
-#: includes/Woo/WarningCatalog.php:319
+#: includes/Woo/WarningCatalog.php:306
 #, php-format
 msgid "The image %s could not be downloaded from the platform, so it is not added. The item’s other images are added."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:323
+#: includes/Woo/WarningCatalog.php:310
 msgid "An attribute has the same name as one of the product’s variation options, so the attribute is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:324
+#: includes/Woo/WarningCatalog.php:311
 msgid "Rename the attribute on the platform, then import again."
 msgstr ""
 
 #. translators: %s: the name of an attribute.
-#: includes/Woo/WarningCatalog.php:326
+#: includes/Woo/WarningCatalog.php:313
 #, php-format
 msgid "The attribute “%s” has the same name as one of the product’s variation options, so it is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:330
+#: includes/Woo/WarningCatalog.php:317
 msgid "A variation that was imported earlier no longer exists on the platform, so it is deleted from WooCommerce."
 msgstr ""
 
 #. translators: %s: the platform's ID of a variation.
-#: includes/Woo/WarningCatalog.php:333
+#: includes/Woo/WarningCatalog.php:320
 #, php-format
 msgid "The variation %s no longer exists on the platform, so it is deleted from WooCommerce."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:338
+#: includes/Woo/WarningCatalog.php:325
 msgid "A variation’s price from the platform is not a number or is negative, so the variation is not created or updated."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:339
+#: includes/Woo/WarningCatalog.php:326
 msgid "Correct the variation’s price on the platform, then import again."
 msgstr ""
 
 #. translators: %s: the platform's ID of a variation.
-#: includes/Woo/WarningCatalog.php:341
+#: includes/Woo/WarningCatalog.php:328
 #, php-format
 msgid "The price of variation %s from the platform is not a number or is negative, so the variation is not created or updated."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:345
+#: includes/Woo/WarningCatalog.php:332
 msgid "A variation has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:346
+#: includes/Woo/WarningCatalog.php:333
 msgid "Set a regular price on the variation, then export again. If its price cannot be converted to a price including tax, the whole product is not exported; fix the tax rate as that warning describes. A variation that was exported before stays on the platform; hide it there if needed."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation.
-#: includes/Woo/WarningCatalog.php:348
+#: includes/Woo/WarningCatalog.php:335
 #, php-format
 msgid "Variation %s has no valid regular price, or its price cannot be converted to a price including tax, so it is left out of the export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:352
+#: includes/Woo/WarningCatalog.php:339
 msgid "Some variations from the platform could not be read, so variations that no longer exist on the platform are not deleted for this product."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:353
+#: includes/Woo/WarningCatalog.php:340
 msgid "Correct the variations on the platform (usually their prices), then import again."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:357
+#: includes/Woo/WarningCatalog.php:344
 msgid "WooCommerce could not save a variation, so it is not created. The product and its other variations are imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:358
+#: includes/Woo/WarningCatalog.php:345
 msgid "Check the PHP error log for the cause."
 msgstr ""
 
 #. translators: %s: the platform's ID of a variation.
-#: includes/Woo/WarningCatalog.php:360
+#: includes/Woo/WarningCatalog.php:347
 #, php-format
 msgid "WooCommerce could not save the variation %s, so it is not created. The product and its other variations are imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:364
+#: includes/Woo/WarningCatalog.php:351
 msgid "WooCommerce could not save the product, so it is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:369
+#: includes/Woo/WarningCatalog.php:352
+msgid "Check the PHP error log for the cause, then import again."
+msgstr ""
+
+#: includes/Woo/WarningCatalog.php:356
 msgid "A category of the product is not mapped to a category on the platform, so the product is exported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:370
+#: includes/Woo/WarningCatalog.php:357
 msgid "Map the category in the Mappings tab, then export again."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a product category.
-#: includes/Woo/WarningCatalog.php:372
+#: includes/Woo/WarningCatalog.php:359
 #, php-format
 msgid "The category (ID %s) is not mapped to a category on the platform, so the product is exported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:376
+#: includes/Woo/WarningCatalog.php:363
 msgid "A variation is not enabled, so it is left out of the export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:377
+#: includes/Woo/WarningCatalog.php:364
 msgid "If the variation should be sold, enable it and export again. A variation that was exported before stays on the platform; hide it there if needed."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation.
-#: includes/Woo/WarningCatalog.php:379
+#: includes/Woo/WarningCatalog.php:366
 #, php-format
 msgid "Variation %s is not enabled, so it is left out of the export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:383
+#: includes/Woo/WarningCatalog.php:370
 msgid "The product uses three or more attributes for variations, but the platform supports at most two, so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:384
+#: includes/Woo/WarningCatalog.php:371
 msgid "Use at most two attributes for variations (combine attributes, or turn off “Used for variations” on the others)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:388
+#: includes/Woo/WarningCatalog.php:375
 msgid "None of the product’s variations can be exported (they are not enabled or have no valid price, or the product has no variations), so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:389
+#: includes/Woo/WarningCatalog.php:376
 msgid "Enable at least one variation with a valid price. The other warnings for this product show why each variation was left out."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:393
+#: includes/Woo/WarningCatalog.php:380
 msgid "A variation uses “Any” for an attribute, which the platform cannot represent, so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:394
+#: includes/Woo/WarningCatalog.php:381
 msgid "Replace the “Any” variation with one variation for each value of the attribute."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a variation.
-#: includes/Woo/WarningCatalog.php:396
+#: includes/Woo/WarningCatalog.php:383
 #, php-format
 msgid "Variation %s uses “Any” for an attribute, which the platform cannot represent, so the product is not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:400
+#: includes/Woo/WarningCatalog.php:387
 msgid "The variations’ stock settings are mixed: some manage stock and others do not, or variations that do not manage stock differ in stock status (in stock and out of stock). A platform that manages stock per product cannot represent this, so the product and its stock are not exported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:401
+#: includes/Woo/WarningCatalog.php:388
 msgid "Turn on stock management for all variations, or turn it off for all variations and give them all the same stock status (all in stock or all out of stock)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:405
+#: includes/Woo/WarningCatalog.php:392
 msgid "A variation’s stock is managed by its parent product, and the platform cannot share stock between variations, so the variation is exported as out of stock."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:406
+#: includes/Woo/WarningCatalog.php:393
 msgid "Turn on “Manage stock” for each variation and give it its own quantity."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:412
+#: includes/Woo/WarningCatalog.php:399
 msgid "The parent category is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:413
+#: includes/Woo/WarningCatalog.php:400
 msgid "Import categories; parent categories are imported first. If this remains after an import, check why the parent category was not imported."
 msgstr ""
 
 #. translators: %s: the platform's ID of a category.
-#: includes/Woo/WarningCatalog.php:415
+#: includes/Woo/WarningCatalog.php:402
 #, php-format
 msgid "The parent category %s is not found in WooCommerce, so the category is placed at the top level for now. It is moved under its parent when it is imported again after the parent."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:419
+#: includes/Woo/WarningCatalog.php:406
 msgid "A category of the product is not found in WooCommerce, so the product is imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:420
+#: includes/Woo/WarningCatalog.php:407
 msgid "Import categories before products (a full import does this). If this remains, the category is not imported, for example because it is hidden on the platform or its name conflicts with an existing category."
 msgstr ""
 
 #. translators: %s: the platform's ID of a category.
-#: includes/Woo/WarningCatalog.php:422
+#: includes/Woo/WarningCatalog.php:409
 #, php-format
 msgid "The product’s category %s is not found in WooCommerce, so the product is imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:426
+#: includes/Woo/WarningCatalog.php:413
 msgid "A tag (group) of the product is not found in WooCommerce, so the product is imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:427
+#: includes/Woo/WarningCatalog.php:414
 msgid "Import tags before products (a full import does this). If this remains, the tag is not imported, for example because it is not public on the platform or its name conflicts with an existing tag."
 msgstr ""
 
 #. translators: %s: the platform's ID of a tag (group).
-#: includes/Woo/WarningCatalog.php:429
+#: includes/Woo/WarningCatalog.php:416
 #, php-format
 msgid "The product’s tag (group) %s is not found in WooCommerce, so the product is imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:433
+#: includes/Woo/WarningCatalog.php:420
 msgid "A category or tag with the same name under the same parent was imported from this platform before, so it is reused."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:434
+#: includes/Woo/WarningCatalog.php:421
 msgid "If the platform has two categories with the same name that should stay separate, rename one of them on the platform."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a category or tag.
-#: includes/Woo/WarningCatalog.php:436
+#: includes/Woo/WarningCatalog.php:423
 #, php-format
 msgid "A category or tag with the same name (ID %s) under the same parent was imported from this platform before, so it is reused."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:440
+#: includes/Woo/WarningCatalog.php:427
 msgid "A category or tag with the same name under the same parent already exists in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:441
+#: includes/Woo/WarningCatalog.php:428
 msgid "Rename or delete the existing WooCommerce category or tag, or rename it on the platform, then import again."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a category or tag.
-#: includes/Woo/WarningCatalog.php:443
+#: includes/Woo/WarningCatalog.php:430
 #, php-format
 msgid "A category or tag with the same name (ID %s) already exists under the same parent in WooCommerce and was not imported from this platform, so it is not imported. Products in it are imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:447
+#: includes/Woo/WarningCatalog.php:434
 msgid "WordPress could not update the category or tag, so its name, description or parent may be out of date."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:448
+#: includes/Woo/WarningCatalog.php:435
 msgid "Check that it has a name on the platform and that its parent category exists, then import again."
 msgstr ""
 
 #. translators: %s: a WordPress error code.
-#: includes/Woo/WarningCatalog.php:450
+#: includes/Woo/WarningCatalog.php:437
 #, php-format
 msgid "WordPress could not update the category or tag (%s), so its name, description or parent may be out of date."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:454
+#: includes/Woo/WarningCatalog.php:441
 msgid "WordPress could not create the category or tag, so it is not imported. Products in it are imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:455
+#: includes/Woo/WarningCatalog.php:442
 msgid "Check that it has a name on the platform, then import again."
 msgstr ""
 
 #. translators: %s: a WordPress error code.
-#: includes/Woo/WarningCatalog.php:457
+#: includes/Woo/WarningCatalog.php:444
 #, php-format
 msgid "WordPress could not create the category or tag (%s), so it is not imported. Products in it are imported without it."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:463
+#: includes/Woo/WarningCatalog.php:450
 msgid "The product or variation for this stock is not found in WooCommerce, so the stock is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:464
+#: includes/Woo/WarningCatalog.php:451
 msgid "Import products before stock (a full import does this). If this remains, the product was not imported; check the warnings for that product in the preview (dry-run) report."
 msgstr ""
 
 #. translators: %s: the platform's ID of a product or variation.
-#: includes/Woo/WarningCatalog.php:466
+#: includes/Woo/WarningCatalog.php:453
 #, php-format
 msgid "The product or variation %s for this stock is not found in WooCommerce, so the stock is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:470
+#: includes/Woo/WarningCatalog.php:457
 msgid "The stock is for a product that has variations in WooCommerce, and stock is kept on each variation, so it is not imported."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:471
+#: includes/Woo/WarningCatalog.php:458
 msgid "If the product no longer has variations on the platform, import products again so that the WooCommerce product is updated, then import stock."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:475
+#: includes/Woo/WarningCatalog.php:462
 msgid "The product or variation for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:476
+#: includes/Woo/WarningCatalog.php:463
 msgid "Include products in the export. If the product or this variation is not exported because of other warnings, fix those first."
 msgstr ""
 
 #. translators: %s: the WooCommerce ID of a product or variation.
-#: includes/Woo/WarningCatalog.php:478
+#: includes/Woo/WarningCatalog.php:465
 #, php-format
 msgid "The product or variation %s for this stock has not been exported to the platform yet, so the stock is not exported. A full export sends products before stock."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:482
+#: includes/Woo/WarningCatalog.php:469
 msgid "The variation does not manage stock, and the platform cannot mark a single variation as not managed, so its stock is not sent. The product itself is exported as not managing stock."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:483
+#: includes/Woo/WarningCatalog.php:470
 msgid "To send stock for each variation, turn on stock management for all published variations of the product."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:489
+#: includes/Woo/WarningCatalog.php:476
 msgid "The product was created on the platform, but sending its remaining details (such as the subcategory and stock) failed for now. They are sent on the next export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:490
-#: includes/Woo/WarningCatalog.php:500
-#: includes/Woo/WarningCatalog.php:530
+#: includes/Woo/WarningCatalog.php:477
+#: includes/Woo/WarningCatalog.php:487
+#: includes/Woo/WarningCatalog.php:517
 msgid "Run the export again."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:494
+#: includes/Woo/WarningCatalog.php:481
 msgid "The product was created on the platform, but the platform rejected its remaining details (such as the subcategory and stock), so they may be missing."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:495
+#: includes/Woo/WarningCatalog.php:482
 msgid "Check the product’s category and stock on the platform and correct them by hand."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:499
+#: includes/Woo/WarningCatalog.php:486
 msgid "The product was sent, but setting up some of its variations failed for now. They are sent on the next export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:504
+#: includes/Woo/WarningCatalog.php:491
 msgid "The product was sent, but some of its variations could not be set up on the platform (for example, two attributes have the same name, a variation has no value for an attribute, or the platform rejected the change)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:505
+#: includes/Woo/WarningCatalog.php:492
 msgid "Give the attributes used for variations different names and set a value for every attribute on each variation. Then change the product so that it is exported again, and check its variations on the platform."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:509
+#: includes/Woo/WarningCatalog.php:496
 msgid "The product was sent, but uploading some of its images failed (a network error, or an error on your site or the platform). They are tried again on the next export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:510
+#: includes/Woo/WarningCatalog.php:497
 msgid "Run the export again. If this keeps happening, make sure your site can download its own media files (a firewall, a blocked request to the site itself, or an untrusted SSL certificate can stop this)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:514
+#: includes/Woo/WarningCatalog.php:501
 msgid "The product was sent, but some of its images were rejected (for example, more than 50 images, a missing file, a file your site does not let the plugin download, or an unsupported format)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:515
+#: includes/Woo/WarningCatalog.php:502
 msgid "Keep 50 or fewer images per product, fix or replace missing or unsupported images, and make sure your site can download its own media files (basic authentication or a firewall can block this). Add the remaining images on the platform by hand."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:519
+#: includes/Woo/WarningCatalog.php:506
 msgid "The product was sent without its images (image upload is turned off, or the platform’s plan does not allow it)."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:520
+#: includes/Woo/WarningCatalog.php:507
 msgid "If the platform’s plan allows image upload, turn on “Upload product images (Beta)” in the Export tab and export again. Otherwise, add the images on the platform."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:524
+#: includes/Woo/WarningCatalog.php:511
 msgid "The platform creates every combination of the product’s options, so it now has variations that do not exist in WooCommerce. They are not deleted and can be bought if stock is not managed."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:525
+#: includes/Woo/WarningCatalog.php:512
 msgid "Review the product’s variations on the platform and hide or delete the extra combinations."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:529
+#: includes/Woo/WarningCatalog.php:516
 msgid "The item was created on the platform, but the export stopped before it was finished (for example, at the platform’s request limit). It is completed on the next export."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:534
+#: includes/Woo/WarningCatalog.php:521
 msgid "An earlier export of this item ended without confirming whether it was created on the platform, so it is not sent again until you check."
 msgstr ""
 
-#: includes/Woo/WarningCatalog.php:535
+#: includes/Woo/WarningCatalog.php:522
 msgid "In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”."
-msgstr ""
-
-#: includes/Woo/Writer/OrderItemBuilder.php:45
-msgid "Unknown product"
-msgstr ""
-
-#: includes/Woo/Writer/OrderItemBuilder.php:207
-msgid "Shipping"
-msgstr ""
-
-#: includes/Woo/Writer/OrderItemBuilder.php:258
-msgid "Payment fee"
-msgstr ""
-
-#: includes/Woo/Writer/OrderItemBuilder.php:268
-msgid "Gift wrapping"
 msgstr ""
 
 #: build/index.js:1
@@ -1785,6 +1111,10 @@ msgstr ""
 msgid "Failed"
 msgstr ""
 
+#: build/index.js:14
+msgid "Cancelled"
+msgstr ""
+
 #. translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count
 #: build/index.js:15
 #, js-format
@@ -1828,6 +1158,10 @@ msgid "Reconciled"
 msgstr ""
 
 #: build/index.js:17
+msgid "Not checked"
+msgstr ""
+
+#: build/index.js:17
 #: build/index.js:18
 msgid "Missing links"
 msgstr ""
@@ -1842,6 +1176,10 @@ msgstr ""
 
 #: build/index.js:17
 msgid "Totals differ"
+msgstr ""
+
+#: build/index.js:17
+msgid "Some records could not be checked because their type is not available on this site."
 msgstr ""
 
 #: build/index.js:17
