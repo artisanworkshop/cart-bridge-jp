@@ -117,7 +117,9 @@ Yes. The plugin declares HPOS compatibility. It does not read or write orders.
 
 = What happens to my data when I uninstall the plugin? =
 
-The data that was migrated stays in WooCommerce. By default, the plugin's own data (the links between the stores, the job history, the logs, and the saved connection) is also kept, so you can reinstall the plugin and continue.
+The data that was migrated stays in WooCommerce. By default, the plugin's own data (the links between the stores, the job history, the logs, the saved connection, and the settings) is also kept, so you can reinstall the plugin and continue.
+
+To delete the plugin's own data as well, turn on “Delete this plugin’s data when it is uninstalled” in the Tools tab before you uninstall the plugin. Only users who can delete plugins can change this setting. Deactivating the plugin never deletes anything. If you install the plugin again after its data was deleted, the links to the data that was imported can be restored with “Rebuild links” in the Tools tab, but the links to the data that was exported cannot, so exporting that data again creates duplicates in Color Me Shop.
 
 == Screenshots ==
 

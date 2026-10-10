@@ -290,3 +290,12 @@ export interface SettingsMappings {
 export interface ExportOptions {
 	push_images: boolean;
 }
+
+/**
+ * `GET/PUT /settings/uninstall`（R3-5a）。アンインストール時にプラグインのデータを消すか（サイト全体で 1 つ。既定は残す）。
+ * `can_change` は変更できるか（PUT には `manage_woocommerce` に加えて `delete_plugins` が要る）。
+ */
+export interface UninstallSettings {
+	delete_data: boolean;
+	can_change: boolean;
+}

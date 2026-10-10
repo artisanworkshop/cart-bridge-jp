@@ -73,132 +73,132 @@ msgstr "キャンセル"
 msgid "Cart Bridge JP"
 msgstr "Cart Bridge JP"
 
-#: includes/Admin/RestController.php:444
+#: includes/Admin/RestController.php:474
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr "このプラットフォームの実行がまだ終わっていません。先に「ツール」タブ（または「インポート」「エクスポート」タブ）でキャンセルしてから、もう一度お試しください。"
 
-#: includes/Admin/RestController.php:493
+#: includes/Admin/RestController.php:523
 msgid "No recognized connection fields were provided."
 msgstr "認識できる接続の項目がありません。"
 
-#: includes/Admin/RestController.php:503
+#: includes/Admin/RestController.php:533
 msgid "The connection settings changed while saving. Please try again."
 msgstr "保存中に接続の設定が変わりました。もう一度お試しください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:571
+#: includes/Admin/RestController.php:601
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr "「%s」は ID と ID の対応を表すオブジェクトにしてください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:589
+#: includes/Admin/RestController.php:619
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr "「%s」に不正な項目があります。"
 
-#: includes/Admin/RestController.php:650
+#: includes/Admin/RestController.php:680
 msgid "\"push_images\" must be true or false."
 msgstr "「push_images」は true か false にしてください。"
 
-#: includes/Admin/RestController.php:658
+#: includes/Admin/RestController.php:688
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
 
-#: includes/Admin/RestController.php:1106
+#: includes/Admin/RestController.php:1175
 #: build/index.js:7
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:1149
+#: includes/Admin/RestController.php:1218
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:1173
+#: includes/Admin/RestController.php:1242
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:1185
+#: includes/Admin/RestController.php:1254
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1215
+#: includes/Admin/RestController.php:1284
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1278
+#: includes/Admin/RestController.php:1347
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1290
+#: includes/Admin/RestController.php:1359
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1327
-#: includes/Admin/RestController.php:1368
-#: includes/Admin/RestController.php:1438
-#: includes/Admin/RestController.php:1530
+#: includes/Admin/RestController.php:1396
+#: includes/Admin/RestController.php:1437
+#: includes/Admin/RestController.php:1507
+#: includes/Admin/RestController.php:1599
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1452
+#: includes/Admin/RestController.php:1521
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1464
+#: includes/Admin/RestController.php:1533
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1536
+#: includes/Admin/RestController.php:1605
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1563
+#: includes/Admin/RestController.php:1632
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1631
+#: includes/Admin/RestController.php:1700
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1676
+#: includes/Admin/RestController.php:1745
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1681
+#: includes/Admin/RestController.php:1750
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1686
+#: includes/Admin/RestController.php:1755
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1691
+#: includes/Admin/RestController.php:1760
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1704
+#: includes/Admin/RestController.php:1773
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1709
+#: includes/Admin/RestController.php:1778
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1719
+#: includes/Admin/RestController.php:1788
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1797
+#: includes/Admin/RestController.php:1866
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1798
+#: includes/Admin/RestController.php:1867
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1810
+#: includes/Admin/RestController.php:1879
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -884,7 +884,7 @@ msgid "Connection OK."
 msgstr "接続できました。"
 
 #: build/index.js:8
-#: build/index.js:24
+#: build/index.js:21
 msgid "No platforms are available."
 msgstr "使えるプラットフォームがありません。"
 
@@ -1243,125 +1243,125 @@ msgstr "バリエーション"
 msgid "%1$s: %2$d"
 msgstr "%1$s: %2$d 件"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Connections"
 msgstr "接続"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Mappings"
 msgstr "マッピング"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Reconnect the platform on the Connections tab before setting up mappings."
 msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続し直してください。"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Connect a platform on the Connections tab before setting up mappings."
 msgstr "マッピングを設定する前に、「接続」タブでプラットフォームに接続してください。"
 
 #: build/index.js:21
-#: build/index.js:22
-#: build/index.js:24
+#: build/index.js:25
+#: build/index.js:26
 msgid "Platform"
 msgstr "プラットフォーム"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Import"
 msgstr "インポート"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Connect a platform on the Connections tab before importing."
 msgstr "インポートする前に、「接続」タブでプラットフォームに接続してください。"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Import setup"
 msgstr "インポートの設定"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Entities to migrate"
 msgstr "移行する種類"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Run import"
 msgstr "インポートを実行"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Preview results"
 msgstr "プレビューの結果"
 
-#: build/index.js:22
-#: build/index.js:23
+#: build/index.js:26
+#: build/index.js:27
 msgid "Clear"
 msgstr "消去"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Import results"
 msgstr "インポートの結果"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Export"
 msgstr "エクスポート"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Connect a platform on the Connections tab before exporting."
 msgstr "エクスポートする前に、「接続」タブでプラットフォームに接続してください。"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Open the Mappings tab"
 msgstr "「マッピング」タブを開く"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Export setup"
 msgstr "エクスポートの設定"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Entities to export"
 msgstr "エクスポートする種類"
 
 #. translators: %s: entity name, e.g. "Orders"
-#: build/index.js:23
+#: build/index.js:27
 #, js-format
 msgid "%s (Beta)"
 msgstr "%s（ベータ版）"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Options"
 msgstr "オプション"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Upload product images (Beta)"
 msgstr "商品画像をアップロードする（ベータ版）"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Upload product images"
 msgstr "商品画像をアップロードする"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Running an export is disabled until this setting loads. Reload the page to try again."
 msgstr "この設定を読み込むまで、エクスポートは実行できません。ページを再読み込みしてもう一度お試しください。"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
 msgstr "接続したショップに実データを書き込むことを理解しており、実行する準備ができています（できればテスト用のショップで）。"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Preview export (dry run, no writes)"
 msgstr "エクスポートのプレビュー（書き込みなし）"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Run export"
 msgstr "エクスポートを実行"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Preview export results"
 msgstr "エクスポートのプレビューの結果"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Export results"
 msgstr "エクスポートの結果"
 
 #. translators: %s: list of entity labels, e.g. "Products, Customers"
-#: build/index.js:24
+#: build/index.js:28
 #, js-format
 msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
 msgstr "%sでは何も書き込みませんでした。すべての項目がスキップされたか警告が出ました。理由はプレビューのレポートか「ログ」タブを確認してください。"
@@ -1373,80 +1373,80 @@ msgctxt "list of items"
 msgid "%1$s, %2$s"
 msgstr "%1$s、%2$s"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Logs"
 msgstr "ログ"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Job ID"
 msgstr "ジョブ ID"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Level"
 msgstr "レベル"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "No logs found."
 msgstr "ログはありません。"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Time"
 msgstr "日時"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Job"
 msgstr "ジョブ"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Message"
 msgstr "メッセージ"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Context"
 msgstr "詳細情報"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Previous"
 msgstr "前へ"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Next"
 msgstr "次へ"
 
-#: build/index.js:24
+#: build/index.js:28
 msgid "Tools"
 msgstr "ツール"
 
-#: build/index.js:24
-#: build/index.js:25
+#: build/index.js:21
+#: build/index.js:22
 msgid "Rebuild links"
 msgstr "紐づけを再構築"
 
 #. translators: %s: platform label
-#: build/index.js:25
+#: build/index.js:22
 #, js-format
 msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
 msgstr "%sの記録と、このプラグインが作成した WooCommerce のデータの間の紐づけを復元します（再インストールやデータベースの移転の後など）。インポートのときに書いた所有の情報を走査するだけで、プラットフォームからは何も取得せず、データも変更しません。紐づけた記録は次のインポートで確認し直します。"
 
-#: build/index.js:25
+#: build/index.js:22
 msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
 msgstr "処理の回数の上限に達したため、紐づけの再構築を一時停止しました。止まったところから続けるには、もう一度「紐づけを再構築」をクリックしてください。"
 
 #. translators: %d: number of links restored so far
-#: build/index.js:26
+#: build/index.js:23
 #, js-format
 msgid "Scanning… %d link restored so far."
 msgid_plural "Scanning… %d links restored so far."
 msgstr[0] "走査中… %d 件の紐づけを復元しました。"
 
 #. translators: %d: number of links restored
-#: build/index.js:27
+#: build/index.js:24
 #, js-format
 msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
 
-#: includes/Admin/RestController.php:1148
+#: includes/Admin/RestController.php:1217
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
 
@@ -1458,11 +1458,11 @@ msgstr "紐づけた記録の一部が WooCommerce に無くなっています�
 msgid "Some records fetched from the platform are not in WooCommerce. Check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
 msgstr "プラットフォームから取得した記録の一部が WooCommerce にありません。上の警告とプレビューのレポートを確認してください。紐づけが失われた場合（データベースの移転の後など）は、「ツール」タブで「紐づけを再構築」を実行してください。"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Preview (dry run)"
 msgstr "プレビュー（書き込みなし）"
 
-#: build/index.js:23
+#: build/index.js:27
 msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
 msgstr "エクスポートを実行すると、接続したショップにデータをすぐ書き込みます。本番のショップではなく、まずテスト用のショップで実行することをおすすめします。"
 
@@ -1516,22 +1516,22 @@ msgstr "件数は一致していますが、プラットフォームと WooComme
 msgid "Every record fetched in this run exists in WooCommerce and the totals match."
 msgstr "この実行で取得したすべての記録が WooCommerce にあり、合計も一致しています。"
 
-#: build/index.js:21
+#: build/index.js:25
 msgid "Mappings connect values on the platform to values in WooCommerce. Each section below explains when its mapping is used. Set up the mappings before you import or export."
 msgstr "マッピングは、プラットフォームの値を WooCommerce の値に対応させます。それぞれのマッピングをいつ使うかは、下の各項目で説明しています。インポートやエクスポートの前にマッピングを設定してください。"
 
 #. translators: %s: list of the selected kinds of records, e.g. "Categories, Products"
-#: build/index.js:22
+#: build/index.js:26
 #, js-format
 msgid "This will write real WooCommerce data (%s) to this site. Continue?"
 msgstr "このサイトに WooCommerce の実データ（%s）を書き込みます。続けますか ?"
 
-#: build/index.js:22
+#: build/index.js:26
 msgid "Mappings between platform values and WooCommerce values are set on the Mappings tab. Set them up before exporting."
 msgstr "プラットフォームの値と WooCommerce の値のマッピングは「マッピング」タブで設定します。エクスポートの前に設定してください。"
 
 #. translators: %s: list of kinds of records, e.g. "Products, Orders"
-#: build/index.js:28
+#: build/index.js:25
 #, js-format
 msgid "Some kinds of records could not be scanned, so their links were not restored: %s. Check the Logs tab for the reason."
 msgstr "一部の種類の記録を走査できなかったため、紐づけを復元していません: %s。理由は「ログ」タブで確認してください。"
@@ -1560,7 +1560,7 @@ msgstr "この接続には、一部の種類の記録に必要な権限（%1$s�
 msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
 msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、接続し直すまでそれらの種類は表示されないか、動作しないことがあります。"
 
-#: includes/Admin/RestController.php:1698
+#: includes/Admin/RestController.php:1767
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れているか、権限が足りません。「接続」タブで接続し直してから続けてください。"
 
@@ -1568,3 +1568,35 @@ msgstr "プラットフォームとの接続が無いか、期限が切れてい
 #: cart-bridge-jp.php
 msgid "Migrate products and stock between Color Me Shop and WooCommerce."
 msgstr "カラーミーショップと WooCommerce の間で、商品と在庫を移行します。"
+
+#: includes/Admin/RestController.php:730
+msgid "\"delete_data\" must be true or false."
+msgstr "「delete_data」は true か false にしてください。"
+
+#: build/index.js:20
+msgid "Data on uninstall"
+msgstr "アンインストール時のデータ"
+
+#: build/index.js:20
+msgid "Delete this plugin’s data when it is uninstalled"
+msgstr "アンインストールするときにこのプラグインのデータを削除する"
+
+#: build/index.js:20
+msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, and the settings. The data that was migrated stays in WooCommerce."
+msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定）を削除します。移行したデータは WooCommerce に残ります。"
+
+#: build/index.js:20
+msgid "Deactivating the plugin does not delete anything."
+msgstr "プラグインを停止しても何も削除しません。"
+
+#: build/index.js:20
+msgid "Only users who can delete plugins can change this setting."
+msgstr "この設定を変更できるのは、プラグインを削除できるユーザーだけです。"
+
+#: build/index.js:20
+msgid "Uninstalling the plugin will delete this data, and it cannot be restored. If you install the plugin again, the links to the items that were imported can be rebuilt with “Rebuild links”, but the links to the items that were exported cannot, so exporting those items again creates duplicates in the store you export to."
+msgstr "プラグインをアンインストールするとこのデータは削除され、元に戻せません。もう一度インストールした場合、インポートした項目の紐づけは「紐づけを再構築」で復元できますが、エクスポートした項目の紐づけは復元できないため、それらをもう一度エクスポートするとエクスポート先のストアに重複して作成されます。"
+
+#: build/index.js:20
+msgid "Reload the page to try again."
+msgstr "ページを再読み込みしてもう一度お試しください。"

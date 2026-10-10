@@ -12,6 +12,7 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
+import UninstallSettings from '../components/UninstallSettings';
 import { entityLabel } from '../entity-labels';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { joinList } from '../i18n';
@@ -75,7 +76,20 @@ function CountList( { counts }: { counts: Counts } ) {
  */
 const NO_TRACKED_RUNS: Array< string | null > = [];
 
+/**
+ * Tools タブ。プラットフォーム単位のツール（リンク再構築）と、サイト全体のアンインストール時の設定（R3-5a）。
+ * 後者は接続の取得に失敗したとき・プラットフォームが無いときも出す。
+ */
 export default function ToolsTab() {
+	return (
+		<div className="cbjp-tools">
+			<PlatformTools />
+			<UninstallSettings />
+		</div>
+	);
+}
+
+function PlatformTools() {
 	const [ connections, setConnections ] = useState< Connection[] | null >(
 		null
 	);
@@ -240,7 +254,7 @@ export default function ToolsTab() {
 	}
 
 	return (
-		<div className="cbjp-tools">
+		<div className="cbjp-tools__platform">
 			{ connections.length > 1 && (
 				<SelectControl
 					label={ __( 'Platform', 'cart-bridge-jp' ) }
