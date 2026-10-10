@@ -146,6 +146,60 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 		}
 	}
 
+	/**
+	 * PR #118 G2-B1: 外部の登録が ColorMe の組み立てを外した・失敗させたときは、トークンにスコープが無くても「扱えない」のまま
+	 * （接続し直しても組み立ては戻らないので「接続し直して」と案内しない）。
+	 *
+	 * @return array<string,array{0:callable}>
+	 */
+	public static function registrations_without_the_bundled_colorme(): array {
+		return [
+			'removed' => [ static fn ( array $factories ): array => array_diff_key( $factories, [ ColorMeAdapter::ID => true ] ) ],
+			'throws'  => [
+				static function ( array $factories ): array {
+					$factories[ ColorMeAdapter::ID ] = static fn () => throw new \LogicException( 'boom' );
+
+					return $factories;
+				},
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider registrations_without_the_bundled_colorme
+	 *
+	 * @param callable $filter `cbjp/pro/commerce_adapters/register` のコールバック。
+	 */
+	public function test_get_required_stays_unsupported_when_an_extension_removed_the_colorme_factory( callable $filter ): void {
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+		add_filter( CommerceAdapters::FILTER, $filter );
+		CommerceAdapters::reset_cache();
+
+		$this->expectException( UnsupportedOperationException::class );
+
+		CommerceAdapters::get_required( new ColorMeAdapter(), 'fetch_customer_by_remote_id' );
+	}
+
+	/**
+	 * スコープの不足で組み立てなかったことは記録しない（画面が再接続を促す。組み立ての失敗ではない）。
+	 */
+	public function test_missing_scopes_are_not_logged_as_a_broken_registration(): void {
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		$this->assertNull( CommerceAdapters::get( new ColorMeAdapter() ) );
+		$this->assertSame( [], ( new LogRepository() )->list( null, 'warning' ) );
+	}
+
 	public function test_reset_cache_rebuilds_from_the_filter(): void {
 		$adapter = new MockPlatformAdapter();
 		$this->assertNull( CommerceAdapters::get( $adapter ) );
