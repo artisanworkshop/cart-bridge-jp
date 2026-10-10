@@ -11,6 +11,7 @@ import {
 import apiFetch from '../api';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import MappingSettings from '../components/MappingSettings';
+import MissingScopesNotice from '../components/MissingScopesNotice';
 import { parseHash } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import type { Connection } from '../types';
@@ -133,6 +134,8 @@ export default function MappingsTab() {
 							onChange={ setPlatform }
 						/>
 					) }
+					{ /* スコープの足りない接続では、その種類のマッピングの節も出ない（R3-6c2 review-loop R1-2）。 */ }
+					<MissingScopesNotice connection={ currentConnection } />
 				</CardBody>
 			</Card>
 

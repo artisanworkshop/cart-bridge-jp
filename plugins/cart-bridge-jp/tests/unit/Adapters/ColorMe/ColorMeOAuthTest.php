@@ -410,14 +410,16 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 既知でない値（ColorMe に無いスコープ・文字列でない値）はその値だけ捨てて記録する。正しく足されたスコープは残す。
+	 * 既知でない値（ColorMe に無いスコープ・文字列でない値）はその値だけ捨てて記録する（1 回の呼び出しで 1 行。R3-6c2 review-loop R1-4）。
+	 * 正しく足されたスコープは残す。
 	 */
 	public function test_unknown_scopes_from_extensions_are_dropped_and_logged(): void {
 		Activator::activate();
 		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'admin', 42, [ 'write_sales' ], 'READ_SALES' ] ) );
 
 		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
-		$this->assertSame( [ 'unknown_scope', 'unknown_scope', 'unknown_scope', 'unknown_scope' ], $this->logged_reasons() );
+		$this->assertSame( [ 'unknown_scope' ], $this->logged_reasons() );
+		$this->assertSame( 4, json_decode( (string) ( new LogRepository() )->list( null, 'warning' )[0]['context_json'], true )['count'] );
 	}
 
 	/**

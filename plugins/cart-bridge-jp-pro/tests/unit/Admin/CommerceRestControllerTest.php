@@ -368,6 +368,58 @@ final class CommerceRestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * R3-6c2 review-loop R1-1: トークンに顧客・受注のスコープが無い ColorMe で「リンクして解除」すると、「扱えない（未作成で解除して）」ではなく
+	 * 「接続し直して」（409 `cbjp_not_connected`）と答え、印を残す。未作成で解除させると、送信済みだった顧客が再接続の後に重複して作られうる。
+	 * ColorMe へは何も送らない（スコープの判定で止まる）。
+	 */
+	public function test_resolve_push_intent_link_asks_to_reconnect_when_the_token_lacks_the_scopes(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$requests ) {
+				++$requests;
+
+				return new \WP_Error( 'http_blocked', 'blocked' );
+			}
+		);
+
+		$user_id = self::factory()->user->create( [ 'role' => 'customer' ] );
+		$intents = new PushIntentRepository();
+		$intents->begin( ColorMeAdapter::ID, 'customer', $user_id, null, null );
+		$id = $intents->find_unresolved( ColorMeAdapter::ID )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/colorme/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => '12345',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 409, $response->get_status() );
+		$this->assertSame( 'cbjp_not_connected', $response->as_error()->get_error_code() );
+		$this->assertTrue( $intents->has_unresolved( ColorMeAdapter::ID, 'customer', $user_id ) );
+		$this->assertSame( 0, $requests );
+	}
+
+	/**
 	 * 決済・配送・注文ステータスのマップ（受注の種類が持つ）も、空なら JSON オブジェクトで返し、保存・読み戻しできる（R3-6c1 で
 	 * 無料版の `RestControllerTest` から分けた）。配送方法インスタンス ID のコロンは壊さない。
 	 */

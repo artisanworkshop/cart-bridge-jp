@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-10T12:42:18+00:00\n"
+"POT-Creation-Date: 2026-10-10T13:06:37+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -1079,32 +1079,32 @@ msgstr ""
 msgid "Save mappings"
 msgstr ""
 
-#: build/index.js:14
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:15
+#, js-format
+msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
+msgstr ""
+
+#: build/index.js:15
+msgid "Reconnect on the Connections tab"
+msgstr ""
+
+#: build/index.js:15
 msgid "Some values on the platform are not mapped to WooCommerce yet."
 msgstr ""
 
 #. translators: 1: what is mapped, e.g. "Platform payment method", 2: number of unmapped values, 3: number of values on the platform
-#: build/index.js:15
+#: build/index.js:16
 #, js-format
 msgid "%1$s: %2$d of %3$d not mapped"
 msgstr ""
 
-#: build/index.js:15
+#: build/index.js:16
 msgid "Records that use an unmapped value are still imported, with a warning in the preview (dry run) report. Set up the mappings before importing. Records imported while a value was unmapped are updated the next time they are imported."
 msgstr ""
 
-#: build/index.js:15
+#: build/index.js:16
 msgid "Set up the mappings on the Mappings tab"
-msgstr ""
-
-#. translators: %s: platform label, e.g. "Color Me Shop"
-#: build/index.js:16
-#, js-format
-msgid "The connection to %s does not have the permissions that some kinds of records need, so those kinds are not listed."
-msgstr ""
-
-#: build/index.js:16
-msgid "Reconnect on the Connections tab"
 msgstr ""
 
 #: build/index.js:16

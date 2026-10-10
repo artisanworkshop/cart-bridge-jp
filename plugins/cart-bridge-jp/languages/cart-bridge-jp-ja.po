@@ -1008,7 +1008,7 @@ msgstr "マッピングの設定を保存しました。"
 msgid "Save mappings"
 msgstr "マッピングを保存"
 
-#: build/index.js:15
+#: build/index.js:16
 msgid "Set up the mappings on the Mappings tab"
 msgstr "「マッピング」タブでマッピングを設定する"
 
@@ -1497,17 +1497,17 @@ msgstr "選べる項目がまだありません。"
 msgid "There are no mappings to set up for this platform."
 msgstr "このプラットフォームで設定するマッピングはありません。"
 
-#: build/index.js:14
+#: build/index.js:15
 msgid "Some values on the platform are not mapped to WooCommerce yet."
 msgstr "プラットフォームの値に、まだ WooCommerce にマッピングしていないものがあります。"
 
 #. translators: 1: what is mapped, e.g. "Platform payment method", 2: number of unmapped values, 3: number of values on the platform
-#: build/index.js:15
+#: build/index.js:16
 #, js-format
 msgid "%1$s: %2$d of %3$d not mapped"
 msgstr "%1$s: %3$d 件中 %2$d 件をマッピングしていません"
 
-#: build/index.js:15
+#: build/index.js:16
 msgid "Records that use an unmapped value are still imported, with a warning in the preview (dry run) report. Set up the mappings before importing. Records imported while a value was unmapped are updated the next time they are imported."
 msgstr "マッピングしていない値を使う記録もインポートされますが、プレビューのレポートに警告が出ます。インポートの前にマッピングを設定してください。マッピングしていない間にインポートした記録は、次にインポートしたときに更新されます。"
 
@@ -1553,7 +1553,7 @@ msgstr "未確認"
 msgid "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed."
 msgstr "WooCommerce 側を確認できなかったデータがあります。このサイトでその種類が使えない（アドオンを無効にした後など）か、確認中にエラーが起きた可能性があります。"
 
-#: build/index.js:16
+#: build/index.js:15
 msgid "Reconnect on the Connections tab"
 msgstr "「接続」タブで接続し直す"
 
@@ -1564,7 +1564,7 @@ msgid "This connection does not have the permissions that some kinds of records 
 msgstr "この接続には、一部の種類の記録に必要な権限（%1$s）がありません。「%2$sに接続し直す」をクリックして許可してください。"
 
 #. translators: %s: platform label, e.g. "Color Me Shop"
-#: build/index.js:16
+#: build/index.js:15
 #, js-format
-msgid "The connection to %s does not have the permissions that some kinds of records need, so those kinds are not listed."
-msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、それらの種類を表示していません。"
+msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
+msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、接続し直すまでそれらの種類は表示されないか、動作しないことがあります。"

@@ -122,15 +122,21 @@ final class ColorMeOAuth {
 		}
 
 		$requested = self::BASE_SCOPES;
+		$unknown   = 0;
 
 		foreach ( $filtered as $scope ) {
 			if ( ! is_string( $scope ) || ! in_array( $scope, self::KNOWN_SCOPES, true ) ) {
-				self::log_rejected_scopes( 'unknown_scope' );
+				++$unknown;
 
 				continue;
 			}
 
 			$requested[] = $scope;
+		}
+
+		// 1 回の呼び出しにつき 1 行（`GET /connections` はタブを開くたびに呼ばれる。値ごとに書くと Logs タブが埋まる。R3-6c2 review-loop R1-4）。
+		if ( $unknown > 0 ) {
+			self::log_rejected_scopes( 'unknown_scope', $unknown );
 		}
 
 		return array_values( array_intersect( self::KNOWN_SCOPES, $requested ) );
@@ -166,12 +172,13 @@ final class ColorMeOAuth {
 		return array_values( array_diff( self::scopes(), $granted ) );
 	}
 
-	private static function log_rejected_scopes( string $reason ): void {
+	private static function log_rejected_scopes( string $reason, int $count = 1 ): void {
 		( new Logger() )->warning(
 			'Ignored OAuth scopes added by an extension.',
 			[
 				'platform' => ColorMeAdapter::ID,
 				'reason'   => $reason,
+				'count'    => $count,
 			]
 		);
 	}

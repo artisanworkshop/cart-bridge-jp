@@ -16,6 +16,7 @@ use CartBridgeJP\Pro\Adapters\ColorMe\ColorMeCommerceAdapter;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
@@ -123,6 +124,26 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 		$this->expectException( UnsupportedOperationException::class );
 
 		CommerceAdapters::get_required( new MockPlatformAdapter(), 'fetch_orders' );
+	}
+
+	/**
+	 * R3-6c2 review-loop R1-1: 接続済みのトークンにスコープが無いだけなら「扱えない」ではなく「未接続」（接続し直せば扱える）。
+	 */
+	public function test_get_required_asks_to_reconnect_when_the_colorme_token_lacks_the_scopes(): void {
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		try {
+			CommerceAdapters::get_required( new ColorMeAdapter(), 'fetch_customer_by_remote_id' );
+			$this->fail( 'ApiException was not thrown.' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( 0, $exception->status_code() );
+			$this->assertSame( [ 'not_connected' => true ], $exception->context() );
+		}
 	}
 
 	public function test_reset_cache_rebuilds_from_the_filter(): void {

@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Pro\Adapters\ColorMe\ColorMeCommerceAdapter;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\Logger;
 use Throwable;
 use WeakMap;
@@ -55,10 +56,29 @@ final class CommerceAdapters {
 	/**
 	 * `get()` と同じで、無ければ `UnsupportedOperationException`（取得・送信の入口。`supports_*()` が偽の種類はジョブにならないので通常は届かない）。
 	 *
+	 * 接続済みのトークンに顧客・受注・クーポンのスコープが無いだけのときは、「この接続先では扱えない」ではなく「未接続」（`context['not_connected']`）の
+	 * `ApiException` にする（R3-6c2 review-loop R1-1）: 届くのは残った push intent の紐づけ・既存のジョブの Retry で、扱えないと答えると push intent は
+	 * 「未作成」での解除へ案内され、送信済みだった実体が再接続の後に重複して作られうる。未接続の扱いなら「接続し直して」と案内し、送信前に止まったことも確定する。
+	 *
+	 * @throws ApiException                  接続し直せば扱える（トークンにスコープが無い）。
 	 * @throws UnsupportedOperationException この接続先に顧客・受注・クーポンの実装が無い。
 	 */
 	public static function get_required( PlatformAdapter $adapter, string $operation ): CommerceAdapter {
-		return self::get( $adapter ) ?? throw new UnsupportedOperationException( $adapter->id(), $operation );
+		$commerce = self::get( $adapter );
+
+		if ( null !== $commerce ) {
+			return $commerce;
+		}
+
+		if ( self::lacks_scopes( $adapter ) ) {
+			throw new ApiException(
+				'The connection does not have the permissions that customers, orders and coupons need. Reconnect it.',
+				0,
+				[ 'not_connected' => true ]
+			);
+		}
+
+		throw new UnsupportedOperationException( $adapter->id(), $operation );
 	}
 
 	public static function reset_cache(): void {
@@ -90,10 +110,17 @@ final class CommerceAdapters {
 	 */
 	private static function bundled(): array {
 		return [
-			ColorMeAdapter::ID => static fn ( PlatformAdapter $adapter ): ?CommerceAdapter => $adapter instanceof ColorMeAdapter && ColorMeCommerceAdapter::has_required_scopes( $adapter )
+			ColorMeAdapter::ID => static fn ( PlatformAdapter $adapter ): ?CommerceAdapter => $adapter instanceof ColorMeAdapter && ! self::lacks_scopes( $adapter )
 				? new ColorMeCommerceAdapter( $adapter )
 				: null,
 		];
+	}
+
+	/**
+	 * 同梱の接続先で、接続済みのトークンに顧客・受注・クーポンのスコープが欠けているか（R3-6c2）。
+	 */
+	private static function lacks_scopes( PlatformAdapter $adapter ): bool {
+		return $adapter instanceof ColorMeAdapter && ! ColorMeCommerceAdapter::has_required_scopes( $adapter );
 	}
 
 	/**
