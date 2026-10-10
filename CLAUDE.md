@@ -65,7 +65,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 
 - WordPress Coding Standards（PHPCS: `WordPress` ruleset + PSR-4クラス構成）
 - UI文字列は英語で書き、`__( 'Text', 'cart-bridge-jp' )` で必ずi18n化。日本語訳は `languages/cart-bridge-jp-ja.po` に同梱している。**文字列を足す・変えたら同じ PR で** `npm run i18n:pot`（ビルドしてから POT。JS は `build/index.js` から抜く）→ `npm run i18n:po` → 足された項目を訳す（用語集は `docs/03` §6「翻訳（R3-2）」）→ `npm run i18n:compile`。CI（`npm run i18n:check`）と `TranslationsTest` が、POT の鮮度・訳の漏れ・プレースホルダの食い違いを止める。訳のパスの登録（メインファイルの `cbjp_load_textdomain()`）は、WooCommerce・オートロードを確かめる `cbjp_bootstrap()` のガードの外に置く（中に置くと前提条件の通知が英語のまま出る。PR #109 G1-1）
-- `readme.txt` は配布物。事実の記述（サンプル・上限・取り込む／送るデータ・外部への接続）は実装を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー（Description は `plugins/cart-bridge-jp/composer.json` の `description` とも）・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合し、件数の上限の記述が無いことを確かめるので、これらを変えたら同じ PR で readme も直す
+- `readme.txt` は配布物。事実の記述（取り込む／送るデータ・外部への接続）は実装を読んで書く。過去の版の挙動（changelog・Upgrade Notice の旧版向けの項目）は、今のコードから類推せず、その版のタグのコード（`git show v0.1.0:<path>`）を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた。PR #119 では 0.1.0 の挙動の記述の漏れ・誤りを独立レビューが 3 件見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー（Description は `plugins/cart-bridge-jp/composer.json` の `description` とも）・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合し、件数の上限の記述・無料版の範囲を説明する箇所の顧客・受注・クーポン・決済・配送の記述が無いこと、Pro の FAQ が Pro を名指しすること（版 1.0.0 以上では URL も）、Upgrade Notice が 300 字以内でマークアップを含まないことを確かめるので、これらを変えたら同じ PR で readme も直す
 - コードコメントは日本語可
 - 入力は必ずサニタイズ、出力は必ずエスケープ、DB操作は `$wpdb->prepare()`
 - APIトークン等の機密情報は暗号化して保存（`Support\TokenStore` 経由。オプションテーブルに平文保存禁止）
