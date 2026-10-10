@@ -96,6 +96,11 @@ description: >
   書いたオプション（例: `cbjp_export_options_colorme`）と `cbjp_verify_seed` のキーを撤去する（`cbjp_verify_seed` は共有オプションなので自分のキーだけを外す）。
   実 platform の cleanup スクリプトは「OAuth トークンがある platform を拒否」するので使えない。専用の撤去スクリプトで自分が書いたキーだけを消す。
 
+- **Claude in Chrome で `CheckboxControl` を座標・ref でクリックしても切り替わらないことがある**（R3-6b2）。状態は `javascript_tool` で `input.checked` を読み、操作は `element.click()`。
+  `SelectControl` は `HTMLSelectElement.prototype` の value の setter で値を入れて `change` を dispatch する（React の onChange が走る）
+- **画面の警告・失敗の表示を確かめるには、一時的な mu-plugin で失敗する種類を `cbjp/entity_types/register` に登録する**（例: `scan()` が例外を投げる LinkSource →
+  Tools タブの「飛ばした種類」の警告。R3-6b2）。確認後に mu-plugin を消す
+
 ## してはいけないこと
 
 - **実アダプタ（`ColorMeAdapter` 等）を偽のキーで登録して `JobManager`/`Exporter` を通さない**: mapping のキーは登録キーではなく
