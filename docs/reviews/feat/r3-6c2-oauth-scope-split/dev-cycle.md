@@ -3,9 +3,9 @@
 - 開始: 2026-10-10
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: #118 https://github.com/artisanworkshop/cart-bridge-jp/pull/118
-- 現在のステップ: 7（G1 の修正を push。G2 を依頼する）
-- Copilot: 依頼 1 回 / 未収束（G1 で 2 件）
-- Codex: 依頼 1 回 / 未収束（G1 で 1 件）
+- 現在のステップ: 7（G2 の修正を push。G3 で Copilot に最後の依頼）
+- Copilot: 依頼 2 回 / 未収束（G1 で 2 件・G2 で 2 件）
+- Codex: 依頼 2 回 / 収束（G2 で「Didn't find any major issues」）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -18,3 +18,5 @@
 | 2026-10-10 22:24 | 4 | push（dd7bd92。T=2026-10-10T13:24:02Z）→ PR #118 作成 |
 | 2026-10-10 22:27 | 5〜6 | CI 全ジョブ green → Copilot へ依頼（timeline で登録を確認）。Codex は自動レビューが 5 分で応答せず review コメントを自動投稿 |
 | 2026-10-10 22:37 | 7 | G1: Copilot 2 件（交換時の要求スコープ・OAuth でない接続先）・Codex 1 件（後から登録された拡張が Pro のスコープを消す。R1-3 の再指摘）→ 3 件とも修正（32678ba・ce60c2d。auto-commit） |
+| 2026-10-10 22:42 | 7 | G1 の修正と記録を push（11ea6d1）、返信・Resolve・サマリコメント |
+| 2026-10-10 22:53 | 7 | G2: Codex 収束・Copilot 2 件（OOB の控えの上書き・`get_required()` の理由の区別〔本文の Previously missed〕）→ 2 件とも修正（a6bde5c・077ca80。auto-commit） |
