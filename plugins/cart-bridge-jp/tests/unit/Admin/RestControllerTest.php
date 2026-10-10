@@ -24,10 +24,10 @@ use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\Gizmo\GizmoType;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
+use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
 use CartBridgeJP\Woo\WarningCatalog;
-use WC_Coupon;
-use WC_Order;
 use WC_Product_Simple;
 use WP_HTTP_Response;
 use WP_REST_Request;
@@ -36,6 +36,8 @@ use WP_REST_Server;
 use WP_UnitTestCase;
 
 final class RestControllerTest extends WP_UnitTestCase {
+
+	use RegistersEntityTypes;
 
 	private WP_REST_Server $server;
 
@@ -67,7 +69,9 @@ final class RestControllerTest extends WP_UnitTestCase {
 		AdapterRegistry::reset_cache();
 		global $wp_rest_server;
 		$wp_rest_server = null; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
+		$this->forget_entity_types();
 		parent::tear_down();
+		$this->forget_entity_types();
 	}
 
 	public function test_get_connections_is_empty_when_no_adapters_registered(): void {
@@ -606,9 +610,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		// 空マップも常にJSONオブジェクトとして返す（`test_get_settings_mappings_serializes_empty_maps_as_json_objects`
 		// 参照）ため、レスポンスデータ自体も`array`ではなく`stdClass`。
 		$this->assertEquals( (object) [], $data['category_map'] );
-		$this->assertEquals( (object) [], $data['payment_map'] );
-		$this->assertEquals( (object) [], $data['shipping_map'] );
-		$this->assertEquals( (object) [], $data['status_map'] );
+		// 決済・配送・注文ステータスのマップは Pro の種類が持つ（Pro の `CommerceRestControllerTest`。R3-6c1）。
+		$this->assertArrayNotHasKey( 'payment_map', $data );
 	}
 
 	/**
@@ -782,13 +785,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$woo_candidates = $response->get_data()['woo_candidates'];
-		$this->assertArrayHasKey( 'category', $woo_candidates );
-		$this->assertArrayHasKey( 'payment', $woo_candidates );
-		$this->assertArrayHasKey( 'shipping', $woo_candidates );
-		$this->assertArrayHasKey( 'status', $woo_candidates );
-		// テスト環境のWooCommerceはデフォルトゲートウェイ（bacs等）を登録済み。
-		$payment_ids = array_column( $woo_candidates['payment'], 'id' );
-		$this->assertContains( 'bacs', $payment_ids );
+		$this->assertSame( [ 'category' ], array_keys( $woo_candidates ) );
 	}
 
 	public function test_get_settings_mappings_returns_404_for_unknown_platform(): void {
@@ -800,14 +797,13 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	public function test_save_settings_mappings_persists_and_is_read_back(): void {
 		$this->register_colorme_adapter();
+		$this->register_entity_types( [ new GizmoType() ] );
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
 				'category_map' => [ '12' => '7' ],
-				'payment_map'  => [ '3' => 'bacs' ],
-				'shipping_map' => [ '5' => 'flat_rate:1' ],
-				'status_map'   => [ 'pending' => 'on-hold' ],
+				'gizmo_map'    => [ '5' => 'flat_rate:1' ],
 			]
 		);
 		$response = $this->server->dispatch( $request );
@@ -815,18 +811,15 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$data = $response->get_data();
 		// カテゴリはColorMe側が作成不可のためWoo側カテゴリID→ASP側カテゴリIDという逆向き
-		// （他3キーはASP側→Woo側）だが、保存・検証ロジックは向きに依存しない。
+		// （ほかの種類はASP側→Woo側）だが、保存・検証ロジックは向きに依存しない。
 		$this->assertSame( '7', $data['category_map']->{'12'} );
-		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
-		// Woo配送方法インスタンスIDのコロンが破壊されず保持されることを確認する
+		// コロンを含む値（Woo配送方法インスタンスIDなど）が破壊されず保持されることを確認する
 		// （`sanitize_key()`はコロンを除去するため使っていない）。
-		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
+		$this->assertSame( 'flat_rate:1', $data['gizmo_map']->{'5'} );
 
 		$get_data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) )->get_data();
 		$this->assertEquals( (object) [ '12' => '7' ], $get_data['category_map'] );
-		$this->assertEquals( (object) [ '3' => 'bacs' ], $get_data['payment_map'] );
-		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['shipping_map'] );
-		$this->assertEquals( (object) [ 'pending' => 'on-hold' ], $get_data['status_map'] );
+		$this->assertEquals( (object) [ '5' => 'flat_rate:1' ], $get_data['gizmo_map'] );
 	}
 
 	/**
@@ -839,7 +832,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->register_colorme_adapter();
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$request->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$request->set_body_params( [ 'category_map' => [ '3' => '7' ] ] );
 		$response = $this->server->dispatch( $request );
 
 		$data = $response->get_data();
@@ -849,46 +842,47 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 	public function test_save_settings_mappings_omitted_key_preserves_existing_value(): void {
 		$this->register_colorme_adapter();
+		$this->register_entity_types( [ new GizmoType() ] );
 
 		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$first->set_body_params( [ 'category_map' => [ '3' => '7' ] ] );
 		$this->server->dispatch( $first );
 
-		// shipping_mapを省略した2回目の保存が、1回目に保存したpayment_mapを消さないこと
+		// category_mapを省略した2回目の保存が、1回目に保存したcategory_mapを消さないこと
 		// （UIが1種類だけ編集した場合に他方を意図せず消さないための仕様）を確認する。
 		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$second->set_body_params( [ 'shipping_map' => [ '5' => 'flat_rate:1' ] ] );
+		$second->set_body_params( [ 'gizmo_map' => [ '5' => 'flat_rate:1' ] ] );
 		$response = $this->server->dispatch( $second );
 
 		$data = $response->get_data();
-		$this->assertSame( 'bacs', $data['payment_map']->{'3'} );
-		$this->assertSame( 'flat_rate:1', $data['shipping_map']->{'5'} );
+		$this->assertSame( '7', $data['category_map']->{'3'} );
+		$this->assertSame( 'flat_rate:1', $data['gizmo_map']->{'5'} );
 	}
 
 	public function test_save_settings_mappings_explicit_empty_map_clears_existing_value(): void {
 		$this->register_colorme_adapter();
 
 		$first = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$first->set_body_params( [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		$first->set_body_params( [ 'category_map' => [ '3' => '7' ] ] );
 		$this->server->dispatch( $first );
 
 		// キーを省略した場合は既存値を保持する（上のテスト）のに対し、キーを明示的に
 		// 空配列で送った場合は実際にクリアされることを確認する（両方向の経路を検証）。
 		$second = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$second->set_body_params( [ 'payment_map' => [] ] );
+		$second->set_body_params( [ 'category_map' => [] ] );
 		$response = $this->server->dispatch( $second );
 
-		$this->assertEquals( (object) [], $response->get_data()['payment_map'] );
+		$this->assertEquals( (object) [], $response->get_data()['category_map'] );
 
 		$get_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' ) );
-		$this->assertEquals( (object) [], $get_response->get_data()['payment_map'] );
+		$this->assertEquals( (object) [], $get_response->get_data()['category_map'] );
 	}
 
 	public function test_save_settings_mappings_rejects_non_object_map(): void {
 		$this->register_colorme_adapter();
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$request->set_body_params( [ 'payment_map' => 'not-an-object' ] );
+		$request->set_body_params( [ 'category_map' => 'not-an-object' ] );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 400, $response->get_status() );
@@ -901,14 +895,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		// 消えてしまっていた（Codexレビュー指摘）。書込み側は1件でも不正なエントリが
 		// あればリクエスト全体を拒否し、既存の正当なマッピングを消さないことを確認する。
 		$this->register_colorme_adapter();
-		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		update_option( 'cbjp_settings_colorme', [ 'category_map' => [ '3' => '7' ] ] );
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$request->set_body_params( [ 'payment_map' => [ '1094475' => [] ] ] );
+		$request->set_body_params( [ 'category_map' => [ '1094475' => [] ] ] );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 400, $response->get_status() );
-		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertSame( '7', get_option( 'cbjp_settings_colorme' )['category_map']['3'] );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -921,7 +915,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->register_colorme_adapter();
 
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
-		$request->set_body_params( [ 'payment_map' => [ 'bacs', 'cod' ] ] );
+		$request->set_body_params( [ 'category_map' => [ '7', '8' ] ] );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 400, $response->get_status() );
@@ -957,14 +951,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		// URLが名指ししたリソースとは異なる`cbjp_settings_{platform}`を読んでしまっていた
 		// （Codexレビュー指摘）。URLキャプチャのみを見ることでこれを構造的に防ぐ。
 		$this->register_colorme_adapter();
-		update_option( 'cbjp_settings_colorme', [ 'payment_map' => [ '3' => 'bacs' ] ] );
+		update_option( 'cbjp_settings_colorme', [ 'category_map' => [ '3' => '7' ] ] );
 
 		$request = new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_query_params( [ 'platform' => 'not-a-real-platform' ] );
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 'bacs', $response->get_data()['payment_map']->{'3'} );
+		$this->assertSame( '7', $response->get_data()['category_map']->{'3'} );
 
 		delete_option( 'cbjp_settings_colorme' );
 	}
@@ -978,14 +972,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
-				'platform'    => [ 'not-a-real-platform' ],
-				'payment_map' => [ '3' => 'bacs' ],
+				'platform'     => [ 'not-a-real-platform' ],
+				'category_map' => [ '3' => '7' ],
 			]
 		);
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertSame( '7', get_option( 'cbjp_settings_colorme' )['category_map']['3'] );
 		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
 
 		delete_option( 'cbjp_settings_colorme' );
@@ -1001,14 +995,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$request = new WP_REST_Request( 'PUT', '/cbjp/v1/settings/mappings/colorme' );
 		$request->set_body_params(
 			[
-				'platform'    => 'not-a-real-platform',
-				'payment_map' => [ '3' => 'bacs' ],
+				'platform'     => 'not-a-real-platform',
+				'category_map' => [ '3' => '7' ],
 			]
 		);
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 'bacs', get_option( 'cbjp_settings_colorme' )['payment_map']['3'] );
+		$this->assertSame( '7', get_option( 'cbjp_settings_colorme' )['category_map']['3'] );
 		$this->assertFalse( get_option( 'cbjp_settings_not-a-real-platform' ) );
 
 		delete_option( 'cbjp_settings_colorme' );
@@ -1025,20 +1019,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$decoded = json_decode( (string) wp_json_encode( $response->get_data() ), true );
-		$this->assertSame(
-			[
-				'category_map' => [],
-				'payment_map'  => [],
-				'shipping_map' => [],
-				'status_map'   => [],
-			],
-			[
-				'category_map' => $decoded['category_map'],
-				'payment_map'  => $decoded['payment_map'],
-				'shipping_map' => $decoded['shipping_map'],
-				'status_map'   => $decoded['status_map'],
-			]
-		);
+		$this->assertSame( [], $decoded['category_map'] );
+		$this->assertSame( '{}', wp_json_encode( $response->get_data()['category_map'] ) );
 	}
 
 	public function test_get_authorize_url_requires_credentials_to_be_saved_first(): void {
@@ -1852,12 +1834,11 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 403, $this->server->dispatch( $resolve )->get_status() );
 	}
 
-	public function test_list_push_intents_describes_product_customer_and_order_entities(): void {
+	/**
+	 * 顧客・受注・クーポンの一覧の説明は Pro の `CommerceRestControllerTest`（R3-6c1）。
+	 */
+	public function test_list_push_intents_describes_product_entities(): void {
 		$this->register_mock_adapter();
-		// 受注の要約の日時は WooCommerce の書式とサイトのタイムゾーンで書く（R3-6b2）。
-		update_option( 'timezone_string', 'Asia/Tokyo' );
-		update_option( 'date_format', 'Y-m-d' );
-		update_option( 'time_format', 'H:i' );
 
 		$product = new WC_Product_Simple();
 		// Woo の名前は HTML（kses・REST・取込みでは実体参照になる）。画面には表示どおりの文字で渡す（issue #99）。
@@ -1865,63 +1846,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$product->set_sku( 'SKU-9' );
 		$product_id = $product->save();
 
-		$customer_id = self::factory()->user->create(
-			[
-				'role'       => 'customer',
-				'user_email' => 'buyer@example.test',
-			]
-		);
-
-		$order = new WC_Order();
-		$order->set_status( 'processing' );
-		$order->set_currency( 'JPY' );
-		$order->set_total( '1234' );
-		$order->set_date_created( '2026-01-02T03:04:05+00:00' );
-		$order->save();
-		$order_id = $order->get_id();
-
-		$coupon = new WC_Coupon();
-		$coupon->set_code( 'spring10' );
-		$coupon_id = $coupon->save();
-
 		$intents = new PushIntentRepository();
 		$intents->begin( 'mock', 'product', $product_id, 'run-1', 10 );
-		$intents->begin( 'mock', 'customer', $customer_id, 'run-1', 11 );
-		$intents->begin( 'mock', 'order', $order_id, 'run-1', 12 );
-		$intents->begin( 'mock', 'coupon', $coupon_id, 'run-1', 13 );
 
 		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' );
 		$response = $this->server->dispatch( $request );
 		$data     = $response->get_data();
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertCount( 4, $data['intents'] );
+		$this->assertCount( 1, $data['intents'] );
 
-		$by_entity = [];
-		foreach ( $data['intents'] as $intent ) {
-			$by_entity[ $intent['entity_type'] ] = $intent;
-		}
+		$intent = $data['intents'][0];
 
-		$this->assertTrue( $by_entity['product']['exists'] );
-		$this->assertSame( 'Widget & Co', $by_entity['product']['details']['name'] );
-		$this->assertSame( 'SKU-9', $by_entity['product']['details']['sku'] );
-		$this->assertNotNull( $by_entity['product']['edit_url'] );
-
-		$this->assertTrue( $by_entity['customer']['exists'] );
-		$this->assertSame( 'buyer@example.test', $by_entity['customer']['details']['email'] );
-
-		$this->assertTrue( $by_entity['order']['exists'] );
-		$this->assertArrayHasKey( 'number', $by_entity['order']['details'] );
-		$this->assertArrayHasKey( 'total', $by_entity['order']['details'] );
-
+		$this->assertSame( 'product', $intent['entity_type'] );
+		$this->assertTrue( $intent['exists'] );
+		$this->assertSame( 'Widget & Co', $intent['details']['name'] );
+		$this->assertSame( 'SKU-9', $intent['details']['sku'] );
+		$this->assertNotNull( $intent['edit_url'] );
 		// 画面に出す 1 行（R3-6b2。以前は画面が `details` から組み立てていた）。
-		$this->assertSame( 'Widget & Co (SKU: SKU-9)', $by_entity['product']['summary'] );
-		$this->assertSame( 'buyer@example.test', $by_entity['customer']['summary'] );
-		$this->assertSame(
-			sprintf( '#%s — %s JPY (2026-01-02 12:04)', wc_get_order( $order_id )->get_order_number(), wc_get_order( $order_id )->get_total() ),
-			$by_entity['order']['summary']
-		);
-		$this->assertSame( 'spring10', $by_entity['coupon']['summary'] );
+		$this->assertSame( 'Widget & Co (SKU: SKU-9)', $intent['summary'] );
 	}
 
 	/**
@@ -1964,21 +1907,14 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$kinds = array_column( $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data()['kinds'], null, 'key' );
 
-		$this->assertSame( [ 'category', 'payment', 'shipping', 'status' ], array_keys( $kinds ) );
+		// 決済・配送・注文ステータスは Pro の `CommerceRestControllerTest`（R3-6c1）。
+		$this->assertSame( [ 'category' ], array_keys( $kinds ) );
 		$this->assertSame( 'product', $kinds['category']['entity'] );
 		$this->assertSame( 'Category mapping', $kinds['category']['label'] );
 		$this->assertSame( 'WooCommerce category', $kinds['category']['source_heading'] );
 		$this->assertSame( 'Platform category', $kinds['category']['target_heading'] );
 		$this->assertSame( '— No category —', $kinds['category']['unmapped_label'] );
-		$this->assertSame( 'order', $kinds['payment']['entity'] );
-		$this->assertSame( 'Payment method mapping', $kinds['payment']['label'] );
-		$this->assertSame( 'Platform payment method', $kinds['payment']['source_heading'] );
-		$this->assertSame( '— Unmapped —', $kinds['payment']['unmapped_label'] );
-		$this->assertTrue( $kinds['payment']['import_notice'] );
-		$this->assertSame( 'Shipping method mapping', $kinds['shipping']['label'] );
-		$this->assertTrue( $kinds['shipping']['import_notice'] );
-		$this->assertSame( '— Default —', $kinds['status']['unmapped_label'] );
-		$this->assertFalse( $kinds['status']['import_notice'] );
+		$this->assertFalse( $kinds['category']['import_notice'] );
 
 		foreach ( $kinds as $kind ) {
 			$this->assertNotSame( '', $kind['description'], "{$kind['key']} の説明" );

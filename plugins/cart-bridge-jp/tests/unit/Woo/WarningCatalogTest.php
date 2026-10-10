@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo;
 
-use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use ArgumentCountError;
@@ -37,8 +36,8 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 	 * @return array<string,string>
 	 */
 	private static function all_codes(): array {
-		// 顧客・受注・クーポンのコード（`CommerceWarningCode`。R3-6c1）も、登録された種類が説明する。
-		$codes = array_merge( ( new ReflectionClass( WarningCode::class ) )->getConstants(), ( new ReflectionClass( CommerceWarningCode::class ) )->getConstants() );
+		// 顧客・受注・クーポンのコード（`CommerceWarningCode`）は R3-6c1 で Pro へ移した（Pro の `CommerceWarningCatalogTest`）。
+		$codes = ( new ReflectionClass( WarningCode::class ) )->getConstants();
 
 		return array_filter( $codes, 'is_string' );
 	}
@@ -49,7 +48,7 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 	 */
 	public function test_every_warning_code_is_described_in_both_directions(): void {
 		$codes = self::all_codes();
-		$this->assertGreaterThan( 90, count( $codes ) );
+		$this->assertGreaterThan( 45, count( $codes ) );
 
 		$problems = [];
 
@@ -198,35 +197,15 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 同じコードでも向きで意味が違う（取込みは保存して知らせ、エクスポートは送らない）。
+	 * 同じコードでも向きで意味が違う（取込みは価格を書かずに知らせ、エクスポートは送らない）。
 	 */
 	public function test_the_direction_changes_the_description(): void {
-		$import = WarningCatalog::describe( CommerceWarningCode::CURRENCY_MISMATCH, WarningCatalog::IMPORT );
-		$export = WarningCatalog::describe( CommerceWarningCode::CURRENCY_MISMATCH, WarningCatalog::EXPORT );
+		$import = WarningCatalog::describe( WarningCode::PRODUCT_PRICE_INVALID, WarningCatalog::IMPORT );
+		$export = WarningCatalog::describe( WarningCode::PRODUCT_PRICE_INVALID, WarningCatalog::EXPORT );
 
 		$this->assertNotSame( WarningCatalog::SEVERITY_BLOCKING, $import['severity'] );
 		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $export['severity'] );
 		$this->assertNotSame( $import['message'], $export['message'] );
-	}
-
-	/**
-	 * 管理者・スタッフのアカウントと同じメールの顧客は、顧客の行ではプロフィールを書かずに飛ばし（`CustomerWriter`）、
-	 * 受注の行ではゲスト受注として書く（`OrderWriter`）。同じコードでも行の種別で重大度が違い、種別が分からなければ重いほうに倒す。
-	 */
-	public function test_a_protected_customer_is_described_by_the_row_entity(): void {
-		$warning  = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-1' );
-		$customer = WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'customer' );
-		$order    = WarningCatalog::describe( $warning, WarningCatalog::IMPORT, 'order' );
-
-		$this->assertSame( WarningCatalog::SEVERITY_BLOCKING, $customer['severity'] );
-		$this->assertSame( WarningCatalog::SEVERITY_ACTION_REQUIRED, $order['severity'] );
-		$this->assertNotSame( $customer['message'], $order['message'] );
-
-		foreach ( [ '', 'product', 'Order' ] as $entity ) {
-			$this->assertSame( $customer, WarningCatalog::describe( $warning, WarningCatalog::IMPORT, $entity ), $entity );
-		}
-
-		$this->assertSame( $customer, WarningCatalog::describe( $warning, WarningCatalog::IMPORT ) );
 	}
 
 	/**
@@ -249,10 +228,10 @@ final class WarningCatalogTest extends WP_UnitTestCase {
 	 */
 	public function test_an_unknown_direction_is_described_as_unknown(): void {
 		foreach ( [ '', 'sideways', 'IMPORT' ] as $direction ) {
-			$description = WarningCatalog::describe( CommerceWarningCode::CURRENCY_MISMATCH, $direction );
+			$description = WarningCatalog::describe( WarningCode::PRODUCT_PRICE_INVALID, $direction );
 
 			$this->assertSame( WarningCatalog::SEVERITY_UNKNOWN, $description['severity'], $direction );
-			$this->assertStringContainsString( CommerceWarningCode::CURRENCY_MISMATCH, $description['message'] );
+			$this->assertStringContainsString( WarningCode::PRODUCT_PRICE_INVALID, $description['message'] );
 		}
 	}
 }

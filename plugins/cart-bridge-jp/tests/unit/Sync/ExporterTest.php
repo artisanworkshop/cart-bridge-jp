@@ -29,7 +29,6 @@ use CartBridgeJP\Sync\WooReader;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
 use CartBridgeJP\Tests\Fixtures\InMemoryPlatformWriter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
-use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Export\DryRunPlatformWriter;
 use CartBridgeJP\Woo\Reader\ProductReader;
@@ -872,14 +871,14 @@ final class ExporterTest extends WP_UnitTestCase {
 
 	/**
 	 * アダプタが「実際には送信しなかった」ことを明示的に返す場合（例:
-	 * `CUSTOMER_REQUIRED_FIELD_MISSING`で送信前にフェイルクローズ）、未送信が確定しているため
+	 * `PRODUCT_PRICE_NOT_CONVERTIBLE`で送信前にフェイルクローズ）、未送信が確定しているため
 	 * 印を消す。
 	 */
 	public function test_a_push_result_reporting_nothing_was_sent_clears_the_intent(): void {
 		$reader   = new FixedWooReader( [ new ReadItem( 101, $this->product() ) ] );
 		$writer   = new class() implements PlatformWriter {
 			public function write( string $entity, CanonicalModel $item, ?string $existing_remote_id ): PushResult {
-				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ CommerceWarningCode::CUSTOMER_REQUIRED_FIELD_MISSING ] );
+				return new PushResult( '', PushResult::OPERATION_SKIPPED, [ WarningCode::PRODUCT_PRICE_NOT_CONVERTIBLE ] );
 			}
 		};
 		$exporter = new Exporter( $this->mappings, push_intents: $this->push_intents );

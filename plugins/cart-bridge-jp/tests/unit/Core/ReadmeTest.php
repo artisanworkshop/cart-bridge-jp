@@ -9,7 +9,6 @@ namespace CartBridgeJP\Tests\Core;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeClient;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
-use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use ReflectionClassConstant;
@@ -25,6 +24,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 	 * FAQ「エクスポートが止まる警告」に載せる警告コード（`docs/10` R3-3: D22・D23 ほか。止める警告の全種ではなく、dry-run の CSV に
 	 * 出て出会いやすいもの。送信時にだけ出る警告〔`product_price_not_convertible` など。dry-run は `push_*()` を呼ばない〕は載せない）。
 	 * FAQ の箇条書きはこの一覧と過不足なく同じ順で一致し、各行は `WarningCatalog` のエクスポートの説明（原因と対処）をそのまま使う。
+	 * 受注・クーポンの警告（`currency_mismatch` など）は R3-6c1 で Pro へ移したので載せない。
 	 */
 	private const FAQ_EXPORT_BLOCKING_CODES = [
 		WarningCode::VARIATION_STOCK_MANAGEMENT_MIXED,
@@ -38,12 +38,9 @@ final class ReadmeTest extends WP_UnitTestCase {
 		WarningCode::VARIATION_AXIS_LIMIT_EXCEEDED,
 		WarningCode::STOCK_PRODUCT_NOT_EXPORTED,
 		WarningCode::PUSH_OUTCOME_UNCONFIRMED,
-		CommerceWarningCode::CURRENCY_MISMATCH,
-		CommerceWarningCode::ORDER_REFUNDED,
-		CommerceWarningCode::ORDER_LINE_VARIATION_UNRESOLVED,
 	];
 
-	private const FAQ_EXPORT_BLOCKING_QUESTION = 'The export skipped a product, a stock row, or an order with a warning. How do I fix it?';
+	private const FAQ_EXPORT_BLOCKING_QUESTION = 'The export skipped a product or a stock row with a warning. How do I fix it?';
 
 	private static ?string $readme = null;
 

@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Entities;
 
-use CartBridgeJP\Entities\Commerce\CommerceEntityTypes;
 use CartBridgeJP\Entities\Core\ProductType;
 use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
@@ -54,14 +53,10 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		};
 	}
 
-	public function test_built_in_and_bundled_types_run_in_the_fixed_order(): void {
-		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ], EntityTypeRegistry::keys() );
-	}
-
-	public function test_without_the_commerce_registration_only_the_free_types_remain(): void {
-		remove_all_filters( EntityTypeRegistry::FILTER );
-		EntityTypeRegistry::reset_cache();
-
+	/**
+	 * 無料版の種類だけ（顧客・受注・クーポンは R3-6c1 で Pro へ移した。Pro を有効にしたときの並びは Pro の `CommerceRegistrationTest`）。
+	 */
+	public function test_built_in_types_run_in_the_fixed_order(): void {
 		$this->assertSame( [ 'category', 'tag', 'product', 'stock', 'review' ], EntityTypeRegistry::keys() );
 	}
 
@@ -77,7 +72,7 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		);
 		EntityTypeRegistry::reset_cache();
 
-		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'gizmo', 'order', 'stock', 'coupon', 'review' ], EntityTypeRegistry::keys() );
+		$this->assertSame( [ 'category', 'tag', 'product', 'gizmo', 'stock', 'review' ], EntityTypeRegistry::keys() );
 		$this->assertSame( $gizmo, EntityTypeRegistry::get( 'gizmo' ) );
 		$this->assertFalse( EntityTypeRegistry::has( 'wrong-array-key' ) );
 	}
@@ -85,7 +80,7 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 	public function test_same_position_is_ordered_by_key(): void {
 		$this->register_entity_types( [ self::type( 'zeta', 45 ), self::type( 'alpha', 45 ) ] );
 
-		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'alpha', 'zeta', 'order', 'stock', 'coupon', 'review' ], EntityTypeRegistry::keys() );
+		$this->assertSame( [ 'category', 'tag', 'product', 'alpha', 'zeta', 'stock', 'review' ], EntityTypeRegistry::keys() );
 	}
 
 	/**
@@ -112,7 +107,7 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		add_filter( EntityTypeRegistry::FILTER, static fn ( array $registered ): array => array_merge( $registered, $types ) );
 		EntityTypeRegistry::reset_cache();
 
-		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ], EntityTypeRegistry::keys() );
+		$this->assertSame( [ 'category', 'tag', 'product', 'stock', 'review' ], EntityTypeRegistry::keys() );
 		$this->assertInstanceOf( ProductType::class, EntityTypeRegistry::get( 'product' ) );
 	}
 
@@ -131,11 +126,6 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		$this->register_entity_types( [ $first, $second ] );
 
 		$this->assertSame( $first, EntityTypeRegistry::get( 'thing' ) );
-	}
-
-	public function test_commerce_registration_tolerates_a_misbehaving_earlier_filter(): void {
-		$this->assertCount( 3, CommerceEntityTypes::register( false ) );
-		$this->assertCount( 4, CommerceEntityTypes::register( [ 'x' ] ) );
 	}
 
 	public function test_the_list_is_not_cached_while_plugins_are_loading(): void {
@@ -211,13 +201,6 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 
 		$this->assertSame( [], EntityTypeRegistry::warning_flags( 'sku_duplicate' ) );
 		$this->assertSame( [ WarningFlag::EXPORT_BLOCKING => true ], EntityTypeRegistry::warning_flags( 'sneaky_code' ) );
-		$this->assertSame(
-			[
-				WarningFlag::UNRESOLVED_REFERENCE => true,
-				WarningFlag::MAPPING_REQUIRED     => true,
-			],
-			EntityTypeRegistry::warning_flags( 'payment_method_unmapped' )
-		);
 	}
 
 	public function test_reset_cache_also_forgets_the_flag_index(): void {
@@ -230,14 +213,14 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 
 	public function test_mapping_kinds_follow_the_type_order(): void {
 		$this->assertSame(
-			[ 'category', 'payment', 'shipping', 'status' ],
+			[ 'category' ],
 			array_map( static fn ( MappingKind $kind ): string => $kind->key(), EntityTypeRegistry::mapping_kinds() )
 		);
 	}
 
 	public function test_link_sources_keep_the_rebuild_order(): void {
 		$this->assertSame(
-			[ 'category', 'tag', 'product', 'variant', 'coupon', 'customer', 'order' ],
+			[ 'category', 'tag', 'product', 'variant' ],
 			array_map( static fn ( LinkSource $source ): string => $source->key(), EntityTypeRegistry::link_sources() )
 		);
 	}
@@ -246,9 +229,8 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 		$labels = EntityTypeRegistry::labels();
 
 		$this->assertSame( 'Products', $labels['product'] );
-		$this->assertSame( 'Orders', $labels['order'] );
 		$this->assertSame( 'Variations', $labels['variant'] );
-		$this->assertSame( [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review', 'variant' ], array_keys( $labels ) );
+		$this->assertSame( [ 'category', 'tag', 'product', 'stock', 'review', 'variant' ], array_keys( $labels ) );
 	}
 
 	public function test_push_intents_are_recorded_for_the_types_that_create_on_push(): void {
@@ -264,10 +246,7 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 				'category' => false,
 				'tag'      => false,
 				'product'  => true,
-				'customer' => true,
-				'order'    => true,
 				'stock'    => false,
-				'coupon'   => true,
 				'review'   => false,
 			],
 			$records
@@ -371,10 +350,10 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'Categories', $sources['category'] );
 		$this->assertArrayNotHasKey( 'abcdefghijklmnopqrstuvwxyz', $sources );
-		$this->assertSame( [ 'category', 'tag', 'product', 'variant', 'coupon', 'customer', 'order' ], array_keys( $sources ) );
+		$this->assertSame( [ 'category', 'tag', 'product', 'variant' ], array_keys( $sources ) );
 
 		$kinds = EntityTypeRegistry::mapping_kinds();
-		$this->assertSame( [ 'gizmo', 'category', 'payment', 'shipping', 'status' ], array_map( static fn ( MappingKind $kind ): string => $kind->key(), $kinds ) );
+		$this->assertSame( [ 'gizmo', 'category' ], array_map( static fn ( MappingKind $kind ): string => $kind->key(), $kinds ) );
 		$this->assertSame( MappingKind::SOURCE_WOO, $kinds[1]->source_side(), '無料版のカテゴリのマッピングが残る' );
 	}
 

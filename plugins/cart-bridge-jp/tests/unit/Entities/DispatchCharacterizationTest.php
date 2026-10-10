@@ -9,7 +9,6 @@ namespace CartBridgeJP\Tests\Entities;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
-use CartBridgeJP\Adapters\CommerceCapabilities;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Admin\DryRunReportCsv;
 use CartBridgeJP\Canonical\CanonicalCategory;
@@ -23,15 +22,12 @@ use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\VerificationReport;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
-use CartBridgeJP\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
-use CartBridgeJP\Tests\Fixtures\RegistersCommerceAdapters;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriter;
 use CartBridgeJP\Woo\Tools\LocalEntityLookup;
 use CartBridgeJP\Woo\Tools\PushIntentPresenter;
 use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
 use CartBridgeJP\Woo\Tools\PushIntentResolver;
-use CartBridgeJP\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\WooReaderRepositoryFactory;
@@ -50,20 +46,19 @@ use WP_UnitTestCase;
  */
 final class DispatchCharacterizationTest extends WP_UnitTestCase {
 
-	use RegistersCommerceAdapters;
-
 	/**
-	 * 警告の判定関数ごとに、真になるコード（`WarningCode` の全定数のうち）。R3-6b1 の前のコードで算出した。
+	 * 警告の判定関数ごとに、真になるコード（`WarningCode` の全定数のうち）。R3-6b1 の前のコードで算出した。R3-6c1 で顧客・受注・クーポンの
+	 * コードを Pro へ移したので、無料版のコードだけの表にした（移す前の表は Pro の `CommerceDispatchCharacterizationTest` が持つ）。
 	 *
 	 * @var array<string,array<int,string>>
 	 */
 	private const PREDICATE_TABLE = [
-		'export_blocking'            => [ 'all_variations_excluded', 'coupon_restrictions_unsupported', 'currency_mismatch', 'order_line_amount_invalid', 'order_line_product_deleted', 'order_line_product_missing', 'order_line_quantity_invalid', 'order_line_tax_class_unsupported', 'order_line_variation_unresolved', 'order_refunded', 'order_totals_invalid', 'price_tax_basis_unresolved', 'product_price_invalid', 'stock_product_not_exported', 'tax_class_unsupported', 'tax_status_not_taxable', 'variation_any_attribute_unsupported', 'variation_axis_limit_exceeded', 'variation_tax_class_unsupported' ],
-		'unresolved_reference'       => [ 'category_map_unresolved', 'category_parent_unresolved', 'category_ref_unresolved', 'order_customer_not_exported', 'order_customer_unresolved', 'order_line_product_not_exported', 'order_line_product_unresolved', 'order_line_variation_unmatched', 'payment_method_unmapped', 'product_details_push_incomplete', 'product_image_push_incomplete', 'product_variant_push_incomplete', 'push_interrupted_after_create', 'shipping_method_unmapped', 'tag_ref_unresolved' ],
+		'export_blocking'            => [ 'all_variations_excluded', 'price_tax_basis_unresolved', 'product_price_invalid', 'stock_product_not_exported', 'tax_class_unsupported', 'tax_status_not_taxable', 'variation_any_attribute_unsupported', 'variation_axis_limit_exceeded', 'variation_tax_class_unsupported' ],
+		'unresolved_reference'       => [ 'category_map_unresolved', 'category_parent_unresolved', 'category_ref_unresolved', 'product_details_push_incomplete', 'product_image_push_incomplete', 'product_variant_push_incomplete', 'push_interrupted_after_create', 'tag_ref_unresolved' ],
 		'pending_import'             => [ 'category_parent_unresolved', 'category_ref_unresolved', 'product_details_push_incomplete', 'product_image_push_incomplete', 'product_variant_push_incomplete', 'push_interrupted_after_create', 'stock_product_unresolved', 'tag_ref_unresolved' ],
-		'reference_not_found'        => [ 'order_customer_unresolved', 'order_line_product_unresolved' ],
-		'pending_export'             => [ 'order_customer_not_exported', 'order_line_product_not_exported', 'stock_product_not_exported' ],
-		'mapping_required'           => [ 'category_map_unresolved', 'payment_method_unmapped', 'shipping_method_unmapped' ],
+		'reference_not_found'        => [],
+		'pending_export'             => [ 'stock_product_not_exported' ],
+		'mapping_required'           => [ 'category_map_unresolved' ],
 		'tax_setup_required'         => [ 'reduced_tax_class_not_found', 'tax_rates_not_configured' ],
 		'kept_by_link_direction'     => [ 'linked_by_export_not_imported' ],
 		'variation_stock_mixed'      => [ 'variation_stock_management_mixed' ],
@@ -79,17 +74,11 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 		'category_map_unresolved'         => 'mapping_required',
 		'category_parent_unresolved'      => 'reference_pending_import',
 		'category_ref_unresolved'         => 'reference_pending_import',
-		'order_customer_not_exported'     => 'reference_pending_export',
-		'order_customer_unresolved'       => 'reference_unresolved',
-		'order_line_product_not_exported' => 'reference_pending_export',
-		'order_line_product_unresolved'   => 'reference_unresolved',
-		'payment_method_unmapped'         => 'mapping_required',
 		'product_details_push_incomplete' => 'reference_pending_import',
 		'product_image_push_incomplete'   => 'reference_pending_import',
 		'product_variant_push_incomplete' => 'reference_pending_import',
 		'push_interrupted_after_create'   => 'reference_pending_import',
 		'reduced_tax_class_not_found'     => 'tax_setup_required',
-		'shipping_method_unmapped'        => 'mapping_required',
 		'stock_product_not_exported'      => 'reference_pending_export',
 		'stock_product_unresolved'        => 'reference_pending_import',
 		'tag_ref_unresolved'              => 'reference_pending_import',
@@ -99,8 +88,10 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	/**
 	 * `WarningCatalog::describe()` の全結果（全コード × 向き × 行の種類 × detail の有無）の sha256。R3-6b1 の前のコードで算出した。
 	 * カタログの分岐を移しても文言・重大度・対処が 1 文字も変わらないことを確かめる。変わったら、意図した変更かを確かめてから更新する。
+	 * R3-6c1 で無料版のコードだけのハッシュにした（Pro を有効にした dev サイトで同じ無料版のコードから算出しても同じ値になり、
+	 * 無料版のコードの説明が Pro の有無で変わらないことを確かめた。全コードの以前の値 `df668212…` は Pro の写しが持つ）。
 	 */
-	private const CATALOG_SHA256 = 'df668212267e79492ab247d48379d0c3524033866284b316bc1e4c37f64c2c57';
+	private const CATALOG_SHA256 = '2e08176594361ed2a549c96b38d206c7d0e7617ba07f15184636fd3a1b67987e';
 
 	public function set_up(): void {
 		parent::set_up();
@@ -110,22 +101,14 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		remove_all_filters( 'cbjp/adapters/register' );
 		AdapterRegistry::reset_cache();
-		$this->forget_commerce_adapters();
 		parent::tear_down();
-		$this->forget_commerce_adapters();
 	}
 
 	/**
 	 * @return array<int,string>
 	 */
 	private static function all_codes(): array {
-		// R3-6c1 で顧客・受注・クーポンのコードを `CommerceWarningCode` へ分けた。両方を合わせた一覧が以前の `WarningCode` の全定数と同じ。
-		$codes = array_values(
-			array_filter(
-				array_merge( ( new ReflectionClass( WarningCode::class ) )->getConstants(), ( new ReflectionClass( CommerceWarningCode::class ) )->getConstants() ),
-				'is_string'
-			)
-		);
+		$codes = array_values( array_filter( ( new ReflectionClass( WarningCode::class ) )->getConstants(), 'is_string' ) );
 		sort( $codes );
 
 		return $codes;
@@ -213,55 +196,35 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 能力の上書き（R3-6c1 で顧客・受注・クーポンの能力は `CommerceCapabilities` へ移した。キーは以前の `Capabilities` と同じ）。
+	 * 能力の上書き。顧客・受注・クーポン（R3-6c1 で Pro へ移した）は無料版だけでは登録されないので、要求しても選ばれない。
 	 *
 	 * @return array<string,array{0:string,1:array<string,bool>,2:array<int,string>,3:array<int,string>}>
 	 */
 	public static function run_entity_cases(): array {
-		$all       = [ 'review', 'coupon', 'stock', 'order', 'customer', 'product', 'tag', 'category', 'widget', 'variant' ];
-		$caps      = static fn ( array $overrides ): array => $overrides;
-		$import    = JobManager::TYPE_IMPORT;
-		$export    = JobManager::TYPE_EXPORT;
-		$dry_run   = JobManager::TYPE_DRY_RUN;
-		$dry_out   = JobManager::TYPE_DRY_RUN_EXPORT;
-		$full_in   = [ 'category', 'tag', 'product', 'customer', 'order', 'stock', 'coupon', 'review' ];
-		$full_out  = [ 'product', 'customer', 'order', 'stock', 'coupon' ];
-		$without   = static fn ( array $entities, string $entity ): array => array_values( array_diff( $entities, [ $entity ] ) );
-		$no_coupon = $without( $full_out, 'coupon' );
+		$all      = [ 'review', 'coupon', 'stock', 'order', 'customer', 'product', 'tag', 'category', 'widget', 'variant' ];
+		$caps     = static fn ( array $overrides ): array => $overrides;
+		$import   = JobManager::TYPE_IMPORT;
+		$export   = JobManager::TYPE_EXPORT;
+		$dry_run  = JobManager::TYPE_DRY_RUN;
+		$dry_out  = JobManager::TYPE_DRY_RUN_EXPORT;
+		$full_in  = [ 'category', 'tag', 'product', 'stock', 'review' ];
+		$full_out = [ 'product', 'stock' ];
+		$without  = static fn ( array $entities, string $entity ): array => array_values( array_diff( $entities, [ $entity ] ) );
 
 		return [
 			'import all'                       => [ $import, [], $all, $full_in ],
 			'dry run all'                      => [ $dry_run, [], $all, $full_in ],
 			'import without tags'              => [ $import, $caps( [ 'has_tags' => false ] ), $all, $without( $full_in, 'tag' ) ],
-			'import without coupons'           => [ $import, $caps( [ 'has_coupons' => false ] ), $all, $without( $full_in, 'coupon' ) ],
 			'import without reviews'           => [ $import, $caps( [ 'has_reviews' => false ] ), $all, $without( $full_in, 'review' ) ],
-			'import without customers'         => [ $import, $caps( [ 'can_fetch_customers' => false ] ), $all, $without( $full_in, 'customer' ) ],
-			'import ignores export-only flags' => [
-				$import,
-				$caps(
-					[
-						'can_create_order'    => false,
-						'can_update_customer' => false,
-						'can_create_coupon'   => false,
-					]
-				),
-				$all,
-				$full_in,
-			],
-			'import subset'                    => [ $import, [], [ 'order', 'product' ], [ 'product', 'order' ] ],
+			'import subset'                    => [ $import, [], [ 'order', 'product' ], [ 'product' ] ],
 			'export all'                       => [ $export, [], $all, $full_out ],
 			'dry run export all'               => [ $dry_out, [], $all, $full_out ],
-			'export without customer update'   => [ $export, $caps( [ 'can_update_customer' => false ] ), $all, $without( $full_out, 'customer' ) ],
-			'export without order create'      => [ $export, $caps( [ 'can_create_order' => false ] ), $all, $without( $full_out, 'order' ) ],
-			'export without coupons'           => [ $export, $caps( [ 'has_coupons' => false ] ), $all, $no_coupon ],
-			'export without coupon create'     => [ $export, $caps( [ 'can_create_coupon' => false ] ), $all, $no_coupon ],
 			'export ignores import-only flags' => [
 				$export,
 				$caps(
 					[
-						'can_fetch_customers' => false,
-						'has_tags'            => false,
-						'has_reviews'         => false,
+						'has_tags'    => false,
+						'has_reviews' => false,
 					]
 				),
 				$all,
@@ -288,17 +251,6 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 					has_reviews: $overrides['has_reviews'] ?? true,
 					has_variants: true,
 					rate_limit_per_minute: 600
-				)
-			)
-		);
-		$this->register_commerce_adapter(
-			new MockCommerceAdapter(
-				capabilities_override: new CommerceCapabilities(
-					can_fetch_customers: $overrides['can_fetch_customers'] ?? true,
-					can_update_customer: $overrides['can_update_customer'] ?? true,
-					can_create_order: $overrides['can_create_order'] ?? true,
-					has_coupons: $overrides['has_coupons'] ?? true,
-					can_create_coupon: $overrides['can_create_coupon'] ?? true
 				)
 			)
 		);
@@ -336,11 +288,8 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 	 */
 	public static function pushable_entities(): array {
 		return [
-			'product'  => [ 'product' ],
-			'customer' => [ 'customer' ],
-			'order'    => [ 'order' ],
-			'stock'    => [ 'stock' ],
-			'coupon'   => [ 'coupon' ],
+			'product' => [ 'product' ],
+			'stock'   => [ 'stock' ],
 		];
 	}
 
