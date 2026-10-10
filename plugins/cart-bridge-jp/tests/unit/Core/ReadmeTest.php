@@ -57,6 +57,10 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 	private const FAQ_BETA_QUESTION = 'What is the Beta feature?';
 
+	private const FAQ_ROUND_TRIP_QUESTION = 'Can I keep the two stores in sync, or import and export the same items back and forth?';
+
+	private const FAQ_UNINSTALL_QUESTION = 'What happens to my data when I uninstall the plugin?';
+
 	/**
 	 * 顧客・受注・クーポンと、受注のマッピングにだけ使う決済・配送を名指しする語。HPOS の正式名（High-Performance Order Storage）は除く。
 	 */
@@ -184,7 +188,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 	/**
 	 * D27（R3-6c1）: 無料版は顧客・受注・クーポンのコードを持たない（`FreeScopeTest`）。無料版の機能・取り込む・送る・API で読むものの説明
-	 * （短い説明・ヘッダーの Description・Description の小見出し・Installation・キャプション・Beta の FAQ）にそれらを書かない
+	 * （短い説明・ヘッダーの Description・Description の小見出し・Installation・キャプション・Beta・往復・アンインストールの FAQ）にそれらを書かない
 	 * （決済・配送の方法は受注のマッピングにだけ使う）。R3-6c1 の後、これらがすべて古いまま残っていた。
 	 */
 	public function test_free_scope_descriptions_do_not_describe_commerce_entities(): void {
@@ -194,6 +198,8 @@ final class ReadmeTest extends WP_UnitTestCase {
 			'Installation'       => $this->section( 'Installation' ),
 			'Screenshots'        => $this->section( 'Screenshots' ),
 			'FAQ: Beta features' => $this->faq_answer( self::FAQ_BETA_QUESTION ),
+			'FAQ: round trip'    => $this->faq_answer( self::FAQ_ROUND_TRIP_QUESTION ),
+			'FAQ: uninstall'     => $this->faq_answer( self::FAQ_UNINSTALL_QUESTION ),
 		];
 
 		foreach ( self::FREE_SCOPE_SUBSECTIONS as $heading ) {
@@ -230,7 +236,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( [], $notices );
 
-		// 0.1.0 のサイトが wordpress.org の 1.0.0 へ更新するときに読む通知（顧客・受注・クーポンの移動と県の誤り）。
+		// 0.1.0 のサイトが wordpress.org の 1.0.0 へ更新するときに読む通知（顧客・受注・クーポンの移動と、県・税区分の誤り）。
 		if ( version_compare( CBJP_VERSION, '1.0.0', '<=' ) ) {
 			$this->assertArrayHasKey( '1.0.0', $notices );
 		}
