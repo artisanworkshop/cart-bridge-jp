@@ -34,7 +34,7 @@ final class WarningFlag {
 	public const PENDING_EXPORT = 'pending_export';
 
 	/**
-	 * `WarningCode::indicates_order_reference_unresolved()`: 参照先が未取込みか、取り込めない（note は `reference_unresolved`）。
+	 * `WarningCode::indicates_reference_not_found()`: 参照先が未取込みか、取り込めない（note は `reference_unresolved`）。
 	 */
 	public const REFERENCE_UNRESOLVED = 'reference_unresolved';
 

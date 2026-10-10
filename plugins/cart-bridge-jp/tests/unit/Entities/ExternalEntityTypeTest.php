@@ -26,6 +26,7 @@ use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\WarningCatalog;
 use CartBridgeJP\Woo\WarningCode;
+use RuntimeException;
 use WP_REST_Request;
 use WP_REST_Server;
 use WP_UnitTestCase;
@@ -367,6 +368,45 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'gizmo_map', $saved );
 		$this->assertSame( [ '1' => 'red' ], get_option( 'cbjp_settings_mock' )['gizmo_map'] );
 		$this->assertSame( [ '5' => '7' ], get_option( 'cbjp_settings_mock' )['category_map'] );
+	}
+
+	/**
+	 * R3-6c1: マッピングの種類が自分で ASP 側の候補を返すとき（Pro の決済・配送・注文ステータス）、REST はアダプタの候補ではなくそれを使い、
+	 * 保存時と同じ正規化を通す。アダプタの `mapping_candidates()` は、それを使う種類（カテゴリ）のために 1 要求で 1 回だけ呼ぶ。
+	 */
+	public function test_a_mapping_kind_can_supply_its_own_platform_candidates(): void {
+		$this->gizmo->own_candidates = [
+			[
+				'id'   => ' 7 ',
+				'name' => 'Green',
+			],
+			'not-a-candidate',
+			[ 'id' => '8' ],
+		];
+		$adapter                     = AdapterRegistry::get( 'mock' );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data();
+
+		$this->assertSame(
+			[
+				[
+					'id'   => '7',
+					'name' => 'Green',
+				],
+			],
+			$data['asp_candidates']['gizmo']
+		);
+		$this->assertSame( 1, $adapter->mapping_candidates_calls );
+	}
+
+	public function test_a_mapping_kind_whose_candidates_fail_gets_none_and_does_not_fall_back_to_the_adapter(): void {
+		$this->gizmo->own_candidates = new RuntimeException( 'platform down' );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) )->get_data();
+
+		$this->assertSame( [], $data['asp_candidates']['gizmo'] );
+		// ほかの種類は影響を受けない（カテゴリはアダプタの候補を使う）。
+		$this->assertArrayHasKey( 'category', $data['asp_candidates'] );
 	}
 
 	public function test_report_entity_filter_accepts_registered_types_only(): void {

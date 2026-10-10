@@ -517,10 +517,9 @@ final class RestController {
 		}
 
 		$entries                    = EntityTypeRegistry::mapping_kind_entries();
-		$kinds                      = array_column( $entries, 'kind' );
 		$response                   = $this->settings_mappings_response( $this->read_settings_mappings( $platform ) );
-		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform, $kinds );
-		$response['woo_candidates'] = $this->woo_mapping_candidates( $kinds );
+		$response['asp_candidates'] = $this->asp_mapping_candidates( $platform, $entries );
+		$response['woo_candidates'] = $this->woo_mapping_candidates( $entries );
 		$response['kinds']          = $this->mapping_kind_descriptions( $platform, $entries );
 
 		return rest_ensure_response( $response );
@@ -681,34 +680,68 @@ final class RestController {
 	 * 「候補が空」だけがUIに残るのを避ける。`PlatformAdapter::mapping_candidates()`の契約上、
 	 * 非対応キーは省略されうるため、登録されたマッピングの種類のキーを常に揃えて返す。
 	 *
-	 * @param array<int,MappingKind> $kinds
+	 * 候補は種類が持つ（`MappingKind::platform_candidates()`。Pro の決済・配送・注文ステータス。R3-6c1）か、null を返した種類だけ
+	 * アダプタの `mapping_candidates()` のその種類のキー（無料版のカテゴリ）を使う。アダプタの一覧は、要る種類があるときだけ 1 回取得する。
+	 * キーはレジストリが確定した値を使い、`key()` を呼び直さない。
+	 *
+	 * @param array<int,array{entity:string,key:string,kind:MappingKind}> $entries
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
-	private function asp_mapping_candidates( string $platform, array $kinds ): array {
-		$adapter = AdapterRegistry::get( $platform );
+	private function asp_mapping_candidates( string $platform, array $entries ): array {
+		$adapter         = AdapterRegistry::get( $platform );
+		$adapter_listing = null;
+		$normalized      = [];
 
-		try {
-			$candidates = null !== $adapter ? $adapter->mapping_candidates() : [];
-		} catch ( Throwable $exception ) {
-			( new Logger() )->warning(
-				'Failed to fetch ASP-side mapping candidates.',
-				[
-					'platform'  => $platform,
-					'exception' => $exception::class,
-				]
-			);
+		foreach ( $entries as $entry ) {
+			$list = null;
 
-			$candidates = [];
-		}
+			if ( null !== $adapter ) {
+				try {
+					$list = $entry['kind']->platform_candidates( $adapter );
+				} catch ( Throwable $exception ) {
+					$this->log_candidate_failure( $platform, $exception );
+					$list = [];
+				}
+			}
 
-		$normalized = [];
+			if ( null === $list ) {
+				$adapter_listing ??= $this->adapter_mapping_candidates( $platform, $adapter );
+				$list              = $adapter_listing[ $entry['key'] ] ?? null;
+			}
 
-		foreach ( $kinds as $kind ) {
-			$key                = $kind->key();
-			$normalized[ $key ] = self::normalized_candidate_list( $candidates[ $key ] ?? null );
+			$normalized[ $entry['key'] ] = self::normalized_candidate_list( $list );
 		}
 
 		return $normalized;
+	}
+
+	/**
+	 * アダプタの `PlatformAdapter::mapping_candidates()`。未登録・例外は空（呼び出し元の docblock 参照）。
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function adapter_mapping_candidates( string $platform, ?PlatformAdapter $adapter ): array {
+		if ( null === $adapter ) {
+			return [];
+		}
+
+		try {
+			return $adapter->mapping_candidates();
+		} catch ( Throwable $exception ) {
+			$this->log_candidate_failure( $platform, $exception );
+
+			return [];
+		}
+	}
+
+	private function log_candidate_failure( string $platform, Throwable $exception ): void {
+		( new Logger() )->warning(
+			'Failed to fetch ASP-side mapping candidates.',
+			[
+				'platform'  => $platform,
+				'exception' => $exception::class,
+			]
+		);
 	}
 
 	/**
@@ -764,21 +797,22 @@ final class RestController {
 	 * Woo側のマッピング候補一覧（プラットフォーム非依存。D19）。候補は種類が作る（`MappingKind::woo_candidates()`）。
 	 * ASP 側の候補と同じ正規化（`normalized_candidate_list()`。保存時の `validate_settings_map()` と同じ形）を通す。外部の種類が
 	 * 空白・制御文字を含む ID を返しても、選んだ値が保存で別のキーになったり拒否されたりしない。例外は空の候補に倒す。
+	 * キーはレジストリが確定した値を使う（`asp_mapping_candidates()` と同じ）。
 	 *
-	 * @param array<int,MappingKind> $kinds
+	 * @param array<int,array{entity:string,key:string,kind:MappingKind}> $entries
 	 * @return array<string,array<int,array{id:string,name:string}>>
 	 */
-	private function woo_mapping_candidates( array $kinds ): array {
+	private function woo_mapping_candidates( array $entries ): array {
 		$candidates = [];
 
-		foreach ( $kinds as $kind ) {
+		foreach ( $entries as $entry ) {
 			try {
-				$list = $kind->woo_candidates();
+				$list = $entry['kind']->woo_candidates();
 			} catch ( Throwable ) {
 				$list = [];
 			}
 
-			$candidates[ $kind->key() ] = self::normalized_candidate_list( $list );
+			$candidates[ $entry['key'] ] = self::normalized_candidate_list( $list );
 		}
 
 		return $candidates;

@@ -31,7 +31,7 @@ final class OrderWarnings {
 		return [
 			WarningCode::CUSTOMER_ACCOUNT_PROTECTED        => [],
 			// 商品・顧客の参照が見つからない。後から取り込めば解決しうる（checksum を保存しない）が、先にインポートしても消えないことが多いので
-			// CSV の note は中立の `reference_unresolved`（`WarningCode::indicates_order_reference_unresolved()`。R3-0n）。
+			// CSV の note は中立の `reference_unresolved`（`WarningCode::indicates_reference_not_found()`。R3-0n）。
 			WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED     => [ WarningFlag::UNRESOLVED_REFERENCE, WarningFlag::REFERENCE_UNRESOLVED ],
 			// 商品は取り込み済みでバリエーションが合わない。後から解決しうるが、先にインポートしても消えない（note は付けない。R3-0n）。
 			WarningCode::ORDER_LINE_VARIATION_UNMATCHED    => [ WarningFlag::UNRESOLVED_REFERENCE ],

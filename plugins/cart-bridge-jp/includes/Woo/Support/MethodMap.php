@@ -60,8 +60,9 @@ final class MethodMap {
 	/**
 	 * `$map_key`（`payment_map`/`shipping_map`。ASP側ID=>Woo側ID）から、値が`$woo_value`と
 	 * 一致するASP側キーを列挙し、ちょうど1件のときだけそのキーを返す。
+	 * Pro の受注のマッピング（`MappingKind::map_key()` のキー）も読む汎用の口（R3-6c1。設定の保存形式を Pro に持たせない）。
 	 */
-	private function reverse_lookup( string $map_key, string $woo_value ): ?string {
+	public function reverse_lookup( string $map_key, string $woo_value ): ?string {
 		$settings = get_option( "cbjp_settings_{$this->platform}", [] );
 
 		if ( ! is_array( $settings ) || ! is_array( $settings[ $map_key ] ?? null ) ) {
@@ -228,7 +229,11 @@ final class MethodMap {
 		return $this->lookup( 'status_map', $canonical_status ) ?? $canonical_status;
 	}
 
-	private function lookup( string $map_key, string $key ): ?string {
+	/**
+	 * `$map_key`（`MappingKind::map_key()`。例: `category_map`）で `$key` に設定された値。未設定・文字列にできない値は null。
+	 * Pro の受注のマッピングも読む汎用の口（R3-6c1）。
+	 */
+	public function lookup( string $map_key, string $key ): ?string {
 		$settings = get_option( "cbjp_settings_{$this->platform}", [] );
 
 		if ( ! is_array( $settings ) || ! is_array( $settings[ $map_key ] ?? null ) ) {

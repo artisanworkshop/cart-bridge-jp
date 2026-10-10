@@ -786,7 +786,7 @@ final class WarningCode {
 	 * （テストショップの実機dry-runでは在庫全件がこの警告になり、注記無しだと実際の不整合と
 	 * 見分けが付かなかった）。
 	 *
-	 * R3-0n: 受注の商品・顧客の参照（{@see indicates_order_reference_unresolved()}）と
+	 * R3-0n: 受注の商品・顧客の参照（{@see indicates_reference_not_found()}）と
 	 * `ORDER_LINE_VARIATION_UNMATCHED`（商品は取り込み済み）は除く。実店舗の受注では、商品・顧客の未解決は
 	 * ASP側で削除済みかバリエーションの不一致のどちらかで、どれも先にインポートしても消えなかった。
 	 */
@@ -803,12 +803,14 @@ final class WarningCode {
 		return $candidate
 			&& ! self::indicates_mapping_required( $warning )
 			&& ! self::indicates_pending_export( $warning )
-			&& ! self::indicates_order_reference_unresolved( $warning );
+			&& ! self::indicates_reference_not_found( $warning );
 	}
 
 	/**
-	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列。値は`reference_unresolved`）用: インポートした受注の
-	 * 商品・顧客の参照がローカルに見つからない警告か（`ORDER_LINE_PRODUCT_UNRESOLVED`/`ORDER_CUSTOMER_UNRESOLVED`）。
+	 * dry-runレポート（`Admin\DryRunReportCsv`の`note`列。値は`reference_unresolved`）用: 取り込んだ実体の参照先がローカルに
+	 * 見つからず、未取込みか取り込めない（ASP 側で削除済み等）かを区別できない警告か（今は受注の `ORDER_LINE_PRODUCT_UNRESOLVED`/
+	 * `ORDER_CUSTOMER_UNRESOLVED`）。R3-6c1 で `indicates_order_reference_unresolved()` から改名した（受注に限らない印の判定のため。
+	 * `indicates_unresolved_reference()`〔checksum をキャッシュしない警告〕とは別物）。
 	 *
 	 * 参照先がまだインポートされていないだけなのか、ASP側で削除済み・インポート対象外なのかは、Woo側の
 	 * mappingsだけでは区別できない。実店舗の受注の dry-run（R3-0n）では、この 2 コードの参照先
@@ -818,7 +820,7 @@ final class WarningCode {
 	 * （{@see indicates_unresolved_reference()}）は変えない（未インポートなら後から解決しうるため）。
 	 * どちらのコードも受注の種類が持つので、種類が付けた印（`Entities\WarningFlag::REFERENCE_UNRESOLVED`。R3-6b1）で判定する。
 	 */
-	public static function indicates_order_reference_unresolved( string $warning ): bool {
+	public static function indicates_reference_not_found( string $warning ): bool {
 		return self::has_flag( self::split( $warning )[0], WarningFlag::REFERENCE_UNRESOLVED );
 	}
 

@@ -37,6 +37,11 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	public int $fetch_calls = 0;
 
 	/**
+	 * `mapping_candidates()` の呼び出し回数（REST が 1 要求で 1 回だけ呼ぶことの確認用。R3-6c1）。
+	 */
+	public int $mapping_candidates_calls = 0;
+
+	/**
 	 * `push_product()`に渡された`(CanonicalProduct, ?remote_id)`の記録
 	 * （`Sync\Exporter`のテストで実際にpushされた内容を検証する用）。
 	 *
@@ -162,6 +167,8 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function mapping_candidates(): array {
+		++$this->mapping_candidates_calls;
+
 		return $this->mapping_candidates_override ?? [];
 	}
 

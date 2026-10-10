@@ -28,6 +28,10 @@ define( 'CBJP_FILE', __FILE__ );
 define( 'CBJP_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CBJP_URL', plugin_dir_url( __FILE__ ) );
 
+// 拡張点（`cbjp/entity_types/register` など。docs/03 §10.0「Pro が使ってよい無料版の API」）の版。Pro アドオンが要る値より小さければ
+// Pro は起動しない（R3-6c1）。拡張点を足す・変えるたびに 1 つ上げる（プラグインの版とは別。版の文字列は公開前の 0.x では比べられないため）。
+define( 'CBJP_EXTENSION_API_VERSION', 1 );
+
 if ( file_exists( CBJP_PATH . 'vendor/autoload.php' ) ) {
 	require_once CBJP_PATH . 'vendor/autoload.php';
 }

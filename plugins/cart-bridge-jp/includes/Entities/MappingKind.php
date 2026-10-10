@@ -30,7 +30,7 @@ abstract class MappingKind {
 	public const SOURCE_ASP = 'asp';
 
 	/**
-	 * 種類のキー（`category`・`payment` …）。`PlatformAdapter::mapping_candidates()` の候補のキーと同じ。
+	 * 種類のキー（`category`・`payment` …）。`platform_candidates()` が null の種類は、`PlatformAdapter::mapping_candidates()` の候補のキーと同じ。
 	 */
 	abstract public function key(): string;
 
@@ -68,6 +68,17 @@ abstract class MappingKind {
 	 */
 	public function applies_to( PlatformAdapter $adapter ): bool {
 		return true;
+	}
+
+	/**
+	 * ASP 側の候補（R3-6c1）。null は「種類では持たない」で、REST はアダプタの `PlatformAdapter::mapping_candidates()` のこの種類のキーを使う
+	 * （無料版のカテゴリ）。アダプタの外で候補を取る種類（Pro の決済・配送・注文ステータス）が上書きする。戻り値は REST が検証する
+	 * （形の違う要素は捨てる。例外は空の候補に倒す。原則 8）。
+	 *
+	 * @return array<int,array{id:string,name:string}>|null
+	 */
+	public function platform_candidates( PlatformAdapter $adapter ): ?array {
+		return null;
 	}
 
 	/**

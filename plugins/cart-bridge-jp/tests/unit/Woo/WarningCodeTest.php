@@ -167,7 +167,7 @@ final class WarningCodeTest extends WP_UnitTestCase {
 		foreach ( [ WarningCode::ORDER_LINE_PRODUCT_UNRESOLVED, WarningCode::ORDER_CUSTOMER_UNRESOLVED ] as $code ) {
 			$warning = WarningCode::with_detail( $code, 'gone-1' );
 
-			$this->assertTrue( WarningCode::indicates_order_reference_unresolved( $warning ), $code );
+			$this->assertTrue( WarningCode::indicates_reference_not_found( $warning ), $code );
 			$this->assertFalse( WarningCode::indicates_pending_import( $warning ), $code );
 			$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ), $code );
 		}
@@ -184,7 +184,7 @@ final class WarningCodeTest extends WP_UnitTestCase {
 
 		$this->assertTrue( WarningCode::indicates_unresolved_reference( [ $warning ] ) );
 		$this->assertFalse( WarningCode::indicates_pending_import( $warning ) );
-		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( $warning ) );
+		$this->assertFalse( WarningCode::indicates_reference_not_found( $warning ) );
 		$this->assertFalse( WarningCode::indicates_export_blocking( [ $warning ] ) );
 		$this->assertNotSame( WarningCode::ORDER_LINE_VARIATION_UNRESOLVED, WarningCode::ORDER_LINE_VARIATION_UNMATCHED );
 	}
@@ -196,8 +196,8 @@ final class WarningCodeTest extends WP_UnitTestCase {
 	public function test_other_unresolved_references_are_still_pending_import(): void {
 		$this->assertTrue( WarningCode::indicates_pending_import( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
 		$this->assertTrue( WarningCode::indicates_pending_import( WarningCode::with_detail( WarningCode::STOCK_PRODUCT_UNRESOLVED, '1' ) ) );
-		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
-		$this->assertFalse( WarningCode::indicates_order_reference_unresolved( 'order_line_product_unresolved_extra:1' ) );
+		$this->assertFalse( WarningCode::indicates_reference_not_found( WarningCode::with_detail( WarningCode::CATEGORY_REF_UNRESOLVED, '10' ) ) );
+		$this->assertFalse( WarningCode::indicates_reference_not_found( 'order_line_product_unresolved_extra:1' ) );
 	}
 
 	/**
