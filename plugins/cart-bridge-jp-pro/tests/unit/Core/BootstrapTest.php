@@ -46,6 +46,16 @@ final class BootstrapTest extends WP_UnitTestCase {
 		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
 	}
 
+	/**
+	 * `cbjp_pro_bootstrap()` は無料版が古いと Pro のクラスに触れず、autoload を偽で渡す。それでも出すのは更新の通知（composer の通知ではない。
+	 * R3-6c1 review-loop R2-1）。
+	 */
+	public function test_an_outdated_free_plugin_wins_over_a_missing_autoload(): void {
+		$this->assertFalse( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( true, false, CBJP_PRO_REQUIRED_EXTENSION_API - 1 ) );
+		$this->assertSame( 10, has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_outdated_free_plugin_notice' ) );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
+	}
+
 	public function test_reads_the_free_extension_api_version(): void {
 		$this->assertSame( CBJP_EXTENSION_API_VERSION, \CartBridgeJP\Pro\cbjp_pro_free_extension_api() );
 		$this->assertGreaterThanOrEqual( CBJP_PRO_REQUIRED_EXTENSION_API, \CartBridgeJP\Pro\cbjp_pro_free_extension_api(), 'このリポジトリの無料版は Pro が要る版を満たす' );

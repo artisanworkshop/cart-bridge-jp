@@ -82,7 +82,8 @@ function cbjp_pro_free_extension_api(): int {
  * 判定を引数で受けるのは、前提が欠けた場合をテストで再現するため（テスト環境では WooCommerce と無料版が常に読み込まれている）。
  *
  * @param bool $requirements_met WooCommerce と無料版が読み込まれているか。
- * @param bool $autoloaded       Pro の autoload（vendor/autoload.php）が読み込めたか。
+ * @param bool $autoloaded       Pro の autoload（vendor/autoload.php）が読み込めたか。`cbjp_pro_bootstrap()` は無料版が古いと Pro のクラスに触れないので
+ *                               偽を渡す（このとき出すのは更新の通知。版の判定を autoload の判定より先にする）。
  * @param int  $free_api         無料版の拡張点の版（`cbjp_pro_free_extension_api()`）。
  * @return bool 起動したか。
  */

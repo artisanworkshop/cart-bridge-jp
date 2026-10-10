@@ -1551,4 +1551,4 @@ msgstr "未確認"
 
 #: build/index.js:17
 msgid "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed."
-msgstr "WooCommerce 側を確認できなかったデータがあります。このサイトで種類が使えない（アドオンを無効にした後など）か、確認に失敗しました。"
+msgstr "WooCommerce 側を確認できなかったデータがあります。このサイトでその種類が使えない（アドオンを無効にした後など）か、確認中にエラーが起きた可能性があります。"
