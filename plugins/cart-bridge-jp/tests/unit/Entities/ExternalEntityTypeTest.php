@@ -217,6 +217,14 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 'gizmo', $list[0]['entity_type'] );
 		$this->assertTrue( $list[0]['exists'] );
 		$this->assertSame( [ 'name' => 'Unsure' ], $list[0]['details'] );
+		$this->assertSame( 'Gizmo Unsure', $list[0]['summary'] );
+
+		// R3-6b2 より前の形（`summary` なし）で返す種類は、空の要約になる（一覧は落ちない）。
+		$this->gizmo->describe_without_summary = true;
+		$legacy                                = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' ) )->get_data()['intents'];
+		$this->assertSame( '', $legacy[0]['summary'] );
+		$this->assertTrue( $legacy[0]['exists'] );
+		$this->gizmo->describe_without_summary = false;
 
 		$this->gizmo->remote = [ new CanonicalGizmo( 'g7', 'Unsure', 5 ) ];
 		$resolve             = new WP_REST_Request( 'POST', '/cbjp/v1/push-intents/mock/' . $list[0]['id'] . '/resolve' );
@@ -242,6 +250,7 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 		$result = ( new MappingRebuilder( $mappings ) )->run( 'mock' );
 
 		$this->assertNull( $result['cursor'] );
+		$this->assertSame( [], $result['skipped'] );
 		$this->assertSame( [ 'category', 'tag', 'product', 'variant', 'gizmo', 'coupon', 'customer', 'order' ], array_keys( $result['counts'] ) );
 		$this->assertSame( 1, $result['counts']['gizmo'] );
 		$this->assertSame( $local_id, $mappings->find_local_id( 'mock', 'gizmo', 'g1' ) );
@@ -253,21 +262,38 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 		$this->assertContains(
 			[
-				'key'   => 'gizmo',
-				'label' => 'Gizmos',
+				'key'            => 'gizmo',
+				'label'          => 'Gizmos',
+				'mapping_notice' => true,
 			],
 			$connection['entities']['import']
 		);
 		$this->assertContains(
 			[
-				'key'   => 'gizmo',
-				'label' => 'Gizmos',
-				'beta'  => true,
+				'key'         => 'gizmo',
+				'label'       => 'Gizmos',
+				'beta'        => true,
+				'description' => 'Sends gizmos to the shop.',
 			],
 			$connection['entities']['export']
 		);
 		$this->assertSame( [ 'product', 'customer', 'gizmo', 'order', 'stock', 'coupon' ], array_column( $connection['entities']['export'], 'key' ) );
 		$this->assertSame( [ false, false, true, false, false, false ], array_column( $connection['entities']['export'], 'beta' ) );
+		// 案内の要るマッピング（`import_notice`）を持つのは gizmo と受注（決済・配送）だけ（R3-6b2）。
+		$this->assertSame(
+			[
+				'category' => false,
+				'tag'      => false,
+				'product'  => false,
+				'customer' => false,
+				'gizmo'    => true,
+				'order'    => true,
+				'stock'    => false,
+				'coupon'   => false,
+				'review'   => false,
+			],
+			array_column( $connection['entities']['import'], 'mapping_notice', 'key' )
+		);
 	}
 
 	public function test_mapping_kinds_are_listed_and_unregistered_maps_survive_a_save(): void {
@@ -275,13 +301,31 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 		$this->assertContains(
 			[
-				'key'           => 'gizmo',
-				'map_key'       => 'gizmo_map',
-				'source_side'   => 'asp',
-				'applies'       => true,
-				'import_notice' => true,
+				'key'             => 'gizmo',
+				'map_key'         => 'gizmo_map',
+				'entity'          => 'gizmo',
+				'source_side'     => 'asp',
+				'applies'         => true,
+				'import_notice'   => true,
+				'label'           => 'Gizmo colour mapping',
+				'description'     => 'Maps platform colours to WooCommerce colours.',
+				'source_heading'  => 'Platform colour',
+				// 上書きしない文言は既定（向きに応じた見出し・「未設定」・候補が無いときの案内）。
+				'target_heading'  => 'WooCommerce value',
+				'unmapped_label'  => '— Unmapped —',
+				'no_targets_help' => 'There are no options to choose from yet.',
 			],
 			$data['kinds']
+		);
+		$this->assertSame(
+			[
+				'category' => 'product',
+				'gizmo'    => 'gizmo',
+				'payment'  => 'order',
+				'shipping' => 'order',
+				'status'   => 'order',
+			],
+			array_column( $data['kinds'], 'entity', 'key' )
 		);
 		// 種類の実行順（gizmo 45 は受注 50 より前）→ 種類の中の順。
 		$this->assertSame( [ 'category', 'gizmo', 'payment', 'shipping', 'status' ], array_column( $data['kinds'], 'key' ) );

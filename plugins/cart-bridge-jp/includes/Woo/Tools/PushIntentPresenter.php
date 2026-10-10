@@ -17,18 +17,19 @@ use Throwable;
  * 受注番号等）を含むが、これは画面とREST応答専用。`Support\Logger`へは絶対に渡さないこと
  * （個人情報禁止ルール）。
  *
- * 説明は実体の種類が組み立てる（`Entities\EntityType::describe_local()`。R3-6b1）。登録の無い種類・例外を投げた種類は
+ * 説明は実体の種類が組み立てる（`Entities\EntityType::describe_local()`。R3-6b1。画面に出す 1 行の `summary` は R3-6b2）。登録の無い種類・例外を投げた種類は
  * 「実体が無い」として返す（一覧全体を落とさない）。
  */
 final class PushIntentPresenter {
 
 	/**
-	 * @return array{exists:bool, edit_url:?string, details:array<string,mixed>}
+	 * @return array{exists:bool, edit_url:?string, summary:string, details:array<string,mixed>}
 	 */
 	public function describe( string $entity_type, int $local_id ): array {
 		$missing = [
 			'exists'   => false,
 			'edit_url' => null,
+			'summary'  => '',
 			'details'  => [],
 		];
 		$type    = EntityTypeRegistry::get( $entity_type );
@@ -49,10 +50,13 @@ final class PushIntentPresenter {
 		}
 
 		$edit_url = $description['edit_url'] ?? null;
+		$summary  = $description['summary'] ?? null;
 
 		return [
 			'exists'   => $description['exists'],
 			'edit_url' => is_string( $edit_url ) ? $edit_url : null,
+			// 画面に出す 1 行（R3-6b2）。実体が無いときは出さない（画面が「削除済み」と書く）。
+			'summary'  => $description['exists'] && is_string( $summary ) ? $summary : '',
 			'details'  => $description['details'],
 		];
 	}

@@ -95,6 +95,14 @@ abstract class EntityType {
 	}
 
 	/**
+	 * Export タブの選択肢の説明（何をするか。例: 受注は「接続先に売上を作る」）。画面は空なら出さない。ベータの注意書きは画面が足す。
+	 * 呼ばれるたびに翻訳する（結果を保持しない）。
+	 */
+	public function export_description( PlatformAdapter $adapter ): string {
+		return '';
+	}
+
+	/**
 	 * Woo から読み出す Reader（エクスポート用）。`writer()` と同じく 1 ページに 1 回。
 	 */
 	public function reader( string $platform, WooServices $services ): ?EntityReader {
@@ -128,14 +136,16 @@ abstract class EntityType {
 	}
 
 	/**
-	 * push intent の一覧に出す Woo 側の実体の説明（`Woo\Tools\PushIntentPresenter`）。
+	 * push intent の一覧に出す Woo 側の実体の説明（`Woo\Tools\PushIntentPresenter`）。`summary` は画面に出す 1 行（店舗が ASP の管理画面で
+	 * 実体を探す手がかり。R3-6b2）、`details` はその元の値。個人情報（メール・受注番号）を含みうるので画面と REST の応答だけに使い、ログに渡さない。
 	 *
-	 * @return array{exists:bool,edit_url:?string,details:array<string,mixed>}
+	 * @return array{exists:bool,edit_url:?string,summary:string,details:array<string,mixed>}
 	 */
 	public function describe_local( int $local_id ): array {
 		return [
 			'exists'   => false,
 			'edit_url' => null,
+			'summary'  => '',
 			'details'  => [],
 		];
 	}

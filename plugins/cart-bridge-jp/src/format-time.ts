@@ -17,17 +17,3 @@ export function formatUtcMysqlTime( mysqlUtcDateTime: string ): string {
 		? mysqlUtcDateTime
 		: date.toLocaleString( displayLocale() );
 }
-
-/**
- * 既にオフセット付きISO 8601（`DATE_ATOM`。例: `2026-01-01T00:00:00+00:00`）の日時文字列を、
- * 閲覧者のローカル時刻の文字列に変換する。`formatUtcMysqlTime()`と違いタイムゾーン情報を
- * 補う必要が無いため`Date`にそのまま渡す（`Woo\Reader\OrderReader`由来の`date_created`等）。
- * @param isoDateTime
- */
-export function formatIsoTime( isoDateTime: string ): string {
-	const date = new Date( isoDateTime );
-
-	return isNaN( date.getTime() )
-		? isoDateTime
-		: date.toLocaleString( displayLocale() );
-}

@@ -18,6 +18,10 @@ final class GizmoMappingKind extends MappingKind {
 		return 'gizmo';
 	}
 
+	public function label(): string {
+		return 'Gizmo colour mapping';
+	}
+
 	public function position(): int {
 		return 10;
 	}
@@ -46,5 +50,13 @@ final class GizmoMappingKind extends MappingKind {
 
 	public function import_notice(): bool {
 		return true;
+	}
+
+	public function description(): string {
+		return 'Maps platform colours to WooCommerce colours.';
+	}
+
+	public function source_heading(): string {
+		return 'Platform colour';
 	}
 }

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 import { Button, Notice, TextControl } from '@wordpress/components';
 import apiFetch from '../api';
 import { activeRunsSeed } from '../active-runs';
 import type { ActiveRunsResult } from '../hooks/useActiveRuns';
-import { ENTITY_LABELS } from '../entity-labels';
-import { formatIsoTime, formatUtcMysqlTime } from '../format-time';
+import { entityLabel } from '../entity-labels';
+import { formatUtcMysqlTime } from '../format-time';
 import type { PushIntent } from '../types';
 
 interface Props {
@@ -13,9 +13,8 @@ interface Props {
 	/**
 	 * `ExportTab`の`dryRunExportBusy || exportBusy`に、`GET /runs?platform=`で見つけた追跡していない run
 	 * （import を含む。R3-0i）を加えたもの。実行中の解除は`RestController::resolve_push_intent()`が
-	 * `has_active_job_for_platform()`で409（`cbjp_run_in_progress`）を返すため、先回りしてボタンを止め
-	 * 無駄な失敗リクエストを避ける（根本のcheck-then-actは issue #57 に委ねたまま。
-	 * `.claude/rules/sync-export-tools.md`参照）。
+	 * 409（`cbjp_run_in_progress`。判定は `JobRepository::is_platform_busy()` とプラットフォーム単位のロック。R3-0i (3)(4)）を返すため、
+	 * 先回りしてボタンを止め無駄な失敗リクエストを避ける（`.claude/rules/sync-export-tools.md`参照）。
 	 */
 	runInProgress: boolean;
 	/**
@@ -39,8 +38,8 @@ function errorCode( err: unknown ): string | undefined {
 }
 
 /**
- * `Woo\Tools\PushIntentPresenter::describe()`のentity_type別`details`を1行の説明文に組み立てる。
- * `exists === false`（Woo側の実体が削除済み）の場合は`details`が空になる。
+ * 1 行の説明。要約はサーバーが種類ごとに組み立てる（`Entities\EntityType::describe_local()` の `summary`。R3-6b2。以前はここで
+ * `entity_type` ごとに `details` から組み立てていた）。Woo 側の実体が削除済み（`exists === false`）なら、その旨を出す。
  * @param intent
  */
 function describeIntent( intent: PushIntent ): string {
@@ -51,36 +50,7 @@ function describeIntent( intent: PushIntent ): string {
 		);
 	}
 
-	const { details } = intent;
-
-	switch ( intent.entity_type ) {
-		case 'product':
-			return details.sku
-				? sprintf(
-						/* translators: 1: product name, 2: SKU */
-						__( '%1$s (SKU: %2$s)', 'cart-bridge-jp' ),
-						details.name ?? '',
-						details.sku
-				  )
-				: details.name ?? '';
-		case 'customer':
-			return details.email ?? '';
-		case 'order':
-			return sprintf(
-				/* translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time */
-				__( '#%1$s — %2$s %3$s (%4$s)', 'cart-bridge-jp' ),
-				details.number ?? '',
-				details.total ?? '',
-				details.currency ?? '',
-				details.date_created
-					? formatIsoTime( details.date_created )
-					: __( 'date unknown', 'cart-bridge-jp' )
-			);
-		case 'coupon':
-			return details.code ?? '';
-		default:
-			return '';
-	}
+	return 'string' === typeof intent.summary ? intent.summary : '';
 }
 
 /**
@@ -290,7 +260,7 @@ export default function PushIntentsPanel( {
 						return (
 							<tr key={ intent.id }>
 								<th scope="row">
-									{ ENTITY_LABELS[ intent.entity_type ] }
+									{ entityLabel( intent.entity_type ) }
 								</th>
 								<td>
 									{ describeIntent( intent ) }

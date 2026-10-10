@@ -35,6 +35,7 @@ final class EntityTypeContractTest extends WP_UnitTestCase {
 			'describe_warning'     => '(string $code, bool $import, string $row_entity): ?CartBridgeJP\Entities\WarningText',
 			'dry_run_label'        => '(CartBridgeJP\Canonical\CanonicalModel $item): string',
 			'existing_local_ids'   => '(array $local_ids): ?array',
+			'export_description'   => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): string',
 			'fetch_by_remote_id'   => '(CartBridgeJP\Adapters\PlatformAdapter $adapter, string $remote_id): ?CartBridgeJP\Canonical\CanonicalModel',
 			'fetch_page'           => '(CartBridgeJP\Adapters\PlatformAdapter $adapter, CartBridgeJP\Adapters\Cursor $cursor): CartBridgeJP\Adapters\Page',
 			'is_export_beta'       => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): bool',
@@ -55,13 +56,19 @@ final class EntityTypeContractTest extends WP_UnitTestCase {
 			'writer'               => '(string $platform, CartBridgeJP\Entities\WooServices $services): ?CartBridgeJP\Woo\Writer\EntityWriter',
 		],
 		MappingKind::class => [
-			'applies_to'     => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): bool',
-			'import_notice'  => '(): bool',
-			'key'            => '(): string',
-			'map_key'        => 'final (): string',
-			'position'       => '(): int',
-			'source_side'    => '(): string',
-			'woo_candidates' => '(): array',
+			'applies_to'      => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): bool',
+			'description'     => '(): string',
+			'import_notice'   => '(): bool',
+			'key'             => '(): string',
+			'label'           => '(): string',
+			'map_key'         => 'final (): string',
+			'no_targets_help' => '(): string',
+			'position'        => '(): int',
+			'source_heading'  => '(): string',
+			'source_side'     => '(): string',
+			'target_heading'  => '(): string',
+			'unmapped_label'  => '(): string',
+			'woo_candidates'  => '(): array',
 		],
 		LinkSource::class  => [
 			'key'                  => '(): string',
@@ -103,7 +110,7 @@ final class EntityTypeContractTest extends WP_UnitTestCase {
 	 */
 	private const ABSTRACT_METHODS = [
 		EntityType::class  => [ 'key', 'label', 'position' ],
-		MappingKind::class => [ 'key', 'position', 'source_side', 'woo_candidates' ],
+		MappingKind::class => [ 'key', 'label', 'position', 'source_side', 'woo_candidates' ],
 		LinkSource::class  => [ 'key', 'label', 'position', 'scan' ],
 	];
 

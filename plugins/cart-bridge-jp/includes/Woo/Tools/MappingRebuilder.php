@@ -44,7 +44,8 @@ final class MappingRebuilder {
 	) {}
 
 	/**
-	 * @return array{counts:array<string,int>,cursor:?string} `cursor` が null なら完了。
+	 * @return array{counts:array<string,int>,skipped:array<int,string>,cursor:?string} `cursor` が null なら完了。`skipped` はこのバッチで走査に
+	 *         失敗して飛ばした種類のキー（R3-6b2。Tools タブが知らせる。理由はログに残る）。
 	 *
 	 * @throws InvalidArgumentException cursor が不正な場合。
 	 */
@@ -54,6 +55,7 @@ final class MappingRebuilder {
 		[ $index, $offset ] = $this->decode_cursor( $cursor, $keys );
 
 		$counts    = array_fill_keys( $keys, 0 );
+		$skipped   = [];
 		$remaining = max( 1, $budget );
 		$count     = count( $sources );
 
@@ -82,6 +84,7 @@ final class MappingRebuilder {
 					]
 				);
 
+				$skipped[] = $entity;
 				++$index;
 				$offset = 0;
 				continue;
@@ -116,13 +119,15 @@ final class MappingRebuilder {
 			[
 				'platform' => $platform,
 				'counts'   => $counts,
+				'skipped'  => $skipped,
 				'done'     => null === $next_cursor,
 			]
 		);
 
 		return [
-			'counts' => $counts,
-			'cursor' => $next_cursor,
+			'counts'  => $counts,
+			'skipped' => $skipped,
+			'cursor'  => $next_cursor,
 		];
 	}
 

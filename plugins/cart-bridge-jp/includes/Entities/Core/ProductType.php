@@ -88,13 +88,20 @@ final class ProductType extends EntityType {
 			return parent::describe_local( $local_id );
 		}
 
+		// Woo の名前は HTML。画面は文字として出すので平文へ戻す（issue #99）。
+		$name = HtmlText::to_plain( $product->get_name() );
+		$sku  = $product->get_sku();
+
 		return [
 			'exists'   => true,
 			'edit_url' => get_edit_post_link( $local_id, 'raw' ),
+			'summary'  => '' !== $sku
+				/* translators: 1: product name, 2: SKU */
+				? sprintf( __( '%1$s (SKU: %2$s)', 'cart-bridge-jp' ), $name, $sku )
+				: $name,
 			'details'  => [
-				// Woo の名前は HTML。画面は文字として出すので平文へ戻す（issue #99）。
-				'name' => HtmlText::to_plain( $product->get_name() ),
-				'sku'  => '' !== $product->get_sku() ? $product->get_sku() : null,
+				'name' => $name,
+				'sku'  => '' !== $sku ? $sku : null,
 			],
 		];
 	}

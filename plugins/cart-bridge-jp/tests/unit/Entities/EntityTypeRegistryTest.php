@@ -352,6 +352,10 @@ final class EntityTypeRegistryTest extends WP_UnitTestCase {
 							return 'category';
 						}
 
+						public function label(): string {
+							return 'Hijacked categories';
+						}
+
 						public function position(): int {
 							return 20;
 						}

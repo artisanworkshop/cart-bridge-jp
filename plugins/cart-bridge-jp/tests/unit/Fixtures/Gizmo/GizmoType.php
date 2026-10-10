@@ -61,6 +61,11 @@ final class GizmoType extends EntityType {
 	 */
 	public bool $explode_on_push_intent = false;
 
+	/**
+	 * 真にすると `describe_local()` が R3-6b2 より前の形（`summary` なし）で返す。
+	 */
+	public bool $describe_without_summary = false;
+
 	private int $next_remote_id = 900;
 
 	public function key(): string {
@@ -97,6 +102,10 @@ final class GizmoType extends EntityType {
 
 	public function is_export_beta( PlatformAdapter $adapter ): bool {
 		return true;
+	}
+
+	public function export_description( PlatformAdapter $adapter ): string {
+		return 'Sends gizmos to the shop.';
 	}
 
 	public function reader( string $platform, WooServices $services ): EntityReader {
@@ -144,11 +153,18 @@ final class GizmoType extends EntityType {
 			return parent::describe_local( $local_id );
 		}
 
-		return [
+		$description = [
 			'exists'   => true,
 			'edit_url' => get_edit_post_link( $local_id, 'raw' ),
+			'summary'  => 'Gizmo ' . get_the_title( $local_id ),
 			'details'  => [ 'name' => get_the_title( $local_id ) ],
 		];
+
+		if ( $this->describe_without_summary ) {
+			unset( $description['summary'] );
+		}
+
+		return $description;
 	}
 
 	public function is_linked_by_export( string $platform, int $local_id ): bool {

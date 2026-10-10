@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import {
 	Button,
 	Card,
@@ -13,40 +13,18 @@ import {
 import apiFetch from '../api';
 import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import OrderMappingNotice from '../components/OrderMappingNotice';
+import MappingNotice from '../components/MappingNotice';
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
-import { ENTITY_LABELS } from '../entity-labels';
+import { entityLabels } from '../entity-labels';
+import { importEntityOptions } from '../entity-options';
 import { parseHash } from '../hash-route';
+import { joinList } from '../i18n';
 import { useActiveRuns } from '../hooks/useActiveRuns';
 import { useRunAdoption } from '../hooks/useRunAdoption';
 import { isRunTerminal, useRunPolling } from '../hooks/useRunPolling';
 import { clearStoredRunId, loadStoredRunId, storeRunId } from '../run-storage';
-import type {
-	ActiveRun,
-	Capabilities,
-	Connection,
-	EntityType,
-	RunType,
-} from '../types';
-import { ENTITY_ORDER } from '../types';
-
-function availableEntities( capabilities: Capabilities ): EntityType[] {
-	return ENTITY_ORDER.filter( ( entity ) => {
-		switch ( entity ) {
-			case 'tag':
-				return capabilities.has_tags;
-			case 'coupon':
-				return capabilities.has_coupons;
-			case 'review':
-				return capabilities.has_reviews;
-			case 'customer':
-				return capabilities.can_fetch_customers;
-			default:
-				return true;
-		}
-	} );
-}
+import type { ActiveRun, Connection, EntityType, RunType } from '../types';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
@@ -134,6 +112,11 @@ export default function ImportTab() {
 			connectedPlatforms.find( ( c ) => c.platform === platform ) ?? null,
 		[ connectedPlatforms, platform ]
 	);
+	// 選べる実体の種類（サーバーの宣言。並びは実行順。R3-6b2）。
+	const entityOptions = useMemo(
+		() => importEntityOptions( currentConnection ),
+		[ currentConnection ]
+	);
 
 	// プラットフォームが変わったら、そのプラットフォームの既定エンティティ選択と
 	// 直前のrun_id（あれば）を読み込む。
@@ -143,7 +126,7 @@ export default function ImportTab() {
 		}
 
 		setSelectedEntities(
-			new Set( availableEntities( currentConnection.capabilities ) )
+			new Set( entityOptions.map( ( option ) => option.key ) )
 		);
 		setStartError( null );
 		setDryRunState( {
@@ -154,7 +137,7 @@ export default function ImportTab() {
 			...initialRunSectionState(),
 			runId: loadStoredRunId( platform, 'import' ),
 		} );
-		// currentConnectionはplatformから導出される値なので、platform変更時のみ発火させる。
+		// currentConnection・entityOptionsはplatformから導出される値なので、platform変更時のみ発火させる。
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ platform ] );
 
@@ -309,9 +292,19 @@ export default function ImportTab() {
 			'import' === type &&
 			// eslint-disable-next-line no-alert
 			! window.confirm(
-				__(
-					'This will write real WooCommerce data (products, orders, customers, etc.) to this site. Continue?',
-					'cart-bridge-jp'
+				sprintf(
+					/* translators: %s: list of the selected kinds of records, e.g. "Categories, Products" */
+					__(
+						'This will write real WooCommerce data (%s) to this site. Continue?',
+						'cart-bridge-jp'
+					),
+					joinList(
+						entityOptions
+							.filter( ( option ) =>
+								selectedEntities.has( option.key )
+							)
+							.map( ( option ) => option.label )
+					)
 				)
 			)
 		) {
@@ -465,6 +458,8 @@ export default function ImportTab() {
 		);
 	}
 
+	const labels = entityLabels();
+
 	return (
 		<div className="cbjp-import">
 			<Card>
@@ -491,31 +486,34 @@ export default function ImportTab() {
 					</p>
 
 					<div className="cbjp-import__entities">
-						{ currentConnection &&
-							availableEntities(
-								currentConnection.capabilities
-							).map( ( entity ) => (
-								<CheckboxControl
-									key={ entity }
-									label={ ENTITY_LABELS[ entity ] }
-									checked={ selectedEntities.has( entity ) }
-									disabled={
-										dryRunBusy ||
-										importBusy ||
-										blockedByOtherRun
-									}
-									onChange={ ( checked ) =>
-										toggleEntity( entity, checked )
-									}
-								/>
-							) ) }
+						{ entityOptions.map( ( option ) => (
+							<CheckboxControl
+								key={ option.key }
+								label={ option.label }
+								checked={ selectedEntities.has( option.key ) }
+								disabled={
+									dryRunBusy ||
+									importBusy ||
+									blockedByOtherRun
+								}
+								onChange={ ( checked ) =>
+									toggleEntity( option.key, checked )
+								}
+							/>
+						) ) }
 					</div>
 
 					{ platform && (
-						// 受注を選んでいるとき、未設定の決済/配送マッピングを案内する（R3-0m。案内だけで実行は止めない）。
-						<OrderMappingNotice
+						// 案内の要るマッピングを持つ種類（受注の決済・配送など）を選んでいるとき、未設定の数を案内する
+						// （R3-0m・R3-6b2。案内だけで実行は止めない）。
+						<MappingNotice
 							platform={ platform }
-							active={ selectedEntities.has( 'order' ) }
+							active={ entityOptions.some(
+								( option ) =>
+									option.mapping_notice &&
+									selectedEntities.has( option.key )
+							) }
+							selected={ selectedEntities }
 						/>
 					) }
 
@@ -595,7 +593,7 @@ export default function ImportTab() {
 						{ dryRunPolling.run && (
 							<RunProgress
 								run={ dryRunPolling.run }
-								entityLabels={ ENTITY_LABELS }
+								entityLabels={ labels }
 								onRetry={ ( jobId ) =>
 									retryJob( 'dry_run', jobId )
 								}
@@ -660,7 +658,7 @@ export default function ImportTab() {
 						{ importPolling.run && (
 							<RunProgress
 								run={ importPolling.run }
-								entityLabels={ ENTITY_LABELS }
+								entityLabels={ labels }
 								onRetry={ ( jobId ) =>
 									retryJob( 'import', jobId )
 								}
@@ -700,7 +698,7 @@ export default function ImportTab() {
 							) && (
 								<VerificationReport
 									runId={ importState.runId }
-									entityLabels={ ENTITY_LABELS }
+									entityLabels={ labels }
 								/>
 							) }
 					</CardBody>

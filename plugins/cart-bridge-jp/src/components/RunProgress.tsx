@@ -262,7 +262,7 @@ export default function RunProgress( {
 				<JobRow
 					key={ job.id }
 					job={ job }
-					label={ entityLabels[ job.entity ] }
+					label={ entityLabels[ job.entity ] ?? job.entity }
 					runId={ run.run_id }
 					onRetry={ onRetry }
 					retrying={ retryingJobId === job.id }

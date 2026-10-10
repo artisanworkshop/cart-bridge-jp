@@ -1,17 +1,46 @@
 import { describe, expect, it } from '@jest/globals';
-import type { MappingCandidate, SettingsMappings } from '../../types';
+import type {
+	MappingCandidate,
+	MappingKindInfo,
+	SettingsMappings,
+} from '../../types';
 import {
-	hasOrderMappingGaps,
+	editableMaps,
+	importMappingGaps,
+	mappedTarget,
 	mappingCoverage,
-	orderMappingStatus,
+	parseMappingKinds,
+	savedMap,
+	withMappedTarget,
 } from '../mapping-status';
 
 function candidates( ...ids: string[] ): MappingCandidate[] {
 	return ids.map( ( id ) => ( { id, name: `Name ${ id }` } ) );
 }
 
+function kind(
+	key: string,
+	overrides: Partial< MappingKindInfo > = {}
+): MappingKindInfo {
+	return {
+		key,
+		map_key: `${ key }_map`,
+		entity: 'order',
+		source_side: 'asp',
+		applies: true,
+		import_notice: false,
+		label: `${ key } mapping`,
+		description: '',
+		source_heading: `Platform ${ key }`,
+		target_heading: `WooCommerce ${ key }`,
+		unmapped_label: '— Unmapped —',
+		no_targets_help: '',
+		...overrides,
+	};
+}
+
 /**
- * `GET /settings/mappings/{platform}` の応答。`overrides` で個別に上書きする。
+ * `GET /settings/mappings/{platform}` の応答（無料版の 4 種類。決済・配送が取込みの前の案内の対象）。`overrides` で個別に上書きする。
  * @param overrides
  */
 function makeMappings(
@@ -34,9 +63,17 @@ function makeMappings(
 			shipping: candidates( 'flat_rate:1', 'free_shipping:2' ),
 			status: candidates( 'wc-pending', 'wc-processing' ),
 		},
+		kinds: [
+			kind( 'category', { entity: 'product', source_side: 'woo' } ),
+			kind( 'payment', { import_notice: true } ),
+			kind( 'shipping', { import_notice: true } ),
+			kind( 'status' ),
+		],
 		...overrides,
 	};
 }
+
+const ORDERS = new Set( [ 'order' ] );
 
 describe( 'mappingCoverage', () => {
 	it( 'counts every source as unmapped when nothing is saved', () => {
@@ -165,81 +202,285 @@ describe( 'mappingCoverage', () => {
 	} );
 } );
 
-describe( 'orderMappingStatus', () => {
-	it( 'reports payment and shipping coverage separately', () => {
-		const status = orderMappingStatus(
+describe( 'importMappingGaps', () => {
+	it( 'reports the unmapped notice kinds of the selected entities', () => {
+		const gaps = importMappingGaps(
 			makeMappings( {
 				payment_map: { '101': 'bacs', '102': 'removed-gateway' },
 				shipping_map: {
 					'201': 'flat_rate:1',
 					'202': 'free_shipping:2',
 				},
-			} )
+			} ),
+			ORDERS
 		);
 
-		expect( status ).toEqual( {
-			payment: { total: 3, unmapped: 2 },
-			shipping: { total: 2, unmapped: 0 },
-		} );
-		expect( hasOrderMappingGaps( status ) ).toBe( true );
+		expect( gaps ).toEqual( [
+			{
+				key: 'payment',
+				heading: 'Platform payment',
+				total: 3,
+				unmapped: 2,
+			},
+		] );
 	} );
 
-	it( 'ignores the status and category maps', () => {
-		const status = orderMappingStatus(
+	it( 'ignores kinds without the notice, and kinds of entities not selected', () => {
+		// 注文ステータスは未設定でも既定のステータスに落ちるので案内しない。選んでいない種類のマッピングも数えない。
+		expect(
+			importMappingGaps( makeMappings(), new Set( [ 'product' ] ) )
+		).toEqual( [] );
+		expect(
+			importMappingGaps(
+				makeMappings( {
+					payment_map: {
+						'101': 'bacs',
+						'102': 'cod',
+						'103': 'cod',
+					},
+					shipping_map: {
+						'201': 'flat_rate:1',
+						'202': 'flat_rate:1',
+					},
+				} ),
+				ORDERS
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'reports a gap for shipping alone', () => {
+		const gaps = importMappingGaps(
 			makeMappings( {
-				payment_map: {
-					'101': 'bacs',
-					'102': 'cod',
-					'103': 'cod',
-				},
-				shipping_map: { '201': 'flat_rate:1', '202': 'flat_rate:1' },
-				status_map: {},
-			} )
+				payment_map: { '101': 'bacs', '102': 'bacs', '103': 'cod' },
+			} ),
+			ORDERS
 		);
 
-		expect( status ).toEqual( {
-			payment: { total: 3, unmapped: 0 },
-			shipping: { total: 2, unmapped: 0 },
-		} );
-		expect( hasOrderMappingGaps( status ) ).toBe( false );
+		expect( gaps.map( ( gap ) => [ gap.key, gap.unmapped ] ) ).toEqual( [
+			[ 'shipping', 2 ],
+		] );
 	} );
 
 	it( 'has no gaps when the platform options could not be loaded', () => {
 		// 候補の取得に失敗すると REST は空の候補を返す。誤った警告を出さない。
-		const status = orderMappingStatus(
-			makeMappings( {
-				asp_candidates: {
-					category: [],
-					payment: [],
-					shipping: [],
-					status: [],
-				},
-			} )
-		);
-
-		expect( status ).toEqual( {
-			payment: { total: 0, unmapped: 0 },
-			shipping: { total: 0, unmapped: 0 },
-		} );
-		expect( hasOrderMappingGaps( status ) ).toBe( false );
+		expect(
+			importMappingGaps(
+				makeMappings( {
+					asp_candidates: {
+						category: [],
+						payment: [],
+						shipping: [],
+						status: [],
+					},
+				} ),
+				ORDERS
+			)
+		).toEqual( [] );
 	} );
 
-	it( 'reports a gap for shipping alone', () => {
-		const status = orderMappingStatus(
-			makeMappings( {
-				payment_map: { '101': 'bacs', '102': 'bacs', '103': 'cod' },
-			} )
-		);
+	it( 'counts a kind keyed on the WooCommerce side from the WooCommerce options', () => {
+		const data = makeMappings( {
+			woo_candidates: {
+				category: candidates( '5', '6' ),
+				payment: [],
+				shipping: [],
+				status: [],
+			},
+			asp_candidates: {
+				category: candidates( '90' ),
+				payment: [],
+				shipping: [],
+				status: [],
+			},
+			category_map: { '5': '90' },
+			kinds: [
+				kind( 'category', {
+					entity: 'product',
+					source_side: 'woo',
+					import_notice: true,
+				} ),
+			],
+		} );
 
-		expect( status.payment.unmapped ).toBe( 0 );
-		expect( status.shipping.unmapped ).toBe( 2 );
-		expect( hasOrderMappingGaps( status ) ).toBe( true );
+		expect( importMappingGaps( data, new Set( [ 'product' ] ) ) ).toEqual( [
+			{
+				key: 'category',
+				heading: 'Platform category',
+				total: 2,
+				unmapped: 1,
+			},
+		] );
+	} );
+
+	it( 'skips kinds that do not apply or are malformed', () => {
+		const data = makeMappings( {
+			kinds: [
+				kind( 'payment', { import_notice: true, applies: false } ),
+				// 真偽値は true だけを真と読む（ページの外の値。原則 9）。
+				{
+					...kind( 'shipping' ),
+					import_notice: 'true',
+				} as unknown as MappingKindInfo,
+				{ key: 'broken' } as unknown as MappingKindInfo,
+			],
+		} );
+
+		expect( importMappingGaps( data, ORDERS ) ).toEqual( [] );
+	} );
+
+	it( 'falls back to the label or key when the heading is missing', () => {
+		const data = makeMappings( {
+			kinds: [
+				kind( 'payment', { import_notice: true, source_heading: '' } ),
+				kind( 'shipping', {
+					import_notice: true,
+					source_heading: '',
+					label: '',
+				} ),
+			],
+		} );
+
+		expect(
+			importMappingGaps( data, ORDERS ).map( ( gap ) => gap.heading )
+		).toEqual( [ 'payment mapping', 'shipping' ] );
 	} );
 
 	it( 'treats a missing or malformed response as having no gaps', () => {
-		expect( hasOrderMappingGaps( orderMappingStatus( null ) ) ).toBe(
-			false
+		expect( importMappingGaps( null, ORDERS ) ).toEqual( [] );
+		expect( importMappingGaps( {}, ORDERS ) ).toEqual( [] );
+		expect( importMappingGaps( { kinds: 'x' }, ORDERS ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'parseMappingKinds', () => {
+	it( 'reads the declared kinds in order', () => {
+		const kinds = parseMappingKinds( makeMappings().kinds );
+
+		expect( kinds.map( ( item ) => item.key ) ).toEqual( [
+			'category',
+			'payment',
+			'shipping',
+			'status',
+		] );
+		expect( kinds[ 0 ] ).toEqual(
+			kind( 'category', { entity: 'product', source_side: 'woo' } )
 		);
-		expect( hasOrderMappingGaps( orderMappingStatus( {} ) ) ).toBe( false );
+	} );
+
+	it( 'drops malformed and duplicate kinds and fails closed on flags and texts', () => {
+		const kinds = parseMappingKinds( [
+			null,
+			{ map_key: 'x_map' },
+			{ key: 'nokey' },
+			{
+				key: 'payment',
+				map_key: 'payment_map',
+				applies: 'true',
+				import_notice: 1,
+				source_side: 'sideways',
+				label: 5,
+			},
+			// 同じキー・同じ map_key の 2 つ目以降は捨てる。
+			{ key: 'payment', map_key: 'other_map', applies: true },
+			{ key: 'other', map_key: 'payment_map', applies: true },
+		] );
+
+		expect( kinds ).toEqual( [
+			{
+				key: 'payment',
+				map_key: 'payment_map',
+				entity: '',
+				source_side: 'asp',
+				applies: false,
+				import_notice: false,
+				label: '',
+				description: '',
+				source_heading: '',
+				target_heading: '',
+				unmapped_label: '',
+				no_targets_help: '',
+			},
+		] );
+		expect( parseMappingKinds( 'x' ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'savedMap', () => {
+	it( 'copies only the string values the response saved', () => {
+		const map = savedMap(
+			{ payment_map: { '101': 'bacs', '102': 3, '103': null } },
+			'payment_map'
+		);
+
+		expect( map ).toEqual( { '101': 'bacs' } );
+		expect( savedMap( { payment_map: [ 'x' ] }, 'payment_map' ) ).toEqual(
+			{}
+		);
+		expect( savedMap( null, 'payment_map' ) ).toEqual( {} );
+	} );
+
+	it( 'keeps an id named __proto__ as a saved value', () => {
+		// REST の応答（JSON）は `__proto__` を自前のプロパティとして持つ。代入で写すと落ち、次の保存で消える（PR #116 G1-1）。
+		const data = JSON.parse(
+			'{"payment_map":{"__proto__":"bacs","constructor":"cod"}}'
+		) as unknown;
+		const map = savedMap( data, 'payment_map' );
+
+		expect( Object.keys( map ) ).toEqual( [ '__proto__', 'constructor' ] );
+		expect( JSON.stringify( map ) ).toBe(
+			'{"__proto__":"bacs","constructor":"cod"}'
+		);
+	} );
+} );
+
+describe( 'editableMaps', () => {
+	it( 'keeps the saved maps of kinds whose section is not shown', () => {
+		// カテゴリを作れる接続先ではカテゴリの節を出さないが、保存（PUT）で送り返して保存済みの値を消さない。
+		const data = makeMappings( {
+			category_map: { '5': '90' },
+			payment_map: { '101': 'bacs' },
+		} );
+		const kinds = parseMappingKinds( [
+			kind( 'category', {
+				entity: 'product',
+				source_side: 'woo',
+				applies: false,
+			} ),
+			kind( 'payment' ),
+		] );
+
+		expect( editableMaps( data, kinds ) ).toEqual( {
+			category_map: { '5': '90' },
+			payment_map: { '101': 'bacs' },
+		} );
+	} );
+} );
+
+describe( 'mappedTarget / withMappedTarget', () => {
+	it( 'reads and writes ids that collide with Object.prototype', () => {
+		// 外部のアダプタの ID は不透明な文字列（PR #116 G1・backlog e2-1-mapping-ui/G3-3）。
+		expect( mappedTarget( {}, 'constructor' ) ).toBe( '' );
+		expect( mappedTarget( {}, 'toString' ) ).toBe( '' );
+
+		const set = withMappedTarget( { '101': 'bacs' }, '__proto__', 'cod' );
+
+		expect( mappedTarget( set, '__proto__' ) ).toBe( 'cod' );
+		expect( JSON.stringify( set ) ).toBe(
+			'{"101":"bacs","__proto__":"cod"}'
+		);
+	} );
+
+	it( 'replaces or removes one row without touching the others', () => {
+		const map = { '101': 'bacs', '102': 'cod' };
+
+		expect( withMappedTarget( map, '101', 'cheque' ) ).toEqual( {
+			'101': 'cheque',
+			'102': 'cod',
+		} );
+		expect( withMappedTarget( map, '102', '' ) ).toEqual( {
+			'101': 'bacs',
+		} );
+		// 元のマップは変えない（React の state）。
+		expect( map ).toEqual( { '101': 'bacs', '102': 'cod' } );
 	} );
 } );

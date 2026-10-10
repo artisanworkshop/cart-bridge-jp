@@ -406,6 +406,7 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 			[
 				'exists'   => false,
 				'edit_url' => null,
+				'summary'  => '',
 				'details'  => [],
 			],
 			( new PushIntentPresenter() )->describe( 'widget', $post_id )

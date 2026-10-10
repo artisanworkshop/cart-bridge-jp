@@ -65,6 +65,9 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 	}
 
 	public function test_connections_leave_the_type_out(): void {
+		// 取込みの案内の判定（R3-6b2）がマッピングの種類を読むので、読めない種類を知らせる。
+		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
+
 		global $wp_rest_server;
 		$wp_rest_server = new WP_REST_Server(); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
 		do_action( 'rest_api_init', $wp_rest_server );
@@ -222,6 +225,7 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$result = ( new MappingRebuilder( new MappingRepository() ) )->run( 'mock' );
 
 		$this->assertNull( $result['cursor'] );
+		$this->assertSame( [ 'broken' ], $result['skipped'], '飛ばした種類を画面に知らせる（R3-6b2）' );
 		$this->assertSame( 0, $result['counts']['broken'] );
 		$this->assertSame( 1, $result['counts']['tag'] );
 		$this->assertSame( $term_id, ( new MappingRepository() )->find_local_id( 'mock', 'tag', 't1' ) );
@@ -241,11 +245,47 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$this->assertNull( $row['local_amount'] );
 	}
 
+	/**
+	 * 実体が無いと答えた種類の要約は出さない（画面は「削除済み」と書く。R3-6b2）。外部の種類が `exists:false` に要約を添えても使わない。
+	 */
+	public function test_a_missing_entity_has_no_summary_even_if_the_type_gives_one(): void {
+		$ghost = new class() extends \CartBridgeJP\Entities\EntityType {
+
+			public function key(): string {
+				return 'ghost';
+			}
+
+			public function label(): string {
+				return 'Ghosts';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function describe_local( int $local_id ): array {
+				return [
+					'exists'   => false,
+					'edit_url' => null,
+					'summary'  => 'Ghost #' . $local_id,
+					'details'  => [],
+				];
+			}
+		};
+		$this->register_entity_types( [ $ghost ] );
+
+		$description = ( new PushIntentPresenter() )->describe( 'ghost', 7 );
+
+		$this->assertFalse( $description['exists'] );
+		$this->assertSame( '', $description['summary'] );
+	}
+
 	public function test_push_intents_describe_the_type_as_missing(): void {
 		$this->assertSame(
 			[
 				'exists'   => false,
 				'edit_url' => null,
+				'summary'  => '',
 				'details'  => [],
 			],
 			( new PushIntentPresenter() )->describe( 'boom', 1 )
@@ -292,6 +332,7 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 			}
 		};
 		$this->register_entity_types( [ $shaky ] );
+		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
 
 		global $wp_rest_server;
 		$wp_rest_server = new WP_REST_Server(); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
@@ -304,6 +345,165 @@ final class ThrowingEntityTypeTest extends WP_UnitTestCase {
 		$shaky_option   = array_values( array_filter( $mock['entities']['export'], static fn ( array $option ): bool => 'shaky' === $option['key'] ) );
 
 		$this->assertSame( [ true ], array_column( $shaky_option, 'beta' ) );
+	}
+
+	/**
+	 * 画面の文言・案内の判定（R3-6b2）が例外を投げても、`/connections` と `/settings/mappings` は落ちず、その項目を空・使わない扱いにする。
+	 */
+	public function test_failing_texts_and_notices_fall_back(): void {
+		$label_fails  = new class() extends \CartBridgeJP\Entities\MappingKind {
+
+			public function key(): string {
+				return 'shaky_label';
+			}
+
+			public function label(): string {
+				throw new \RuntimeException( 'label' );
+			}
+
+			public function position(): int {
+				return 10;
+			}
+
+			public function source_side(): string {
+				return self::SOURCE_WOO;
+			}
+
+			public function woo_candidates(): array {
+				return [];
+			}
+
+			// 案内の判定そのものは読めても、文言を読めない kind は `kinds` で使わない扱いになるので、案内の印も立てない（R1-L5）。
+			public function import_notice(): bool {
+				return true;
+			}
+		};
+		$inapplicable = new class() extends \CartBridgeJP\Entities\MappingKind {
+
+			public function key(): string {
+				return 'shaky_inapplicable';
+			}
+
+			public function label(): string {
+				return 'Shaky inapplicable';
+			}
+
+			public function position(): int {
+				return 30;
+			}
+
+			public function source_side(): string {
+				return self::SOURCE_ASP;
+			}
+
+			public function woo_candidates(): array {
+				return [];
+			}
+
+			public function import_notice(): bool {
+				return true;
+			}
+
+			// この接続先では使わない kind は案内しない。
+			public function applies_to( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				return false;
+			}
+		};
+		$notice_fails = new class() extends \CartBridgeJP\Entities\MappingKind {
+
+			public function key(): string {
+				return 'shaky_notice';
+			}
+
+			public function label(): string {
+				return 'Shaky notice';
+			}
+
+			public function position(): int {
+				return 20;
+			}
+
+			public function source_side(): string {
+				return self::SOURCE_ASP;
+			}
+
+			public function woo_candidates(): array {
+				return [];
+			}
+
+			public function import_notice(): bool {
+				throw new \RuntimeException( 'notice' );
+			}
+		};
+		$shaky        = new class( [ $label_fails, $notice_fails, $inapplicable ] ) extends \CartBridgeJP\Entities\EntityType {
+
+			/**
+			 * @param array<int,\CartBridgeJP\Entities\MappingKind> $kinds
+			 */
+			public function __construct( private readonly array $kinds ) {}
+
+			public function key(): string {
+				return 'shaky';
+			}
+
+			public function label(): string {
+				return 'Shaky';
+			}
+
+			public function position(): int {
+				return 90;
+			}
+
+			public function supports_import( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				return true;
+			}
+
+			public function supports_export( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): bool {
+				return true;
+			}
+
+			public function export_description( \CartBridgeJP\Adapters\PlatformAdapter $adapter ): string {
+				throw new \RuntimeException( 'description' );
+			}
+
+			public function mapping_kinds(): array {
+				return $this->kinds;
+			}
+		};
+		$this->register_entity_types( [ $shaky ] );
+		$this->setExpectedIncorrectUsage( EntityTypeRegistry::FILTER );
+
+		global $wp_rest_server;
+		$wp_rest_server = new WP_REST_Server(); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
+		do_action( 'rest_api_init', $wp_rest_server );
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$connections    = $wp_rest_server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+		$mappings       = $wp_rest_server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/settings/mappings/mock' ) );
+		$wp_rest_server = null; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core自身が使うグローバル変数名。
+
+		$this->assertSame( 200, $connections->get_status() );
+		$this->assertSame( 200, $mappings->get_status() );
+
+		$mock   = array_values( array_filter( $connections->get_data(), static fn ( array $item ): bool => 'mock' === $item['platform'] ) )[0];
+		$import = array_column( $mock['entities']['import'], 'mapping_notice', 'key' );
+		$export = array_column( $mock['entities']['export'], 'description', 'key' );
+
+		$this->assertFalse( $import['shaky'], '案内の判定が例外を投げる kind は案内しない' );
+		$this->assertSame( '', $export['shaky'] );
+
+		$kinds = array_column( $mappings->get_data()['kinds'], null, 'key' );
+
+		$this->assertFalse( $kinds['shaky_label']['applies'], '文言を読めない kind の節は出さない' );
+		$this->assertSame( '', $kinds['shaky_label']['label'] );
+		$this->assertSame( 'shaky', $kinds['shaky_label']['entity'] );
+		$this->assertFalse( $kinds['shaky_notice']['applies'] );
+		$this->assertFalse( $kinds['shaky_notice']['import_notice'] );
+		$this->assertFalse( $kinds['shaky_label']['import_notice'] );
+		$this->assertTrue( $kinds['shaky_inapplicable']['import_notice'] );
+		$this->assertFalse( $kinds['shaky_inapplicable']['applies'] );
+		$this->assertTrue( $kinds['payment']['applies'], 'ほかの kind は影響を受けない' );
+		$this->assertSame( 'Payment method mapping', $kinds['payment']['label'] );
 	}
 
 	/**

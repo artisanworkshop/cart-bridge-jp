@@ -10,28 +10,13 @@ import {
 } from '@wordpress/components';
 import apiFetch from '../api';
 import ActiveRunNotice from '../components/ActiveRunNotice';
-import MappingSettings, { type MapKey } from '../components/MappingSettings';
+import MappingSettings from '../components/MappingSettings';
 import { parseHash } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
-import type { Capabilities, Connection } from '../types';
+import type { Connection } from '../types';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
-}
-
-/**
- * 表示するマップ。決済/配送/注文ステータスは受注のインポート（とエクスポート）で使う。カテゴリは、カテゴリを
- * 作れないプラットフォームへ商品をエクスポートするときだけ要る（`can_create_category === false`）。
- * @param capabilities
- */
-function visibleMapKeys( capabilities: Capabilities ): MapKey[] {
-	const keys: MapKey[] = [ 'payment_map', 'shipping_map', 'status_map' ];
-
-	if ( false === capabilities.can_create_category ) {
-		keys.push( 'category_map' );
-	}
-
-	return keys;
 }
 
 /**
@@ -131,8 +116,9 @@ export default function MappingsTab() {
 				</CardHeader>
 				<CardBody>
 					<p>
+						{ /* どのマッピングを出すか・いつ使うかはサーバーの宣言（`kinds`）が決め、各節の説明が書く（R3-6b2）。 */ }
 						{ __(
-							'Mappings connect values on the platform to values in WooCommerce. Payment method, shipping method, and order status mappings are used when importing orders, and the same mappings are used, where possible, when exporting orders to the platform. Unmapped payment and shipping methods are reported as warnings in the preview (dry run) report. Set up the mappings before importing orders. Orders imported while a method was unmapped are updated the next time they are imported.',
+							'Mappings connect values on the platform to values in WooCommerce. Each section below explains when its mapping is used. Set up the mappings before you import or export.',
 							'cart-bridge-jp'
 						) }
 					</p>
@@ -162,7 +148,6 @@ export default function MappingsTab() {
 			{ platform && currentConnection && (
 				<MappingSettings
 					platform={ platform }
-					mapKeys={ visibleMapKeys( currentConnection.capabilities ) }
 					disabled={
 						! activeRuns.loaded || activeRuns.runs.length > 0
 					}

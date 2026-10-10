@@ -448,7 +448,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 
 | Method | Route | 用途 |
 |---|---|---|
-| GET | `/connections` | 全プラットフォームの接続状態一覧。各接続に、取り込める・エクスポートできる実体の種類 `entities: { import: [{key,label}], export: [{key,label,beta}] }`（R3-6b1。`POST /runs` と同じ判定。§10.0「実体の種類の拡張点」） |
+| GET | `/connections` | 全プラットフォームの接続状態一覧。各接続に、取り込める・エクスポートできる実体の種類 `entities: { import: [{key,label,mapping_notice}], export: [{key,label,beta,description}] }`（R3-6b1。`POST /runs` と同じ判定。`mapping_notice`・`description` は R3-6b2。§10.0「実体の種類の拡張点」「R3-6b2 の実装」） |
 | PUT | `/connections/{platform}` | 接続設定保存（makeshop: endpoint+token / colorme・base: client_id+secret） |
 | DELETE | `/connections/{platform}` | 接続解除（トークン・client_id/secret の削除）。run・ツールの実行中は 409（R3-0p。下記） |
 | POST | `/connections/{platform}/test` | 接続テスト（ショップ名を返す） |
@@ -463,11 +463,11 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 | GET | `/runs/{run_id}/report?entity=&only_warnings=` | dry-run の CSV（F1-6）。`entity` は登録された実体の種類のキー（ルートを登録した時点のレジストリ。知らない値は 400） |
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
-| GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する。キーは登録されたマッピングの種類（`Entities\MappingKind`）から決まり、GET は `kinds: [{key,map_key,source_side,applies,import_notice}]` も返す。PUT は登録の無いキーの保存済みの値を消さない（R3-6b1） |
+| GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する。キーは登録されたマッピングの種類（`Entities\MappingKind`）から決まり、GET は `kinds: [{key,map_key,entity,source_side,applies,import_notice,label,description,source_heading,target_heading,unmapped_label,no_targets_help}]` も返す（文言は R3-6b2。画面が節を組み立てる）。PUT は登録の無いキーの保存済みの値を消さない（R3-6b1） |
 | ~~GET~~ | ~~`/limits?platform={platform}`~~ | **R3-6a で削除（D27）**。~~無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」）~~ |
 | ~~GET~~ | ~~`/tools/sample-cleanup?platform=`~~ | **R3-6a で削除（D27）**。~~サンプルクリーンアップの削除件数プレビュー（D16/§10.3）~~ |
 | ~~POST~~ | ~~`/tools/sample-cleanup`~~ | **R3-6a で削除（D27）**。~~無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3）~~ |
-| POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3） |
+| POST | `/tools/rebuild-mappings` | 所有メタ（`_cbjp_platform` + remote_id）の走査による mappings 再構築（1バッチ分を処理し `cursor` を返す。D16/§10.3）。`skipped` は走査に失敗して飛ばした種類のキー（R3-6b2） |
 | ~~GET / POST~~ | ~~`/tools/repair-states?platform=&cursor=`~~ | **R3-6a で削除（2026-10-09 決定。§10.0）**。以下は削除前の記録: 県コード修復（issue #46/§10.3）。GET=Scan（読取専用。補正が必要な件数を数える）、POST=Repair（`state` のみ補正）。1バッチ分を処理し `cursor` を返す。ASP への照会に失敗した場合は 503（レート制限。`Retry-After`）/409（未接続・認証切れ）/502 で、処理済みの `counts` と再開用 `cursor` をボディに含めて返す |
 
 nonce（`X-WP-Nonce`）は管理画面Reactアプリからの呼び出しにのみ適用。`/connect/{platform}/callback` は
@@ -877,6 +877,44 @@ R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す�
 - ColorMe: `ColorMeAdapter::api()`・`is_premium_plan()`、`ColorMeApi`、`ColorMeClient`、`Adapters\ColorMe\Transform\Cast`
 - R3-6c で決めること: Pro が無料版の最低バージョンを確かめる方法（今の `cbjp_pro_bootstrap()` はクラスの有無だけを見る）、ColorMe の OAuth スコープを Pro が足す口（決め残し 9）、
   この一覧に無いクラスを Pro が参照していないことの機械的な確認
+
+#### R3-6b2 の実装（2026-10-10。ブランチ `feat/r3-6b2-entity-driven-ui`）
+
+**目的**: 管理画面から実体の名前（`'order'` など）と受注向けの文言を外し、R3-6b1 の REST の宣言から組み立てる。Pro は JS を持たない（決め残し 2）ので、
+Pro が登録する種類はサーバーの宣言だけで画面に出る。**選べる種類・既定の選択・判定は変えない**（文言の一部だけが変わる。下記）。
+
+**サーバーに足した文言・印**（どれも外部の種類の例外を握って既定に倒す。原則 8）:
+- `MappingKind`: `label()`（節の見出し。**抽象**。v1.0 前なので足せる。継承しているのは無料版の 4 種類だけ）と、既定実装つきの `description()`・
+  `source_heading()`/`target_heading()`（既定は向きに応じた「WooCommerce value」「Platform value」）・`unmapped_label()`（`— Unmapped —`）・`no_targets_help()`。
+  4 種類の英文は `MappingSettings.tsx` の `sectionConfig()` から msgid を変えずに移した（訳はそのまま残る）。`import_notice()` の docblock に、案内の文が前提にする扱い
+  （未設定でも取り込み・警告・設定後の次の取込みで更新）を書いた。
+- `GET /settings/mappings` の `kinds` に `entity`（持ち主の種類。`EntityTypeRegistry::mapping_kind_entries()`）と上の文言。読めない kind は `applies`・`import_notice` を偽にして文言を空にする。
+  kind ごとの評価は `RestController::describe_mapping_kind()` 1 つにまとめ、`mapping_notice` の判定も同じものを使う（文言だけ壊れた kind で、候補を取得するのに案内が出ない食い違いを避ける）。
+  決済・配送の説明には、受注のエクスポートでも同じマッピングを逆引きに使うこと（`MethodMap::reverse_lookup()`）を足した（以前は Mappings タブの冒頭の文にあった）。
+- `EntityType::export_description( PlatformAdapter ): string`（既定 ''）。受注は「Creates orders (sales) in the connected shop.」。`entities.export[].description`。
+- `entities.import[].mapping_notice`: その種類の kind に `import_notice()` かつ `applies_to()` のものがあるか（Import タブが、候補の取得〔ColorMe は API 3 本〕の前に知るため）。
+  `/connections` がマッピングの種類を読むようになったので、読めない種類の `_doing_it_wrong()` がこのルートでも出る。
+- `describe_local()` の戻り値に `summary`（画面の 1 行）。`PushIntentPresenter` は文字列でなければ ''、実体が無ければ ''。`details` は残した。
+- `MappingRebuilder::run()` の応答に `skipped`（走査に失敗して飛ばした LinkSource のキー。backlog `r3-6b1/R1-L6`）。
+
+**画面**: `src/types.ts` の `ENTITY_ORDER` を外し（`EntityType = string`）、`ENTITY_LABELS` を `cbjpAdmin.entityLabels` を読む `entityLabel()`/`entityLabels()` に替えた。
+選択肢は `entity-options.ts`（`importEntityOptions()`・`exportEntityOptions()`。キーの無い・重複した項目は捨て、`beta` は `false` のときだけ非ベータ）。
+Mappings タブの節は `kinds` の `applies` から（0 件なら「設定するマッピングはありません」。R3-6c の後、カテゴリを作れる接続先に無料版だけでつないだとき。
+ColorMe はカテゴリを作れないので、R3-6c の後もカテゴリの節が残る）、Import タブの案内は
+`MappingNotice`（旧 `OrderMappingNotice`。`mapping-status.ts` の `importMappingGaps()` が選ばれた種類の kind ごとに数える）、Tools タブの件数は応答の `counts` のキー順と
+`skipped` の警告、送信結果が未確認の一覧は `summary`、実行中の run の `entities` はキーの形（`^[a-z][a-z0-9_]{0,19}$`）だけで受け付ける。
+
+**変わった文言**（受注・決済・配送を名指ししない形にした。スクリーンショットは R3-6d で撮り直す）: Mappings タブの冒頭、Export タブのマッピングの案内、
+Import の本移行の確認（選んだ種類の表示名を並べる）、Import の未設定の案内（「`source_heading`: N 件中 M 件」と汎用の説明）、検証レポートの「order totals」→「totals」、
+決済・配送の説明（エクスポートでの使い方の 1 文を足した）。
+
+**変わった表示**（画面は種類の名前で並べ替えないので、サーバーの並びになる）: Mappings タブの節はカテゴリが先頭（種類の実行順で商品 30 ＜ 受注 50。以前はカテゴリが最後）、
+Tools タブの件数は LinkSource の `position()` 順（クーポン 50 が顧客 60・受注 70 より前。以前は顧客・受注・クーポンの順）、Export タブはベータでない受注
+（`BETA_ORDER_EXPORT` を宣言しないアダプタ）にも説明文が出る（以前はベータのときだけ）。実行中の run の `entities` もサーバーの順（画面には出していない）。
+
+**確認**: 品質チェック一式、dev サイトで mock アダプタ（`mockv`。プレミアム相当の能力・決済と配送の候補）の `/connections`・`/settings/mappings`・`/push-intents`・
+`/tools/rebuild-mappings` と、Mappings・Import・Export・Tools タブの表示（Import の案内が受注の選択に連動する、Export の Orders が Beta・既定で未選択・説明つき、
+Tools の件数と、一時的に登録した走査に失敗する種類の警告）。撤去後に `inspect` が検証前と一致。
 
 ### 10.1 ビジネスモデル・ライセンス（D14）
 
@@ -1726,7 +1764,8 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
 - **解除 UI と REST**（`manage_woocommerce`。パスの `platform` は `get_url_params()`、`id` はスキーマで整数検証）:
   - `GET /push-intents/{platform}`: 未解決の一覧。種別・ローカルID・表示名（`DryRunLabel`）・Woo 編集画面 URL・送信日時・run。
     店舗が ColorMe 管理画面で探せるよう、受注は受注番号・日時・合計、商品は名前・SKU、顧客はメールを添える
-    （画面と REST 応答のみ。`Support\Logger` には出さない）
+    （画面と REST 応答のみ。`Support\Logger` には出さない）。画面に出す 1 行は種類が `summary` に組み立てる（R3-6b2。受注の日時は
+    WooCommerce の書式とサイトのタイムゾーン）
   - `POST /push-intents/{platform}/{id}/resolve`、`action`:
     - `not_created`: ColorMe に無いことを店舗が確認した → intent を削除。次回 export で改めて作成する
     - `link` ＋ `remote_id`: ColorMe に作成済みだった → `fetch_{entity}_by_remote_id()` で実在と種別を確認し、その remote_id が

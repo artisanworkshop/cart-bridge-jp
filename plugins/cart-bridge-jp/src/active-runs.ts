@@ -1,10 +1,4 @@
-import {
-	ENTITY_ORDER,
-	type ActiveRun,
-	type ActiveRunStatus,
-	type EntityType,
-	type RunType,
-} from './types';
+import type { ActiveRun, ActiveRunStatus, EntityType, RunType } from './types';
 
 /**
  * 進行中の run（`GET /runs?platform=` と 409 `cbjp_run_in_progress` の `active_runs`。R3-0i・issue #70）を
@@ -35,6 +29,36 @@ const ACTIVE_RUN_STATUSES: ActiveRunStatus[] = [
 const RUN_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 
 /**
+ * 実体の種類のキーの形（`Entities\EntityTypeRegistry::KEY_PATTERN`。DB の varchar(20) に入る）。画面は特定の種類を知らないので
+ * （Pro アドオンが足す。R3-6b2）、既知の一覧ではなく形だけで受け付ける。
+ */
+const ENTITY_KEY_PATTERN = /^[a-z][a-z0-9_]{0,19}$/;
+
+/**
+ * run のジョブの種類（サーバーの順〈実行順〉のまま）。形の違う値と重複は捨てる。
+ * @param value
+ */
+function parseEntities( value: unknown ): EntityType[] {
+	if ( ! Array.isArray( value ) ) {
+		return [];
+	}
+
+	const entities: EntityType[] = [];
+
+	for ( const entity of value as unknown[] ) {
+		if (
+			'string' === typeof entity &&
+			ENTITY_KEY_PATTERN.test( entity ) &&
+			! entities.includes( entity )
+		) {
+			entities.push( entity );
+		}
+	}
+
+	return entities;
+}
+
+/**
  * @param type run の種別（解釈できない種別は null）
  * @return その run を表示・操作できるタブ（種別が不明なら null）
  */
@@ -63,17 +87,11 @@ function parseActiveRun( value: unknown ): ActiveRun | null {
 	const status = ACTIVE_RUN_STATUSES.find(
 		( candidate ) => candidate === value.status
 	);
-	const entities = Array.isArray( value.entities )
-		? ( ENTITY_ORDER as readonly string[] ).filter( ( entity ) =>
-				( value.entities as unknown[] ).includes( entity )
-		  )
-		: [];
-
 	return {
 		run_id: runId,
 		type: type ?? null,
 		status: status ?? 'unknown',
-		entities: entities as EntityType[],
+		entities: parseEntities( value.entities ),
 		// 安全側に倒す判定には使わない表示用の値だが、真偽値以外を「失敗あり」と読まない。
 		has_failed_job: true === value.has_failed_job,
 		created_at:
