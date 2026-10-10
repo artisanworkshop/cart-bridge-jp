@@ -414,7 +414,10 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 		$this->assertSame( [], ( new LocalEntityLookup() )->existing_ids( 'widget', [ $post_id ] ) );
 	}
 
-	public function test_verification_counts_unknown_entities_as_missing(): void {
+	/**
+	 * R3-6c1 で意図して変えた: 登録の無い種類は実在を「不明」（null）にする（以前は実在 0・全件 missing。backlog r3-6b1/R1-L8）。
+	 */
+	public function test_verification_reports_unknown_entities_as_unknown(): void {
 		$jobs   = new JobRepository();
 		$job_id = $jobs->create( 'run-widget', JobManager::TYPE_IMPORT, 'mock', 'widget' );
 		$jobs->update_status( $job_id, JobRepository::STATUS_COMPLETED );
@@ -427,8 +430,8 @@ final class DispatchCharacterizationTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'widget', $row['entity'] );
 		$this->assertSame( 2, $row['linked'] );
-		$this->assertSame( 0, $row['existing'] );
-		$this->assertSame( 2, $row['missing'] );
+		$this->assertNull( $row['existing'] );
+		$this->assertNull( $row['missing'] );
 		$this->assertNull( $row['remote_amount'] );
 		$this->assertNull( $row['local_amount'] );
 	}

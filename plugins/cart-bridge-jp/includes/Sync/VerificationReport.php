@@ -52,7 +52,9 @@ final class VerificationReport {
 			$type      = EntityTypeRegistry::get( $entity );
 			$totals    = $this->decode_totals( $job['totals_json'] );
 			$local_ids = $this->mappings->local_ids( $platform, $entity );
-			$existing  = null === $type ? [] : $this->existing( $type, $local_ids );
+			// 登録の無い種類（Pro アドオンを止めたサイトの過去の顧客・受注など）は実在を確かめられないので「不明」（null）にする
+			// （R3-6c1。以前は実在 0・全件 missing と数えていた。backlog r3-6b1/R1-L8）。
+			$existing = null === $type ? null : $this->existing( $type, $local_ids );
 
 			$row = [
 				'entity'        => $entity,

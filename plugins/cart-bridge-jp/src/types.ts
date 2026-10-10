@@ -220,8 +220,9 @@ export interface VerificationEntity {
 	skipped: number;
 	warned: number;
 	linked: number;
-	existing: number;
-	missing: number;
+	/** Woo 側に実在する件数。null は確かめられない（その種類がこのサイトに登録されていない。R3-6c1）。 */
+	existing: number | null;
+	missing: number | null;
 	remote_amount: string | null;
 	local_amount: string | null;
 }
