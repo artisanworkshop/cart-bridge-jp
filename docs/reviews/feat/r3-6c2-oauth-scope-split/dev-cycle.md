@@ -3,7 +3,7 @@
 - 開始: 2026-10-10
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: 作成後に番号を記入
-- 現在のステップ: 3（review-loop）
+- 現在のステップ: 4〜5（PR 作成・CI 待ち）
 - Copilot: 未依頼
 - Codex: 未依頼
 
@@ -14,3 +14,4 @@
 | 2026-10-10 21:45 | 2 | 実装コミット（7e26b6f backend・3e5f2ce frontend/i18n）。`quality.sh` green（無料版 1230・Pro 581・Jest 91）。ガード 14 か所を mutate-check で確認（全て CAUGHT） |
 | 2026-10-10 21:49 | 2 | dev サイトで Pro 有効／無効 × トークンの記録 4 通りの REST、画面（接続カード・Import／Export の案内）を確認。トークンは退避して戻した（同一）。docs 更新 |
 | 2026-10-10 22:10 | 3 | review-loop R1（自己＋独立 opus）: Critical/High/Medium 0・Low 6・対象外 1 → Low 5 件と対象外 1 件を修正（e0e6e81。push intent の案内・Mappings タブの案内・ログ・docs・rehearse の事前チェック）、1 件を backlog |
+| 2026-10-10 22:23 | 3 | review-loop R2（独立 opus の検証）: R1 の全件解消（ミューテーションで実測）・新規 Critical/High 0 → APPROVE。新規 Low 2 件（ログのガードのテスト・409 の文言）を修正（fa72d36） |
