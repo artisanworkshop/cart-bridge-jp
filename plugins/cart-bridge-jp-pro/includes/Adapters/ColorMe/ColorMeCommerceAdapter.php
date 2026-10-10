@@ -47,8 +47,8 @@ final class ColorMeCommerceAdapter extends CommerceAdapter {
 	private const HISTORY_FLOOR = '2000-01-01';
 
 	/**
-	 * 顧客・受注・クーポンに要る OAuth のスコープ（R3-6c2）。無料版は商品のスコープだけを要求するので、Pro が `cbjp/oauth/scopes` で足す
-	 * （`CommerceAdapters::add_oauth_scopes()`）。swagger の表では `read_sales` が受注・顧客の参照、`write_sales` が受注データの更新、
+	 * 顧客・受注・クーポンに要る OAuth のスコープ（R3-6c2）。無料版は商品のスコープだけを要求するので、Pro が無料版の認可に宣言する
+	 * （`CommerceAdapters::declare_oauth_scopes()`）。swagger の表では `read_sales` が受注・顧客の参照、`write_sales` が受注データの更新、
 	 * `read_shop_coupons` がショップクーポンの参照（R3-6c2 より前の無料版が要求していた 5 つのうち、商品以外の 3 つ）。
 	 */
 	public const OAUTH_SCOPES = [ 'read_sales', 'write_sales', 'read_shop_coupons' ];

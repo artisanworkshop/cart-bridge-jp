@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Adapters;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Pro\Adapters\ColorMe\ColorMeCommerceAdapter;
@@ -99,22 +100,13 @@ final class CommerceAdapters {
 	}
 
 	/**
-	 * 無料版の `cbjp/oauth/scopes` のコールバック（R3-6c2）: 同梱の接続先に、顧客・受注・クーポンに要るスコープを足す。`Core\Plugin::boot()` が
-	 * 最後の優先度で登録する。先行するフィルターが配列以外を返していても落ちないよう、型を宣言せず受け、同梱の接続先なら自分の分だけを返す
-	 * （無料版が商品のスコープを足し直す。先行する拡張が壊した分は戻らない）。Pro の判定（`ColorMeCommerceAdapter::has_required_scopes()`）と認可の要求をずらさないため（G1-3）。
-	 *
-	 * @param mixed $scopes   要求するスコープ。
-	 * @param mixed $platform 接続先の ID。
-	 * @return mixed
+	 * 同梱の接続先の認可に、顧客・受注・クーポンに要るスコープを宣言する（R3-6c2。無料版の `OAuthScopes`。`Core\Plugin::boot()` が起動時に 1 回呼ぶ）。
+	 * 認可の要求と Pro の判定（`ColorMeCommerceAdapter::has_required_scopes()`）は同じ `OAUTH_SCOPES` から決まる。
 	 */
-	public static function add_oauth_scopes( mixed $scopes, mixed $platform ): mixed {
-		$extra = self::bundled_oauth_scopes()[ is_string( $platform ) ? $platform : '' ] ?? [];
-
-		if ( [] === $extra ) {
-			return $scopes;
+	public static function declare_oauth_scopes(): void {
+		foreach ( self::bundled_oauth_scopes() as $platform => $scopes ) {
+			OAuthScopes::add( $platform, $scopes );
 		}
-
-		return array_merge( is_array( $scopes ) ? $scopes : [], $extra );
 	}
 
 	/**

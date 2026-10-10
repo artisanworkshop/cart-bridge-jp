@@ -29,6 +29,7 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 	private const ALLOWED = [
 		// 拡張点。
 		'CartBridgeJP\Adapters\AdapterRegistry',
+		'CartBridgeJP\Adapters\OAuthScopes',
 		'CartBridgeJP\Entities\EntityType',
 		'CartBridgeJP\Entities\EntityTypeRegistry',
 		'CartBridgeJP\Entities\LinkSource',

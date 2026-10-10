@@ -47,11 +47,9 @@ final class Plugin {
 		add_filter( EntityTypeRegistry::FILTER, [ CommerceEntityTypes::class, 'register' ] );
 		EntityTypeRegistry::reset_cache();
 
-		// 無料版は商品のスコープだけを要求する。顧客・受注・クーポンのスコープは Pro が足す（R3-6c2。`docs/03` §10.0 決め残し 9。フィルター名は
-		// 無料版の `ColorMeOAuth::SCOPES_FILTER`。`ColorMeOAuth` は Pro が使ってよい API の一覧に無いのでクラスを参照しない）。
-		// 最後に足す: 後から登録された拡張が値を壊す・置き換えると、認可は Pro の分を要求しないのに Pro は「足りない」と判定して顧客・受注・クーポンを
-		// 隠し続け、無料版の `missing_scopes` も空で案内が出ない（G1-3）。
-		add_filter( 'cbjp/oauth/scopes', [ CommerceAdapters::class, 'add_oauth_scopes' ], PHP_INT_MAX, 2 );
+		// 無料版は商品のスコープだけを要求する。顧客・受注・クーポンのスコープは Pro が無料版の認可に宣言する（R3-6c2。`docs/03` §10.0 決め残し 9。
+		// フィルターでなく宣言にするのは、別の拡張の例外・置き換えで失われず、認可の要求と Pro の判定がずれないため。PR #118 G1-3・G3-B1）。
+		CommerceAdapters::declare_oauth_scopes();
 	}
 
 	public function is_booted(): bool {

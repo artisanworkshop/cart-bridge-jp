@@ -9,6 +9,7 @@ namespace CartBridgeJP\Pro\Tests\Adapters;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Core\Activator;
@@ -282,35 +283,35 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
 	}
 
-	public function test_add_oauth_scopes_adds_only_for_the_bundled_platforms(): void {
-		$this->assertSame( [ 'read_products', 'read_sales', 'write_sales', 'read_shop_coupons' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], ColorMeAdapter::ID ) );
-		$this->assertSame( [ 'read_products' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], 'mock' ) );
-		$this->assertSame( [ 'read_products' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], null ) );
-		// 先行するフィルターが壊した値は、同梱の接続先なら自分の分だけにする（無料版が商品のスコープを足し直す。G1-3）。ほかの接続先はそのまま。
-		$this->assertSame( ColorMeCommerceAdapter::OAUTH_SCOPES, CommerceAdapters::add_oauth_scopes( 'broken', ColorMeAdapter::ID ) );
-		$this->assertSame( 'broken', CommerceAdapters::add_oauth_scopes( 'broken', 'mock' ) );
+	/**
+	 * Pro は起動時に同梱の接続先へ 3 つのスコープを宣言する（無料版の `OAuthScopes`。認可の要求と Pro の判定が同じ `OAUTH_SCOPES` から決まる）。
+	 */
+	public function test_pro_declares_the_commerce_scopes_at_boot(): void {
+		$this->assertSame( ColorMeCommerceAdapter::OAUTH_SCOPES, OAuthScopes::declared( ColorMeAdapter::ID ) );
 	}
 
 	/**
-	 * G1-3: 後から登録された拡張が値を壊す・置き換えても、認可は Pro の 3 つを要求する（Pro は最後に足す）。要求と Pro の判定がずれると、
-	 * 再接続しても顧客・受注・クーポンが隠れたまま案内も出ない。
+	 * PR #118 G1-3・G3-B1: スコープはフィルターでなく宣言で渡すので、別の拡張が `cbjp/oauth/scopes`（以前のフィルター）で値を壊す・置き換える・
+	 * 例外を投げても、認可は Pro の 3 つを要求する（要求と Pro の判定がずれると、再接続しても顧客・受注・クーポンが隠れたまま案内も出ない）。
 	 *
 	 * @return array<string,array{0:callable}>
 	 */
-	public static function later_scope_filters(): array {
+	public static function hostile_scope_filters(): array {
 		return [
 			'not an array' => [ static fn (): string => 'broken' ],
 			'replaces'     => [ static fn (): array => [ 'read_products' ] ],
+			'throws'       => [ static fn () => throw new \LogicException( 'boom' ) ],
 		];
 	}
 
 	/**
-	 * @dataProvider later_scope_filters
+	 * @dataProvider hostile_scope_filters
 	 *
-	 * @param callable $filter 後から（優先度 20）登録する拡張のコールバック。
+	 * @param callable $filter 別の拡張のコールバック。
 	 */
-	public function test_pro_scopes_survive_a_later_extension( callable $filter ): void {
-		add_filter( ColorMeOAuth::SCOPES_FILTER, $filter, 20 );
+	public function test_pro_scopes_survive_other_extensions( callable $filter ): void {
+		add_filter( 'cbjp/oauth/scopes', $filter, 1 );
+		add_filter( 'cbjp/oauth/scopes', $filter, PHP_INT_MAX );
 
 		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
 	}
