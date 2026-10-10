@@ -8,16 +8,19 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Tests\Adapters\ColorMe;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
 use CartBridgeJP\Support\RateLimiter;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\LogRepository;
 use WP_UnitTestCase;
 
 final class ColorMeOAuthTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( ColorMeOAuth::SCOPES_FILTER );
 		parent::tear_down();
 	}
 
@@ -59,8 +62,18 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'client_id=my-client-id', $url );
 		$this->assertStringContainsString( 'response_type=code', $url );
 		$this->assertStringContainsString( 'redirect_uri=https%3A%2F%2Fexample.test%2Fcallback', $url );
-		$this->assertStringContainsString( 'scope=read_products+write_products+read_sales+write_sales+read_shop_coupons', $url );
+		// R3-6c2: 無料版だけ（拡張がスコープを足さない）では商品のスコープだけを要求する（受注・顧客・クーポンの権限を求めない）。
+		$this->assertSame( 'read_products write_products', $this->query_of( $url )['scope'] );
 		$this->assertStringContainsString( 'state=', $url );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function query_of( string $url ): array {
+		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+
+		return $query;
 	}
 
 	public function test_authorize_url_separator_ignores_the_arg_separator_ini_setting(): void {
@@ -333,5 +346,224 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 			$this->assertSame( 'クライアントシークレットが正しくありません。', $exception->getMessage() );
 			$this->assertSame( 401, $exception->status_code() );
 		}
+	}
+
+	/**
+	 * トークン応答（`scope` は省略可）を返す HTTP のモック。
+	 *
+	 * @param array<string,mixed> $response
+	 */
+	private function respond_with_token( array $response ): void {
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [],
+				'body'     => wp_json_encode( $response ),
+			],
+			10,
+			3
+		);
+	}
+
+	/**
+	 * @return array<int,mixed> 記録した理由（`Logger` の context の `reason`）。
+	 */
+	private function logged_reasons(): array {
+		return array_map(
+			static fn ( array $log ): mixed => json_decode( (string) $log['context_json'], true )['reason'] ?? null,
+			( new LogRepository() )->list( null, 'warning' )
+		);
+	}
+
+	/**
+	 * R3-6c2: 拡張が足したスコープを、既知のものだけ `KNOWN_SCOPES` の順に、重複を除いて要求する（Pro が足す 3 つで、R3-6c2 より前と同じ文字列になる）。
+	 */
+	public function test_extensions_add_known_scopes_in_a_fixed_order(): void {
+		add_filter(
+			ColorMeOAuth::SCOPES_FILTER,
+			static fn ( array $scopes, string $platform ): array => 'colorme' === $platform
+				? array_merge( [ 'read_shop_coupons', 'write_sales' ], $scopes, [ 'read_sales', 'write_sales' ] )
+				: $scopes,
+			10,
+			2
+		);
+
+		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
+
+		[ $oauth ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$this->assertSame(
+			'read_products write_products read_sales write_sales read_shop_coupons',
+			$this->query_of( $oauth->authorize_url( 'https://example.test/callback', 42 ) )['scope']
+		);
+	}
+
+	/**
+	 * 拡張は無料版の商品のスコープを外せない（戻り値に無くても要求する）。
+	 */
+	public function test_extensions_cannot_remove_the_base_scopes(): void {
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn (): array => [ 'read_sales' ] );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+	}
+
+	/**
+	 * 既知でない値（ColorMe に無いスコープ・文字列でない値）はその値だけ捨てて記録する。正しく足されたスコープは残す。
+	 */
+	public function test_unknown_scopes_from_extensions_are_dropped_and_logged(): void {
+		Activator::activate();
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'admin', 42, [ 'write_sales' ], 'READ_SALES' ] ) );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], ColorMeOAuth::scopes() );
+		$this->assertSame( [ 'unknown_scope', 'unknown_scope', 'unknown_scope', 'unknown_scope' ], $this->logged_reasons() );
+	}
+
+	/**
+	 * @return array<string,array{0:callable,1:string}>
+	 */
+	public static function broken_scope_filters(): array {
+		return [
+			'not an array' => [ static fn (): string => 'read_sales', 'not_an_array' ],
+			'throws'       => [ static fn () => throw new \LogicException( 'boom' ), 'LogicException' ],
+		];
+	}
+
+	/**
+	 * 配列でない戻り値・例外は拡張の分を捨てて商品のスコープだけを要求し、記録する（`/connections`・認可を落とさない）。
+	 *
+	 * @dataProvider broken_scope_filters
+	 *
+	 * @param callable $filter フィルターのコールバック。
+	 * @param string   $reason 記録する理由。
+	 */
+	public function test_a_broken_scope_filter_falls_back_to_the_base_scopes( callable $filter, string $reason ): void {
+		Activator::activate();
+		add_filter( ColorMeOAuth::SCOPES_FILTER, $filter );
+
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, ColorMeOAuth::scopes() );
+		$this->assertSame( [ $reason ], $this->logged_reasons() );
+	}
+
+	/**
+	 * 交換は応答の `scope`（付与されたスコープ）をトークンと一緒に記録する。
+	 */
+	public function test_exchange_code_records_the_granted_scopes_from_the_response(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => " read_products  write_products\tread_sales read_products ",
+			]
+		);
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+	}
+
+	/**
+	 * 応答に `scope` が無ければ要求したとおりに付与されている（RFC 6749 §5.1）。要求は交換の時点の `scopes()`。
+	 *
+	 * @return array<string,array{0:array<string,mixed>}>
+	 */
+	public static function responses_without_scope(): array {
+		return [
+			'missing' => [ [ 'access_token' => 'issued-access-token' ] ],
+			'null'    => [
+				[
+					'access_token' => 'issued-access-token',
+					'scope'        => null,
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider responses_without_scope
+	 *
+	 * @param array<string,mixed> $response トークン応答。
+	 */
+	public function test_exchange_code_records_the_requested_scopes_when_the_response_has_none( array $response ): void {
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token( $response );
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 読めない `scope`（文字列でない）は何も付与されていない扱い（フェイルクローズ）。要求するスコープがすべて足りないとして再接続を促す。
+	 */
+	public function test_exchange_code_records_no_scopes_when_the_response_scope_is_unreadable(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => [ 'read_products', 'write_products' ],
+			]
+		);
+
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertTrue( $token_store->is_connected() );
+		$this->assertSame( [], $token_store->granted_scopes() );
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 未接続は「足りない」と言わない（未接続・要再接続の案内は別にある）。
+	 */
+	public function test_missing_scopes_is_empty_when_not_connected(): void {
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		[ $oauth, $token_store ] = $this->make_oauth();
+
+		$this->assertNull( ColorMeOAuth::granted_scopes_in( $token_store ) );
+		$this->assertSame( [], $oauth->missing_scopes() );
+
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$this->assertNull( ColorMeOAuth::granted_scopes_in( $token_store ), 'client_id/secret だけでは未接続' );
+		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 付与されたスコープを記録していないトークン（R3-6c2 より前の版が保存した）は、その版が要求した 5 つを持つ。Pro のスコープを足しても足りている。
+	 */
+	public function test_a_token_without_a_record_has_the_legacy_scopes(): void {
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] ) );
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$token_store->save( [ 'access_token' => 'token-saved-before-r3-6c2' ] );
+
+		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::granted_scopes_in( $token_store ) );
+		$this->assertSame( [], $oauth->missing_scopes() );
+	}
+
+	/**
+	 * 無料版だけで接続した（商品のスコープだけの）トークンに、拡張が足したスコープは足りない。
+	 */
+	public function test_missing_scopes_lists_the_scopes_an_extension_added_after_connecting(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$this->respond_with_token(
+			[
+				'access_token' => 'issued-access-token',
+				'scope'        => 'read_products write_products',
+			]
+		);
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [], $oauth->missing_scopes() );
+
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'write_sales', 'read_shop_coupons' ] ) );
+
+		$this->assertSame( [ 'read_sales', 'write_sales', 'read_shop_coupons' ], $oauth->missing_scopes() );
 	}
 }

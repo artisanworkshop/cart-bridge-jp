@@ -27,8 +27,8 @@ define( 'CBJP_PRO_FILE', __FILE__ );
 define( 'CBJP_PRO_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CBJP_PRO_URL', plugin_dir_url( __FILE__ ) );
 
-// Pro が使う無料版の拡張点の版（無料版の `CBJP_EXTENSION_API_VERSION`。R3-6c1）。無料版のこれより古い版では起動しない。
-define( 'CBJP_PRO_REQUIRED_EXTENSION_API', 1 );
+// Pro が使う無料版の拡張点の版（無料版の `CBJP_EXTENSION_API_VERSION`。R3-6c1。R3-6c2 で 2）。無料版のこれより古い版では起動しない。
+define( 'CBJP_PRO_REQUIRED_EXTENSION_API', 2 );
 
 if ( file_exists( CBJP_PRO_PATH . 'vendor/autoload.php' ) ) {
 	require_once CBJP_PRO_PATH . 'vendor/autoload.php';

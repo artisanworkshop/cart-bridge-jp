@@ -381,11 +381,16 @@ final class RestController {
 				static fn( ConnectionField $field ): bool => 'oauth_button' === $field->type
 			);
 
+			$oauth = $this->oauth_for( $id );
+
 			$connections[] = [
 				'platform'          => $id,
 				'label'             => $adapter->label(),
 				'connected'         => $token_store->is_connected(),
 				'needs_reconnect'   => $token_store->needs_reconnect(),
+				// 要求するスコープ（拡張が足したものを含む）のうち、接続済みのトークンに付与されていないもの（R3-6c2）。空でなければ画面が
+				// 再接続を促す。OAuth でない接続先・未接続は空。
+				'missing_scopes'    => null === $oauth ? [] : $oauth->missing_scopes(),
 				// OAuth完了前にclient_id/secret等だけが保存されている状態。UI側は
 				// これを見て、未接続でも資格情報の削除操作を出せるようにする。
 				'has_settings'      => [] !== $token_store->settings(),

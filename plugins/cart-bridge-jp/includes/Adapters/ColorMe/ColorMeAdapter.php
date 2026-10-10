@@ -130,6 +130,17 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		return is_array( $extras ) && 'premium' === ( $extras['contract_plan'] ?? null );
 	}
 
+	/**
+	 * 保存したトークンに付与された OAuth のスコープ（R3-6c2。`ColorMeOAuth::granted_scopes_in()`）。記録の無いトークン（R3-6c2 より前の版が
+	 * 保存した）は、その版が要求した 5 つ。Pro アドオンが顧客・受注・クーポンのスコープの有無を確かめるのに使う
+	 * （`docs/03-design-decisions.md` §10.0「Pro が使ってよい無料版の API」）。
+	 *
+	 * @return array<int,string>|null 未接続（要再接続を含む）は null。
+	 */
+	public function granted_scopes(): ?array {
+		return ColorMeOAuth::granted_scopes_in( $this->token_store );
+	}
+
 	public function connection_fields(): array {
 		return [
 			new ConnectionField(

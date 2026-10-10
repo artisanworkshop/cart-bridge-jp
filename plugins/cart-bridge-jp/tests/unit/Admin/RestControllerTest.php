@@ -10,6 +10,7 @@ namespace CartBridgeJP\Tests\Admin;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
@@ -558,6 +559,66 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
 		$this->assertTrue( $data[0]['has_settings'] );
 		$this->assertFalse( $data[0]['connected'] );
+	}
+
+	/**
+	 * R3-6c2: 要求するスコープ（拡張が足したものを含む）のうち、接続済みのトークンに付与されていないものを返す（画面が再接続を促す）。
+	 * OAuth でない接続先は空。
+	 */
+	public function test_get_connections_lists_the_oauth_scopes_the_token_is_missing(): void {
+		$this->register_colorme_adapter();
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$store = new TokenStore( ColorMeAdapter::ID );
+		$store->save_settings(
+			[
+				'client_id'     => 'id',
+				'client_secret' => 'secret',
+			]
+		);
+		$store->save_token_if_credentials_match( 'id', 'secret', 'token', [ 'read_products', 'write_products' ] );
+
+		$missing = fn (): array => array_column( $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data(), 'missing_scopes', 'platform' );
+
+		$this->assertSame(
+			[
+				ColorMeAdapter::ID => [],
+				'mock'             => [],
+			],
+			$missing()
+		);
+
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales', 'read_shop_coupons' ] ) );
+
+		$this->assertSame(
+			[
+				ColorMeAdapter::ID => [ 'read_sales', 'read_shop_coupons' ],
+				'mock'             => [],
+			],
+			$missing()
+		);
+	}
+
+	/**
+	 * 拡張のフィルターが例外を投げても `/connections` は落ちない（拡張の分を捨てる）。
+	 */
+	public function test_get_connections_survives_a_throwing_scope_filter(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save( [ 'access_token' => 'token' ] );
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn () => throw new \LogicException( 'boom' ) );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [], $response->get_data()[0]['missing_scopes'] );
 	}
 
 	public function test_save_connection_returns_404_for_unknown_platform(): void {

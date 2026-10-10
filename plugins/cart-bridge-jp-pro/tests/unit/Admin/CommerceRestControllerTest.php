@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
+use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WC_Coupon;
@@ -69,6 +70,53 @@ final class CommerceRestControllerTest extends WP_UnitTestCase {
 		if ( null !== $commerce ) {
 			$this->register_commerce_adapter( $commerce );
 		}
+	}
+
+	/**
+	 * R3-6c2: 無料版だけで接続した（商品のスコープだけの）トークンでは、顧客・受注・クーポンを選択肢に出さず、足りないスコープを返す
+	 * （画面が再接続を促す）。5 つを持つトークンは今までどおり。
+	 */
+	public function test_a_products_only_colorme_token_hides_the_commerce_entities_until_reconnected(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$connection = function ( array $scopes ): array {
+			( new TokenStore( ColorMeAdapter::ID ) )->save(
+				[
+					'access_token' => 'token',
+					'scopes'       => $scopes,
+				]
+			);
+			AdapterRegistry::reset_cache();
+			$this->forget_commerce_adapters();
+
+			$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data()[0];
+
+			return [
+				'missing' => $data['missing_scopes'],
+				'import'  => array_column( $data['entities']['import'], 'key' ),
+				'export'  => array_column( $data['entities']['export'], 'key' ),
+			];
+		};
+
+		$products_only = $connection( [ 'read_products', 'write_products' ] );
+
+		$this->assertSame( [ 'read_sales', 'write_sales', 'read_shop_coupons' ], $products_only['missing'] );
+		$this->assertSame( [], array_values( array_intersect( [ 'customer', 'order', 'coupon' ], $products_only['import'] ) ) );
+		$this->assertSame( [], array_values( array_intersect( [ 'customer', 'order', 'coupon' ], $products_only['export'] ) ) );
+
+		$all = $connection( [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ] );
+
+		$this->assertSame( [], $all['missing'] );
+		$this->assertSame( [ 'customer', 'order', 'coupon' ], array_values( array_intersect( $all['import'], [ 'customer', 'order', 'coupon' ] ) ) );
+		$this->assertContains( 'customer', $all['export'] );
 	}
 
 	/**

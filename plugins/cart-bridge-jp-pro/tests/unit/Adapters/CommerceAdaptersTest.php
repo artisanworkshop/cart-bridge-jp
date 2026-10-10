@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Tests\Adapters;
 
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Core\Activator;
@@ -15,6 +16,7 @@ use CartBridgeJP\Pro\Adapters\ColorMe\ColorMeCommerceAdapter;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
+use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WP_UnitTestCase;
@@ -141,5 +143,75 @@ final class CommerceAdaptersTest extends WP_UnitTestCase {
 		CommerceAdapters::reset_cache();
 
 		$this->assertInstanceOf( MockCommerceAdapter::class, CommerceAdapters::get( $adapter ) );
+	}
+
+	/**
+	 * R3-6c2: 接続済みのトークンに顧客・受注・クーポンのスコープが 1 つでも欠けていれば ColorMe を組み立てない（無料版だけで接続した後に
+	 * Pro を有効にした。画面は再接続を促す）。記録の無いトークン（R3-6c2 より前の版が保存した。5 つを持つ）は組み立てる。
+	 *
+	 * @return array<string,array{0:?array<int,string>,1:bool}>
+	 */
+	public static function granted_scopes(): array {
+		return [
+			'products only'           => [ [ 'read_products', 'write_products' ], false ],
+			'coupons missing'         => [ [ 'read_products', 'write_products', 'read_sales', 'write_sales' ], false ],
+			'write_sales missing'     => [ [ 'read_products', 'write_products', 'read_sales', 'read_shop_coupons' ], false ],
+			'nothing (broken record)' => [ [], false ],
+			'all five'                => [ [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ], true ],
+			'commerce scopes only'    => [ [ 'read_sales', 'write_sales', 'read_shop_coupons' ], true ],
+			'no record (legacy)'      => [ null, true ],
+		];
+	}
+
+	/**
+	 * @dataProvider granted_scopes
+	 *
+	 * @param ?array<int,string> $scopes トークンに記録したスコープ（null は記録なし）。
+	 * @param bool               $built  組み立てるか。
+	 */
+	public function test_colorme_is_built_only_when_the_token_has_the_commerce_scopes( ?array $scopes, bool $built ): void {
+		$payload = [ 'access_token' => 'token' ];
+
+		if ( null !== $scopes ) {
+			$payload['scopes'] = $scopes;
+		}
+
+		( new TokenStore( ColorMeAdapter::ID ) )->save( $payload );
+
+		$commerce = CommerceAdapters::get( new ColorMeAdapter() );
+
+		if ( $built ) {
+			$this->assertInstanceOf( ColorMeCommerceAdapter::class, $commerce );
+		} else {
+			$this->assertNull( $commerce );
+		}
+	}
+
+	/**
+	 * 未接続（要再接続を含む）は組み立てる: 今までどおり API の呼び出しが「未接続」で失敗し、その案内に任せる。
+	 */
+	public function test_colorme_is_built_when_not_connected(): void {
+		$this->assertNull( ( new ColorMeAdapter() )->granted_scopes() );
+		$this->assertInstanceOf( ColorMeCommerceAdapter::class, CommerceAdapters::get( new ColorMeAdapter() ) );
+
+		update_option( 'cbjp_token_' . ColorMeAdapter::ID, 'not-a-valid-ciphertext' );
+
+		$this->assertTrue( ( new TokenStore( ColorMeAdapter::ID ) )->needs_reconnect() );
+		$this->assertInstanceOf( ColorMeCommerceAdapter::class, CommerceAdapters::get( new ColorMeAdapter() ) );
+	}
+
+	/**
+	 * Pro が有効なとき、無料版の認可は顧客・受注・クーポンのスコープも要求する（R3-6c2 より前と同じ 5 つ）。
+	 */
+	public function test_pro_adds_the_commerce_scopes_to_the_colorme_authorization(): void {
+		$this->assertSame( ColorMeOAuth::LEGACY_SCOPES, ColorMeOAuth::scopes() );
+	}
+
+	public function test_add_oauth_scopes_adds_only_for_the_bundled_platforms(): void {
+		$this->assertSame( [ 'read_products', 'read_sales', 'write_sales', 'read_shop_coupons' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], ColorMeAdapter::ID ) );
+		$this->assertSame( [ 'read_products' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], 'mock' ) );
+		$this->assertSame( [ 'read_products' ], CommerceAdapters::add_oauth_scopes( [ 'read_products' ], null ) );
+		// 先行するフィルターが壊した値には足さずにそのまま返す（無料版の検証が拡張の分を捨てる）。
+		$this->assertSame( 'broken', CommerceAdapters::add_oauth_scopes( 'broken', ColorMeAdapter::ID ) );
 	}
 }

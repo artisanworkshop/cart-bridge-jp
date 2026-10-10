@@ -19,7 +19,8 @@ use WeakMap;
  * 接続先（無料版の `PlatformAdapter`）ごとの `CommerceAdapter`（R3-6c1）。実体の種類はここから引く。
  *
  * 組み立ては `cbjp/pro/commerce_adapters/register` フィルターの `platform => callable( PlatformAdapter ): ?CommerceAdapter`。同梱は ColorMe
- * （型が `ColorMeAdapter` のときだけ。同じ `colorme` のキーで登録した別のアダプタ〈検証用の mock など〉には作らない）。フィルターは
+ * （型が `ColorMeAdapter` のときだけ。同じ `colorme` のキーで登録した別のアダプタ〈検証用の mock など〉には作らない。接続済みのトークンに
+ * 顧客・受注・クーポンのスコープが無いときも作らない。R3-6c2）。フィルターは
  * テストと検証用の mock（`verify-with-mock-adapter`）が使う口で、戻り値は信用しない（原則 8）: 配列でない・呼べない・`CommerceAdapter` で
  * ない・`id()` が接続先と違う・例外を投げる、はどれも「この接続先には無い」（null）に倒して記録する。
  *
@@ -65,13 +66,44 @@ final class CommerceAdapters {
 	}
 
 	/**
-	 * 同梱の組み立て（ColorMe）。
+	 * 無料版の `cbjp/oauth/scopes` のコールバック（R3-6c2）: 同梱の接続先に、顧客・受注・クーポンに要るスコープを足す。先行するフィルターが
+	 * 配列以外を返していても落ちないよう、型を宣言せず受ける（配列でなければ足さずにそのまま返し、無料版の検証に任せる）。
+	 *
+	 * @param mixed $scopes   要求するスコープ。
+	 * @param mixed $platform 接続先の ID。
+	 * @return mixed
+	 */
+	public static function add_oauth_scopes( mixed $scopes, mixed $platform ): mixed {
+		$extra = self::bundled_oauth_scopes()[ is_string( $platform ) ? $platform : '' ] ?? [];
+
+		if ( ! is_array( $scopes ) || [] === $extra ) {
+			return $scopes;
+		}
+
+		return array_merge( $scopes, $extra );
+	}
+
+	/**
+	 * 同梱の組み立て（ColorMe）。ColorMe はトークンに顧客・受注・クーポンのスコープが無ければ組み立てない（R3-6c2）。
 	 *
 	 * @return array<string,callable(PlatformAdapter):?CommerceAdapter>
 	 */
 	private static function bundled(): array {
 		return [
-			ColorMeAdapter::ID => static fn ( PlatformAdapter $adapter ): ?CommerceAdapter => $adapter instanceof ColorMeAdapter ? new ColorMeCommerceAdapter( $adapter ) : null,
+			ColorMeAdapter::ID => static fn ( PlatformAdapter $adapter ): ?CommerceAdapter => $adapter instanceof ColorMeAdapter && ColorMeCommerceAdapter::has_required_scopes( $adapter )
+				? new ColorMeCommerceAdapter( $adapter )
+				: null,
+		];
+	}
+
+	/**
+	 * 同梱の接続先 => 足す OAuth のスコープ。
+	 *
+	 * @return array<string,array<int,string>>
+	 */
+	private static function bundled_oauth_scopes(): array {
+		return [
+			ColorMeAdapter::ID => ColorMeCommerceAdapter::OAUTH_SCOPES,
 		];
 	}
 
