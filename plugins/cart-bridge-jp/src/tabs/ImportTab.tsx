@@ -14,6 +14,7 @@ import apiFetch from '../api';
 import { activeRunsSeed, runsToAnnounce, untrackedRuns } from '../active-runs';
 import ActiveRunNotice from '../components/ActiveRunNotice';
 import MappingNotice from '../components/MappingNotice';
+import MissingScopesNotice from '../components/MissingScopesNotice';
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
 import { entityLabels } from '../entity-labels';
@@ -478,6 +479,8 @@ export default function ImportTab() {
 							onChange={ setPlatform }
 						/>
 					) }
+
+					<MissingScopesNotice connection={ currentConnection } />
 
 					<p>
 						<strong>

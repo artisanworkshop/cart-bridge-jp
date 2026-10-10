@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-10T02:48:24+00:00\n"
+"POT-Creation-Date: 2026-10-10T12:42:18+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -29,11 +29,11 @@ msgstr ""
 msgid "Artisan Workshop"
 msgstr ""
 
-#: cart-bridge-jp.php:88
+#: cart-bridge-jp.php:89
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr ""
 
-#: cart-bridge-jp.php:101
+#: cart-bridge-jp.php:102
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
@@ -41,174 +41,174 @@ msgstr ""
 msgid "Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:137
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:148
 msgid "Client ID"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:140
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:151
 msgid "From your Color Me Shop developer app registration."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:144
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:155
 msgid "Client Secret"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:151
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:162
 msgid "Connect to Color Me Shop"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:164
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:175
 msgid "Not connected yet."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:177
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:188
 msgid "The platform returned an unexpected response. Please try again."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:208
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:219
 msgid "The connection changed while testing. Please try again."
 msgstr ""
 
 #: includes/Admin/Menu.php:20
 #: includes/Admin/Menu.php:21
-#: build/index.js:26
+#: build/index.js:28
 msgid "Cart Bridge JP"
 msgstr ""
 
-#: includes/Admin/RestController.php:438
+#: includes/Admin/RestController.php:443
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:487
+#: includes/Admin/RestController.php:492
 msgid "No recognized connection fields were provided."
 msgstr ""
 
-#: includes/Admin/RestController.php:497
+#: includes/Admin/RestController.php:502
 msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:565
+#: includes/Admin/RestController.php:570
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:583
+#: includes/Admin/RestController.php:588
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:644
+#: includes/Admin/RestController.php:649
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:652
+#: includes/Admin/RestController.php:657
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:1100
-#: build/index.js:4
+#: includes/Admin/RestController.php:1105
+#: build/index.js:7
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1142
+#: includes/Admin/RestController.php:1147
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1143
+#: includes/Admin/RestController.php:1148
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1167
+#: includes/Admin/RestController.php:1172
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1179
+#: includes/Admin/RestController.php:1184
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1209
+#: includes/Admin/RestController.php:1214
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1272
+#: includes/Admin/RestController.php:1277
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1284
+#: includes/Admin/RestController.php:1289
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1321
-#: includes/Admin/RestController.php:1362
-#: includes/Admin/RestController.php:1432
-#: includes/Admin/RestController.php:1524
+#: includes/Admin/RestController.php:1326
+#: includes/Admin/RestController.php:1367
+#: includes/Admin/RestController.php:1437
+#: includes/Admin/RestController.php:1529
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1446
+#: includes/Admin/RestController.php:1451
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1458
+#: includes/Admin/RestController.php:1463
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1530
+#: includes/Admin/RestController.php:1535
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1557
+#: includes/Admin/RestController.php:1562
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1625
+#: includes/Admin/RestController.php:1630
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1670
+#: includes/Admin/RestController.php:1675
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1675
+#: includes/Admin/RestController.php:1680
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1680
+#: includes/Admin/RestController.php:1685
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1685
+#: includes/Admin/RestController.php:1690
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1691
+#: includes/Admin/RestController.php:1696
 msgid "The platform connection is missing or has expired. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1697
+#: includes/Admin/RestController.php:1702
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1702
+#: includes/Admin/RestController.php:1707
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1712
+#: includes/Admin/RestController.php:1717
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1790
+#: includes/Admin/RestController.php:1795
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1791
+#: includes/Admin/RestController.php:1796
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1803
+#: includes/Admin/RestController.php:1808
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -282,7 +282,7 @@ msgid "Platform value"
 msgstr ""
 
 #: includes/Entities/MappingKind.php:121
-#: build/index.js:13
+#: build/index.js:14
 msgid "— Unmapped —"
 msgstr ""
 
@@ -871,671 +871,687 @@ msgstr ""
 msgid "In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”."
 msgstr ""
 
-#: build/index.js:1
-msgid "Your browser blocked the authorization popup. Please allow popups for this site and try again."
-msgstr ""
-
-#: build/index.js:1
-msgid "Connected"
-msgstr ""
-
-#: build/index.js:1
-msgid "Not connected"
-msgstr ""
-
-#: build/index.js:1
-msgid "Stored credentials could not be decrypted. Please reconnect."
-msgstr ""
-
-#: build/index.js:1
-msgid "Callback URL"
-msgstr ""
-
-#: build/index.js:1
-msgid "Register this exact URL as the app's redirect URI in the platform's developer console before connecting."
-msgstr ""
-
-#: build/index.js:1
-msgid "Credentials are already saved. The fields below are intentionally left blank for security — fill them in only if you want to replace the saved values."
-msgstr ""
-
-#: build/index.js:1
-msgid "Settings saved."
-msgstr ""
-
-#: build/index.js:1
-msgid "Save settings"
-msgstr ""
-
-#. translators: %s: platform label, e.g. "Color Me Shop"
-#: build/index.js:2
-#, js-format
-msgid "Reconnect to %s"
-msgstr ""
-
-#. translators: %s: platform label, e.g. "Color Me Shop"
-#: build/index.js:3
-#, js-format
-msgid "Connect to %s"
-msgstr ""
-
-#: build/index.js:3
-msgid "Trouble connecting locally?"
-msgstr ""
-
-#: build/index.js:3
-msgid "For local development environments where the platform cannot redirect back to this site, authorize manually and paste the resulting code (or the full authorization URL) below."
-msgstr ""
-
-#: build/index.js:3
-msgid "The platform requires the authorization request's redirect URI to match the one registered for the app. Before using this manual link, change the app's registered redirect URI from the callback URL above to urn:ietf:wg:oauth:2.0:oob in the platform's developer console."
-msgstr ""
-
-#: build/index.js:3
-msgid "Get manual authorization link"
-msgstr ""
-
-#: build/index.js:3
-msgid "Authorization code (or URL)"
-msgstr ""
-
-#: build/index.js:3
-msgid "Connected."
-msgstr ""
-
-#: build/index.js:3
-msgid "Submit code"
-msgstr ""
-
-#: build/index.js:3
-msgid "Test connection"
-msgstr ""
-
-#: build/index.js:3
-msgid "Disconnect"
-msgstr ""
-
-#: build/index.js:3
-msgid "Clear saved credentials"
-msgstr ""
-
-#. translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop")
-#: build/index.js:4
-#: build/index.js:5
-#, js-format
-msgid "Connected to %s."
-msgstr ""
-
-#: build/index.js:4
-msgid "Connection OK."
-msgstr ""
-
-#: build/index.js:5
-#: build/index.js:22
-msgid "No platforms are available."
-msgstr ""
-
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: build/index.js:6
+#: build/index.js:2
 #, js-format
 msgid "%1$s %2$s"
 msgstr ""
 
 #. translators: 1: the items of a list so far, 2: the next item. Example: "Products, Customers".
-#: build/index.js:7
+#: build/index.js:3
 #, js-format
 msgctxt "list of items"
 msgid "%1$s, %2$s"
 msgstr ""
 
+#: build/index.js:3
+msgid "Your browser blocked the authorization popup. Please allow popups for this site and try again."
+msgstr ""
+
+#: build/index.js:3
+msgid "Connected"
+msgstr ""
+
+#: build/index.js:3
+msgid "Not connected"
+msgstr ""
+
+#: build/index.js:3
+msgid "Stored credentials could not be decrypted. Please reconnect."
+msgstr ""
+
+#. translators: 1: list of OAuth permission names, e.g. "read_sales, write_sales", 2: platform label, e.g. "Color Me Shop"
+#: build/index.js:4
+#, js-format
+msgid "This connection does not have the permissions that some kinds of records need (%1$s). Click “Reconnect to %2$s” to grant them."
+msgstr ""
+
+#: build/index.js:4
+msgid "Callback URL"
+msgstr ""
+
+#: build/index.js:4
+msgid "Register this exact URL as the app's redirect URI in the platform's developer console before connecting."
+msgstr ""
+
+#: build/index.js:4
+msgid "Credentials are already saved. The fields below are intentionally left blank for security — fill them in only if you want to replace the saved values."
+msgstr ""
+
+#: build/index.js:4
+msgid "Settings saved."
+msgstr ""
+
+#: build/index.js:4
+msgid "Save settings"
+msgstr ""
+
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:5
+#, js-format
+msgid "Reconnect to %s"
+msgstr ""
+
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:6
+#, js-format
+msgid "Connect to %s"
+msgstr ""
+
+#: build/index.js:6
+msgid "Trouble connecting locally?"
+msgstr ""
+
+#: build/index.js:6
+msgid "For local development environments where the platform cannot redirect back to this site, authorize manually and paste the resulting code (or the full authorization URL) below."
+msgstr ""
+
+#: build/index.js:6
+msgid "The platform requires the authorization request's redirect URI to match the one registered for the app. Before using this manual link, change the app's registered redirect URI from the callback URL above to urn:ietf:wg:oauth:2.0:oob in the platform's developer console."
+msgstr ""
+
+#: build/index.js:6
+msgid "Get manual authorization link"
+msgstr ""
+
+#: build/index.js:6
+msgid "Authorization code (or URL)"
+msgstr ""
+
+#: build/index.js:6
+msgid "Connected."
+msgstr ""
+
+#: build/index.js:6
+msgid "Submit code"
+msgstr ""
+
+#: build/index.js:6
+msgid "Test connection"
+msgstr ""
+
+#: build/index.js:6
+msgid "Disconnect"
+msgstr ""
+
+#: build/index.js:6
+msgid "Clear saved credentials"
+msgstr ""
+
+#. translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop")
 #: build/index.js:7
+#: build/index.js:8
+#, js-format
+msgid "Connected to %s."
+msgstr ""
+
+#: build/index.js:7
+msgid "Connection OK."
+msgstr ""
+
+#: build/index.js:8
+#: build/index.js:24
+msgid "No platforms are available."
+msgstr ""
+
+#: build/index.js:8
 msgid "An import preview (dry run)"
 msgstr ""
 
-#: build/index.js:7
+#: build/index.js:8
 msgid "An import"
 msgstr ""
 
-#: build/index.js:7
+#: build/index.js:8
 msgid "An export preview (dry run)"
 msgstr ""
 
-#: build/index.js:7
+#: build/index.js:8
 msgid "An export"
 msgstr ""
 
-#: build/index.js:7
-msgid "A run"
-msgstr ""
-
-#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
 #: build/index.js:8
-#, js-format
-msgid "%1$s stopped because a job failed, but it still blocks new runs and tools on this platform (started %2$s). Retry the failed job or cancel the run."
+msgid "A run"
 msgstr ""
 
 #. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
 #: build/index.js:9
 #, js-format
-msgid "%1$s is running on this platform (started %2$s)."
+msgid "%1$s stopped because a job failed, but it still blocks new runs and tools on this platform (started %2$s). Retry the failed job or cancel the run."
 msgstr ""
 
 #. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
 #: build/index.js:10
 #, js-format
-msgid "%1$s is paused by the platform’s API rate limit and resumes automatically (started %2$s)."
+msgid "%1$s is running on this platform (started %2$s)."
 msgstr ""
 
 #. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
 #: build/index.js:11
 #, js-format
-msgid "%1$s is waiting to run on this platform (started %2$s)."
+msgid "%1$s is paused by the platform’s API rate limit and resumes automatically (started %2$s)."
 msgstr ""
 
 #. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
 #: build/index.js:12
 #, js-format
+msgid "%1$s is waiting to run on this platform (started %2$s)."
+msgstr ""
+
+#. translators: 1: kind of run, e.g. "An import", 2: date and time the run started
+#: build/index.js:13
+#, js-format
 msgid "%1$s is in progress on this platform (started %2$s)."
 msgstr ""
 
-#: build/index.js:12
+#: build/index.js:13
 msgid "Open the Import tab to see its progress"
 msgstr ""
 
-#: build/index.js:12
+#: build/index.js:13
 msgid "Open the Export tab to see its progress"
 msgstr ""
 
-#: build/index.js:12
-#: build/index.js:17
+#: build/index.js:13
+#: build/index.js:19
 msgid "Cancel run"
 msgstr ""
 
-#: build/index.js:12
+#: build/index.js:13
 msgid "No options available yet. Check the connection and try again."
 msgstr ""
 
 #. translators: %s: a mapping id that no longer exists among the current options
-#: build/index.js:13
+#: build/index.js:14
 #, js-format
 msgid "%s (no longer available)"
 msgstr ""
 
-#: build/index.js:13
+#: build/index.js:14
 msgid "There are no mappings to set up for this platform."
 msgstr ""
 
-#: build/index.js:13
+#: build/index.js:14
 msgid "Mapping settings saved."
 msgstr ""
 
-#: build/index.js:13
+#: build/index.js:14
 msgid "Save mappings"
 msgstr ""
 
-#: build/index.js:13
+#: build/index.js:14
 msgid "Some values on the platform are not mapped to WooCommerce yet."
 msgstr ""
 
 #. translators: 1: what is mapped, e.g. "Platform payment method", 2: number of unmapped values, 3: number of values on the platform
-#: build/index.js:14
+#: build/index.js:15
 #, js-format
 msgid "%1$s: %2$d of %3$d not mapped"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:15
 msgid "Records that use an unmapped value are still imported, with a warning in the preview (dry run) report. Set up the mappings before importing. Records imported while a value was unmapped are updated the next time they are imported."
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:15
 msgid "Set up the mappings on the Mappings tab"
 msgstr ""
 
-#: build/index.js:14
+#. translators: %s: platform label, e.g. "Color Me Shop"
+#: build/index.js:16
+#, js-format
+msgid "The connection to %s does not have the permissions that some kinds of records need, so those kinds are not listed."
+msgstr ""
+
+#: build/index.js:16
+msgid "Reconnect on the Connections tab"
+msgstr ""
+
+#: build/index.js:16
 msgid "Pending"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:16
 msgid "Running"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:16
 msgid "Paused (rate limit)"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:16
 msgid "Completed"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:16
 msgid "Failed"
 msgstr ""
 
-#: build/index.js:14
+#: build/index.js:16
 msgid "Cancelled"
 msgstr ""
 
 #. translators: 1: created count, 2: updated count, 3: skipped count, 4: warned count
-#: build/index.js:15
+#: build/index.js:17
 #, js-format
 msgid "Created: %1$d / Updated: %2$d / Skipped: %3$d / Warnings: %4$d"
 msgstr ""
 
 #. translators: 1: processed count, 2: total count
-#: build/index.js:16
+#: build/index.js:18
 #, js-format
 msgid "%1$d of %2$d processed"
 msgstr ""
 
 #. translators: %d: processed count so far
-#: build/index.js:17
+#: build/index.js:19
 #, js-format
 msgid "%d processed so far…"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Waiting for the rate limit to recover. This will resume automatically."
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Retry"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Download this entity’s report (CSV)"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Only include warnings in the CSV report"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Download full report (CSV)"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Reconciled"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Not checked"
 msgstr ""
 
-#: build/index.js:17
-#: build/index.js:18
+#: build/index.js:19
+#: build/index.js:20
 msgid "Missing links"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Fewer in WooCommerce"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "More in WooCommerce"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Totals differ"
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Some records could not be checked in WooCommerce. Their type may not be available on this site (for example, after an add-on was deactivated), or the check failed."
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Some linked records no longer exist in WooCommerce. Import again to recreate them."
 msgstr ""
 
-#: build/index.js:17
+#: build/index.js:19
 msgid "Some records fetched from the platform are not in WooCommerce. Check the warnings above and the preview (dry-run) report. If the links were lost (for example after a database move), run “Rebuild links” on the Tools tab."
 msgstr ""
 
 #. translators: 1: platform currency code, 2: store currency code
-#: build/index.js:18
+#: build/index.js:20
 #, js-format
 msgid "Platform totals are in %1$s but the store currency is %2$s. Amounts were stored without conversion, so the totals cannot be reconciled."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "WooCommerce holds more linked records than this run fetched. They were imported by earlier runs (for example records that have since been removed on the platform)."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "The totals differ between the platform and WooCommerce even though the counts match. Check the records with warnings."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Every record fetched in this run exists in WooCommerce and the totals match."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Every record fetched in this run exists in WooCommerce."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Verification report"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Entity"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Fetched from platform"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Written in this run"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Skipped"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "In WooCommerce"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Platform total"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "WooCommerce total"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Status"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "(deleted from WooCommerce since this was recorded)"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Some items could not be confirmed as created or rejected on the connected platform. They will not be re-sent automatically. Check the platform’s own admin screen to see whether each item actually exists there before resolving it below."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "A run is in progress for this platform. Wait for it to finish before resolving these items."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Type"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Details"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Sent at"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Resolve"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Edit in WooCommerce"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Mark as not created"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Platform ID"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Link and resolve"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Uploads the WooCommerce product images to the connected shop. When this is off, add product images in the shop’s own admin screen after exporting."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Turning it on sends products that were already exported again (as updates) on the next export, and images already registered in the shop at the same positions are overwritten by the WooCommerce images."
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "All levels"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Debug"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Info"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Warning"
 msgstr ""
 
-#: build/index.js:18
+#: build/index.js:20
 msgid "Error"
 msgstr ""
 
 #. translators: 1: a kind of record, e.g. "Products", 2: how many of them
-#: build/index.js:19
+#: build/index.js:21
 #, js-format
 msgid "%1$s: %2$d"
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Connections"
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Mappings"
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Reconnect the platform on the Connections tab before setting up mappings."
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Connect a platform on the Connections tab before setting up mappings."
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Mappings connect values on the platform to values in WooCommerce. Each section below explains when its mapping is used. Set up the mappings before you import or export."
 msgstr ""
 
-#: build/index.js:19
-#: build/index.js:20
+#: build/index.js:21
 #: build/index.js:22
+#: build/index.js:24
 msgid "Platform"
 msgstr ""
 
-#: build/index.js:19
+#: build/index.js:21
 msgid "Import"
 msgstr ""
 
 #. translators: %s: list of the selected kinds of records, e.g. "Categories, Products"
-#: build/index.js:20
+#: build/index.js:22
 #, js-format
 msgid "This will write real WooCommerce data (%s) to this site. Continue?"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Connect a platform on the Connections tab before importing."
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Import setup"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Entities to migrate"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Preview (dry run)"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Run import"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Preview results"
 msgstr ""
 
-#: build/index.js:20
-#: build/index.js:21
+#: build/index.js:22
+#: build/index.js:23
 msgid "Clear"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Import results"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Export"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Connect a platform on the Connections tab before exporting."
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Mappings between platform values and WooCommerce values are set on the Mappings tab. Set them up before exporting."
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Open the Mappings tab"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Export setup"
 msgstr ""
 
-#: build/index.js:20
+#: build/index.js:22
 msgid "Entities to export"
 msgstr ""
 
 #. translators: %s: entity name, e.g. "Orders"
-#: build/index.js:21
+#: build/index.js:23
 #, js-format
 msgid "%s (Beta)"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Options"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Upload product images (Beta)"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Upload product images"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Running an export is disabled until this setting loads. Reload the page to try again."
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Preview export (dry run, no writes)"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Run export"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Preview export results"
 msgstr ""
 
-#: build/index.js:21
+#: build/index.js:23
 msgid "Export results"
 msgstr ""
 
 #. translators: %s: list of entity labels, e.g. "Products, Customers"
-#: build/index.js:22
+#: build/index.js:24
 #, js-format
 msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Logs"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Job ID"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Level"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "No logs found."
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Time"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Job"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Message"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Context"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Previous"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Next"
 msgstr ""
 
-#: build/index.js:22
+#: build/index.js:24
 msgid "Tools"
 msgstr ""
 
-#: build/index.js:22
-#: build/index.js:23
+#: build/index.js:24
+#: build/index.js:25
 msgid "Rebuild links"
 msgstr ""
 
 #. translators: %s: platform label
-#: build/index.js:23
+#: build/index.js:25
 #, js-format
 msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
 msgstr ""
 
-#: build/index.js:23
+#: build/index.js:25
 msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
 msgstr ""
 
 #. translators: %d: number of links restored so far
-#: build/index.js:24
+#: build/index.js:26
 #, js-format
 msgid "Scanning… %d link restored so far."
 msgid_plural "Scanning… %d links restored so far."
@@ -1543,7 +1559,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of links restored
-#: build/index.js:25
+#: build/index.js:27
 #, js-format
 msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
@@ -1551,7 +1567,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %s: list of kinds of records, e.g. "Products, Orders"
-#: build/index.js:26
+#: build/index.js:28
 #, js-format
 msgid "Some kinds of records could not be scanned, so their links were not restored: %s. Check the Logs tab for the reason."
 msgstr ""
