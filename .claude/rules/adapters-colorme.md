@@ -76,7 +76,10 @@ paths:
 - **ColorMe の OAuth スコープ（R3-6c2）**: 無料版は商品の 2 つ（`ColorMeOAuth::BASE_SCOPES`）だけを要求し、拡張（Pro）は `Adapters\OAuthScopes::add()` で宣言する（**フィルターにしない**: 鎖の途中の別の拡張の例外・置き換えで失われ、認可の要求と Pro の判定がずれる。PR #118 G1-3・G3-B1）。付与されたスコープ（トークン応答の `scope`）は
   `TokenStore` の payload の `scopes` に**トークンと同じ CAS で**書く（`save_token_if_credentials_match()` の第 4 引数。別の書込みにすると、間に読んだ側が「記録なし」と読む）。
   応答に `scope` が無いときの「要求したもの」は、交換の時点で求め直さず `authorize_url()` が認可ごとに控えたもの（state／OOB はユーザー）を使う（PR #118 G1-1）。
+  OOB の控えはユーザーごとに 1 つなので、手動のリンクを取り直したら両方が要求したスコープだけを残す（どのコードでも要求していないスコープを記録しない。G2-1）。
   **記録の無いトークンは R3-6c2 より前の版のものとして 5 つ（`LEGACY_SCOPES`）を持つと読む**（`ColorMeOAuth::granted_scopes_in()`）ので、テスト・検証スクリプト・スキルで
   `TokenStore::save()` に `scopes` を渡さずにトークンを書くと、5 つを持つ接続になる。スコープの欠けを再現するときは `scopes` を明示する。Pro は 3 つ（`ColorMeCommerceAdapter::OAUTH_SCOPES`）が
   そろわない ColorMe では顧客・受注・クーポンを組み立てず、`CommerceAdapters::get_required()` は「扱えない」ではなく `not_connected` の `ApiException` を投げる
-  （扱えないと答えると push intent が「未作成」での解除へ案内され、再接続後に重複して作られうる。R3-6c2 review-loop R1-1）。未接続は組み立てる
+  （扱えないと答えると push intent が「未作成」での解除へ案内され、再接続後に重複して作られうる。R3-6c2 review-loop R1-1）。投げるのは**同梱の組み立てがスコープの不足で
+  組み立てなかったときだけ**（`MissingScopesException` → キャッシュの理由 `missing_scopes`）。外部の登録が組み立てを外した・失敗したときは、接続し直しても戻らないので
+  「扱えない」のまま（PR #118 G2-B1）。未接続は組み立てる
