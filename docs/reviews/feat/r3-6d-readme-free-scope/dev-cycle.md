@@ -3,7 +3,7 @@
 - 開始: 2026-10-11
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: 作成後に番号を記入
-- 現在のステップ: 3（review-loop R1）
+- 現在のステップ: 4〜5（PR 作成・CI 待ち）
 - Copilot: 依頼 0 回
 - Codex: 依頼 0 回
 
@@ -13,3 +13,4 @@
 | 2026-10-11 00:11 | 1 | 計画承認（Pro の案内は readme の Description 1 文と FAQ 1 件・URL は Pro の公開準備で足し ReadmeTest が 1.0.0 以上で止める・管理画面には出さない。0.1.0 向けは changelog と Upgrade Notice） |
 | 2026-10-11 00:22 | 2 | 実装コミット（73a2b43 readme・Description・i18n・ReadmeTest、e48d046 スクリーンショットと撮影スキル、e5a4a0c docs）。`quality.sh` green（無料版 1241・Pro 589・Jest 91）。ReadmeTest の新しいガードを mutate-check で確認（変異 7 種が CAUGHT）、撮影の Pro ガードは Pro を有効にして止まることを実測。Plugin Check（readme・ヘッダー・商標）エラー 0、`bin/build-zip.sh` OK |
 | 2026-10-11 00:39 | 3 | review-loop R1（自己＋独立 opus）: Critical/High 0・Medium 1（0.1.0 の軽減税率の税区分を changelog に）・Low 6・対象外 2 → Medium と Low 6 件・対象外 1 件を修正（f7e4a47 と docs）、対象外 1 件を backlog。`quality.sh` green |
+| 2026-10-11 00:49 | 3 | review-loop R2（独立 opus の検証）: R1 の全件解消（R1-4 は変異 7 種で実測）・新規 Critical/High 0 → APPROVE。新規 Low 4 件（往復・アンインストールの FAQ も検査・記録の範囲・コメント・受注の税額）を修正（5a4da38 と docs）。`quality.sh` green |

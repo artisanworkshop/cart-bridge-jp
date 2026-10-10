@@ -1035,16 +1035,16 @@ main の ja の訳を引き継ぐ。backlog）。
 - FAQ: 往復の例を商品だけに、Beta を商品画像だけに、アンインストールを「移したデータは残る」に。Pro の FAQ を新設（上の「決め残し」5）。
 - changelog 1.0.0: 初回公開の範囲と、0.1.0 から更新するサイト向けに (1) 件数の上限が無くなった（数字は書かない。`ReadmeTest` の上限の検出に掛かる）、(2) 顧客・受注・クーポンは移さなくなり Pro が移す。取り込み済みのものは WooCommerce に残り、無料版は変更しない、
   (3) 0.1.0 で取り込んだ顧客・受注の県が 23 県で別の県になっている（例: 秋田 → 宮城。§10.3「県コード修復ツール」の記録）。再取込みでは直らないことがある（checksum 一致スキップ）ので手で直す、
-  (4) 日本語でインストールした WooCommerce では、0.1.0 が軽減税率の商品と受注の明細を標準の税区分に入れた（軽減税率の税区分のスラッグが `reduced-rate` でないため。§10.2「税区分の見分け方」の既知の限界）。再取込みでは直らないことがあるので商品の税区分を手で変える（review-loop R1-1）、
+  (4) 日本語でインストールした WooCommerce では、0.1.0 が軽減税率の商品を標準の税区分に入れた（軽減税率の税区分のスラッグが `reduced-rate` でないため。§10.2「税区分の見分け方」の既知の限界。受注の明細の税区分も標準だが、税額は ColorMe の値を `set_taxes()` で保存したので受注の金額は誤っていない）。再取込みでは直らないことがあるので商品の税区分を手で変える（review-loop R1-1・R2-4）、
   (5) OAuth は商品の権限だけを求める。既存の接続は付与済みの権限（顧客・受注・クーポンを含む）のまま動き、外したいときは Color Me Shop で認可を取り消して接続し直す（R3-6c2 review-loop R1-5）、(6) 商品名（R3-3 からの項目）。
 - `== Upgrade Notice ==` 1.0.0: 顧客・受注・クーポンはもう移さない（Pro が移す）・0.1.0 で取り込んだデータの県・税区分が誤っていることがある（changelog を参照）。
 
 **ヘッダー・i18n**: プラグインヘッダーと `composer.json` の Description を「Migrate products and stock between Color Me Shop and WooCommerce.」にし、POT・日本語訳（「カラーミーショップと WooCommerce の間で、商品と在庫を移行します。」）を更新。
 UI の文字列に顧客・受注を名指しするものは残っていない（POT を確認。税の警告の「取り込み済みの受注は標準税率のまま」は Pro を併用したときの事実なので残した）。
 
-**`ReadmeTest`**: Import/Export/External services の小見出しに customer・order・coupon・payment method・shipping method が無い（R3-6c1 の後に readme が古いまま残った退行の検出）、
+**`ReadmeTest`**: 無料版の機能・API の説明（短い説明・ヘッダーの Description・Description の小見出し〔Import/Export/Before and after/External services〕・Installation・キャプション・Beta・往復・アンインストールの FAQ）に customer・order・coupon・payment method・shipping method が無い（HPOS の正式名は除く。R3-6c1 の後に readme が古いまま残った退行の検出。範囲は review-loop R1-4・R2-1 で広げた）、
 Pro の FAQ が Cart Bridge JP Pro を名指しし Description も名指しする・1.0.0 以上では `https://` の URL を含む、Upgrade Notice の各版が 300 字以内・マークアップなしで 1.0.0 の通知がある。
-変異 7 種（顧客の行・External services の決済と配送・FAQ の質問・Description の Pro・通知の長さ・マークアップ・1.0.0 の通知）がすべて検出された。
+変異（顧客の行・External services の決済と配送・FAQ の質問・Description の Pro・通知の長さ・マークアップ・1.0.0 の通知と、R1-4 で広げた各箇所に旧文言を戻すもの）がすべて検出された。
 
 **スクリーンショット**（`wporg-screenshots`）: Pro を無効にして撮る（`capture.sh` が `cart-bridge-jp-pro` を無効にし、`setup.php` が Pro の定数が無いこと・登録された種類が無料版のものだけであることを確かめる。Pro を有効にしたまま実行すると止まることを確認）。
 マッピングはカテゴリだけを作り、mu-plugin から顧客の差し替えと顧客・受注・クーポンの一覧を外した。在庫は dry-run に含めない（商品を書かない dry-run では在庫が全件「商品がまだ無い」でスキップと写る。試し撮りで確認）。

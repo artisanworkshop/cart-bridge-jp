@@ -823,7 +823,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     readme の Description の 1 文と FAQ「Can it migrate customers, orders, and coupons?」で Cart Bridge JP Pro を名指しし、URL は Pro の公開準備で足す（`ReadmeTest` が 1.0.0 以上で URL の無い案内を止める）。
     管理画面には出さない。0.1.0 のサイト向けは changelog（取込みの上限の撤廃・顧客/受注/クーポンが Pro へ・県の誤り〔23 県。手で直す〕・日本語の WooCommerce での軽減税率の税区分〔手で直す〕・OAuth の権限・商品名）と Upgrade Notice（Pro・県と税区分の確認）。
     ヘッダーと `composer.json` の Description を「Migrate products and stock between Color Me Shop and WooCommerce.」にし、POT・日本語訳を更新。
-    `ReadmeTest` に 3 件（Import/Export/External services に顧客・受注・クーポン・決済・配送が無い・Pro の FAQ・Upgrade Notice の 300 字とマークアップ）を足した（変異 7 種がすべて検出）。
+    `ReadmeTest` に 3 件（無料版の機能・API の説明〔短い説明・ヘッダー・Description の小見出し・Installation・キャプション・Beta/往復/アンインストールの FAQ〕に顧客・受注・クーポン・決済・配送が無い・Pro の FAQ・Upgrade Notice の 300 字とマークアップ）を足した（旧文言を戻す変異がすべて検出）。
     スクリーンショット 2・3・4 を撮り直した（1・5 はメニューのバッジだけの差なので戻した）。`wporg-screenshots` は Pro を無効にして撮り、`setup.php` が Pro の無いことと無料版の種類だけであることを確かめ、
     マッピングはカテゴリだけを作る。在庫は dry-run に含めない（商品を書かない dry-run では全件スキップと写る）。詳細は `docs/03` §10.0「R3-6d の実装」
 - [ ] **Pro の公開準備**（R3-6 の後。v1.0 と同時に出す。範囲は顧客・受注・クーポンの移行・試用〔各 100 件。決め残し 4〕・ライセンス〔WooCommerce API Manager〕と更新配信・Pro の翻訳〔backlog `r3-7-monorepo/G1-1`〕・
