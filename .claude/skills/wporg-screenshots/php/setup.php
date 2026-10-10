@@ -5,15 +5,14 @@
  * 引数: <tests サイトの home_url> <dry-run するエンティティ（カンマ区切り）>
  *
  * 1. 前提を肯定形で確かめる: home_url が引数と一致する（＝ tests サイト）／撮影用 mu-plugin が読み込まれている（＝ Color Me Shop API へは
- *    出ていかずフィクスチャが返る）／`colorme` が実 `ColorMeAdapter` で登録されている／ユーザー 1 が `manage_woocommerce` を持つ／
+ *    出ていかずフィクスチャが返る）／`colorme` が実 `ColorMeAdapter` で登録されている／Pro アドオンが読み込まれておらず、登録された実体の
+ *    種類が無料版のものだけ（readme の画面は無料版だけ。`capture.sh` が Pro を無効にする。R3-6d）／ユーザー 1 が `manage_woocommerce` を持つ／
  *    `colorme` のトークンが無いか、このスキルの偽のトークンである（別のトークンなら何も変えずに止まる。上書きすると元の接続が失われる）。
  * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す、
  *    ユーザー 1 の言語を英語にする（`wait_for` は英語の文言）。
- * 3. 偽のトークンで `colorme` に接続した状態にし（`TokenStore`。tests サイトだけ）、決済（銀行振込・代引き）と配送（日本・定額）を有効にする。
- * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。Woo のカテゴリ `Apparel`・
- *    `Accessories` を作って Color Me Shop の先頭 2 つに、決済は名前（代引き → cod、振込 → bacs）で、配送は Color Me Shop の先頭を
- *    撮影用ゾーン `Japan` の定額配送に、
- *    受注の状態は同じ ID どうしを対応させる。
+ * 3. 偽のトークンで `colorme` に接続した状態にする（`TokenStore`。tests サイトだけ）。
+ * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。無料版のマッピングはカテゴリだけで、
+ *    Woo のカテゴリ `Apparel`・`Accessories` を作って Color Me Shop の先頭 2 つに対応させる（決済・配送・注文ステータスは Pro の節。R3-6d）。
  * 5. 開いたままの `colorme` の run（前回の撮影が途中で止まったもの）をキャンセルしてから dry-run を始め、Action Scheduler の
  *    ジョブをここで処理し（規約は `.claude/rules/skill-scripts.md`）、すべてのジョブが完了したことを確かめる。途中で止まるときは
  *    自分の run をキャンセルしてから終わる（開いた run が残ると、次の撮影と、同じ DB を使う PHPUnit の一部が 409 になる）。
@@ -21,13 +20,14 @@
  *
  * 何度実行してもよい（カテゴリは名前で再利用し、マッピングは丸ごと置き換え、dry-run は毎回新しく始める）。
  * PHPUnit は tests サイトと同じ DB・同じ接頭辞を使い、起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけ。
- * プラグインと WooCommerce の独自テーブル（ジョブ・dry-run の明細・ログ・Action Scheduler・配送ゾーン）の行は残る。
+ * プラグインと WooCommerce の独自テーブル（ジョブ・dry-run の明細・ログ・Action Scheduler）の行は残る。
  *
  * @package CartBridgeJP
  */
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
+use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\JobManager;
 
@@ -71,6 +71,15 @@ if ( ! defined( 'CBJP_SCREENSHOT_FIXTURES' ) ) {
 if ( ! AdapterRegistry::get( 'colorme' ) instanceof ColorMeAdapter ) {
 	$cbjp_shot_fail( "'colorme' is not registered as the bundled ColorMeAdapter." );
 }
+// readme の画面は無料版だけ（R3-6d）。Pro が有効だと顧客・受注・クーポンの選択肢と決済・配送のマッピングの節が写る。
+// 種類の一覧が無料版の種類に収まることも確かめる（Pro 以外の拡張が種類を足していても、無料版の画面ではなくなる）。
+$cbjp_shot_free_types = [ 'category', 'tag', 'product', 'stock', 'review' ];
+if ( defined( 'CBJP_PRO_VERSION' ) ) {
+	$cbjp_shot_fail( 'the Pro add-on is loaded. The screenshots show the free plugin alone (capture.sh deactivates cart-bridge-jp-pro).' );
+}
+if ( [] !== array_diff( EntityTypeRegistry::keys(), $cbjp_shot_free_types ) ) {
+	$cbjp_shot_fail( 'entity types other than the free plugin\'s are registered: ' . implode( ', ', array_diff( EntityTypeRegistry::keys(), $cbjp_shot_free_types ) ) . '.' );
+}
 if ( [] === $cbjp_shot_entities ) {
 	$cbjp_shot_fail( 'no entities to dry-run were given.' );
 }
@@ -113,7 +122,7 @@ update_option( 'woocommerce_store_pages_only', 'no' );
 // 管理画面の言語はユーザー 1 の設定で決まる（ブラウザの言語ではない）。`wait_for` は英語なので英語に固定する（PR #112 G2-B1）。
 update_user_meta( 1, 'locale', 'en_US' );
 
-// 3. 偽のトークンで接続した状態にし、決済と配送を有効にする。
+// 3. 偽のトークンで接続した状態にする。
 ( new TokenStore( 'colorme' ) )->save(
 	[
 		'access_token' => 'screenshot-dummy-token',
@@ -125,44 +134,12 @@ update_user_meta( 1, 'locale', 'en_US' );
 	]
 );
 
-foreach ( [ 'bacs', 'cod' ] as $cbjp_shot_gateway ) {
-	$cbjp_shot_settings = get_option( "woocommerce_{$cbjp_shot_gateway}_settings", [] );
-	update_option( "woocommerce_{$cbjp_shot_gateway}_settings", array_merge( is_array( $cbjp_shot_settings ) ? $cbjp_shot_settings : [], [ 'enabled' => 'yes' ] ) );
-}
-
-// 撮影用の配送ゾーン `Japan` とその定額配送を、名前で探して無ければ作る。配送ゾーンは PHPUnit の後も残り、他のゾーンが
-// あることもあるので、「ゾーンが 1 つも無いときだけ作る」「候補の先頭を対応させる」では画面がサイトの状態で変わる（PR #112 G1-1）。
-$cbjp_shot_zone = null;
-foreach ( WC_Shipping_Zones::get_zones() as $cbjp_shot_zone_row ) {
-	if ( is_array( $cbjp_shot_zone_row ) && 'Japan' === ( $cbjp_shot_zone_row['zone_name'] ?? null ) ) {
-		$cbjp_shot_zone = WC_Shipping_Zones::get_zone( (int) ( $cbjp_shot_zone_row['id'] ?? 0 ) );
-		break;
-	}
-}
-if ( ! $cbjp_shot_zone instanceof WC_Shipping_Zone ) {
-	$cbjp_shot_zone = new WC_Shipping_Zone();
-	$cbjp_shot_zone->set_zone_name( 'Japan' );
-	$cbjp_shot_zone->add_location( 'JP', 'country' );
-	$cbjp_shot_zone->save();
-}
-$cbjp_shot_flat_rate = '';
-foreach ( $cbjp_shot_zone->get_shipping_methods() as $cbjp_shot_method ) {
-	if ( $cbjp_shot_method instanceof WC_Shipping_Method && 'flat_rate' === $cbjp_shot_method->id ) {
-		$cbjp_shot_flat_rate = "flat_rate:{$cbjp_shot_method->instance_id}";
-		break;
-	}
-}
-if ( '' === $cbjp_shot_flat_rate ) {
-	$cbjp_shot_flat_rate = 'flat_rate:' . (int) $cbjp_shot_zone->add_shipping_method( 'flat_rate' );
-}
-
 // 4. 候補一覧から対応を作って保存する（フィクスチャの ID を書き写さない）。
 $cbjp_shot_candidates = $cbjp_shot_rest( 'GET', '/cbjp/v1/settings/mappings/colorme' );
 if ( 200 !== $cbjp_shot_candidates['status'] ) {
 	$cbjp_shot_fail( 'GET mappings returned HTTP ' . $cbjp_shot_candidates['status'] . ': ' . wp_json_encode( $cbjp_shot_candidates['data'] ) );
 }
 $cbjp_shot_asp = $cbjp_shot_candidates['data']['asp_candidates'] ?? [];
-$cbjp_shot_woo = $cbjp_shot_candidates['data']['woo_candidates'] ?? [];
 $cbjp_shot_ids = static function ( $list ): array {
 	return is_array( $list ) ? array_values( array_filter( array_map( static fn( $item ) => is_array( $item ) ? (string) ( $item['id'] ?? '' ) : '', $list ) ) ) : [];
 };
@@ -183,39 +160,8 @@ foreach ( [ 'Apparel', 'Accessories' ] as $cbjp_shot_i => $cbjp_shot_name ) {
 	$cbjp_shot_category_map[ (string) $cbjp_shot_term['term_id'] ] = $cbjp_shot_asp_categories[ $cbjp_shot_i ];
 }
 
-// 配送は Color Me Shop の先頭の配送方法を、上で用意した `Japan` の定額配送（候補にあることを確かめる）に対応させる。
-$cbjp_shot_asp_shipping = $cbjp_shot_ids( $cbjp_shot_asp['shipping'] ?? null );
-$cbjp_shot_shipping_map = [];
-if ( isset( $cbjp_shot_asp_shipping[0] ) && in_array( $cbjp_shot_flat_rate, $cbjp_shot_ids( $cbjp_shot_woo['shipping'] ?? null ), true ) ) {
-	$cbjp_shot_shipping_map[ $cbjp_shot_asp_shipping[0] ] = $cbjp_shot_flat_rate;
-}
-
-// 決済は名前で対応させる（並び順で組むと「代引き → 銀行振込」のように画面に誤った対応が写る）。
-$cbjp_shot_woo_gateways = $cbjp_shot_ids( $cbjp_shot_woo['payment'] ?? null );
-$cbjp_shot_payment_map  = [];
-foreach ( is_array( $cbjp_shot_asp['payment'] ?? null ) ? $cbjp_shot_asp['payment'] : [] as $cbjp_shot_payment ) {
-	$cbjp_shot_name = is_array( $cbjp_shot_payment ) ? (string) ( $cbjp_shot_payment['name'] ?? '' ) : '';
-	foreach ( [ '代引' => 'cod', '振込' => 'bacs' ] as $cbjp_shot_keyword => $cbjp_shot_gateway ) {
-		if ( str_contains( $cbjp_shot_name, $cbjp_shot_keyword ) && in_array( $cbjp_shot_gateway, $cbjp_shot_woo_gateways, true ) ) {
-			$cbjp_shot_payment_map[ (string) $cbjp_shot_payment['id'] ] = $cbjp_shot_gateway;
-			break;
-		}
-	}
-}
-
-$cbjp_shot_woo_status = $cbjp_shot_ids( $cbjp_shot_woo['status'] ?? null );
-$cbjp_shot_status_map = [];
-foreach ( $cbjp_shot_ids( $cbjp_shot_asp['status'] ?? null ) as $cbjp_shot_status ) {
-	if ( in_array( $cbjp_shot_status, $cbjp_shot_woo_status, true ) ) {
-		$cbjp_shot_status_map[ $cbjp_shot_status ] = $cbjp_shot_status;
-	}
-}
-
 $cbjp_shot_mappings = [
 	'category_map' => $cbjp_shot_category_map,
-	'payment_map'  => $cbjp_shot_payment_map,
-	'shipping_map' => $cbjp_shot_shipping_map,
-	'status_map'   => $cbjp_shot_status_map,
 ];
 foreach ( $cbjp_shot_mappings as $cbjp_shot_key => $cbjp_shot_map ) {
 	if ( [] === $cbjp_shot_map ) {

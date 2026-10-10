@@ -33,8 +33,8 @@ R3-3（PR #111）で readme のスクリーンショット 5 枚を撮った手�
    `$S/scripts/capture.sh shoot --out <スクラッチパッド>/shots`
    1〜2 分かかる。最後に `screenshot-N.png` とキャプションの対応を表示する。
 2. **目視で確かめる**（Read で各画像を開く）: キャプションどおりの画面か／エラーの通知が無いか／英語の UI か／
-   写っている名前がフィクスチャのものか（`Example Store`・`localhost:10011`・フィクスチャの日本語の決済・配送・カテゴリ名。実店舗の名前・ドメイン・件数が無いこと）／
-   マッピングの組み合わせが自然か（代引き → Cash on delivery など）。
+   写っている名前がフィクスチャのものか（`Example Store`・`localhost:10011`・フィクスチャの日本語のカテゴリ名。実店舗の名前・ドメイン・件数が無いこと）／
+   無料版だけの画面か（顧客・受注・クーポンの選択肢や、決済・配送・注文ステータスのマッピングの節が無いこと。Pro の画面が写っていない）。
 3. **本番**: `$S/scripts/capture.sh shoot`（`plugins/cart-bridge-jp/.wordpress-org/` を上書きする）。
 4. `git diff --stat plugins/cart-bridge-jp/.wordpress-org/` で変わった画像を見る。描画は決定的で、画面が変わっていなければバイト単位で同じ画像になる。
    変えていない画面に差分が出たら、WooCommerce のメニューのバッジ（`Payments 1` など、WooCommerce 側の状態で出たり消えたりする）の揺れのことが多い。
@@ -48,16 +48,16 @@ mu-plugin とログイン Cookie を消す。モックを先に消すと、残�
 `$S/scripts/capture.sh status` で確かめ、`$S/scripts/capture.sh cleanup` で同じ順に片付ける（mu-plugin が無くても run とトークンは片付ける）。
 
 tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけで、
-撮影で作ったプラグインと WooCommerce の独自テーブルの行（dry-run のジョブ・明細・ログ・Action Scheduler・配送ゾーン）は残る。
+撮影で作ったプラグインと WooCommerce の独自テーブルの行（dry-run のジョブ・明細・ログ・Action Scheduler）は残る。
 完了した run は PHPUnit に影響しない（品質チェックが通ることを確認済み）。開いたままの run は次の撮影の最初にキャンセルする。
 
 ## 仕組み
 
 | ファイル | 役割 |
 |---|---|
-| `scripts/capture.sh` | 前提の確認（キャプションの数・Playwright）→ `npm run build` → tests サイトの応答の確認 → mu-plugin を tests サイトへ置く → WooCommerce と本プラグインを有効化・パーマリンクを `/%postname%/` に → `php/setup.php` → `scripts/shoot.cjs` で一時ディレクトリへ撮り、全部撮れたら出力先へ写す（余った番号の画像があれば警告）→ `php/teardown.php` → mu-plugin と Cookie を消す（後片付けに失敗したら mu-plugin を残し、消せなければ終了コード 1）。最後まで走ったことは `DONE` で確かめ、途中で止まれば終了コード 1 |
-| `templates/mu-plugin-screenshot-fixtures.php` | `pre_http_request` で `api.shop-pro.jp` への GET を、URL のファイル名と同じフィクスチャで返す（一覧の 2 ページ目以降は空、GET 以外はエラー）。撮影向けに、顧客を会員に・グループを表示中で `Sale` に・ショップをプレミアムプランにする（Export タブにベータの機能を出す）。Action Scheduler の過去の予定の通知を止める。PHPCS の対象（`composer lint`） |
-| `php/setup.php` | 前提を肯定形で確かめる（home_url が tests サイト／mu-plugin が読み込まれている／`colorme` が実 `ColorMeAdapter`／`colorme` のトークンが無いか撮影用の偽物。別のトークンなら何も変えずに止まる）。サイト名・通貨・国・ストアの公開・ユーザー 1 の言語（英語）、偽のトークン（`TokenStore`）、銀行振込と代引き、配送（撮影用ゾーン `Japan` とその定額配送。名前で探して無ければ作る）を用意し、Mappings の対応を REST の候補一覧から作って保存する（フィクスチャの ID を書き写さない。決済は名前で対応させる）。開いたままの `colorme` の run をキャンセルしてから dry-run を始め、ジョブをその場で処理する（claim はフック名だけで取り、job_id で自分の run か見分ける。paused の再開は最大 5 分待つ）。全エンティティの完了を確かめてから `RUN_ID=` と `COOKIES=`（1 時間で切れる管理者のログイン Cookie）を出す。途中で止まるときは自分の run をキャンセルする |
+| `scripts/capture.sh` | 前提の確認（キャプションの数・Playwright）→ `npm run build` → tests サイトの応答の確認 → mu-plugin を tests サイトへ置く → Pro アドオン（`cart-bridge-jp-pro`）を無効にし、WooCommerce と本プラグインを有効化・パーマリンクを `/%postname%/` に → `php/setup.php` → `scripts/shoot.cjs` で一時ディレクトリへ撮り、全部撮れたら出力先へ写す（余った番号の画像があれば警告）→ `php/teardown.php` → mu-plugin と Cookie を消す（後片付けに失敗したら mu-plugin を残し、消せなければ終了コード 1）。最後まで走ったことは `DONE` で確かめ、途中で止まれば終了コード 1 |
+| `templates/mu-plugin-screenshot-fixtures.php` | `pre_http_request` で `api.shop-pro.jp` への GET を、URL のファイル名と同じフィクスチャで返す（一覧の 2 ページ目以降は空、GET 以外はエラー）。撮影向けに、グループを表示中で `Sale` に・ショップをプレミアムプランにする（Export タブにベータの機能を出す）。Action Scheduler の過去の予定の通知を止める。PHPCS の対象（`composer lint`） |
+| `php/setup.php` | 前提を肯定形で確かめる（home_url が tests サイト／mu-plugin が読み込まれている／`colorme` が実 `ColorMeAdapter`／Pro が読み込まれておらず、登録された実体の種類が無料版のものだけ／`colorme` のトークンが無いか撮影用の偽物。別のトークンなら何も変えずに止まる）。サイト名・通貨・国・ストアの公開・ユーザー 1 の言語（英語）、偽のトークン（`TokenStore`）を用意し、Mappings の対応（無料版はカテゴリだけ）を REST の候補一覧から作って保存する（フィクスチャの ID を書き写さない）。開いたままの `colorme` の run をキャンセルしてから dry-run を始め、ジョブをその場で処理する（claim はフック名だけで取り、job_id で自分の run か見分ける。paused の再開は最大 5 分待つ）。全エンティティの完了を確かめてから `RUN_ID=` と `COOKIES=`（1 時間で切れる管理者のログイン Cookie）を出す。途中で止まるときは自分の run をキャンセルする |
 | `php/teardown.php` | home_url が tests サイトであることと、`colorme` のトークンが無いか撮影用の偽物（`screenshot-dummy-token`）であることを確かめてから（別のトークン・復号できない値なら何も変えずに失敗）、開いたままの `colorme` の run をキャンセルし、偽のトークンを消す。プラグインか WooCommerce が無効なら片付けられないので、トークンか開いた `colorme` のジョブが残っていれば失敗する（有効にしてから `cleanup`）。何も残っていなければ何もしない（PHPUnit の後など） |
 | `scripts/shoot.cjs` | Cookie でログインし、Import タブが開く run を localStorage（`cbjp_run_dry_run_colorme`）に入れてから、`shots.json` の順に各タブを幅 1280 の全体で撮る。タブごとに `wait_for` の文言が出るまで待ち（30 秒）、`uncheck` のチェックを外し、エラーの通知があれば撮らずに失敗する。フォーカスの枠とホバーは写さない |
 | `shots.json` | `dry_run_entities`（dry-run するエンティティ）と `shots`（`tab`・`wait_for`・任意の `uncheck`）。`shots[i]` が `screenshot-(i+1).png` |
@@ -68,9 +68,10 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
   枚数を減らしたら、余った番号の画像（`capture.sh` が警告する）を `git rm` で消す。
 - `wait_for` は、そのタブが描画し終わったことを示す英語の文言（ボタン・見出し）。UI の文言を変えたら合わせる。
 - Import タブの `uncheck` は、チェックの状態を `dry_run_entities` と同じにするためのもの（結果の節とチェックが食い違う画像になる。R3-3 の R1-L12）。
-  R3-6c1 で顧客・受注・クーポンが Pro へ移った。**撮り直す前に**、`dry_run_entities`（`customer`・`order` を外す）・`uncheck`（`Coupons` は無料版の画面に無い）・
-  Mappings タブの `wait_for`（`Payment method mapping` は Pro の節）を無料版だけの画面に合わせて変える（readme の書き直しと一緒に R3-6d で行う。それまで
-  このスキルは tests サイトで Pro が無効だと止まる）。顧客・受注のフィクスチャは Pro の `plugins/cart-bridge-jp-pro/tests/fixtures/colorme/` に移った。
+  在庫は dry-run に含めない（dry-run は商品を書かないので、在庫は全件が「商品がまだ無い」でスキップと写り、誤解を招く。R3-6d の試し撮りで確認）。
+- **readme の画面は無料版だけ**（R3-6d）。`capture.sh` は Pro アドオンを無効にしてから撮り、`setup.php` は Pro が読み込まれていないこと・登録された実体の種類が
+  無料版のもの（`category`・`tag`・`product`・`stock`・`review`）だけであることを確かめる。顧客・受注・クーポンの種類と、決済・配送・注文ステータスのマッピングの節は Pro のもの
+  （そのフィクスチャは `plugins/cart-bridge-jp-pro/tests/fixtures/colorme/` にあり、mu-plugin は読まない）。tests サイトの Pro は撮影の後も無効のまま（PHPUnit の後は全部無効なので戻さない）。
 - 撮影向けの差し替え（フィクスチャの値を変える）は mu-plugin のテンプレートに足す。mu-plugin は致命的エラーを出さない書き方にする（`.claude/rules/skill-scripts.md`）。
 - 新しい API を呼ぶ画面を撮るなら、そのレスポンスのフィクスチャ（匿名化済み。`plugins/cart-bridge-jp/tests/fixtures/README.md`）が要る。無いと mu-plugin がエラーを返し、画面にエラーの通知が出て撮影が止まる。
 
