@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Adapters;
 
-use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\UnsupportedOperationException;

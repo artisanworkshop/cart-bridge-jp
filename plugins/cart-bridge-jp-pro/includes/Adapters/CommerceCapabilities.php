@@ -7,12 +7,10 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Adapters;
 
-use CartBridgeJP\Adapters\Capabilities;
-
 /**
  * 接続先の顧客・受注・クーポンの能力（`CommerceAdapter::capabilities()`。R3-6c1 で無料版の `Capabilities` から移した）。
  * 能力（プラン・API の可否）の宣言で、店舗の設定では変えない（`Capabilities` と同じ。`.claude/rules/adapters-colorme.md`）。
- * 実体の種類（`Entities\Commerce\*Type`）が取込み・エクスポートの可否とベータの表示に使う。
+ * 実体の種類（`Entities\*Type`）が取込み・エクスポートの可否とベータの表示に使う。
  *
  * 名前付き引数で作る（位置を動かしても呼び出しが黙って意味を変えないように）。新しい引数は末尾に既定値つきで足す。
  */

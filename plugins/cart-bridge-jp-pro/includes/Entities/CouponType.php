@@ -33,7 +33,7 @@ use WC_Coupon;
  * クーポン（`shop_coupon`）。取込み・エクスポートの両方（ColorMe はクーポンを作れないのでエクスポートは対象外）。
  * リモートの ID 指定取得が無いので、push intent の「リンクして解除」はできない（既定の `fetch_by_remote_id()`）。
  *
- * **R3-6c で Pro アドオンへ移す**（D27。`Entities/Commerce/` ごと）。それまでは無料版が `cbjp/entity_types/register` から登録する。
+ * R3-6c1 で無料版の `Entities/Commerce/` から Pro アドオンへ移した（D27。登録は `CommerceEntityTypes`）。
  */
 final class CouponType extends EntityType {
 

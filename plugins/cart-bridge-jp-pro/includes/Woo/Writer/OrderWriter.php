@@ -20,8 +20,6 @@ use CartBridgeJP\Woo\Support\ExtrasMeta;
 use CartBridgeJP\Woo\Support\Value;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\Writer\EntityWriter;
-use CartBridgeJP\Woo\Writer\ProductWriter;
-use CartBridgeJP\Woo\Writer\TermWriter;
 use CartBridgeJP\Woo\Writer\ValidationResult;
 use Automattic\WooCommerce\Caches\OrderCountCache;
 use RuntimeException;

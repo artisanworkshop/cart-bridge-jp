@@ -10,8 +10,8 @@ namespace CartBridgeJP\Pro\Entities;
 /**
  * 顧客・受注・クーポンの種類を `cbjp/entity_types/register` に登録する（R3-6b1）。
  *
- * D27 で顧客・受注・クーポンの移行は Pro アドオンの機能になった。**R3-6c でこの登録ごと Pro へ移す**（`Entities/Commerce/` を
- * `git mv` し、無料版の `Core\Plugin::boot()` から登録を外す）。それまでは無料版自身が、Pro と同じ公開の口から登録する。
+ * D27 で顧客・受注・クーポンの移行は Pro アドオンの機能になった。R3-6c1 でこの登録ごと無料版から移し、Pro の `Core\Plugin::boot()` が
+ * 登録する（無料版の外部の種類と同じ公開の口）。
  */
 final class CommerceEntityTypes {
 

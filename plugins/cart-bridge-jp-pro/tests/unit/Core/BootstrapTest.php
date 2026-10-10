@@ -1,6 +1,6 @@
 <?php
 /**
- * Pro アドオンの起動（R3-7。中身は R3-6 で足す）。
+ * Pro アドオンの起動（R3-7。無料版の拡張点の版の確認は R3-6c1）。
  *
  * @package CartBridgeJP\Pro
  */
@@ -35,6 +35,28 @@ final class BootstrapTest extends WP_UnitTestCase {
 		$this->assertFalse( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( true, false ) );
 		$this->assertSame( 10, has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
 		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_requirements_notice' ) );
+	}
+
+	/**
+	 * R3-6c1: 無料版の拡張点の版（`CBJP_EXTENSION_API_VERSION`）が Pro の要る版より古いと起動せず、更新を促す。
+	 */
+	public function test_does_not_boot_with_an_outdated_free_plugin(): void {
+		$this->assertFalse( \CartBridgeJP\Pro\cbjp_pro_maybe_boot( true, true, CBJP_PRO_REQUIRED_EXTENSION_API - 1 ) );
+		$this->assertSame( 10, has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_outdated_free_plugin_notice' ) );
+		$this->assertFalse( has_action( 'admin_notices', 'CartBridgeJP\\Pro\\cbjp_pro_render_missing_autoload_notice' ) );
+	}
+
+	public function test_reads_the_free_extension_api_version(): void {
+		$this->assertSame( CBJP_EXTENSION_API_VERSION, \CartBridgeJP\Pro\cbjp_pro_free_extension_api() );
+		$this->assertGreaterThanOrEqual( CBJP_PRO_REQUIRED_EXTENSION_API, \CartBridgeJP\Pro\cbjp_pro_free_extension_api(), 'このリポジトリの無料版は Pro が要る版を満たす' );
+	}
+
+	public function test_outdated_free_plugin_notice_is_shown_to_administrators_only(): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$this->assertStringContainsString( 'requires a newer version of Cart Bridge JP', $this->render( 'CartBridgeJP\\Pro\\cbjp_pro_render_outdated_free_plugin_notice' ) );
+
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'shop_manager' ] ) );
+		$this->assertSame( '', $this->render( 'CartBridgeJP\\Pro\\cbjp_pro_render_outdated_free_plugin_notice' ) );
 	}
 
 	public function test_boots_when_the_requirements_are_met(): void {

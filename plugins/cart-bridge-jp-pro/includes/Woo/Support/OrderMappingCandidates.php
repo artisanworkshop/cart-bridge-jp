@@ -7,7 +7,6 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Woo\Support;
 
-use CartBridgeJP\Woo\Support\MappingCandidates;
 use CartBridgeJP\Woo\Support\Value;
 use WC_Payment_Gateway;
 use WC_Shipping_Method;

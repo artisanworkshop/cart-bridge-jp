@@ -15,7 +15,7 @@ use CartBridgeJP\Pro\Woo\Support\OrderMappingCandidates;
 /**
  * 注文ステータス（`status_map`: ASP の受注ステータス → Woo の注文ステータス）。受注の取込みが使う。未設定は既定のステータスに落ちる（警告にならないので取込み前の案内はしない）。
  *
- * **R3-6c で Pro アドオンへ移す**（受注の種類と一緒に）。
+ * R3-6c1 で受注の種類と一緒に Pro アドオンへ移した。
  */
 final class OrderStatusMappingKind extends MappingKind {
 

@@ -20,7 +20,7 @@ final class Money {
 	/**
 	 * 対応 ASP（カラーミー / BASE / MakeShop）の金額の通貨。どれも日本円だけを扱う。店舗通貨がこれと異なる場合、取込みは金額を換算せずに
 	 * 保存して `CURRENCY_MISMATCH` を出し、エクスポートは送らない。移行後検証レポートも同じ前提で通貨の不一致を報告する。
-	 * 受注・クーポン（R3-6c で Pro へ移す）と無料版の検証レポートが共有するので、ここに置く（R3-6b1。以前は `Woo\Writer\OrderWriter`）。
+	 * Pro アドオンの受注・クーポン（R3-6c1 で移した）と無料版の検証レポートが共有するので、ここに置く（R3-6b1。以前は `Woo\Writer\OrderWriter`）。
 	 */
 	public const PLATFORM_CURRENCY = 'JPY';
 

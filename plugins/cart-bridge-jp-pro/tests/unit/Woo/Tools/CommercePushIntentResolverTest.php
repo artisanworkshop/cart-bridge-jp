@@ -16,7 +16,6 @@ use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
-use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Woo\Tools\PushIntentResolutionException;
 use CartBridgeJP\Woo\Tools\PushIntentResolver;

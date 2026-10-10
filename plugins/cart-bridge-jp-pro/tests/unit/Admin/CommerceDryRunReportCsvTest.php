@@ -10,7 +10,6 @@ namespace CartBridgeJP\Pro\Tests\Admin;
 use CartBridgeJP\Admin\DryRunReportCsv;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Sync\DryRunItemRepository;
-use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Woo\WarningCatalog;
 use WP_UnitTestCase;
 

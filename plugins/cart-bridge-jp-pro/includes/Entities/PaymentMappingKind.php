@@ -15,7 +15,7 @@ use CartBridgeJP\Pro\Woo\Support\OrderMappingCandidates;
 /**
  * 決済方法（`payment_map`: ASP の決済方法 → Woo の決済ゲートウェイ）。受注の取込み（`OrderWriter`）とエクスポート（逆引き）が使う。
  *
- * **R3-6c で Pro アドオンへ移す**（受注の種類と一緒に）。
+ * R3-6c1 で受注の種類と一緒に Pro アドオンへ移した。
  */
 final class PaymentMappingKind extends MappingKind {
 

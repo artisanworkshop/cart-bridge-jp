@@ -14,7 +14,6 @@ use CartBridgeJP\Pro\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Support\Money;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Woo\Reader\EntityReader;
-use CartBridgeJP\Woo\Reader\ProductReader;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\Reader\ReadPage;
 use CartBridgeJP\Woo\Support\TaxClass;

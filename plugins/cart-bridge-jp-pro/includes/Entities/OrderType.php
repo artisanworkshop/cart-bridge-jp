@@ -34,7 +34,7 @@ use WC_Order;
 /**
  * 受注。取込み・エクスポート（D24 のベータ）の両方。移行後検証レポートの金額の突合と、決済・配送・注文ステータスのマッピングを持つ。
  *
- * **R3-6c で Pro アドオンへ移す**（D27。`Entities/Commerce/` ごと）。それまでは無料版が `cbjp/entity_types/register` から登録する。
+ * R3-6c1 で無料版の `Entities/Commerce/` から Pro アドオンへ移した（D27。登録は `CommerceEntityTypes`）。
  */
 final class OrderType extends EntityType {
 

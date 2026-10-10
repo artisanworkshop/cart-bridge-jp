@@ -7,11 +7,9 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Woo;
 
-use CartBridgeJP\Woo\WarningCode;
-
 /**
  * 顧客・受注・クーポンの警告コード（R3-6c1 で `Woo\WarningCode` から移した。書式・規約は `WarningCode` と同じ）。
- * 店舗向けの説明と判定の印は実体の種類が持つ（`Entities\Commerce\*Warnings`）。無料版の判定関数（`WarningCode::indicates_*()`）は、
+ * 店舗向けの説明と判定の印は実体の種類が持つ（`Entities\*Warnings`）。無料版の判定関数（`WarningCode::indicates_*()`）は、
  * これらのコードを種類が付けた印（`Entities\WarningFlag`）で判定する。
  */
 final class CommerceWarningCode {

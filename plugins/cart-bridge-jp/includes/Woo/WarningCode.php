@@ -15,7 +15,7 @@ use CartBridgeJP\Entities\WarningFlag;
  * （F1-6のdry-run CSV・結果レポートが`:`で分解できる契約）。コード自体はi18nしない安定キーで、
  * 店舗向けの説明（重大度・原因・対処）は `Woo\WarningCatalog` に書く（R3-0k）。定数を足したら、取込み・エクスポートの
  * 両方の向きの説明をカタログに足すこと（`WarningCatalogTest` が全定数について強制する）。顧客・受注・クーポンのコードは
- * `CommerceWarningCode`（R3-6c1）で、説明と判定の印は実体の種類が持つ（`Entities\Commerce\*Warnings`。R3-6b1）。
+ * Pro アドオンの `CommerceWarningCode`（R3-6c1）で、説明と判定の印は Pro の実体の種類が持つ（`Entities\*Warnings`。R3-6b1）。
  */
 final class WarningCode {
 
@@ -168,7 +168,7 @@ final class WarningCode {
 	 * 相当する仕組みが無いため、このまま送ると商品はAnyのバリエーションだけ欠けた状態で作られる（D23）。
 	 * プラットフォーム非依存で`indicates_export_blocking()`の対象にする（`ALL_VARIATIONS_EXCLUDED`と同じ）。
 	 * Anyを具体的な値のバリエーションに分けると移行できる。全組み合わせへの展開はv1.xで要望を見て検討する。
-	 * 受注明細側は既存の`ORDER_LINE_VARIATION_UNRESOLVED`で止まる（`Woo\Reader\OrderReader`）。
+	 * 受注明細側は既存の`ORDER_LINE_VARIATION_UNRESOLVED`で止まる（Pro アドオンの`Woo\Reader\OrderReader`）。
 	 */
 	public const VARIATION_ANY_ATTRIBUTE_UNSUPPORTED = 'variation_any_attribute_unsupported';
 
@@ -590,10 +590,10 @@ final class WarningCode {
 	 *   「参照先を先にインポートする」という`indicates_pending_import()`の案内は的外れ
 	 *   （インポート方向の概念が無いエクスポートに「インポートしてください」と出てしまう）
 	 *   なため専用の判定を分ける。
-	 * - `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`（R3-0m）: インポート方向（`Woo\Writer\OrderWriter`。
+	 * - `PAYMENT_METHOD_UNMAPPED`/`SHIPPING_METHOD_UNMAPPED`（R3-0m。R3-6c1 から Pro アドオンのコード）: インポート方向（`Woo\Writer\OrderWriter`。
 	 *   detail はASP側のID）では`payment_map`/`shipping_map`の未設定、または設定先のWoo決済/配送方法が実在しない
 	 *   ときに付き、マップを設定すれば消える。dry-run の CSV に現れるのはこの方向だけ。エクスポート方向
-	 *   （`ColorMeAdapter::push_order()`。detail はWoo側のID）では、Woo受注に決済/配送方法そのものが無い（detail が空）
+	 *   （`ColorMeCommerceAdapter::push_order()`。detail はWoo側のID）では、Woo受注に決済/配送方法そのものが無い（detail が空）
 	 *   ときや、逆引きが曖昧（複数のASP側IDが同じWoo側IDを指す）なときにも付き、マップを足すだけでは消えないことがある。
 	 *   ただしエクスポートの dry-run は警告を返さず、実エクスポートは dry-run 明細を書かないため、その注記が CSV に出る経路は無い。
 	 *   両コードは`indicates_unresolved_reference()`の対象でもあるが（checksum をキャッシュしない）、`note`は

@@ -8,9 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Adapters\ColorMe\Transform;
 
 use CartBridgeJP\Adapters\ColorMe\Transform\Cast;
-use CartBridgeJP\Adapters\ColorMe\Transform\ProductTransformer;
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
-use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Pro\Woo\Support\AddressMapper;
 
 /**

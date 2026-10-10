@@ -16,7 +16,6 @@ use CartBridgeJP\Pro\Adapters\CommerceCapabilities;
 use CartBridgeJP\Pro\Canonical\CanonicalCoupon;
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
 use CartBridgeJP\Pro\Canonical\CanonicalOrder;
-use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 
 /**
  * テスト用の顧客・受注・クーポンのアダプタ（R3-6c1 で `MockPlatformAdapter` から分けた）。固定フィクスチャをカーソル（offset 方式）で

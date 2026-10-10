@@ -28,7 +28,7 @@ use ValueError;
  * - `unknown`: カタログに無いコード（外部アダプタ独自のコード等）・知らない向き。楽観的に `info` へ倒さない（原則 9）
  *
  * 顧客・受注・クーポンのコードは実体の種類が説明する（`Entities\EntityType::describe_warning()`。R3-6b1 で `Entities\Commerce\*Warnings` へ移し、
- * R3-6c で Pro アドオンへ移す）。行の種別（entity）は、その行の種類の説明を先に引くのに使う。`CUSTOMER_ACCOUNT_PROTECTED` は
+ * R3-6c1 で Pro アドオンへ移した）。行の種別（entity）は、その行の種類の説明を先に引くのに使う。`CUSTOMER_ACCOUNT_PROTECTED` は
  * 顧客の行（プロフィールを書かずに飛ばす。`CustomerWriter`）と受注の行（ゲスト受注として書く。`OrderWriter`）で説明が違い、
  * 種別が分からなければ重いほう（顧客の行）に倒す（原則 9）。
  *

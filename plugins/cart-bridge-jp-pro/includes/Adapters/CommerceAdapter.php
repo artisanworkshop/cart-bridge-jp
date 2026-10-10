@@ -9,8 +9,6 @@ namespace CartBridgeJP\Pro\Adapters;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
-use CartBridgeJP\Adapters\PartialPushException;
-use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Pro\Canonical\CanonicalCoupon;
@@ -21,7 +19,7 @@ use CartBridgeJP\Pro\Canonical\CanonicalOrder;
 
 /**
  * 接続先 1 つの顧客・受注・クーポンの取得・送信（R3-6c1 で無料版の `PlatformAdapter` から移した）。プラットフォームごとに 1 つ実装し
- * （ColorMe は `ColorMe\ColorMeCommerceAdapter`）、`CommerceAdapters` に登録する。実体の種類（`Entities\Commerce\*Type`）は
+ * （ColorMe は `ColorMe\ColorMeCommerceAdapter`）、`CommerceAdapters` に登録する。実体の種類（`Entities\*Type`）は
  * `CommerceAdapters::get()` で引くだけで、プラットフォームで分岐しない（原則 1）。
  *
  * 各メソッドの契約は移す前の `PlatformAdapter` と同じ（push の D21-A、ID 指定取得の 404 は null、受注の更新は送らずにスキップ…）。
@@ -90,7 +88,7 @@ abstract class CommerceAdapter {
 	}
 
 	/**
-	 * 決済方法のマッピングの ASP 側の候補（`Entities\Commerce\PaymentMappingKind::platform_candidates()`）。
+	 * 決済方法のマッピングの ASP 側の候補（`Entities\PaymentMappingKind::platform_candidates()`）。
 	 *
 	 * @return array<int,array{id:string,name:string}>
 	 */

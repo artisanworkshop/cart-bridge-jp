@@ -17,7 +17,6 @@ use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\Tools\MappingRebuilder;
 use CartBridgeJP\Woo\WooRepositoryFactory;
-use InvalidArgumentException;
 use WC_Product_Simple;
 
 /**

@@ -11,13 +11,12 @@ use CartBridgeJP\Entities\WarningFlag;
 use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Woo\WarningCatalog;
-use CartBridgeJP\Woo\WarningCode;
 
 // phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- 向き・行の種類を使わない説明もある（`describe()` のシグネチャは共通）。
 
 /**
  * 受注の警告コードの判定の印と店舗向けの説明（`OrderType`。R3-6b1 で `Woo\WarningCode`・`Woo\WarningCatalog` から移した）。
- * **R3-6c で Pro アドオンへ移す**（`Entities/Commerce/` ごと）。文言を変えたら dry-run の CSV の説明も変わる（`WarningCatalogTest`）。
+ * R3-6c1 で無料版の `Entities/Commerce/` から Pro アドオンへ移した（D27）。文言を変えたら dry-run の CSV の説明も変わる（Pro の `CommerceWarningCatalogTest`）。
  */
 final class OrderWarnings {
 

@@ -8,7 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Woo\Tools;
 
 use CartBridgeJP\Support\Money;
-use CartBridgeJP\Woo\Tools\LocalEntityLookup;
 use WC_Order;
 
 /**

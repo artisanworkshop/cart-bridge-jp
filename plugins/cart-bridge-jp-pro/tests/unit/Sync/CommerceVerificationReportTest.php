@@ -16,7 +16,6 @@ use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\VerificationReport;
-use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WC_Order;
 use WP_UnitTestCase;

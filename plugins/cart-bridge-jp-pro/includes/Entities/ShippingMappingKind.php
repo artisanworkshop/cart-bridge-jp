@@ -15,7 +15,7 @@ use CartBridgeJP\Pro\Woo\Support\OrderMappingCandidates;
 /**
  * 配送方法（`shipping_map`: ASP の配送方法 → Woo の配送方法〔ゾーンのインスタンス〕）。受注の取込みとエクスポート（逆引き）が使う。
  *
- * **R3-6c で Pro アドオンへ移す**（受注の種類と一緒に）。
+ * R3-6c1 で受注の種類と一緒に Pro アドオンへ移した。
  */
 final class ShippingMappingKind extends MappingKind {
 

@@ -9,14 +9,12 @@ namespace CartBridgeJP\Pro\Tests\Woo;
 
 use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Canonical\CanonicalModel;
-use CartBridgeJP\Canonical\CanonicalReview;
 use CartBridgeJP\Sync\WriteResult;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 use CartBridgeJP\Woo\DryRunRepository;
 use CartBridgeJP\Woo\Support\SideEffectGuard;
 use CartBridgeJP\Woo\WarningCode;
 use CartBridgeJP\Woo\WooRepository;
-use CartBridgeJP\Woo\WooRepositoryFactory;
 use CartBridgeJP\Woo\Writer\EntityWriter;
 use CartBridgeJP\Woo\Writer\ValidationResult;
 use WC_Coupon;

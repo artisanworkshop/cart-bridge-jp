@@ -10,7 +10,6 @@ namespace CartBridgeJP\Pro\Tests\Fixtures;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Pro\Adapters\CommerceAdapter;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
-use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
 
 /**
  * テストで接続先に `CommerceAdapter` を `cbjp/pro/commerce_adapters/register` で登録する（R3-6c1）。`CommerceAdapters` は無料版の

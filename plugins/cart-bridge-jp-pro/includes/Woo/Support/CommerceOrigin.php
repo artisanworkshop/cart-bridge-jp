@@ -8,7 +8,6 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Woo\Support;
 
 use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
-use CartBridgeJP\Woo\Support\EntityOrigin;
 use WC_Order;
 
 /**

@@ -31,8 +31,8 @@ use WP_User;
 /**
  * 顧客（WP ユーザー）。取込み・エクスポートの両方。
  *
- * **R3-6c で Pro アドオンへ移す**（D27。`Entities/Commerce/` ごと）。それまでは無料版が `cbjp/entity_types/register` から登録する
- * （`Core\Plugin::boot()`）。dry-run の CSV のラベルは個人情報（氏名・メール）を含みうるため空（既定）。
+ * R3-6c1 で無料版の `Entities/Commerce/` から Pro アドオンへ移した（D27）。Pro の `Core\Plugin::boot()` が `cbjp/entity_types/register` から
+ * 登録する（`CommerceEntityTypes`）。dry-run の CSV のラベルは個人情報（氏名・メール）を含みうるため空（既定）。
  */
 final class CustomerType extends EntityType {
 
