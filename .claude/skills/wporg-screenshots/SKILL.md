@@ -68,7 +68,9 @@ tests サイトと PHPUnit は同じ DB・同じ接頭辞を使う。PHPUnit が
   枚数を減らしたら、余った番号の画像（`capture.sh` が警告する）を `git rm` で消す。
 - `wait_for` は、そのタブが描画し終わったことを示す英語の文言（ボタン・見出し）。UI の文言を変えたら合わせる。
 - Import タブの `uncheck` は、チェックの状態を `dry_run_entities` と同じにするためのもの（結果の節とチェックが食い違う画像になる。R3-3 の R1-L12）。
-  R3-6 で顧客・受注・クーポンが Pro へ移ったら、`dry_run_entities` と `uncheck` を無料版の画面に合わせて変える。
+  R3-6c1 で顧客・受注・クーポンが Pro へ移った。**撮り直す前に**、`dry_run_entities`（`customer`・`order` を外す）・`uncheck`（`Coupons` は無料版の画面に無い）・
+  Mappings タブの `wait_for`（`Payment method mapping` は Pro の節）を無料版だけの画面に合わせて変える（readme の書き直しと一緒に R3-6d で行う。それまで
+  このスキルは tests サイトで Pro が無効だと止まる）。顧客・受注のフィクスチャは Pro の `plugins/cart-bridge-jp-pro/tests/fixtures/colorme/` に移った。
 - 撮影向けの差し替え（フィクスチャの値を変える）は mu-plugin のテンプレートに足す。mu-plugin は致命的エラーを出さない書き方にする（`.claude/rules/skill-scripts.md`）。
 - 新しい API を呼ぶ画面を撮るなら、そのレスポンスのフィクスチャ（匿名化済み。`plugins/cart-bridge-jp/tests/fixtures/README.md`）が要る。無いと mu-plugin がエラーを返し、画面にエラーの通知が出て撮影が止まる。
 
