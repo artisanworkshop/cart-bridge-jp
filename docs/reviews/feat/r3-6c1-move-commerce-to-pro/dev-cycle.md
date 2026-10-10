@@ -2,10 +2,10 @@
 - タスク: R3-6c1 顧客・受注・クーポンのコード（実体の種類・Writer/Reader・Canonical・ColorMe の変換器と API 呼び出し）を Pro アドオンへ移し、`PlatformAdapter`・`Capabilities` から外す（R3-6c の 1 本目。OAuth スコープの分割は c2）
 - 開始: 2026-10-10
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
-- Copilot: 未依頼
-- Codex: 未依頼
+- PR: #117
+- 現在のステップ: 8（完了。最終報告済み・マージ待ち）
+- Copilot: 1 回（G1。0 open findings で収束）
+- Codex: 1 回（G1。Didn't find any major issues で収束）
 
 ## ログ
 | 日時(JST) | ステップ | 内容 |
@@ -17,3 +17,7 @@
 | 2026-10-10 11:30 | 2 | dev サイトで mock `mockv` を確認（Pro 有効: 取込み・検証レポート・マッピング／Pro を外す: 商品系だけ・受注の run は 400・「Not checked」。REST ALL PASS・画面も確認。撤去後 `inspect` 一致） |
 | 2026-10-10 11:51 | 3 | review-loop R1（自己＋独立 opus）: Medium 1・Low 10 → Medium と数行で直せる Low を修正（3bbc97e）。Low 2 件は backlog |
 | 2026-10-10 12:03 | 3 | review-loop R2: R1 の全件解消・新規 Low 3 件を修正（801aa1a）→ APPROVE |
+| 2026-10-10 12:04 | 4 | push（cec470c）→ PR #117 作成 |
+| 2026-10-10 12:10 | 5 | CI 全ジョブ green → Copilot へ依頼（登録を timeline で確認） |
+| 2026-10-10 12:20 | 6〜7 | G1: Codex「Didn't find any major issues」・Copilot「0 open findings」（総評のみ）→ 両 bot 収束。G1.md とサマリコメントを記録 |
+| 2026-10-10 12:20 | 8 | 最終報告（final-report.md）。マージせず停止 |
