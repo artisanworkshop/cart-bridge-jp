@@ -467,6 +467,7 @@ float も受けない（JSON の `1e-400` は `json_decode()` の時点で `floa
 | POST | `/jobs/{id}/retry` | 失敗ジョブの再実行 |
 | GET | `/logs?job_id=&level=&page=` | ログ閲覧 |
 | GET/PUT | `/settings/mappings/{platform}` | カテゴリ/決済/配送/注文ステータスのマッピング設定（`category_map`/`payment_map`/`shipping_map`/`status_map`）。GETは選択肢UI用の `asp_candidates`/`woo_candidates`（D19）も同梱する。キーは登録されたマッピングの種類（`Entities\MappingKind`）から決まり、GET は `kinds: [{key,map_key,entity,source_side,applies,import_notice,label,description,source_heading,target_heading,unmapped_label,no_targets_help}]` も返す（文言は R3-6b2。画面が節を組み立てる）。PUT は登録の無いキーの保存済みの値を消さない（R3-6b1） |
+| GET/PUT | `/settings/uninstall` | アンインストール時にプラグインのデータを消すか（R3-5a。サイト全体で 1 つ。`{ delete_data: bool, can_change: bool }`）。PUT の本文 `{ delete_data }` は `is_bool()` で検証（型違い・欠損は 400 で値を変えない）。**PUT だけ `manage_woocommerce` に加えて `delete_plugins` を要求**（`can_change` はその判定。下の §7「アンインストール」） |
 | ~~GET~~ | ~~`/limits?platform={platform}`~~ | **R3-6a で削除（D27）**。~~無料版上限・Pro解除状態（アップセル表示用。D15/§10.2）。`platform` 指定時は使用状況（mappings累積カウント）・残数も返す。`pro_url` は Pro 版の案内先（検証済みの http/https URL か `''`。§10.3「アップセル表示」）~~ |
 | ~~GET~~ | ~~`/tools/sample-cleanup?platform=`~~ | **R3-6a で削除（D27）**。~~サンプルクリーンアップの削除件数プレビュー（D16/§10.3）~~ |
 | ~~POST~~ | ~~`/tools/sample-cleanup`~~ | **R3-6a で削除（D27）**。~~無料版サンプルデータの一括削除（mappings記録に基づく。1バッチ分を処理し `has_more` を返す。D16/§10.3）~~ |
@@ -557,7 +558,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 ### React アプリ（src/）
 
 - `@wordpress/scripts` ビルド、TypeScript strict、`@wordpress/components` + `@wordpress/api-fetch`
-- ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはリンク再構築（D16。`/tools/*` ルート）を配置（サンプルクリーンアップと県コード修復〔issue #46〕は R3-6a で削除）
+- ルーティングは単一管理ページ内のタブ切替（Connections / **Mappings** / Import / Export / Logs / **Tools**）。URLは `#/import` 形式。Tools タブにはリンク再構築（D16。`/tools/*` ルート）を配置（サンプルクリーンアップと県コード修復〔issue #46〕は R3-6a で削除）。Tools タブの末尾に「Data on uninstall」のカード（R3-5a。`src/components/UninstallSettings.tsx`）を、プラットフォームの選択・接続の取得結果に関係なく出す
 - **Mappings タブ（`#/mappings`、R3-0m）**: `GET/PUT /settings/mappings/{platform}` の編集 UI。E2-1 で Export タブに作ったものを共有コンポーネント
   `src/components/MappingSettings.tsx` に切り出して移した（GET と PUT は同じ世代カウンタを共有する）。決済方法・配送方法・注文ステータスを常に、
   カテゴリは `can_create_category === false` のときだけ出す。run 中の保存は R3-0i で UI 側だけ止めた（`GET /runs?platform=` で進行中の run を
@@ -666,7 +667,15 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、R3-4 で SVN の `assets/` へ置く）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
-- アンインストール: `uninstall.php`。オプション `cbjp_delete_data_on_uninstall`（デフォルトfalse）が true の場合のみテーブル・オプション削除
+- アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:
+  - **設定**: Tools タブの「Delete this plugin’s data when it is uninstalled」（`GET/PUT /settings/uninstall`、§6）。値は `'yes'`/`'no'` で autoload なし。読むときは `'yes'` だけを「消す」とみなす（フェイルクローズ。
+    `update_option( true )` は DB に `'1'` で入り別のリクエストでは文字列が返るので真偽値では比べられず、truthy の判定は壊れた値まで削除に倒す。v0.1.0 には UI も readme の記載も無く、WP-CLI で `1` を入れていたサイトは削除されない＝安全側）
+  - **変更の権限**: PUT は `manage_woocommerce` に加えて `delete_plugins`（2026-10-11 ユーザー決定）。プラグインを削除できない shop_manager が先にオンにしておくと、後で管理者がアンインストールしたときに管理者の知らないうちにデータが消えるため。
+    `delete_plugins` はマルチサイトではスーパー管理者だけ、`DISALLOW_FILE_MODS` のサイトでは誰も持たない（`map_meta_cap()`）ので、そのサイトでは画面から変えられない（管理画面からのプラグインの削除自体もできない。WP-CLI なら `wp option update cbjp_delete_data_on_uninstall yes`）。画面は `can_change` が false ならチェックボックスを止めて理由を添える
+  - **消すもの**: 5 テーブル（`cbjp_jobs`・`cbjp_mappings`・`cbjp_logs`・`cbjp_dry_run_items`・`cbjp_push_intents`）、`cbjp_` で始まる option すべて（トークン・接続情報・マッピングとエクスポートの設定・レート制限・DB バージョン・この設定自身。Pro が `cbjp_pro_` で保存するものも含む。R3-8a で Pro のライセンスの option を足すときに、無料版のアンインストールで消えてよいかを決める）、
+    Action Scheduler のグループ `cart-bridge-jp` の未実行のアクション（`cbjp_process_job`・`cbjp_cleanup_logs`。テーブルを消した後に、コールバックの無いまま実行されて失敗として積まれないように。WooCommerce が無効なら何もしない。グループ名は autoload の無い経路でも読めるよう `Uninstaller::ACTION_GROUP` に書き写し、`UninstallerTest` が `JobManager::ACTION_GROUP` との一致を確かめる）
+  - **残すもの**: 移行したデータ（商品・カテゴリー・タグ・画像など）と、それに付けた `_cbjp_*` のメタ（取り込んだ実体の所有の印。再インストール後に「紐づけを再構築」で紐づけを戻せる。エクスポートで作った実体には印が無いので紐づけは戻らず、再エクスポートは ColorMe 側に重複を作る。画面の警告と readme の FAQ に書いた）
+  - **対象外**: マルチサイトの他のサイトのデータ（`uninstall.php` は実行したサイトの分だけ消す）、短命の transient（OAuth の state など。期限で消える）。データを消さない設定のときは Action Scheduler のアクションも残す（再インストールで続きから動く）
 
 ## 8. CI（GitHub Actions）
 
