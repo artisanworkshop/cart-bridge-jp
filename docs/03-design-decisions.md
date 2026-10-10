@@ -987,17 +987,21 @@ main の ja の訳を引き継ぐ。backlog）。
   交換の時点の `scopes()`）、文字列でなければ `[]`（フェイルクローズ）。`TokenStore::granted_scopes()` は記録が無ければ null、壊れた記録（文字列のリストでない）は `[]`。
 - **記録の無いトークン**（R3-6c2 より前の版が保存した。0.1.0・開発サイト）は旧版の 5 つ（`ColorMeOAuth::LEGACY_SCOPES`）を持つとみなす（`ColorMeOAuth::granted_scopes_in()`）。
   それより前の全版が 5 つを要求し、ColorMe の認可画面はスコープを選ばせないため。Pro を入れた既存サイトに再接続を求めない。無料版だけの既存サイトのトークンは受注の権限を持ったまま
-  （再接続すれば外れる。R3-6d の changelog で案内できる）。
+  （再接続すると保存するトークンは商品の 2 つになるが、プラグインは古いトークンを失効させない〔失効の API を呼ばない〕。ColorMe 側で失効させるのは管理画面の「許可済みアプリ一覧」〔swagger の説明〕で、アプリ単位かトークン単位かは未確認なので、取り消した後は接続し直す。R3-6d の changelog で案内する。R3-6c2 review-loop R1-5）。
 - `ColorMeOAuth::missing_scopes()`（接続済みのとき要求 − 付与。未接続・要再接続は空）を `GET /connections` の `missing_scopes` に出す（OAuth でない接続先は空）。
   `ColorMeAdapter::granted_scopes()`（Pro 用。未接続は null）。`CBJP_EXTENSION_API_VERSION` を 2 に上げた（Pro の `CBJP_PRO_REQUIRED_EXTENSION_API` も 2）。
 - 画面: `missingScopes()`（`src/connection-scopes.ts`。`connected` が `true` の接続の、自前のプロパティの文字列だけ）が空でなければ、Connections の接続カードに警告
-  （足りないスコープの名前と「〜に接続し直す」の案内）、Import／Export タブに案内（`MissingScopesNotice`。一部の種類が出ない理由と Connections タブへのリンク。種類の名前・Pro は挙げない）。
+  （足りないスコープの名前と「〜に接続し直す」の案内）、Import／Export／Mappings タブに案内（`MissingScopesNotice`。一部の種類が出ない・動かないかもしれない理由と Connections タブへのリンク。
+  種類の名前・Pro は挙げない）。未知のスコープの記録は `scopes()` の 1 回の呼び出しにつき 1 行（`GET /connections` はタブを開くたびに呼ばれる。review-loop R1-4）。
   接続（`connected`）の判定は変えない（スコープが欠けても商品系は使える）。
 
 **Pro**: `Core\Plugin::boot()` が `cbjp/oauth/scopes` に `CommerceAdapters::add_oauth_scopes()`（同梱の接続先 → `ColorMeCommerceAdapter::OAUTH_SCOPES`）を足す。
 フィルター名は文字列で書く（`ColorMeOAuth` は「Pro が使ってよい無料版の API」に無い）。同梱の ColorMe の組み立ては、接続済みのトークンに `OAUTH_SCOPES` が 1 つでも欠けていれば null
 （`ColorMeCommerceAdapter::has_required_scopes()`）→ 顧客・受注・クーポンは取込み・エクスポートの選択肢に出ず、決済・配送・ステータスのマッピングの節も出ない。
 未接続（要再接続を含む）は今までどおり組み立て、API の「未接続」の案内（push intent の `not_connected` など）に任せる。部分的な付与は全部欠けているのと同じ扱い（Pro は 3 つを一緒に要求する）。
+組み立てない状態で取得・送信の入口（`CommerceAdapters::get_required()`。残った push intent の紐づけ・既存のジョブの Retry が届く）に来たときは、「扱えない」
+（`UnsupportedOperationException`）ではなく `context['not_connected']` の `ApiException` にする（review-loop R1-1）: 扱えないと答えると push intent は「未作成」での解除へ
+案内され、送信済みだった実体が再接続の後に重複して作られうる（D21-B）。未接続の扱いなら 409「接続し直して」になり、Exporter も「送信前に止まった」と確定できる。
 
 **確認**: 品質チェック一式。ガード（記録なし → 5 つ・読めない `scope` → `[]`・`BASE_SCOPES` を外せない・未知の値の記録・並び・壊れた記録・Pro の判定と未接続・フィルター・画面の読み）を
 変異で外してテストが落ちることを確かめた。dev サイトで Pro 有効／無効のそれぞれで、トークンの記録を商品の 2 つ・記録なし・5 つ・`[]` にしたときの `/connections` の `missing_scopes`・

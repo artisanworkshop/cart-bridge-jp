@@ -77,4 +77,5 @@ paths:
   `TokenStore` の payload の `scopes` に**トークンと同じ CAS で**書く（`save_token_if_credentials_match()` の第 4 引数。別の書込みにすると、間に読んだ側が「記録なし」と読む）。
   **記録の無いトークンは R3-6c2 より前の版のものとして 5 つ（`LEGACY_SCOPES`）を持つと読む**（`ColorMeOAuth::granted_scopes_in()`）ので、テスト・検証スクリプト・スキルで
   `TokenStore::save()` に `scopes` を渡さずにトークンを書くと、5 つを持つ接続になる。スコープの欠けを再現するときは `scopes` を明示する。Pro は 3 つ（`ColorMeCommerceAdapter::OAUTH_SCOPES`）が
-  そろわない ColorMe では顧客・受注・クーポンを組み立てない（選択肢・マッピングの節に出ない。未接続は組み立てる）
+  そろわない ColorMe では顧客・受注・クーポンを組み立てず、`CommerceAdapters::get_required()` は「扱えない」ではなく `not_connected` の `ApiException` を投げる
+  （扱えないと答えると push intent が「未作成」での解除へ案内され、再接続後に重複して作られうる。R3-6c2 review-loop R1-1）。未接続は組み立てる
