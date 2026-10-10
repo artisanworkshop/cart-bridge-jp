@@ -509,6 +509,62 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * OOB の手動のリンクを取り直すと、どの認可のコードが貼り付けられるか分からない。まだ使っていない控えがあれば両方が要求したスコープだけを残し、
+	 * どちらのコードでも実際に要求していないスコープを記録しない（PR #118 G2-1）。順序によらない。
+	 *
+	 * @return array<string,array{0:bool}>
+	 */
+	public static function oob_attempt_orders(): array {
+		return [
+			'broader first'  => [ true ],
+			'narrower first' => [ false ],
+		];
+	}
+
+	/**
+	 * @dataProvider oob_attempt_orders
+	 *
+	 * @param bool $broader_first 先の認可が拡張のスコープも要求したか。
+	 */
+	public function test_repeated_out_of_band_authorizations_record_only_the_scopes_both_requested( bool $broader_first ): void {
+		$add_sales               = static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] );
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		foreach ( [ $broader_first, ! $broader_first ] as $broader ) {
+			if ( $broader ) {
+				add_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+			} else {
+				remove_filter( ColorMeOAuth::SCOPES_FILTER, $add_sales );
+			}
+
+			$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		}
+
+		$this->respond_with_token( [ 'access_token' => 'issued-access-token' ] );
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( ColorMeOAuth::BASE_SCOPES, $token_store->granted_scopes() );
+	}
+
+	/**
+	 * 控えを使った後（交換の後）の認可は、前の控えと重ねない。
+	 */
+	public function test_an_out_of_band_authorization_after_an_exchange_starts_a_new_record(): void {
+		[ $oauth, $token_store ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$this->respond_with_token( [ 'access_token' => 'first-token' ] );
+		$oauth->exchange_code( 'auth-code', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		add_filter( ColorMeOAuth::SCOPES_FILTER, static fn ( array $scopes ): array => array_merge( $scopes, [ 'read_sales' ] ) );
+		$oauth->authorize_url( ColorMeOAuth::OOB_REDIRECT_URI );
+		$oauth->exchange_code( 'auth-code-2', ColorMeOAuth::OOB_REDIRECT_URI );
+
+		$this->assertSame( [ 'read_products', 'write_products', 'read_sales' ], $token_store->granted_scopes() );
+	}
+
+	/**
 	 * リダイレクトの認可は state ごとに控える（コールバックは未ログインで、ユーザーでは引けない）。拡張を後から有効にしても、
 	 * 実際に要求した 2 つを記録する（足りないスコープとして再接続を促す）。
 	 */

@@ -212,7 +212,7 @@ final class ColorMeOAuth {
 		// トークン応答に `scope` が無いときに記録する「要求したスコープ」を、この認可の単位で控える（交換の時点で求め直すと、その間に拡張を
 		// 有効・無効にしたとき実際の要求とずれる。R3-6c2 G1-1）。リダイレクトは state ごと、OOB（state が無い）はコードを貼り付ける管理者
 		// （今のユーザー）ごと。期限は認可コードと同じ 10 分。
-		set_transient( $this->requested_scopes_key( $args['state'] ?? null ), $scopes, self::STATE_TTL_SECONDS );
+		$this->remember_requested_scopes( $args['state'] ?? null, $scopes );
 
 		// add_query_arg()は値をurlencodeしない（WP側の既知の挙動）ため、PHP標準の
 		// http_build_query()でクエリ文字列を組み立てる。セパレータは明示（ini設定
@@ -262,6 +262,46 @@ final class ColorMeOAuth {
 	}
 
 	/**
+	 * 認可で要求したスコープを控える。OOB はユーザーごとの 1 つの控えで、どの認可のコードが貼り付けられるか分からない（手動のリンクは何度でも
+	 * 取り直せる）ので、まだ使っていない控えがあれば両方が要求したスコープだけを残す（PR #118 G2-1）。どの認可のコードでも、実際に要求して
+	 * いないスコープを記録しない（足りなければ再接続を促す側に倒れる）。リダイレクトは state ごとなので重ならない。
+	 *
+	 * @param array<int,string> $scopes
+	 */
+	private function remember_requested_scopes( ?string $state, array $scopes ): void {
+		if ( null === $state ) {
+			$previous = $this->read_requested_scopes( $this->requested_scopes_key( null ) );
+
+			if ( null !== $previous ) {
+				$scopes = array_values( array_intersect( $scopes, $previous ) );
+			}
+		}
+
+		set_transient( $this->requested_scopes_key( $state ), $scopes, self::STATE_TTL_SECONDS );
+	}
+
+	/**
+	 * 控えを読む（消さない）。無い・読めない控えは null。
+	 *
+	 * @return array<int,string>|null
+	 */
+	private function read_requested_scopes( string $key ): ?array {
+		$scopes = get_transient( $key );
+
+		if ( ! is_array( $scopes ) || ! array_is_list( $scopes ) ) {
+			return null;
+		}
+
+		foreach ( $scopes as $scope ) {
+			if ( ! is_string( $scope ) ) {
+				return null;
+			}
+		}
+
+		return $scopes;
+	}
+
+	/**
 	 * 認可で要求したスコープの控えを読んで消す（一度きり）。無い・期限切れ・読めない控えは空（何を要求したか分からない。トークン応答に
 	 * `scope` も無ければ何も付与されていない扱いになり、管理画面が再接続を促す。フェイルクローズ）。
 	 *
@@ -269,21 +309,11 @@ final class ColorMeOAuth {
 	 */
 	private function take_requested_scopes( ?string $state ): array {
 		$key    = $this->requested_scopes_key( $state );
-		$scopes = get_transient( $key );
+		$scopes = $this->read_requested_scopes( $key );
 
 		delete_transient( $key );
 
-		if ( ! is_array( $scopes ) || ! array_is_list( $scopes ) ) {
-			return [];
-		}
-
-		foreach ( $scopes as $scope ) {
-			if ( ! is_string( $scope ) ) {
-				return [];
-			}
-		}
-
-		return $scopes;
+		return $scopes ?? [];
 	}
 
 	/**
