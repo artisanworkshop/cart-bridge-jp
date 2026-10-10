@@ -8,11 +8,13 @@ Stable tag: 0.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Migrate between Color Me Shop and WooCommerce: import products, customers, and orders, or export products, customers, and stock.
+Migrate products between Color Me Shop and WooCommerce: import categories, groups, products, and stock, or export products and stock.
 
 == Description ==
 
-Cart Bridge JP moves store data between Color Me Shop (カラーミーショップ), a Japanese e-commerce platform, and WooCommerce. Preview the whole migration first with a dry run that writes nothing, read why each item would be skipped or changed, then run it.
+Cart Bridge JP moves product data between Color Me Shop (カラーミーショップ), a Japanese e-commerce platform, and WooCommerce: categories, groups, products with their options and images, and stock. Preview the whole migration first with a dry run that writes nothing, read why each item would be skipped or changed, then run it.
+
+This plugin does not migrate customers, orders, or coupons. They are migrated by a separate add-on, Cart Bridge JP Pro (see the FAQ).
 
 It is built for a one-way migration: from Color Me Shop to WooCommerce, or from WooCommerce to Color Me Shop. It is not a sync tool, and moving the same items back and forth is not supported. If that happens by mistake, items that were imported from Color Me Shop are not exported to Color Me Shop, and items that were created in Color Me Shop by an export are not overwritten by a later import, which keeps values from being changed in the usual cases.
 
@@ -20,27 +22,22 @@ It is built for a one-way migration: from Color Me Shop to WooCommerce, or from 
 
 * Categories and groups (as product categories and product tags)
 * Products, including options (as variations), prices including tax, the standard and reduced tax rates, and images
-* Customers (members), including addresses
-* Orders, with the shop's payment methods, shipping methods, and order statuses mapped to WooCommerce ones
 * Stock
-* Coupons (coupons whose restrictions WooCommerce cannot represent are skipped)
 
 = Export to Color Me Shop =
 
-* Products (including options), customers, and stock
-* Orders – **Beta**: needs Color Me Shop's premium plan, has not been tested on a real premium-plan shop yet, and is off by default
+* Products (including options) and stock
 * Product image upload – **Beta**: needs the premium plan, has not been tested on a real premium-plan shop yet, and is off by default
 
-Color Me Shop cannot create categories through its API, so you map WooCommerce categories to existing Color Me Shop categories instead.
+Color Me Shop cannot create categories through its API, so you map WooCommerce categories to existing Color Me Shop categories in the Mappings tab instead.
 
 = Before and after the migration =
 
 * **Dry run**: preview every item, in both directions, without writing anything.
 * **CSV report**: download the dry run's results, with a plain-language cause for each warning and, where possible, a fix.
-* **Mappings**: map payment methods, shipping methods, order statuses, and (for export) categories.
-* **Verification report**: after an import, compare item counts and order totals between the two stores.
+* **Verification report**: after an import, compare the number of items read from Color Me Shop with the linked items in WooCommerce, and find links to items that no longer exist.
 * **Tools**: rebuild the links to the data that this plugin imported (for example after moving the database).
-* Works with WooCommerce's High-Performance Order Storage (HPOS). Orders are written only through WooCommerce's own APIs.
+* Compatible with WooCommerce's High-Performance Order Storage (HPOS).
 * Long migrations run in the background with Action Scheduler, wait automatically when the API's rate limit is reached, and can be retried or cancelled.
 
 = Requirements =
@@ -52,10 +49,10 @@ Color Me Shop cannot create categories through its API, so you map WooCommerce c
 
 = External services =
 
-This plugin connects to the Color Me Shop API (`https://api.shop-pro.jp`), operated by GMO Pepabo, Inc., only while you use it: when you connect your shop, test the connection, open the Mappings or Import tab (to list the shop's categories, payment methods, and shipping methods), or run a dry run, an import, an export, or a tool that checks data against the shop.
+This plugin connects to the Color Me Shop API (`https://api.shop-pro.jp`), operated by GMO Pepabo, Inc., only while you use it: when you connect your shop, test the connection, open the Mappings or Import tab (to list the shop's categories), or run a dry run, an import, an export, or a tool that checks data against the shop.
 
-* **What is sent**: your developer app's client ID and client secret, the authorization code, and your site's callback URL (to `https://api.shop-pro.jp/oauth/token`, to connect); the access token with every request; and, when you export, the data you choose to export: products (such as names, prices, descriptions, options, and stock), customers (such as names and their phonetic readings, company names and departments, email addresses, phone numbers, postal addresses, birthdays, notes, and newsletter consent), stock levels, and – if you turn on the Beta features – orders and product images.
-* **What is read**: your shop's settings (plan, tax settings), products, categories, groups, customers, orders (sales), stock, coupons, payment methods, and shipping methods.
+* **What is sent**: your developer app's client ID and client secret, the authorization code, and your site's callback URL (to `https://api.shop-pro.jp/oauth/token`, to connect); the access token with every request; and, when you export, the data you choose to export: products (such as names, prices, descriptions, options, and stock), stock levels, and – if you turn on the Beta feature – product images.
+* **What is read**: your shop's settings (plan, tax settings), products, categories, groups, and stock.
 * **Images**: when you import products, categories, and groups, the plugin downloads their images from the image URLs that the Color Me Shop API returns.
 * The plugin sends no data to the plugin's author or to any other service, and has no tracking.
 
@@ -73,18 +70,22 @@ WooCommerce and its associated designs are trademarks of Automattic Inc. Color M
 2. Go to WooCommerce > Cart Bridge JP > Connections. Copy the callback URL shown there.
 3. In Color Me Shop's developer center, register a developer app and set its redirect URI to that callback URL.
 4. Enter the app's client ID and client secret, save the settings, and click "Connect to Color Me Shop".
-5. In the Mappings tab, map payment methods, shipping methods, and order statuses (and categories, if you export).
+5. If you export, map WooCommerce categories to Color Me Shop categories in the Mappings tab.
 6. In the Import or Export tab, choose what to migrate and run a dry run first. Read the warnings in the CSV report, then run the real migration.
 
 == Frequently Asked Questions ==
 
 = Can I keep the two stores in sync, or import and export the same items back and forth? =
 
-No. The plugin is built for a one-way migration. Items imported from Color Me Shop are skipped when you export to Color Me Shop (warning `linked_by_import_not_exported`), and items exported to Color Me Shop are not overwritten when you import from it (warning `linked_by_export_not_imported`). This is decided per platform, not per shop. It keeps values from being changed by a round trip in the usual cases, but a round trip is not supported otherwise: for example, if the link to an exported item is removed, importing creates the product or order again in WooCommerce, and a customer is matched by email address and updated.
+No. The plugin is built for a one-way migration. Items imported from Color Me Shop are skipped when you export to Color Me Shop (warning `linked_by_import_not_exported`), and items exported to Color Me Shop are not overwritten when you import from it (warning `linked_by_export_not_imported`). This is decided per platform, not per shop. It keeps values from being changed by a round trip in the usual cases, but a round trip is not supported otherwise: for example, if the link to an exported product is removed, importing creates the product again in WooCommerce.
 
-= What are the Beta features? =
+= Can it migrate customers, orders, and coupons? =
 
-Exporting orders and uploading product images use parts of the Color Me Shop API that are available only on the premium plan. They have been tested with mock data but not yet on a real premium-plan shop, so they are marked Beta and are off by default: the "Orders (Beta)" checkbox is unchecked, and "Upload product images (Beta)" is off. They appear only when the connected shop is on the premium plan. Turning on image upload replaces the shop's existing images at the same positions.
+Not this plugin. Customers, orders, and coupons are migrated by a separate add-on, Cart Bridge JP Pro, which is not available from WordPress.org. This plugin works on its own for products, categories, groups, and stock.
+
+= What is the Beta feature? =
+
+Uploading product images uses a part of the Color Me Shop API that is available only on the premium plan. It has been tested with mock data but not yet on a real premium-plan shop, so it is marked Beta and is off by default ("Upload product images (Beta)" in the Export tab). It appears only when the connected shop is on the premium plan. Turning it on replaces the shop's existing images at the same positions.
 
 = The export skipped a product or a stock row with a warning. How do I fix it? =
 
@@ -112,22 +113,31 @@ Color Me Shop shows product names as HTML on the storefront. When you import, th
 
 = Does it work with High-Performance Order Storage (HPOS)? =
 
-Yes. The plugin declares HPOS compatibility and reads and writes orders only through WooCommerce's APIs.
+Yes. The plugin declares HPOS compatibility. It does not read or write orders.
 
 = What happens to my data when I uninstall the plugin? =
 
-The products, customers, and orders that were migrated stay in WooCommerce. By default, the plugin's own data (the links between the stores, the job history, the logs, and the saved connection) is also kept, so you can reinstall the plugin and continue.
+The data that was migrated stays in WooCommerce. By default, the plugin's own data (the links between the stores, the job history, the logs, and the saved connection) is also kept, so you can reinstall the plugin and continue.
 
 == Screenshots ==
 
 1. Connections: connect your Color Me Shop with your own developer app.
 2. Import: the dry run's results, with counts and a CSV report for each kind of data.
-3. Mappings: map payment methods, shipping methods, order statuses, and categories.
-4. Export: choose what to export. Order export and image upload are Beta and off by default.
+3. Mappings: map WooCommerce categories to Color Me Shop categories for export.
+4. Export: choose what to export. Product image upload is Beta and off by default.
 5. Tools: rebuild the links to the data that this plugin imported.
 
 == Changelog ==
 
 = 1.0.0 =
-* First release on WordPress.org: import from Color Me Shop, and export products, customers, and stock to Color Me Shop. Order export and product image upload are Beta.
+* First release on WordPress.org: import categories, groups, products, and stock from Color Me Shop, and export products and stock to Color Me Shop. Product image upload is Beta.
+* If you used 0.1.0 from GitHub: the plugin no longer limits how many items it migrates. The dry run, the import, and the export include every item.
+* If you used 0.1.0 from GitHub: this plugin no longer migrates customers, orders, or coupons. They are migrated by the separate add-on Cart Bridge JP Pro. The customers, orders, and coupons that 0.1.0 imported stay in WooCommerce, and this plugin does not change them.
+* If you used 0.1.0 from GitHub: customers and orders that 0.1.0 imported may have the wrong prefecture. For addresses in 23 of the 47 prefectures, 0.1.0 saved a different prefecture (for example, Miyagi for an address in Akita). Importing them again may not correct it, so check the prefecture (state) of those customers' addresses and of those orders' billing and shipping addresses, and correct it by hand.
+* If you used 0.1.0 from GitHub: the plugin now asks Color Me Shop only for permission to read and write products. Your existing connection keeps working with the permissions it was given, which include customers, orders, and coupons. To withdraw them, revoke the app's authorization in Color Me Shop, then connect again.
 * If you used a 0.x version from GitHub: imported product names are now saved as Color Me Shop's storefront shows them. A previously imported product whose name contains tags or character references (such as `<br>` or `&amp;`) may be updated once by the next import, which also replaces changes you made to that product in WooCommerce with the values from Color Me Shop.
+
+== Upgrade Notice ==
+
+= 1.0.0 =
+This plugin no longer migrates customers, orders, or coupons (the Cart Bridge JP Pro add-on does). If you imported customers or orders with 0.1.0, some prefectures may be wrong: see the changelog.

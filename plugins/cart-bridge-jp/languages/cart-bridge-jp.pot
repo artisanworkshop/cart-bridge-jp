@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-10T13:20:22+00:00\n"
+"POT-Creation-Date: 2026-10-10T15:12:29+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -21,7 +21,7 @@ msgstr ""
 
 #. Description of the plugin
 #: cart-bridge-jp.php
-msgid "Migrate products, customers, and orders between Color Me Shop and WooCommerce."
+msgid "Migrate products and stock between Color Me Shop and WooCommerce."
 msgstr ""
 
 #. Author of the plugin
@@ -75,140 +75,140 @@ msgstr ""
 msgid "Cart Bridge JP"
 msgstr ""
 
-#: includes/Admin/RestController.php:443
+#: includes/Admin/RestController.php:444
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:492
+#: includes/Admin/RestController.php:493
 msgid "No recognized connection fields were provided."
 msgstr ""
 
-#: includes/Admin/RestController.php:502
+#: includes/Admin/RestController.php:503
 msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:570
+#: includes/Admin/RestController.php:571
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:588
+#: includes/Admin/RestController.php:589
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:649
+#: includes/Admin/RestController.php:650
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:657
+#: includes/Admin/RestController.php:658
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:1105
+#: includes/Admin/RestController.php:1106
 #: build/index.js:7
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1147
+#: includes/Admin/RestController.php:1148
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1148
+#: includes/Admin/RestController.php:1149
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1172
+#: includes/Admin/RestController.php:1173
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1184
+#: includes/Admin/RestController.php:1185
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1214
+#: includes/Admin/RestController.php:1215
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1277
+#: includes/Admin/RestController.php:1278
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1289
+#: includes/Admin/RestController.php:1290
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1326
-#: includes/Admin/RestController.php:1367
-#: includes/Admin/RestController.php:1437
-#: includes/Admin/RestController.php:1529
+#: includes/Admin/RestController.php:1327
+#: includes/Admin/RestController.php:1368
+#: includes/Admin/RestController.php:1438
+#: includes/Admin/RestController.php:1530
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1451
+#: includes/Admin/RestController.php:1452
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1463
+#: includes/Admin/RestController.php:1464
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1535
+#: includes/Admin/RestController.php:1536
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1562
+#: includes/Admin/RestController.php:1563
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1630
+#: includes/Admin/RestController.php:1631
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1675
+#: includes/Admin/RestController.php:1676
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1680
+#: includes/Admin/RestController.php:1681
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1685
+#: includes/Admin/RestController.php:1686
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1690
+#: includes/Admin/RestController.php:1691
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1697
+#: includes/Admin/RestController.php:1698
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1703
+#: includes/Admin/RestController.php:1704
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1708
+#: includes/Admin/RestController.php:1709
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1718
+#: includes/Admin/RestController.php:1719
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1796
+#: includes/Admin/RestController.php:1797
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1797
+#: includes/Admin/RestController.php:1798
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1809
+#: includes/Admin/RestController.php:1810
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""

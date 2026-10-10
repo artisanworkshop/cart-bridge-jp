@@ -42,6 +42,19 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 	private const FAQ_EXPORT_BLOCKING_QUESTION = 'The export skipped a product or a stock row with a warning. How do I fix it?';
 
+	/**
+	 * D27（R3-6d）: 顧客・受注・クーポンは Pro アドオンが移す。無料版の readme はこの FAQ で案内する（`docs/03` §10.0 決め残し 5）。
+	 */
+	private const FAQ_PRO_ADD_ON_QUESTION = 'Can it migrate customers, orders, and coupons?';
+
+	private const PRO_ADD_ON_NAME = 'Cart Bridge JP Pro';
+
+	/**
+	 * 無料版が移す・API とやり取りするものを書いた小見出し（`== Description ==` の中）。R3-6c1 で顧客・受注・クーポンを Pro へ移した後、
+	 * ここが古いまま残っていた（R3-6d で直した）。
+	 */
+	private const FREE_SCOPE_SUBSECTIONS = [ 'Import from Color Me Shop', 'Export to Color Me Shop', 'External services' ];
+
 	private static ?string $readme = null;
 
 	public function test_readme_headers_match_the_plugin_header(): void {
@@ -163,7 +176,59 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * ガイドライン（外部サービスの開示）: プラグインが接続する Color Me Shop API の起点（`https://<host>`）を「External services」節に
+	 * D27（R3-6c1）: 無料版は顧客・受注・クーポンのコードを持たない（`FreeScopeTest`）。取り込む・送る・API で読むものの説明にそれらを書かない
+	 * （決済・配送の方法は受注のマッピングにだけ使う）。
+	 */
+	public function test_free_scope_subsections_do_not_describe_commerce_entities(): void {
+		foreach ( self::FREE_SCOPE_SUBSECTIONS as $heading ) {
+			$this->assertDoesNotMatchRegularExpression(
+				'/\b(?:customers?|orders?|coupons?|payment methods?|shipping methods?)\b/i',
+				$this->subsection( 'Description', $heading ),
+				$heading
+			);
+		}
+	}
+
+	/**
+	 * D27（R3-6d）: 顧客・受注・クーポンを探す利用者を Pro アドオンへ案内する（ガイドライン 9・11: リンク程度にする）。
+	 * 販売サイトの URL は Pro の公開準備で足す。1.0.0 へ上げる時点で URL が無ければ止める（Contributors の仮の値と同じ）。
+	 */
+	public function test_pro_add_on_faq_names_the_add_on(): void {
+		$answer = $this->faq_answer( self::FAQ_PRO_ADD_ON_QUESTION );
+
+		$this->assertStringContainsString( self::PRO_ADD_ON_NAME, $answer );
+		$this->assertStringContainsString( self::PRO_ADD_ON_NAME, $this->section( 'Description' ) );
+
+		if ( version_compare( CBJP_VERSION, '1.0.0', '>=' ) ) {
+			$this->assertMatchesRegularExpression( '#https://[^\s)]+#', $answer, 'Link the Pro add-on before releasing 1.0.0.' );
+		}
+	}
+
+	/**
+	 * wordpress.org は更新の通知（`== Upgrade Notice ==` の各版）を 300 文字までしか表示しない（マークアップなし）。
+	 * 0.1.0 から更新するサイトへの案内（R3-6d）が切れないようにする。
+	 */
+	public function test_upgrade_notices_fit_the_directory_limits(): void {
+		$notices = $this->split_by_headings( $this->section( 'Upgrade Notice' ), '/^= (.+) =$/m' );
+
+		$this->assertNotSame( [], $notices );
+
+		// 0.1.0 のサイトが wordpress.org の 1.0.0 へ更新するときに読む通知（顧客・受注・クーポンの移動と県の誤り）。
+		if ( version_compare( CBJP_VERSION, '1.0.0', '<=' ) ) {
+			$this->assertArrayHasKey( '1.0.0', $notices );
+		}
+
+		foreach ( $notices as $version => $notice ) {
+			$notice = trim( $notice );
+
+			$this->assertNotSame( '', $notice, $version );
+			$this->assertLessThanOrEqual( 300, mb_strlen( $notice ), $version );
+			$this->assertSame( 0, preg_match( '/[<>*`\[\]]/', $notice ), "The upgrade notice for {$version} must not contain markup." );
+		}
+	}
+
+	/**
+	 * ガイドライン（外部サービスの開示）:プラグインが接続する Color Me Shop API の起点（`https://<host>`）を「External services」節に
 	 * コードとして書く（節の末尾の規約の URL もホストを含むので、ホスト名だけでは本文から接続先の説明が消えても通ってしまう）。
 	 */
 	public function test_external_services_section_names_the_hosts_the_plugin_contacts(): void {
