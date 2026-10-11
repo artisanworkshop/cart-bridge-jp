@@ -16,7 +16,8 @@
 # - includes/（無料版は languages/ も）は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
 # - vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）。無料版は build/ に管理画面の JS とその依存の一覧がある
 # - 無料版: Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
-# - Pro: 無料版の名前空間（CartBridgeJP\ で Pro\ でないもの）を宣言する PHP が無い（無料版のコードを Pro に同梱しない。依存は Pro から無料版への一方向）
+# - Pro: bin/check-pro-zip.php が、無料版の名前空間（CartBridgeJP\ で Pro\ でないもの）を宣言する PHP が無いこと（無料版のコードを Pro に同梱しない。
+#   依存は Pro から無料版への一方向）と、リリースの設定（ヘッダーの Version と定数、版 1.0.0 以上では接続先・製品 ID・Update URI）を確かめる
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -148,24 +149,12 @@ if [ "$SLUG" = cart-bridge-jp ]; then
 		[ "$rc" = 1 ] || problem "could not search the plugin files for Pro identifiers (grep exit ${rc})"
 	fi
 else
-	# 無料版の名前空間を宣言する PHP（無料版のコードを Pro に同梱しない）。宣言を 1 つずつ拾い（-o。同じ行の 2 つ目・<?php の後ろも拾う）、
-	# CartBridgeJP\Pro（とその下）でないものを数える。PHP の名前空間は大文字小文字を区別しないので -i で比べる（R3-8c の review-loop R1-5）。
-	# grep の終了コード: 0 = 見つかった、1 = 無い、2 = 読めない（読めないことを「無い」と読まない）。Pro は必ず CartBridgeJP\Pro を宣言するので、
-	# 宣言が 1 つも無いのは検査が壊れた兆候として止める。
-	if ns_hits=$(grep -rnoiE --include='*.php' 'namespace[[:space:]]+cartbridgejp[a-z0-9_\\]*' "$FINAL"); then
-		if free_hits=$(printf '%s\n' "$ns_hits" | grep -viE ':namespace[[:space:]]+cartbridgejp\\pro(\\[a-z0-9_\\]*)?$'); then
-			problem "free plugin namespaces declared in: $(printf '%s\n' "$free_hits" | cut -d: -f1 | sed "s#${FINAL}/##g" | sort -u | tr '\n' ' ')"
-		else
-			rc=$?
-			[ "$rc" = 1 ] || problem "could not filter the namespace declarations (grep exit ${rc})"
-		fi
-	else
+	# 無料版の名前空間を宣言する PHP が無いこと（PHP のトークンで読む。改行・コメントを挟んだ宣言も）と、リリースの設定（ヘッダーの Version と
+	# CBJP_PRO_VERSION、版 1.0.0 以上では接続先・製品 ID・Update URI）。pro-v* のタグのリリースは CI のテストを通らないので、ここで止める（PR #125 G1）。
+	# 出力は受けておき、失敗したときだけ問題の一覧を出す（終了コード 1 = 問題あり、2 = 確かめられない。どちらも止める）。
+	if check_out=$(php bin/check-pro-zip.php "$FINAL" 2>&1); then :; else
 		rc=$?
-		if [ "$rc" = 1 ]; then
-			problem "no CartBridgeJP namespace declaration was found in the Pro zip (the namespace check cannot be trusted)"
-		else
-			problem "could not search the plugin files for namespace declarations (grep exit ${rc})"
-		fi
+		problem "the Pro zip check failed (exit ${rc}): $(printf '%s' "$check_out" | sed "s#${FINAL}/##g" | tr '\n' ';')"
 	fi
 fi
 
