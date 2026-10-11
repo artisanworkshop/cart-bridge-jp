@@ -2701,23 +2701,27 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
   エラーの文に HTML（「My Account」へのリンク）が入ることがある
 - `instance` はサーバー全体で一意（`UNIQUE KEY`・190 文字）。同じ instance での 2 度目の有効化は「already been activated with the same unique instance ID」で断る。無効化は instance で消す
 - **期限の後**: 最初の状態確認で、サーバーがそのサイトの有効化を消して `inactive`（`friendly_api_key_expiration_date: "Expired"`）を返す（`get_row_data_by_api_key()` が期限内のリソースしか見ないため）。以後の無効化は「could not be deactivated」で必ず失敗する。
-  **猶予期間**（API Manager の設定。この版の既定で 14 日。応答の `next_payment` が「Renewable until: …」）の間は、**新しい instance の有効化が通る**。猶予期間が過ぎるとリソースごと消え、有効化・無効化・状態確認のすべてが「No licensing resources exist」になる
+  **猶予期間**（API Manager の設定。この版の既定で 14 日。応答の `next_payment` が「Renewable until: …」）の間は、**新しい instance の有効化が通る**。猶予期間が過ぎるとリソースごと消え、有効化・無効化・状態確認のすべてが「No licensing resources exist」になる（猶予期間 0 の販売サイトでは期限の直後からこうなる。ソースから。未実測）
   → D14 の「新しいサイトでの有効化は期限内だけ」を厳密にするなら、販売サイトで猶予期間を 0 にする（販売サイトの確認事項。`docs/10` R3-8 の「販売サイト」）
 - 製品を「無制限の有効化」にすると、`total_activations_purchased` は 100000 で返る（D14 のサイト数無制限）
 
 **形**（Pro だけ。無料版は変えない。`CartBridgeJP\Pro\License\`・`Pro\Admin\LicensePage`）:
 - `LicenseConfig`: 接続先の URL と製品 ID は定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID`（メインファイルで `if ( ! defined() )`。既定は `''`・`0` で「未設定」。wp-config.php で上書きできる）。
-  URL は `wp_parse_url()` で scheme（http/https）と host を確かめ、資格情報を含む URL は受けない。製品 ID は正の整数だけ。**販売サイトが決まるまで空のまま**で、`LicenseConfigTest` が `CBJP_PRO_VERSION` 1.0.0 以上で空のままの公開を止める
+  URL は `wp_parse_url()` で scheme（http/https）と host を確かめ、資格情報を含む URL は受けない。製品 ID は正の整数だけ。**販売サイトが決まるまで空のまま**で、`LicenseConfigTest` が `CBJP_PRO_VERSION` 1.0.0 以上で空のまま・https でないままの公開を止める（実行時の定数ではなく、メインファイルの `define()` の既定値を読む。wp-config.php で定数を定義した環境でも配る zip の値で判定するため。review-loop R1-4）
 - `LicenseClient`: `wp_safe_remote_post()`（timeout 15 秒・**転送しない**〔`redirection` 0。転送先へキーを運ばない〕）。パラメータは本文（`wc_am_action`・`api_key`・`product_id`・`instance`・`object`〔scheme を外した `home_url()`〕・有効化だけ `software_version`）。
   応答はフェイルクローズ: HTTP 200・JSON のオブジェクト・`success === true`（実 bool）・操作ごとの印（実 bool）がそろったときだけ成功。状態確認は `status_check` と `data.activated` が食い違えば解釈しない。サーバーの文はタグ・制御文字を除いて 300 文字まで
 - `LicenseStore`（2026-10-11 ユーザー決定: **キーは暗号化・有効化の状態は平文**）: option `cbjp_pro_license_key`（`sodium_crypto_secretbox`。鍵は `wp_salt( 'auth' )` に Pro 固有の文脈を足して導く。無料版の `TokenStore` と同じ方式だが、`TokenStore` は Pro が使ってよい API に無いので Pro に持つ）、
-  `cbjp_pro_license_state`（`activated` は `'yes'`/`'no'`、`activated_at`、`product_id`）、`cbjp_pro_license_instance`（初めて使うときに 32 文字の英数字で作り、無効化しても残す）、`cbjp_pro_license_last_check`（表示用）。どれも autoload なし（保存のたびに `wp_set_option_autoload()`）。
+  `cbjp_pro_license_state`（`activated` は `'yes'`/`'no'`、`activated_at`、`product_id`）、`cbjp_pro_license_instance`（初めて使うときに `random_bytes()` で 16 進数 32 文字を作り、無効化しても残す。`wp_generate_password()` は pluggable で `random_password` フィルターも掛かり、パスワードの規則を足すプラグインが記号を混ぜると形が崩れて呼ぶたびに作り直すので使わない。review-loop R1-3）、`cbjp_pro_license_last_check`（表示用）。どれも autoload なし（保存のたびに `wp_set_option_autoload()`）。
   ソルトが変わってキーを復号できなくなっても有効化は残る（期限後に有効化をやり直せないため。D14）
 - `LicenseManager`: **有効化の状態はローカルの記録だけで決める**。状態確認は結果を表示用に記録するだけ（期限後の `inactive` でも有効化は消さない）。無効化はサーバーが成功を返したときだけローカルの状態を消す（ローカルだけ消す手段は作らない）。
   有効化は有効化済みのサイトでも同じ instance で別のキーを試せる（**キーの交換**。期限後に新しいキーを買った人が、無効化できない古いキーを替えるため。期限内はサーバーが「同じ instance で有効化済み」と断るので先に無効化してもらう。2026-10-11 ユーザー決定）。
+  **未有効化のサイトで有効化が失敗したら、入力したキーで状態確認をして、サーバーがこの instance を有効化済みと答えたら有効化として保存する**（サーバーが有効化を記録したのにタイムアウト・壊れた応答で受け取れなかったとき、以後の有効化が「同じ instance で有効化済み」で断られ続け、
+  未有効化の画面からは抜けられないため。サーバーの状態確認は instance で有効化を見る。キーの交換では、前のキーの有効化を新しいキーで「有効」と読んでしまうので突き合わせない。review-loop R1-1）。
   有効化済みでキーを復号できないときは、サーバーに問い合わせずにキーだけ保存し直せる。キーの形は `^[A-Za-z0-9_-]{1,190}\z`（API Manager の既定は 40 桁の 16 進数）。形の違うキー・未設定では要求を送らない。`is_activated()` は R3-8b の判定が使う
 - `LicensePage`: WooCommerce メニューの下の「Cart Bridge JP Pro」（`manage_woocommerce`）と、プラグイン一覧の行の「License」。PHP で描く。操作（有効化・無効化・状態確認・キーの入れ直し）は `admin-post.php` へのフォームで、権限と nonce を確かめてから行い（`admin_post_nopriv_` は登録しない）、
-  結果の文はユーザーごとの transient（5 分）で画面へ渡す。表示はすべてエスケープし、キーは末尾 4 文字だけを出す。接続先が未設定のビルドでは、そのことを出してフォームを出さない。画面の説明は R3-8a の範囲だけ（dry-run だけの制限の説明は R3-8b で足す）
+  結果の文はユーザーごとの transient（5 分）で画面へ渡す。入力したキーは `sanitize_text_field()` で整えず（`%XX` などを黙って取り除き、別のキーに変えて送りうる）、`normalize_key()` の正規表現で拒否する（review-loop R1-6）。
+  有効化済みのサイトでサーバーが断ったときは、理由がキー・期限のどれでもありうるので「もし期限後なら〜」の形の案内を添える（期限後は状態確認・無効化がエラーになっても有効化は残る、キーの交換は期限内なら先に無効化・期限後なら先に状態確認。review-loop R1-2・R1-5）。
+  表示はすべてエスケープし、キーは末尾 4 文字だけを出す。接続先が未設定のビルドでは、そのことを出してフォームを出さない。画面の説明は R3-8a の範囲だけ（dry-run だけの制限の説明は R3-8b で足す）
 
 **アンインストール**: Pro は自分の option を消さない（期限後にプラグインを削除して入れ直したとき、有効化をやり直せないため）。ただし無料版の「アンインストールでデータを消す」（`cbjp_delete_data_on_uninstall`。`cbjp_%` の option を消す）を有効にして無料版を削除すると、
 Pro の `cbjp_pro_license_*` も消える。無料版に Pro の名前を書かない（原則 7）ので、記録だけにする（利用者が全データの削除を選んだ場合）。
