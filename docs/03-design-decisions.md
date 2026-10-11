@@ -2776,7 +2776,8 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 - `update`（JSON）: `data.package` に `new_version`・`url`・`tested`・`upgrade_notice`・`package`（ダウンロードの URL）。package は**有効化済みの instance・キーで期限内のときだけ**付き、
   未有効化の instance・キー無し・期限後は空文字。URL はサイトの `?user_id=…&am_download_file=…&am_order=…&hname=…&hkey=…&hexpires=…`（約 7 日で切れる）で、転送なしに zip が返る
 - `information`（JSON）: `data.info` に `name`・`version`・`author`（HTML）・`homepage`・`requires`・`tested`・`requires_php`・`last_updated`・`sections`。
-  **節のキーは表示名（`Description`・`Changelog`）**で、WP の詳細の画面と「バージョン x の詳細」（`section=changelog`）が引く小文字の名前と違う → Pro が小文字の節の名前に直す。
+  **節のキーは訳した表示名**（`Licensing_Product_Tab::label()`。en なら `Description`・`Changelog`・`Other notes`、販売サイトが ja なら同梱の訳の「説明」「変更履歴」「その他の注意点」など）で、
+  WP の詳細の画面と「バージョン x の詳細」（`section=changelog`）が引く小文字の名前と違う → Pro が英語と ja の表示名の両方を WP の節の名前に直す（review-loop R1-1。最初は英語だけを小文字にしていて、ja の販売サイトでは節がすべて捨てられた）。
   公式のクライアントが使う `plugininformation` は PHP のシリアライズで返し、クライアントが `maybe_unserialize()` するので使わない（リモートの値を unserialize しない）
 - **期限後の `update` で、サーバーはその instance・キーの有効化を消して package を空で返す**（状態確認と同じ。ソースのとおり）。WP は「自動更新は利用できません」と出す
 - API Manager は応答を DB にキャッシュする（既定で有効・60 分）。有効化・無効化でそのキーのキャッシュは消えるが、期限で有効化が消えた後の状態確認は最大 60 分「active」のまま返りうる（表示だけの差。Pro は状態確認で有効化を変えない）
@@ -2797,7 +2798,9 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
   `sections` は既知の節（description・installation・faq・screenshots・changelog・other_notes）だけ `wp_kses_post()`（WP の詳細の画面も `wp_kses()` するが、Pro でも浄化してから渡す）
 - `plugins_api`（`plugin_information`・スラッグ `cart-bridge-jp-pro`）は**必ず Pro が答える**（false を返すと WP が wordpress.org に同じスラッグを問い合わせ、別のプラグインの詳細が出うる）。ヘッダーが無い間も登録する。
   有効化していない・取得できないときは `WP_Error`
-- package の無い更新（期限後など）には、`in_plugin_update_message-{file}` で「更新は、このサイトで有効化したキーの更新期間内に届く」を添える
+- package の無い更新（期限後など）には `disable_autoupdate` を付ける（自動更新を有効にしたサイトで、WP が新しい版ごとに取得を試みて失敗し、失敗のメールを送らないように。review-loop R1-4）。
+  `in_plugin_update_message-{file}` で「更新は、このサイトで有効化したキーの更新期間内に届く」と設定画面へのリンク（期限後とは限らない。販売サイトのアカウントから有効化を外した場合も package は付かない。R1-9）を添える
+- 有効化・無効化・キーの入れ直しが成功したら、WP の更新の情報（`update_plugins`）を捨てる（`LicenseManager`。無効化の後に前の確認の package〔約 7 日有効〕が最大 12 時間残って更新できる・有効化の直後に更新が出ない、を防ぐ。R1-3）
 - `Core\Plugin::boot()` が `UpdateChecker::create()->register()` を呼ぶ（ヘッダーの読み取りは要求ごとに 1 回）
 
 **ヘッダーの検査**（`LicenseConfigTest`）: 版 1.0.0 以上でヘッダーの `Update URI` が無い・https でない・`CBJP_PRO_LICENSE_API_URL` の既定値と host が違う（大文字小文字は区別しない）なら止める。
@@ -2807,15 +2810,18 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 無効化の説明に「DB を複製したサイトで無効化すると、元のサイトもライセンスから外れ、元のサイトに更新が届かなくなる」を足した。新しい文字列は R3-8d でまとめて訳す。
 
 **zip とリリース**: `bin/build-zip.sh --plugin cart-bridge-jp-pro`（JS のビルドなし。最上位は本体・`includes/`・`vendor/` だけ〔R3-8d で `languages/` を足す〕、`includes/` は追跡しているファイルと一致、
-`vendor/` は autoload だけ、**無料版の名前空間〔`CartBridgeJP\` で `Pro\` でないもの〕を宣言する PHP が無い**）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
+`vendor/` は autoload だけ、**無料版の名前空間〔`CartBridgeJP\` で `Pro\` でないもの〕を宣言する PHP が無い**。宣言は 1 つずつ・大文字小文字を区別せずに拾い〔`<?php namespace …` の同じ行・小文字の宣言も。R1-5〕、
+宣言が 1 つも無いときは検査が壊れたとして止める）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
 （backlog `r3-7-monorepo/R1-L2`。無料版の `release.yml` にも効く）。CI の Distribution ジョブが両方の zip を作って検査する（ジョブ名を「Distribution (plugin zips)」にした。必須のチェックではない）。
 `.github/workflows/release-pro.yml`: `pro-v*.*.*` のタグで zip を作り、GitHub Release に添付する（`make_latest: false`〔「Latest」は無料版のまま〕、自動のリリースノートは直前のタグ〔無料版のこともある〕からの変更が混ざるので使わない）。
-タグの push はユーザーの指示まで行わない。
+タグ由来の版は `${{ }}` で `run` に埋め込まず環境変数で渡す（ref 名の `$(...)` がシェルに入らないように。無料版の `release.yml` も同じに直した。R1-7）。タグの push はユーザーの指示まで行わない。
 
 **限界**（§10.7「守ること」4）:
 - **DB の複製**: 複製先は同じ instance・キー・有効化の記録を持つので、Pro の機能も更新も使える。複製先で無効化すると、無効化は instance（3.8.1 はキーとの組）で消すので、元のサイトのサーバー側の有効化も消え、
   元のサイトの更新の確認は package の無い応答になる（元のサイトのローカルの有効化は残る。もう一度有効化すれば戻る）。有効化したサイトの URL を記録して見分ける案は採らなかった（2026-10-12 ユーザー決定）
 - API Manager の応答のキャッシュ（上）により、期限の直後の最大 60 分は package が付きうる（キャッシュが残っていた場合）
+- **マルチサイトは対象外**: WP の更新の情報（`update_plugins`）はネットワークで 1 つだが、キーの記録はサイトごとの option なので、どのサイトの cron・管理画面で確かめたかで更新が出たり消えたりする（review-loop R1-8）
+- 更新の確認は Pro が起動したとき（WooCommerce と対応する版の無料版がある）だけ登録する。前提が欠けた Pro には更新が届かない（backlog `r3-8c-pro-updates-and-release/R1-L1`）
 
 **残したこと**（`docs/10` R3-8 の「販売サイト」）: 本番の販売サイトでの実測のやり直し（その時点の版）、`Update URI` と `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID` の値（同じ host）、
 API Manager の製品の版・`tested` などの入力と 0 円の商品に同じ zip を置けるかの確認。
