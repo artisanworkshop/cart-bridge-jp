@@ -843,7 +843,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     Pro に `License\LicenseConfig`（定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID`。販売サイトが決まるまで空で、`LicenseConfigTest` が 1.0.0 以上で止める）・`LicenseClient`（本文で送る・転送しない・フェイルクローズ）・
     `LicenseStore`（**キーは暗号化・有効化の状態は平文**〔ユーザー決定〕・instance は無効化しても残す・autoload なし）・`LicenseManager`（**有効化の状態はローカルの記録だけで決める**: 状態確認では変えない、無効化はサーバーの成功が要る、
     有効化済みでも同じ instance で別のキーを有効化できる〔キーの交換。期限後に古いキーを外せない人のため。ユーザー決定〕、未有効化での有効化の失敗は状態確認で突き合わせる〔review-loop R1-1〕、復号できないキーの入れ直し）と `Admin\LicensePage`（WooCommerce メニューの下。PHP。`admin-post.php`・権限と nonce・通知は transient）。無料版は変えない。
-    テスト（Pro に 142 件）とガードの変異の確認、dev サイトでの画面からの E2E（期限切れ・猶予期間中のキーの交換を含む）の後、API Manager と作ったデータを dev サイトから消した。詳細は `docs/03` §10.7「R3-8a の実装」
+    テスト（Pro に 152 件）とガードの変異の確認、dev サイトでの画面からの E2E（期限切れ・猶予期間中のキーの交換を含む）の後、API Manager と作ったデータを dev サイトから消した。詳細は `docs/03` §10.7「R3-8a の実装」
   - [ ] **R3-8b: キーが無い間は dry-run だけ**（無料版に「拡張が自分の種類を dry-run だけにできる」汎用の口〔REST の宣言・実行の作成での拒否・画面の表示〕を足し、Pro は R3-8a のキーの状態で判定する。取込み・エクスポートの両方。
     Pro が無いとき無料版の画面に何も出ないこと・無料版自身の機能を灰色にしないこと・REST で迂回できないことをテストで固定する〔`docs/03` §10.7「守ること」〕。`CBJP_EXTENSION_API_VERSION` と `CBJP_PRO_REQUIRED_EXTENSION_API` を上げ、`docs/03` §10.0「Pro が使ってよい無料版の API」を直す。
     無料版の `JobManagerTest` の docblock「Pro は試用の上限を意図して持つ」も直す）
