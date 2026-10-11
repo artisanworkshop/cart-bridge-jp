@@ -2749,8 +2749,8 @@ Run import/export は選んだうち実行できる種類だけを送る（確�
 - `EntityTypeRegistry::dry_run_only_reason()`・`dry_run_only()`: **無料版の種類は呼ばずに null**（無料版の機能を拡張の都合で止めない。キーで見分けるので、無料版のキーを名乗るインスタンスにも効く）。外部の種類の例外は理由の無い制限（`''`）に倒す（原則 9。`_doing_it_wrong` は出さない）。文はタグと前後の空白を除く。
 - `Sync\JobManager::start_run()`: 実際の取込み・エクスポート（dry-run でない種類の run）で、能力で絞った種類に制限中のものがあれば `Sync\DryRunOnlyException`（キー => 理由）で run 全体を断る（ジョブもアクションも作らない。非対応の種類は従来どおり黙って外す）。
   `retry()` もロックの中・busy の判定の後で同じ判定をする（種類か接続先が見つからないジョブは判定しない。拡張が無効になった種類は「dry-run だけ」が理由として誤りになるので、従来どおり処理の中で失敗させる）。
-- REST: `GET /connections` の `entities.import[]`・`entities.export[]` に `dry_run_only`（bool）・`dry_run_only_reason`（string。種類ごとに 1 回だけ問い合わせて両方に載せる）。`POST /runs`・`POST /jobs/{id}/retry` は例外を `cbjp_dry_run_only`（400。種類の表示名を `wp_sprintf( '%l' )` で並べ、拡張の理由を続ける。`data.entities`）にする（判定し直さず、例外が運ぶ値を使う）。
-- 画面（`entity-options.ts`）: `dry_run_only` は `false` のときだけ外す（`beta` と同じ安全側の読み）。`writableOptions()` が実際に送る種類を、`importOptionHelp()`・`exportOptionHelp()` が注記を組み立てる。
+- REST: `GET /connections` の `entities.import[]`・`entities.export[]` に `dry_run_only`（bool）・`dry_run_only_reason`（string。種類ごとに 1 回だけ問い合わせて両方に載せる）。`POST /runs`・`POST /jobs/{id}/retry` は例外を `cbjp_dry_run_only`（400。種類の表示名を `wp_sprintf( '%l' )` で並べ、拡張の理由を画面の `joinSentences()` と同じ翻訳する書式〔`%1$s %2$s`〕で続ける。`data.entities`）にする（判定し直さず、例外が運ぶ値を使う）。
+- 画面（`entity-options.ts`）: `dry_run_only` は `false` のときだけ外す（`beta` と同じ安全側の読み）。`runEntityOptions()`（実際の取込み・エクスポートは `writableOptions()` の種類だけ）が送る種類と Import の確認文の一覧を、`importOptionHelp()`・`exportOptionHelp()` が注記を組み立てる。
 - `CBJP_EXTENSION_API_VERSION` を 3 にし、Pro の `CBJP_PRO_REQUIRED_EXTENSION_API` も 3 にした。
 
 **Pro**: `License\LicenseGate::dry_run_only_reason()`（`LicenseStore::is_activated()`〔ローカルの記録の `'yes'` だけ〕でなければ「キーを WooCommerce > Cart Bridge JP Pro で有効化すると取り込める・送れる」の文）を、`CustomerType`・`OrderType`・`CouponType` が返す。
@@ -2762,7 +2762,7 @@ run を作る経路は `POST /runs` だけ（WP-CLI のコマンドは無い）�
 
 **検証スキル**: `rehearse-colorme` の `run` は、import/export の前に `/connections` の `dry_run_only` を見て、該当する種類があれば理由つきで止まる（宣言を読めない種類も止める）。販売サイトが決まるまでのビルドでは画面から有効化できないので、SKILL.md に有効化の記録の書き方と戻し方を書いた。
 
-**確認**: 品質チェック一式（無料版 1274 件・Pro 757 件・Jest 97 件）。ガード 14 か所の変異（run の作成・Retry の判定、dry-run の素通し、例外→制限、無料版の種類の除外、タグの除去、REST の宣言、ライセンスの語、Pro の `is_activated()` と種類の上書き、画面の安全側の読み・送る種類・注記）がすべてテストで検出された。
+**確認**: 品質チェック一式（無料版 1275 件・Pro 757 件・Jest 99 件）。ガード 14 か所の変異（run の作成・Retry の判定、dry-run の素通し、例外→制限、無料版の種類の除外、タグの除去、REST の宣言、ライセンスの語、Pro の `is_activated()` と種類の上書き、画面の安全側の読み・送る種類・注記）がすべてテストで検出された。
 dev サイト（Pro 有効・ColorMe 接続済み）で、未有効化では顧客・受注・クーポンの宣言が制限中・`POST /runs` の import/export が 400 でジョブが増えないこと、有効化の記録を書くと制限が外れること、Pro を無効にすると宣言が全部 false になることを `rest_do_request()` で確かめ（記録は消して戻した）、
 Import/Export タブの注記と、プレビューだけの種類しか選んでいないとき Run import が押せずプレビューは押せること、Pro の設定画面の説明を目視した。
 
