@@ -126,11 +126,12 @@ final class LicenseManager {
 			return $result;
 		}
 
+		// サーバーがこのサイトを外した時点で、前の確認の package は使わせない（手元の記録に失敗しても。PR #125 G2-B1）。
+		self::forget_update_info();
+
 		if ( ! $this->store->clear_activation() ) {
 			return LicenseResult::failure( LicenseResult::NOT_RECORDED );
 		}
-
-		self::forget_update_info();
 
 		return $result;
 	}

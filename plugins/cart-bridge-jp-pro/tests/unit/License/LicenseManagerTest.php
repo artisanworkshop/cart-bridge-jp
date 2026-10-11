@@ -187,6 +187,7 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 	public function test_reports_a_failed_save_after_a_server_deactivation(): void {
 		$this->store->save_activation( self::KEY, 1000 );
 		$this->server->fixture( 'deactivate_success' );
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'stale' ] ] );
 		LicenseStoreTest::fail_option_writes( LicenseStore::STATE_OPTION );
 
 		$this->assertSame( LicenseResult::NOT_RECORDED, $this->manager->deactivate()->code );
@@ -194,6 +195,8 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $this->server->requests );
 		$this->assertTrue( $this->store->is_activated() );
 		$this->assertSame( self::KEY, $this->store->key() );
+		// サーバーはこのサイトを外したので、手元の記録に失敗しても前の確認の package は捨てる（PR #125 G2-B1）。
+		$this->assertFalse( get_site_transient( 'update_plugins' ) );
 	}
 
 	public function test_saves_a_key_again_when_an_activation_has_no_key(): void {
