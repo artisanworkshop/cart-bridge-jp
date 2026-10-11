@@ -154,6 +154,7 @@ final class UpdateCheckerTest extends WP_UnitTestCase {
 		$this->assertIsArray( $update );
 		$this->assertSame( '0.1.1', $update['version'] );
 		$this->assertSame( '', $update['package'] );
+		$this->assertTrue( $update['disable_autoupdate'], '取得できない更新を自動更新で試させない（失敗のメールが届く。R3-8c の review-loop R1-4）' );
 		$this->assertTrue( $this->store->is_activated() );
 		$this->assertSame( self::KEY, $this->store->key() );
 	}
@@ -169,17 +170,49 @@ final class UpdateCheckerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * WP が `update_plugins_{host}` の戻り値から作る更新の情報（`wp_update_plugins()` の該当部分）を通す。
+	 * WP の `wp_update_plugins()` を通す（R3-8c の review-loop R1-2）。ヘッダーの `Update URI` は販売サイトが決まるまで空なので、`get_plugins()` の
+	 * キャッシュに差し込む。WP は先に wordpress.org へ問い合わせ、200 でなければ `Update URI` のプラグインも確かめずに戻るので、空の応答を先に積む。
 	 */
-	public function test_wp_reads_the_update_through_the_header_host_filter(): void {
+	public function test_wp_update_plugins_offers_the_update(): void {
 		$this->store->save_activation( self::KEY, 1000 );
-		$this->server->fixture( 'update_active' );
 		$this->checker->register();
+		$this->server->json( self::wordpress_org_response() )->fixture( 'update_active' );
 
-		$update = apply_filters( 'update_plugins_example.com', false, [ 'Version' => CBJP_PRO_VERSION ], self::PLUGIN_FILE, [] );
+		$item = $this->run_wp_update_plugins()->response[ self::PLUGIN_FILE ] ?? null;
 
-		$this->assertIsArray( $update );
-		$this->assertTrue( version_compare( $update['version'], '0.1.0', '>' ) );
+		$this->assertIsObject( $item );
+		$this->assertSame( '0.1.1', $item->new_version, 'WP は version を new_version に写す' );
+		$this->assertSame( self::UPDATE_URI, $item->id, 'id はヘッダーの値' );
+		$this->assertSame( self::PLUGIN_FILE, $item->plugin );
+		$this->assertSame( 'cart-bridge-jp-pro', $item->slug, '詳細のリンクはこのスラッグで plugins_api を引く' );
+		$this->assertStringStartsWith( 'https://example.com/?user_id=1&am_download_file=1000', $item->package );
+		$this->assertSame( 'update', $this->server->last_body()['wc_am_action'] );
+	}
+
+	public function test_wp_update_plugins_lists_the_current_version_as_up_to_date(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->checker->register();
+		$body = FixtureLoader::load( 'api-manager', 'update_active' );
+
+		$body['data']['package']['new_version'] = CBJP_PRO_VERSION;
+		$this->server->json( self::wordpress_org_response() )->json( $body );
+
+		$updates = $this->run_wp_update_plugins();
+
+		$this->assertArrayNotHasKey( self::PLUGIN_FILE, $updates->response );
+		$this->assertIsObject( $updates->no_update[ self::PLUGIN_FILE ] ?? null, 'no_update に入ると自動更新の切り替えが出る' );
+	}
+
+	public function test_wp_update_plugins_does_not_ask_the_server_without_an_activated_key(): void {
+		$this->checker->register();
+		$this->server->json( self::wordpress_org_response() );
+
+		$updates = $this->run_wp_update_plugins();
+
+		$this->assertArrayNotHasKey( self::PLUGIN_FILE, $updates->response );
+		$this->assertArrayNotHasKey( self::PLUGIN_FILE, $updates->no_update );
+		$this->assertCount( 1, $this->server->requests, 'wordpress.org への 1 件だけで、販売サイトへは送らない' );
+		$this->assertStringNotContainsString( 'wc-am-api', $this->server->requests[0]['url'] );
 	}
 
 	public function test_returns_the_details_of_an_activated_site(): void {
@@ -221,8 +254,40 @@ final class UpdateCheckerTest extends WP_UnitTestCase {
 
 	public function test_explains_an_update_without_a_package(): void {
 		$this->assertStringContainsString( 'within its update period', $this->render_message( (object) [ 'package' => '' ] ) );
+		// 期限後とは限らない（販売サイトのアカウントから有効化を外した場合も package は付かない）ので、設定画面へ案内する（R3-8c の review-loop R1-9）。
+		$this->assertStringContainsString( 'href="' . esc_url( admin_url( 'admin.php?page=cart-bridge-jp-pro' ) ) . '">Check the license status</a>', $this->render_message( (object) [ 'package' => '' ] ) );
 		$this->assertStringContainsString( 'within its update period', $this->render_message( (object) [] ) );
 		$this->assertSame( '', $this->render_message( (object) [ 'package' => 'https://example.com/pkg.zip' ] ) );
+	}
+
+	/**
+	 * `get_plugins()` のキャッシュでこのプラグインに `Update URI` を与えてから `wp_update_plugins()` を走らせ、保存された更新の情報を返す。
+	 */
+	private function run_wp_update_plugins(): object {
+		$plugins = get_plugins();
+
+		$this->assertArrayHasKey( self::PLUGIN_FILE, $plugins, 'テストのサイトに Pro が入っている' );
+		$plugins[ self::PLUGIN_FILE ]['UpdateURI'] = self::UPDATE_URI;
+		wp_cache_set( 'plugins', [ '' => $plugins ], 'plugins' );
+		delete_site_transient( 'update_plugins' );
+
+		wp_update_plugins();
+
+		$updates = get_site_transient( 'update_plugins' );
+		$this->assertIsObject( $updates );
+
+		return $updates;
+	}
+
+	/**
+	 * @return array<string,array<mixed>>
+	 */
+	private static function wordpress_org_response(): array {
+		return [
+			'plugins'      => [],
+			'translations' => [],
+			'no_update'    => [],
+		];
 	}
 
 	private function render_message( object $response ): string {

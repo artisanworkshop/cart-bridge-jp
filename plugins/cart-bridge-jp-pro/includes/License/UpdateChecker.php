@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\License;
 
+use CartBridgeJP\Pro\Admin\LicensePage;
 use WP_Error;
 
 // phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter -- WP のフィルター・アクションの引数の並びに合わせて受ける（使わない引数がある）。
@@ -96,7 +97,7 @@ final class UpdateChecker {
 		}
 
 		// 新しい版が無くても返す（WP は `no_update` に入れ、自動更新の切り替えを出す）。`id`・`plugin` は WP が埋める。
-		return [
+		$update = [
 			'slug'           => LicenseClient::PLUGIN_SLUG,
 			'version'        => $result->data['version'],
 			'url'            => $result->data['url'],
@@ -104,6 +105,14 @@ final class UpdateChecker {
 			'tested'         => $result->data['tested'],
 			'upgrade_notice' => $result->data['upgrade_notice'],
 		];
+
+		// package の無い更新（期限後など）は自動更新させない（自動更新を有効にしていると、WP が新しい版ごとに取得を試みて失敗し、失敗のメールを送る。
+		// `WP_Automatic_Updater::should_update()` の `disable_autoupdate`。R3-8c の review-loop R1-4）。
+		if ( '' === $update['package'] ) {
+			$update['disable_autoupdate'] = true;
+		}
+
+		return $update;
 	}
 
 	/**
@@ -172,9 +181,12 @@ final class UpdateChecker {
 			return;
 		}
 
+		// 期限後とは限らない（購入者が販売サイトのアカウントから有効化を外した場合も package は付かない）ので、設定画面での確認を案内する（R3-8c の review-loop R1-9）。
 		printf(
-			'<br />%s',
-			esc_html__( 'Updates of Cart Bridge JP Pro are delivered while the license key activated on this site is within its update period.', 'cart-bridge-jp-pro' )
+			'<br />%1$s <a href="%2$s">%3$s</a>',
+			esc_html__( 'Updates of Cart Bridge JP Pro are delivered while the license key activated on this site is within its update period.', 'cart-bridge-jp-pro' ),
+			esc_url( LicensePage::page_url() ),
+			esc_html__( 'Check the license status', 'cart-bridge-jp-pro' )
 		);
 	}
 

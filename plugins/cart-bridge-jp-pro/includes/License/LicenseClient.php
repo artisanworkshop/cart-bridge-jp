@@ -43,8 +43,20 @@ final class LicenseClient {
 	/** WordPress・PHP の版の形（`tested`・`requires`・`requires_php`）。 */
 	private const PLATFORM_VERSION_PATTERN = '/^\d{1,2}\.\d{1,2}(\.\d{1,2})?\z/';
 
-	/** 詳細の画面で出す節（WP の `install_plugin_information()` が見出しを持つもの）。API Manager は `Description` のような表示名で返す。 */
-	private const SECTIONS = [ 'description', 'installation', 'faq', 'screenshots', 'changelog', 'other_notes' ];
+	/**
+	 * 詳細の画面で出す節（WP の節の名前 => API Manager が節のキーにする表示名）。API Manager は節を `Licensing_Product_Tab::label()` の
+	 * **訳した**表示名で返す（3.8.1 のソース。販売サイトが ja なら「説明」「変更履歴」）ので、英語と API Manager 同梱の ja の訳の両方を、
+	 * WP の詳細の画面と「バージョン x の詳細」（`section=changelog`）が引く小文字の名前に直す（R3-8c の review-loop R1-1）。表示名は小文字にして比べる。
+	 */
+	private const SECTIONS = [
+		'description'   => [ 'description', '説明' ],
+		'installation'  => [ 'installation', 'インストール' ],
+		'faq'           => [ 'faq', 'よくある質問' ],
+		'screenshots'   => [ 'screenshots', 'スクリーンショット' ],
+		'changelog'     => [ 'changelog', '変更履歴' ],
+		'other_notes'   => [ 'other notes', 'その他の注意点' ],
+		'documentation' => [ 'documentation', 'ドキュメント' ],
+	];
 
 	/** サーバーの文を画面に出すときの上限（文字数）。 */
 	private const MESSAGE_MAX_LENGTH = 300;
@@ -303,7 +315,7 @@ final class LicenseClient {
 	}
 
 	/**
-	 * 詳細の節。キーは API Manager の表示名（`Description`・`Other Notes`）を小文字の節の名前（`description`・`other_notes`）にし、
+	 * 詳細の節。キーは API Manager の表示名（`Description`・`Other notes`・`変更履歴`）を WP の節の名前（`description`・`other_notes`・`changelog`）にし、
 	 * 既知の節だけを残す。値は `wp_kses_post()` する（WP の詳細の画面も節を `wp_kses()` するが、ここでも浄化してから渡す）。
 	 *
 	 * @return array<string,string>
@@ -320,14 +332,29 @@ final class LicenseClient {
 				continue;
 			}
 
-			$key = str_replace( [ ' ', '-' ], '_', strtolower( trim( $name ) ) );
+			$key = self::section_key( $name );
 
-			if ( in_array( $key, self::SECTIONS, true ) && ! isset( $clean[ $key ] ) ) {
+			if ( null !== $key && ! isset( $clean[ $key ] ) ) {
 				$clean[ $key ] = wp_kses_post( $html );
 			}
 		}
 
 		return $clean;
+	}
+
+	/**
+	 * API Manager の節の表示名に当たる WP の節の名前。知らない表示名なら null。
+	 */
+	private static function section_key( string $label ): ?string {
+		$label = strtolower( trim( str_replace( [ '_', '-' ], ' ', $label ) ) );
+
+		foreach ( self::SECTIONS as $key => $labels ) {
+			if ( in_array( $label, $labels, true ) ) {
+				return $key;
+			}
+		}
+
+		return null;
 	}
 
 	/**

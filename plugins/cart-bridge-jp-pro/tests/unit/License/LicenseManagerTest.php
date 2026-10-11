@@ -375,6 +375,42 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		$this->assertSame( 'broken', get_option( LicenseStore::KEY_OPTION ) );
 	}
 
+	/**
+	 * 有効化・無効化・キーの入れ直しが成功したら、WP の更新の情報（`update_plugins`）を捨てる（R3-8c の review-loop R1-3）。
+	 * 無効化の後に前の確認の package が残って更新できる・有効化の直後に更新が出ない、を防ぐ。
+	 */
+	public function test_successful_license_changes_discard_the_update_info(): void {
+		$this->server->fixture( 'activate_success' )->fixture( 'deactivate_success' );
+
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'stale' ] ] );
+		$this->assertTrue( $this->manager->activate( self::KEY )->is_success() );
+		$this->assertFalse( get_site_transient( 'update_plugins' ), '有効化' );
+
+		update_option( LicenseStore::KEY_OPTION, 'broken' );
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'stale' ] ] );
+		$this->assertTrue( $this->manager->replace_unreadable_key( self::KEY )->is_success() );
+		$this->assertFalse( get_site_transient( 'update_plugins' ), 'キーの入れ直し' );
+
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'stale' ] ] );
+		$this->assertTrue( $this->manager->deactivate()->is_success() );
+		$this->assertFalse( get_site_transient( 'update_plugins' ), '無効化' );
+	}
+
+	public function test_failed_license_changes_keep_the_update_info(): void {
+		$this->server->fixture( 'activate_error_unknown_key' )->fixture( 'activate_error_no_resources' );
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'kept' ] ] );
+
+		$this->assertFalse( $this->manager->activate( self::KEY )->is_success() );
+		$this->assertIsObject( get_site_transient( 'update_plugins' ) );
+
+		$this->server->fixture( 'activate_success' )->fixture( 'deactivate_error' );
+		$this->manager->activate( self::KEY );
+		set_site_transient( 'update_plugins', (object) [ 'response' => [ 'x' => 'kept' ] ] );
+
+		$this->assertFalse( $this->manager->deactivate()->is_success() );
+		$this->assertIsObject( get_site_transient( 'update_plugins' ), '断られた無効化は有効化を残すので、更新の情報も残す' );
+	}
+
 	private static function manager( LicenseConfig $config, LicenseStore $store ): LicenseManager {
 		return new LicenseManager( $config, new LicenseClient( $config ), $store );
 	}

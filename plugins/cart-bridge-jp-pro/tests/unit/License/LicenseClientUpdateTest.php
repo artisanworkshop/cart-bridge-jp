@@ -233,7 +233,7 @@ final class LicenseClientUpdateTest extends WP_UnitTestCase {
 
 		$body['data']['info']['sections'] = [
 			'Description' => '<p>ok</p><script>alert(1)</script><img src="x" onerror="alert(1)">',
-			'Other Notes' => '<p>notes</p>',
+			'Other notes' => '<p>notes</p>',
 			'FAQ'         => '<p>faq</p>',
 			'Reviews'     => '<p>reviews</p>',
 			'Evil'        => '<p>evil</p>',
@@ -247,6 +247,38 @@ final class LicenseClientUpdateTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<script', $sections['description'] );
 		$this->assertStringNotContainsString( 'onerror', $sections['description'] );
 		$this->assertStringContainsString( '<p>ok</p>', $sections['description'] );
+	}
+
+	/**
+	 * API Manager は節のキーに訳した表示名を使う（`Licensing_Product_Tab::label()`）。販売サイトが ja なら、同梱の訳の「説明」「変更履歴」などになる
+	 * （R3-8c の review-loop R1-1。訳は woocommerce-api-manager-ja.mo 3.8.1）。
+	 */
+	public function test_information_reads_the_japanese_section_labels(): void {
+		$body = FixtureLoader::load( 'api-manager', 'information_active' );
+
+		$body['data']['info']['sections'] = [
+			'説明'        => '<p>description</p>',
+			'インストール'    => '<p>installation</p>',
+			'よくある質問'    => '<p>faq</p>',
+			'スクリーンショット' => '<p>screenshots</p>',
+			'変更履歴'      => '<p>changelog</p>',
+			'その他の注意点'   => '<p>other notes</p>',
+			'ドキュメント'    => '<p>documentation</p>',
+		];
+		$this->server->json( $body );
+
+		$this->assertSame(
+			[
+				'description'   => '<p>description</p>',
+				'installation'  => '<p>installation</p>',
+				'faq'           => '<p>faq</p>',
+				'screenshots'   => '<p>screenshots</p>',
+				'changelog'     => '<p>changelog</p>',
+				'other_notes'   => '<p>other notes</p>',
+				'documentation' => '<p>documentation</p>',
+			],
+			$this->client->information( self::KEY, self::INSTANCE )->data['sections']
+		);
 	}
 
 	public function test_information_cleans_the_name_and_the_author(): void {

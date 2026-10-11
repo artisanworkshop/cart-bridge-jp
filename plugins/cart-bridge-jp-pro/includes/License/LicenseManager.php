@@ -92,7 +92,13 @@ final class LicenseManager {
 
 		if ( $server_has_key ) {
 			// サーバーは有効化した。手元に保存できなければ成功と言わない（初めての有効化なら、次の有効化が突き合わせで保存し直す。PR #123 G3-B1）。
-			return $this->store->save_activation( $key, $product_id ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::NOT_RECORDED );
+			if ( ! $this->store->save_activation( $key, $product_id ) ) {
+				return LicenseResult::failure( LicenseResult::NOT_RECORDED );
+			}
+
+			self::forget_update_info();
+
+			return LicenseResult::success();
 		}
 
 		return $result;
@@ -116,9 +122,15 @@ final class LicenseManager {
 
 		$result = $this->client->deactivate( $key, $instance );
 
-		if ( $result->is_success() && ! $this->store->clear_activation() ) {
+		if ( ! $result->is_success() ) {
+			return $result;
+		}
+
+		if ( ! $this->store->clear_activation() ) {
 			return LicenseResult::failure( LicenseResult::NOT_RECORDED );
 		}
+
+		self::forget_update_info();
 
 		return $result;
 	}
@@ -165,7 +177,21 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::INVALID_KEY );
 		}
 
-		return $this->store->save_key( $key ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		if ( ! $this->store->save_key( $key ) ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		}
+
+		self::forget_update_info();
+
+		return LicenseResult::success();
+	}
+
+	/**
+	 * WP が持っている更新の情報（`update_plugins`）を捨て、次に管理画面を開いたときに確かめ直させる（R3-8c の review-loop R1-3）。
+	 * 捨てないと、無効化した後も前の確認で得た package（約 7 日有効）が最大 12 時間残って更新でき、有効化した直後は次の確認まで更新が出ない。
+	 */
+	private static function forget_update_info(): void {
+		delete_site_transient( 'update_plugins' );
 	}
 
 	/**
