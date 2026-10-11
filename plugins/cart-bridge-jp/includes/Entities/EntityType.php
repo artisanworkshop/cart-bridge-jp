@@ -64,6 +64,16 @@ abstract class EntityType {
 	}
 
 	/**
+	 * この接続先で、この種類を dry-run だけにする理由（R3-8b。拡張が自分の種類の取込み・エクスポートを止める汎用の口）。null（既定）は止めない。
+	 * 文字列を返すと、dry-run（取込み・エクスポートの両方）は今までどおり走り、実際の取込み・エクスポートの run の作成と、その種類の失敗したジョブの
+	 * Retry はサーバーが断る。画面は選択肢の下にこの文を出す（空なら無料版の汎用の注記だけ）。呼ばれるたびに翻訳し、判定の結果も保持しない
+	 * （種類のインスタンスはレジストリが静的に持つ）。無料版の種類には使わない（`EntityTypeRegistry` が無料版の種類では呼ばない）。
+	 */
+	public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+		return null;
+	}
+
+	/**
 	 * 接続先から 1 ページ取得する。
 	 *
 	 * @throws RuntimeException 取り込めない種類（`supports_import()` が偽の種類はジョブにならないので、通常は届かない）。

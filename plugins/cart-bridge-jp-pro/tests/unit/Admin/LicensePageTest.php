@@ -358,6 +358,23 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'name="_wpnonce"', $output );
 	}
 
+	/**
+	 * キーが無い間にできること（D30・R3-8b）。有効化の状態（ローカルの記録）で出し分ける。
+	 */
+	public function test_explains_what_works_without_and_with_an_activated_key(): void {
+		$this->as_shop_manager();
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'customers, orders, and coupons can only be previewed with a dry run', $output );
+		$this->assertStringNotContainsString( 'can be imported and exported on this site', $output );
+
+		$this->store->save_activation( self::KEY, 1000 );
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'Customers, orders, and coupons can be imported and exported on this site.', $output );
+		$this->assertStringNotContainsString( 'can only be previewed with a dry run', $output );
+	}
+
 	public function test_offers_only_saving_the_key_when_it_is_unreadable(): void {
 		$this->as_shop_manager();
 		$this->store->save_activation( self::KEY, 1000 );

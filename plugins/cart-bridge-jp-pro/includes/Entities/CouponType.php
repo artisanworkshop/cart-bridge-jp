@@ -17,6 +17,7 @@ use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Canonical\CanonicalCoupon;
+use CartBridgeJP\Pro\License\LicenseGate;
 use CartBridgeJP\Pro\Woo\Reader\CouponReader;
 use CartBridgeJP\Pro\Woo\Writer\CouponWriter;
 use CartBridgeJP\Woo\Reader\EntityReader;
@@ -47,6 +48,13 @@ final class CouponType extends EntityType {
 
 	public function position(): int {
 		return 70;
+	}
+
+	/**
+	 * キーを有効化していない間は dry-run だけ（D30・R3-8b。判定は `LicenseGate`）。
+	 */
+	public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+		return LicenseGate::dry_run_only_reason();
 	}
 
 	public function supports_import( PlatformAdapter $adapter ): bool {

@@ -77,6 +77,7 @@ final class JobManager {
 	 * @throws RunAlreadyInProgressException 同一プラットフォームで進行中（pending/running/paused）のジョブ、または
 	 *   ページを処理中のアクション（キャンセル直後の run を含む）がある場合。
 	 * @throws PlatformBusyException 同一プラットフォームで別の操作が判定〜状態変更の区間を実行中の場合。
+	 * @throws DryRunOnlyException 実際の取込み・エクスポートで、拡張が dry-run だけにした種類を含む場合（R3-8b。ジョブは作らない）。
 	 * @throws RuntimeException 未登録プラットフォーム、または対応エンティティが1つもない場合。
 	 */
 	public function start_run( string $type, string $platform, array $entities ): string {
@@ -121,6 +122,16 @@ final class JobManager {
 			throw new RuntimeException( 'No supported entities to run.' );
 		}
 
+		// 拡張が dry-run だけにした種類（R3-8b）は、実際の取込み・エクスポートの run を作らない（run 全体を断る。黙って外すと、要求した種類が
+		// 書かれないまま完了したように見える）。画面はその種類を送らないので、ここに届くのは REST を直に呼んだときと、画面の表示が古いとき。
+		if ( ! in_array( $type, [ self::TYPE_DRY_RUN, self::TYPE_DRY_RUN_EXPORT ], true ) ) {
+			$restricted = EntityTypeRegistry::dry_run_only( $adapter, $ordered_entities );
+
+			if ( [] !== $restricted ) {
+				throw new DryRunOnlyException( $platform, $restricted );
+			}
+		}
+
 		$run_id  = wp_generate_uuid4();
 		$job_ids = [];
 
@@ -153,6 +164,7 @@ final class JobManager {
 	 *   同じ例外・同じ理由（レート制限保護・二重書き込み防止）だが、進行中のジョブの判定からは対象ジョブ自身の
 	 *   runを除外する（同一run内の未処理な兄弟ジョブまで「進行中」と誤検知して正当なRetryをブロックしないため）。
 	 * @throws PlatformBusyException 同一プラットフォームで別の操作が判定〜状態変更の区間を実行中の場合。
+	 * @throws DryRunOnlyException 実際の取込み・エクスポートのジョブで、その種類を拡張が dry-run だけにしている場合（R3-8b。failed のまま）。
 	 */
 	public function retry( int $job_id ): bool {
 		$job = $this->jobs->find( $job_id );
@@ -161,17 +173,21 @@ final class JobManager {
 			return false;
 		}
 
-		// platform・run_id はジョブの作成後に変わらないため、ロックの外で読んだ値を使ってよい。
+		// platform・run_id・type・entity はジョブの作成後に変わらないため、ロックの外で読んだ値を使ってよい。
 		$platform = (string) $job['platform'];
 		$run_id   = (string) $job['run_id'];
+		$type     = (string) $job['type'];
+		$entity   = (string) $job['entity'];
 
 		return $this->lock->run(
 			$platform,
 			PlatformLock::TTL_SHORT,
-			function () use ( $job_id, $platform, $run_id ): bool {
+			function () use ( $job_id, $platform, $run_id, $type, $entity ): bool {
 				if ( $this->jobs->is_platform_busy( $platform, $run_id ) ) {
 					throw new RunAlreadyInProgressException( $platform );
 				}
+
+				$this->assert_not_dry_run_only( $type, $platform, $entity );
 
 				if ( ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_FAILED ], JobRepository::STATUS_PENDING ) ) {
 					return false;
@@ -182,6 +198,33 @@ final class JobManager {
 				return true;
 			}
 		);
+	}
+
+	/**
+	 * Retry するジョブが、拡張が dry-run だけにした種類の実際の取込み・エクスポート（dry-run でないジョブ）なら断る（R3-8b。run の作成と同じ判定）。
+	 * 種類（拡張が無効になった）・接続先が見つからないときは判定しない（従来どおり処理の中で失敗する。「dry-run だけ」は理由として誤りになる）。
+	 * 止めるのは Retry したジョブだけで、実行中の run の続きのページと、Retry したジョブの後に残っていた同じ run のジョブは止めない
+	 * （`docs/03` §10.7「守ること」4: 破られない仕組みである必要はない）。
+	 *
+	 * @throws DryRunOnlyException
+	 */
+	private function assert_not_dry_run_only( string $type, string $platform, string $entity ): void {
+		if ( in_array( $type, [ self::TYPE_DRY_RUN, self::TYPE_DRY_RUN_EXPORT ], true ) ) {
+			return;
+		}
+
+		$entity_type = EntityTypeRegistry::get( $entity );
+		$adapter     = AdapterRegistry::get( $platform );
+
+		if ( null === $entity_type || null === $adapter ) {
+			return;
+		}
+
+		$reason = EntityTypeRegistry::dry_run_only_reason( $entity_type, $adapter );
+
+		if ( null !== $reason ) {
+			throw new DryRunOnlyException( $platform, [ $entity => $reason ] );
+		}
 	}
 
 	/**

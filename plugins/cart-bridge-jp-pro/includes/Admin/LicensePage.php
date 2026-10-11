@@ -155,6 +155,14 @@ final class LicensePage {
 
 		printf( '<p>%s</p>', esc_html__( 'Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site.', 'cart-bridge-jp-pro' ) );
 
+		// キーが無い間にできること（D30・R3-8b。判定は `License\LicenseGate`）。有効化の状態はローカルの記録だけで決まるので、同じ値で出し分ける。
+		printf(
+			'<p>%s</p>',
+			$activated
+				? esc_html__( 'Customers, orders, and coupons can be imported and exported on this site.', 'cart-bridge-jp-pro' )
+				: esc_html__( 'Until a license key is activated on this site, customers, orders, and coupons can only be previewed with a dry run. Importing and exporting them requires an activated key.', 'cart-bridge-jp-pro' )
+		);
+
 		if ( ! $configured ) {
 			printf(
 				'<div class="notice notice-warning inline"><p>%s</p></div>',

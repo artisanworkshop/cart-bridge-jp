@@ -34,6 +34,7 @@ final class EntityTypeContractTest extends WP_UnitTestCase {
 			'describe_local'       => '(int $local_id): array',
 			'describe_warning'     => '(string $code, bool $import, string $row_entity): ?CartBridgeJP\Entities\WarningText',
 			'dry_run_label'        => '(CartBridgeJP\Canonical\CanonicalModel $item): string',
+			'dry_run_only_reason'  => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): ?string',
 			'existing_local_ids'   => '(array $local_ids): ?array',
 			'export_description'   => '(CartBridgeJP\Adapters\PlatformAdapter $adapter): string',
 			'fetch_by_remote_id'   => '(CartBridgeJP\Adapters\PlatformAdapter $adapter, string $remote_id): ?CartBridgeJP\Canonical\CanonicalModel',

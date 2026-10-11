@@ -264,18 +264,22 @@ final class ExternalEntityTypeTest extends WP_UnitTestCase {
 
 		$this->assertContains(
 			[
-				'key'            => 'gizmo',
-				'label'          => 'Gizmos',
-				'mapping_notice' => true,
+				'key'                 => 'gizmo',
+				'label'               => 'Gizmos',
+				'mapping_notice'      => true,
+				'dry_run_only'        => false,
+				'dry_run_only_reason' => '',
 			],
 			$connection['entities']['import']
 		);
 		$this->assertContains(
 			[
-				'key'         => 'gizmo',
-				'label'       => 'Gizmos',
-				'beta'        => true,
-				'description' => 'Sends gizmos to the shop.',
+				'key'                 => 'gizmo',
+				'label'               => 'Gizmos',
+				'beta'                => true,
+				'description'         => 'Sends gizmos to the shop.',
+				'dry_run_only'        => false,
+				'dry_run_only_reason' => '',
 			],
 			$connection['entities']['export']
 		);

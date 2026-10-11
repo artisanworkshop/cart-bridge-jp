@@ -9,6 +9,7 @@ namespace CartBridgeJP\Pro\Tests\Sync;
 
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Pro\Tests\Fixtures\ActivatesLicense;
 use CartBridgeJP\Pro\Tests\Fixtures\CommerceFactory;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
@@ -28,6 +29,7 @@ use WP_UnitTestCase;
  */
 final class CommerceJobManagerTest extends WP_UnitTestCase {
 
+	use ActivatesLicense;
 	use RegistersCommerceAdapters;
 
 	private JobRepository $jobs;
@@ -35,6 +37,8 @@ final class CommerceJobManagerTest extends WP_UnitTestCase {
 
 	public function set_up(): void {
 		parent::set_up();
+		// 実際の取込み・エクスポートを走らせる（キーが無いと dry-run だけ。R3-8b）。
+		$this->activate_license();
 		Activator::activate();
 
 		$this->jobs     = new JobRepository();

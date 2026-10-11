@@ -77,6 +77,34 @@ final class FreeScopeTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 無料版はライセンスを確かめない（`docs/03` §10.0「無料版で守ること」1・3。D30 の「キーが無い間は dry-run だけ」の判定は Pro だけが持ち、
+	 * 無料版は汎用の口〔`EntityType::dry_run_only_reason()`〕だけを持つ。R3-8b）。PHP と画面のソースにライセンスの語が無いことで固定する
+	 * （メインファイルのプラグインヘッダーの GPL の `License:` は対象の外）。
+	 */
+	public function test_the_free_plugin_has_no_license_code(): void {
+		$files = [];
+
+		foreach ( [ 'includes', 'src' ] as $directory ) {
+			foreach ( new RecursiveIteratorIterator( new RecursiveDirectoryIterator( CBJP_PATH . $directory, RecursiveDirectoryIterator::SKIP_DOTS ) ) as $file ) {
+				$path = (string) $file;
+
+				if ( ! preg_match( '/\.(php|tsx?)\z/', $path ) ) {
+					continue;
+				}
+
+				$contents = (string) file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- テストでソースを読む。
+
+				if ( preg_match( '/licen[cs]|ライセンス/iu', $contents ) ) {
+					$files[] = substr( $path, strlen( CBJP_PATH ) );
+				}
+			}
+		}
+
+		$this->assertNotSame( [], glob( CBJP_PATH . 'src/*.ts' ), '画面のソースを読めていること（配布 zip ではなくリポジトリで走る）' );
+		$this->assertSame( [], $files );
+	}
+
+	/**
 	 * 無料版だけ（Pro アドオンが無い）では顧客・受注・クーポンの種類は登録されない（無料版のテストは Pro を読み込まない）。
 	 */
 	public function test_no_customer_order_or_coupon_type_is_registered_without_the_add_on(): void {
