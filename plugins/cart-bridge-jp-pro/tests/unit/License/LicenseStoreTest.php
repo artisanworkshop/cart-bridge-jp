@@ -203,6 +203,28 @@ final class LicenseStoreTest extends WP_UnitTestCase {
 		$this->assertSame( $competitor, ( new LicenseStore() )->instance() );
 	}
 
+	/**
+	 * 作成が DB に届かず読み直せないときは、保存していない instance を返さない（PR #123 G2-B1）。
+	 */
+	public function test_returns_no_instance_when_it_cannot_be_saved(): void {
+		self::fail_instance_insert();
+
+		$this->assertNull( $this->store->instance() );
+		$this->assertNull( get_option( LicenseStore::INSTANCE_OPTION, null ) );
+	}
+
+	/**
+	 * instance の作成の SQL を、何も書かない SQL に差し替える（DB の失敗の代わり）。
+	 */
+	public static function fail_instance_insert(): void {
+		add_filter(
+			'query',
+			static function ( string $query ): string {
+				return str_contains( $query, 'INSERT IGNORE' ) && str_contains( $query, LicenseStore::INSTANCE_OPTION ) ? 'SELECT 1' : $query;
+			}
+		);
+	}
+
 	public function test_replaces_a_broken_instance(): void {
 		update_option( LicenseStore::INSTANCE_OPTION, 'bad!' );
 

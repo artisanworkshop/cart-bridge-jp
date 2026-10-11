@@ -64,7 +64,12 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::NOT_CONFIGURED );
 		}
 
-		$instance       = $this->store->instance();
+		$instance = $this->store->instance();
+
+		if ( null === $instance ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		}
+
 		$was_activated  = $this->store->is_activated();
 		$result         = $this->client->activate( $key, $instance );
 		$server_has_key = $result->is_success() || ( ! $was_activated && $this->server_lists_instance( $key, $instance ) );
@@ -88,7 +93,13 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::NOT_ALLOWED );
 		}
 
-		$result = $this->client->deactivate( $key, $this->store->instance() );
+		$instance = $this->store->instance();
+
+		if ( null === $instance ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		}
+
+		$result = $this->client->deactivate( $key, $instance );
 
 		if ( $result->is_success() ) {
 			$this->store->clear_activation();
@@ -107,7 +118,13 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::NOT_ALLOWED );
 		}
 
-		$result = $this->client->status( $key, $this->store->instance() );
+		$instance = $this->store->instance();
+
+		if ( null === $instance ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		}
+
+		$result = $this->client->status( $key, $instance );
 
 		if ( $result->is_success() ) {
 			$expires = $result->data['expires'] ?? null;

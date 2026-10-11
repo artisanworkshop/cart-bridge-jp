@@ -140,6 +140,30 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		];
 	}
 
+	/**
+	 * instance を保存できないときは、保存していない instance をサーバーへ送らない（PR #123 G2-B1）。
+	 */
+	public function test_does_not_send_an_unsaved_instance(): void {
+		LicenseStoreTest::fail_instance_insert();
+
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->activate( self::KEY )->code );
+
+		$this->assertCount( 0, $this->server->requests );
+		$this->assertFalse( $this->store->is_activated() );
+	}
+
+	public function test_does_not_check_or_deactivate_with_an_unsaved_instance(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		delete_option( LicenseStore::INSTANCE_OPTION );
+		LicenseStoreTest::fail_instance_insert();
+
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->check_status()->code );
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->deactivate()->code );
+
+		$this->assertCount( 0, $this->server->requests );
+		$this->assertTrue( $this->store->is_activated() );
+	}
+
 	public function test_does_not_activate_without_a_configured_server(): void {
 		$manager = self::manager( new LicenseConfig( '', 0 ), $this->store );
 

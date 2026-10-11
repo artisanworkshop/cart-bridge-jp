@@ -91,9 +91,10 @@ final class LicenseStore {
 	}
 
 	/**
-	 * このサイトの instance。無い・壊れていれば作って保存する。
+	 * このサイトの instance。無い・壊れていれば作って保存する。保存した値を読み直せない（DB の失敗）ときは null
+	 * （保存していない instance をサーバーへ送ると、次の要求で別の instance を作り、有効化と状態確認・無効化がずれる。PR #123 G2-B1）。
 	 */
-	public function instance(): string {
+	public function instance(): ?string {
 		$stored = get_option( self::INSTANCE_OPTION, null );
 
 		if ( self::is_instance( $stored ) ) {
@@ -104,29 +105,27 @@ final class LicenseStore {
 		// 形が崩れると呼ぶたびに作り直し、有効化と無効化・状態確認で違う instance を送るので、差し替えられない乱数で作る（review-loop R1-3）。
 		$candidate = bin2hex( random_bytes( self::INSTANCE_BYTES ) );
 
-		if ( null !== $stored ) {
+		if ( null === $stored ) {
+			// 初めての作成は、同時に届いた 2 つの有効化が別々の値を作って片方が上書きされ、サーバーで有効化した instance と保存した instance が
+			// ずれないよう、`INSERT IGNORE` で原子的に作り、勝った値を DB から読み直す（PR #123 G1-1）。`add_option()` は
+			// `ON DUPLICATE KEY UPDATE` で既存の行を上書きするので、この用途には使えない。
+			global $wpdb;
+			$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- 作成の競合を DB の一意制約で決める。直後にキャッシュを捨てる。
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')",
+					self::INSTANCE_OPTION,
+					$candidate
+				)
+			);
+		} else {
 			// 壊れた値の置き換え（同時に起きる見込みは無いので、そのまま上書きする）。
 			$this->save_option( self::INSTANCE_OPTION, $candidate );
-
-			return $candidate;
 		}
 
-		// 初めての作成は、同時に届いた 2 つの有効化が別々の値を作って片方が上書きされ、サーバーで有効化した instance と保存した instance が
-		// ずれないよう、`INSERT IGNORE` で原子的に作り、勝った値を DB から読み直す（PR #123 G1-1）。`add_option()` は
-		// `ON DUPLICATE KEY UPDATE` で既存の行を上書きするので、この用途には使えない。
-		global $wpdb;
-		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- 作成の競合を DB の一意制約で決める。直後にキャッシュを捨てる。
-			$wpdb->prepare(
-				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')",
-				self::INSTANCE_OPTION,
-				$candidate
-			)
-		);
 		self::forget_cached_option( self::INSTANCE_OPTION );
+		$saved = get_option( self::INSTANCE_OPTION, null );
 
-		$winner = get_option( self::INSTANCE_OPTION, null );
-
-		return self::is_instance( $winner ) ? $winner : $candidate;
+		return self::is_instance( $saved ) ? $saved : null;
 	}
 
 	/**
