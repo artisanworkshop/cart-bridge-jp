@@ -136,7 +136,8 @@ function cbjp_zipcheck_header( string $source, string $name ): string {
 /**
  * メインファイルの `define( 'NAME', <既定値> )` の既定値（`if ( ! defined() )` の中のものも読む）。PHP のトークンで読むので、コメントの中の
  * `define()` は読まない（PR #125 G2-B2: 正規表現ではコメントアウトした設定を読みえた）。値は単一引用符の文字列か整数だけで、
- * 見つからない・同じ名前が 2 回以上ある・値がそれ以外の式なら null（読めない設定をリリースの検査で「設定あり」と読まない）。
+ * 見つからない・同じ名前が 2 回以上ある・値がそれ以外の式・名前を読めない `define()` があるなら null（読めない設定をリリースの検査で
+ * 「設定あり」と読まない。PR #125 G3-B1）。
  */
 function cbjp_zipcheck_define( string $source, string $name ): ?string {
 	$tokens = array_values(
@@ -162,12 +163,27 @@ function cbjp_zipcheck_define( string $source, string $name ): ?string {
 			continue;
 		}
 
-		if ( '(' !== $tokens[ $i + 1 ] || ! is_array( $tokens[ $i + 2 ] ) || T_CONSTANT_ENCAPSED_STRING !== $tokens[ $i + 2 ][0] || ',' !== $tokens[ $i + 3 ] || ')' !== $tokens[ $i + 5 ] ) {
+		if ( '(' !== $tokens[ $i + 1 ] ) {
 			continue;
 		}
 
-		if ( cbjp_zipcheck_single_quoted( $tokens[ $i + 2 ][1] ) !== $name ) {
+		// 名前が単一引用符の文字列でない（式・二重引用符）`define()` は、どの定数を定義するか読めないので、どの名前も読めないとする
+		// （読み飛ばすと、実際に効く定義を見ずに別のリテラルの定義を読む。PR #125 G3-B1）。
+		$defined = is_array( $tokens[ $i + 2 ] ) && T_CONSTANT_ENCAPSED_STRING === $tokens[ $i + 2 ][0] && ',' === $tokens[ $i + 3 ]
+			? cbjp_zipcheck_single_quoted( $tokens[ $i + 2 ][1] )
+			: null;
+
+		if ( null === $defined ) {
+			return null;
+		}
+
+		if ( $defined !== $name ) {
 			continue;
+		}
+
+		// 値は単一のリテラルで、その後ろで呼び出しが閉じること（式・3 つ目の引数なら読めない）。
+		if ( ')' !== $tokens[ $i + 5 ] ) {
+			return null;
 		}
 
 		$value = $tokens[ $i + 4 ];

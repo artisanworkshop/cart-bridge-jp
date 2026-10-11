@@ -137,6 +137,12 @@ final class ProZipCheckTest extends WP_UnitTestCase {
 		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', \"x\" );\n", 'A' ), '二重引用符は読まない' );
 		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', B . 'x' );\n", 'A' ), '式は読まない' );
 		$this->assertNull( cbjp_zipcheck_define( "<?php \$o->define( 'A', 'x' );\n", 'A' ), 'メソッドは定数の定義ではない' );
+		// 実際に効く定義が式・名前の読めない形なら、別の場所のリテラルの定義を読まない（PR #125 G3-B1）。
+		$this->assertNull( cbjp_zipcheck_define( "<?php if ( false ) { define( 'A', 'x' ); }\ndefine( 'A', getenv( 'A' ) );\n", 'A' ), '値が式' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php if ( false ) { define( 'A', 'x' ); }\ndefine( 'A', '' . '' );\n", 'A' ), '値が文字列の連結' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php if ( false ) { define( 'A', 'x' ); }\ndefine( \"A\", '' );\n", 'A' ), '名前が二重引用符' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php if ( false ) { define( 'A', 'x' ); }\ndefine( 'A' . '', '' );\n", 'A' ), '名前が式' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', 'x', true );\n", 'A' ), '3 つ目の引数' );
 		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'B', 'x' );\n", 'A' ) );
 
 		// 1.0.0 で、コメントの中だけに設定があるメインファイルは止まる。

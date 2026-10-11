@@ -2816,7 +2816,8 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 **無料版の名前空間〔`CartBridgeJP\` で `Pro\` でないもの〕を宣言する PHP が無い**〔PHP のトークンで読む。改行・コメントを挟んだ宣言・小文字も拾い、コメントの中の文は拾わない。`CartBridgeJP\Pro` の宣言が 1 つも無いのも止める。
 review-loop R1-5 の grep は PR #125 G1-B1 で複数行の宣言を見落とすと指摘され、トークンに替えた〕、**リリースの設定**〔ヘッダーの `Version` と `CBJP_PRO_VERSION` が同じ。版 1.0.0 以上では接続先の既定値が https・製品 ID が正の整数・
 ヘッダーの `Update URI` が https で接続先と同じ host。`LicenseConfigTest` と同じ規則だが、`pro-v*` のタグのリリースは CI のテストを通らないので zip を作るときにも止める。PR #125 G1-1。
-`define()` の既定値も PHP のトークンで読み、コメントアウトした設定を読まない・同じ名前が 2 回ある/値が式なら読めないとして止める〔PR #125 G2-B2。`LicenseConfigTest` も同じ関数で読む〕〕）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
+`define()` の既定値も PHP のトークンで読み、コメントアウトした設定を読まない・同じ名前が 2 回ある/値が式/名前が式や二重引用符の `define()` があるなら読めないとして止める
+〔PR #125 G2-B2・G3-B1。実際に効く定義を読み飛ばして別のリテラルの定義を読まないため。`LicenseConfigTest` も同じ関数で読む〕〕）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
 （backlog `r3-7-monorepo/R1-L2`。無料版の `release.yml` にも効く）。CI の Distribution ジョブが両方の zip を作って検査する（ジョブ名を「Distribution (plugin zips)」にした。必須のチェックではない）。
 `.github/workflows/release-pro.yml`: `pro-v*.*.*` のタグで zip を作り、GitHub Release に添付する（`make_latest: false`〔「Latest」は無料版のまま〕、自動のリリースノートは直前のタグ〔無料版のこともある〕からの変更が混ざるので使わない）。
 タグ由来の版は `${{ }}` で `run` に埋め込まず環境変数で渡す（ref 名の `$(...)` がシェルに入らないように。無料版の `release.yml` も同じに直した。R1-7）。タグの push はユーザーの指示まで行わない。
