@@ -14,7 +14,6 @@ use CartBridgeJP\Pro\License\LicenseManager;
 use CartBridgeJP\Pro\License\LicenseResult;
 use CartBridgeJP\Pro\License\LicenseStore;
 use CartBridgeJP\Pro\Tests\Fixtures\FakeLicenseServer;
-use DomainException;
 use WP_UnitTestCase;
 use WPDieException;
 
@@ -225,30 +224,39 @@ final class LicensePageTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `admin-post.php` の入口は、フックの名前から操作を取り出して処理し、設定画面へ戻す（review-loop R1-7）。
+	 * `admin-post.php` の入口は、フックの名前から操作を取り出して処理し、設定画面へ戻してリクエストを終える（review-loop R1-7）。
+	 * `exit` は差し替える（届くと PHPUnit が終了コード 0 のまま止まり、残りのテストが黙って走らなくなる。R2-1）。
 	 */
 	public function test_handles_a_request_from_admin_post(): void {
 		$this->as_shop_manager();
 		$this->store->save_activation( self::KEY, 1000 );
 		$this->server->fixture( 'status_active' );
 		$this->post( LicensePage::ACTION_CHECK );
+
+		$terminated = false;
+		$page       = new LicensePage(
+			new LicenseManager( new LicenseConfig( 'https://example.com/', 1000 ), new LicenseClient( new LicenseConfig( 'https://example.com/', 1000 ) ), $this->store ),
+			static function () use ( &$terminated ): void {
+				$terminated = true;
+			}
+		);
 		remove_all_actions( 'admin_post_' . LicensePage::ACTION_CHECK );
-		$this->page->register();
+		$page->register();
+
+		$redirected_to = null;
 		add_filter(
 			'wp_redirect',
-			static function ( string $location ): string {
-				throw new DomainException( $location );
+			static function ( string $location ) use ( &$redirected_to ): string {
+				$redirected_to = $location;
+
+				return ''; // `wp_redirect()` を header() の前で止める（CLI ではヘッダーを送れない）。
 			}
 		);
 
-		$location = null;
-		try {
-			do_action( 'admin_post_' . LicensePage::ACTION_CHECK );
-		} catch ( DomainException $e ) {
-			$location = $e->getMessage();
-		}
+		do_action( 'admin_post_' . LicensePage::ACTION_CHECK );
 
-		$this->assertSame( LicensePage::page_url(), $location );
+		$this->assertSame( LicensePage::page_url(), $redirected_to );
+		$this->assertTrue( $terminated, '転送の後にリクエストを終える' );
 		$this->assertSame( 'status', $this->server->last_body()['wc_am_action'] );
 		$this->assertNotNull( $this->store->last_check() );
 	}

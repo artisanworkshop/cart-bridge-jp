@@ -49,12 +49,14 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_failed_activation_saves_nothing(): void {
-		$this->server->fixture( 'activate_error_unknown_key' )->fixture( 'activate_error_unknown_key' );
+		// 突き合わせの状態確認も失敗する（理由の文が有効化と違う）。返すのは有効化の失敗（review-loop R2-2）。
+		$this->server->fixture( 'activate_error_unknown_key' )->fixture( 'activate_error_no_resources' );
 
 		$result = $this->manager->activate( self::KEY );
 
 		$this->assertSame( LicenseResult::SERVER_ERROR, $result->code );
 		$this->assertSame( 'A customer account does not exist for this license key.', $result->message, '有効化の失敗の理由を返す（突き合わせの状態確認の理由ではない）' );
+		$this->assertCount( 2, $this->server->requests );
 		$this->assertFalse( $this->store->is_activated() );
 		$this->assertFalse( get_option( LicenseStore::KEY_OPTION ) );
 	}

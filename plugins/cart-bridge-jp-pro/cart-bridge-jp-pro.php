@@ -30,7 +30,7 @@ define( 'CBJP_PRO_URL', plugin_dir_url( __FILE__ ) );
 // Pro が使う無料版の拡張点の版（無料版の `CBJP_EXTENSION_API_VERSION`。R3-6c1。R3-6c2 で 2）。無料版のこれより古い版では起動しない。
 define( 'CBJP_PRO_REQUIRED_EXTENSION_API', 2 );
 
-// ライセンスの接続先（販売サイトの WooCommerce API Manager。R3-8a）。販売サイトが決まるまで空で、`LicenseConfigTest` が版 1.0.0 以上で空のままの公開を止める。
+// ライセンスの接続先（販売サイトの WooCommerce API Manager。R3-8a）。販売サイトが決まるまで空で、`LicenseConfigTest` が版 1.0.0 以上で空のまま・https でないままの公開を止める（ここの既定値を読む）。
 // wp-config.php で先に定義すると上書きできる（開発・検証用）。
 if ( ! defined( 'CBJP_PRO_LICENSE_API_URL' ) ) {
 	define( 'CBJP_PRO_LICENSE_API_URL', '' );

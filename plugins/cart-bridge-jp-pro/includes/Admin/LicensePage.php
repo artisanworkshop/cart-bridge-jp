@@ -9,6 +9,7 @@ namespace CartBridgeJP\Pro\Admin;
 
 use CartBridgeJP\Pro\License\LicenseManager;
 use CartBridgeJP\Pro\License\LicenseResult;
+use Closure;
 
 /**
  * Pro の設定画面（ライセンスキーの有効化・無効化・状態確認。R3-8a）。WooCommerce メニューの下に置く。
@@ -31,7 +32,18 @@ final class LicensePage {
 	private const NOTICE_TRANSIENT_PREFIX = 'cbjp_pro_license_notice_';
 	private const NOTICE_TTL              = 300;
 
-	public function __construct( private readonly LicenseManager $manager ) {}
+	/** 転送の後にリクエストを終える処理（既定は `exit`）。 */
+	private readonly Closure $terminate;
+
+	/**
+	 * @param Closure|null $terminate 転送の後にリクエストを終える処理。テストは `exit` の代わりを渡す（`exit` に届くと PHPUnit が
+	 *                                終了コード 0 のまま止まり、残りのテストが黙って走らなくなる。review-loop R2-1）。
+	 */
+	public function __construct( private readonly LicenseManager $manager, ?Closure $terminate = null ) {
+		$this->terminate = $terminate ?? static function (): never {
+			exit;
+		};
+	}
 
 	public static function create(): self {
 		return new self( LicenseManager::create() );
@@ -91,7 +103,7 @@ final class LicensePage {
 		$this->process( (string) preg_replace( '/^admin_post_/', '', (string) current_action() ) );
 
 		wp_safe_redirect( self::page_url() );
-		exit;
+		( $this->terminate )();
 	}
 
 	/**
