@@ -171,13 +171,15 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		$this->server->fixture( 'activate_success' );
 		$failing = LicenseStoreTest::fail_option_writes( LicenseStore::KEY_OPTION );
 
-		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->activate( self::KEY )->code );
+		$this->assertSame( LicenseResult::NOT_RECORDED, $this->manager->activate( self::KEY )->code );
 		$this->assertFalse( $this->store->is_activated() );
 
 		remove_filter( 'query', $failing );
 		$this->server->fixture( 'activate_error_already_activated' )->fixture( 'status_active' );
 
 		$this->assertTrue( $this->manager->activate( self::KEY )->is_success() );
+		$this->assertCount( 3, $this->server->requests, 'やり直しは突き合わせ（状態確認）で記録する' );
+		$this->assertSame( 'status', $this->server->last_body()['wc_am_action'] );
 		$this->assertTrue( $this->store->is_activated() );
 		$this->assertSame( self::KEY, $this->store->key() );
 	}
@@ -187,8 +189,9 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		$this->server->fixture( 'deactivate_success' );
 		LicenseStoreTest::fail_option_writes( LicenseStore::STATE_OPTION );
 
-		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->deactivate()->code );
+		$this->assertSame( LicenseResult::NOT_RECORDED, $this->manager->deactivate()->code );
 
+		$this->assertCount( 1, $this->server->requests );
 		$this->assertTrue( $this->store->is_activated() );
 		$this->assertSame( self::KEY, $this->store->key() );
 	}

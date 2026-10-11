@@ -375,6 +375,7 @@ final class LicensePage {
 			LicenseResult::NOT_CONFIGURED   => __( 'The license server is not configured in this build of Cart Bridge JP Pro.', 'cart-bridge-jp-pro' ),
 			LicenseResult::NOT_ALLOWED      => __( 'This action is not available for the current license.', 'cart-bridge-jp-pro' ),
 			LicenseResult::STORAGE_ERROR    => __( 'The license data could not be saved on this site. Try again.', 'cart-bridge-jp-pro' ),
+			LicenseResult::NOT_RECORDED     => self::not_recorded_reason( $action, $was_activated ),
 			LicenseResult::INVALID_RESPONSE => __( 'The response from the license server could not be understood.', 'cart-bridge-jp-pro' ),
 			LicenseResult::HTTP_ERROR       => '' === $result->message
 				? __( 'Could not connect to the license server.', 'cart-bridge-jp-pro' )
@@ -403,6 +404,21 @@ final class LicensePage {
 		};
 
 		return '' === $hint ? $message : $message . ' ' . $hint;
+	}
+
+	/**
+	 * サーバーは受け付けたが、このサイトに記録できなかったときの文（PR #123 の最終確認）。やり直し方は操作で違う:
+	 * 初めての有効化はもう一度有効化すれば突き合わせで記録する。無効化はサーバーからこのサイトが外れているので、もう一度無効化してもサーバーが断る
+	 * （同じキーで有効化し直してから無効化する）。キーの交換は同じ instance での有効化をサーバーが断るので、やり直しを勧めない。
+	 */
+	private static function not_recorded_reason( string $action, bool $was_activated ): string {
+		if ( self::ACTION_DEACTIVATE === $action ) {
+			return __( 'The license server deactivated this site, but this site could not record it. Activate the same license key again, then deactivate it.', 'cart-bridge-jp-pro' );
+		}
+
+		return $was_activated
+			? __( 'The license server activated the key, but this site could not record it.', 'cart-bridge-jp-pro' )
+			: __( 'The license server activated the key, but this site could not record it. Try again.', 'cart-bridge-jp-pro' );
 	}
 
 	private static function format_time( int $timestamp ): string {

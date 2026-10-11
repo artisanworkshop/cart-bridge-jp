@@ -258,6 +258,40 @@ final class LicenseStoreTest extends WP_UnitTestCase {
 		$this->assertSame( self::KEY, $this->store->key() );
 	}
 
+	/**
+	 * 状態の書込みに続いて読み取りも失敗すると、`get_option()` は既定値になる。「有効化済みでない」で判定すると書けたと誤認してキーを消すので、
+	 * 「未有効化」と読めたときだけ進む（原則 9。PR #123 の最終確認）。
+	 */
+	public function test_clearing_keeps_the_key_when_the_state_cannot_be_read_back(): void {
+		global $wpdb;
+		$this->store->save_activation( self::KEY, 1000 );
+		$suppressed = $wpdb->suppress_errors( true );
+		add_filter(
+			'query',
+			static function ( string $query ): string {
+				// その option を名指す SQL（書込みも読み取りも）を、エラーになる SQL に差し替える（`''` を返すと直前の結果が残り、読み取りの失敗にならない）。
+				return str_contains( $query, "'" . LicenseStore::STATE_OPTION . "'" ) ? 'SELECT * FROM cbjp_pro_missing_table_for_tests' : $query;
+			}
+		);
+		wp_cache_delete( LicenseStore::STATE_OPTION, 'options' );
+
+		$cleared = $this->store->clear_activation();
+
+		$wpdb->suppress_errors( $suppressed );
+		$this->assertFalse( $cleared );
+		$this->assertSame( self::KEY, $this->store->key() );
+	}
+
+	/**
+	 * 壊れた instance の置き換えも、保存した値を読み直して確かめる（読み直せなければ null。PR #123 G2-B1）。
+	 */
+	public function test_returns_no_instance_when_a_broken_instance_cannot_be_replaced(): void {
+		update_option( LicenseStore::INSTANCE_OPTION, 'bad!' );
+		self::fail_option_writes( LicenseStore::INSTANCE_OPTION );
+
+		$this->assertNull( $this->store->instance() );
+	}
+
 	public function test_saving_a_key_reports_a_failed_write(): void {
 		self::fail_option_writes( LicenseStore::KEY_OPTION );
 

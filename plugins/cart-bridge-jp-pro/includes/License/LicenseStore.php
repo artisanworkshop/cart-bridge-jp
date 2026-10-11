@@ -191,7 +191,8 @@ final class LicenseStore {
 		$this->save_option( self::STATE_OPTION, [ 'activated' => 'no' ] );
 		self::forget_cached_option( self::STATE_OPTION );
 
-		if ( $this->is_activated() ) {
+		// 「未有効化」と読めたときだけ進む（読み取りも失敗すると既定値の空になり、「有効化済みでない」で判定すると書けたと誤認してキーを消す。原則 9）。
+		if ( 'no' !== ( $this->state()['activated'] ?? null ) ) {
 			return false;
 		}
 

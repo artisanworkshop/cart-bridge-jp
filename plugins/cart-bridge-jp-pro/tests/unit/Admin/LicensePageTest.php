@@ -14,6 +14,7 @@ use CartBridgeJP\Pro\License\LicenseManager;
 use CartBridgeJP\Pro\License\LicenseResult;
 use CartBridgeJP\Pro\License\LicenseStore;
 use CartBridgeJP\Pro\Tests\Fixtures\FakeLicenseServer;
+use CartBridgeJP\Pro\Tests\License\LicenseStoreTest;
 use WP_UnitTestCase;
 use WPDieException;
 
@@ -259,6 +260,47 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->assertTrue( $terminated, '転送の後にリクエストを終える' );
 		$this->assertSame( 'status', $this->server->last_body()['wc_am_action'] );
 		$this->assertNotNull( $this->store->last_check() );
+	}
+
+	/**
+	 * このサイトに保存できなかったときの文は、サーバーのエラーと言わず、操作ごとにやり直し方を案内する（PR #123 の最終確認）。
+	 */
+	public function test_explains_local_save_failures(): void {
+		$this->as_shop_manager();
+		LicenseStoreTest::fail_instance_insert();
+		$this->post( LicensePage::ACTION_ACTIVATE, self::KEY );
+		$this->page->process( LicensePage::ACTION_ACTIVATE );
+		$output = $this->render();
+		$this->assertStringContainsString( 'The license key could not be activated. The license data could not be saved on this site. Try again.', $output );
+		$this->assertStringNotContainsString( 'The license server returned an error', $output );
+	}
+
+	public function test_explains_a_deactivation_the_site_could_not_record(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->server->fixture( 'deactivate_success' );
+		LicenseStoreTest::fail_option_writes( LicenseStore::STATE_OPTION );
+		$this->post( LicensePage::ACTION_DEACTIVATE );
+
+		$this->page->process( LicensePage::ACTION_DEACTIVATE );
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'Activate the same license key again, then deactivate it.', $output );
+		$this->assertStringNotContainsString( 'no longer accepts deactivation', $output );
+	}
+
+	public function test_does_not_suggest_retrying_a_key_change_the_site_could_not_record(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->server->fixture( 'activate_success' );
+		LicenseStoreTest::fail_option_writes( LicenseStore::KEY_OPTION );
+		$this->post( LicensePage::ACTION_ACTIVATE, 'fedcba9876543210fedcba9876543210fedcba98' );
+
+		$this->page->process( LicensePage::ACTION_ACTIVATE );
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'The license server activated the key, but this site could not record it.', $output );
+		$this->assertStringNotContainsString( 'could not record it. Try again.', $output );
 	}
 
 	public function test_escapes_the_notice(): void {

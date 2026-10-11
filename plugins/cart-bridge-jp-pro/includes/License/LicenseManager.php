@@ -75,8 +75,8 @@ final class LicenseManager {
 		$server_has_key = $result->is_success() || ( ! $was_activated && $this->server_lists_instance( $key, $instance ) );
 
 		if ( $server_has_key ) {
-			// サーバーは有効化した。手元に保存できなければ成功と言わない（次の有効化は突き合わせで保存し直せる。PR #123 G3-B1）。
-			return $this->store->save_activation( $key, $product_id ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+			// サーバーは有効化した。手元に保存できなければ成功と言わない（初めての有効化なら、次の有効化が突き合わせで保存し直す。PR #123 G3-B1）。
+			return $this->store->save_activation( $key, $product_id ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::NOT_RECORDED );
 		}
 
 		return $result;
@@ -101,7 +101,7 @@ final class LicenseManager {
 		$result = $this->client->deactivate( $key, $instance );
 
 		if ( $result->is_success() && ! $this->store->clear_activation() ) {
-			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+			return LicenseResult::failure( LicenseResult::NOT_RECORDED );
 		}
 
 		return $result;

@@ -25,8 +25,11 @@ final class LicenseResult {
 	/** 今の状態ではその操作ができない（保存したキーが無い・有効化していない など）。要求は送っていない。 */
 	public const NOT_ALLOWED = 'not_allowed';
 
-	/** このサイトにライセンスの情報（instance・キー・状態）を保存できなかった（DB の失敗）。instance のときは要求を送っていない。 */
+	/** このサイトにライセンスの情報（instance・キー）を保存できなかった（DB の失敗）。サーバーには何も頼んでいない。 */
 	public const STORAGE_ERROR = 'storage_error';
+
+	/** サーバーは有効化・無効化を受け付けたが、このサイトに記録できなかった（DB の失敗）。 */
+	public const NOT_RECORDED = 'not_recorded';
 
 	/** 通信の失敗・200 以外の応答。 */
 	public const HTTP_ERROR = 'http_error';
