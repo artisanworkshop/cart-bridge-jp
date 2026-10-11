@@ -48,7 +48,8 @@ final class LicenseManager {
 	}
 
 	/**
-	 * キーを有効化する（有効化済みならキーの交換）。サーバーが成功を返したときだけ保存する。
+	 * キーを有効化する（有効化済みならキーの交換）。サーバーが成功を返したとき、または未有効化のサイトで有効化が失敗した後の状態確認で
+	 * サーバーがこの instance を有効化済みと答えたときだけ保存する（`server_lists_instance()`）。
 	 */
 	public function activate( mixed $raw_key ): LicenseResult {
 		$key = self::normalize_key( $raw_key );
@@ -63,10 +64,15 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::NOT_CONFIGURED );
 		}
 
-		$result = $this->client->activate( $key, $this->store->instance() );
+		$instance       = $this->store->instance();
+		$was_activated  = $this->store->is_activated();
+		$result         = $this->client->activate( $key, $instance );
+		$server_has_key = $result->is_success() || ( ! $was_activated && $this->server_lists_instance( $key, $instance ) );
 
-		if ( $result->is_success() ) {
+		if ( $server_has_key ) {
 			$this->store->save_activation( $key, $product_id );
+
+			return LicenseResult::success();
 		}
 
 		return $result;
@@ -130,6 +136,18 @@ final class LicenseManager {
 		$this->store->save_key( $key );
 
 		return LicenseResult::success();
+	}
+
+	/**
+	 * 有効化が失敗したとき、サーバーがこの instance を有効化済みと見ているかを状態確認で確かめる（review-loop R1-1）。
+	 * サーバーが有効化を記録したのに応答を受け取れなかった（タイムアウト・壊れた応答）と、ローカルは未有効化のまま、以後の有効化が
+	 * 「同じ instance で有効化済み」で断られ続け、未有効化の画面からは無効化も状態確認もできない。サーバーの状態確認は instance で
+	 * 有効化を見るので、入力したキーで期間内なら `active` が返る。確かめられなければ（通信の失敗・`inactive`）有効化として扱わない。
+	 */
+	private function server_lists_instance( string $key, string $instance ): bool {
+		$status = $this->client->status( $key, $instance );
+
+		return $status->is_success() && true === ( $status->data['activated'] ?? null );
 	}
 
 	/**

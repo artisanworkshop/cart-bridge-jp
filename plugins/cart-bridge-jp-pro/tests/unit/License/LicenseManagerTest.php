@@ -49,13 +49,69 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_failed_activation_saves_nothing(): void {
-		$this->server->fixture( 'activate_error_unknown_key' );
+		$this->server->fixture( 'activate_error_unknown_key' )->fixture( 'activate_error_unknown_key' );
 
 		$result = $this->manager->activate( self::KEY );
 
 		$this->assertSame( LicenseResult::SERVER_ERROR, $result->code );
+		$this->assertSame( 'A customer account does not exist for this license key.', $result->message, '有効化の失敗の理由を返す（突き合わせの状態確認の理由ではない）' );
 		$this->assertFalse( $this->store->is_activated() );
 		$this->assertFalse( get_option( LicenseStore::KEY_OPTION ) );
+	}
+
+	/**
+	 * サーバーが有効化を記録したのに応答を受け取れなかったとき、状態確認で突き合わせる（review-loop R1-1）。突き合わせないと、
+	 * 以後の有効化が「同じ instance で有効化済み」で断られ続け、未有効化の画面からは抜けられない。
+	 *
+	 * @dataProvider unconfirmed_activations
+	 */
+	public function test_reconciles_an_activation_the_server_recorded( string $activation ): void {
+		if ( 'timeout' === $activation ) {
+			$this->server->error( 'cURL error 28: Operation timed out' );
+		} else {
+			$this->server->fixture( $activation );
+		}
+		$this->server->fixture( 'status_active' );
+
+		$this->assertTrue( $this->manager->activate( self::KEY )->is_success() );
+
+		$this->assertSame( 'status', $this->server->last_body()['wc_am_action'] );
+		$this->assertSame( $this->store->instance(), $this->server->last_body()['instance'] );
+		$this->assertTrue( $this->store->is_activated() );
+		$this->assertSame( self::KEY, $this->store->key() );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function unconfirmed_activations(): array {
+		return [
+			'timeout'           => [ 'timeout' ],
+			'already activated' => [ 'activate_error_already_activated' ],
+		];
+	}
+
+	public function test_does_not_reconcile_when_the_server_does_not_list_the_site(): void {
+		$this->server->error( 'cURL error 28: Operation timed out' )->fixture( 'status_inactive' );
+
+		$this->assertSame( LicenseResult::HTTP_ERROR, $this->manager->activate( self::KEY )->code );
+
+		$this->assertCount( 2, $this->server->requests );
+		$this->assertFalse( $this->store->is_activated() );
+		$this->assertFalse( get_option( LicenseStore::KEY_OPTION ) );
+	}
+
+	/**
+	 * キーの交換（有効化済み）では突き合わせない。サーバーは instance で有効化を見るので、前のキーの有効化を新しいキーで「有効」と読んでしまう。
+	 */
+	public function test_does_not_reconcile_a_key_change(): void {
+		$this->server->fixture( 'activate_success' )->fixture( 'activate_error_already_activated' )->fixture( 'status_active' );
+		$this->manager->activate( self::KEY );
+
+		$this->assertSame( LicenseResult::SERVER_ERROR, $this->manager->activate( self::OTHER_KEY )->code );
+
+		$this->assertCount( 2, $this->server->requests );
+		$this->assertSame( self::KEY, $this->store->key() );
 	}
 
 	/**

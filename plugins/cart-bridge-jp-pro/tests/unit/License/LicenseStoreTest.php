@@ -158,6 +158,18 @@ final class LicenseStoreTest extends WP_UnitTestCase {
 		$this->assertSame( $instance, $this->store->instance(), '無効化しても instance は残す（同じサイトでの有効化し直し）' );
 	}
 
+	/**
+	 * パスワードの規則を足すプラグインは `random_password` で記号を混ぜる。instance をそれで作ると形が崩れ、呼ぶたびに作り直す（review-loop R1-3）。
+	 */
+	public function test_the_instance_does_not_depend_on_the_password_generator(): void {
+		add_filter( 'random_password', static fn (): string => 'Short!@#' );
+
+		$instance = $this->store->instance();
+
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}\z/', $instance );
+		$this->assertSame( $instance, $this->store->instance() );
+	}
+
 	public function test_replaces_a_broken_instance(): void {
 		update_option( LicenseStore::INSTANCE_OPTION, 'bad!' );
 

@@ -174,7 +174,7 @@ final class LicensePage {
 		if ( $activated && null !== $check && ! $check['activated'] ) {
 			printf(
 				'<p class="description">%s</p>',
-				esc_html__( 'After the update period ends, the license server no longer lists this site. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' )
+				esc_html__( 'The license server no longer lists this site, for example after the update period ends. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' )
 			);
 		}
 
@@ -213,7 +213,7 @@ final class LicensePage {
 			$this->render_key_form(
 				self::ACTION_ACTIVATE,
 				__( 'Use a different license key', 'cart-bridge-jp-pro' ),
-				__( 'For example, after buying a new license. If the license server still lists this site under the current key, deactivate it first.', 'cart-bridge-jp-pro' ),
+				__( 'For example, after buying a new license. While the current license is in its update period, deactivate it first. After the update period ends, check the status first instead; this site stays activated.', 'cart-bridge-jp-pro' ),
 				__( 'Activate this key', 'cart-bridge-jp-pro' )
 			);
 		}
@@ -330,7 +330,15 @@ final class LicensePage {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- process() が check_admin_referer() で確かめてから呼ぶ。
 		$raw = $_POST[ self::KEY_FIELD ] ?? null;
 
-		return is_string( $raw ) ? sanitize_text_field( wp_unslash( $raw ) ) : null;
+		if ( ! is_string( $raw ) ) {
+			return null;
+		}
+
+		// `sanitize_text_field()` は `%XX` などを黙って取り除き、形の違う入力を別のキーに変えて送りうる。形は `LicenseManager::normalize_key()` が
+		// 許可リストの正規表現で確かめ、違えば拒否する（review-loop R1-6）。
+		$key = wp_unslash( $raw ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- normalize_key() が ^[A-Za-z0-9_-]{1,190}\z で検証する。
+
+		return is_string( $key ) ? $key : null;
 	}
 
 	private static function success_message( string $action ): string {
@@ -367,16 +375,21 @@ final class LicensePage {
 
 		$message = $lead . ' ' . $reason;
 
-		if ( self::ACTION_ACTIVATE === $action && $was_activated && LicenseResult::SERVER_ERROR === $result->code ) {
-			$message .= ' ' . __( 'If the license server still lists this site under the current key, deactivate it first.', 'cart-bridge-jp-pro' );
+		if ( LicenseResult::SERVER_ERROR !== $result->code || ! $was_activated ) {
+			return $message;
 		}
 
-		// 期限後はサーバーがこのサイトの有効化を消しているので、無効化を断る（実測）。ローカルの有効化は残る。
-		if ( self::ACTION_DEACTIVATE === $action && LicenseResult::SERVER_ERROR === $result->code ) {
-			$message .= ' ' . __( 'After the update period ends, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' );
-		}
+		// サーバーが断った理由はキー・期限・設定のどれもありうるので、案内は「もし〜なら」の形にする（review-loop R1-5）。
+		// 期限内はサーバーにこのサイトの有効化が残っていて、同じ instance での有効化を断る。期限後は状態確認でサーバーから外れ、ローカルの有効化は残る。
+		$hint = match ( $action ) {
+			self::ACTION_ACTIVATE   => __( 'If the license server still lists this site under the current license, deactivate it first, or check the status first if its update period has ended.', 'cart-bridge-jp-pro' ),
+			// 期限後はサーバーがこのサイトの有効化を消しているので無効化を断り、猶予期間の後は状態確認もエラーになる（実測・ソース。review-loop R1-2）。
+			self::ACTION_DEACTIVATE => __( 'If the update period has ended, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' ),
+			self::ACTION_CHECK      => __( 'If the update period has ended, the license server may no longer know this license. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' ),
+			default                 => '',
+		};
 
-		return $message;
+		return '' === $hint ? $message : $message . ' ' . $hint;
 	}
 
 	private static function format_time( int $timestamp ): string {

@@ -87,13 +87,21 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 販売サイトが決まるまで接続先は空（メインファイルの既定）。版 1.0.0 以上を空のまま公開しない（R3-8a。`ReadmeTest` の URL の止めと同じ考え方）。
+	 * 販売サイトが決まるまで接続先は空（メインファイルの既定）。版 1.0.0 以上を空のまま・https でないまま公開しない（R3-8a。`ReadmeTest` の URL の止めと同じ考え方）。
+	 * 実行時の定数ではなくメインファイルの `define()` の既定値を読む（wp-config.php・`.wp-env.json` の `config` で定数を定義した環境でも、配る zip の値で判定する。review-loop R1-4）。
 	 */
 	public function test_a_release_has_a_configured_license_server(): void {
 		$this->assertFalse(
-			self::is_release_without_license_server( CBJP_PRO_VERSION, LicenseConfig::from_constants() ),
-			'Set CBJP_PRO_LICENSE_API_URL and CBJP_PRO_LICENSE_PRODUCT_ID before releasing Cart Bridge JP Pro 1.0.0.'
+			self::is_release_without_license_server( CBJP_PRO_VERSION, self::main_file_defaults() ),
+			'Set CBJP_PRO_LICENSE_API_URL (https) and CBJP_PRO_LICENSE_PRODUCT_ID in cart-bridge-jp-pro.php before releasing Cart Bridge JP Pro 1.0.0.'
 		);
+	}
+
+	public function test_reads_the_defaults_of_the_main_file(): void {
+		$source = self::main_file_source();
+
+		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source ), 'メインファイルに接続先の既定値がある' );
+		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source ), 'メインファイルに製品 ID の既定値がある' );
 	}
 
 	public function test_the_release_check_stops_an_unconfigured_1_0_0(): void {
@@ -102,11 +110,38 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 
 		$this->assertTrue( self::is_release_without_license_server( '1.0.0', $unconfigured ) );
 		$this->assertTrue( self::is_release_without_license_server( '1.2.3', $unconfigured ) );
+		$this->assertTrue( self::is_release_without_license_server( '1.0.0', new LicenseConfig( 'http://example.com/', 1000 ) ), '本文でキーを送るので https に限る' );
 		$this->assertFalse( self::is_release_without_license_server( '0.1.0', $unconfigured ) );
 		$this->assertFalse( self::is_release_without_license_server( '1.0.0', $configured ) );
 	}
 
 	private static function is_release_without_license_server( string $version, LicenseConfig $config ): bool {
-		return version_compare( $version, '1.0.0', '>=' ) && ! $config->is_configured();
+		if ( version_compare( $version, '1.0.0', '<' ) ) {
+			return false;
+		}
+
+		return ! $config->is_configured() || ! str_starts_with( (string) $config->api_url(), 'https://' );
+	}
+
+	/**
+	 * メインファイルの `define( 'CBJP_PRO_LICENSE_*', <既定値> )` から作った設定。読めなければ未設定。
+	 */
+	private static function main_file_defaults(): LicenseConfig {
+		$source = self::main_file_source();
+		$url    = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source, $url_match ) ? trim( $url_match[1], "'\"" ) : '';
+		$id     = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source, $id_match ) ? trim( $id_match[1], "'\"" ) : '';
+
+		return new LicenseConfig( $url, $id );
+	}
+
+	private static function define_pattern( string $name ): string {
+		return "/define\\(\\s*'" . preg_quote( $name, '/' ) . "'\\s*,\\s*('[^']*'|\"[^\"]*\"|[0-9]+)\\s*\\)/";
+	}
+
+	private static function main_file_source(): string {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- リポジトリ内の PHP ファイルを読む（JSON ではないので wp_json_file_decode() は使えない）。
+		$source = file_get_contents( CBJP_PRO_FILE );
+
+		return is_string( $source ) ? $source : '';
 	}
 }

@@ -11,8 +11,10 @@ use CartBridgeJP\Pro\Admin\LicensePage;
 use CartBridgeJP\Pro\License\LicenseClient;
 use CartBridgeJP\Pro\License\LicenseConfig;
 use CartBridgeJP\Pro\License\LicenseManager;
+use CartBridgeJP\Pro\License\LicenseResult;
 use CartBridgeJP\Pro\License\LicenseStore;
 use CartBridgeJP\Pro\Tests\Fixtures\FakeLicenseServer;
+use DomainException;
 use WP_UnitTestCase;
 use WPDieException;
 
@@ -90,6 +92,19 @@ final class LicensePageTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 形の違う入力は、整えて別のキーに変えずに拒否する（`sanitize_text_field()` は `%XX` を取り除く。review-loop R1-6）。
+	 */
+	public function test_rejects_a_key_instead_of_cleaning_it(): void {
+		$this->as_shop_manager();
+		$this->post( LicensePage::ACTION_ACTIVATE, '0123456789abcdef%ab0123456789abcdef01234567' );
+
+		$this->assertSame( LicenseResult::INVALID_KEY, $this->page->process( LicensePage::ACTION_ACTIVATE )->code );
+
+		$this->assertCount( 0, $this->server->requests );
+		$this->assertFalse( $this->store->is_activated() );
+	}
+
+	/**
 	 * @dataProvider all_actions
 	 */
 	public function test_rejects_a_user_without_the_capability( string $action ): void {
@@ -157,7 +172,7 @@ final class LicensePageTest extends WP_UnitTestCase {
 
 		$output = $this->render();
 		$this->assertStringContainsString( 'The license key could not be activated. The license server returned an error: Cannot activate license key.', $output );
-		$this->assertStringContainsString( 'deactivate it first.', $output );
+		$this->assertStringContainsString( 'deactivate it first, or check the status first if its update period has ended.', $output );
 		$this->assertSame( self::KEY, $this->store->key() );
 	}
 
@@ -174,6 +189,68 @@ final class LicensePageTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site.', $this->render() );
 		$this->assertTrue( $this->store->is_activated() );
+	}
+
+	/**
+	 * 猶予期間の後はリソースごと消え、状態確認もエラーになる（ソース。review-loop R1-2）。有効化済みのサイトではローカルの有効化が残ることを案内する。
+	 */
+	public function test_explains_a_failed_status_check_on_an_activated_site(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->server->fixture( 'activate_error_no_resources' );
+		$this->post( LicensePage::ACTION_CHECK );
+
+		$this->page->process( LicensePage::ACTION_CHECK );
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'The license status could not be checked. The license server returned an error: No licensing resources exist.', $output );
+		$this->assertStringContainsString( 'may no longer know this license. Cart Bridge JP Pro keeps working on this site.', $output );
+		$this->assertTrue( $this->store->is_activated() );
+	}
+
+	/**
+	 * 有効化していないサイトの失敗には、有効化済みのサイト向けの案内を付けない（review-loop R1-7）。
+	 */
+	public function test_adds_no_activated_site_hints_without_an_activation(): void {
+		$this->as_shop_manager();
+		$this->server->fixture( 'activate_error_unknown_key' )->fixture( 'status_inactive' );
+		$this->post( LicensePage::ACTION_ACTIVATE, self::KEY );
+
+		$this->page->process( LicensePage::ACTION_ACTIVATE );
+
+		$output = $this->render();
+		$this->assertStringContainsString( 'The license key could not be activated. The license server returned an error: A customer account does not exist for this license key.', $output );
+		$this->assertStringNotContainsString( 'deactivate it first', $output );
+		$this->assertStringNotContainsString( 'keeps working', $output );
+	}
+
+	/**
+	 * `admin-post.php` の入口は、フックの名前から操作を取り出して処理し、設定画面へ戻す（review-loop R1-7）。
+	 */
+	public function test_handles_a_request_from_admin_post(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->server->fixture( 'status_active' );
+		$this->post( LicensePage::ACTION_CHECK );
+		remove_all_actions( 'admin_post_' . LicensePage::ACTION_CHECK );
+		$this->page->register();
+		add_filter(
+			'wp_redirect',
+			static function ( string $location ): string {
+				throw new DomainException( $location );
+			}
+		);
+
+		$location = null;
+		try {
+			do_action( 'admin_post_' . LicensePage::ACTION_CHECK );
+		} catch ( DomainException $e ) {
+			$location = $e->getMessage();
+		}
+
+		$this->assertSame( LicensePage::page_url(), $location );
+		$this->assertSame( 'status', $this->server->last_body()['wc_am_action'] );
+		$this->assertNotNull( $this->store->last_check() );
 	}
 
 	public function test_escapes_the_notice(): void {

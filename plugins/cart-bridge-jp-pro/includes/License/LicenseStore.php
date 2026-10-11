@@ -15,7 +15,7 @@ namespace CartBridgeJP\Pro\License;
  * - 有効化の状態（`cbjp_pro_license_state`）: 平文。ソルトが変わってキーを復号できなくなっても、有効化は残る。API Manager は期限後に
  *   そのサイトの有効化を消し、新しい有効化も受け付けなくなるので、ローカルの記録を失うと期限後は有効化し直せない（D14。`LicenseClient`）。
  *   真偽は別のリクエストで `'1'`/`''` に化けないよう `'yes'`/`'no'` で保存し `'yes' ===` で読む（CLAUDE.md）。
- * - instance（`cbjp_pro_license_instance`）: API Manager がサイトの有効化を見分ける ID（サーバー全体で一意）。初めて使うときに 1 回だけ作り、
+ * - instance（`cbjp_pro_license_instance`）: API Manager がサイトの有効化を見分ける ID（サーバー全体で一意）。初めて使うときに 1 回だけ（16 進数 32 文字で）作り、
  *   無効化しても残す（同じサイトでの有効化し直し・キーの交換は同じ instance で行う）。
  * - 最後の状態確認（`cbjp_pro_license_last_check`）: 表示用。
  *
@@ -35,7 +35,8 @@ final class LicenseStore {
 	/** instance の形（API Manager の列は VARCHAR(190)・UNIQUE）。 */
 	private const INSTANCE_PATTERN = '/^[A-Za-z0-9]{16,190}\z/';
 
-	private const INSTANCE_LENGTH = 32;
+	/** instance の乱数のバイト数（16 進数で 32 文字）。 */
+	private const INSTANCE_BYTES = 16;
 
 	public function is_activated(): bool {
 		return 'yes' === ( $this->state()['activated'] ?? null );
@@ -99,7 +100,9 @@ final class LicenseStore {
 			return $stored;
 		}
 
-		$instance = wp_generate_password( self::INSTANCE_LENGTH, false, false );
+		// `wp_generate_password()` は pluggable で `random_password` フィルターも掛かる（パスワードの規則を足すプラグインが記号を混ぜる）。
+		// 形が崩れると呼ぶたびに作り直し、有効化と無効化・状態確認で違う instance を送るので、差し替えられない乱数で作る（review-loop R1-3）。
+		$instance = bin2hex( random_bytes( self::INSTANCE_BYTES ) );
 		$this->save_option( self::INSTANCE_OPTION, $instance );
 
 		return $instance;
