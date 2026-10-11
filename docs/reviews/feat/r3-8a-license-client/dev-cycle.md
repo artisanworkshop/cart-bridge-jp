@@ -3,8 +3,8 @@
 - 開始: 2026-10-11
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: #123 https://github.com/artisanworkshop/cart-bridge-jp/pull/123
-- 現在のステップ: 7（ゲート G2 の依頼前）
-- Copilot: 依頼 1 回 / 未収束
+- 現在のステップ: 7（ゲート G3 の依頼前）
+- Copilot: 依頼 2 回 / 未収束
 - Codex: 依頼 1 回 / 収束（G1 で「Didn't find any major issues」）
 
 ## ログ
@@ -17,3 +17,5 @@
 | 2026-10-11 16:42 | 4 | 初回 push と PR 作成（番号は G1 の記録で記入） |
 | 2026-10-11 16:48 | 4〜6 | push（5889763。T=2026-10-11T07:42:56Z）→ PR #123 作成 → CI 全ジョブ green → Copilot へ依頼（timeline で登録を確認）。Codex は自動レビューが 5 分で来ず review コメントを自動投稿 |
 | 2026-10-11 17:00 | 7 | G1: Codex は「Didn't find any major issues」で収束。Copilot 🟡 3 件 → G1-1（instance の初回作成の競合。`INSERT IGNORE`）・G1-2（`PHP_INT_MAX` を超える製品 ID）を修正（303ac48。変異 4 種 CAUGHT）、G1-3（テストのフィルターが残る）は誤検知で対応不要（WP のテスト基盤が `tear_down()` でフックを戻す。実測）。auto-commit。`quality.sh` green（Pro 728） |
+| 2026-10-11 17:05 | 7 | G1 の記録を push（88a0729。T=2026-10-11T08:01:14Z）→ スレッドへ返信・修正 2 件を Resolve・サマリ投稿 → CI green の後に Copilot だけへ依頼 |
+| 2026-10-11 17:13 | 7 | G2: Copilot 🔵・新規スレッド 0・本文の Previously missed 1 件（G2-B1: instance を読み直せないとき保存していない値を送る）を修正（a885523。読み直せなければ `STORAGE_ERROR`。変異 2 種 CAUGHT）。auto-commit。`quality.sh` green（Pro 731） |
