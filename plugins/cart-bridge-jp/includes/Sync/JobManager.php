@@ -187,6 +187,14 @@ final class JobManager {
 					throw new RunAlreadyInProgressException( $platform );
 				}
 
+				// ロックの外で読んだ後に、ほぼ同時に届いた別の Retry が先に failed → pending にしていれば、ここで負けて false を返す
+				// （下の遷移の失敗と同じ結果。制限の判定より前に見ないと、Retry が済んだジョブを「dry-run だけ」で断ってしまう。PR #124 G2-B1）。
+				$current = $this->jobs->find( $job_id );
+
+				if ( null === $current || JobRepository::STATUS_FAILED !== $current['status'] ) {
+					return false;
+				}
+
 				$this->assert_not_dry_run_only( $type, $platform, $entity );
 
 				if ( ! $this->jobs->transition( $job_id, [ JobRepository::STATUS_FAILED ], JobRepository::STATUS_PENDING ) ) {

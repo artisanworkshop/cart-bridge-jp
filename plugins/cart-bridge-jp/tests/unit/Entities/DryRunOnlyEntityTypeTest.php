@@ -419,6 +419,32 @@ final class DryRunOnlyEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( $actions, $this->queued_actions() );
 	}
 
+	/**
+	 * Retry が状態を読んでからロックを取るまでの間に、別の Retry が先に failed → pending にし、その間に制限がかかった場合は、
+	 * 「dry-run だけ」で断らずに従来どおり負けて false を返す（Retry 済みのジョブを拒否と報告しない。PR #124 G2-B1）。
+	 */
+	public function test_a_retry_that_loses_to_a_concurrent_retry_returns_false_before_the_restriction_check(): void {
+		$this->register_gizmo();
+		$job_id = $this->failed_job( JobManager::TYPE_IMPORT, 'gizmo' );
+		$gizmo  = $this->gizmo;
+		$jobs   = $this->jobs;
+		$filter = null;
+		$filter = static function ( string $query ) use ( $job_id, $gizmo, $jobs, &$filter ): string {
+			if ( str_contains( $query, 'INSERT IGNORE' ) && str_contains( $query, 'cbjp_platform_lock_' ) ) {
+				remove_filter( 'query', $filter );
+				$jobs->transition( $job_id, [ JobRepository::STATUS_FAILED ], JobRepository::STATUS_PENDING );
+				$gizmo->dry_run_only = 'Activate the add-on.';
+			}
+
+			return $query;
+		};
+		add_filter( 'query', $filter );
+
+		$this->assertFalse( JobManager::create()->retry( $job_id ) );
+		$this->assertSame( 'Activate the add-on.', $this->gizmo->dry_run_only, '割り込みが走った（ロックの取得の SQL を通った）こと' );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $job_id )['status'] );
+	}
+
 	public function test_retrying_dry_run_jobs_or_unrestricted_jobs_still_works(): void {
 		$this->register_gizmo();
 		$this->gizmo->dry_run_only = 'Activate the add-on.';
