@@ -6,6 +6,7 @@ import {
 	exportOptionHelp,
 	importEntityOptions,
 	importOptionHelp,
+	runEntityOptions,
 	writableOptions,
 } from '../entity-options';
 import type { Connection } from '../types';
@@ -316,6 +317,35 @@ describe( 'writableOptions', () => {
 				new Set( [ 'category', 'product', 'customer', 'order' ] )
 			)
 		).toEqual( free );
+	} );
+} );
+
+describe( 'runEntityOptions', () => {
+	const options = [
+		{ key: 'category', label: 'Categories', dry_run_only: false },
+		{ key: 'product', label: 'Products', dry_run_only: false },
+		{ key: 'customer', label: 'Customers', dry_run_only: true },
+		{ key: 'order', label: 'Orders', dry_run_only: true },
+	];
+	const selected = new Set( [ 'order', 'customer', 'product' ] );
+
+	it( 'previews every selected option in run order (R3-8b)', () => {
+		expect(
+			runEntityOptions( options, selected, true ).map(
+				( option ) => option.key
+			)
+		).toEqual( [ 'product', 'customer', 'order' ] );
+	} );
+
+	it( 'runs only the selected options that are not dry-run only, so the confirmation lists what is written', () => {
+		expect(
+			runEntityOptions( options, selected, false ).map(
+				( option ) => option.label
+			)
+		).toEqual( [ 'Products' ] );
+		expect(
+			runEntityOptions( options, new Set( [ 'customer' ] ), false )
+		).toEqual( [] );
 	} );
 } );
 

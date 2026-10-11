@@ -1902,13 +1902,14 @@ final class RestController {
 			$labels[] = null !== $type ? EntityTypeRegistry::label( $type ) : $key;
 		}
 
-		$list    = wp_sprintf( '%l', $labels );
-		$details = implode( ' ', array_unique( array_filter( $reasons, static fn ( string $reason ): bool => '' !== $reason ) ) );
-		$message = '' !== $details
-			/* translators: 1: list of the kinds of records, e.g. "Customers and Orders", 2: the reason given by the extension that limits them. */
-			? sprintf( __( 'Only a dry run is available for %1$s on this site. %2$s', 'cart-bridge-jp' ), $list, $details )
-			/* translators: %s: list of the kinds of records, e.g. "Customers and Orders". */
-			: sprintf( __( 'Only a dry run is available for %s on this site.', 'cart-bridge-jp' ), $list );
+		/* translators: %s: list of the kinds of records, e.g. "Customers and Orders". */
+		$message = sprintf( __( 'Only a dry run is available for %s on this site.', 'cart-bridge-jp' ), wp_sprintf( '%l', $labels ) );
+
+		// 拡張の理由（重複を除く）を続ける。文のつなぎは画面の `joinSentences()` と同じ翻訳する書式にする（日本語で「。 」を残さない）。
+		foreach ( array_unique( array_filter( $reasons, static fn ( string $reason ): bool => '' !== $reason ) ) as $reason ) {
+			/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
+			$message = sprintf( __( '%1$s %2$s', 'cart-bridge-jp' ), $message, $reason );
+		}
 
 		return new WP_Error(
 			'cbjp_dry_run_only',

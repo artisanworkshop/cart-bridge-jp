@@ -21,6 +21,7 @@ import {
 	defaultExportSelection,
 	exportEntityOptions,
 	exportOptionHelp,
+	runEntityOptions,
 	writableOptions,
 } from '../entity-options';
 import { parseHash, tabHref } from '../hash-route';
@@ -501,12 +502,11 @@ export default function ExportTab() {
 
 	async function startExportRun( type: 'dry_run_export' | 'export' ) {
 		// 実際のエクスポートは、拡張が dry-run だけにした種類を送らない（R3-8b。サーバーも断る）。
-		const runOptions =
-			'export' === type
-				? writableEntityOptions
-				: entityOptions.filter( ( option ) =>
-						selectedExportEntities.has( option.key )
-				  );
+		const runOptions = runEntityOptions(
+			entityOptions,
+			selectedExportEntities,
+			'dry_run_export' === type
+		);
 
 		if ( null === platform || 0 === runOptions.length ) {
 			return;

@@ -182,7 +182,11 @@ final class DryRunOnlyEntityTypeTest extends WP_UnitTestCase {
 		$this->gizmo->dry_run_only = " <strong>Activate</strong> the add-on.\n";
 		$this->register_gizmo();
 
-		$connection = $this->mock_connection();
+		$connections = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections' ) )->get_data();
+		$connection  = $this->mock_connection();
+
+		// 種類ごとに接続先 1 つにつき 1 回だけ問い合わせ、取込み・エクスポートの両方に載せる（gizmo はどの接続先でも両方に出る。上の呼び出しと合わせて 2 回分）。
+		$this->assertSame( 2 * count( $connections ), $this->gizmo->dry_run_only_calls );
 
 		foreach ( [ 'import', 'export' ] as $direction ) {
 			$this->assertSame(
@@ -240,6 +244,36 @@ final class DryRunOnlyEntityTypeTest extends WP_UnitTestCase {
 		// 制限のある種類を黙って外して残りで始めない（ジョブもアクションも作らない）。
 		$this->assertSame( $jobs, $this->job_count() );
 		$this->assertSame( $actions, $this->queued_actions() );
+	}
+
+	/**
+	 * 判定は能力で絞った後の種類に掛ける: 接続先で扱えない種類は、制限中でも従来どおり黙って外し、run 全体を断らない。
+	 */
+	public function test_a_restricted_type_the_platform_cannot_run_is_dropped_rather_than_refusing_the_run(): void {
+		$unsupported = new class() extends EntityType {
+			public function key(): string {
+				return 'widget';
+			}
+
+			public function label(): string {
+				return 'Widgets';
+			}
+
+			public function position(): int {
+				return 46;
+			}
+
+			public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+				return 'Activate the add-on.';
+			}
+		};
+		$this->register_entity_types( [ $unsupported ] );
+
+		foreach ( [ JobManager::TYPE_IMPORT, JobManager::TYPE_EXPORT ] as $type ) {
+			$run_id = JobManager::create()->start_run( $type, 'mock', [ 'product', 'widget' ] );
+			$this->assertSame( [ 'product' ], array_column( $this->jobs->find_by_run( $run_id ), 'entity' ), $type );
+			$this->jobs->cancel_run( $run_id );
+		}
 	}
 
 	public function test_dry_runs_and_runs_without_the_restricted_type_still_start(): void {

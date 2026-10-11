@@ -21,6 +21,7 @@ import { entityLabels } from '../entity-labels';
 import {
 	importEntityOptions,
 	importOptionHelp,
+	runEntityOptions,
 	writableOptions,
 } from '../entity-options';
 import { parseHash } from '../hash-route';
@@ -302,12 +303,11 @@ export default function ImportTab() {
 
 	async function startRun( type: RunType ) {
 		// 実際の取込みは、拡張が dry-run だけにした種類を送らない（R3-8b。サーバーも断る）。
-		const runOptions =
-			'import' === type
-				? writableEntityOptions
-				: entityOptions.filter( ( option ) =>
-						selectedEntities.has( option.key )
-				  );
+		const runOptions = runEntityOptions(
+			entityOptions,
+			selectedEntities,
+			'dry_run' === type
+		);
 
 		if ( null === platform || 0 === runOptions.length ) {
 			return;

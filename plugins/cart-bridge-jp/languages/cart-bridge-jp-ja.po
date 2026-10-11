@@ -198,7 +198,7 @@ msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1927
+#: includes/Admin/RestController.php:1928
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -889,8 +889,9 @@ msgid "No platforms are available."
 msgstr "使えるプラットフォームがありません。"
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
+#: includes/Admin/RestController.php:1911
 #: build/index.js:2
-#, js-format
+#, js-format,php-format
 msgid "%1$s %2$s"
 msgstr "%1$s%2$s"
 
@@ -1601,17 +1602,11 @@ msgstr "ページを再読み込みしてもう一度お試しください。"
 msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, the settings, and its other records. The data that was migrated stays in WooCommerce."
 msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定、その他の記録）を削除します。移行したデータは WooCommerce に残ります。"
 
-#. translators: 1: list of the kinds of records, e.g. "Customers and Orders", 2: the reason given by the extension that limits them.
-#: includes/Admin/RestController.php:1909
-#, php-format
-msgid "Only a dry run is available for %1$s on this site. %2$s"
-msgstr "このサイトでは、%1$s はプレビュー（書き込みなし）だけを実行できます。%2$s"
-
 #. translators: %s: list of the kinds of records, e.g. "Customers and Orders".
-#: includes/Admin/RestController.php:1911
+#: includes/Admin/RestController.php:1906
 #, php-format
 msgid "Only a dry run is available for %s on this site."
-msgstr "このサイトでは、%s はプレビュー（書き込みなし）だけを実行できます。"
+msgstr "このサイトでは、%sはプレビュー（書き込みなし）だけを実行できます。"
 
 #: build/index.js:26
 msgid "Preview only: Run import skips this."

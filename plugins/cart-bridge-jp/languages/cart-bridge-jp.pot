@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-11T11:57:54+00:00\n"
+"POT-Creation-Date: 2026-10-11T12:19:02+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -211,20 +211,21 @@ msgstr ""
 msgid "A run is already in progress for this platform."
 msgstr ""
 
-#. translators: 1: list of the kinds of records, e.g. "Customers and Orders", 2: the reason given by the extension that limits them.
-#: includes/Admin/RestController.php:1909
-#, php-format
-msgid "Only a dry run is available for %1$s on this site. %2$s"
-msgstr ""
-
 #. translators: %s: list of the kinds of records, e.g. "Customers and Orders".
-#: includes/Admin/RestController.php:1911
+#: includes/Admin/RestController.php:1906
 #, php-format
 msgid "Only a dry run is available for %s on this site."
 msgstr ""
 
+#. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
+#: includes/Admin/RestController.php:1911
+#: build/index.js:2
+#, php-format,js-format
+msgid "%1$s %2$s"
+msgstr ""
+
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1927
+#: includes/Admin/RestController.php:1928
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -885,12 +886,6 @@ msgstr ""
 
 #: includes/Woo/WarningCatalog.php:522
 msgid "In the Export tab, check whether the item exists on the platform, then use “Link and resolve” or “Mark as not created”."
-msgstr ""
-
-#. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: build/index.js:2
-#, js-format
-msgid "%1$s %2$s"
 msgstr ""
 
 #. translators: 1: the items of a list so far, 2: the next item. Example: "Products, Customers".

@@ -129,6 +129,21 @@ export function writableOptions<
 }
 
 /**
+ * run で送る種類（実行順）。プレビュー（dry-run）は選んだ種類をすべて、実際の取込み・エクスポートは `writableOptions()` の種類だけを送る
+ * （R3-8b）。Import タブの確認文もこの一覧から作る（送る種類と確認文を食い違わせない）。
+ * @param options  選択肢（実行順）
+ * @param selected 選んだ種類のキー
+ * @param dryRun   プレビューの run か
+ */
+export function runEntityOptions<
+	T extends { key: EntityType; dry_run_only: boolean },
+>( options: T[], selected: ReadonlySet< EntityType >, dryRun: boolean ): T[] {
+	return dryRun
+		? options.filter( ( option ) => selected.has( option.key ) )
+		: writableOptions( options, selected );
+}
+
+/**
  * 空でない文を順につなぐ。どれも空なら出さない（undefined）。
  * @param candidates
  */
