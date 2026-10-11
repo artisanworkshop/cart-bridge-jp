@@ -18,7 +18,11 @@ import MissingScopesNotice from '../components/MissingScopesNotice';
 import RunProgress from '../components/RunProgress';
 import VerificationReport from '../components/VerificationReport';
 import { entityLabels } from '../entity-labels';
-import { importEntityOptions } from '../entity-options';
+import {
+	importEntityOptions,
+	importOptionHelp,
+	writableOptions,
+} from '../entity-options';
 import { parseHash } from '../hash-route';
 import { joinList } from '../i18n';
 import { useActiveRuns } from '../hooks/useActiveRuns';
@@ -29,6 +33,13 @@ import type { ActiveRun, Connection, EntityType, RunType } from '../types';
 
 function errorMessage( err: unknown ): string {
 	return ( err as { message?: string } )?.message ?? String( err );
+}
+
+/**
+ * 拡張が dry-run だけにした種類（R3-8b）の注記。拡張の理由の文がこの後に続く。
+ */
+function dryRunOnlyNote(): string {
+	return __( 'Preview only: Run import skips this.', 'cart-bridge-jp' );
 }
 
 interface RunSectionState {
@@ -117,6 +128,11 @@ export default function ImportTab() {
 	const entityOptions = useMemo(
 		() => importEntityOptions( currentConnection ),
 		[ currentConnection ]
+	);
+	// 選んだうち、実際の取込みで送る種類（拡張が dry-run だけにした種類を除く。R3-8b）。プレビューは選んだ種類をすべて送る。
+	const writableEntityOptions = useMemo(
+		() => writableOptions( entityOptions, selectedEntities ),
+		[ entityOptions, selectedEntities ]
 	);
 
 	// プラットフォームが変わったら、そのプラットフォームの既定エンティティ選択と
@@ -285,7 +301,15 @@ export default function ImportTab() {
 	}
 
 	async function startRun( type: RunType ) {
-		if ( null === platform || 0 === selectedEntities.size ) {
+		// 実際の取込みは、拡張が dry-run だけにした種類を送らない（R3-8b。サーバーも断る）。
+		const runOptions =
+			'import' === type
+				? writableEntityOptions
+				: entityOptions.filter( ( option ) =>
+						selectedEntities.has( option.key )
+				  );
+
+		if ( null === platform || 0 === runOptions.length ) {
 			return;
 		}
 
@@ -299,13 +323,7 @@ export default function ImportTab() {
 						'This will write real WooCommerce data (%s) to this site. Continue?',
 						'cart-bridge-jp'
 					),
-					joinList(
-						entityOptions
-							.filter( ( option ) =>
-								selectedEntities.has( option.key )
-							)
-							.map( ( option ) => option.label )
-					)
+					joinList( runOptions.map( ( option ) => option.label ) )
 				)
 			)
 		) {
@@ -319,7 +337,7 @@ export default function ImportTab() {
 		// 旧プラットフォームのrun_idを紛れ込ませない（localStorageへは引き続き
 		// 旧プラットフォームのキーで保存し、後で切り戻したときに発見できるようにする）。
 		const requestedPlatform = platform;
-		const requestedEntities = Array.from( selectedEntities );
+		const requestedEntities = runOptions.map( ( option ) => option.key );
 		// 409 の一覧を、応答を待つ間に切り替えた別の選択の一覧として取り込まないため（G1-3）。
 		const selection = activeRuns.selectionRef.current;
 
@@ -493,6 +511,10 @@ export default function ImportTab() {
 							<CheckboxControl
 								key={ option.key }
 								label={ option.label }
+								help={ importOptionHelp(
+									option,
+									dryRunOnlyNote()
+								) }
 								checked={ selectedEntities.has( option.key ) }
 								disabled={
 									dryRunBusy ||
@@ -560,7 +582,7 @@ export default function ImportTab() {
 								dryRunBusy ||
 								importBusy ||
 								blockedByOtherRun ||
-								0 === selectedEntities.size
+								0 === writableEntityOptions.length
 							}
 							onClick={ () => startRun( 'import' ) }
 						>

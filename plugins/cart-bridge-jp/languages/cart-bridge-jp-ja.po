@@ -73,132 +73,132 @@ msgstr "キャンセル"
 msgid "Cart Bridge JP"
 msgstr "Cart Bridge JP"
 
-#: includes/Admin/RestController.php:474
+#: includes/Admin/RestController.php:475
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr "このプラットフォームの実行がまだ終わっていません。先に「ツール」タブ（または「インポート」「エクスポート」タブ）でキャンセルしてから、もう一度お試しください。"
 
-#: includes/Admin/RestController.php:523
+#: includes/Admin/RestController.php:524
 msgid "No recognized connection fields were provided."
 msgstr "認識できる接続の項目がありません。"
 
-#: includes/Admin/RestController.php:533
+#: includes/Admin/RestController.php:534
 msgid "The connection settings changed while saving. Please try again."
 msgstr "保存中に接続の設定が変わりました。もう一度お試しください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:601
+#: includes/Admin/RestController.php:602
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr "「%s」は ID と ID の対応を表すオブジェクトにしてください。"
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:619
+#: includes/Admin/RestController.php:620
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr "「%s」に不正な項目があります。"
 
-#: includes/Admin/RestController.php:680
+#: includes/Admin/RestController.php:681
 msgid "\"push_images\" must be true or false."
 msgstr "「push_images」は true か false にしてください。"
 
-#: includes/Admin/RestController.php:688
+#: includes/Admin/RestController.php:689
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr "このプラットフォームには商品画像をアップロードできないため、この設定はオンにできません。"
 
-#: includes/Admin/RestController.php:1175
+#: includes/Admin/RestController.php:1188
 #: build/index.js:7
 msgid "Connection test failed."
 msgstr "接続のテストに失敗しました。"
 
-#: includes/Admin/RestController.php:1218
+#: includes/Admin/RestController.php:1231
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr "先にクライアント ID とクライアントシークレットを保存してから、接続してください。"
 
-#: includes/Admin/RestController.php:1242
+#: includes/Admin/RestController.php:1255
 msgid "Unknown platform."
 msgstr "不明なプラットフォームです。"
 
-#: includes/Admin/RestController.php:1254
+#: includes/Admin/RestController.php:1267
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr "接続の要求を確認できませんでした。もう一度お試しいただくか、コードを手動で入力する方法をお使いください。"
 
-#: includes/Admin/RestController.php:1284
+#: includes/Admin/RestController.php:1297
 msgid "A code (or the authorization URL containing it) is required."
 msgstr "コード（またはコードを含む認可 URL）を入力してください。"
 
-#: includes/Admin/RestController.php:1347
+#: includes/Admin/RestController.php:1360
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr "エクスポートすると、接続したショップにすぐ書き込みます。エクスポートを実行する前に、警告を確認してください。"
 
-#: includes/Admin/RestController.php:1359
+#: includes/Admin/RestController.php:1374
 msgid "The run request is invalid."
 msgstr "実行の要求が正しくありません。"
 
-#: includes/Admin/RestController.php:1396
-#: includes/Admin/RestController.php:1437
-#: includes/Admin/RestController.php:1507
-#: includes/Admin/RestController.php:1599
+#: includes/Admin/RestController.php:1411
+#: includes/Admin/RestController.php:1452
+#: includes/Admin/RestController.php:1522
+#: includes/Admin/RestController.php:1616
 msgid "Run not found."
 msgstr "実行が見つかりません。"
 
-#: includes/Admin/RestController.php:1521
+#: includes/Admin/RestController.php:1536
 msgid "Job not found."
 msgstr "ジョブが見つかりません。"
 
-#: includes/Admin/RestController.php:1533
+#: includes/Admin/RestController.php:1550
 msgid "Only failed jobs can be retried."
 msgstr "再試行できるのは失敗したジョブだけです。"
 
-#: includes/Admin/RestController.php:1605
+#: includes/Admin/RestController.php:1622
 msgid "The verification report is only available for import runs."
 msgstr "検証レポートはインポートの実行でのみ使えます。"
 
-#: includes/Admin/RestController.php:1632
+#: includes/Admin/RestController.php:1649
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1700
+#: includes/Admin/RestController.php:1717
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1745
+#: includes/Admin/RestController.php:1762
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1750
+#: includes/Admin/RestController.php:1767
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1755
+#: includes/Admin/RestController.php:1772
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1760
+#: includes/Admin/RestController.php:1777
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1773
+#: includes/Admin/RestController.php:1790
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1778
+#: includes/Admin/RestController.php:1795
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1788
+#: includes/Admin/RestController.php:1805
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1866
+#: includes/Admin/RestController.php:1883
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1867
+#: includes/Admin/RestController.php:1884
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1879
+#: includes/Admin/RestController.php:1927
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -1446,7 +1446,7 @@ msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
 msgstr[0] "紐づけの再構築が終わりました。%d 件の紐づけを復元しました。"
 
-#: includes/Admin/RestController.php:1217
+#: includes/Admin/RestController.php:1230
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr "保存した認証情報を読み取れません。「保存した認証情報を消去」をクリックし、クライアント ID とクライアントシークレットを入力し直して「設定を保存」をクリックしてから、接続してください。"
 
@@ -1560,7 +1560,7 @@ msgstr "この接続には、一部の種類の記録に必要な権限（%1$s�
 msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
 msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、接続し直すまでそれらの種類は表示されないか、動作しないことがあります。"
 
-#: includes/Admin/RestController.php:1767
+#: includes/Admin/RestController.php:1784
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れているか、権限が足りません。「接続」タブで接続し直してから続けてください。"
 
@@ -1569,7 +1569,7 @@ msgstr "プラットフォームとの接続が無いか、期限が切れてい
 msgid "Migrate products and stock between Color Me Shop and WooCommerce."
 msgstr "カラーミーショップと WooCommerce の間で、商品と在庫を移行します。"
 
-#: includes/Admin/RestController.php:730
+#: includes/Admin/RestController.php:731
 msgid "\"delete_data\" must be true or false."
 msgstr "「delete_data」は true か false にしてください。"
 
@@ -1600,3 +1600,23 @@ msgstr "ページを再読み込みしてもう一度お試しください。"
 #: build/index.js:20
 msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, the settings, and its other records. The data that was migrated stays in WooCommerce."
 msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定、その他の記録）を削除します。移行したデータは WooCommerce に残ります。"
+
+#. translators: 1: list of the kinds of records, e.g. "Customers and Orders", 2: the reason given by the extension that limits them.
+#: includes/Admin/RestController.php:1909
+#, php-format
+msgid "Only a dry run is available for %1$s on this site. %2$s"
+msgstr "このサイトでは、%1$s はプレビュー（書き込みなし）だけを実行できます。%2$s"
+
+#. translators: %s: list of the kinds of records, e.g. "Customers and Orders".
+#: includes/Admin/RestController.php:1911
+#, php-format
+msgid "Only a dry run is available for %s on this site."
+msgstr "このサイトでは、%s はプレビュー（書き込みなし）だけを実行できます。"
+
+#: build/index.js:26
+msgid "Preview only: Run import skips this."
+msgstr "プレビューだけ: 「インポートを実行」では取り込みません。"
+
+#: build/index.js:27
+msgid "Preview only: Run export skips this."
+msgstr "プレビューだけ: 「エクスポートを実行」では送りません。"
