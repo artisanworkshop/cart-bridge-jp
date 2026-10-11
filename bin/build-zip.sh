@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-# 無料版（plugins/cart-bridge-jp）の配布 zip を作り、中身を検査する（D29・R3-7）。release.yml と CI の Distribution ジョブが使う。
+# プラグインの配布 zip を作り、中身を検査する（無料版は D29・R3-7、Pro は R3-8c）。release.yml・release-pro.yml と CI の Distribution ジョブが使う。
 #
-#   bin/build-zip.sh [--skip-build] [--version X.Y.Z] [--out DIR]
+#   bin/build-zip.sh [--plugin cart-bridge-jp|cart-bridge-jp-pro] [--skip-build] [--version X.Y.Z] [--out DIR]
 #
-# 1. npm run build（--skip-build で省く）
-# 2. vendor/ を除いて一時ディレクトリへ写し、そこで composer install --no-dev -o（開発用の plugins/cart-bridge-jp/vendor は触らない。
+# 1. npm run build（無料版だけ。--skip-build で省く。Pro は JS を持たない）
+# 2. vendor/ を除いて一時ディレクトリへ写し、そこで composer install --no-dev -o（開発用の plugins/<slug>/vendor は触らない。
 #    .distignore は composer.json を除くので、除く前の写しで実行する）
-# 3. .distignore で最終ディレクトリへ写して検査し、通ったときだけ <out>/cart-bridge-jp-<version>.zip を作る（既定の out は dist/、
-#    version はプラグインヘッダーの Version）
+# 3. .distignore で最終ディレクトリへ写して検査し、通ったときだけ <out>/<slug>-<version>.zip を作る（既定の plugin は無料版、out は dist/、
+#    version はプラグインヘッダーの Version。--version を渡したときはヘッダーの Version と同じでなければ止める〔タグとヘッダーの版の食い違い。
+#    backlog r3-7-monorepo/R1-L2〕）
 #
 # 検査（どれかが外れたら zip を作らず非ゼロで終わる）:
-# - 最上位は許可したものだけ（本体・uninstall.php・readme.txt・includes/・build/・languages/・vendor/）で、すべてそろっている
-# - includes/・languages/ は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
-# - build/ に管理画面の JS とその依存の一覧がある。vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）
-# - Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
+# - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・includes/・build/・languages/・vendor/、
+#   Pro: 本体・includes/・vendor/）
+# - includes/（無料版は languages/ も）は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
+# - vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）。無料版は build/ に管理画面の JS とその依存の一覧がある
+# - 無料版: Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
+# - Pro: 無料版の名前空間（CartBridgeJP\ で Pro\ でないもの）を宣言する PHP が無い（無料版のコードを Pro に同梱しない。依存は Pro から無料版への一方向）
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
 SLUG=cart-bridge-jp
-SRC="plugins/${SLUG}"
 OUT=dist
 VERSION=
 BUILD=1
@@ -32,6 +34,11 @@ die() {
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--plugin)
+			[ $# -ge 2 ] || die "--plugin needs a value"
+			SLUG=$2
+			shift
+			;;
 		--skip-build) BUILD=0 ;;
 		--version)
 			[ $# -ge 2 ] || die "--version needs a value"
@@ -43,14 +50,34 @@ while [ $# -gt 0 ]; do
 			OUT=$2
 			shift
 			;;
-		*) die "unknown option: $1 (usage: bin/build-zip.sh [--skip-build] [--version X.Y.Z] [--out DIR])" ;;
+		*) die "unknown option: $1 (usage: bin/build-zip.sh [--plugin cart-bridge-jp|cart-bridge-jp-pro] [--skip-build] [--version X.Y.Z] [--out DIR])" ;;
 	esac
 	shift
 done
 
+# プラグインごとの違い: JS のビルド・許可する最上位・追跡と一致させるディレクトリ・必ずあるファイル。
+case "$SLUG" in
+	cart-bridge-jp)
+		allowed='build cart-bridge-jp.php includes languages readme.txt uninstall.php vendor'
+		tracked_dirs='includes languages'
+		required_files='build/index.js build/index.asset.php vendor/autoload.php'
+		;;
+	cart-bridge-jp-pro)
+		BUILD=0
+		allowed='cart-bridge-jp-pro.php includes vendor'
+		tracked_dirs='includes'
+		required_files='vendor/autoload.php'
+		;;
+	*) die "unknown plugin: ${SLUG} (expected cart-bridge-jp or cart-bridge-jp-pro)" ;;
+esac
+SRC="plugins/${SLUG}"
+
+header_version=$(sed -n 's/^ \* Version: *\([^ ]*\) *$/\1/p' "${SRC}/${SLUG}.php" | head -n 1)
+[ -n "$header_version" ] || die "could not read the Version header from ${SRC}/${SLUG}.php"
 if [ -z "$VERSION" ]; then
-	VERSION=$(sed -n 's/^ \* Version: *\([^ ]*\) *$/\1/p' "${SRC}/${SLUG}.php" | head -n 1)
-	[ -n "$VERSION" ] || die "could not read the Version header from ${SRC}/${SLUG}.php"
+	VERSION=$header_version
+elif [ "$VERSION" != "$header_version" ]; then
+	die "--version ${VERSION} differs from the Version header of ${SRC}/${SLUG}.php (${header_version})"
 fi
 case "$VERSION" in
 	*[!0-9A-Za-z.-]* | '') die "invalid version: ${VERSION}" ;;
@@ -87,18 +114,17 @@ problem() {
 }
 
 # 最上位の許可リスト。
-allowed='build cart-bridge-jp.php includes languages readme.txt uninstall.php vendor'
 actual=$(cd "$FINAL" && ls -A | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$actual" = "$allowed" ] || problem "top-level entries are '${actual}', expected '${allowed}'"
 
-# includes/・languages/ は追跡しているファイルと同じ。
-for dir in includes languages; do
+# includes/（無料版は languages/ も）は追跡しているファイルと同じ。
+for dir in $tracked_dirs; do
 	expected=$(git ls-files "${SRC}/${dir}" | sed "s#^${SRC}/##" | sort)
 	shipped=$(cd "$FINAL" && find "$dir" -type f | sort)
 	[ "$expected" = "$shipped" ] || problem "${dir}/ differs from the tracked files: $(diff <(printf '%s\n' "$expected") <(printf '%s\n' "$shipped") | grep '^[<>]' | head -n 5 | tr '\n' ' ')"
 done
 
-for file in build/index.js build/index.asset.php vendor/autoload.php; do
+for file in $required_files; do
 	[ -f "${FINAL}/${file}" ] || problem "${file} is missing"
 done
 
@@ -112,13 +138,29 @@ else
 	[ "$rc" = 1 ] || problem "could not read vendor/composer/autoload_psr4.php (grep exit ${rc})"
 fi
 
-# Pro のコード上の識別子。readme などの文章は対象にしない（Pro への案内のリンクを書いてよい。ガイドライン 11）。
-pro_pattern='CartBridgeJP\\+Pro|CBJP_PRO_|cbjp_pro_|cbjp/pro/|cart-bridge-jp-pro'
-if hits=$(grep -rlE --include='*.php' --include='*.js' --include='*.json' "$pro_pattern" "$FINAL"); then
-	problem "Pro identifiers found in: $(printf '%s' "$hits" | sed "s#${FINAL}/##g" | tr '\n' ' ')"
+if [ "$SLUG" = cart-bridge-jp ]; then
+	# Pro のコード上の識別子。readme などの文章は対象にしない（Pro への案内のリンクを書いてよい。ガイドライン 11）。
+	pro_pattern='CartBridgeJP\\+Pro|CBJP_PRO_|cbjp_pro_|cbjp/pro/|cart-bridge-jp-pro'
+	if hits=$(grep -rlE --include='*.php' --include='*.js' --include='*.json' "$pro_pattern" "$FINAL"); then
+		problem "Pro identifiers found in: $(printf '%s' "$hits" | sed "s#${FINAL}/##g" | tr '\n' ' ')"
+	else
+		rc=$?
+		[ "$rc" = 1 ] || problem "could not search the plugin files for Pro identifiers (grep exit ${rc})"
+	fi
 else
-	rc=$?
-	[ "$rc" = 1 ] || problem "could not search the plugin files for Pro identifiers (grep exit ${rc})"
+	# 無料版の名前空間を宣言する PHP（無料版のコードを Pro に同梱しない）。CartBridgeJP の名前空間の宣言を拾い、CartBridgeJP\Pro（とその下）でないものを数える。
+	# grep の終了コード: 0 = 見つかった、1 = 無い、2 = 読めない（読めないことを「無い」と読まない）。
+	if ns_hits=$(grep -rnE --include='*.php' '^[[:space:]]*namespace[[:space:]]+CartBridgeJP([^A-Za-z0-9_]|$)' "$FINAL"); then
+		if free_hits=$(printf '%s\n' "$ns_hits" | grep -vE ':[[:space:]]*namespace[[:space:]]+CartBridgeJP\\Pro([\\;{[:space:]]|$)'); then
+			problem "free plugin namespaces declared in: $(printf '%s\n' "$free_hits" | cut -d: -f1 | sed "s#${FINAL}/##g" | sort -u | tr '\n' ' ')"
+		else
+			rc=$?
+			[ "$rc" = 1 ] || problem "could not filter the namespace declarations (grep exit ${rc})"
+		fi
+	else
+		rc=$?
+		[ "$rc" = 1 ] || problem "could not search the plugin files for namespace declarations (grep exit ${rc})"
+	fi
 fi
 
 [ "$fail" = 0 ] || die "the plugin zip did not pass the checks; nothing was written"

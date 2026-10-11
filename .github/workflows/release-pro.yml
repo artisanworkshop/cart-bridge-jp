@@ -1,0 +1,48 @@
+name: Release Pro
+
+# Pro アドオン（plugins/cart-bridge-jp-pro）のリリース（R3-8c）。無料版のタグ `v*.*.*` と分けるため `pro-v*.*.*` で動く（GitHub のタグのパターンは
+# 先頭から一致するので、`pro-v1.0.0` は無料版の release.yml を起動しない）。zip は中身を検査してから GitHub Release に添付する。
+# 同じ zip を販売サイト（API Manager の製品と 0 円の商品）に置く（docs/03 §10.7「zip とリリース」）。
+on:
+  push:
+    tags:
+      - 'pro-v*.*.*'
+
+jobs:
+  release:
+    name: Build & Release (Pro)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: sodium, json, mysqli
+          coverage: none
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#pro-v}" >> "$GITHUB_OUTPUT"
+
+      # composer install --no-dev・.distignore・中身の検査は CI の Distribution ジョブと同じスクリプト。タグの版がプラグインヘッダーの Version と
+      # 違えば止まる（backlog r3-7-monorepo/R1-L2）。
+      - name: Build and check the Pro add-on zip
+        run: bin/build-zip.sh --plugin cart-bridge-jp-pro --version "${{ steps.version.outputs.VERSION }}" --out .
+
+      # 「Latest」は無料版のリリースのまま（make_latest: false）。自動のリリースノートは直前のタグ（無料版のタグのこともある）からの変更を
+      # 並べるので使わない。
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cart Bridge JP Pro ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          make_latest: false
+          generate_release_notes: false
+          body: Cart Bridge JP Pro ${{ steps.version.outputs.VERSION }} (the Pro add-on for Cart Bridge JP). Customers get it from the store, not from this page.
+          files: cart-bridge-jp-pro-${{ steps.version.outputs.VERSION }}.zip
