@@ -3,8 +3,8 @@
 - 開始: 2026-10-11
 - 引数: next auto-commit（ゲートラウンドの確認ゲートは飛ばす。計画の承認は済み）
 - PR: #124 https://github.com/artisanworkshop/cart-bridge-jp/pull/124
-- 現在のステップ: 7（G1 の修正を push。次は G2: Copilot だけに再依頼）
-- Copilot: 依頼 1 回 / 未収束（G1 で 4 件。すべて修正）
+- 現在のステップ: 7（G2 の修正を push。次は G3: Copilot だけに再依頼〔3 回目・最後〕）
+- Copilot: 依頼 2 回 / 未収束（G1 で 4 件・G2 で本文の新規 1 件。すべて修正）
 - Codex: 依頼 1 回 / 収束（G1 で指摘なし）
 
 ## 計画の決定（2026-10-11 ユーザー）
@@ -19,3 +19,4 @@
 | 2026-10-11 21:30 | 3 | review-loop: R1 APPROVE（C/H/M 0・Low 6 を R1 で修正）、R2 APPROVE（R1 全解消・Low 1 を修正）。品質チェック green（無料版 1276・Pro 757・Jest 99） |
 | 2026-10-11 21:36 | 4〜6 | 初回 push（T=2026-10-11T12:30:57Z）・PR #124 作成・CI green・Copilot に依頼（登録を timeline で確認）・G1 の応答待ち |
 | 2026-10-11 21:48 | 7 | G1: Copilot 4 件（修正 4: docs 3・Pro の設定画面の文 1）、Codex 指摘なし（収束）。auto-commit で c238e93・a81c12a |
+| 2026-10-11 22:01 | 7 | G2: Copilot はスレッド 0・本文の Previously missed 1 件（Medium。Retry の状態をロックの中で読み直す）を修正。auto-commit で fa2b828 |
