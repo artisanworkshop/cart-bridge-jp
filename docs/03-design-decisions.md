@@ -2795,7 +2795,8 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 - 新しい版が無くても版の情報を返す（WP は `no_update` に入れ、自動更新の切り替えを出す）。失敗したら受け取った値をそのまま返す
 - 応答はフェイルクローズ: 版は `^\d{1,4}(\.\d{1,4}){1,3}(-[0-9A-Za-z.]{1,20})?\z` でなければ失敗。package は http(s)・host あり・資格情報なし（**接続先が https なら https に限る**）でなければ空にする（版の情報は使い、自動更新だけやめる）。
   `url`・`homepage` は同じ URL の検証、`tested`・`requires`・`requires_php` は版の形、`upgrade_notice`・`name`・`last_updated` はタグと制御文字を除く、`author` は `a href` だけ残す、
-  `sections` は既知の節（description・installation・faq・screenshots・changelog・other_notes）だけ `wp_kses_post()`（WP の詳細の画面も `wp_kses()` するが、Pro でも浄化してから渡す）
+  `sections` は既知の節（description・installation・faq・screenshots・changelog・other_notes・documentation）だけ `wp_kses_post()`（WP の詳細の画面も `wp_kses()` するが、Pro でも浄化してから渡す。
+  `documentation` は WP の節の見出しの一覧に無いので、詳細の画面のタブ名は英語の「Documentation」のまま出る）
 - `plugins_api`（`plugin_information`・スラッグ `cart-bridge-jp-pro`）は**必ず Pro が答える**（false を返すと WP が wordpress.org に同じスラッグを問い合わせ、別のプラグインの詳細が出うる）。ヘッダーが無い間も登録する。
   有効化していない・取得できないときは `WP_Error`
 - package の無い更新（期限後など）には `disable_autoupdate` を付ける（自動更新を有効にしたサイトで、WP が新しい版ごとに取得を試みて失敗し、失敗のメールを送らないように。review-loop R1-4）。
