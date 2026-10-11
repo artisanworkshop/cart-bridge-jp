@@ -340,6 +340,62 @@ final class DryRunOnlyEntityTypeTest extends WP_UnitTestCase {
 		$this->assertSame( 'Only a dry run is available for Gizmos on this site.', $response->get_data()['message'] );
 	}
 
+	/**
+	 * 理由は重複を除いて種類の実行順に続け、文は翻訳する書式（`%1$s %2$s`。画面の `joinSentences()` と同じ msgid）でつなぐ
+	 * （日本語の訳は空白を入れないので「。 」を残さない。R1-6・R2-1）。
+	 */
+	public function test_the_message_joins_distinct_reasons_with_the_translated_sentence_format(): void {
+		$this->gizmo->dry_run_only = 'Activate the add-on.';
+		$this->register_entity_types( [ self::restricted_type( 'sprocket', 'Sprockets', 46, 'Ask the site owner.' ), self::restricted_type( 'widget', 'Widgets', 47, 'Activate the add-on.' ) ] );
+		$this->register_gizmo();
+		$body = [
+			'type'     => JobManager::TYPE_IMPORT,
+			'platform' => 'mock',
+			'entities' => [ 'widget', 'sprocket', 'gizmo' ],
+		];
+		$list = wp_sprintf( '%l', [ 'Gizmos', 'Sprockets', 'Widgets' ] );
+
+		$this->assertSame( "Only a dry run is available for {$list} on this site. Activate the add-on. Ask the site owner.", $this->post_run( $body )->get_data()['message'] );
+
+		add_filter(
+			'gettext',
+			static fn ( string $translation, string $text, string $domain ): string => '%1$s %2$s' === $text && 'cart-bridge-jp' === $domain ? '%1$s%2$s' : $translation,
+			10,
+			3
+		);
+
+		$this->assertSame( "Only a dry run is available for {$list} on this site.Activate the add-on.Ask the site owner.", $this->post_run( $body )->get_data()['message'] );
+	}
+
+	/**
+	 * 取り込める・エクスポートできて、理由つきで dry-run だけの外部の種類。
+	 */
+	private static function restricted_type( string $key, string $label, int $position, string $reason ): EntityType {
+		return new class( $key, $label, $position, $reason ) extends EntityType {
+			public function __construct( private readonly string $type_key, private readonly string $type_label, private readonly int $type_position, private readonly string $reason ) {}
+
+			public function key(): string {
+				return $this->type_key;
+			}
+
+			public function label(): string {
+				return $this->type_label;
+			}
+
+			public function position(): int {
+				return $this->type_position;
+			}
+
+			public function supports_import( PlatformAdapter $adapter ): bool {
+				return true;
+			}
+
+			public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+				return $this->reason;
+			}
+		};
+	}
+
 	public function test_retrying_a_failed_import_or_export_job_of_a_restricted_type_is_refused(): void {
 		$this->register_gizmo();
 		$import                    = $this->failed_job( JobManager::TYPE_IMPORT, 'gizmo' );
