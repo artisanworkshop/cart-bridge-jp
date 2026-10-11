@@ -74,6 +74,16 @@ final class GizmoType extends EntityType {
 	 */
 	public array|Throwable|null $own_candidates = null;
 
+	/**
+	 * dry-run だけにする理由（`EntityType::dry_run_only_reason()`。R3-8b）。null は制限なし、例外を入れるとそれを投げる。
+	 */
+	public string|Throwable|null $dry_run_only = null;
+
+	/**
+	 * `dry_run_only_reason()` が呼ばれた回数（判定を保持しないことの確認用）。
+	 */
+	public int $dry_run_only_calls = 0;
+
 	private int $next_remote_id = 900;
 
 	public function key(): string {
@@ -86,6 +96,16 @@ final class GizmoType extends EntityType {
 
 	public function position(): int {
 		return 45;
+	}
+
+	public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+		++$this->dry_run_only_calls;
+
+		if ( $this->dry_run_only instanceof Throwable ) {
+			throw $this->dry_run_only;
+		}
+
+		return $this->dry_run_only;
 	}
 
 	public function supports_import( PlatformAdapter $adapter ): bool {

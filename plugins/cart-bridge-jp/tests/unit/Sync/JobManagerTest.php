@@ -176,7 +176,7 @@ final class JobManagerTest extends WP_UnitTestCase {
 
 	/**
 	 * D27（R3-6a）: 無料版に件数の上限は無い。D15 の上限（商品 50）を超える件数を、
-	 * カーソル走査で全件取り込む（サンプルの選定・ID 指定取得の経路は無い）。顧客・受注は R3-6c1 で Pro へ移った（Pro は試用の上限を意図して持つ）。
+	 * カーソル走査で全件取り込む（サンプルの選定・ID 指定取得の経路は無い）。顧客・受注は R3-6c1 で Pro へ移った（D30: Pro にも件数の上限は無く、キーを有効化していない間は dry-run だけ。判定は Pro が持つ。R3-8b）。
 	 */
 	public function test_import_has_no_count_limit(): void {
 		$products = array_map( static fn ( int $n ) => CanonicalFactory::product( "p{$n}", "SKU-{$n}" ), range( 1, 55 ) );

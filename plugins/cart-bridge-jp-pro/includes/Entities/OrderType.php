@@ -17,6 +17,7 @@ use CartBridgeJP\Entities\WarningText;
 use CartBridgeJP\Entities\WooServices;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Canonical\CanonicalOrder;
+use CartBridgeJP\Pro\License\LicenseGate;
 use CartBridgeJP\Pro\Woo\Reader\OrderReader;
 use CartBridgeJP\Pro\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Pro\Woo\Support\OrderMethodMap;
@@ -48,6 +49,13 @@ final class OrderType extends EntityType {
 
 	public function position(): int {
 		return 50;
+	}
+
+	/**
+	 * キーを有効化していない間は dry-run だけ（D30・R3-8b。判定は `LicenseGate`）。
+	 */
+	public function dry_run_only_reason( PlatformAdapter $adapter ): ?string {
+		return LicenseGate::dry_run_only_reason();
 	}
 
 	/**

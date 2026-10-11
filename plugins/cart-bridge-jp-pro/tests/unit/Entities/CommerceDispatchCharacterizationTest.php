@@ -15,6 +15,7 @@ use CartBridgeJP\Admin\DryRunReportCsv;
 use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Pro\Adapters\CommerceCapabilities;
+use CartBridgeJP\Pro\Tests\Fixtures\ActivatesLicense;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
 use CartBridgeJP\Pro\Woo\CommerceWarningCode;
@@ -54,6 +55,7 @@ use WP_UnitTestCase;
  */
 final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 
+	use ActivatesLicense;
 	use RegistersCommerceAdapters;
 
 	/**
@@ -108,6 +110,8 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 
 	public function set_up(): void {
 		parent::set_up();
+		// 実際の取込み・エクスポートを走らせる（キーが無いと dry-run だけ。R3-8b）。
+		$this->activate_license();
 		Activator::activate();
 	}
 

@@ -28,6 +28,11 @@ R3-4（公開）前の再確認や、v2.0 の BASE（B4-6）でも同じ考え�
 - **OAuth の接続は Cart Bridge JP Pro を有効にしてから行う**（R3-6c2）。無料版だけで接続したトークンには顧客・受注・クーポンのスコープが無く、Pro はその 3 種類を
   組み立てない（Connections タブに再接続の警告が出る）。`run` は始める前に、要求した種類が登録されていること（Pro が有効）と、`GET /connections` の `missing_scopes` が
   空であることを確かめ、どちらかが欠ければ run を作らずに止まる（`start_run()` は扱えない種類を黙って外すため）。
+- **Pro のキー**（D30・R3-8b）: キーを有効化していない Pro は顧客・受注・クーポンを dry-run だけにし、`type=import`／`type=export` の run を REST が 400 で断る。
+  `run` は始める前に `GET /connections` の `entities.<向き>[].dry_run_only` を見て、該当する種類があれば理由つきで止まる（dry-run は止めない）。
+  販売サイトが決まるまでのビルド（`CBJP_PRO_LICENSE_API_URL` が空）では画面から有効化できないので、開発サイトの有効化の記録だけを書く:
+  `npx wp-env run cli wp option update cbjp_pro_license_state '{"activated":"yes","activated_at":0,"product_id":0}' --format=json`。
+  リハーサルの後は `npx wp-env run cli wp option delete cbjp_pro_license_state` で戻す（R3-8a で有効化していた開発サイトなら、元の値を控えてから書き換え、後で戻す）。
 
 ## スクリプト
 
@@ -125,6 +130,7 @@ Woo で作った商品・顧客（`_cbjp_*` メタ無し）を export して Col
 - テストショップの `ZZR-`・Woo 生まれの商品・会員はプラグインから消せない（リモートを削除しない）。ユーザーが管理画面で消すか判断する。
 - 開発サイトを戻すなら `$S php reset-local mode=yes`。Woo の税設定を変えた場合は記録した値に戻す（`tax-classes mode=ja` にしたなら `mode=en`）。
 - `.rehearsal/` は gitignore 済み。不要なら手で消す。
+- Pro の有効化の記録を書いた場合は戻す（安全規則の「Pro のキー」）。
 
 ## 既知の限界
 

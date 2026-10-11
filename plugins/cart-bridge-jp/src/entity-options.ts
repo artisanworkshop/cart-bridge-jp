@@ -9,7 +9,8 @@ import type {
 /**
  * 接続先ごとの取込み・エクスポートの選択肢（`GET /connections` の `entities`。R3-6b1）を読む純粋関数（R3-6b2）。
  * 画面は実体の名前を知らず、ここで読んだ選択肢（並びは実行順）から組み立てる。応答はページの外の値なので、キーが空でない文字列で
- * ない項目と重複は捨て、真偽値は `true` だけを真と読む（原則 9。`beta` を読めなければベータ扱い〈既定で選ばない〉にする）。
+ * ない項目と重複は捨て、真偽値は `true` だけを真と読む（原則 9。`beta` を読めなければベータ扱い〈既定で選ばない〉にする。
+ * `dry_run_only`〈R3-8b〉も同じく、読めなければ dry-run だけ〈実際の取込み・エクスポートで送らない〉にする）。
  */
 
 function isRecord( value: unknown ): value is Record< string, unknown > {
@@ -61,6 +62,22 @@ function optionList(
 }
 
 /**
+ * 拡張が dry-run だけにした種類か（R3-8b）と、その理由。`false` のときだけ外す（読めない値は実際の書込みで送らない側に倒す）。
+ * @param item
+ */
+function dryRunOnly( item: unknown ): {
+	dry_run_only: boolean;
+	dry_run_only_reason: string;
+} {
+	const reason = ownValue( item, 'dry_run_only_reason' );
+
+	return {
+		dry_run_only: false !== ownValue( item, 'dry_run_only' ),
+		dry_run_only_reason: 'string' === typeof reason ? reason : '',
+	};
+}
+
+/**
  * 取り込める実体の種類（実行順）。
  * @param connection
  */
@@ -72,6 +89,7 @@ export function importEntityOptions(
 			key,
 			label,
 			mapping_notice: true === ownValue( item, 'mapping_notice' ),
+			...dryRunOnly( item ),
 		} )
 	);
 }
@@ -91,8 +109,80 @@ export function exportEntityOptions(
 			label,
 			beta: false !== ownValue( item, 'beta' ),
 			description: 'string' === typeof description ? description : '',
+			...dryRunOnly( item ),
 		};
 	} );
+}
+
+/**
+ * 選んだ種類のうち、実際の取込み・エクスポートで送るもの（実行順。R3-8b）。拡張が dry-run だけにした種類は選んでいても外す
+ * （プレビューには選んだ種類をすべて送る）。空なら実行のボタンを押せない（何も選んでいないときと同じ）。
+ * @param options  選択肢（実行順）
+ * @param selected 選んだ種類のキー
+ */
+export function writableOptions<
+	T extends { key: EntityType; dry_run_only: boolean },
+>( options: T[], selected: ReadonlySet< EntityType > ): T[] {
+	return options.filter(
+		( option ) => selected.has( option.key ) && ! option.dry_run_only
+	);
+}
+
+/**
+ * run で送る種類（実行順）。プレビュー（dry-run）は選んだ種類をすべて、実際の取込み・エクスポートは `writableOptions()` の種類だけを送る
+ * （R3-8b）。Import タブの確認文もこの一覧から作る（送る種類と確認文を食い違わせない）。
+ * @param options  選択肢（実行順）
+ * @param selected 選んだ種類のキー
+ * @param dryRun   プレビューの run か
+ */
+export function runEntityOptions<
+	T extends { key: EntityType; dry_run_only: boolean },
+>( options: T[], selected: ReadonlySet< EntityType >, dryRun: boolean ): T[] {
+	return dryRun
+		? options.filter( ( option ) => selected.has( option.key ) )
+		: writableOptions( options, selected );
+}
+
+/**
+ * 空でない文を順につなぐ。どれも空なら出さない（undefined）。
+ * @param candidates
+ */
+function joinNonEmpty( ...candidates: string[] ): string | undefined {
+	const parts = candidates.filter( ( sentence ) => '' !== sentence );
+
+	return 0 === parts.length
+		? undefined
+		: parts.reduce( ( joined, sentence ) =>
+				joinSentences( joined, sentence )
+		  );
+}
+
+/**
+ * dry-run だけの種類の注記（画面の汎用の注記に、拡張の理由を続ける）。dry-run だけでなければ空。
+ * @param option
+ * @param dryRunOnlyNote
+ */
+function dryRunOnlyHelp(
+	option: ImportEntityOption | ExportEntityOption,
+	dryRunOnlyNote: string
+): string {
+	if ( ! option.dry_run_only ) {
+		return '';
+	}
+
+	return joinNonEmpty( dryRunOnlyNote, option.dry_run_only_reason ) ?? '';
+}
+
+/**
+ * 取込みの選択肢の説明。dry-run だけの種類にだけ出す（R3-8b）。
+ * @param option
+ * @param dryRunOnlyNote dry-run だけの種類の注記（Import タブが翻訳して渡す）
+ */
+export function importOptionHelp(
+	option: ImportEntityOption,
+	dryRunOnlyNote: string
+): string | undefined {
+	return joinNonEmpty( dryRunOnlyHelp( option, dryRunOnlyNote ) );
 }
 
 /**
@@ -108,20 +198,20 @@ export function defaultExportSelection(
 }
 
 /**
- * エクスポートの選択肢の説明。サーバーの説明（例: 受注は「接続先に売上を作る」）に、ベータならベータの注意書きを続ける。説明が無く
- * ベータでもなければ出さない（undefined）。
+ * エクスポートの選択肢の説明。サーバーの説明（例: 受注は「接続先に売上を作る」）に、ベータならベータの注意書き、dry-run だけなら
+ * その注記と理由を続ける（R3-8b）。どれも無ければ出さない（undefined）。
  * @param option
- * @param betaNote ベータの注意書き（Export タブが翻訳して渡す。画像のアップロードと共通）
+ * @param betaNote       ベータの注意書き（Export タブが翻訳して渡す。画像のアップロードと共通）
+ * @param dryRunOnlyNote dry-run だけの種類の注記（Export タブが翻訳して渡す）
  */
 export function exportOptionHelp(
 	option: ExportEntityOption,
-	betaNote: string
+	betaNote: string,
+	dryRunOnlyNote: string
 ): string | undefined {
-	if ( option.beta ) {
-		return '' !== option.description
-			? joinSentences( option.description, betaNote )
-			: betaNote;
-	}
-
-	return '' !== option.description ? option.description : undefined;
+	return joinNonEmpty(
+		option.description,
+		option.beta ? betaNote : '',
+		dryRunOnlyHelp( option, dryRunOnlyNote )
+	);
 }

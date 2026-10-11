@@ -22,6 +22,7 @@ use CartBridgeJP\Support\PlatformBusyException;
 use CartBridgeJP\Support\PlatformLock;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
+use CartBridgeJP\Sync\DryRunOnlyException;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
@@ -980,9 +981,10 @@ final class RestController {
 	/**
 	 * 接続先ごとの取込み・エクスポートの選択肢（`GET /connections` の `entities`）。判定は `JobManager::start_run()` と同じ
 	 * （`EntityTypeRegistry::importable()`/`exportable()`）。`beta` はエクスポートが既定で選ばれない種類（D24）。
-	 * `mapping_notice`・`description` は R3-6b2（画面が実体の名前で分岐しないため）。
+	 * `mapping_notice`・`description` は R3-6b2（画面が実体の名前で分岐しないため）。`dry_run_only`・`dry_run_only_reason` は R3-8b
+	 * （拡張が dry-run だけにした種類。判定は `start_run()` と同じ `EntityTypeRegistry::dry_run_only_reason()`。無料版の種類は常に偽）。
 	 *
-	 * @return array{import:array<int,array{key:string,label:string,mapping_notice:bool}>,export:array<int,array{key:string,label:string,beta:bool,description:string}>}
+	 * @return array{import:array<int,array{key:string,label:string,mapping_notice:bool,dry_run_only:bool,dry_run_only_reason:string}>,export:array<int,array{key:string,label:string,beta:bool,description:string,dry_run_only:bool,dry_run_only_reason:string}>}
 	 */
 	private function entity_options( PlatformAdapter $adapter ): array {
 		$keys           = EntityTypeRegistry::keys();
@@ -997,12 +999,23 @@ final class RestController {
 		foreach ( EntityTypeRegistry::all() as $key => $type ) {
 			$label = EntityTypeRegistry::label( $type );
 
+			if ( ! in_array( $key, $importable, true ) && ! in_array( $key, $exportable, true ) ) {
+				continue;
+			}
+
+			// 種類ごとに 1 回だけ問い合わせ、取込み・エクスポートの両方に載せる（R3-8b）。
+			$restriction = EntityTypeRegistry::dry_run_only_reason( $type, $adapter );
+			$dry_run     = [
+				'dry_run_only'        => null !== $restriction,
+				'dry_run_only_reason' => $restriction ?? '',
+			];
+
 			if ( in_array( $key, $importable, true ) ) {
 				$options['import'][] = [
 					'key'            => $key,
 					'label'          => $label,
 					'mapping_notice' => isset( $notice_holders[ $key ] ),
-				];
+				] + $dry_run;
 			}
 
 			if ( in_array( $key, $exportable, true ) ) {
@@ -1018,7 +1031,7 @@ final class RestController {
 					// 例外のときはベータ（既定で選ばない）に倒す（原則 9）。
 					'beta'        => EntityTypeRegistry::is_export_beta( $type, $adapter ),
 					'description' => $description,
-				];
+				] + $dry_run;
 			}
 		}
 
@@ -1353,6 +1366,8 @@ final class RestController {
 			$run_id = JobManager::create()->start_run( $type, $platform, array_map( 'strval', $entities ) );
 		} catch ( RunAlreadyInProgressException | PlatformBusyException ) {
 			return $this->run_in_progress_error( $platform );
+		} catch ( DryRunOnlyException $exception ) {
+			return $this->dry_run_only_error( $exception );
 		} catch ( Throwable $exception ) {
 			return new WP_Error(
 				'cbjp_invalid_run',
@@ -1527,6 +1542,8 @@ final class RestController {
 			// `retry()` は対象ジョブ自身の run を判定から除くため（同一 run の兄弟ジョブは進行中扱いしない）、
 			// 一覧からも同じ run を除く。
 			return $this->run_in_progress_error( (string) $job['platform'], (string) $job['run_id'] );
+		} catch ( DryRunOnlyException $exception ) {
+			return $this->dry_run_only_error( $exception );
 		}
 
 		if ( ! $retried ) {
@@ -1868,6 +1885,38 @@ final class RestController {
 			[
 				'status'      => 409,
 				'active_runs' => $active_runs,
+			]
+		);
+	}
+
+	/**
+	 * 拡張が dry-run だけにした種類の、実際の取込み・エクスポートの run の作成・Retry の拒否（R3-8b）。文は種類の表示名と、拡張が渡した理由
+	 * （例外が運ぶ判定した時点の値。判定し直さない）。無料版の文は購入・キーの有効化に触れない（`docs/03` §10.0「無料版で守ること」2）。
+	 */
+	private function dry_run_only_error( DryRunOnlyException $exception ): WP_Error {
+		$reasons = $exception->reasons();
+		$labels  = [];
+
+		foreach ( array_keys( $reasons ) as $key ) {
+			$type     = EntityTypeRegistry::get( $key );
+			$labels[] = null !== $type ? EntityTypeRegistry::label( $type ) : $key;
+		}
+
+		/* translators: %s: list of the kinds of records, e.g. "Customers and Orders". */
+		$message = sprintf( __( 'Only a dry run is available for %s on this site.', 'cart-bridge-jp' ), wp_sprintf( '%l', $labels ) );
+
+		// 拡張の理由（重複を除く）を続ける。文のつなぎは画面の `joinSentences()` と同じ翻訳する書式にする（日本語で「。 」を残さない）。
+		foreach ( array_unique( array_filter( $reasons, static fn ( string $reason ): bool => '' !== $reason ) ) as $reason ) {
+			/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
+			$message = sprintf( __( '%1$s %2$s', 'cart-bridge-jp' ), $message, $reason );
+		}
+
+		return new WP_Error(
+			'cbjp_dry_run_only',
+			$message,
+			[
+				'status'   => 400,
+				'entities' => array_keys( $reasons ),
 			]
 		);
 	}

@@ -31,6 +31,10 @@ export interface ImportEntityOption {
 	label: string;
 	/** この種類が、取込みの前に未設定の数を案内するマッピングを持つ（Import タブが候補を取得して数える）。 */
 	mapping_notice: boolean;
+	/** 拡張がこの種類を dry-run だけにした（R3-8b）。選べてプレビューには含めるが、実際の取込みでは送らない。 */
+	dry_run_only: boolean;
+	/** dry-run だけにした理由（拡張が翻訳した文。空なら出さない）。 */
+	dry_run_only_reason: string;
 }
 
 /**
@@ -41,6 +45,9 @@ export interface ExportEntityOption {
 	label: string;
 	beta: boolean;
 	description: string;
+	/** `ImportEntityOption` と同じ（実際のエクスポートでは送らない）。 */
+	dry_run_only: boolean;
+	dry_run_only_reason: string;
 }
 
 export interface EntityOptions {

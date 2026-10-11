@@ -222,6 +222,49 @@ final class EntityTypeRegistry {
 	}
 
 	/**
+	 * この接続先で、この種類を dry-run だけにする理由（R3-8b。`EntityType::dry_run_only_reason()`）。null は止めない。
+	 * 無料版の種類は呼ばずに null（無料版自身の機能を拡張の都合で止めない。`docs/03` §10.0「無料版で守ること」2）。外部の種類が例外を投げたら
+	 * 理由の無い制限（`''`）に倒す（実際の書込みを止める側。原則 9）。文はタグ・前後の空白を除く（画面はテキストとして出すが、文の形を揃える）。
+	 */
+	public static function dry_run_only_reason( EntityType $type, PlatformAdapter $adapter ): ?string {
+		try {
+			if ( self::is_core( $type ) ) {
+				return null;
+			}
+
+			$reason = $type->dry_run_only_reason( $adapter );
+		} catch ( Throwable ) {
+			return '';
+		}
+
+		return null === $reason ? null : trim( wp_strip_all_tags( $reason ) );
+	}
+
+	/**
+	 * 要求された種類のうち、この接続先で dry-run だけのもの（実行順。キー => 理由）。登録の無いキーは含めない。
+	 *
+	 * @param array<int,mixed> $keys
+	 * @return array<string,string>
+	 */
+	public static function dry_run_only( PlatformAdapter $adapter, array $keys ): array {
+		$restricted = [];
+
+		foreach ( self::all() as $key => $type ) {
+			if ( ! in_array( $key, $keys, true ) ) {
+				continue;
+			}
+
+			$reason = self::dry_run_only_reason( $type, $adapter );
+
+			if ( null !== $reason ) {
+				$restricted[ $key ] = $reason;
+			}
+		}
+
+		return $restricted;
+	}
+
+	/**
 	 * 全種類のマッピング設定（種類の実行順 → 種類の中の `position()`）。キーは無料版の種類のものを先に確定し、外部の種類の同じキー・
 	 * 形の違うキーは外す（外部の種類が無料版のマッピングを置き換えないように）。
 	 *

@@ -21,6 +21,8 @@ import {
 	defaultExportSelection,
 	exportEntityOptions,
 	exportOptionHelp,
+	runEntityOptions,
+	writableOptions,
 } from '../entity-options';
 import { parseHash, tabHref } from '../hash-route';
 import { useActiveRuns } from '../hooks/useActiveRuns';
@@ -59,6 +61,13 @@ function betaNote(): string {
 		'Beta: this feature needs a premium plan on the connected shop and has not been verified on a real premium-plan shop yet. It is off by default — turn it on only if you want to try it.',
 		'cart-bridge-jp'
 	);
+}
+
+/**
+ * 拡張が dry-run だけにした種類（R3-8b）の注記。拡張の理由の文がこの後に続く。
+ */
+function dryRunOnlyNote(): string {
+	return __( 'Preview only: Run export skips this.', 'cart-bridge-jp' );
 }
 
 /**
@@ -211,6 +220,11 @@ export default function ExportTab() {
 	const entityOptions = useMemo(
 		() => exportEntityOptions( currentConnection ),
 		[ currentConnection ]
+	);
+	// 選んだうち、実際のエクスポートで送る種類（拡張が dry-run だけにした種類を除く。R3-8b）。プレビューは選んだ種類をすべて送る。
+	const writableEntityOptions = useMemo(
+		() => writableOptions( entityOptions, selectedExportEntities ),
+		[ entityOptions, selectedExportEntities ]
 	);
 
 	// D24: エクスポート設定（画像アップロード）の取得。プラットフォームの選択が変わるたびに走る唯一の
@@ -487,7 +501,14 @@ export default function ExportTab() {
 	}
 
 	async function startExportRun( type: 'dry_run_export' | 'export' ) {
-		if ( null === platform || 0 === selectedExportEntities.size ) {
+		// 実際のエクスポートは、拡張が dry-run だけにした種類を送らない（R3-8b。サーバーも断る）。
+		const runOptions = runEntityOptions(
+			entityOptions,
+			selectedExportEntities,
+			'dry_run_export' === type
+		);
+
+		if ( null === platform || 0 === runOptions.length ) {
 			return;
 		}
 
@@ -503,7 +524,7 @@ export default function ExportTab() {
 			'dry_run_export' === type ? setDryRunExportState : setExportState;
 		const requestedPlatform = platform;
 		const requestId = platformGenerationRef.current;
-		const requestedEntities = Array.from( selectedExportEntities );
+		const requestedEntities = runOptions.map( ( option ) => option.key );
 		const selection = activeRuns.selectionRef.current;
 
 		setRunStartError( null );
@@ -746,7 +767,11 @@ export default function ExportTab() {
 										  )
 										: option.label
 								}
-								help={ exportOptionHelp( option, betaNote() ) }
+								help={ exportOptionHelp(
+									option,
+									betaNote(),
+									dryRunOnlyNote()
+								) }
 								checked={ selectedExportEntities.has(
 									option.key
 								) }
@@ -890,7 +915,7 @@ export default function ExportTab() {
 								blockedByOtherRun ||
 								exportOptionsSaving ||
 								exportOptionsPending ||
-								0 === selectedExportEntities.size ||
+								0 === writableEntityOptions.length ||
 								! acknowledgeProductionWrite
 							}
 							onClick={ () => startExportRun( 'export' ) }
