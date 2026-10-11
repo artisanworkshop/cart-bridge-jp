@@ -6,8 +6,11 @@
 tests/fixtures/
 ├── colorme/    # カラーミーショップ（swagger.json + 各エンドポイントのレスポンス）
 ├── makeshop/   # MakeShop（GraphQLレスポンス）
-└── base/       # BASE
+├── base/       # BASE
+└── api-manager/ # WooCommerce API Manager（ライセンスの有効化・無効化・状態確認の応答。R3-8a）
 ```
+
+`api-manager/` は手元の API Manager 3.6.0 を dev サイトに入れて実測した応答（2026-10-11）。応答にキーは含まれないが、販売サイトの URL は `https://example.com/`、注文・製品の ID はダミーに置き換えてある。
 
 ## 匿名化ルール（コミット前に必須）
 

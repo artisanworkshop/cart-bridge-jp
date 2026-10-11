@@ -1,0 +1,29 @@
+{
+	"status_check": "active",
+	"remaining": 99999,
+	"success": true,
+	"data": {
+		"unlimited_activations": true,
+		"total_activations_purchased": 100000,
+		"total_activations": 1,
+		"activations_remaining": 99999,
+		"activated": true,
+		"api_key_expirations": {
+			"non_wc_subs_resources": [
+				{
+					"next_payment": "January 9, 2027",
+					"friendly_api_key_expiration_date": "January 9, 2027",
+					"number_of_expiring_activations": "Unlimited activations",
+					"product_title": "Cart Bridge JP Pro",
+					"order_id": "1001",
+					"product_id": "1000",
+					"api_resource_id": "1",
+					"activations_purchased_total": "100000"
+				}
+			],
+			"non_wc_subs_resources_total": "1",
+			"wc_subs_resources_total": "0"
+		}
+	},
+	"api_call_execution_time": "0.007413 seconds"
+}

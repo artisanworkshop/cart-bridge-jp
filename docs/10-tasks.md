@@ -9,7 +9,7 @@
 
 | バージョン | 対応プラットフォーム | フェーズ | 状態 |
 |---|---|---|---|
-| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は完了（PR #104〜#107）で、テストショップでの再リハーサル（まとめて 1 回）も 2026-10-08 に済ませた。R3-2（i18n・日本語訳の同梱、PR #109）・R3-3（readme・スクリーンショット・説明文の v1.0 化）完了。R3-7（モノレポ化。D29）完了。R3-6（無料版と Pro の境目の切り替え。D27）は a〜d の 4 PR に分け、R3-6a（上限・サンプル・クリーンアップ・県コード修復の削除）・R3-6b（実体の種類の拡張点。b1 backend・b2 画面）・R3-6c（顧客・受注・クーポンを Pro へ。c1 移動・c2 OAuth スコープの分割）・R3-6d（readme・スクリーンショット・i18n の書き直し）完了。R3-5a（アンインストール時のデータ削除の設定 UI）完了。残りは Pro の公開準備（v1.0 と同時に出す。R3-8a〜d と販売サイト。D30〔2026-10-11〕で試用をやめ、キーを有効化していない Pro は dry-run だけにした）→ R3-9（停止・致命的エラーで孤立したジョブの回復。issue #121）→ R3-5b（セキュリティ最終監査）→ R3-4 |
+| **v1.0** | カラーミーショップ（インポート＋エクスポート） | Phase 0〜3 | Phase 1 完了（F1-8 実店舗2件でのインポート実データE2E完了、持ち越し事項あり。F1-6 完了時点を `v0.1.0` として GitHub Release で実サイト検証中）。Phase 2 完了: E2-1〜E2-4 完了（`push_product`/`push_customer`/`push_order`/`push_stock`、#43〜#45・#47、Export タブ実行フロー）。Phase 3: R3-0a〜R3-0p 完了、R3-1（全件 E2E リハーサル）実施済み。リハーサルで見つかった修正 R3-1a〜R3-1e（#98〜#102・#78）は完了（PR #104〜#107）で、テストショップでの再リハーサル（まとめて 1 回）も 2026-10-08 に済ませた。R3-2（i18n・日本語訳の同梱、PR #109）・R3-3（readme・スクリーンショット・説明文の v1.0 化）完了。R3-7（モノレポ化。D29）完了。R3-6（無料版と Pro の境目の切り替え。D27）は a〜d の 4 PR に分け、R3-6a（上限・サンプル・クリーンアップ・県コード修復の削除）・R3-6b（実体の種類の拡張点。b1 backend・b2 画面）・R3-6c（顧客・受注・クーポンを Pro へ。c1 移動・c2 OAuth スコープの分割）・R3-6d（readme・スクリーンショット・i18n の書き直し）完了。R3-5a（アンインストール時のデータ削除の設定 UI）・R3-8a（Pro のライセンスのクライアントと設定画面）完了。残りは Pro の公開準備（v1.0 と同時に出す。R3-8b〜d と販売サイト。D30〔2026-10-11〕で試用をやめ、キーを有効化していない Pro は dry-run だけにした）→ R3-9（停止・致命的エラーで孤立したジョブの回復。issue #121）→ R3-5b（セキュリティ最終監査）→ R3-4 |
 | **v2.0** | + BASE（インポート＋エクスポート※）＋ OAuth中継サーバー（案B「かんたん接続」）の採否判断（B4-7）＋ 期間で絞る取込み（D31。B4-8） | Phase 4〜5 | 未着手（v1.0 公開後） |
 | **v3.0** | + MakeShop（インポート＋エクスポート） | Phase 6〜7 | 未着手（v2.0 公開後） |
 | Pro版アドオン | 顧客・受注・クーポンの移行（~~ライセンスが無い間は試用で各 100 件まで、ライセンスで無制限~~ → D30: キーを有効化していない Pro は dry-run だけ、取込み・エクスポートはキーを有効化したサイトで。購入前は販売サイトの 0 円の注文で配る）・パスワード設定メール・301 リダイレクト CSV（D27・D28。~~無料版上限の解除~~） | — | ~~別リポジトリ~~ → このリポジトリの `plugins/cart-bridge-jp-pro/`（D29。R3-7 で作る）。v1.0 と同時に公開（2026-10-09 決定） |
@@ -837,7 +837,13 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 - [ ] **R3-8: Pro の公開準備**（R3-6 の後。v1.0 と同時に出す。範囲は顧客・受注・クーポンの移行・~~試用〔各 100 件。決め残し 4〕~~・ライセンス〔WooCommerce API Manager〕と更新配信・Pro の翻訳・`Update URI`・販売サイト。
   **D30（2026-10-11）**: 件数の試用をやめ、キーを有効化していない Pro は dry-run だけにした。購入前は販売サイトの 0 円の注文で Pro を配る。期間で絞る取込み（D31）は v2.0（B4-8）。パスワード設定メール〔D28〕と 301 リダイレクト CSV〔D17〕は公開の後。
   設計は `docs/03` §10.7。実施順は a → b → c → d を想定（b は a のキーの状態を使う。d は a〜c で足す文字列もまとめて訳す）。販売サイトはリポジトリの外で並行して用意する）
-  - [ ] **R3-8a: ライセンスのクライアントと Pro の設定画面**（WooCommerce API Manager の有効化・無効化・状態確認、キーと有効化の状態の保存〔暗号化の要否は計画で決める〕、設定画面は PHP で描く〔Pro は JS を持たない〕。API Manager の API は販売サイトで実測してから実装する）
+  - [x] **R3-8a: ライセンスのクライアントと Pro の設定画面**（WooCommerce API Manager の有効化・無効化・状態確認、キーと有効化の状態の保存〔暗号化の要否は計画で決める〕、設定画面は PHP で描く〔Pro は JS を持たない〕。API Manager の API は販売サイトで実測してから実装する）
+    **実装サマリ（2026-10-11。ブランチ `feat/r3-8a-license-client`）**: 販売サイトがまだ無いので、手元の API Manager 3.6.0 を dev サイトに一時的に入れて実測した（ユーザー決定。応答は Pro の `tests/fixtures/api-manager/`。本番の販売サイトでの再確認は R3-8c）。
+    分かったこと: エラーでも HTTP 200（`success:false`）、POST の本文で受け付ける、**期限後の最初の状態確認でサーバーがそのサイトの有効化を消し、以後の無効化は必ず失敗する**、猶予期間（既定 14 日）の間は新しい有効化が通る。
+    Pro に `License\LicenseConfig`（定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID`。販売サイトが決まるまで空で、`LicenseConfigTest` が 1.0.0 以上で止める）・`LicenseClient`（本文で送る・転送しない・フェイルクローズ）・
+    `LicenseStore`（**キーは暗号化・有効化の状態は平文**〔ユーザー決定〕・instance は無効化しても残す・autoload なし）・`LicenseManager`（**有効化の状態はローカルの記録だけで決める**: 状態確認では変えない、無効化はサーバーの成功が要る、
+    有効化済みでも同じ instance で別のキーを有効化できる〔キーの交換。期限後に古いキーを外せない人のため。ユーザー決定〕、未有効化での有効化の失敗は状態確認で突き合わせる〔review-loop R1-1〕、復号できないキーの入れ直し）と `Admin\LicensePage`（WooCommerce メニューの下。PHP。`admin-post.php`・権限と nonce・通知は transient）。無料版は変えない。
+    テスト（Pro に 157 件）とガードの変異の確認、dev サイトでの画面からの E2E（期限切れ・猶予期間中のキーの交換を含む）の後、API Manager と作ったデータを dev サイトから消した。詳細は `docs/03` §10.7「R3-8a の実装」
   - [ ] **R3-8b: キーが無い間は dry-run だけ**（無料版に「拡張が自分の種類を dry-run だけにできる」汎用の口〔REST の宣言・実行の作成での拒否・画面の表示〕を足し、Pro は R3-8a のキーの状態で判定する。取込み・エクスポートの両方。
     Pro が無いとき無料版の画面に何も出ないこと・無料版自身の機能を灰色にしないこと・REST で迂回できないことをテストで固定する〔`docs/03` §10.7「守ること」〕。`CBJP_EXTENSION_API_VERSION` と `CBJP_PRO_REQUIRED_EXTENSION_API` を上げ、`docs/03` §10.0「Pro が使ってよい無料版の API」を直す。
     無料版の `JobManagerTest` の docblock「Pro は試用の上限を意図して持つ」も直す）
@@ -845,6 +851,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     Pro 用のタグ〔例 `pro-v1.0.0`。`v*.*.*` は無料版〕で CI が zip を作って GitHub Release に添付する）
   - [ ] **R3-8d: Pro の i18n**（`load_plugin_textdomain()`・`languages/`・POT・日本語訳。無料版から外れた約 150 件と R3-8a〜c で足す文字列。backlog `r3-7-monorepo/G1-1`・`r3-6c1-move-commerce-to-pro/R1-L4`。wordpress.org の言語パックの対象外なので同梱する）
   - [ ] **販売サイト**（リポジトリの外）: WooCommerce＋API Manager、有効期限の起点を初回アクティベーションにするカスタマイズ（D14）、適格請求書、Pro の 0 円の商品（D30）、API Manager の製品と 0 円の商品に同じ zip を置けるかの確認。
+    **R3-8a からの申し送り**: 製品は「無制限の有効化」にする（D14 のサイト数無制限）。API Manager の**猶予期間**（既定 14 日）の間は期限後でも新しいサイトを有効化できるので、D14 の「新しいサイトでの有効化は期限内だけ」を厳密にするなら 0 にする。
+    販売サイトの URL と製品 ID が決まったら Pro の定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID` に入れ、R3-8a の実測（`docs/03` §10.7「R3-8a の実装」）を本番の販売サイトでやり直す（R3-8c）。
     **URL が決まったら、無料版の readme の FAQ「Can it migrate customers, orders, and coupons?」に足す**（R3-4 で行う。R3-6d。`ReadmeTest` が 1.0.0 以上で URL の無い案内を止める）
 - [x] **R3-7: モノレポ化（D29）**（**R3-6 の前**に行う。動作を変えない、構成だけの PR）: 無料版を `plugins/cart-bridge-jp/` へ `git mv` で移し、開発ツール（composer・npm・phpcs・phpstan・phpunit・wp-env・CI・`bin/`）をルートに置く。中身の無い Pro アドオン `plugins/cart-bridge-jp-pro/`（プラグインヘッダー、無料版・WooCommerce が無いときに通知を出して止まる処理、テストの置き場）を作る。
   直すもの: `.wp-env.json`（両方のプラグインを読み込む。ポートは 10010/10011 のまま）、`.github/workflows/`、`composer.json`（無料版は `vendor/autoload.php` を同梱して読み込むので、プラグインごとの composer と開発ツールの置き場所を決める）、`phpcs.xml.dist`・`phpstan.neon.dist`・`phpunit.xml.dist`、`package.json`（ビルド・i18n・Jest）、`.distignore`、スキルのスクリプトと SKILL.md（`rehearse-colorme`・`verify-with-mock-adapter`・`wporg-screenshots`・`cbj-dev-cycle` ほか）、`.claude/rules/` の対象パス、`CLAUDE.md`・`AGENTS.md` のコマンドとパス、パスを持つテスト（`ReadmeTest` など）、`docs/00` のディレクトリ構成。
