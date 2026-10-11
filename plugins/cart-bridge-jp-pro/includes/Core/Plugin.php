@@ -11,11 +11,13 @@ namespace CartBridgeJP\Pro\Core;
 
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
+use CartBridgeJP\Pro\Admin\LicensePage;
 use CartBridgeJP\Pro\Entities\CommerceEntityTypes;
 
 /**
  * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類を無料版の拡張点（`cbjp/entity_types/register`）に
  * 登録し（R3-6c1 で無料版から移した。D27）、それらに要る OAuth のスコープを無料版の認可の要求に足す（R3-6c2）。
+ * ライセンスキーの設定画面を WooCommerce メニューの下に置く（R3-8a）。
  */
 final class Plugin {
 
@@ -50,6 +52,9 @@ final class Plugin {
 		// 無料版は商品のスコープだけを要求する。顧客・受注・クーポンのスコープは Pro が無料版の認可に宣言する（R3-6c2。`docs/03` §10.0 決め残し 9。
 		// フィルターでなく宣言にするのは、別の拡張の例外・置き換えで失われず、認可の要求と Pro の判定がずれないため。PR #118 G1-3・G3-B1）。
 		CommerceAdapters::declare_oauth_scopes();
+
+		// ライセンスキーの設定画面（R3-8a）。
+		LicensePage::create()->register();
 	}
 
 	public function is_booted(): bool {

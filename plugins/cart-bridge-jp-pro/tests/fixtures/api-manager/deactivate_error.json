@@ -1,0 +1,10 @@
+{
+	"code": "100",
+	"error": "The license key could not be deactivated.",
+	"success": false,
+	"data": {
+		"error_code": "100",
+		"error": "The license key could not be deactivated."
+	},
+	"api_call_execution_time": "0.008652 seconds"
+}

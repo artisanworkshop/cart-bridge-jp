@@ -1,0 +1,390 @@
+<?php
+/**
+ * @package CartBridgeJP\Pro
+ */
+
+declare( strict_types=1 );
+
+namespace CartBridgeJP\Pro\Admin;
+
+use CartBridgeJP\Pro\License\LicenseManager;
+use CartBridgeJP\Pro\License\LicenseResult;
+
+/**
+ * Pro の設定画面（ライセンスキーの有効化・無効化・状態確認。R3-8a）。WooCommerce メニューの下に置く。
+ *
+ * Pro は JS を持たないので PHP で描く（`docs/03` §10.0「決め残し」2・§10.7「守ること」5）。操作は `admin-post.php` へのフォームで、
+ * 権限（`manage_woocommerce`）と nonce を確かめてから行い、結果の文はユーザーごとの短い transient で画面へ渡す（サーバーの文を URL に載せない）。
+ */
+final class LicensePage {
+
+	public const PAGE_SLUG  = 'cart-bridge-jp-pro';
+	public const CAPABILITY = 'manage_woocommerce';
+
+	public const ACTION_ACTIVATE   = 'cbjp_pro_license_activate';
+	public const ACTION_DEACTIVATE = 'cbjp_pro_license_deactivate';
+	public const ACTION_CHECK      = 'cbjp_pro_license_check';
+	public const ACTION_SAVE_KEY   = 'cbjp_pro_license_save_key';
+
+	public const KEY_FIELD = 'cbjp_pro_license_key';
+
+	private const NOTICE_TRANSIENT_PREFIX = 'cbjp_pro_license_notice_';
+	private const NOTICE_TTL              = 300;
+
+	public function __construct( private readonly LicenseManager $manager ) {}
+
+	public static function create(): self {
+		return new self( LicenseManager::create() );
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	public static function actions(): array {
+		return [ self::ACTION_ACTIVATE, self::ACTION_DEACTIVATE, self::ACTION_CHECK, self::ACTION_SAVE_KEY ];
+	}
+
+	public static function page_url(): string {
+		return admin_url( 'admin.php?page=' . self::PAGE_SLUG );
+	}
+
+	public function register(): void {
+		add_action( 'admin_menu', [ $this, 'add_menu' ] );
+
+		foreach ( self::actions() as $action ) {
+			add_action( 'admin_post_' . $action, [ $this, 'handle_request' ] );
+		}
+
+		add_filter( 'plugin_action_links_' . plugin_basename( CBJP_PRO_FILE ), [ $this, 'add_action_link' ] );
+	}
+
+	public function add_menu(): void {
+		add_submenu_page(
+			'woocommerce',
+			__( 'Cart Bridge JP Pro', 'cart-bridge-jp-pro' ),
+			__( 'Cart Bridge JP Pro', 'cart-bridge-jp-pro' ),
+			self::CAPABILITY,
+			self::PAGE_SLUG,
+			[ $this, 'render_page' ]
+		);
+	}
+
+	/**
+	 * プラグイン一覧の行に設定画面へのリンクを足す。
+	 *
+	 * @param array<int|string,string> $links
+	 * @return array<int|string,string>
+	 */
+	public function add_action_link( array $links ): array {
+		array_unshift(
+			$links,
+			sprintf( '<a href="%1$s">%2$s</a>', esc_url( self::page_url() ), esc_html__( 'License', 'cart-bridge-jp-pro' ) )
+		);
+
+		return $links;
+	}
+
+	/**
+	 * `admin-post.php` の入口。処理して設定画面へ戻す。
+	 */
+	public function handle_request(): void {
+		$this->process( (string) preg_replace( '/^admin_post_/', '', (string) current_action() ) );
+
+		wp_safe_redirect( self::page_url() );
+		exit;
+	}
+
+	/**
+	 * 権限と nonce を確かめてから操作し、結果の文を記録する（確かめられなければ `wp_die()`）。
+	 */
+	public function process( string $action ): LicenseResult {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'Sorry, you are not allowed to manage the Cart Bridge JP Pro license.', 'cart-bridge-jp-pro' ), '', [ 'response' => 403 ] );
+		}
+
+		if ( ! in_array( $action, self::actions(), true ) ) {
+			wp_die( esc_html__( 'Unknown license action.', 'cart-bridge-jp-pro' ), '', [ 'response' => 400 ] );
+		}
+
+		check_admin_referer( $action );
+
+		// 有効化済みのサイトでのキーの交換かどうか（サーバーに断られたときの案内に使う）。操作の前に読む。
+		$was_activated = $this->manager->is_activated();
+
+		$result = match ( $action ) {
+			self::ACTION_ACTIVATE   => $this->manager->activate( $this->posted_key() ),
+			self::ACTION_DEACTIVATE => $this->manager->deactivate(),
+			self::ACTION_CHECK      => $this->manager->check_status(),
+			default                 => $this->manager->replace_unreadable_key( $this->posted_key() ),
+		};
+
+		$this->set_notice(
+			$result->is_success() ? 'success' : 'error',
+			$result->is_success() ? self::success_message( $action ) : self::failure_message( $action, $result, $was_activated )
+		);
+
+		return $result;
+	}
+
+	public function render_page(): void {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			return;
+		}
+
+		$store      = $this->manager->store();
+		$activated  = $store->is_activated();
+		$configured = $this->manager->is_configured();
+		$unreadable = $activated && $store->key_unreadable();
+
+		echo '<div class="wrap">';
+		printf( '<h1>%s</h1>', esc_html__( 'Cart Bridge JP Pro', 'cart-bridge-jp-pro' ) );
+
+		$this->render_notice();
+
+		printf( '<p>%s</p>', esc_html__( 'Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site.', 'cart-bridge-jp-pro' ) );
+
+		if ( ! $configured ) {
+			printf(
+				'<div class="notice notice-warning inline"><p>%s</p></div>',
+				esc_html__( 'The license server is not configured in this build of Cart Bridge JP Pro.', 'cart-bridge-jp-pro' )
+			);
+		}
+
+		echo '<table class="form-table" role="presentation"><tbody>';
+		$this->render_row( __( 'Status', 'cart-bridge-jp-pro' ), $this->status_text() );
+
+		if ( $activated ) {
+			$this->render_row(
+				__( 'License key', 'cart-bridge-jp-pro' ),
+				$unreadable
+					? __( 'The saved license key cannot be read, for example because the security keys of this site have changed.', 'cart-bridge-jp-pro' )
+					/* translators: %s: the last four characters of the license key. */
+					: sprintf( __( 'Ending in %s', 'cart-bridge-jp-pro' ), $store->key_suffix() )
+			);
+		}
+
+		$check = $store->last_check();
+
+		if ( null !== $check ) {
+			$this->render_row( __( 'Last status check', 'cart-bridge-jp-pro' ), $this->check_text( $check ) );
+		}
+
+		echo '</tbody></table>';
+
+		if ( $activated && null !== $check && ! $check['activated'] ) {
+			printf(
+				'<p class="description">%s</p>',
+				esc_html__( 'After the update period ends, the license server no longer lists this site. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' )
+			);
+		}
+
+		if ( ! $configured ) {
+			echo '</div>';
+			return;
+		}
+
+		if ( ! $activated ) {
+			$this->render_key_form(
+				self::ACTION_ACTIVATE,
+				__( 'Activate license', 'cart-bridge-jp-pro' ),
+				'',
+				__( 'Activate', 'cart-bridge-jp-pro' )
+			);
+		} elseif ( $unreadable ) {
+			$this->render_key_form(
+				self::ACTION_SAVE_KEY,
+				__( 'Enter the license key again', 'cart-bridge-jp-pro' ),
+				__( 'This saves the license key on this site without contacting the license server.', 'cart-bridge-jp-pro' ),
+				__( 'Save license key', 'cart-bridge-jp-pro' )
+			);
+		} else {
+			$this->render_button_form(
+				self::ACTION_CHECK,
+				__( 'Check status', 'cart-bridge-jp-pro' ),
+				__( 'Ask the license server about this license.', 'cart-bridge-jp-pro' ),
+				__( 'Check status', 'cart-bridge-jp-pro' )
+			);
+			$this->render_button_form(
+				self::ACTION_DEACTIVATE,
+				__( 'Deactivate license', 'cart-bridge-jp-pro' ),
+				__( 'This removes the license from this site. After the update period ends, a license cannot be activated again.', 'cart-bridge-jp-pro' ),
+				__( 'Deactivate', 'cart-bridge-jp-pro' )
+			);
+			$this->render_key_form(
+				self::ACTION_ACTIVATE,
+				__( 'Use a different license key', 'cart-bridge-jp-pro' ),
+				__( 'For example, after buying a new license. If the license server still lists this site under the current key, deactivate it first.', 'cart-bridge-jp-pro' ),
+				__( 'Activate this key', 'cart-bridge-jp-pro' )
+			);
+		}
+
+		echo '</div>';
+	}
+
+	private function status_text(): string {
+		$activated_at = $this->manager->store()->activated_at();
+
+		if ( ! $this->manager->is_activated() ) {
+			return __( 'Not activated', 'cart-bridge-jp-pro' );
+		}
+
+		if ( null === $activated_at ) {
+			return __( 'Activated', 'cart-bridge-jp-pro' );
+		}
+
+		/* translators: %s: the date and time the license was activated. */
+		return sprintf( __( 'Activated on %s', 'cart-bridge-jp-pro' ), self::format_time( $activated_at ) );
+	}
+
+	/**
+	 * @param array{checked_at:int,activated:bool,expires:?string} $check
+	 */
+	private function check_text( array $check ): string {
+		/* translators: %s: the date and time of the status check. */
+		$text = sprintf( __( 'Checked on %s.', 'cart-bridge-jp-pro' ), self::format_time( $check['checked_at'] ) ) . ' ' . (
+			$check['activated']
+				? __( 'The license server lists this site as activated.', 'cart-bridge-jp-pro' )
+				: __( 'The license server does not list this site as activated.', 'cart-bridge-jp-pro' )
+		);
+
+		if ( null !== $check['expires'] ) {
+			/* translators: %s: the end of the update period as reported by the license server (for example, a date or "Expired"). */
+			$text .= ' ' . sprintf( __( 'Update period: %s', 'cart-bridge-jp-pro' ), $check['expires'] );
+		}
+
+		return $text;
+	}
+
+	private function render_row( string $label, string $value ): void {
+		printf( '<tr><th scope="row">%1$s</th><td>%2$s</td></tr>', esc_html( $label ), esc_html( $value ) );
+	}
+
+	private function render_key_form( string $action, string $heading, string $description, string $button ): void {
+		$field_id = $action . '_key';
+
+		printf( '<h2>%s</h2>', esc_html( $heading ) );
+
+		if ( '' !== $description ) {
+			printf( '<p>%s</p>', esc_html( $description ) );
+		}
+
+		printf( '<form method="post" action="%s">', esc_url( admin_url( 'admin-post.php' ) ) );
+		printf( '<input type="hidden" name="action" value="%s" />', esc_attr( $action ) );
+		wp_nonce_field( $action );
+		printf(
+			'<p><label for="%1$s">%2$s</label><br /><input type="text" id="%1$s" name="%3$s" class="regular-text" autocomplete="off" spellcheck="false" required /></p>',
+			esc_attr( $field_id ),
+			esc_html__( 'License key', 'cart-bridge-jp-pro' ),
+			esc_attr( self::KEY_FIELD )
+		);
+		submit_button( $button, 'primary', 'submit', true, [ 'id' => $action . '_submit' ] );
+		echo '</form>';
+	}
+
+	private function render_button_form( string $action, string $heading, string $description, string $button ): void {
+		printf( '<h2>%s</h2>', esc_html( $heading ) );
+		printf( '<p>%s</p>', esc_html( $description ) );
+		printf( '<form method="post" action="%s">', esc_url( admin_url( 'admin-post.php' ) ) );
+		printf( '<input type="hidden" name="action" value="%s" />', esc_attr( $action ) );
+		wp_nonce_field( $action );
+		submit_button( $button, 'secondary', 'submit', true, [ 'id' => $action . '_submit' ] );
+		echo '</form>';
+	}
+
+	private function render_notice(): void {
+		$key    = self::NOTICE_TRANSIENT_PREFIX . get_current_user_id();
+		$notice = get_transient( $key );
+
+		if ( false === $notice ) {
+			return;
+		}
+
+		delete_transient( $key );
+
+		if ( ! is_array( $notice ) || ! in_array( $notice['type'] ?? null, [ 'success', 'error' ], true ) || ! is_string( $notice['message'] ?? null ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-%1$s"><p>%2$s</p></div>',
+			esc_attr( $notice['type'] ),
+			esc_html( $notice['message'] )
+		);
+	}
+
+	private function set_notice( string $type, string $message ): void {
+		set_transient(
+			self::NOTICE_TRANSIENT_PREFIX . get_current_user_id(),
+			[
+				'type'    => $type,
+				'message' => $message,
+			],
+			self::NOTICE_TTL
+		);
+	}
+
+	/**
+	 * フォームのキー（`process()` が `check_admin_referer()` で nonce を確かめてから呼ぶ）。
+	 */
+	private function posted_key(): ?string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- process() が check_admin_referer() で確かめてから呼ぶ。
+		$raw = $_POST[ self::KEY_FIELD ] ?? null;
+
+		return is_string( $raw ) ? sanitize_text_field( wp_unslash( $raw ) ) : null;
+	}
+
+	private static function success_message( string $action ): string {
+		return match ( $action ) {
+			self::ACTION_ACTIVATE   => __( 'The license key was activated on this site.', 'cart-bridge-jp-pro' ),
+			self::ACTION_DEACTIVATE => __( 'The license key was deactivated on this site.', 'cart-bridge-jp-pro' ),
+			self::ACTION_CHECK      => __( 'The license status was checked.', 'cart-bridge-jp-pro' ),
+			default                 => __( 'The license key was saved.', 'cart-bridge-jp-pro' ),
+		};
+	}
+
+	private static function failure_message( string $action, LicenseResult $result, bool $was_activated ): string {
+		$lead = match ( $action ) {
+			self::ACTION_ACTIVATE   => __( 'The license key could not be activated.', 'cart-bridge-jp-pro' ),
+			self::ACTION_DEACTIVATE => __( 'The license key could not be deactivated.', 'cart-bridge-jp-pro' ),
+			self::ACTION_CHECK      => __( 'The license status could not be checked.', 'cart-bridge-jp-pro' ),
+			default                 => __( 'The license key could not be saved.', 'cart-bridge-jp-pro' ),
+		};
+
+		$reason = match ( $result->code ) {
+			LicenseResult::INVALID_KEY      => __( 'Enter a valid license key.', 'cart-bridge-jp-pro' ),
+			LicenseResult::NOT_CONFIGURED   => __( 'The license server is not configured in this build of Cart Bridge JP Pro.', 'cart-bridge-jp-pro' ),
+			LicenseResult::NOT_ALLOWED      => __( 'This action is not available for the current license.', 'cart-bridge-jp-pro' ),
+			LicenseResult::INVALID_RESPONSE => __( 'The response from the license server could not be understood.', 'cart-bridge-jp-pro' ),
+			LicenseResult::HTTP_ERROR       => '' === $result->message
+				? __( 'Could not connect to the license server.', 'cart-bridge-jp-pro' )
+				/* translators: %s: the error message from the connection. */
+				: sprintf( __( 'Could not connect to the license server: %s', 'cart-bridge-jp-pro' ), $result->message ),
+			default                         => '' === $result->message
+				? __( 'The license server returned an error.', 'cart-bridge-jp-pro' )
+				/* translators: %s: the error message from the license server. */
+				: sprintf( __( 'The license server returned an error: %s', 'cart-bridge-jp-pro' ), $result->message ),
+		};
+
+		$message = $lead . ' ' . $reason;
+
+		if ( self::ACTION_ACTIVATE === $action && $was_activated && LicenseResult::SERVER_ERROR === $result->code ) {
+			$message .= ' ' . __( 'If the license server still lists this site under the current key, deactivate it first.', 'cart-bridge-jp-pro' );
+		}
+
+		// 期限後はサーバーがこのサイトの有効化を消しているので、無効化を断る（実測）。ローカルの有効化は残る。
+		if ( self::ACTION_DEACTIVATE === $action && LicenseResult::SERVER_ERROR === $result->code ) {
+			$message .= ' ' . __( 'After the update period ends, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site.', 'cart-bridge-jp-pro' );
+		}
+
+		return $message;
+	}
+
+	private static function format_time( int $timestamp ): string {
+		$date   = get_option( 'date_format' );
+		$time   = get_option( 'time_format' );
+		$format = trim( ( is_string( $date ) ? $date : '' ) . ' ' . ( is_string( $time ) ? $time : '' ) );
+		$text   = wp_date( '' === $format ? 'Y-m-d H:i' : $format, $timestamp );
+
+		return is_string( $text ) ? $text : '';
+	}
+}

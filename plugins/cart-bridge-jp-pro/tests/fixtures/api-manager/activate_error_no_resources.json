@@ -1,0 +1,10 @@
+{
+	"code": "100",
+	"error": "No licensing resources exist. Login to <a href=\"https://example.com/my-account/api-keys/\" target=\"blank\">My Account</a> to verify there are activations remaining, and the license key and product ID are correct.",
+	"success": false,
+	"data": {
+		"error_code": "100",
+		"error": "No licensing resources exist. Login to <a href=\"https://example.com/my-account/api-keys/\" target=\"blank\">My Account</a> to verify there are activations remaining, and the license key and product ID are correct."
+	},
+	"api_call_execution_time": "0.003309 seconds"
+}

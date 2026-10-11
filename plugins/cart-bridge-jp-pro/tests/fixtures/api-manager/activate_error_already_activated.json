@@ -1,0 +1,10 @@
+{
+	"code": "100",
+	"error": "Cannot activate license key. The license key has already been activated with the same unique instance ID sent with this request.",
+	"success": false,
+	"data": {
+		"error_code": "100",
+		"error": "Cannot activate license key. The license key has already been activated with the same unique instance ID sent with this request."
+	},
+	"api_call_execution_time": "0.008966 seconds"
+}

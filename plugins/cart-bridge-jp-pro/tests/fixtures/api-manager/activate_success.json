@@ -1,0 +1,12 @@
+{
+	"message": "99999 out of 100000 activations remaining",
+	"activated": true,
+	"success": true,
+	"data": {
+		"unlimited_activations": true,
+		"total_activations_purchased": 100000,
+		"total_activations": 1,
+		"activations_remaining": 99999
+	},
+	"api_call_execution_time": "0.015709 seconds"
+}
