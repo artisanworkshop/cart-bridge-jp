@@ -114,6 +114,37 @@ final class UninstallerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `update_option()` は値が同じなら autoload を変えずに戻る。WP-CLI などで autoload ありに作られた行も、同じ値の保存で
+	 * autoload なしへ揃える（G1-1）。
+	 *
+	 * @dataProvider provide_stored_values
+	 */
+	public function test_set_delete_data_turns_off_autoload_even_when_the_value_is_unchanged( bool $enabled, string $stored ): void {
+		global $wpdb;
+
+		add_option( Uninstaller::DELETE_DATA_OPTION, $stored, '', true );
+
+		Uninstaller::set_delete_data( $enabled );
+
+		$autoload = $wpdb->get_var(
+			$wpdb->prepare( "SELECT autoload FROM {$wpdb->options} WHERE option_name = %s", Uninstaller::DELETE_DATA_OPTION )
+		);
+
+		$this->assertSame( $stored, get_option( Uninstaller::DELETE_DATA_OPTION ) );
+		$this->assertContains( $autoload, [ 'no', 'off' ] );
+	}
+
+	/**
+	 * @return array<string,array{0:bool,1:string}>
+	 */
+	public static function provide_stored_values(): array {
+		return [
+			'yes kept' => [ true, 'yes' ],
+			'no kept'  => [ false, 'no' ],
+		];
+	}
+
+	/**
 	 * データを消すときは、未実行のジョブ・ログ整理のアクションも取り消す（プラグインが消えた後に期限が来て、コールバックの無いまま
 	 * 失敗として積まれないように）。消さないときは取り消さない（アンインストールでは何も変えない）。
 	 */

@@ -668,7 +668,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:
-  - **設定**: Tools タブの「Delete this plugin’s data when it is uninstalled」（`GET/PUT /settings/uninstall`、§6）。値は `'yes'`/`'no'` で autoload なし。読むときは `'yes'` だけを「消す」とみなす（フェイルクローズ。
+  - **設定**: Tools タブの「Delete this plugin’s data when it is uninstalled」（`GET/PUT /settings/uninstall`、§6）。値は `'yes'`/`'no'` で autoload なし（`update_option()` は値が同じなら autoload を変えずに戻るので、保存のたびに `wp_set_option_autoload()` で揃える。PR #120 G1-1）。読むときは `'yes'` だけを「消す」とみなす（フェイルクローズ。
     `update_option( true )` は DB に `'1'` で入り別のリクエストでは文字列が返るので真偽値では比べられず、truthy の判定は壊れた値まで削除に倒す。v0.1.0 には UI も readme の記載も無く、WP-CLI で `1` を入れていたサイトは削除されない＝安全側）
   - **変更の権限**: PUT は `manage_woocommerce` に加えて `delete_plugins`（2026-10-11 ユーザー決定）。プラグインを削除できない shop_manager が先にオンにしておくと、後で管理者がアンインストールしたときに管理者の知らないうちにデータが消えるため。
     `delete_plugins` はマルチサイトではスーパー管理者だけ、`DISALLOW_FILE_MODS` のサイトでは誰も持たない（`map_meta_cap()`）ので、そのサイトでは画面から変えられない（管理画面からのプラグインの削除自体もできない。WP-CLI なら `wp option update cbjp_delete_data_on_uninstall yes`）。画面は `can_change` が false ならチェックボックスを止めて理由を添える

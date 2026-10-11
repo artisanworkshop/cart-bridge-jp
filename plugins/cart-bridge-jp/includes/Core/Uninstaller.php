@@ -46,8 +46,13 @@ final class Uninstaller {
 		return self::ENABLED === get_option( self::DELETE_DATA_OPTION, self::DISABLED );
 	}
 
+	/**
+	 * アンインストールと設定画面でしか読まないので autoload しない。`update_option()` は値が同じなら autoload を変えずに
+	 * 戻るので、WP-CLI などで autoload ありに作られた行も、保存のたびに autoload なしへ揃える。
+	 */
 	public static function set_delete_data( bool $enabled ): void {
 		update_option( self::DELETE_DATA_OPTION, $enabled ? self::ENABLED : self::DISABLED, false );
+		wp_set_option_autoload( self::DELETE_DATA_OPTION, false );
 	}
 
 	/**
