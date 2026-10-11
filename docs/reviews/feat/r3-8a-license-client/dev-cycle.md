@@ -3,7 +3,7 @@
 - 開始: 2026-10-11
 - 引数: `auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
 - PR: #123 https://github.com/artisanworkshop/cart-bridge-jp/pull/123
-- 現在のステップ: 7〜8（G3 の修正の CI 待ち → 最終報告）
+- 現在のステップ: 8（完了。最終報告済み・マージ待ち）
 - Copilot: 依頼 3 回 / 上限（G3 でも新規 1 件。修正済み）
 - Codex: 依頼 1 回 / 収束（G1 で「Didn't find any major issues」）
 
@@ -21,3 +21,5 @@
 | 2026-10-11 17:13 | 7 | G2: Copilot 🔵・新規スレッド 0・本文の Previously missed 1 件（G2-B1: instance を読み直せないとき保存していない値を送る）を修正（a885523。読み直せなければ `STORAGE_ERROR`。変異 2 種 CAUGHT）。auto-commit。`quality.sh` green（Pro 731） |
 | 2026-10-11 17:18 | 7 | G2 の記録を push（3990990。T=2026-10-11T08:13:31Z）→ サマリ投稿 → CI green の後に Copilot だけへ依頼（3 回目） |
 | 2026-10-11 17:28 | 7 | G3: Copilot 🔵・新規スレッド 0・本文の Previously missed 1 件（G3-B1: 書込みの失敗を確かめず、キーの無い有効化で行き詰まる）を修正（0766775。読み直し・書く順序・`STORAGE_ERROR`・キーの入れ直し。変異 7 種 CAUGHT）。auto-commit。`quality.sh` green（Pro 741）。4 回目は依頼しない |
+| 2026-10-11 17:28 | 7 | G3 の記録を push（0e759d9。T=2026-10-11T08:28:50Z）→ サマリ投稿 → CI 全ジョブ green |
+| 2026-10-11 17:44 | 8 | G3 の後の独立確認（opus。G2・G3 の修正）: 新規 Critical/High 0・Low 3 → 修正（c619a93: `NOT_RECORDED` と操作ごとの案内・無効化の確認を `'no'` の肯定に・テスト。変異 5 種 CAUGHT）。`quality.sh` green（Pro 746）。最終報告（final-report.md）。マージせず停止 |
