@@ -37,8 +37,11 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # 無料版（plugins/cart-bridge-jp）の zip。ビルド・composer install --no-dev・.distignore・中身の検査は CI の Distribution ジョブと同じスクリプト（D29・R3-7）。
+      # タグ由来の値は `${{ }}` で run に埋め込まず、環境変数で渡す（ref 名に `$(...)` を含むタグでシェルにコマンドが入らないように。R3-8c の review-loop R1-7）。
       - name: Build and check the plugin zip
-        run: bin/build-zip.sh --version "${{ steps.version.outputs.VERSION }}" --out .
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: bin/build-zip.sh --version "$VERSION" --out .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

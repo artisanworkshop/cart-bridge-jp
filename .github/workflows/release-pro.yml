@@ -32,8 +32,11 @@ jobs:
 
       # composer install --no-dev・.distignore・中身の検査は CI の Distribution ジョブと同じスクリプト。タグの版がプラグインヘッダーの Version と
       # 違えば止まる（backlog r3-7-monorepo/R1-L2）。
+      # タグ由来の値は `${{ }}` で run に埋め込まず、環境変数で渡す（ref 名に `$(...)` を含むタグでシェルにコマンドが入らないように。R3-8c の review-loop R1-7）。
       - name: Build and check the Pro add-on zip
-        run: bin/build-zip.sh --plugin cart-bridge-jp-pro --version "${{ steps.version.outputs.VERSION }}" --out .
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: bin/build-zip.sh --plugin cart-bridge-jp-pro --version "$VERSION" --out .
 
       # 「Latest」は無料版のリリースのまま（make_latest: false）。自動のリリースノートは直前のタグ（無料版のタグのこともある）からの変更を
       # 並べるので使わない。

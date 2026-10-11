@@ -148,10 +148,12 @@ if [ "$SLUG" = cart-bridge-jp ]; then
 		[ "$rc" = 1 ] || problem "could not search the plugin files for Pro identifiers (grep exit ${rc})"
 	fi
 else
-	# 無料版の名前空間を宣言する PHP（無料版のコードを Pro に同梱しない）。CartBridgeJP の名前空間の宣言を拾い、CartBridgeJP\Pro（とその下）でないものを数える。
-	# grep の終了コード: 0 = 見つかった、1 = 無い、2 = 読めない（読めないことを「無い」と読まない）。
-	if ns_hits=$(grep -rnE --include='*.php' '^[[:space:]]*namespace[[:space:]]+CartBridgeJP([^A-Za-z0-9_]|$)' "$FINAL"); then
-		if free_hits=$(printf '%s\n' "$ns_hits" | grep -vE ':[[:space:]]*namespace[[:space:]]+CartBridgeJP\\Pro([\\;{[:space:]]|$)'); then
+	# 無料版の名前空間を宣言する PHP（無料版のコードを Pro に同梱しない）。宣言を 1 つずつ拾い（-o。同じ行の 2 つ目・<?php の後ろも拾う）、
+	# CartBridgeJP\Pro（とその下）でないものを数える。PHP の名前空間は大文字小文字を区別しないので -i で比べる（R3-8c の review-loop R1-5）。
+	# grep の終了コード: 0 = 見つかった、1 = 無い、2 = 読めない（読めないことを「無い」と読まない）。Pro は必ず CartBridgeJP\Pro を宣言するので、
+	# 宣言が 1 つも無いのは検査が壊れた兆候として止める。
+	if ns_hits=$(grep -rnoiE --include='*.php' 'namespace[[:space:]]+cartbridgejp[a-z0-9_\\]*' "$FINAL"); then
+		if free_hits=$(printf '%s\n' "$ns_hits" | grep -viE ':namespace[[:space:]]+cartbridgejp\\pro(\\[a-z0-9_\\]*)?$'); then
 			problem "free plugin namespaces declared in: $(printf '%s\n' "$free_hits" | cut -d: -f1 | sed "s#${FINAL}/##g" | sort -u | tr '\n' ' ')"
 		else
 			rc=$?
@@ -159,7 +161,11 @@ else
 		fi
 	else
 		rc=$?
-		[ "$rc" = 1 ] || problem "could not search the plugin files for namespace declarations (grep exit ${rc})"
+		if [ "$rc" = 1 ]; then
+			problem "no CartBridgeJP namespace declaration was found in the Pro zip (the namespace check cannot be trusted)"
+		else
+			problem "could not search the plugin files for namespace declarations (grep exit ${rc})"
+		fi
 	fi
 fi
 
