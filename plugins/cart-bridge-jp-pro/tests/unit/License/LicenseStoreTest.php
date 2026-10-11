@@ -170,6 +170,39 @@ final class LicenseStoreTest extends WP_UnitTestCase {
 		$this->assertSame( $instance, $this->store->instance() );
 	}
 
+	/**
+	 * 同時に届いた 2 つの有効化が別々の instance を作ったら、先に保存された方を両方が使う（PR #123 G1-1）。本当の並行は PHPUnit で作れないので、
+	 * 作成の SQL の直前に相手の保存を差し込む（CLAUDE.md の競合のテストの方針）。
+	 */
+	public function test_a_concurrent_first_use_returns_the_stored_instance(): void {
+		$competitor = str_repeat( 'c', 32 );
+		$injected   = false;
+		add_filter(
+			'query',
+			static function ( string $query ) use ( &$injected, $competitor ): string {
+				global $wpdb;
+
+				if ( ! $injected && str_contains( $query, 'INSERT IGNORE' ) && str_contains( $query, LicenseStore::INSTANCE_OPTION ) ) {
+					$injected = true;
+					$wpdb->insert(
+						$wpdb->options,
+						[
+							'option_name'  => LicenseStore::INSTANCE_OPTION,
+							'option_value' => $competitor,
+							'autoload'     => 'off',
+						]
+					);
+				}
+
+				return $query;
+			}
+		);
+
+		$this->assertSame( $competitor, $this->store->instance() );
+		$this->assertTrue( $injected, '作成の SQL を通った' );
+		$this->assertSame( $competitor, ( new LicenseStore() )->instance() );
+	}
+
 	public function test_replaces_a_broken_instance(): void {
 		update_option( LicenseStore::INSTANCE_OPTION, 'bad!' );
 

@@ -65,7 +65,8 @@ final class LicenseConfig {
 			return $this->product_id > 0 ? $this->product_id : null;
 		}
 
-		if ( is_string( $this->product_id ) && 1 === preg_match( '/^[1-9][0-9]{0,18}\z/', $this->product_id ) ) {
+		// PHP_INT_MAX を超える数字の列は `(int)` で黙って別の値になるので、整数に戻して同じ文字列になるものだけを受ける（PR #123 G1-2）。
+		if ( is_string( $this->product_id ) && 1 === preg_match( '/^[1-9][0-9]{0,18}\z/', $this->product_id ) && (string) (int) $this->product_id === $this->product_id ) {
 			return (int) $this->product_id;
 		}
 

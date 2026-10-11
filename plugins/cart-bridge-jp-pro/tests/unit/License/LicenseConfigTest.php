@@ -24,6 +24,10 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 		$this->assertSame( 'https://example.com/?wc-api=wc-am-api', $config->endpoint() );
 	}
 
+	public function test_accepts_the_largest_integer_product_id_string(): void {
+		$this->assertSame( PHP_INT_MAX, ( new LicenseConfig( 'https://example.com/', (string) PHP_INT_MAX ) )->product_id() );
+	}
+
 	public function test_accepts_http_and_a_numeric_product_id_string(): void {
 		$config = new LicenseConfig( ' http://wordpress/ ', '42' );
 
@@ -83,6 +87,8 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 			'null'           => [ null ],
 			'array'          => [ [ 42 ] ],
 			'trailing break' => [ "42\n" ],
+			// PHP_INT_MAX を超えると `(int)` で別の値になる（PR #123 G1-2）。
+			'overflow'       => [ '9999999999999999999' ],
 		];
 	}
 
