@@ -225,6 +225,67 @@ final class LicenseStoreTest extends WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * 保存は DB から読み直して確かめる。キーを書けなければ状態を「有効化済み」にしない（キーの無い有効化を作らない。PR #123 G3-B1）。
+	 */
+	public function test_an_activation_is_not_saved_when_the_key_write_fails(): void {
+		self::fail_option_writes( LicenseStore::KEY_OPTION );
+
+		$this->assertFalse( $this->store->save_activation( self::KEY, 1000 ) );
+
+		$this->assertFalse( $this->store->is_activated() );
+		$this->assertNull( $this->store->key() );
+	}
+
+	public function test_an_activation_reports_a_failed_state_write(): void {
+		self::fail_option_writes( LicenseStore::STATE_OPTION );
+
+		$this->assertFalse( $this->store->save_activation( self::KEY, 1000 ) );
+
+		$this->assertFalse( $this->store->is_activated() );
+	}
+
+	/**
+	 * 無効化は状態を先に「未有効化」にして確かめ、書けなければキーを消さない（PR #123 G3-B1）。
+	 */
+	public function test_clearing_keeps_the_key_when_the_state_write_fails(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		self::fail_option_writes( LicenseStore::STATE_OPTION );
+
+		$this->assertFalse( $this->store->clear_activation() );
+
+		$this->assertTrue( $this->store->is_activated() );
+		$this->assertSame( self::KEY, $this->store->key() );
+	}
+
+	public function test_saving_a_key_reports_a_failed_write(): void {
+		self::fail_option_writes( LicenseStore::KEY_OPTION );
+
+		$this->assertFalse( $this->store->save_key( self::KEY ) );
+	}
+
+	/**
+	 * 有効化済みなのにキーが無い（保存の途中の失敗など）ときも、キーを読めないとして入れ直しを出す（PR #123 G3-B1）。
+	 */
+	public function test_an_activation_without_a_key_needs_the_key_again(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		delete_option( LicenseStore::KEY_OPTION );
+
+		$this->assertTrue( $this->store->key_unreadable() );
+	}
+
+	/**
+	 * その option への書込み（INSERT・UPDATE・DELETE）を、何も書かない SQL に差し替える（DB の失敗の代わり）。外すときのためにコールバックを返す。
+	 */
+	public static function fail_option_writes( string $name ): callable {
+		$callback = static function ( string $query ) use ( $name ): string {
+			return 1 === preg_match( '/^\s*(INSERT|UPDATE|DELETE)\b/i', $query ) && str_contains( $query, "'" . $name . "'" ) ? 'SELECT 1' : $query;
+		};
+		add_filter( 'query', $callback );
+
+		return $callback;
+	}
+
 	public function test_replaces_a_broken_instance(): void {
 		update_option( LicenseStore::INSTANCE_OPTION, 'bad!' );
 

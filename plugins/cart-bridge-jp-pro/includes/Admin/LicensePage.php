@@ -374,7 +374,7 @@ final class LicensePage {
 			LicenseResult::INVALID_KEY      => __( 'Enter a valid license key.', 'cart-bridge-jp-pro' ),
 			LicenseResult::NOT_CONFIGURED   => __( 'The license server is not configured in this build of Cart Bridge JP Pro.', 'cart-bridge-jp-pro' ),
 			LicenseResult::NOT_ALLOWED      => __( 'This action is not available for the current license.', 'cart-bridge-jp-pro' ),
-			LicenseResult::STORAGE_ERROR    => __( 'The license data could not be saved on this site.', 'cart-bridge-jp-pro' ),
+			LicenseResult::STORAGE_ERROR    => __( 'The license data could not be saved on this site. Try again.', 'cart-bridge-jp-pro' ),
 			LicenseResult::INVALID_RESPONSE => __( 'The response from the license server could not be understood.', 'cart-bridge-jp-pro' ),
 			LicenseResult::HTTP_ERROR       => '' === $result->message
 				? __( 'Could not connect to the license server.', 'cart-bridge-jp-pro' )

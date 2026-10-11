@@ -329,6 +329,17 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'value="' . LicensePage::ACTION_ACTIVATE . '"', $output );
 	}
 
+	public function test_offers_saving_the_key_when_an_activation_has_no_key(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		delete_option( LicenseStore::KEY_OPTION );
+
+		$output = $this->render();
+
+		$this->assertStringContainsString( 'value="' . LicensePage::ACTION_SAVE_KEY . '"', $output );
+		$this->assertStringNotContainsString( 'value="' . LicensePage::ACTION_DEACTIVATE . '"', $output );
+	}
+
 	public function test_explains_an_expired_check_on_an_activated_site(): void {
 		$this->as_shop_manager();
 		$this->store->save_activation( self::KEY, 1000 );

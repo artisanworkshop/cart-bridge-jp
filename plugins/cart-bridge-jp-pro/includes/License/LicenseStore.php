@@ -69,16 +69,17 @@ final class LicenseStore {
 	}
 
 	/**
-	 * キーは保存してあるが復号できない（AUTH_KEY・AUTH_SALT が変わった、値が壊れた）。
+	 * キーを読めない: 保存してあるが復号できない（AUTH_KEY・AUTH_SALT が変わった、値が壊れた）、または有効化済みなのにキーが無い
+	 * （保存の途中の失敗など。PR #123 G3-B1）。どちらも画面はキーの入れ直しを出す。
 	 */
 	public function key_unreadable(): bool {
-		$stored = get_option( self::KEY_OPTION, null );
-
-		if ( null === $stored || '' === $stored ) {
+		if ( null !== $this->key() ) {
 			return false;
 		}
 
-		return null === $this->key();
+		$stored = get_option( self::KEY_OPTION, null );
+
+		return ( null !== $stored && '' !== $stored ) || $this->is_activated();
 	}
 
 	/**
@@ -150,10 +151,14 @@ final class LicenseStore {
 	}
 
 	/**
-	 * 有効化に成功したキーと状態を保存する（キーの交換でも使う。前の状態確認の結果は消す）。
+	 * 有効化に成功したキーと状態を保存する（キーの交換でも使う。前の状態確認の結果は消す）。保存できたかを、DB から読み直して返す。
+	 * キーを先に保存して確かめ、確かめられたときだけ状態を「有効化済み」にする（状態だけが残ってキーの無い有効化にならないように。PR #123 G3-B1）。
 	 */
-	public function save_activation( string $key, int $product_id ): void {
-		$this->save_key( $key );
+	public function save_activation( string $key, int $product_id ): bool {
+		if ( ! $this->save_key( $key ) ) {
+			return false;
+		}
+
 		$this->save_option(
 			self::STATE_OPTION,
 			[
@@ -163,19 +168,37 @@ final class LicenseStore {
 			]
 		);
 		delete_option( self::LAST_CHECK_OPTION );
-	}
+		self::forget_cached_option( self::STATE_OPTION );
 
-	public function save_key( string $key ): void {
-		$this->save_option( self::KEY_OPTION, $this->encrypt( $key ) );
+		return $this->is_activated();
 	}
 
 	/**
-	 * 無効化に成功したら、キー・状態・状態確認の結果を消す（instance は残す）。
+	 * キーを暗号化して保存する。保存できたかを、DB から読み直して返す。
 	 */
-	public function clear_activation(): void {
+	public function save_key( string $key ): bool {
+		$this->save_option( self::KEY_OPTION, $this->encrypt( $key ) );
+		self::forget_cached_option( self::KEY_OPTION );
+
+		return $this->key() === $key;
+	}
+
+	/**
+	 * 無効化に成功したら、状態を「未有効化」にし、キーと状態確認の結果を消す（instance は残す）。状態を先に書いて DB から読み直し、
+	 * 「未有効化」にできなかったらキーを消さずに false を返す（キーの無い有効化を残さない。PR #123 G3-B1）。
+	 */
+	public function clear_activation(): bool {
+		$this->save_option( self::STATE_OPTION, [ 'activated' => 'no' ] );
+		self::forget_cached_option( self::STATE_OPTION );
+
+		if ( $this->is_activated() ) {
+			return false;
+		}
+
 		delete_option( self::KEY_OPTION );
 		delete_option( self::LAST_CHECK_OPTION );
-		$this->save_option( self::STATE_OPTION, [ 'activated' => 'no' ] );
+
+		return true;
 	}
 
 	/**

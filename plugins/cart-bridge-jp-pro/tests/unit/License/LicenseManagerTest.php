@@ -164,6 +164,53 @@ final class LicenseManagerTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->store->is_activated() );
 	}
 
+	/**
+	 * サーバーが有効化しても手元に保存できなければ成功と言わない。次の有効化は突き合わせで保存し直せる（PR #123 G3-B1）。
+	 */
+	public function test_reports_a_failed_save_after_a_server_activation(): void {
+		$this->server->fixture( 'activate_success' );
+		$failing = LicenseStoreTest::fail_option_writes( LicenseStore::KEY_OPTION );
+
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->activate( self::KEY )->code );
+		$this->assertFalse( $this->store->is_activated() );
+
+		remove_filter( 'query', $failing );
+		$this->server->fixture( 'activate_error_already_activated' )->fixture( 'status_active' );
+
+		$this->assertTrue( $this->manager->activate( self::KEY )->is_success() );
+		$this->assertTrue( $this->store->is_activated() );
+		$this->assertSame( self::KEY, $this->store->key() );
+	}
+
+	public function test_reports_a_failed_save_after_a_server_deactivation(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->server->fixture( 'deactivate_success' );
+		LicenseStoreTest::fail_option_writes( LicenseStore::STATE_OPTION );
+
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->deactivate()->code );
+
+		$this->assertTrue( $this->store->is_activated() );
+		$this->assertSame( self::KEY, $this->store->key() );
+	}
+
+	public function test_saves_a_key_again_when_an_activation_has_no_key(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		delete_option( LicenseStore::KEY_OPTION );
+
+		$this->assertTrue( $this->manager->replace_unreadable_key( self::KEY )->is_success() );
+
+		$this->assertSame( self::KEY, $this->store->key() );
+		$this->assertCount( 0, $this->server->requests );
+	}
+
+	public function test_reports_a_failed_key_save(): void {
+		$this->store->save_activation( self::KEY, 1000 );
+		update_option( LicenseStore::KEY_OPTION, 'broken' );
+		LicenseStoreTest::fail_option_writes( LicenseStore::KEY_OPTION );
+
+		$this->assertSame( LicenseResult::STORAGE_ERROR, $this->manager->replace_unreadable_key( self::KEY )->code );
+	}
+
 	public function test_does_not_activate_without_a_configured_server(): void {
 		$manager = self::manager( new LicenseConfig( '', 0 ), $this->store );
 

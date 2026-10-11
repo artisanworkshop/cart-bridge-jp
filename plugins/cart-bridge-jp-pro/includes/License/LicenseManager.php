@@ -75,9 +75,8 @@ final class LicenseManager {
 		$server_has_key = $result->is_success() || ( ! $was_activated && $this->server_lists_instance( $key, $instance ) );
 
 		if ( $server_has_key ) {
-			$this->store->save_activation( $key, $product_id );
-
-			return LicenseResult::success();
+			// サーバーは有効化した。手元に保存できなければ成功と言わない（次の有効化は突き合わせで保存し直せる。PR #123 G3-B1）。
+			return $this->store->save_activation( $key, $product_id ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::STORAGE_ERROR );
 		}
 
 		return $result;
@@ -101,8 +100,8 @@ final class LicenseManager {
 
 		$result = $this->client->deactivate( $key, $instance );
 
-		if ( $result->is_success() ) {
-			$this->store->clear_activation();
+		if ( $result->is_success() && ! $this->store->clear_activation() ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
 		}
 
 		return $result;
@@ -136,7 +135,7 @@ final class LicenseManager {
 	}
 
 	/**
-	 * 有効化済みで保存したキーを復号できないとき（AUTH_KEY・AUTH_SALT が変わった）、キーだけを保存し直す。サーバーには問い合わせない
+	 * 有効化済みで保存したキーを読めないとき（AUTH_KEY・AUTH_SALT が変わった、保存の途中で失敗した）、キーだけを保存し直す。サーバーには問い合わせない
 	 * （このサイトの有効化はサーバーに残っているので、同じ instance での有効化はサーバーが断る）。
 	 */
 	public function replace_unreadable_key( mixed $raw_key ): LicenseResult {
@@ -150,9 +149,7 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::INVALID_KEY );
 		}
 
-		$this->store->save_key( $key );
-
-		return LicenseResult::success();
+		return $this->store->save_key( $key ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::STORAGE_ERROR );
 	}
 
 	/**
