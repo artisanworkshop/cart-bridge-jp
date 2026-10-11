@@ -114,8 +114,8 @@ final class UninstallerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * データを消すときは、未実行のジョブ・ログ整理のアクションも取り消す（テーブルを消した後に、コールバックの無いまま実行されて
-	 * 失敗として積まれないように）。消さないときは残す（再インストールで続きから動く）。
+	 * データを消すときは、未実行のジョブ・ログ整理のアクションも取り消す（プラグインが消えた後に期限が来て、コールバックの無いまま
+	 * 失敗として積まれないように）。消さないときは取り消さない（アンインストールでは何も変えない）。
 	 */
 	public function test_uninstall_unschedules_the_plugin_actions_only_when_deleting_data(): void {
 		as_schedule_single_action( time() + HOUR_IN_SECONDS, JobManager::ACTION_HOOK, [ 'job_id' => 42 ], JobManager::ACTION_GROUP );
@@ -140,6 +140,11 @@ final class UninstallerTest extends WP_UnitTestCase {
 	 */
 	public function test_action_group_matches_the_group_the_plugin_schedules_in(): void {
 		$this->assertSame( JobManager::ACTION_GROUP, Uninstaller::ACTION_GROUP );
+
+		// ブートストラップ（`init`）が予定したログ整理がコミット済みで残っていることがある（tests サイトと同じ DB）。先に消してから
+		// 予定し直さないと、`schedule()` が何もしないまま下の表明が通る（取り消しはテストの終わりに戻る）。
+		as_unschedule_all_actions( LogCleanup::ACTION_HOOK );
+		$this->assertFalse( as_has_scheduled_action( LogCleanup::ACTION_HOOK ) );
 
 		( new LogCleanup( new LogRepository() ) )->schedule();
 

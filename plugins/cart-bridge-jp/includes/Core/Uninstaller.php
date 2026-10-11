@@ -51,8 +51,9 @@ final class Uninstaller {
 	}
 
 	/**
-	 * 未実行のジョブ・ログ整理のアクションを取り消す。テーブルを消した後に残ると、コールバックの無いまま失敗として積まれる
-	 * （プラグインのファイルが消えた後に実行されるため）。WooCommerce が無効なら Action Scheduler も無いので何もしない。
+	 * 未実行のジョブ・ログ整理のアクションを取り消す。取り消せるのはまだ期限の来ていないもの（ログ整理の次回・遅延した再試行）で、
+	 * プラグインが消えた後に期限が来ると、コールバックが無いので Action Scheduler が失敗として記録する（停止してから削除するまでに
+	 * 期限の来たものは、同じ理由ですでに失敗している）。Action Scheduler が読み込まれていなければ（WooCommerce が無効など）何もしない。
 	 */
 	private static function unschedule_actions(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {

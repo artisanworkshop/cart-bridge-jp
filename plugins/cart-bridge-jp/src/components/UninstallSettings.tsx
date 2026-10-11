@@ -20,6 +20,7 @@ function errorMessage( err: unknown ): string {
  * Tools タブのプラットフォームの選択・接続とは関係なく出す。
  *
  * `settings` は取得前と取得失敗のとき `null`（チェックボックスを止める。取得前の「オフに見える」状態で操作させない）。
+ * REST の真偽値は `true` だけを真として読む（frontend.md）。
  * 変更のたびに即保存し、保存中は止める（Export タブの画像の設定と同じ）。アンマウント後の応答は捨てる。
  */
 export default function UninstallSettings() {
@@ -49,7 +50,7 @@ export default function UninstallSettings() {
 	}, [] );
 
 	async function save( checked: boolean ) {
-		if ( null === settings || ! settings.can_change ) {
+		if ( true !== settings?.can_change ) {
 			return;
 		}
 
@@ -90,7 +91,7 @@ export default function UninstallSettings() {
 					) }
 					help={ joinSentences(
 						__(
-							'When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, and the settings. The data that was migrated stays in WooCommerce.',
+							'When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, the settings, and its other records. The data that was migrated stays in WooCommerce.',
 							'cart-bridge-jp'
 						),
 						__(
@@ -98,14 +99,12 @@ export default function UninstallSettings() {
 							'cart-bridge-jp'
 						)
 					) }
-					checked={ settings?.delete_data ?? false }
-					disabled={
-						null === settings || ! settings.can_change || saving
-					}
+					checked={ true === settings?.delete_data }
+					disabled={ true !== settings?.can_change || saving }
 					onChange={ ( checked: boolean ) => void save( checked ) }
 				/>
 
-				{ null !== settings && ! settings.can_change && (
+				{ false === settings?.can_change && (
 					<p className="description">
 						{ __(
 							'Only users who can delete plugins can change this setting.',

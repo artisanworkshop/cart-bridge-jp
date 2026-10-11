@@ -1582,12 +1582,8 @@ msgid "Delete this plugin’s data when it is uninstalled"
 msgstr "アンインストールするときにこのプラグインのデータを削除する"
 
 #: build/index.js:20
-msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, and the settings. The data that was migrated stays in WooCommerce."
-msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定）を削除します。移行したデータは WooCommerce に残ります。"
-
-#: build/index.js:20
 msgid "Deactivating the plugin does not delete anything."
-msgstr "プラグインを停止しても何も削除しません。"
+msgstr "プラグインを無効化しても何も削除しません。"
 
 #: build/index.js:20
 msgid "Only users who can delete plugins can change this setting."
@@ -1600,3 +1596,7 @@ msgstr "プラグインをアンインストールするとこのデータは削
 #: build/index.js:20
 msgid "Reload the page to try again."
 msgstr "ページを再読み込みしてもう一度お試しください。"
+
+#: build/index.js:20
+msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, the settings, and its other records. The data that was migrated stays in WooCommerce."
+msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定、その他の記録）を削除します。移行したデータは WooCommerce に残ります。"
