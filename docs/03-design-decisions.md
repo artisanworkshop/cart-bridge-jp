@@ -2801,7 +2801,8 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
   有効化していない・取得できないときは `WP_Error`
 - package の無い更新（期限後など）には `disable_autoupdate` を付ける（自動更新を有効にしたサイトで、WP が新しい版ごとに取得を試みて失敗し、失敗のメールを送らないように。review-loop R1-4）。
   `in_plugin_update_message-{file}` で「更新は、このサイトで有効化したキーの更新期間内に届く」と設定画面へのリンク（期限後とは限らない。販売サイトのアカウントから有効化を外した場合も package は付かない。R1-9）を添える
-- 有効化・無効化・キーの入れ直しが成功したら、WP の更新の情報（`update_plugins`）を捨てる（`LicenseManager`。無効化の後に前の確認の package〔約 7 日有効〕が最大 12 時間残って更新できる・有効化の直後に更新が出ない、を防ぐ。R1-3）
+- 有効化・無効化・キーの入れ直しが成功したら、WP の更新の情報（`update_plugins`）を捨てる（`LicenseManager`。無効化の後に前の確認の package〔約 7 日有効〕が最大 12 時間残って更新できる・有効化の直後に更新が出ない、を防ぐ。R1-3）。
+  無効化はサーバーが成功を返した時点で捨てる（手元の記録に失敗して `NOT_RECORDED` を返すときも。PR #125 G2-B1）
 - `Core\Plugin::boot()` が `UpdateChecker::create()->register()` を呼ぶ（ヘッダーの読み取りは要求ごとに 1 回）
 
 **ヘッダーの検査**（`LicenseConfigTest`）: 版 1.0.0 以上でヘッダーの `Update URI` が無い・https でない・`CBJP_PRO_LICENSE_API_URL` の既定値と host が違う（大文字小文字は区別しない）なら止める。
@@ -2814,7 +2815,8 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 `vendor/` は autoload だけ。残りは `bin/check-pro-zip.php`〔WordPress を読み込まない PHP。Pro の `ProZipCheckTest` が固定〕が zip にする直前のディレクトリで確かめる:
 **無料版の名前空間〔`CartBridgeJP\` で `Pro\` でないもの〕を宣言する PHP が無い**〔PHP のトークンで読む。改行・コメントを挟んだ宣言・小文字も拾い、コメントの中の文は拾わない。`CartBridgeJP\Pro` の宣言が 1 つも無いのも止める。
 review-loop R1-5 の grep は PR #125 G1-B1 で複数行の宣言を見落とすと指摘され、トークンに替えた〕、**リリースの設定**〔ヘッダーの `Version` と `CBJP_PRO_VERSION` が同じ。版 1.0.0 以上では接続先の既定値が https・製品 ID が正の整数・
-ヘッダーの `Update URI` が https で接続先と同じ host。`LicenseConfigTest` と同じ規則だが、`pro-v*` のタグのリリースは CI のテストを通らないので zip を作るときにも止める。PR #125 G1-1〕）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
+ヘッダーの `Update URI` が https で接続先と同じ host。`LicenseConfigTest` と同じ規則だが、`pro-v*` のタグのリリースは CI のテストを通らないので zip を作るときにも止める。PR #125 G1-1。
+`define()` の既定値も PHP のトークンで読み、コメントアウトした設定を読まない・同じ名前が 2 回ある/値が式なら読めないとして止める〔PR #125 G2-B2。`LicenseConfigTest` も同じ関数で読む〕〕）。Pro の `.distignore` を足した。`--version` を渡すとプラグインヘッダーの `Version` と照合し、違えば止める
 （backlog `r3-7-monorepo/R1-L2`。無料版の `release.yml` にも効く）。CI の Distribution ジョブが両方の zip を作って検査する（ジョブ名を「Distribution (plugin zips)」にした。必須のチェックではない）。
 `.github/workflows/release-pro.yml`: `pro-v*.*.*` のタグで zip を作り、GitHub Release に添付する（`make_latest: false`〔「Latest」は無料版のまま〕、自動のリリースノートは直前のタグ〔無料版のこともある〕からの変更が混ざるので使わない）。
 タグ由来の版は `${{ }}` で `run` に埋め込まず環境変数で渡す（ref 名の `$(...)` がシェルに入らないように。無料版の `release.yml` も同じに直した。R1-7）。タグの push はユーザーの指示まで行わない。

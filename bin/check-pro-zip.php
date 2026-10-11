@@ -134,12 +134,71 @@ function cbjp_zipcheck_header( string $source, string $name ): string {
 }
 
 /**
- * メインファイルの `define( 'NAME', <既定値> )` の値（引用符を外した文字列。無ければ null）。`if ( ! defined() )` の中の既定値も読む。
+ * メインファイルの `define( 'NAME', <既定値> )` の既定値（`if ( ! defined() )` の中のものも読む）。PHP のトークンで読むので、コメントの中の
+ * `define()` は読まない（PR #125 G2-B2: 正規表現ではコメントアウトした設定を読みえた）。値は単一引用符の文字列か整数だけで、
+ * 見つからない・同じ名前が 2 回以上ある・値がそれ以外の式なら null（読めない設定をリリースの検査で「設定あり」と読まない）。
  */
 function cbjp_zipcheck_define( string $source, string $name ): ?string {
-	$pattern = "/define\\(\\s*'" . preg_quote( $name, '/' ) . "'\\s*,\\s*('[^']*'|\"[^\"]*\"|[0-9]+)\\s*\\)/";
+	$tokens = array_values(
+		array_filter(
+			token_get_all( $source ),
+			static fn ( $token ): bool => ! ( is_array( $token ) && in_array( $token[0], [ T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ], true ) )
+		)
+	);
+	$values = [];
+	$count  = count( $tokens );
 
-	return 1 === preg_match( $pattern, $source, $match ) ? trim( $match[1], "'\"" ) : null;
+	for ( $i = 0; $i + 5 < $count; $i++ ) {
+		$callee = $tokens[ $i ];
+
+		if ( ! is_array( $callee ) || ! in_array( strtolower( $callee[1] ), [ 'define', '\\define' ], true ) || ! in_array( $callee[0], [ T_STRING, T_NAME_FULLY_QUALIFIED ], true ) ) {
+			continue;
+		}
+
+		// メソッドの呼び出し・静的メソッド・関数の宣言の define は定数の定義ではない（直前が -> ?-> :: function のもの）。
+		$before = $tokens[ $i - 1 ] ?? null;
+
+		if ( is_array( $before ) && in_array( $before[0], [ T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION ], true ) ) {
+			continue;
+		}
+
+		if ( '(' !== $tokens[ $i + 1 ] || ! is_array( $tokens[ $i + 2 ] ) || T_CONSTANT_ENCAPSED_STRING !== $tokens[ $i + 2 ][0] || ',' !== $tokens[ $i + 3 ] || ')' !== $tokens[ $i + 5 ] ) {
+			continue;
+		}
+
+		if ( cbjp_zipcheck_single_quoted( $tokens[ $i + 2 ][1] ) !== $name ) {
+			continue;
+		}
+
+		$value = $tokens[ $i + 4 ];
+
+		if ( is_array( $value ) && T_LNUMBER === $value[0] ) {
+			$values[] = $value[1];
+		} elseif ( is_array( $value ) && T_CONSTANT_ENCAPSED_STRING === $value[0] && null !== cbjp_zipcheck_single_quoted( $value[1] ) ) {
+			$values[] = (string) cbjp_zipcheck_single_quoted( $value[1] );
+		} else {
+			return null;
+		}
+	}
+
+	return 1 === count( $values ) ? $values[0] : null;
+}
+
+/**
+ * 単一引用符の文字列リテラルの中身（`\'` と `\\` を戻す）。単一引用符でなければ null。
+ */
+function cbjp_zipcheck_single_quoted( string $literal ): ?string {
+	if ( strlen( $literal ) < 2 || "'" !== $literal[0] || "'" !== substr( $literal, -1 ) ) {
+		return null;
+	}
+
+	return strtr(
+		substr( $literal, 1, -1 ),
+		[
+			'\\\\' => '\\',
+			"\\'"  => "'",
+		]
+	);
 }
 
 /**

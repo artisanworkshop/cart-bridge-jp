@@ -15,6 +15,12 @@ use WP_UnitTestCase;
  */
 final class LicenseConfigTest extends WP_UnitTestCase {
 
+	public static function set_up_before_class(): void {
+		parent::set_up_before_class();
+		// メインファイルの既定値を zip の検査と同じ関数で読む（ルートの bin/。テストのサイトでは wp-content/cbjp-dev）。
+		require_once WP_CONTENT_DIR . '/cbjp-dev/bin/check-pro-zip.php';
+	}
+
 	public function test_accepts_an_https_url_and_a_positive_product_id(): void {
 		$config = new LicenseConfig( 'https://example.com/', 1000 );
 
@@ -106,8 +112,8 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 	public function test_reads_the_defaults_of_the_main_file(): void {
 		$source = self::main_file_source();
 
-		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source ), 'メインファイルに接続先の既定値がある' );
-		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source ), 'メインファイルに製品 ID の既定値がある' );
+		$this->assertNotNull( cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_API_URL' ), 'メインファイルに接続先の既定値がある' );
+		$this->assertNotNull( cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_PRODUCT_ID' ), 'メインファイルに製品 ID の既定値がある' );
 	}
 
 	public function test_the_release_check_stops_an_unconfigured_1_0_0(): void {
@@ -184,18 +190,16 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * メインファイルの `define( 'CBJP_PRO_LICENSE_*', <既定値> )` から作った設定。読めなければ未設定。
+	 * メインファイルの `define( 'CBJP_PRO_LICENSE_*', <既定値> )` から作った設定。読めなければ未設定。zip の検査（`bin/check-pro-zip.php`）と同じく
+	 * PHP のトークンで読む（コメントアウトした `define()` を読まない。PR #125 G2-B2）。
 	 */
 	private static function main_file_defaults(): LicenseConfig {
 		$source = self::main_file_source();
-		$url    = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source, $url_match ) ? trim( $url_match[1], "'\"" ) : '';
-		$id     = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source, $id_match ) ? trim( $id_match[1], "'\"" ) : '';
 
-		return new LicenseConfig( $url, $id );
-	}
-
-	private static function define_pattern( string $name ): string {
-		return "/define\\(\\s*'" . preg_quote( $name, '/' ) . "'\\s*,\\s*('[^']*'|\"[^\"]*\"|[0-9]+)\\s*\\)/";
+		return new LicenseConfig(
+			(string) cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_API_URL' ),
+			(string) cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_PRODUCT_ID' )
+		);
 	}
 
 	private static function main_file_source(): string {

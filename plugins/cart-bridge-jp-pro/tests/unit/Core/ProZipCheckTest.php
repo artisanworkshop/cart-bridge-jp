@@ -122,6 +122,33 @@ final class ProZipCheckTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `define()` は PHP のトークンで読む。コメントアウトした設定は読まない（PR #125 G2-B2: 正規表現では、実際の既定値が空でもコメントの中の
+	 * 設定を読んで 1.0.0 のリリースを通しえた）。同じ名前が 2 回ある・値が式なら読めない（null）。
+	 */
+	public function test_reads_defines_from_tokens_and_ignores_comments(): void {
+		$commented = "<?php\n// define( 'CBJP_PRO_LICENSE_API_URL', 'https://store.example.com/' );\n/* define( 'CBJP_PRO_LICENSE_PRODUCT_ID', 1000 ); */\n"
+			. "define( 'CBJP_PRO_LICENSE_API_URL', '' );\ndefine( 'CBJP_PRO_LICENSE_PRODUCT_ID', 0 );\n";
+
+		$this->assertSame( '', cbjp_zipcheck_define( $commented, 'CBJP_PRO_LICENSE_API_URL' ) );
+		$this->assertSame( '0', cbjp_zipcheck_define( $commented, 'CBJP_PRO_LICENSE_PRODUCT_ID' ) );
+		$this->assertSame( 'https://x.example.com/', cbjp_zipcheck_define( "<?php\n\\define ( 'A', 'https://x.example.com/' ) ;\n", 'A' ) );
+		$this->assertSame( "it's", cbjp_zipcheck_define( "<?php define( 'A', 'it\\'s' );\n", 'A' ) );
+		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', 'x' );\ndefine( 'A', 'y' );\n", 'A' ), '2 回ある' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', \"x\" );\n", 'A' ), '二重引用符は読まない' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'A', B . 'x' );\n", 'A' ), '式は読まない' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php \$o->define( 'A', 'x' );\n", 'A' ), 'メソッドは定数の定義ではない' );
+		$this->assertNull( cbjp_zipcheck_define( "<?php define( 'B', 'x' );\n", 'A' ) );
+
+		// 1.0.0 で、コメントの中だけに設定があるメインファイルは止まる。
+		$source = str_replace(
+			"\tdefine( 'CBJP_PRO_LICENSE_API_URL', 'https://store.example.com/' );",
+			"\t// define( 'CBJP_PRO_LICENSE_API_URL', 'https://store.example.com/' );\n\tdefine( 'CBJP_PRO_LICENSE_API_URL', '' );",
+			self::main_source( self::CONFIGURED )
+		);
+		$this->assertNotSame( [], array_filter( cbjp_zipcheck_release_problems( $source ), static fn ( string $problem ): bool => str_contains( $problem, 'CBJP_PRO_LICENSE_API_URL' ) ) );
+	}
+
+	/**
 	 * PHP のトークンで読むので、改行・コメントを挟んだ宣言も拾い、コメントの中の文は拾わない（PR #125 G1-B1: 行単位の grep は複数行の宣言を見落とした）。
 	 */
 	public function test_reads_namespace_declarations_from_tokens(): void {
