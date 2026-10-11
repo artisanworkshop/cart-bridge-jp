@@ -897,10 +897,10 @@ R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す�
 
 **Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲。**R3-6c1 で更新した**。Pro の `FreeApiSurfaceTest` がクラス単位で照合する）:
 - 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、`Adapters\OAuthScopes::add()`（R3-6c2。接続先の認可に足すスコープの宣言。ColorMe の既知のスコープだけが要求に入る）、
-  `Entities\EntityType`・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
+  `Entities\EntityType`（R3-8b で `dry_run_only_reason( PlatformAdapter ): ?string` を足した。既定 null＝制限なし。§10.7「R3-8b の実装」）・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
   `LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
   `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
-- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
+- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2、R3-8b で 3）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
   無料版が読み込まれているかは `Core\Plugin` の有無で見る（`cbjp_pro_bootstrap()`）
 - 型・契約: `Canonical\CanonicalModel`・`Concerns\{ChecksumTrait, RemoteIdFromExtrasTrait}`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException,
   UnsupportedOperationException}`、`Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
@@ -2674,6 +2674,7 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 **守ること**:
 1. キーの確認と、キーが無い間の dry-run だけの制限は Pro のコードだけが持つ（§10.0「無料版で守ること」1・3）。無料版は「拡張が自分の種類を dry-run だけにできる」汎用の口だけを持ち、理由の文（「キーを有効化すると取り込める」など）は Pro が REST の宣言で渡す。無料版に実体の名前・ライセンスで分岐するコードを置かない（`CLAUDE.md` 原則 7）。
 2. Pro が無いとき無料版の画面に何も出ないこと、無料版自身の機能を灰色・押せない形にしないこと（§10.0「無料版で守ること」2。ガイドライン 11）をテストで固定する。キーが無い間の実行の選択肢をどう見せるか（出さないか、選べない理由を添えるか）は R3-8b の計画で決める。
+   → **決定（2026-10-11、R3-8b の計画）**: 選べる（既定で選び、dry-run に含める）。選択肢の下に注記と Pro の理由を出し、実際の取込み・エクスポートはその種類を送らない（下の「R3-8b の実装」）。
 3. 制限はサーバー側（実行の作成）でも掛ける。画面を通らない REST からの実行も止める。エクスポート（Woo → ASP）も同じ。
 4. Pro は GPL でソースも公開しているので、制限は破られない仕組みである必要はない（ライセンスの価値はアップデート・サポート・手間の無さ。D29）。判定を作り込むより、キーが無い間に何ができるかを分かりやすく示すことを優先する。
 5. Pro の設定画面（キーの入力欄・有効化の状態）は PHP で描く（Pro は JS を持たない。§10.0「決め残し」2）。
@@ -2729,13 +2730,41 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 - `LicensePage`: WooCommerce メニューの下の「Cart Bridge JP Pro」（`manage_woocommerce`）と、プラグイン一覧の行の「License」。PHP で描く。転送の後の `exit` はコンストラクタで差し替えられる（テストで `exit` に届くと PHPUnit が終了コード 0 のまま止まり、残りのテストが黙って走らなくなるため。review-loop R2-1）。操作（有効化・無効化・状態確認・キーの入れ直し）は `admin-post.php` へのフォームで、権限と nonce を確かめてから行い（`admin_post_nopriv_` は登録しない）、
   結果の文はユーザーごとの transient（5 分）で画面へ渡す。入力したキーは `sanitize_text_field()` で整えず（`%XX` などを黙って取り除き、別のキーに変えて送りうる）、`normalize_key()` の正規表現で拒否する（review-loop R1-6）。
   有効化済みのサイトでサーバーが断ったときは、理由がキー・期限のどれでもありうるので「もし期限後なら〜」の形の案内を添える（期限後は状態確認・無効化がエラーになっても有効化は残る、キーの交換は期限内なら先に無効化・期限後なら先に状態確認。review-loop R1-2・R1-5）。
-  表示はすべてエスケープし、キーは末尾 4 文字だけを出す。接続先が未設定のビルドでは、そのことを出してフォームを出さない。画面の説明は R3-8a の範囲だけ（dry-run だけの制限の説明は R3-8b で足す）
+  表示はすべてエスケープし、キーは末尾 4 文字だけを出す。接続先が未設定のビルドでは、そのことを出してフォームを出さない。画面の説明は R3-8a の範囲だけ（dry-run だけの制限の説明は R3-8b で足す → 足した）
 
 **アンインストール**: Pro は自分の option を消さない（期限後にプラグインを削除して入れ直したとき、有効化をやり直せないため）。ただし無料版の「アンインストールでデータを消す」（`cbjp_delete_data_on_uninstall`。`cbjp_%` の option を消す）を有効にして無料版を削除すると、
 Pro の `cbjp_pro_license_*` も消える。無料版に Pro の名前を書かない（原則 7）ので、記録だけにする（利用者が全データの削除を選んだ場合）。
 
 **確認**: 実測（上）と、dev サイトで画面からの有効化・状態確認・期限内のキーの交換の拒否（案内つき）・形の違うキー・期限切れの状態確認（有効化は残り、説明が出る）・期限後の無効化の拒否（状態は残る）・猶予期間中のキーの交換・復号できないキーの入れ直し・無効化。
 終わった後、API Manager・そのテーブル・option・cron、作った製品・注文・顧客、一時 mu-plugin、Pro の option を dev サイトから消した。ガード（権限・nonce・`success === true`・`activated === true`・状態確認で状態を変えない・成功したときだけ保存/消去・`'yes' ===`・autoload・暗号化・通知のエスケープ・転送しない）は変異を入れてテストが落ちることを確かめた。
+
+#### R3-8b の実装（2026-10-11。ブランチ `feat/r3-8b-dry-run-only-without-key`）
+
+**ユーザー決定（計画）**: (1) キーが無い間の顧客・受注・クーポンは Import/Export タブで選べる（既定で選び、dry-run に含める）。チェックボックスの下に無料版の汎用の注記（「Preview only: Run import skips this.」）と Pro の理由の文を出し、
+Run import/export は選んだうち実行できる種類だけを送る（確認文もその種類だけ）。実行できる種類が 0 のときだけ実行のボタンが押せない（何も選んでいないときと同じ。無料版の機能を Pro の都合で灰色にしない）。
+(2) 制限中の種類の取込み・エクスポートの**失敗したジョブの Retry もサーバーが断る**（dry-run のジョブは通す）。
+
+**無料版の汎用の口**（ライセンスを知らない。`FreeScopeTest` が includes・src にライセンスの語が無いことを固定する）:
+- `Entities\EntityType::dry_run_only_reason( PlatformAdapter ): ?string`（既定 null）。文字列を返すと、その種類は dry-run だけ（文は画面とエラーに出す。空でもよい）。`EntityTypeContractTest` の BASELINE に足した。
+- `EntityTypeRegistry::dry_run_only_reason()`・`dry_run_only()`: **無料版の種類は呼ばずに null**（無料版の機能を拡張の都合で止めない。キーで見分けるので、無料版のキーを名乗るインスタンスにも効く）。外部の種類の例外は理由の無い制限（`''`）に倒す（原則 9。`_doing_it_wrong` は出さない）。文はタグと前後の空白を除く。
+- `Sync\JobManager::start_run()`: 実際の取込み・エクスポート（dry-run でない種類の run）で、能力で絞った種類に制限中のものがあれば `Sync\DryRunOnlyException`（キー => 理由）で run 全体を断る（ジョブもアクションも作らない。非対応の種類は従来どおり黙って外す）。
+  `retry()` もロックの中・busy の判定の後で同じ判定をする（種類か接続先が見つからないジョブは判定しない。拡張が無効になった種類は「dry-run だけ」が理由として誤りになるので、従来どおり処理の中で失敗させる）。
+- REST: `GET /connections` の `entities.import[]`・`entities.export[]` に `dry_run_only`（bool）・`dry_run_only_reason`（string。種類ごとに 1 回だけ問い合わせて両方に載せる）。`POST /runs`・`POST /jobs/{id}/retry` は例外を `cbjp_dry_run_only`（400。種類の表示名を `wp_sprintf( '%l' )` で並べ、拡張の理由を続ける。`data.entities`）にする（判定し直さず、例外が運ぶ値を使う）。
+- 画面（`entity-options.ts`）: `dry_run_only` は `false` のときだけ外す（`beta` と同じ安全側の読み）。`writableOptions()` が実際に送る種類を、`importOptionHelp()`・`exportOptionHelp()` が注記を組み立てる。
+- `CBJP_EXTENSION_API_VERSION` を 3 にし、Pro の `CBJP_PRO_REQUIRED_EXTENSION_API` も 3 にした。
+
+**Pro**: `License\LicenseGate::dry_run_only_reason()`（`LicenseStore::is_activated()`〔ローカルの記録の `'yes'` だけ〕でなければ「キーを WooCommerce > Cart Bridge JP Pro で有効化すると取り込める・送れる」の文）を、`CustomerType`・`OrderType`・`CouponType` が返す。
+**呼ぶたびに読み、結果を保持しない**（無料版のレジストリは種類のインスタンスを静的に持つので、保持すると有効化の後も古い判定が残る）。設定画面にキーの有無でできることの説明を足した（R3-8a で「R3-8b で足す」とした文）。
+Pro のテストで `start_run()` から実際の取込み・エクスポートを走らせるもの（`CommerceJobManagerTest` など 4 クラス）は、`Tests\Fixtures\ActivatesLicense` で有効化の記録を書いてから走らせる。
+
+**範囲の限界**（§10.7「守ること」4: 破られない仕組みである必要はない）: 止めるのは run の作成と Retry したジョブだけで、実行中の run の続きのページと、Retry したジョブの後ろに残っていた同じ run の pending のジョブ（`complete_job_and_advance()` が始める）は止めない。
+run を作る経路は `POST /runs` だけ（WP-CLI のコマンドは無い）。リンク再構築・push intent の解除は Woo・mapping の紐づけを直すだけで移行ではないので対象外。キーの判定はローカルの記録なので、DB を書き換えれば外れる（R3-8a と同じ）。
+
+**検証スキル**: `rehearse-colorme` の `run` は、import/export の前に `/connections` の `dry_run_only` を見て、該当する種類があれば理由つきで止まる（宣言を読めない種類も止める）。販売サイトが決まるまでのビルドでは画面から有効化できないので、SKILL.md に有効化の記録の書き方と戻し方を書いた。
+
+**確認**: 品質チェック一式（無料版 1274 件・Pro 757 件・Jest 97 件）。ガード 14 か所の変異（run の作成・Retry の判定、dry-run の素通し、例外→制限、無料版の種類の除外、タグの除去、REST の宣言、ライセンスの語、Pro の `is_activated()` と種類の上書き、画面の安全側の読み・送る種類・注記）がすべてテストで検出された。
+dev サイト（Pro 有効・ColorMe 接続済み）で、未有効化では顧客・受注・クーポンの宣言が制限中・`POST /runs` の import/export が 400 でジョブが増えないこと、有効化の記録を書くと制限が外れること、Pro を無効にすると宣言が全部 false になることを `rest_do_request()` で確かめ（記録は消して戻した）、
+Import/Export タブの注記と、プレビューだけの種類しか選んでいないとき Run import が押せずプレビューは押せること、Pro の設定画面の説明を目視した。
 
 ### 10.8 期間で絞る取込み（D31・v2.0。2026-10-11）
 
