@@ -59,6 +59,7 @@ npm run test:js              # 管理画面 UI の純粋関数の単体テスト
 bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中身を検査する（許可した最上位だけ・追跡しているファイルだけ・--no-dev・Pro の識別子なし。CI・release と同じ）
 bin/check-dev-mount.sh       # wp-env がルートをマウントした wp-content/cbjp-dev が HTTP で 403 か（quality.sh・CI）
 npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_header_fields,trademarks   # readme・プラグインヘッダー・商標の検査（R3-3）
+# アンインストールの実機確認は tests サイトで `npx wp-env run tests-cli wp plugin uninstall cart-bridge-jp --deactivate --skip-delete`（--skip-delete が無いとマウント元のリポジトリのファイルが消える。テーブルの削除はテスト基盤が DROP TEMPORARY TABLE に書き換えるのでユニットテストでは観測できない。PR #120）
 ```
 
 ## コーディング規約
@@ -84,6 +85,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - CopilotレビューはJSXの真偽値プロパティ省略記法（`<Component someProp />` は `someProp={true}` と等価）を「未宣言の識別子への参照でReferenceErrorになる」と誤検知することがある（実例: `reportsAvailable`単体の記述、E2-4 PR #53 G3）。`tsc --noEmit`/ビルドが通っていれば構文として正しいため、鵜呑みにせず型チェック結果で検証すること
 - Copilotレビューは「PHPUnitのテストクラス内で `update_option()` した値が、後続のテストメソッドに漏れる（順序依存で既定値テストが壊れる）」と指摘することがあるが、WPコアのテストフレームワーク（`abstract-testcase.php`）は各テストメソッドの終了時に `$wpdb->query('ROLLBACK')` を実行し、`update_option()` を含むDB書込みをテストごとに戻す（既存の「WPテストスイートは各テストクラス終了時にCOMMITし options は消さない」はクラス終了時の話で、同一クラス内のテストメソッド間には当てはまらない）。指摘を受けたら該当テストを問題の順序に一時的に並べ替えて実行し、実際に落ちるか確認してから判定すること（並べ替え後は必ず元に戻し `git diff` が空であることを確認する。PR #84 G3で2件とも誤検知と確定）
 - 安全側の判定に使うboolを配列から復元するときは `(bool)` キャストを使わないこと。`(bool) '0'` は `false`、`(bool) 'false'` は `true` になるため、壊れた値・型違いが「安全」の宣言に化けてフェイルクローズを迂回しうる（`CanonicalCoupon::from_array()` の `has_unsupported_restrictions` が実例。issue #15）。`is_bool()` で実boolのみ受け、それ以外は不明（null）へ倒す
+- `update_option( $name, $value, false )` は値が同じなら autoload を変えずに戻る（WP-CLI などで autoload ありに作られた行が残る）。autoload を外す option は保存のたびに `wp_set_option_autoload( $name, false )` も呼ぶ（PR #120 G1-1）。bool を option に保存すると別のリクエストでは `'1'`/`''` で戻るので、安全側の判定に使う値は `'yes'`/`'no'` で保存し `'yes' ===` で読む（`Core\Uninstaller`）
 - PHPCS（`WordPress-Extra` + `Universal.Operators.DisallowShortTernary`）は短縮三項演算子 `?:` を**エラー**にする（`?? ` のnull合体とは別物）。フォールバック値には `$a ?? $b` か、複数候補から最初の非空値を選ぶ自前ヘルパー（例: `Cast::first_non_empty()`）を使うこと
 - `composer lint` は **warning でも失敗**する。踏みやすい4種: `Generic.CodeAnalysis.AssignmentInCondition`（`if` の条件式内の代入。`??=` も対象。先に変数へ組み立ててから判定する）、`Squiz.PHP.CommentedOutCode`（バッククォート付きの識別子が多いコメントを「コメントアウトされたコード」と誤検知する。文言を直す）、`WordPress.Arrays.ArrayDeclarationSpacing.AssociativeArrayFound`（1 行に複数キーの連想配列。`vendor/bin/phpcbf` で自動修正できる）、`Generic.CodeAnalysis.UnusedFunctionParameter`（基底クラスの既定実装で使わない引数。コードが `.Found` と `.FoundAfterLastUsed` の 2 つあるので、ファイル単位で理由を書いた `phpcs:disable Generic.CodeAnalysis.UnusedFunctionParameter` にする）
 - テストでJSONフィクスチャを読む際は `file_get_contents()` ではなく `wp_json_file_decode( $path, [ 'associative' => true ] )` を使うこと。`file_get_contents()` はPHPCSの `WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents` warningの対象になり `composer lint` が失敗する
@@ -145,6 +147,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - 「拒否される要求」のテストは、ステータス（409 等）だけでなく**副作用が無いこと**も確かめる。ステータスしか見ないと、処理をガード（ロック）の前へ移す退行を見逃す（PR #96 R1-3・R2-2）
 - 競合（ほぼ同時に届いた要求の割り込み）は PHPUnit では本当の並行として作れない（テストのトランザクションは別の接続から見えない）。`query` フィルターで特定の SQL の直前に相手の操作を差し込んで再現する（`JobManagerConcurrencyTest`）。本当の並行は wp-env で `wp eval-file` を 2 プロセス同時に走らせ、`query` フィルター内の `sleep()` で区間を広げて確かめる
 - 性能の退行（二乗に戻る等）を時間で固定するテストは、正常時と退行時（ミューテーション）の両方を実測し、その間に十分な余裕を持って境界を置く（R3-1c: 正常 0.1 秒・退行 7 秒の入力で境界を 1 秒にしたら、wp-env の並行実行で 1 度超えた。3 秒にした）
+- tests サイトとテストは同じ DB で、ブートストラップ（`init`）が予定した Action Scheduler のアクション（`cbjp_cleanup_logs` など）がコミット済みで残っていることがある。「予定したら有る」を確かめるテストは、先に取り消して無いことを表明してから予定する（しないと、予定する処理を壊しても通る。PR #120 R1-2）
 
 ## 作業の進め方
 
@@ -157,7 +160,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
   着手前に`gh pr view <PR> --json state`でPRがまだOPENか確認すること。squash/rebaseマージ済み
   だとそのfeatureブランチへpushしても本流には反映されない（issue #47 PR #51で実際に発生:
   マージ後の追記コミットをマージ済みfeatureブランチへpushしてしまい、mainへ直接コミットし直す
-  手戻りが発生した。PR #81 でも、ユーザーのマージ直後に Copilot 再依頼と修正 push を続けて5ファイルが main に入らず、フォローアップ PR #82 で入れ直した。bot への依頼・修正・push の各段階の前に確認する）
+  手戻りが発生した。PR #81 でも、ユーザーのマージ直後に Copilot 再依頼と修正 push を続けて5ファイルが main に入らず、フォローアップ PR #82 で入れ直した。bot への依頼・修正・push の各段階の前に確認する。確認は push と同じ `&&` の鎖に入れる〔確認が偽でも、別の行に書いた `git push` は走る。PR #120: マージの直後に、確認の後の行の push がマージで消えたブランチを作り直した〕）
 - **`/post-merge` の蒸留コミット（`main` 直コミット）は、次の作業ブランチを切る前に push する**。未 push のまま `main` から `/start-task` で切ると、その PR に蒸留コミットの変更が混入する（PR #64 に PR #61 の蒸留〈`CLAUDE.md`・ルール 3 ファイル〉が混入し、スカッシュで `main` に入った）。混入したときは `git pull --rebase` が「patch contents already upstream」でローカルの重複コミットを落とす
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）

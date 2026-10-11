@@ -55,3 +55,4 @@ paths:
   **レジストリは静的キャッシュ**で、WP のテスト基盤はフックを戻しても静的変数を戻さない。種類を登録するテストは `Tests\Fixtures\RegistersEntityTypes` を使い、`tear_down()` で
   `parent::tear_down()` の前後に `reset_cache()` する。REST の report の `entity` の enum はルートを登録した時点（`rest_api_init`）のレジストリから作るので、テストでは種類を登録してから
   `rest_api_init` を発火する。振る舞いを変えないリファクタの証拠には `tests/unit/Entities/DispatchCharacterizationTest`（実行順・能力・警告の印・CSV の note・カタログの文言のハッシュ）を使う
+- プラグインの停止中も WooCommerce の Action Scheduler は動き、期限の来た `cbjp_process_job` をコールバックの無いまま失敗にする（`ActionScheduler_Action::execute()` が `has_action()` を見る）。停止・再インストールをまたいでジョブが続きから進むと仮定しない（今はジョブが `running` のまま残り、409 で塞がる。issue #121・R3-9）。`as_unschedule_all_actions( '', [], group )` は期限によらず pending のアクションをすべて取り消す（PR #120 R1-1・R2-2 で、docs の「再開できる」「期限前のものだけ取り消す」という誤りを AS のソースで直した）
