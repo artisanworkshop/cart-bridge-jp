@@ -19,3 +19,4 @@
 | 2026-10-11 09:34 | 7 | G1: Copilot 🟡 1 件（同じ値の保存で autoload が変わらない）を修正（7dafa05）。Codex は自動レビューが 5 分で応答せず review コメントを自動投稿 →「Didn't find any major issues」で収束。`quality.sh` green（無料版 1262） |
 | 2026-10-11 09:43 | 7 | G2: Copilot だけに依頼（CI green の後）→ 🟢 Approval recommended・新規 0 件で収束。両 bot 収束 |
 | 2026-10-11 09:43 | 8 | G2 の記録と最終報告（final-report.md）。マージせず停止 |
+| 2026-10-11 12:02 | 8 | 最終報告後のユーザーの決定: 権限の副作用を issue #122、対象外の R1-X1 を issue #121 に起票。R1-X1 は v1.0 の前に直す（`docs/10-tasks.md` に R3-9 を追加、backlog の起票状況を更新） |
