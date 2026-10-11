@@ -159,7 +159,7 @@ final class LicensePage {
 		printf(
 			'<p>%s</p>',
 			$activated
-				? esc_html__( 'Customers, orders, and coupons can be imported and exported on this site.', 'cart-bridge-jp-pro' )
+				? esc_html__( 'With the activated key, customers, orders, and coupons can be imported and exported on this site, as far as the connected shop supports each operation.', 'cart-bridge-jp-pro' )
 				: esc_html__( 'Until a license key is activated on this site, customers, orders, and coupons can only be previewed with a dry run. Importing and exporting them requires an activated key.', 'cart-bridge-jp-pro' )
 		);
 
