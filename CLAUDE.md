@@ -56,7 +56,7 @@ npx wp-env run cli wp rewrite flush --hard   # 管理画面が「not a valid JSO
 npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
 npm run test:js              # 管理画面 UI の純粋関数の単体テスト（wp-scripts 同梱の Jest。`plugins/cart-bridge-jp/src/**/test/*.test.ts`。型は `@jest/globals` から import）
-bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中身を検査する（許可した最上位だけ・追跡しているファイルだけ・--no-dev・Pro の識別子なし。CI・release と同じ）。`--plugin cart-bridge-jp-pro` で Pro の zip（無料版の名前空間なし。release-pro.yml・`pro-v*.*.*` のタグ）。`--version` はヘッダーの Version と違えば止まる
+bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中身を検査する（許可した最上位だけ・追跡しているファイルだけ・--no-dev・Pro の識別子なし。CI・release と同じ）。`--plugin cart-bridge-jp-pro` で Pro の zip（`bin/check-pro-zip.php` が無料版の名前空間なし・版 1.0.0 以上のリリースの設定〔接続先・製品 ID・`Update URI`〕を確かめる。release-pro.yml・`pro-v*.*.*` のタグ）。`--version` はヘッダーの Version と違えば止まる
 bin/check-dev-mount.sh       # wp-env がルートをマウントした wp-content/cbjp-dev が HTTP で 403 か（quality.sh・CI）
 npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_header_fields,trademarks   # readme・プラグインヘッダー・商標の検査（R3-3）
 # アンインストールの実機確認は tests サイトで `npx wp-env run tests-cli wp plugin uninstall cart-bridge-jp --deactivate --skip-delete`（--skip-delete が無いとマウント元のリポジトリのファイルが消える。テーブルの削除はテスト基盤が DROP TEMPORARY TABLE に書き換えるのでユニットテストでは観測できない。PR #120）
