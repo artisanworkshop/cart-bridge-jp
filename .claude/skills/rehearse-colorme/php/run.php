@@ -119,10 +119,12 @@ if ( isset( $cbjp_opts['attach'] ) ) {
 
 	$cbjp_connections = cbjp_rh_rest( 'GET', '/cbjp/v1/connections' );
 	$cbjp_missing     = null;
+	$cbjp_colorme_row = null;
 
 	foreach ( 200 === $cbjp_connections['status'] && is_array( $cbjp_connections['data'] ) ? $cbjp_connections['data'] : [] as $cbjp_row ) {
 		if ( is_array( $cbjp_row ) && 'colorme' === ( $cbjp_row['platform'] ?? null ) && is_array( $cbjp_row['missing_scopes'] ?? null ) ) {
-			$cbjp_missing = $cbjp_row['missing_scopes'];
+			$cbjp_missing     = $cbjp_row['missing_scopes'];
+			$cbjp_colorme_row = $cbjp_row;
 		}
 	}
 
@@ -132,6 +134,31 @@ if ( isset( $cbjp_opts['attach'] ) ) {
 
 	if ( [] !== $cbjp_missing ) {
 		cbjp_rh_abort( 'the colorme token lacks scopes: ' . implode( ' ', array_map( 'strval', $cbjp_missing ) ) . ' (reconnect on the Connections tab with Cart Bridge JP Pro active)' );
+	}
+
+	// 拡張が dry-run だけにした種類（R3-8b。キーを有効化していない Pro の顧客・受注・クーポン）は、import/export の run を REST が 400 で断る。
+	// 始める前に宣言（`entities.<向き>[].dry_run_only`）を見て、理由つきで止める。宣言を読めない（項目が無い・真偽値でない）種類も止める（フェイルクローズ）。
+	if ( ! $cbjp_is_dry_run ) {
+		$cbjp_direction  = $cbjp_is_export ? 'export' : 'import';
+		$cbjp_options    = is_array( $cbjp_colorme_row['entities'][ $cbjp_direction ] ?? null ) ? $cbjp_colorme_row['entities'][ $cbjp_direction ] : null;
+		$cbjp_restricted = [];
+
+		if ( null === $cbjp_options ) {
+			cbjp_rh_abort( "GET /connections did not report the colorme {$cbjp_direction} options" );
+		}
+
+		foreach ( $cbjp_options as $cbjp_option ) {
+			if ( ! is_array( $cbjp_option ) || ! in_array( $cbjp_option['key'] ?? null, $cbjp_entities, true ) || false === ( $cbjp_option['dry_run_only'] ?? null ) ) {
+				continue;
+			}
+
+			$cbjp_reason       = is_string( $cbjp_option['dry_run_only_reason'] ?? null ) ? $cbjp_option['dry_run_only_reason'] : '';
+			$cbjp_restricted[] = "{$cbjp_option['key']}" . ( '' !== $cbjp_reason ? " ({$cbjp_reason})" : '' );
+		}
+
+		if ( [] !== $cbjp_restricted ) {
+			cbjp_rh_abort( 'dry run only on this site: ' . implode( ', ', $cbjp_restricted ) . ' (activate the Cart Bridge JP Pro license key; see SKILL.md "Pro のキー")' );
+		}
 	}
 
 	$cbjp_started = cbjp_rh_rest( 'POST', '/cbjp/v1/runs', $cbjp_params );
