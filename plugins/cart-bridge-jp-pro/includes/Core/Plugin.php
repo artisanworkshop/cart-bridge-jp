@@ -13,11 +13,12 @@ use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Admin\LicensePage;
 use CartBridgeJP\Pro\Entities\CommerceEntityTypes;
+use CartBridgeJP\Pro\License\UpdateChecker;
 
 /**
  * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類を無料版の拡張点（`cbjp/entity_types/register`）に
  * 登録し（R3-6c1 で無料版から移した。D27）、それらに要る OAuth のスコープを無料版の認可の要求に足す（R3-6c2）。
- * ライセンスキーの設定画面を WooCommerce メニューの下に置く（R3-8a）。
+ * ライセンスキーの設定画面を WooCommerce メニューの下に置き（R3-8a）、更新を販売サイトから配る（R3-8c）。
  */
 final class Plugin {
 
@@ -55,6 +56,9 @@ final class Plugin {
 
 		// ライセンスキーの設定画面（R3-8a）。
 		LicensePage::create()->register();
+
+		// 更新の配信（R3-8c）。キーを有効化しているサイトだけが販売サイトに問い合わせる。
+		UpdateChecker::create()->register();
 	}
 
 	public function is_booted(): bool {

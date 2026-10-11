@@ -15,8 +15,9 @@ namespace CartBridgeJP\Pro\License;
  * - 状態確認は結果を表示用に記録するだけで、有効化の状態を変えない
  * - 無効化はサーバーが成功を返したときだけローカルの状態を消す（ローカルだけ消す手段は作らない。消すと期限後は有効化し直せない）
  * - 有効化は、有効化済みのサイトでも同じ instance で別のキーを試せる（キーの交換。2026-10-11 ユーザー決定）。サーバーにこのサイトの有効化が
- *   残っていれば（期限内）サーバーが「同じ instance で有効化済み」と断るので、先に無効化してもらう。期限後に新しいキーを買った人が、
- *   無効化できない古いキーを替えられるようにするため
+ *   残っていれば（期限内）API Manager 3.6.0 は「同じ instance で有効化済み」と断るので、先に無効化してもらう。期限後に新しいキーを買った人が、
+ *   無効化できない古いキーを替えられるようにするため。3.8.1 は instance・製品・キーの組で有効化を見るので、期限内でも別のキーの有効化を受け付け、
+ *   前のキーの有効化をサーバーに残す（無効化は送ったキーの有効化だけを消す。R3-8c で実測）。先に無効化する手順はどちらの版でも正しい
  */
 final class LicenseManager {
 
@@ -41,6 +42,21 @@ final class LicenseManager {
 
 	public function is_activated(): bool {
 		return $this->store->is_activated();
+	}
+
+	/**
+	 * 販売サイトの host（設定画面で、キー・サイトのアドレス・版を送る先として出す）。未設定なら null。
+	 */
+	public function server_host(): ?string {
+		$url = $this->config->api_url();
+
+		if ( null === $url ) {
+			return null;
+		}
+
+		$host = wp_parse_url( $url, PHP_URL_HOST );
+
+		return is_string( $host ) && '' !== $host ? $host : null;
 	}
 
 	public function store(): LicenseStore {

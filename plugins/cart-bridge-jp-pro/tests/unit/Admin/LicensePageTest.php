@@ -412,6 +412,33 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'keeps working on this site', $output );
 	}
 
+	/**
+	 * 販売サイトへ送るもの（backlog `r3-8a-license-client/R1-X2`・R3-8c）。接続先が設定されているビルドだけ、送り先の host を添えて出す。
+	 */
+	public function test_tells_what_is_sent_to_the_license_server(): void {
+		$this->as_shop_manager();
+
+		$output = $this->render();
+
+		$this->assertStringContainsString( 'sends the license key, the address of this site, and the version of Cart Bridge JP Pro to the license server (example.com)', $output );
+		$this->assertStringContainsString( 'Updates are checked only while a license key is activated on this site.', $output );
+
+		$page = self::page( new LicenseConfig( '', 0 ), $this->store );
+		ob_start();
+		$page->render_page();
+		$this->assertStringNotContainsString( 'sends the license key', (string) ob_get_clean() );
+	}
+
+	/**
+	 * DB を複製したサイトで無効化すると、元のサイトもライセンスから外れる（無効化は instance で消す。backlog `r3-8a-license-client/R1-X1` を記録だけにした代わり）。
+	 */
+	public function test_warns_that_deactivating_a_copied_site_affects_the_original(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+
+		$this->assertStringContainsString( 'deactivating here also removes the original site from the license, and the original site stops receiving updates', $this->render() );
+	}
+
 	public function test_shows_no_forms_without_a_configured_server(): void {
 		$this->as_shop_manager();
 		$page = self::page( new LicenseConfig( '', 0 ), $this->store );

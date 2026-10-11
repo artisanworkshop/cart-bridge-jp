@@ -121,6 +121,60 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 		$this->assertFalse( self::is_release_without_license_server( '1.0.0', $configured ) );
 	}
 
+	/**
+	 * 更新の配信（R3-8c）は `Update URI` ヘッダーの host のフィルターで行い、要求は接続先の定数へ送る。ヘッダーは販売サイトの URL が決まったときに入れる
+	 * （2026-10-12 ユーザー決定）。版 1.0.0 以上ではヘッダーが無い（wordpress.org の同じスラッグに上書きされうる。backlog `r3-7-monorepo/R1-L4`）・
+	 * https でない・接続先と host が違う（更新のフィルターが呼ばれない）ままの公開を止める。ヘッダーを入れたら版にかかわらず接続先と合わせる。
+	 * ヘッダーは WP と同じ `get_file_data()` で読み、接続先はメインファイルの既定値で比べる（`test_a_release_has_a_configured_license_server()` と同じ理由）。
+	 */
+	public function test_a_release_has_an_update_uri_on_the_license_server_host(): void {
+		$this->assertFalse(
+			self::has_update_uri_problem( CBJP_PRO_VERSION, self::main_file_update_uri(), self::main_file_defaults() ),
+			'Set the Update URI header of cart-bridge-jp-pro.php to an https URL on the host of CBJP_PRO_LICENSE_API_URL.'
+		);
+	}
+
+	public function test_the_update_uri_check_stops_a_missing_or_mismatched_header(): void {
+		$unconfigured = new LicenseConfig( '', 0 );
+		$configured   = new LicenseConfig( 'https://example.com/', 1000 );
+
+		$this->assertFalse( self::has_update_uri_problem( '0.1.0', '', $unconfigured ), '販売サイトが決まるまでは空でよい' );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', '', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', 'http://example.com/cart-bridge-jp-pro/', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', 'https://updates.example.net/', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '0.2.0', 'https://updates.example.net/', $configured ), 'ヘッダーを入れたら版にかかわらず合わせる' );
+		$this->assertTrue( self::has_update_uri_problem( '0.2.0', 'https://example.com/', $unconfigured ) );
+		$this->assertFalse( self::has_update_uri_problem( '1.0.0', 'https://example.com/cart-bridge-jp-pro/', $configured ) );
+		$this->assertFalse( self::has_update_uri_problem( '1.0.0', 'https://EXAMPLE.com/', $configured ), 'host の大文字小文字は区別しない' );
+	}
+
+	public function test_the_version_header_matches_the_constant(): void {
+		$headers = get_file_data( CBJP_PRO_FILE, [ 'Version' => 'Version' ] );
+
+		$this->assertSame( CBJP_PRO_VERSION, $headers['Version'], 'WP はヘッダーの版で更新を比べ、Pro は定数の版を販売サイトへ送る' );
+	}
+
+	private static function has_update_uri_problem( string $version, string $update_uri, LicenseConfig $config ): bool {
+		if ( '' === trim( $update_uri ) ) {
+			return version_compare( $version, '1.0.0', '>=' );
+		}
+
+		$header = wp_parse_url( $update_uri );
+		$server = wp_parse_url( (string) $config->api_url() );
+
+		if ( ! is_array( $header ) || 'https' !== strtolower( (string) ( $header['scheme'] ?? '' ) ) || ! is_array( $server ) ) {
+			return true;
+		}
+
+		return '' === (string) ( $header['host'] ?? '' ) || strtolower( (string) $header['host'] ) !== strtolower( (string) ( $server['host'] ?? '' ) );
+	}
+
+	private static function main_file_update_uri(): string {
+		$headers = get_file_data( CBJP_PRO_FILE, [ 'UpdateURI' => 'Update URI' ] );
+
+		return $headers['UpdateURI'];
+	}
+
 	private static function is_release_without_license_server( string $version, LicenseConfig $config ): bool {
 		if ( version_compare( $version, '1.0.0', '<' ) ) {
 			return false;

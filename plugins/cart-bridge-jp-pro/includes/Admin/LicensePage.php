@@ -170,6 +170,22 @@ final class LicensePage {
 			);
 		}
 
+		// 販売サイトへ送るもの（backlog `r3-8a-license-client/R1-X2`。無料版の readme の External services と同じ考え方）。更新の確認は R3-8c。
+		$server_host = $this->manager->server_host();
+
+		if ( $configured && null !== $server_host ) {
+			printf(
+				'<p class="description">%s</p>',
+				esc_html(
+					sprintf(
+						/* translators: %s: the host name of the license server, such as example.com. */
+						__( 'To activate the license key, check its status, and check for updates, Cart Bridge JP Pro sends the license key, the address of this site, and the version of Cart Bridge JP Pro to the license server (%s). Updates are checked only while a license key is activated on this site.', 'cart-bridge-jp-pro' ),
+						$server_host
+					)
+				)
+			);
+		}
+
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_row( __( 'Status', 'cart-bridge-jp-pro' ), $this->status_text() );
 
@@ -227,7 +243,7 @@ final class LicensePage {
 			$this->render_button_form(
 				self::ACTION_DEACTIVATE,
 				__( 'Deactivate license', 'cart-bridge-jp-pro' ),
-				__( 'This removes the license from this site. After the update period ends, a license cannot be activated again.', 'cart-bridge-jp-pro' ),
+				__( 'This removes the license from this site. After the update period ends, a license cannot be activated again. If the database of this site was copied from another site, such as a staging copy, deactivating here also removes the original site from the license, and the original site stops receiving updates.', 'cart-bridge-jp-pro' ),
 				__( 'Deactivate', 'cart-bridge-jp-pro' )
 			);
 			$this->render_key_form(
