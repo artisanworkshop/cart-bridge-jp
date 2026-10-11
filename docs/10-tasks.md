@@ -851,7 +851,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     `JobManager::start_run()`（import/export の run 全体を `DryRunOnlyException` で断る。ジョブを作らない）と `retry()`（制限中の種類の失敗したジョブ）での拒否、REST の `cbjp_dry_run_only`（400）を足した。無料版の種類は呼ばずに制限なし、拡張の例外は制限に倒す。
     画面はユーザー決定（2026-10-11）どおり、制限中の種類も選べて dry-run に含め、注記と Pro の理由を出し、Run import/export はその種類を送らない（実行できる種類が 0 のときだけ押せない）。Retry の拒否も同日のユーザー決定。
     Pro は `License\LicenseGate`（呼ぶたびに `LicenseStore::is_activated()` を読む）で顧客・受注・クーポンを制限し、設定画面に説明を足した。拡張点の版を 3 にした。`rehearse-colorme` の `run` は制限中の種類の import/export を始める前に止まる。
-    テスト（無料版 `DryRunOnlyEntityTypeTest` 12 件・`FreeScopeTest` のライセンスの語・Jest、Pro `LicenseGateTest`・設定画面）とガード 14 か所の変異、dev サイトの REST・画面で確かめた。詳細は `docs/03` §10.7「R3-8b の実装」
+    テスト（無料版 `DryRunOnlyEntityTypeTest` 13 件・`FreeScopeTest` のライセンスの語・Jest、Pro `LicenseGateTest`・設定画面）とガード 14 か所の変異、dev サイトの REST・画面で確かめた。詳細は `docs/03` §10.7「R3-8b の実装」
   - [ ] **R3-8c: 更新の配信・Pro の zip・リリース**（API Manager からの更新・`Update URI`〔backlog `r3-7-monorepo/R1-L4`〕、`bin/build-zip.sh` を Pro にも使えるようにする〔Pro の zip の中身の検査〕、
     Pro 用のタグ〔例 `pro-v1.0.0`。`v*.*.*` は無料版〕で CI が zip を作って GitHub Release に添付する）
   - [ ] **R3-8d: Pro の i18n**（`load_plugin_textdomain()`・`languages/`・POT・日本語訳。無料版から外れた約 150 件と R3-8a〜c で足す文字列。backlog `r3-7-monorepo/G1-1`・`r3-6c1-move-commerce-to-pro/R1-L4`。wordpress.org の言語パックの対象外なので同梱する）
