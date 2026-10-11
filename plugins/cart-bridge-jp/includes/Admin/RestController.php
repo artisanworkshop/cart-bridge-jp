@@ -12,6 +12,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Core\Uninstaller;
 use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Entities\MappingKind;
@@ -49,6 +50,7 @@ use WP_REST_Response;
  * ツール系（rebuild-mappings。D16）と移行後検証レポート（runs/{run_id}/verification。D17）は
  * F1-7 で実装（`Woo\Tools\*` / `Sync\VerificationReport`）。R3-6a で無料版の上限（`/limits`）・サンプルの
  * クリーンアップ（`/tools/sample-cleanup`）・県コード修復（`/tools/repair-states`）を外した。
+ * `settings/uninstall` はアンインストール時にデータを消すかの設定（R3-5a。PUT だけ `delete_plugins` も要る）。
  */
 final class RestController {
 
@@ -294,6 +296,25 @@ final class RestController {
 			]
 		);
 
+		// R3-5a: アンインストール時にプラグインのデータを消すか（サイト全体で 1 つ。`Core\Uninstaller`）。本文は
+		// `save_uninstall_settings()` が `is_bool()` で手で検証する（export-options と同じ理由）。
+		register_rest_route(
+			self::NAMESPACE,
+			'/settings/uninstall',
+			[
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'get_uninstall_settings' ],
+					'permission_callback' => [ $this, 'check_permission' ],
+				],
+				[
+					'methods'             => 'PUT',
+					'callback'            => [ $this, 'save_uninstall_settings' ],
+					'permission_callback' => [ $this, 'check_uninstall_settings_permission' ],
+				],
+			]
+		);
+
 		register_rest_route(
 			self::NAMESPACE,
 			'/tools/rebuild-mappings',
@@ -356,6 +377,15 @@ final class RestController {
 
 	public function check_permission(): bool {
 		return current_user_can( 'manage_woocommerce' );
+	}
+
+	/**
+	 * アンインストールで何を消すかは、プラグインを削除できるユーザーだけが決める（R3-5a）。`manage_woocommerce` だけの
+	 * shop_manager がオンにしておくと、後で管理者がアンインストールしたときに、管理者の知らないうちにデータが消える。
+	 * `delete_plugins` はマルチサイトではスーパー管理者だけ、`DISALLOW_FILE_MODS` のサイトでは誰も持たない（`map_meta_cap()`）。
+	 */
+	public function check_uninstall_settings_permission(): bool {
+		return $this->check_permission() && current_user_can( 'delete_plugins' );
 	}
 
 	public function get_connections(): WP_REST_Response {
@@ -676,6 +706,45 @@ final class RestController {
 	 */
 	private function export_options_response( string $platform ): array {
 		return [ 'push_images' => ExportOptions::push_images_enabled( $platform ) ];
+	}
+
+	/**
+	 * アンインストール時にプラグインのデータを消すかを返す（R3-5a。未設定・壊れた値は「消さない」）。`can_change` は
+	 * PUT の権限（`check_uninstall_settings_permission()`）を持つか。画面はこれが false ならチェックボックスを止める。
+	 */
+	public function get_uninstall_settings(): WP_REST_Response {
+		return rest_ensure_response( $this->uninstall_settings_response() );
+	}
+
+	/**
+	 * アンインストール時にプラグインのデータを消すかを保存する（R3-5a）。`delete_data` は `is_bool()` で検証する
+	 * （`"true"`・`1` などの型違いを削除の側へ寄せない。欠損・型違いは 400 で、保存済みの値を変えない）。
+	 * run とは関係しない（アンインストールの前にプラグインは停止される）のでプラットフォームのロックは取らない。
+	 */
+	public function save_uninstall_settings( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$delete_data = $request->get_params()['delete_data'] ?? null;
+
+		if ( ! is_bool( $delete_data ) ) {
+			return new WP_Error(
+				'cbjp_invalid_request',
+				__( '"delete_data" must be true or false.', 'cart-bridge-jp' ),
+				[ 'status' => 400 ]
+			);
+		}
+
+		Uninstaller::set_delete_data( $delete_data );
+
+		return rest_ensure_response( $this->uninstall_settings_response() );
+	}
+
+	/**
+	 * @return array{delete_data:bool,can_change:bool}
+	 */
+	private function uninstall_settings_response(): array {
+		return [
+			'delete_data' => Uninstaller::delete_data_enabled(),
+			'can_change'  => $this->check_uninstall_settings_permission(),
+		];
 	}
 
 	/**

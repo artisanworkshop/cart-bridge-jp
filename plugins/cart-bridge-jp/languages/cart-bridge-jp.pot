@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-10T15:12:29+00:00\n"
+"POT-Creation-Date: 2026-10-11T00:09:21+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -75,140 +75,144 @@ msgstr ""
 msgid "Cart Bridge JP"
 msgstr ""
 
-#: includes/Admin/RestController.php:444
+#: includes/Admin/RestController.php:474
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:493
+#: includes/Admin/RestController.php:523
 msgid "No recognized connection fields were provided."
 msgstr ""
 
-#: includes/Admin/RestController.php:503
+#: includes/Admin/RestController.php:533
 msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:571
+#: includes/Admin/RestController.php:601
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:589
+#: includes/Admin/RestController.php:619
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:650
+#: includes/Admin/RestController.php:680
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:658
+#: includes/Admin/RestController.php:688
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:1106
+#: includes/Admin/RestController.php:730
+msgid "\"delete_data\" must be true or false."
+msgstr ""
+
+#: includes/Admin/RestController.php:1175
 #: build/index.js:7
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1148
+#: includes/Admin/RestController.php:1217
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1149
+#: includes/Admin/RestController.php:1218
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1173
+#: includes/Admin/RestController.php:1242
 msgid "Unknown platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1185
+#: includes/Admin/RestController.php:1254
 msgid "The connection request could not be verified. Please try again, or use the manual code entry fallback."
 msgstr ""
 
-#: includes/Admin/RestController.php:1215
+#: includes/Admin/RestController.php:1284
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1278
+#: includes/Admin/RestController.php:1347
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1290
+#: includes/Admin/RestController.php:1359
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1327
-#: includes/Admin/RestController.php:1368
-#: includes/Admin/RestController.php:1438
-#: includes/Admin/RestController.php:1530
+#: includes/Admin/RestController.php:1396
+#: includes/Admin/RestController.php:1437
+#: includes/Admin/RestController.php:1507
+#: includes/Admin/RestController.php:1599
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1452
+#: includes/Admin/RestController.php:1521
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1464
+#: includes/Admin/RestController.php:1533
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1536
+#: includes/Admin/RestController.php:1605
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1563
+#: includes/Admin/RestController.php:1632
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1631
+#: includes/Admin/RestController.php:1700
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1676
+#: includes/Admin/RestController.php:1745
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1681
+#: includes/Admin/RestController.php:1750
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1686
+#: includes/Admin/RestController.php:1755
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1691
+#: includes/Admin/RestController.php:1760
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1698
+#: includes/Admin/RestController.php:1767
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1704
+#: includes/Admin/RestController.php:1773
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1709
+#: includes/Admin/RestController.php:1778
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1719
+#: includes/Admin/RestController.php:1788
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1797
+#: includes/Admin/RestController.php:1866
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1798
+#: includes/Admin/RestController.php:1867
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:1810
+#: includes/Admin/RestController.php:1879
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -990,7 +994,7 @@ msgid "Connection OK."
 msgstr ""
 
 #: build/index.js:8
-#: build/index.js:24
+#: build/index.js:21
 msgid "No platforms are available."
 msgstr ""
 
@@ -1340,6 +1344,34 @@ msgstr ""
 msgid "Error"
 msgstr ""
 
+#: build/index.js:20
+msgid "Data on uninstall"
+msgstr ""
+
+#: build/index.js:20
+msgid "Delete this plugin’s data when it is uninstalled"
+msgstr ""
+
+#: build/index.js:20
+msgid "When this is on, uninstalling the plugin deletes its own data: the saved connections, the links between the stores, the job history and dry-run reports, the logs, the settings, and its other records. The data that was migrated stays in WooCommerce."
+msgstr ""
+
+#: build/index.js:20
+msgid "Deactivating the plugin does not delete anything."
+msgstr ""
+
+#: build/index.js:20
+msgid "Only users who can delete plugins can change this setting."
+msgstr ""
+
+#: build/index.js:20
+msgid "Uninstalling the plugin will delete this data, and it cannot be restored. If you install the plugin again, the links to the items that were imported can be rebuilt with “Rebuild links”, but the links to the items that were exported cannot, so exporting those items again creates duplicates in the store you export to."
+msgstr ""
+
+#: build/index.js:20
+msgid "Reload the page to try again."
+msgstr ""
+
 #. translators: 1: a kind of record, e.g. "Products", 2: how many of them
 #: build/index.js:21
 #, js-format
@@ -1347,211 +1379,28 @@ msgid "%1$s: %2$d"
 msgstr ""
 
 #: build/index.js:21
-msgid "Connections"
-msgstr ""
-
-#: build/index.js:21
-msgid "Mappings"
-msgstr ""
-
-#: build/index.js:21
-msgid "Reconnect the platform on the Connections tab before setting up mappings."
-msgstr ""
-
-#: build/index.js:21
-msgid "Connect a platform on the Connections tab before setting up mappings."
-msgstr ""
-
-#: build/index.js:21
-msgid "Mappings connect values on the platform to values in WooCommerce. Each section below explains when its mapping is used. Set up the mappings before you import or export."
-msgstr ""
-
-#: build/index.js:21
-#: build/index.js:22
-#: build/index.js:24
+#: build/index.js:25
+#: build/index.js:26
 msgid "Platform"
 msgstr ""
 
 #: build/index.js:21
-msgid "Import"
-msgstr ""
-
-#. translators: %s: list of the selected kinds of records, e.g. "Categories, Products"
 #: build/index.js:22
-#, js-format
-msgid "This will write real WooCommerce data (%s) to this site. Continue?"
-msgstr ""
-
-#: build/index.js:22
-msgid "Connect a platform on the Connections tab before importing."
-msgstr ""
-
-#: build/index.js:22
-msgid "Import setup"
-msgstr ""
-
-#: build/index.js:22
-msgid "Entities to migrate"
-msgstr ""
-
-#: build/index.js:22
-msgid "Preview (dry run)"
-msgstr ""
-
-#: build/index.js:22
-msgid "Run import"
-msgstr ""
-
-#: build/index.js:22
-msgid "Preview results"
-msgstr ""
-
-#: build/index.js:22
-#: build/index.js:23
-msgid "Clear"
-msgstr ""
-
-#: build/index.js:22
-msgid "Import results"
-msgstr ""
-
-#: build/index.js:22
-msgid "Export"
-msgstr ""
-
-#: build/index.js:22
-msgid "Connect a platform on the Connections tab before exporting."
-msgstr ""
-
-#: build/index.js:22
-msgid "Mappings between platform values and WooCommerce values are set on the Mappings tab. Set them up before exporting."
-msgstr ""
-
-#: build/index.js:22
-msgid "Open the Mappings tab"
-msgstr ""
-
-#: build/index.js:22
-msgid "Export setup"
-msgstr ""
-
-#: build/index.js:22
-msgid "Entities to export"
-msgstr ""
-
-#. translators: %s: entity name, e.g. "Orders"
-#: build/index.js:23
-#, js-format
-msgid "%s (Beta)"
-msgstr ""
-
-#: build/index.js:23
-msgid "Options"
-msgstr ""
-
-#: build/index.js:23
-msgid "Upload product images (Beta)"
-msgstr ""
-
-#: build/index.js:23
-msgid "Upload product images"
-msgstr ""
-
-#: build/index.js:23
-msgid "Running an export is disabled until this setting loads. Reload the page to try again."
-msgstr ""
-
-#: build/index.js:23
-msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
-msgstr ""
-
-#: build/index.js:23
-msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
-msgstr ""
-
-#: build/index.js:23
-msgid "Preview export (dry run, no writes)"
-msgstr ""
-
-#: build/index.js:23
-msgid "Run export"
-msgstr ""
-
-#: build/index.js:23
-msgid "Preview export results"
-msgstr ""
-
-#: build/index.js:23
-msgid "Export results"
-msgstr ""
-
-#. translators: %s: list of entity labels, e.g. "Products, Customers"
-#: build/index.js:24
-#, js-format
-msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
-msgstr ""
-
-#: build/index.js:24
-msgid "Logs"
-msgstr ""
-
-#: build/index.js:24
-msgid "Job ID"
-msgstr ""
-
-#: build/index.js:24
-msgid "Level"
-msgstr ""
-
-#: build/index.js:24
-msgid "No logs found."
-msgstr ""
-
-#: build/index.js:24
-msgid "Time"
-msgstr ""
-
-#: build/index.js:24
-msgid "Job"
-msgstr ""
-
-#: build/index.js:24
-msgid "Message"
-msgstr ""
-
-#: build/index.js:24
-msgid "Context"
-msgstr ""
-
-#: build/index.js:24
-msgid "Previous"
-msgstr ""
-
-#: build/index.js:24
-msgid "Next"
-msgstr ""
-
-#: build/index.js:24
-msgid "Tools"
-msgstr ""
-
-#: build/index.js:24
-#: build/index.js:25
 msgid "Rebuild links"
 msgstr ""
 
 #. translators: %s: platform label
-#: build/index.js:25
+#: build/index.js:22
 #, js-format
 msgid "Restores the links between %s records and the WooCommerce data this plugin created (for example after a reinstall or a database move). It scans the ownership metadata written during import; nothing is fetched from the platform and no data is modified. Linked records are re-checked on the next import."
 msgstr ""
 
-#: build/index.js:25
+#: build/index.js:22
 msgid "The rebuild paused after the maximum number of batches. Click “Rebuild links” again to continue from where it stopped."
 msgstr ""
 
 #. translators: %d: number of links restored so far
-#: build/index.js:26
+#: build/index.js:23
 #, js-format
 msgid "Scanning… %d link restored so far."
 msgid_plural "Scanning… %d links restored so far."
@@ -1559,7 +1408,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of links restored
-#: build/index.js:27
+#: build/index.js:24
 #, js-format
 msgid "Rebuild finished. %d link restored."
 msgid_plural "Rebuild finished. %d links restored."
@@ -1567,7 +1416,190 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %s: list of kinds of records, e.g. "Products, Orders"
-#: build/index.js:28
+#: build/index.js:25
 #, js-format
 msgid "Some kinds of records could not be scanned, so their links were not restored: %s. Check the Logs tab for the reason."
+msgstr ""
+
+#: build/index.js:25
+msgid "Connections"
+msgstr ""
+
+#: build/index.js:25
+msgid "Mappings"
+msgstr ""
+
+#: build/index.js:25
+msgid "Reconnect the platform on the Connections tab before setting up mappings."
+msgstr ""
+
+#: build/index.js:25
+msgid "Connect a platform on the Connections tab before setting up mappings."
+msgstr ""
+
+#: build/index.js:25
+msgid "Mappings connect values on the platform to values in WooCommerce. Each section below explains when its mapping is used. Set up the mappings before you import or export."
+msgstr ""
+
+#: build/index.js:25
+msgid "Import"
+msgstr ""
+
+#. translators: %s: list of the selected kinds of records, e.g. "Categories, Products"
+#: build/index.js:26
+#, js-format
+msgid "This will write real WooCommerce data (%s) to this site. Continue?"
+msgstr ""
+
+#: build/index.js:26
+msgid "Connect a platform on the Connections tab before importing."
+msgstr ""
+
+#: build/index.js:26
+msgid "Import setup"
+msgstr ""
+
+#: build/index.js:26
+msgid "Entities to migrate"
+msgstr ""
+
+#: build/index.js:26
+msgid "Preview (dry run)"
+msgstr ""
+
+#: build/index.js:26
+msgid "Run import"
+msgstr ""
+
+#: build/index.js:26
+msgid "Preview results"
+msgstr ""
+
+#: build/index.js:26
+#: build/index.js:27
+msgid "Clear"
+msgstr ""
+
+#: build/index.js:26
+msgid "Import results"
+msgstr ""
+
+#: build/index.js:26
+msgid "Export"
+msgstr ""
+
+#: build/index.js:26
+msgid "Connect a platform on the Connections tab before exporting."
+msgstr ""
+
+#: build/index.js:26
+msgid "Mappings between platform values and WooCommerce values are set on the Mappings tab. Set them up before exporting."
+msgstr ""
+
+#: build/index.js:26
+msgid "Open the Mappings tab"
+msgstr ""
+
+#: build/index.js:26
+msgid "Export setup"
+msgstr ""
+
+#: build/index.js:26
+msgid "Entities to export"
+msgstr ""
+
+#. translators: %s: entity name, e.g. "Orders"
+#: build/index.js:27
+#, js-format
+msgid "%s (Beta)"
+msgstr ""
+
+#: build/index.js:27
+msgid "Options"
+msgstr ""
+
+#: build/index.js:27
+msgid "Upload product images (Beta)"
+msgstr ""
+
+#: build/index.js:27
+msgid "Upload product images"
+msgstr ""
+
+#: build/index.js:27
+msgid "Running an export is disabled until this setting loads. Reload the page to try again."
+msgstr ""
+
+#: build/index.js:27
+msgid "Running an export writes data to the connected shop right away. We recommend running this against a test shop first, not your live shop."
+msgstr ""
+
+#: build/index.js:27
+msgid "I understand this writes live data to the connected shop, and I’m ready to run it (ideally on a test shop)."
+msgstr ""
+
+#: build/index.js:27
+msgid "Preview export (dry run, no writes)"
+msgstr ""
+
+#: build/index.js:27
+msgid "Run export"
+msgstr ""
+
+#: build/index.js:27
+msgid "Preview export results"
+msgstr ""
+
+#: build/index.js:27
+msgid "Export results"
+msgstr ""
+
+#. translators: %s: list of entity labels, e.g. "Products, Customers"
+#: build/index.js:28
+#, js-format
+msgid "Nothing was written for: %s. All items were skipped or produced warnings — check the dry-run report or the Logs tab for why."
+msgstr ""
+
+#: build/index.js:28
+msgid "Logs"
+msgstr ""
+
+#: build/index.js:28
+msgid "Job ID"
+msgstr ""
+
+#: build/index.js:28
+msgid "Level"
+msgstr ""
+
+#: build/index.js:28
+msgid "No logs found."
+msgstr ""
+
+#: build/index.js:28
+msgid "Time"
+msgstr ""
+
+#: build/index.js:28
+msgid "Job"
+msgstr ""
+
+#: build/index.js:28
+msgid "Message"
+msgstr ""
+
+#: build/index.js:28
+msgid "Context"
+msgstr ""
+
+#: build/index.js:28
+msgid "Previous"
+msgstr ""
+
+#: build/index.js:28
+msgid "Next"
+msgstr ""
+
+#: build/index.js:28
+msgid "Tools"
 msgstr ""

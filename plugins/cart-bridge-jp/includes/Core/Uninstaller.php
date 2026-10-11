@@ -10,19 +10,61 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Core;
 
 /**
- * `cbjp_delete_data_on_uninstall` オプションが true の場合のみテーブル・オプションを削除する。
+ * `cbjp_delete_data_on_uninstall` オプションが `'yes'` の場合のみテーブル・オプションを削除する（既定は残す）。
+ *
+ * 設定は Tools タブ（`GET/PUT /settings/uninstall`。R3-5a）で変える。値は `'yes'`/`'no'` の文字列で保存し、読むときは
+ * `'yes'` だけを「削除する」とみなす（フェイルクローズ）: `update_option( true )` は DB に `'1'` で入り、別のリクエストの
+ * `get_option()` は文字列を返すので真偽値では比べられない。truthy で判定すると、壊れた値（`'false'`・配列など）まで削除に倒れる。
+ *
+ * `uninstall.php` は vendor/autoload.php の無いチェックアウトでも、このクラスと `Activator` だけを読み込んで呼ぶ。
+ * ほかのクラス（`Sync\JobManager` など）を参照しないこと。
  */
 final class Uninstaller {
 
 	public const DELETE_DATA_OPTION = 'cbjp_delete_data_on_uninstall';
 
+	/**
+	 * Action Scheduler のグループ（`Sync\JobManager::ACTION_GROUP`・`Sync\LogCleanup` と同じ値。上の理由で参照せず書き写す。
+	 * 一致は `UninstallerTest` が確かめる）。
+	 */
+	public const ACTION_GROUP = 'cart-bridge-jp';
+
+	private const ENABLED  = 'yes';
+	private const DISABLED = 'no';
+
 	public static function uninstall(): void {
-		if ( ! get_option( self::DELETE_DATA_OPTION, false ) ) {
+		if ( ! self::delete_data_enabled() ) {
 			return;
 		}
 
+		self::unschedule_actions();
 		self::drop_tables();
 		self::delete_options();
+	}
+
+	public static function delete_data_enabled(): bool {
+		return self::ENABLED === get_option( self::DELETE_DATA_OPTION, self::DISABLED );
+	}
+
+	/**
+	 * アンインストールと設定画面でしか読まないので autoload しない。`update_option()` は値が同じなら autoload を変えずに
+	 * 戻るので、WP-CLI などで autoload ありに作られた行も、保存のたびに autoload なしへ揃える。
+	 */
+	public static function set_delete_data( bool $enabled ): void {
+		update_option( self::DELETE_DATA_OPTION, $enabled ? self::ENABLED : self::DISABLED, false );
+		wp_set_option_autoload( self::DELETE_DATA_OPTION, false );
+	}
+
+	/**
+	 * まだ実行されていない（pending の）ジョブ・ログ整理のアクションを期限によらず取り消す（ログ整理の次回・遅延した再試行のほか、
+	 * 停止中にキューが動かず残ったもの）。残すと、プラグインが消えた後に実行され、コールバックが無いので Action Scheduler が失敗として
+	 * 記録する（停止中にキューが動いていれば、期限の来たものは同じ理由ですでに失敗している）。Action Scheduler が読み込まれていなければ
+	 * （WooCommerce が無効など）何もしない。
+	 */
+	private static function unschedule_actions(): void {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( '', [], self::ACTION_GROUP );
+		}
 	}
 
 	private static function drop_tables(): void {
