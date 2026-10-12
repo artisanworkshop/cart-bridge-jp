@@ -255,8 +255,16 @@ case "$cmd" in
     fi
     product_id=$(printf '%s\n' "$data_out" | sed -n 's/^PRODUCT_ID=\([0-9][0-9]*\)$/\1/p')
     [ -n "$product_id" ] || fail_setup "setup step=data did not report the product ID"
-    sed "s/__PRODUCT_ID__/$product_id/" "$TEMPLATE" > "$dir/$MU_FILE_NAME" || fail_setup "could not write the mu-plugin"
-    grep -qF "$MARKER" "$dir/$MU_FILE_NAME" && grep -qF "(int) '$product_id'" "$dir/$MU_FILE_NAME" || fail_setup "the mu-plugin was not written as expected"
+    # 隣の一時ファイル（拡張子が .php でないので WordPress は読み込まない）に書いて確かめてから、rename で置き換える。
+    # 書いている途中で止まると、読みかけの PHP で dev サイトの全要求が fatal になり、teardown も動かなくなる（G2-3）。
+    mu_tmp="$dir/.$MU_FILE_NAME.tmp"
+    sed "s/__PRODUCT_ID__/$product_id/" "$TEMPLATE" > "$mu_tmp" || { rm -f "$mu_tmp"; fail_setup "could not write the mu-plugin"; }
+    if ! grep -qF "$MARKER" "$mu_tmp" || ! grep -qF "(int) '$product_id'" "$mu_tmp" || ! lint_out=$(php -l "$mu_tmp" 2>&1); then
+      printf '%s\n' "${lint_out:-}" >&2
+      rm -f "$mu_tmp"
+      fail_setup "the mu-plugin was not written as expected"
+    fi
+    chmod 644 "$mu_tmp" && mv -f "$mu_tmp" "$dir/$MU_FILE_NAME" || { rm -f "$mu_tmp"; fail_setup "could not install the mu-plugin"; }
     echo "installed $dir/$MU_FILE_NAME"
     php_run setup step=verify || fail_setup "setup step=verify failed"
     echo "setup: done. Next: $0 measure all"
@@ -336,6 +344,9 @@ case "$cmd" in
     fi
     php_run teardown step=am || die "teardown step=am failed; the mu-plugin was kept (fix the cause, then run: $0 teardown)"
     remove_mu "$dir/$MU_FILE_NAME" || die "could not remove the mu-plugin"
+    # setup が mu-plugin を書く途中で止まると、一時ファイル（WordPress は読み込まない）が残りうる。目印があれば消す。
+    remove_mu "$dir/.$MU_FILE_NAME.tmp" || die "could not remove the temporary mu-plugin file"
+    [ ! -e "$dir/.$MU_FILE_NAME.tmp" ] || die "the temporary mu-plugin file is still there: $dir/.$MU_FILE_NAME.tmp"
     if status_out=$(php_run status); then :; else
       printf '%s\n' "$status_out" >&2
       die "could not count the leftovers"

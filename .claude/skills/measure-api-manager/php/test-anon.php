@@ -185,6 +185,7 @@ $check( 'https://example.com/?user_id=0&am_download_file=0&am_order=1001' === $o
 
 // 配列のキーそのものが手元の ID なら漏れとして報告する（G1-7）。
 $check( str_contains( implode( "\n", cbjp_am_leaks( cbjp_am_anonymize( [ 867 => 'x' ], $ctx ), $ctx ) ), '(key): a local ID (867)' ), 'leaks: reports a local ID used as an array key' );
+$check( str_contains( implode( "\n", cbjp_am_leaks( cbjp_am_anonymize( [ 5 => 'x' ], $ctx ), $ctx ) ), '(key): a local ID (5)' ), 'leaks: reports a local resource ID used as an array key' );
 
 // ID の欄の、知らない値はフィクスチャに残さない（0）。2 件目の注文は 1002。
 $ids = cbjp_am_anonymize(

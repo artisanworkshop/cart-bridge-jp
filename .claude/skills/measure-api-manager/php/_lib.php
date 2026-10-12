@@ -454,8 +454,12 @@ function cbjp_am_delete_actions( array $action_ids ): array {
 	foreach ( $action_ids as $action_id ) {
 		try {
 			\ActionScheduler::store()->delete_action( $action_id );
-			$wpdb->delete( $wpdb->prefix . 'actionscheduler_logs', [ 'action_id' => $action_id ] );
-		} catch ( \Exception $e ) {
+
+			// ログの削除の失敗も数える（消し残しの数え方はログを見ないので、ここで止めないと clean と報告してしまう。G2-B1）。
+			if ( false === $wpdb->delete( $wpdb->prefix . 'actionscheduler_logs', [ 'action_id' => $action_id ] ) ) {
+				$failed[] = $action_id;
+			}
+		} catch ( \Throwable $e ) {
 			$failed[] = $action_id;
 		}
 	}

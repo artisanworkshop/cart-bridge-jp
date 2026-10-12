@@ -34,6 +34,28 @@ $license_options = static function (): array {
 	return $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'cbjp_pro_license_' ) . '%' ) );
 };
 
+// 消したものが本当に無くなったかを読み直す。残っていれば、古い有効化・更新の情報から確かめることになるので止まる（G2-2）。
+$require_gone = static function ( bool $license, bool $log_and_updates ) use ( $license_options ): void {
+	wp_cache_flush();
+	$left = [];
+
+	if ( $license && [] !== $license_options() ) {
+		$left[] = 'Pro license options (' . implode( ', ', $license_options() ) . ')';
+	}
+
+	if ( $log_and_updates && false !== get_option( CBJP_AM_REQUEST_LOG ) ) {
+		$left[] = 'the request log';
+	}
+
+	if ( $log_and_updates && false !== get_site_transient( 'update_plugins' ) ) {
+		$left[] = 'the update_plugins transient';
+	}
+
+	if ( [] !== $left ) {
+		cbjp_am_abort( 'could not remove ' . implode( ', ', $left ), 1 );
+	}
+};
+
 switch ( $opts['step'] ?? '' ) {
 	case 'reset':
 		cbjp_am_reset_resources( $state );
@@ -43,7 +65,8 @@ switch ( $opts['step'] ?? '' ) {
 		}
 
 		delete_site_transient( 'update_plugins' );
-		echo 'reset: resources, Pro license options, request log, update_plugins (left: ', count( $license_options() ), ")\n";
+		$require_gone( true, true );
+		echo "reset: resources, Pro license options, request log, update_plugins\n";
 		break;
 
 	case 'activate':
@@ -67,6 +90,7 @@ switch ( $opts['step'] ?? '' ) {
 
 		delete_option( CBJP_AM_REQUEST_LOG );
 		delete_site_transient( 'update_plugins' );
+		$require_gone( false, true );
 		wp_update_plugins();
 
 		$updates = get_site_transient( 'update_plugins' );
@@ -143,6 +167,8 @@ switch ( $opts['step'] ?? '' ) {
 		foreach ( $license_options() as $option ) {
 			delete_option( $option );
 		}
+
+		$require_gone( true, false );
 
 		echo "forget: the local license record was removed (run check: no request should reach the license server)\n";
 		break;

@@ -170,7 +170,13 @@ foreach ( $requested as $name ) {
 		}
 
 		[ , $label, $body ] = $step;
-		$response          = wp_remote_post(
+
+		// 前の応答を先に消す（この要求が失敗したとき、古い応答が今の setup の応答として compare に残らないように。G2-1）。
+		if ( is_file( "{$out_dir}/{$label}.json" ) && ! unlink( "{$out_dir}/{$label}.json" ) ) {
+			cbjp_am_abort( "could not remove the previous response {$out_dir}/{$label}.json", 1 );
+		}
+
+		$response = wp_remote_post(
 			'http://wordpress/?wc-api=wc-am-api',
 			[
 				'timeout'     => 15,

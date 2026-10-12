@@ -232,6 +232,11 @@ function cbjp_am_leaks( $value, array $ctx, string $path = '' ): array {
 		$ids[] = [ $order_id, 1001 + $index ];
 	}
 
+	// リソース ID もキーに入りうる（G2-4）。
+	foreach ( $ctx['resource_ids'] as $index => $resource_id ) {
+		$ids[] = [ $resource_id, 1 + $index ];
+	}
+
 	foreach ( $ids as [ $id, $mapped ] ) {
 		if ( $id === $mapped ) {
 			continue;
