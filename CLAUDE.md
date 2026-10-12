@@ -172,6 +172,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）
 - カラーミーのテストショップと開発サイトの間で全件リハーサル（インポート全般 → 同じショップへの往復エクスポート → Woo 生まれの作成エクスポート。ColorMe 側のスナップショットを往復の前後で比べる）を回す手順はプロジェクトスキル `/rehearse-colorme`（`.claude/skills/rehearse-colorme/`。R3-1 で作成。店舗の login_id が一致しなければ何もしない）
 - wordpress.org 用のスクリーンショット（`.wordpress-org/screenshot-N.png`）を撮り直す手順はプロジェクトスキル `/wporg-screenshots`（`.claude/skills/wporg-screenshots/`。tests サイトで、実 API に出ず匿名化済みフィクスチャから画面を作る。撮る画面は `shots.json`）
+- 販売サイトのライセンスサーバー（WooCommerce API Manager）を dev サイトに一時的に入れ、Pro が使う API の応答を測ってフィクスチャと比べ、更新の配信を実機で確かめ、完全に消す手順はプロジェクトスキル `/measure-api-manager`（`.claude/skills/measure-api-manager/`。issue #126。API Manager の zip はリポジトリの外。E2E の間だけ Pro のヘッダーに `Update URI` を足す）
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装
 - コミットメッセージは Conventional Commits（`feat:`, `fix:`, `refactor:` ...）

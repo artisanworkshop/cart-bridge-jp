@@ -862,7 +862,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   - [ ] **R3-8d: Pro の i18n**（`load_plugin_textdomain()`・`languages/`・POT・日本語訳。無料版から外れた約 150 件と R3-8a〜c で足す文字列。backlog `r3-7-monorepo/G1-1`・`r3-6c1-move-commerce-to-pro/R1-L4`。wordpress.org の言語パックの対象外なので同梱する）
   - [ ] **販売サイト**（リポジトリの外）: WooCommerce＋API Manager、有効期限の起点を初回アクティベーションにするカスタマイズ（D14）、適格請求書、Pro の 0 円の商品（D30）、API Manager の製品と 0 円の商品に同じ zip を置けるかの確認。
     **R3-8a からの申し送り**: 製品は「無制限の有効化」にする（D14 のサイト数無制限）。API Manager の**猶予期間**（既定 14 日）の間は期限後でも新しいサイトを有効化できるので、D14 の「新しいサイトでの有効化は期限内だけ」を厳密にするなら 0 にする。
-    販売サイトの URL と製品 ID が決まったら Pro の定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID` に入れ、R3-8a・R3-8c の実測（`docs/03` §10.7「R3-8a の実装」「R3-8c の実装」）を本番の販売サイトでやり直す。
+    販売サイトの URL と製品 ID が決まったら Pro の定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID` に入れ、R3-8a・R3-8c の実測（`docs/03` §10.7「R3-8a の実装」「R3-8c の実装」）を本番の販売サイトでやり直す（販売サイトに入れる版の手元での実測はプロジェクトスキル `/measure-api-manager`。本番で人が確かめる項目は同スキルの SKILL.md「本番の販売サイトで確かめること」）。
     **R3-8c からの申し送り**: 同じ host の URL を Pro のヘッダーの `Update URI` にも入れる（`LicenseConfigTest` が版 1.0.0 以上で欠け・https でない・host の不一致を止める）。API Manager の製品に版・`tested`・`requires`・`requires_php`・説明と変更履歴のページを入れる
     （詳細の画面と更新の一覧に出る）。リリースは `pro-v<版>` のタグで、`release-pro.yml` が作った zip を API Manager の製品と 0 円の商品に置く。
     **URL が決まったら、無料版の readme の FAQ「Can it migrate customers, orders, and coupons?」に足す**（R3-4 で行う。R3-6d。`ReadmeTest` が 1.0.0 以上で URL の無い案内を止める）

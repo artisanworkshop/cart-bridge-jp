@@ -2786,6 +2786,7 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
   「期限内は先に無効化」の案内はどちらの版でも正しい手順。先に無効化しないと前のキーの有効化がサーバーに残るが、有効化数は無制限〔D14〕なので害は無い）。期限後の状態確認・無効化の拒否・猶予期間の新しい instance の有効化・期限後のキーの交換は 3.6.0 と同じ。
   猶予期間の後（リソースが消える）は API Manager の背景処理が要り、DB の書き換えでは再現できないので未実測のまま
 - 実測の後、API Manager・テーブル・option・cron、作った製品・注文・顧客・ページ・ダウンロードの承認済みディレクトリ（承認のモードを戻した）・ファイル、一時 mu-plugin、Pro の option を dev サイトから消した
+- この実測（入れる・測る・フィクスチャと比べる・更新の配信の E2E・消して消し残しが 0 か確かめる）は、プロジェクトスキル `/measure-api-manager` にした（issue #126。2026-10-12）。3.6.0 と 3.8.1 で、フィクスチャ 13 件が 3.8.1 の応答と一致すること（3.6.0 は information の節の名前だけが違う: `changelog` が小文字・説明の節が無い）、後片付けの後に dev サイトの全テーブルの行数・option・cron・予定が setup の前と同じことを確かめた
 
 **更新の配信**（Pro。`License\UpdateChecker`・`LicenseClient::update()`/`information()`）:
 - WP 5.8 からの `Update URI` の仕組み: ヘッダーの host の `update_plugins_{host}` で最新の版を返す（host はコアと同じ `wp_parse_url( sanitize_url( … ), PHP_URL_HOST )`。ヘッダーは `get_file_data()` で読む）。
