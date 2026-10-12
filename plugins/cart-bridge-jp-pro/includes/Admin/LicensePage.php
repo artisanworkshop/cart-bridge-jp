@@ -276,8 +276,9 @@ final class LicensePage {
 	 * @param array{checked_at:int,activated:bool,expires:?string} $check
 	 */
 	private function check_text( array $check ): string {
-		/* translators: %s: the date and time of the status check. */
-		$text = sprintf( __( 'Checked on %s.', 'cart-bridge-jp-pro' ), self::format_time( $check['checked_at'] ) ) . ' ' . (
+		$text = self::join_sentences(
+			/* translators: %s: the date and time of the status check. */
+			sprintf( __( 'Checked on %s.', 'cart-bridge-jp-pro' ), self::format_time( $check['checked_at'] ) ),
 			$check['activated']
 				? __( 'The license server lists this site as activated.', 'cart-bridge-jp-pro' )
 				: __( 'The license server does not list this site as activated.', 'cart-bridge-jp-pro' )
@@ -285,7 +286,7 @@ final class LicensePage {
 
 		if ( null !== $check['expires'] ) {
 			/* translators: %s: the end of the update period as reported by the license server (for example, a date or "Expired"). */
-			$text .= ' ' . sprintf( __( 'Update period: %s', 'cart-bridge-jp-pro' ), $check['expires'] );
+			$text = self::join_sentences( $text, sprintf( __( 'Update period: %s', 'cart-bridge-jp-pro' ), $check['expires'] ) );
 		}
 
 		return $text;
@@ -411,7 +412,7 @@ final class LicensePage {
 				: sprintf( __( 'The license server returned an error: %s', 'cart-bridge-jp-pro' ), $result->message ),
 		};
 
-		$message = $lead . ' ' . $reason;
+		$message = self::join_sentences( $lead, $reason );
 
 		if ( LicenseResult::SERVER_ERROR !== $result->code || ! $was_activated ) {
 			return $message;
@@ -427,7 +428,7 @@ final class LicensePage {
 			default                 => '',
 		};
 
-		return '' === $hint ? $message : $message . ' ' . $hint;
+		return '' === $hint ? $message : self::join_sentences( $message, $hint );
 	}
 
 	/**
@@ -443,6 +444,14 @@ final class LicensePage {
 		return $was_activated
 			? __( 'The license server activated the key, but this site could not record it.', 'cart-bridge-jp-pro' )
 			: __( 'The license server activated the key, but this site could not record it. Try again.', 'cart-bridge-jp-pro' );
+	}
+
+	/**
+	 * 訳した文を 2 つつなぐ。`' '` を直に挟むと日本語で「。 」が残るので、区切りも翻訳する（無料版の画面の `joinSentences()` と同じ書式。R3-8d）。
+	 */
+	private static function join_sentences( string $first, string $second ): string {
+		/* translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space. */
+		return sprintf( __( '%1$s %2$s', 'cart-bridge-jp-pro' ), $first, $second );
 	}
 
 	private static function format_time( int $timestamp ): string {
