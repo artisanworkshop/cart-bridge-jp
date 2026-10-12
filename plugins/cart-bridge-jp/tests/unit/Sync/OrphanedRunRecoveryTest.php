@@ -363,7 +363,7 @@ final class OrphanedRunRecoveryTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * ABSPATH の外に置いた `WP_CONTENT_DIR`（Bedrock 等）・ABSPATH の親のパスも外す（R1-3）。
+	 * ABSPATH の外に置いた `WP_CONTENT_DIR`（Bedrock 等）・ABSPATH の親のパスも外す（R1-L2）。
 	 */
 	public function test_a_fatal_error_message_does_not_keep_server_directories(): void {
 		[ $running ] = $this->create_run( 'run-paths', 'mock', [ [ 'category', JobRepository::STATUS_RUNNING ] ], 0 );
@@ -375,12 +375,13 @@ final class OrphanedRunRecoveryTest extends WP_UnitTestCase {
 				$action_id,
 				[
 					'type'    => E_ERROR,
-					'message' => 'Failed opening ' . WP_CONTENT_DIR . '/plugins/a.php and ' . $parent . 'vendor/b.php',
+					'message' => 'Uncaught TypeError: CartBridgeJP\\Sync\\Foo::bar() from https://example.com/x in ' . WP_CONTENT_DIR . '/plugins/a.php and ' . $parent . 'vendor/b.php',
 				]
 			)
 		);
 
-		$this->assertSame( 'Failed opening wp-content/plugins/a.php and vendor/b.php', $this->error( $running )['message'] ?? null );
+		// 名前空間の `\`・URL の `//` は崩さない（R2-1）。
+		$this->assertSame( 'Uncaught TypeError: CartBridgeJP\\Sync\\Foo::bar() from https://example.com/x in wp-content/plugins/a.php and vendor/b.php', $this->error( $running )['message'] ?? null );
 	}
 
 	/**

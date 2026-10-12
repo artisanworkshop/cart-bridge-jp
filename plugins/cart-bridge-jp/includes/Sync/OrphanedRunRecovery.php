@@ -195,10 +195,12 @@ final class OrphanedRunRecovery {
 	private static function fatal_error_message( mixed $error ): string {
 		$message = is_array( $error ) && is_string( $error['message'] ?? null ) ? $error['message'] : '';
 		$lines   = preg_split( '/\R/', $message, 2 );
-		$line    = wp_normalize_path( trim( is_array( $lines ) ? (string) $lines[0] : '' ) );
+		$line    = trim( is_array( $lines ) ? (string) $lines[0] : '' );
 
+		// 文そのものは正規化しない（`wp_normalize_path()` は `\` を `/` にし、連続した `/` をまとめるので、名前空間〔`CartBridgeJP\Sync\Foo`〕や
+		// URL が崩れる。R2-1）。ディレクトリの側を `/` 区切りと `\` 区切りの両方の表記で置き換える。
 		foreach ( self::server_directories() as $directory => $replacement ) {
-			$line = str_replace( $directory, $replacement, $line );
+			$line = str_replace( [ $directory, str_replace( '/', '\\', $directory ) ], $replacement, $line );
 		}
 
 		return mb_substr( $line, 0, self::FATAL_MESSAGE_MAX_LENGTH );
