@@ -70,9 +70,11 @@ echo "gate-reply.sh $*" >> "$STUB_LOG"
 cat > "$STUB_LOG.reply.$2"
 exit "${STUB_RC_REPLY:-0}"
 EOS
+# gate-resolve.sh は本物と同じく「<threadId> resolved=<値>」を出す（値は STUB_RESOLVED。既定 true）。
 cat >"$STUBS/gate-resolve.sh" <<'EOS'
 #!/usr/bin/env bash
 echo "gate-resolve.sh $*" >> "$STUB_LOG"
+echo "$1 resolved=${STUB_RESOLVED:-true}"
 exit "${STUB_RC_RESOLVE:-0}"
 EOS
 chmod +x "$STUBS/gate-reply.sh" "$STUBS/gate-resolve.sh"
@@ -108,6 +110,8 @@ case "$*" in
     jq -r "$jqf" "${STUB_REVIEW_COMMENTS_FILE:-$STUB_EMPTY_JSON}"
     ;;
   *"/issues/"*"/comments"*) jq -r "$jqf" "${STUB_ISSUE_COMMENTS_FILE:-$STUB_EMPTY_JSON}" ;;
+  # gate-resolve.sh（本物）の GraphQL: --jq を当てた後の isResolved の値を STUB_GRAPHQL_RESOLVED（既定 true）で返す。
+  *resolveReviewThread*) printf '%s\n' "${STUB_GRAPHQL_RESOLVED:-true}" ;;
   "pr view"*)
     if [ "${STUB_RC_GH_META:-0}" -ne 0 ]; then exit "$STUB_RC_GH_META"; fi
     printf '%s\n' '{"url":"https://example.com/o/r/pull/66","headRefOid":"1111111111111111111111111111111111111111"}'
@@ -898,6 +902,19 @@ assert_log "post: 2 本目のスレッドも Resolve する" "gate-resolve.sh PR
 run_gr STUB_PR_HEAD="$SHA" STUB_RC_RESOLVE=1 STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
 assert_rc "post: Resolve の失敗は 3" 3
 assert_no_log "post: Resolve に失敗したらサマリを投稿しない" "gh pr comment"
+
+# Resolve のコマンドが成功しても、応答が resolved=true でなければ止める（サマリを投稿しない。PR #129 G3-B1）。
+run_gr STUB_PR_HEAD="$SHA" STUB_RESOLVED=false STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: resolved=false なら 3" 3
+assert_err "post: Resolve されなかったスレッドを示す" "could not resolve the thread PRRT_1 (PRRT_1 resolved=false)"
+assert_no_log "post: resolved=false ならサマリを投稿しない" "gh pr comment"
+# gate-resolve.sh（本物）は、GraphQL が成功しても isResolved が true でなければ 1 で終わる。
+for v in true false null; do
+  rc=0
+  rout=$(env PATH="$STUBS/bin:$PATH" STUB_LOG="$LOG" STUB_GRAPHQL_RESOLVED="$v" "$HERE/gate-resolve.sh" PRRT_9 2>&1) || rc=$?
+  if [ "$v" = true ]; then want=0; else want=1; fi
+  if [ "$rc" = "$want" ]; then ok "gate-resolve.sh: isResolved=${v} は ${want}"; else fail "gate-resolve.sh: isResolved=${v} の終了コード ${rc}（期待 ${want}）: ${rout}"; fi
+done
 
 # 既存の返信の一覧が読めないときは「返信なし」と読まず、何も投稿せずに止める（二重投稿を避ける。R1-5）。
 printf 'not json\n' >"$WORK/review-comments-broken.json"

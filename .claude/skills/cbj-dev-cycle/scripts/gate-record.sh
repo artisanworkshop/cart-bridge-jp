@@ -385,7 +385,7 @@ cmd_replies() {
 cmd_post() {
   load_record || exit 1
   local meta state head sha out plan_out summary type id kind plan dbid tid file note body
-  local posted=0 skipped=0 resolved=0 already=0 summary_state rc
+  local posted=0 skipped=0 resolved=0 already=0 summary_state rc rout
   # 1. PR が OPEN で、修正の commit がすべて PR の HEAD に含まれる（push 済み）こと。
   if ! meta=$(gh pr view "$PR" --json state,headRefOid); then
     echo "gh pr view failed" >&2
@@ -408,7 +408,7 @@ cmd_post() {
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     if ! git merge-base --is-ancestor "$sha^{commit}" "$head^{commit}" 2>/dev/null; then
-      echo "commit ${sha:0:7} is not in the PR head ${head:0:7} (push it first). Nothing was posted" >&2
+      echo "commit ${sha:0:7} is not in the PR head ${head:0:7} (push it first; right after a push, GitHub can take a few seconds to update the PR head, so run post again). Nothing was posted" >&2
       exit 1
     fi
   done < <(jq -r '[.findings[] | select(.kind == "fixed") | .commits[]] | unique | .[]' <<<"$REC_JSON")
@@ -506,8 +506,9 @@ cmd_post() {
     if [ "$plan" = "resolve" ]; then
       if [ -z "$tid" ]; then
         already=$((already + 1))
-      elif ! "$DIR/gate-resolve.sh" "$tid" >/dev/null; then
-        echo "$id: could not resolve the thread $tid (run post again to continue)" >&2
+      elif ! rout=$("$DIR/gate-resolve.sh" "$tid") || [ "$rout" != "$tid resolved=true" ]; then
+        # 応答が resolved=true でなければ、サマリを投稿せずに止める（PR #129 G3-B1）。
+        echo "$id: could not resolve the thread $tid${rout:+ ($rout)} (run post again to continue)" >&2
         exit 3
       else
         resolved=$((resolved + 1))
