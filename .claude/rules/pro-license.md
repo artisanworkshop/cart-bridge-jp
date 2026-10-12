@@ -22,6 +22,6 @@ paths:
 - package の無い更新には `disable_autoupdate => true` を付ける（`WP_Automatic_Updater::should_update()`）。付けないと、自動更新を有効にしたサイトで WP が新しい版ごとに取得を試みて失敗する（PR #125 R1-4）
 - **有効化の状態を変えたら `update_plugins` の site transient を捨てる**（`LicenseManager::forget_update_info()`。前の確認の package は約 7 日有効で、transient は最大 12 時間残る）。
   **サーバーの操作が成功した時点で捨て、手元の記録の成否に結び付けない**（無効化がサーバーで成功した後に記録の書き込みに失敗して早く戻ると、無効化したサイトに更新が出続けた。PR #125 G2-B1）
-- `wp_update_plugins()` は wordpress.org への要求が失敗する（WP_Error・200 以外）と、`update_plugins_{host}` を呼ぶ前に戻る（`wp-includes/update.php`）。wordpress.org に届かないサイトには Pro の更新も出ない（コアの仕様）
+- `wp_update_plugins()` は wordpress.org への要求が失敗する（WP_Error・200 以外）と、`update_plugins_{host}` を呼ぶ前に戻る（`wp-includes/update.php`）。wordpress.org に届かないサイトには Pro の更新も出ない（コアの仕様）。`checked` は wordpress.org の応答の後に全プラグインへ入るので、確かめる側は `checked` に Pro があるか（とヘッダーの `Update URI` が空でないか）で、WP が Update URI の段まで進んだかを見分ける（`measure-api-manager` の `e2e check`。PR #127 R1-2・R2-2）
 - `wp_update_plugins()` を通すテストは、`wp_cache_set( 'plugins', [ '' => $plugins ], 'plugins' )` で `get_plugins()` の結果に `UpdateURI` を持つ Pro を入れ、wordpress.org への要求（`pre_http_request`）には `plugins`・`translations`・`no_update` が空の 200 応答を返す
   （上の早期の return を避ける。`UpdateCheckerTest`）。更新の実行（`Plugin_Upgrader`）は dev・tests サイトでも行わない（CLAUDE.md のコマンド欄）

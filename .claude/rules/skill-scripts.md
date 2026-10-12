@@ -83,3 +83,15 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **PHP のソースから宣言・設定（名前空間・`define()` の既定値）を読む検査は、正規表現・grep ではなく `token_get_all( $src, TOKEN_PARSE )` で読む**。正規表現は、コメントアウトした `define()`・
   複数行に分けた `namespace` の宣言・式の値を読み違え、フェイルクローズのはずの検査を通す（PR #125 で G1-B1・G2-B2・G3-B1 と 3 ラウンド続けて指摘された）。読めない形（同じ名前の定義が 2 つ・
   値や名前が式・メソッドの `define`）は「未設定」として止め、ほかのリテラルの定義を拾わない（`bin/check-pro-zip.php` の `cbjp_zipcheck_define()`）
+- **`npx wp-env run` は中のコマンドの終了コードを 1 にまとめる**（`exit( 3 )` も 1）。PHP の結果の種類は出力の印（`missing tables:`・`PRODUCT_ID=`・`LEFTOVERS=`）で見分ける。
+  `set -o pipefail` の下で `printf '%s\n' "$大きな出力" | grep -q …` は、grep が先に閉じると printf が SIGPIPE になり、正しい入力でもパイプが失敗しうる。文字列は `case "$out"$'\n' in *"…"$'\n'*)` で照合する（`measure-api-manager` の zip の一覧。PR #127 G3-1）
+- **中断で壊れると復旧できないファイル**（mu-plugin・追跡しているファイル・状態ファイル）**はその場で書き戻さない**（`cat tmp > file`・`file_put_contents( $path )` は途中で止まると空や途中までのファイルを残す。
+  読みかけの mu-plugin は dev サイトの全要求を fatal にし、teardown も動かなくなる）。同じディレクトリの一時ファイル（`cp -p` で権限を引き継ぐ。mu-plugins の中では拡張子を `.php` にしない。WordPress が読み込むため）に書き、
+  中身（目印・`php -l`）を確かめてから `mv -f`／`rename()` で置き換える。中断で残った一時ファイルは後片付けが消す（PR #127 G1-5・G2-3・G3-3・G3-4）
+- **dev サイトにデータを作る道具は、後片付けの漏れと中断を前提に作る**（`measure-api-manager`。PR #127 の R1〜G3 で、ほぼすべての指摘がこの形だった）。
+  (1) 状態ファイルを DB とトークン（option と状態ファイルの両方。`random_bytes()`）で結び付け、一致しなければ消さない（DB を作り直した後の古い状態ファイルで、確かめていない DB を消さない）。
+  (2) 保存してから ID を記録するまでの間の中断に備え、目印（meta・ログイン名）を最初の保存で一緒に書き、後片付けは記録に無い目印つきのものも回収する。
+  (3) 消し残しを数える範囲と消す範囲は同じ関数にする。消した後は読み直して確かめる（`update()` の 0 は失敗ではない。値を読み直す）。
+  (4) 実装中に一度、setup の前と teardown の後で DB を丸ごと（全テーブルの行数・option・transient・cron・予定・ファイルの一覧）比べ、数え方の漏れを探す（WC が副作用で積む属性の索引の予定と、注文のメールのログが見つかった）
+- **PHP は関数をファイルの読み込み時に宣言する**ので、先頭の `if ( function_exists( 'x' ) ) { return; }` の守りは初回の読み込みから真になり、後ろの `const` の定義を飛ばす（`Undefined constant`）。
+  定数を持つ補助ファイルは守りを書かず、`require_once` だけで読む（`measure-api-manager` の `php/anon.php`）
