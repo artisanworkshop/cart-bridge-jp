@@ -69,7 +69,10 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   `kses_remove_filters` を登録して kses を外す（実測。`--user` を付けると登録しない）ので、未ログインのままでも kses はかからず、既に 0 のユーザーに `wp_set_current_user( 0 )` しても
   `set_current_user` が発火しないので戻らない。`wp action-scheduler run` で処理したジョブも同じ理由で kses がかからない。WP-Cron（未ログインの HTTP）と同じ条件は
   `wp_set_current_user( 0 ); kses_init_filters();`、戻すときは `kses_remove_filters()`（`rehearse-colorme` の `run.php` の `context=cron|admin`）。
-  管理者のまま処理した最初のリハーサルは、商品名の `&`・`<…>` が変わる問題（issue #99）を隠していた
+  管理者のまま処理した最初のリハーサルは、商品名の `&`・`<…>` が変わる問題（issue #99）を隠していた。
+  **PHP の致命的エラーも WP-CLI と Web の要求で違う**: WordPress の致命的エラーハンドラーは `'exit' => false` で `wp_die()` を呼び、Web の要求ではその後に `shutdown` アクション
+  （Action Scheduler の `FatalErrorMonitor` → `action_scheduler_unexpected_shutdown`）が走るが、WP-CLI の `wp_die` のハンドラーはそこで終了するので走らない。`wp action-scheduler run` で
+  fatal を起こして「フックが走らない」と結論しない。Web の要求の挙動は、Web の要求の中でキューを動かす一時の mu-plugin で測る（R3-9 R1-L1: WP-CLI だけで測り、「既定の設定では走らない」と docs に誤って書いた）
 - **Action Scheduler の claim をグループで絞らない**。移行途中の `ActionScheduler_HybridStore::stake_claim()` は旧ストア（`wpPostStore`）にも問い合わせ、そのグループの term が無いと
   `InvalidArgumentException: The group "…" does not exist` を投げる（実測）。フック名だけで claim し、アクションの引数（job_id）を照合する。他の run のアクションは、そのジョブが開いていれば `unclaim_action()` で手放し、
   閉じている（完了・失敗・キャンセル）か存在しなければ処理して片付ける（キャンセルした run のアクションはキューに残るので、手放すだけだと毎回それを claim して自分の番が来ない。

@@ -83,6 +83,14 @@ description: >
 - **REST（`rest_do_request()`）で走らせた run を管理画面に出すには**: 進行中（未終了のジョブがある）run は、各タブが `GET /runs?platform=` で見つけて自動で取り込む・案内する（R3-0i）ので何もしなくてよい。**終了済みの run** を出すときだけ、localStorage の `cbjp_run_{type}_{platform}`（type は `dry_run`／`import`／`dry_run_export`／`export`）に run_id を入れて `cmd+r` する（タブは直前の run_id をここから復元してポーリングする）。確認後はキーを消す。
 - **Pro の顧客・受注・クーポンを実際に取り込む・エクスポートするには、Pro のキーの有効化の記録が要る**（D30・R3-8b）。記録が無いと Pro はこの 3 種類を dry-run だけにし、`POST /runs` の import/export は 400（`cbjp_dry_run_only`）、画面は「Preview only」の注記を出して Run import/export で送らない（dry-run は通る）。販売サイトが決まるまでのビルドでは画面から有効化できないので、記録だけを書く: `npx wp-env run cli wp option update cbjp_pro_license_state '{"activated":"yes","activated_at":0,"product_id":0}' --format=json`。撤去のときに `npx wp-env run cli wp option delete cbjp_pro_license_state` で戻す（R3-8a の確認で有効化していた開発サイトなら、元の値を控えてから書き換え、撤去で戻す）。制限の表示そのものを確かめるときは記録を書かない
 - **「見失った run」（run_id がブラウザに届かなかった run）を再現するには**、`JobRepository::create()` でジョブを直接作り、`update_status()`/`mark_failed()` で running・paused・失敗で停止（先頭 failed＋兄弟 pending）にする。Action Scheduler の action を作らないので run は動かず、画面を開いても進まない（`JobManager::start_run()` だと管理画面を開いた時点で async runner が処理してしまう）。撤去は `cbjp_jobs` の該当 platform の行を消す（R3-0i）。
+- **画面で run の途中の状態（Running・失敗の説明・Retry）を見るときは、キューを止める一時の mu-plugin を置いてから画面で run を始める**（R3-9）。
+  `add_filter( 'action_scheduler_allow_async_request_runner', '__return_false' )` と `add_filter( 'action_scheduler_queue_runner_concurrent_batches', static fn () => 0 )`
+  （AS の `run()` が `has_maximum_concurrent_batches()` で何もしなくなり、WP-Cron の経路も止まる）。止めないと管理画面の async runner がすぐ処理して run が終わる。
+  進捗の表示（`RunProgress`）は run を始めたブラウザにだけ出る。状態はアクションの `ActionScheduler::store()->mark_failure()`・ジョブの `updated_at` を直接変えて作る。
+  dev サイトの全キューが止まるので、確認が終わったらすぐ外す
+- **撤去はジョブの行だけで終えない**。ジョブより先に、そのジョブのログ（context の `job_id` にだけ ID を持つ行がある。`job_id` 列は空）・`cbjp_dry_run_items`・
+  `cbjp_process_job` のアクション（終了済みも）を消す（R3-9: ジョブだけ消して、ログ 5 件と終了済みのアクション 10 件が残った）。アクションは
+  `as_get_scheduled_actions( [ 'hook' => …, 'status' => '', 'per_page' => -1 ], 'ids' )` で引数の `job_id` を照合し、`ActionScheduler::store()->delete_action()` で消す
 - **検証中だけ効かせたいフィルター**は、ブラウザからの REST にも効かせる必要があるなら mu-plugin に置く（CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
 - **dev サイトには配送ゾーンが無く、Woo 側の配送候補（Pro の `OrderMappingCandidates::shipping_methods()`）が 0 件**（R3-0m）。配送マッピングの解消まで確かめるなら、名前に `ZZV` を含む一時ゾーンに `flat_rate` を足し（`WC_Shipping_Zone` → `add_shipping_method()`）、撤去時にゾーン名を確かめてから `delete()` する。候補 0 件の表示（「先に WooCommerce 側で設定を」）を見たいならゾーンを作る前に確認する
