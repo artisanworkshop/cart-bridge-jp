@@ -1,6 +1,6 @@
 <?php
 /**
- * measure-api-manager: 実測した応答の匿名化と、Pro のフィクスチャとの比較（WordPress を使わない。`scripts/test-anon.sh` がホストの php で確かめる）。
+ * measure-api-manager: 実測した応答の匿名化と、Pro のフィクスチャとの比較（WordPress を使わない。`php/test-anon.php` がホストの php で確かめる）。
  *
  * 匿名化の規則（R3-8c で手で行ったものと同じ。フィクスチャの README の規則）:
  * - サイトの URL（`http://localhost:10010` など）は `https://example.com`
@@ -186,7 +186,9 @@ function cbjp_am_leaks( $value, array $ctx, string $path = '' ): array {
 		$found = [];
 
 		foreach ( $value as $k => $v ) {
-			$found = array_merge( $found, cbjp_am_leaks( $v, $ctx, '' === $path ? (string) $k : $path . '.' . $k ) );
+			$sub = '' === $path ? (string) $k : $path . '.' . $k;
+			// キーも確かめる（匿名化はキーを変えないので、手元の値がキーに入っていればそのまま残る。R1-6）。
+			$found = array_merge( $found, cbjp_am_leaks( (string) $k, $ctx, $sub . ' (key)' ), cbjp_am_leaks( $v, $ctx, $sub ) );
 		}
 
 		return $found;

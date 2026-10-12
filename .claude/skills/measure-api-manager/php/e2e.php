@@ -49,6 +49,11 @@ switch ( $opts['step'] ?? '' ) {
 	case 'activate':
 		$result = \CartBridgeJP\Pro\License\LicenseManager::create()->activate( (string) $state['resources'][0]['key'] );
 		echo 'activate: ', $result->code, ' ', $result->message, "\n";
+
+		if ( ! $result->is_success() ) {
+			exit( 1 );
+		}
+
 		break;
 
 	case 'check':
@@ -57,11 +62,19 @@ switch ( $opts['step'] ?? '' ) {
 		wp_update_plugins();
 
 		$updates = get_site_transient( 'update_plugins' );
-		$row     = is_object( $updates ) ? ( $updates->response[ $file ] ?? null ) : null;
-		$quiet   = is_object( $updates ) ? ( $updates->no_update[ $file ] ?? null ) : null;
+
+		// wp_update_plugins() は wordpress.org への要求が失敗すると、Update URI の段（update_plugins_{host}）の前に戻る。`checked` は
+		// wordpress.org の応答を受けた後に入るので、無ければ「Pro が答えなかった」とも「要求しなかった」とも言えない（R1-2）。
+		if ( ! is_object( $updates ) || ! isset( $updates->checked[ $file ] ) ) {
+			echo "check: WordPress did not reach the Update URI step (the wordpress.org update check failed or did not run); nothing can be concluded\n";
+			exit( 1 );
+		}
+
+		$row     = $updates->response[ $file ] ?? null;
+		$quiet   = $updates->no_update[ $file ] ?? null;
 		$entry   = $row ?? $quiet;
 
-		echo 'in: ', null !== $row ? 'response (an update is offered)' : ( null !== $quiet ? 'no_update' : 'none (Pro did not answer)' ), "\n";
+		echo 'in: ', null !== $row ? 'response (an update is offered)' : ( null !== $quiet ? 'no_update' : 'none (Pro added no entry: not activated, or no answer from the license server)' ), "\n";
 
 		if ( null !== $entry ) {
 			$copy = (array) $entry;

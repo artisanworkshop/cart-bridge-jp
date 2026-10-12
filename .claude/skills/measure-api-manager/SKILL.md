@@ -24,13 +24,17 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 - **dev サイトでだけ動く**: PHP は `home_url()` が `.wp-env.json` の `port` の URL と一致し、環境が `local` のときだけ動く。
 - **始める前に dev サイトがきれいであることを確かめる**（`preflight`）: API Manager（プラグイン・テーブル・option・cron・予定）、Pro のキーの記録、前回の製品・注文・顧客、
   このスキルの mu-plugin、Pro のヘッダーの一時的な行が 1 つでもあれば、何もしないで止まる。残っているものは、中身を確かめてから手で消す（このスキルは自分の状態ファイルにあるものしか消さない）。
-- **作ったものは状態ファイル `dist/api-manager/state.json` に作るたびに書く**。teardown は状態ファイルの ID と目印（投稿・注文の meta `_cbjp_am_probe`、顧客のログイン名 `cbjp-am-buyer`）が
-  一致するものだけを消す。**状態ファイルが無いのに残りがあれば、推測で消さずに止まる**。状態ファイルには手元の API Manager のキーが入る（`dist/` は gitignore 済みで、HTTP で読めないことを毎回確かめる）。
+- **作ったものは状態ファイル `dist/api-manager/state.json` に作るたびに書く**。状態ファイルには手元の API Manager のキーが入る（`dist/` は gitignore 済みで、HTTP で読めないことを毎回確かめる）。
+- **teardown が消すもの**: 製品・ページ・注文・顧客は、状態ファイルの ID と目印（投稿・注文の meta `_cbjp_am_probe`、顧客のログイン名 `cbjp-am-buyer`）が一致するときだけ消す。
+  API Manager のテーブル・option・usermeta・cron・予定と、Pro のキーの記録（`cbjp_pro_license_*`）は**名前で消す**。setup の前に 0 だったことを preflight で確かめているので、消えるのは setup の後にできたもの。
+  **setup の間に dev サイトの Pro の設定画面で保存したキーも消える**（その間、Pro の接続先は手元の API Manager）。
+- **状態ファイルとサイトの DB をトークン**（option `cbjp_am_probe_token`）**で結び付ける**。DB を作り直した（`wp-env clean` など）後に古い状態ファイルが残っていても、それで消さない。
+  **状態ファイルが無い・DB と結び付かないのに残りがあれば、推測で消さずに止まる**。
 - **mu-plugin は後片付けがすべて成功した後に外す**（`wporg-screenshots` と同じ順）。目印の無い同名のファイルは上書きも削除もしない。
 - **更新の実行（`wp plugin update`・管理画面の「今すぐ更新」= Plugin_Upgrader）はしない**。プラグインのディレクトリはリポジトリのマウントで、上書きすると作業ツリーが消える。mu-plugin が
   `upgrader_pre_install` と自動更新を止めている。package は「取得できる URL か」まで（必要なら手で curl して zip の中身を見る）。
-- **E2E は Pro のメインファイルを一時的に書き換える**（`Update URI` が空の間だけ。下の手順 4）。始める前にそのファイルが clean であることを確かめ、`e2e stop`・`teardown` で戻して
-  `git diff` が空であることを確かめる。戻し忘れたまま品質チェックを走らせると、`LicenseConfigTest`（ヘッダーの `Update URI` と接続先の host の一致）が止める。**この状態でコミットしない**。
+- **E2E は Pro のメインファイルを一時的に書き換える**（`Update URI` が空の間だけ。下の手順 5）。始める前にそのファイルが clean であることを確かめ、`e2e stop`・`teardown` で
+  足した行だけを消して、無くなったことを確かめる。戻し忘れたまま品質チェックを走らせると、`LicenseConfigTest`（ヘッダーの `Update URI` と接続先の host の一致）が止める。**この状態でコミットしない**。
 
 ## 手順
 
@@ -45,27 +49,29 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
    - 途中で止まったら `$A teardown`（作ったところまでを消す）。
 3. `$A measure all`（または `$A measure before,activate`）— 下の「測る場面」の要求を送り、応答を `dist/api-manager/out/<API Manager の版>/<名前>.json` に保存する。
    各グループの初めにリソースを戻すので、どのグループからでも、何度でも測れる。
-4. `$A compare` — 応答を匿名化して Pro のフィクスチャと比べる。実行時間・日付・期限・版は比べない。
-   - 違いがあれば差分を出して exit 1。匿名化した応答は `dist/api-manager/anon/<版>/` に置き、手元の値が残っていれば書かない。
+4. `$A compare` — 今の setup で測った応答（`out/<版>/run.json` で見分ける）を匿名化して Pro のフィクスチャと比べる。実行時間・日付・期限・版は比べない。
+   - 違いがあれば差分を出して exit 1。匿名化した応答は `dist/api-manager/anon/<版>/` に置き（前回の分は消してから書く）、手元の値（URL・ID・ハッシュ・キー。配列のキーも）が残っていれば書かない。
+   - 前の setup の応答は比べられない（その setup の ID を知らないので匿名化できない）。別の版と比べるなら、teardown → その版で setup → measure → compare。
    - **フィクスチャは書き換えない**。採るなら差分を読んでから `cp` で写し、Pro のテストと `docs/03` §10.7 を直す。
-   - フィクスチャの多くは 3.6.0（R3-8a）、`information_active` は 3.8.1（R3-8c）で測った。3.6.0 で比べると information の節の名前が違う（`changelog` が小文字・説明の節が無い）。
+   - 有効化・無効化・状態確認のフィクスチャは 3.6.0（R3-8a。3.8.1 でも同じ）、update・information は 3.8.1（R3-8c）で測った。3.6.0 で比べると information の節の名前が違う（`changelog` が小文字・説明の節が無い）。
 5. E2E（更新の配信の実機確認）:
    - `$A e2e start`: リソースと Pro のキーの記録を戻し、Pro のヘッダーに ` * Update URI: http://wordpress/` を足す。ヘッダーに販売サイトの `Update URI` が既に入っていれば触らない
      （要求は mu-plugin の接続先の定数で手元へ行く）。
-   - `$A e2e check`: 未有効化では販売サイトへの要求が 0 件で、Pro の行が出ない。
+   - `$A e2e check`: 未有効化では販売サイトへの要求が 0 件で、Pro の行が出ない。WP が wordpress.org の確認に失敗して Update URI の段まで進まなかったときは、
+     何も言えないので exit 1（コンテナが外に出られないときなど）。
    - `$A e2e activate` → `$A e2e check`: 更新の一覧（`response`）に新しい版と package が出る。
    - `$A e2e details`（「詳細を表示」の `plugins_api`。節は小文字の名前）、`$A e2e rows`（プラグインの一覧の更新の行）。
    - `$A e2e expire` → `$A e2e check` → `$A e2e rows`: package が空で `disable_autoupdate`、更新の行に「自動更新は利用できません」と Pro の説明が出る。
    - `$A e2e forget` → `$A e2e check`: 手元の有効化の記録を消すと要求が 0 件に戻る。
-   - `$A e2e stop`: ヘッダーを戻し、`git diff` が空であることを確かめる。
+   - `$A e2e stop`: 足した行を消し、無くなったことを確かめる。ほかの未コミットの変更（E2E の間に自分で直したもの）は残して警告する。
 6. `$A teardown` — 次の順で行い、最後に消し残しを数え直す。0 でなければ exit 1。何度実行してもよい（途中で止まったら原因を直してもう一度）。
    1. Pro のヘッダーを戻す
    2. 注文 → 製品・ページ（WC が積んだ属性の索引の更新の予定も）→ 顧客、Pro のキーの記録・要求の記録・WP の更新の情報、承認済みディレクトリのモード、アップロード
    3. API Manager を無効化・削除する
-   4. API Manager のテーブル・option・usermeta・cron・予定を消す
+   4. API Manager のテーブル・option・usermeta・cron・予定を消し（数える範囲と同じ関数）、ほかに残りが無ければ DB のトークンを消す
    5. mu-plugin を外す
    - 状態ファイルと写した zip は消し、応答（`out/`・`anon/`）は残す。
-7. `$A status` で `LEFTOVERS=0`・`mu-plugin: absent`・`Pro header: unchanged`、`git status` が clean であることを確かめる。
+7. `$A status` で `LEFTOVERS=0`・`mu-plugin: absent`・`Pro header: no temporary Update URI line`、`git status` が clean であることを確かめる。
 
 ## 測る場面（`php/measure.php`）
 
@@ -89,8 +95,8 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 | `scripts/am.sh` | 入口。サイトの URL・mu-plugin の場所（`npx wp-env install-path`）・出力の置き場所の確認、Pro の zip、Pro のヘッダーの出し入れ、PHP の呼び出しの順序 |
 | `php/_lib.php` | 引数・サイトの確認・状態ファイル・**消し残しの数え方**（preflight と teardown が同じ範囲を数える）・リソースのリセット・期限切れ |
 | `php/preflight.php` / `php/status.php` | 始める前の確認（何も変えない）／状態と消し残しの表示 |
-| `php/setup.php` | `step=init|tables|data|verify`。作るたびに状態ファイルへ書く |
-| `php/measure.php` | 生の要求（Pro と同じく本文で送り、転送しない）と応答の保存 |
+| `php/setup.php` | `step=init\|tables\|data\|verify`。init が DB のトークンを書き、作るたびに状態ファイルへ書く |
+| `php/measure.php` | 生の要求（Pro と同じく本文で送り、転送しない）と応答の保存。どの setup で測ったかを `run.json` に書く |
 | `php/anon.php` | WP を使わない匿名化・比較・漏れの検出とフィクスチャとの対応表。`php/test-anon.php` がホストの php で確かめる（`quality.sh`・CI の dev-tooling） |
 | `php/compare.php` | 匿名化してフィクスチャと比べる |
 | `php/e2e.php` | 更新の配信の実機確認（`wp_update_plugins()`・`plugins_api()`・`wp_plugin_update_row()`） |
@@ -132,8 +138,10 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 
 ## うまくいかないとき
 
-- `preflight` が止まる: 出力の項目（`am_tables`・`am_options`・`pro_license_options` など）を `$A status` で見て、前回の残りなら状態ファイルがあるか確かめ、あれば `$A teardown`。
+- `preflight` が止まる: 出力の項目（`am_tables`・`am_options`・`pro_license_options`・`probe_token` など）を `$A status` で見て、前回の残りなら状態ファイルがあるか確かめ、あれば `$A teardown`。
   無いのに残っているもの（手で入れた API Manager・自分で保存した Pro のキーなど）は、中身を確かめてから手で消す。
+- `the state file does not belong to this dev-site database`: DB を作り直した後に古い状態ファイルが残っている。サイトに残りが無ければ `$A teardown` が状態ファイルを片付ける。
+  残りがあれば止まるので、中身を確かめてから手で消す。
 - `setup` が途中で止まる: 出力の最後の行に理由が出る。`$A teardown` で作ったところまでを消してから、原因を直してやり直す。
 - `teardown` が `LEFTOVERS` で止まる: `$A status` の `leftovers` の 0 でない項目を見る。原因を直してもう一度 `$A teardown`（済んだところは何もしない）。
 - `e2e start` が止まる: Pro のメインファイルに未コミットの変更がある（コミットするか退避してから）。setup が済んでいない。

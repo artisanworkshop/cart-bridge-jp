@@ -39,8 +39,16 @@ switch ( $step ) {
 			}
 		}
 
+		if ( false !== get_option( CBJP_AM_TOKEN_OPTION ) ) {
+			cbjp_am_abort( 'the probe token option already exists (an earlier run? run: am.sh teardown)' );
+		}
+
+		// 状態ファイルとこの DB を結び付けるトークン（R1-1）。状態ファイルを先に書く: option だけが残ると、状態ファイルの無い残りとして teardown が止まる。
+		$token = wp_generate_password( 32, false );
+
 		cbjp_am_state_write(
 			[
+				'token'         => $token,
 				'created_at'    => gmdate( 'Y-m-d\TH:i:s\Z' ),
 				'site'          => $opts['site'],
 				'am_zip'        => $opts['am_zip'],
@@ -51,6 +59,10 @@ switch ( $step ) {
 				'approved_mode' => cbjp_am_approved_register()->get_mode(),
 			]
 		);
+		if ( ! add_option( CBJP_AM_TOKEN_OPTION, $token, '', false ) || get_option( CBJP_AM_TOKEN_OPTION ) !== $token ) {
+			cbjp_am_abort( 'could not save the probe token (run: am.sh teardown)', 1 );
+		}
+
 		echo 'state: ', cbjp_am_state_path(), "\n";
 		break;
 
@@ -82,6 +94,10 @@ switch ( $step ) {
 
 		if ( null === $state || isset( $state['product_id'] ) ) {
 			cbjp_am_abort( 'run step=init first, and only once (the state file already lists a product)' );
+		}
+
+		if ( ! cbjp_am_state_belongs_here( $state ) ) {
+			cbjp_am_abort( 'the state file does not belong to this dev-site database (run: am.sh teardown)', 1 );
 		}
 
 		if ( ! function_exists( 'WCAM' ) || ! function_exists( 'WC_AM_PRODUCT_DATA_STORE' ) || ! function_exists( 'WC_AM_ORDER' ) ) {
@@ -130,9 +146,10 @@ switch ( $step ) {
 		cbjp_am_state_set( 'product_id', $product_id );
 
 		// 説明と変更履歴（information の sections）。説明の script は、Pro が kses することを確かめるため（R3-8c と同じ）。
+		// 文はフィクスチャと同じ固定の文にする（compare は版を比べないので、--new-version に合わせると節が違って見える。R1-4）。
 		$pages = [];
 
-		foreach ( [ 'description' => '<p>Pro description</p><script>alert(1)</script>', 'changelog' => '<h4>' . $state['new_version'] . '</h4><ul><li>Fix</li></ul>' ] as $section => $content ) {
+		foreach ( [ 'description' => '<p>Pro description</p><script>alert(1)</script>', 'changelog' => '<h4>0.1.1</h4><ul><li>Fix</li></ul>' ] as $section => $content ) {
 			$page_id = wp_insert_post(
 				[
 					'post_type'    => 'page',

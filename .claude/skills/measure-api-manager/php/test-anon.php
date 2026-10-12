@@ -160,6 +160,16 @@ foreach ( [ 'the local site address', 'a key or instance', 'a download hash', 'a
 	$check( str_contains( $leaks, $expected ), "leaks: reports {$expected}", $leaks );
 }
 
+// scheme の無い `host:port`（measure が `object` に送る値）は匿名化で置き換わらないので、漏れの検出だけが守り（R1-3）。
+$check(
+	str_contains( implode( "\n", cbjp_am_leaks( cbjp_am_anonymize( [ 'object' => 'localhost:10010' ], $ctx ), $ctx ) ), 'object: the local site address' ),
+	'leaks: reports a scheme-less host:port that anonymizing leaves as is'
+);
+
+// キーに入った手元の値も報告する（匿名化はキーを変えない。R1-6）。
+$key_leaks = implode( "\n", cbjp_am_leaks( cbjp_am_anonymize( [ 'http://localhost:10010/x' => 1, str_repeat( 'k1', 16 ) => 2 ], $ctx ), $ctx ) );
+$check( str_contains( $key_leaks, '(key): the local site address' ) && str_contains( $key_leaks, '(key): a key or instance' ), 'leaks: reports local values in array keys', $key_leaks );
+
 $anon_update = cbjp_am_anonymize( $raw_update, $ctx );
 $check( [] === cbjp_am_leaks( $anon_update, $ctx ), 'leaks: nothing remains after anonymizing', implode( '; ', cbjp_am_leaks( $anon_update, $ctx ) ) );
 $check( 'key <redacted>' === $anon_update['data']['package']['echo'], 'anonymize: secrets are redacted', (string) $anon_update['data']['package']['echo'] );

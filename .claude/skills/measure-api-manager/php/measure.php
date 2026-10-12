@@ -143,14 +143,17 @@ if ( ! is_dir( $out_dir ) && ! wp_mkdir_p( $out_dir ) ) {
 	cbjp_am_abort( "could not create {$out_dir}", 1 );
 }
 
-// 全部を測るときは前回の応答を消す（古い応答と混ざって比べないように）。
-if ( 'all' === $opts['group'] ) {
+// 全部を測るとき・前の setup で測った応答が残っているときは消す（別の setup の ID の応答と混ざって比べないように。R1-5）。
+if ( 'all' === $opts['group'] || ! cbjp_am_measured_in_this_setup( $out_dir, $state ) ) {
 	foreach ( (array) glob( $out_dir . '/*.json' ) as $old ) {
 		if ( is_string( $old ) && ! unlink( $old ) ) {
 			cbjp_am_abort( "could not remove {$old}", 1 );
 		}
 	}
 }
+
+// どの setup で測ったか（compare は、今の状態ファイルの setup で測った応答だけを、その ID で匿名化する。R1-5）。
+cbjp_am_write_run_marker( $out_dir, $state );
 
 $object   = (string) preg_replace( '#^https?://#i', '', home_url() );
 $failures = 0;

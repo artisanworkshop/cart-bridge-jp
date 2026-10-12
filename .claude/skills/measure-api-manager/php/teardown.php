@@ -21,16 +21,21 @@ global $wpdb;
 
 $state = cbjp_am_state();
 
-if ( null === $state ) {
-	$counts = cbjp_am_leftovers( null );
+// 状態ファイルが無い、またはこの DB で setup したものでない（トークンが無い・違う。R1-1）: 残りが無ければ何もしない。あれば推測で消さずに止まる。
+if ( null === $state || ! cbjp_am_state_belongs_here( $state ) ) {
+	$counts = cbjp_am_leftovers( $state );
 	unset( $counts['mu_plugin'] );
 
 	if ( 0 === array_sum( $counts ) ) {
-		echo "teardown: no state file and nothing left\n";
+		echo null === $state ? "teardown: no state file and nothing left\n" : "teardown: the state file does not belong to this database, and nothing is left\n";
 		exit( 0 );
 	}
 
-	cbjp_am_abort( 'no state file, but the dev site holds ' . wp_json_encode( array_filter( $counts ) ) . '. Not guessing what to remove: check what it is and remove it by hand', 1 );
+	cbjp_am_abort(
+		( null === $state ? 'no state file' : 'the state file does not belong to this dev-site database (its token is missing or differs)' )
+			. ', but the dev site holds ' . wp_json_encode( array_filter( $counts ) ) . '. Not guessing what to remove: check what it is and remove it by hand',
+		1
+	);
 }
 
 $failures = [];
@@ -70,8 +75,9 @@ switch ( $opts['step'] ?? '' ) {
 		}
 
 		// 製品の保存・削除で WooCommerce が積んだ属性の索引の更新の予定。製品に属性は無いので索引に行は無く、走らせても何もしない。
+		// その ID の投稿がもう無い（このスキルの製品を消した・前の teardown で消した）ときだけ消す。別物の製品が残っていれば触らない（R1-1）。
 		// 索引に行が残っていれば（このスキルの製品ではありえない）、予定は消さずに残りとして報告する。
-		if ( $product_id > 0 ) {
+		if ( $product_id > 0 && null === get_post( $product_id ) ) {
 			$lookup_rows = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}wc_product_attributes_lookup WHERE product_or_parent_id = %d", $product_id ) );
 
 			if ( 0 !== $lookup_rows ) {
@@ -154,46 +160,32 @@ switch ( $opts['step'] ?? '' ) {
 			$wpdb->query( "DROP TABLE IF EXISTS `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		}
 
-		foreach ( [ 'woocommerce_api_manager', 'kestrel_api_manager', 'wc_am_', 'wcam_', '_transient_wc_am_', '_transient_timeout_wc_am_', '_site_transient_wc_am_', '_site_transient_timeout_wc_am_' ] as $prefix ) {
-			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $prefix ) . '%' ) );
+		// 数える範囲（cbjp_am_leftovers()）と同じ関数で消す。
+		[ $option_where, $option_values ] = cbjp_am_am_option_where();
+		[ $meta_where, $meta_values ]     = cbjp_am_am_usermeta_where();
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE {$option_where}", $option_values ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE {$meta_where}", $meta_values ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		foreach ( cbjp_am_am_cron_hooks() as $hook ) {
+			wp_clear_scheduled_hook( $hook );
 		}
 
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key LIKE %s", '%' . $wpdb->esc_like( 'wc_am_' ) . '%', '%' . $wpdb->esc_like( 'api_manager' ) . '%' ) );
-
-		foreach ( (array) _get_cron_array() as $hooks ) {
-			foreach ( array_keys( (array) $hooks ) as $hook ) {
-				if ( 1 === preg_match( '/wc_am|wcam|kestrel_api_manager/i', (string) $hook ) ) {
-					wp_clear_scheduled_hook( (string) $hook );
-				}
-			}
-		}
-
-		$as_table = $wpdb->prefix . 'actionscheduler_actions';
-
-		if ( $as_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $as_table ) ) ) ) {
-			$action_ids = $wpdb->get_col(
-				$wpdb->prepare(
-					"SELECT action_id FROM {$as_table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
-					'%' . $wpdb->esc_like( 'wc_am' ) . '%',
-					'%' . $wpdb->esc_like( 'wcam' ) . '%',
-					'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%'
-				)
-			);
-
-			foreach ( cbjp_am_delete_actions( array_map( 'intval', $action_ids ) ) as $action_id ) {
-				$failures[] = "could not delete the scheduled action {$action_id}";
-			}
+		foreach ( cbjp_am_delete_actions( cbjp_am_am_action_ids() ) as $action_id ) {
+			$failures[] = "could not delete the scheduled action {$action_id}";
 		}
 
 		flush_rewrite_rules();
 		wp_cache_flush();
 
 		$counts = cbjp_am_leftovers( $state );
-		unset( $counts['mu_plugin'] );
+		unset( $counts['mu_plugin'], $counts['probe_token'] );
 		echo 'leftovers: ', wp_json_encode( $counts ), "\n";
 
 		if ( 0 !== array_sum( $counts ) ) {
 			$failures[] = 'the dev site still holds ' . wp_json_encode( array_filter( $counts ) );
+		} elseif ( ! delete_option( CBJP_AM_TOKEN_OPTION ) ) {
+			// トークンはほかがすべて消えた後に消す（途中で止まったときに、次の teardown が同じ状態ファイルで続きを片付けられるように）。
+			$failures[] = 'could not delete the probe token option';
 		}
 
 		break;

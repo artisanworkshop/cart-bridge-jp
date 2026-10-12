@@ -5,8 +5,11 @@
  * 安全規則（SKILL.md「安全規則」）:
  * - dev サイト（`site=<URL>` と home_url() が一致し、環境が local）でだけ動く（`cbjp_am_require_site()`）。
  * - 書き換える前に、消し残し（`cbjp_am_leftovers()`）が 0 であることを確かめる。setup と teardown は同じ範囲を数える。
- * - 作ったものは状態ファイル（`dist/api-manager/state.json`）に作るたびに書き、teardown は状態ファイルの ID と目印（投稿・注文の meta、
- *   顧客のログイン名）が一致するものだけを消す。状態ファイルが無いのに残りがあれば、推測で消さない。
+ * - 作ったものは状態ファイル（`dist/api-manager/state.json`）に作るたびに書く。teardown は、投稿・注文・顧客を状態ファイルの ID と目印
+ *   （投稿・注文の meta、顧客のログイン名）が一致するときだけ消す。API Manager のテーブル・option など（`cbjp_am_am_option_where()` ほか）と
+ *   Pro のキーの記録は名前で消す（setup の前に 0 だったことを preflight で確かめているので、setup の後にできたもの）。
+ * - 状態ファイルと dev サイトの DB をトークン（option `cbjp_am_probe_token`）で結び付ける。DB を作り直した後に古い状態ファイルで消さない
+ *   （`cbjp_am_state_belongs_here()`）。状態ファイルが無い・DB と結び付かないのに残りがあれば、推測で消さない。
  * - 状態と出力はリポジトリのルートの `dist/api-manager/`（gitignore 済み。HTTP では読めない）にだけ書く。
  *
  * @package CartBridgeJP
@@ -28,6 +31,10 @@ const CBJP_AM_UPLOAD_SUBDIR = 'woocommerce_uploads/cbjp-am';
 const CBJP_AM_MU_FILE = 'cbjp-measure-api-manager.php';
 /** 製品の名前（Pro のフィクスチャと同じ）。 */
 const CBJP_AM_PRODUCT_NAME = 'Cart Bridge JP Pro';
+/** 状態ファイルと dev サイトの DB を結び付けるトークンの option。 */
+const CBJP_AM_TOKEN_OPTION = 'cbjp_am_probe_token';
+/** API Manager の WP-Cron のフック・Action Scheduler の予定の名前（`kestrel_` は 3.7 から）。 */
+const CBJP_AM_HOOK_PATTERN = '/wc_am|wcam|kestrel_api_manager/i';
 
 /**
  * `key=value` の引数を読む。未知・重複のキー、`=` の無い引数は止める（rehearse-colorme の `cbjp_rh_args()` と同じ）。
@@ -185,11 +192,103 @@ function cbjp_am_ready_state(): array {
 		cbjp_am_abort( 'setup has not finished (the state file has no product, customer, or two API resources). Run: am.sh teardown', 1 );
 	}
 
+	if ( ! cbjp_am_state_belongs_here( $state ) ) {
+		cbjp_am_abort( 'the state file does not belong to this dev-site database (its token is missing here or differs). Run: am.sh teardown', 1 );
+	}
+
 	if ( ! function_exists( 'WCAM' ) ) {
 		cbjp_am_abort( 'API Manager is not active', 1 );
 	}
 
 	return $state;
+}
+
+/**
+ * 状態ファイルが、この dev サイトの DB で setup したものか（setup の init が option と状態ファイルの両方に同じトークンを書く）。
+ *
+ * @param array<string,mixed> $state
+ */
+function cbjp_am_state_belongs_here( array $state ): bool {
+	$token = $state['token'] ?? null;
+
+	return is_string( $token ) && 1 === preg_match( '/\A[A-Za-z0-9]{32}\z/', $token ) && get_option( CBJP_AM_TOKEN_OPTION ) === $token;
+}
+
+/**
+ * API Manager の option（transient を含む）を選ぶ WHERE 句と値。数える（`cbjp_am_leftovers()`）と消す（teardown）が同じ範囲を使う。
+ * 前方一致: 3.6 までの `woocommerce_api_manager_`・`wc_am_`、3.7 からの `kestrel_api_manager_`、応答のキャッシュの transient。
+ * 名前に含む: バックグラウンド処理（`wp_<blog>_wcam_events_background_process`・`wp_wc_am_updater`）の `_batch_*` と、`_process_lock` の site transient。
+ *
+ * @return array{0:string,1:list<string>}
+ */
+function cbjp_am_am_option_where(): array {
+	global $wpdb;
+
+	$prefixes = [ 'woocommerce_api_manager', 'kestrel_api_manager', 'wc_am_', 'wcam_', '_transient_wc_am_', '_transient_timeout_wc_am_', '_site_transient_wc_am_', '_site_transient_timeout_wc_am_' ];
+	$contains = [ 'wcam_events_background_process', 'wc_am_updater' ];
+	$values   = array_merge(
+		array_map( static fn( string $p ): string => $wpdb->esc_like( $p ) . '%', $prefixes ),
+		array_map( static fn( string $c ): string => '%' . $wpdb->esc_like( $c ) . '%', $contains )
+	);
+
+	return [ implode( ' OR ', array_fill( 0, count( $values ), 'option_name LIKE %s' ) ), $values ];
+}
+
+/**
+ * API Manager の usermeta（マスターキー `wc_am_master_api_key` など）を選ぶ WHERE 句と値。
+ *
+ * @return array{0:string,1:list<string>}
+ */
+function cbjp_am_am_usermeta_where(): array {
+	global $wpdb;
+
+	return [ 'meta_key LIKE %s OR meta_key LIKE %s', [ '%' . $wpdb->esc_like( 'wc_am_' ) . '%', '%' . $wpdb->esc_like( 'api_manager' ) . '%' ] ];
+}
+
+/**
+ * API Manager の Action Scheduler の予定の ID。
+ *
+ * @return list<int>
+ */
+function cbjp_am_am_action_ids(): array {
+	global $wpdb;
+
+	$table = $wpdb->prefix . 'actionscheduler_actions';
+
+	if ( $table !== $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) ) ) {
+		return [];
+	}
+
+	return array_map(
+		'intval',
+		$wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT action_id FROM {$table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
+				'%' . $wpdb->esc_like( 'wc_am' ) . '%',
+				'%' . $wpdb->esc_like( 'wcam' ) . '%',
+				'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%'
+			)
+		)
+	);
+}
+
+/**
+ * API Manager の WP-Cron のフック。
+ *
+ * @return list<string>
+ */
+function cbjp_am_am_cron_hooks(): array {
+	$found = [];
+
+	foreach ( (array) _get_cron_array() as $hooks ) {
+		foreach ( array_keys( (array) $hooks ) as $hook ) {
+			if ( 1 === preg_match( CBJP_AM_HOOK_PATTERN, (string) $hook ) ) {
+				$found[] = (string) $hook;
+			}
+		}
+	}
+
+	return array_values( array_unique( $found ) );
 }
 
 /**
@@ -251,48 +350,20 @@ function cbjp_am_leftovers( ?array $state ): array {
 
 	$counts = [];
 
-	// API Manager のテーブル・option（transient を含む）・usermeta・WP-Cron・Action Scheduler の予定。3.7 から接頭辞 kestrel_ の option もある。
-	$counts['am_tables']  = count( $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wc_am_' ) . '%' ) ) );
-	$option_patterns      = [ 'woocommerce_api_manager', 'kestrel_api_manager', 'wc_am_', 'wcam_', '_transient_wc_am_', '_transient_timeout_wc_am_', '_site_transient_wc_am_', '_site_transient_timeout_wc_am_' ];
-	$counts['am_options'] = (int) $wpdb->get_var(
-		$wpdb->prepare(
-			"SELECT COUNT(*) FROM {$wpdb->options} WHERE " . implode( ' OR ', array_fill( 0, count( $option_patterns ), 'option_name LIKE %s' ) ),
-			array_map( static fn( string $p ): string => $wpdb->esc_like( $p ) . '%', $option_patterns )
-		)
-	);
-	$counts['am_usermeta'] = (int) $wpdb->get_var(
-		$wpdb->prepare(
-			"SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key LIKE %s",
-			'%' . $wpdb->esc_like( 'wc_am_' ) . '%',
-			'%' . $wpdb->esc_like( 'api_manager' ) . '%'
-		)
-	);
-	$counts['am_cron']     = 0;
+	// API Manager のテーブル・option（transient を含む）・usermeta・WP-Cron・Action Scheduler の予定（teardown が消す範囲と同じ関数）。
+	[ $option_where, $option_values ] = cbjp_am_am_option_where();
+	[ $meta_where, $meta_values ]     = cbjp_am_am_usermeta_where();
 
-	foreach ( (array) _get_cron_array() as $hooks ) {
-		foreach ( array_keys( (array) $hooks ) as $hook ) {
-			if ( 1 === preg_match( '/wc_am|wcam|kestrel_api_manager/i', (string) $hook ) ) {
-				++$counts['am_cron'];
-			}
-		}
-	}
-
-	$as_table = $wpdb->prefix . 'actionscheduler_actions';
-
-	if ( $as_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $as_table ) ) ) ) {
-		$counts['am_scheduled_actions'] = (int) $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COUNT(*) FROM {$as_table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
-				'%' . $wpdb->esc_like( 'wc_am' ) . '%',
-				'%' . $wpdb->esc_like( 'wcam' ) . '%',
-				'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%'
-			)
-		);
-	}
+	$counts['am_tables']            = count( $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wc_am_' ) . '%' ) ) );
+	$counts['am_options']           = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE {$option_where}", $option_values ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$counts['am_usermeta']          = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE {$meta_where}", $meta_values ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$counts['am_cron']              = count( cbjp_am_am_cron_hooks() );
+	$counts['am_scheduled_actions'] = count( cbjp_am_am_action_ids() );
 
 	$counts['am_plugin_dir'] = is_dir( WP_PLUGIN_DIR . '/' . CBJP_AM_PLUGIN_SLUG ) ? 1 : 0;
 
 	// このスキルが作るもの: Pro のキーの記録（E2E）・要求の記録・目印のある投稿と注文・顧客・承認済みディレクトリ・アップロード。
+	$counts['probe_token']         = false === get_option( CBJP_AM_TOKEN_OPTION ) ? 0 : 1;
 	$counts['pro_license_options'] = (int) $wpdb->get_var(
 		$wpdb->prepare(
 			"SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name = %s",
@@ -489,6 +560,31 @@ function cbjp_am_read_resources( int $user_id ): array {
 		],
 		is_array( $rows ) ? $rows : []
 	);
+}
+
+/**
+ * 応答の置き場所に、どの setup で測ったかを書く（`run.json`。状態ファイルの `created_at`）。
+ *
+ * @param array<string,mixed> $state
+ */
+function cbjp_am_write_run_marker( string $out_dir, array $state ): void {
+	$json = wp_json_encode( [ 'setup_created_at' => (string) ( $state['created_at'] ?? '' ) ] );
+
+	if ( ! is_string( $json ) || false === file_put_contents( $out_dir . '/run.json', $json . "\n" ) ) {
+		cbjp_am_abort( "could not write {$out_dir}/run.json", 1 );
+	}
+}
+
+/**
+ * 応答の置き場所が、今の状態ファイルの setup で測ったものか。
+ *
+ * @param array<string,mixed> $state
+ */
+function cbjp_am_measured_in_this_setup( string $out_dir, array $state ): bool {
+	$raw    = is_file( $out_dir . '/run.json' ) ? file_get_contents( $out_dir . '/run.json' ) : false;
+	$marker = false === $raw ? null : json_decode( $raw, true );
+
+	return is_array( $marker ) && is_string( $state['created_at'] ?? null ) && '' !== $state['created_at'] && ( $marker['setup_created_at'] ?? null ) === $state['created_at'];
 }
 
 /**

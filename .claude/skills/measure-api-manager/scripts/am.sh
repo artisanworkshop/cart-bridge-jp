@@ -4,7 +4,7 @@
 #   am.sh status                                       状態ファイル・消し残し・mu-plugin・Pro のヘッダーを表示する（何も変えない）
 #   am.sh setup --zip <API Manager の zip> [--new-version X.Y.Z]   API Manager・製品・顧客・注文・キー 2 つ・mu-plugin を用意する
 #   am.sh measure [all|<グループ>[,<グループ>…]]       生の要求を送り、応答を dist/api-manager/out/<版>/ に保存する
-#   am.sh compare [--version X.Y.Z]                    応答を匿名化して Pro のフィクスチャと比べる（フィクスチャは書き換えない）
+#   am.sh compare                                      今の setup の応答を匿名化して Pro のフィクスチャと比べる（フィクスチャは書き換えない）
 #   am.sh e2e <start|reset|activate|check|details|rows|expire|forget|stop>   更新の配信の実機確認（start/stop は Pro のヘッダーの Update URI を出し入れする）
 #   am.sh teardown                                     作ったものを消し、mu-plugin を外し、消し残しが 0 であることを確かめる
 # wp-env は `npx wp-env`（グローバルの wp-env は使わない）。tests サイト（10011）には触れない。終了コード: 0 成功、1 拒否・失敗、2 使い方の誤り。
@@ -115,7 +115,8 @@ header_insert() {
   esac
 }
 
-# 足した行だけを消し、ファイルが clean に戻ったことを確かめる。ほかの変更が残っていれば、消さずに（足した行だけ消して）失敗する。
+# 足した行だけを消し、無くなったことを確かめる。ほかの未コミットの変更（E2E の間に自分で直したもの）は残し、警告だけ出す
+# （teardown を止めると状態ファイルを片付けられない。足した行が無いことが守るべきこと。R1-11）。
 header_remove() {
   local tmp
   if grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then
@@ -125,8 +126,11 @@ header_remove() {
     rm -f "$tmp"
     echo "removed '$HEADER_LINE' from $PRO_MAIN"
   fi
-  pro_main_clean || { echo "$PRO_MAIN still differs from the committed file after removing the Update URI line; check 'git diff -- $PRO_MAIN'" >&2; return 1; }
-  rm -f "$HEADER_FLAG"
+  ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || { echo "could not remove '$HEADER_LINE' from $PRO_MAIN" >&2; return 1; }
+  rm -f "$HEADER_FLAG" || return 1
+  if ! pro_main_clean; then
+    echo "warning: $PRO_MAIN has other uncommitted changes (not made by this skill); check 'git diff -- $PRO_MAIN'" >&2
+  fi
 }
 
 site_up() {
@@ -146,7 +150,7 @@ case "$cmd" in
     php_run status
     dir=$(mu_dir) || exit 1
     if [ -e "$dir/$MU_FILE_NAME" ]; then echo "mu-plugin: PRESENT ($dir/$MU_FILE_NAME)"; else echo "mu-plugin: absent"; fi
-    if [ -e "$HEADER_FLAG" ] || grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then echo "Pro header: the temporary Update URI line is PRESENT (am.sh e2e stop)"; else echo "Pro header: unchanged"; fi
+    if [ -e "$HEADER_FLAG" ] || grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then echo "Pro header: the temporary Update URI line is PRESENT (am.sh e2e stop)"; else echo "Pro header: no temporary Update URI line"; fi
     ;;
 
   setup)
@@ -175,6 +179,8 @@ case "$cmd" in
     site_up || exit 1
     guard_output_dir || exit 1
     dir=$(mu_dir) || exit 1
+    # 何かを変える前に、mu-plugin を書けることを確かめる（新しい wp-env には mu-plugins が無い。R1-10）。
+    mkdir -p "$dir" && [ -w "$dir" ] || die "cannot write to $dir"
     [ ! -e "$dir/$MU_FILE_NAME" ] || die "a mu-plugin named $MU_FILE_NAME is already there: $dir/$MU_FILE_NAME (an earlier run? run: $0 teardown)"
     [ ! -e "$HEADER_FLAG" ] && ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || die "the temporary Update URI line from an earlier run is still in $PRO_MAIN (run: $0 teardown)"
     php_run preflight || die "preflight refused (nothing was changed)"
@@ -245,17 +251,10 @@ case "$cmd" in
     ;;
 
   compare)
-    version_arg=()
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --version) [ $# -ge 2 ] || usage; version_arg=("version=$2"); shift 2 ;;
-        --version=*) version_arg=("version=${1#--version=}"); shift ;;
-        *) echo "unknown option: $1" >&2; usage ;;
-      esac
-    done
+    [ $# -eq 0 ] || { echo "compare takes no arguments (it compares the responses measured in the current setup)" >&2; usage; }
     site_up || exit 1
     guard_output_dir || exit 1
-    php_run compare ${version_arg[@]+"${version_arg[@]}"}
+    php_run compare
     ;;
 
   e2e)
@@ -280,7 +279,7 @@ case "$cmd" in
         ;;
       stop)
         header_remove || die "could not restore $PRO_MAIN"
-        echo "e2e: stopped ($PRO_MAIN is unchanged)"
+        echo "e2e: stopped (the Update URI line is gone from $PRO_MAIN)"
         ;;
       reset|activate|check|details|rows|expire|forget)
         site_up || exit 1
@@ -316,7 +315,7 @@ case "$cmd" in
     left=$(printf '%s\n' "$status_out" | sed -n 's/^LEFTOVERS=\([0-9][0-9]*\)$/\1/p')
     [ "$left" = 0 ] || die "the dev site still holds what setup created (LEFTOVERS=$left)"
     [ ! -e "$dir/$MU_FILE_NAME" ] || die "the mu-plugin is still there: $dir/$MU_FILE_NAME"
-    pro_main_clean || die "$PRO_MAIN differs from the committed file"
+    [ ! -e "$HEADER_FLAG" ] && ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || die "the temporary Update URI line is still in $PRO_MAIN"
     # 状態ファイル（キーを含む）と、写した zip を消す。応答（out/）と匿名化した応答（anon/）は残す。
     rm -f "$OUT/state.json" "$OUT"/woocommerce-api-manager*.zip "$OUT"/cart-bridge-jp-pro-*.zip "$HEADER_FLAG"
     rm -rf "$OUT/build"
