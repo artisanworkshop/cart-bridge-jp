@@ -378,7 +378,7 @@ cmd_replies() {
 cmd_post() {
   load_record || exit 1
   local meta state head sha out plan_out summary type id kind plan dbid tid file note body
-  local posted=0 skipped=0 resolved=0 already=0 summary_state
+  local posted=0 skipped=0 resolved=0 already=0 summary_state rc
   # 1. PR が OPEN で、修正の commit がすべて PR の HEAD に含まれる（push 済み）こと。
   if ! meta=$(gh pr view "$PR" --json state,headRefOid); then
     echo "gh pr view failed" >&2
@@ -415,8 +415,12 @@ cmd_post() {
   POST_TMP=$out
   trap 'rm -rf "$POST_TMP"' EXIT
   plan_out=$(plan_replies "$out" "$THREADS") || exit 3
-  # cmd_summary の終了コード（記入漏れ 1・gh の失敗 3）をそのまま返す（R1-7）。
-  summary=$(cmd_summary) || exit $?
+  # cmd_summary の記入漏れ（1）はそのまま、それ以外の失敗（gh・jq）は 3 にまとめる（R1-7・R2-2。2 は引数不正と紛れる）。
+  if ! summary=$(cmd_summary); then
+    rc=$?
+    [ "$rc" -eq 1 ] || rc=3
+    exit "$rc"
+  fi
   if grep -rqi '@codex' "$out" || grep -qi '@codex' <<<"$summary"; then
     echo "a reply or the summary contains '@codex' (Codex would answer it); rewrite the record without it. Nothing was posted" >&2
     exit 1
@@ -443,7 +447,6 @@ cmd_post() {
     esac
   }
   # 見つからないスレッドに返信が無ければ（Resolve 済みとも言えない）、何も投稿せずに止める。
-  local rc
   while IFS=$'\037' read -r type id kind plan dbid tid file note; do
     [ "$type" = thread ] && [ -z "$tid" ] || continue
     if has_reply "$dbid" "$file"; then rc=0; else rc=$?; fi

@@ -892,6 +892,10 @@ run_gr STUB_PR_HEAD="$SHA" STUB_REVIEW_COMMENTS_RAW="$WORK/review-comments-broke
 assert_rc "post: 既存の返信を照合できなければ 3（返信なしと読まない）" 3
 assert_err "post: 照合できないと伝える" "could not compare the existing replies"
 assert_no_log "post: 既存の返信を照合できなければ返信しない" "gate-reply.sh"
+# 未解決の一覧に無いスレッドの事前確認でも、照合できなければ 3（「返信なし」の 1 と分ける。R2-1）。
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-missing.json" STUB_REVIEW_COMMENTS_RAW="$WORK/review-comments-broken.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 事前確認で既存の返信を照合できなければ 3" 3
+assert_err "post: 事前確認で照合できないと伝える（何も投稿しない）" "could not compare the existing replies of comment 1003. Nothing was posted"
 
 # 記入漏れの記録は、何も投稿しない（check と同じ検査）。
 mkrec todo 's/判定: 保留/判定: TODO(記入)/'
