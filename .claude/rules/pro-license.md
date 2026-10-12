@@ -10,6 +10,7 @@ paths:
 
 > Pro の `includes/License/**`・設定画面（`Admin\LicensePage`）を触るときに効く。実測の記録と設計の全体は `docs/03` §10.7「R3-8a の実装」「R3-8b の実装」「R3-8c の実装」。
 > 応答のフィクスチャは Pro の `tests/fixtures/api-manager/`（3.6.0・3.8.1 で実測）。販売サイトの API Manager の版が変わったら、ここに書いた癖を実測し直す。
+> 実測・フィクスチャとの比較・更新の配信の実機確認は、プロジェクトスキル `/measure-api-manager`（dev サイトに API Manager を一時的に入れ、完全に消す。issue #126）で回す。
 
 - **エラーでも HTTP 200** で、本文が `success: false`。成功は HTTP 200・JSON のオブジェクト・`success === true`（実 bool）・操作ごとの印（`activated`・`deactivated` など）がそろったときだけにする（`LicenseClient::request()`）
 - **`information` の `sections` のキーは、販売サイトの言語に訳した表示名**（en は `Description`・`Other notes`、ja は「説明」「その他の注意点」など）で、WP の詳細の画面が引く小文字の名前（`description`・`other_notes`）と違う。
