@@ -118,6 +118,62 @@ switch ( $opts['step'] ?? '' ) {
 			}
 		}
 
+		// setup が保存した後、状態ファイルに ID を記録する前に止まった分（G3-2）。この DB の状態ファイル（トークンが一致）で、setup の前に 0 だった
+		// 目印・ログイン名を持つものなので、このスキルが作ったもの。注文 → 製品・ページ → 顧客の順に消す。ほかの種類の投稿に目印があれば消さずに報告する。
+		foreach ( wc_get_orders(
+			[
+				'limit'    => -1,
+				'return'   => 'ids',
+				'status'   => array_merge( array_keys( wc_get_order_statuses() ), [ 'trash' ] ),
+				'meta_key' => CBJP_AM_MARKER_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			]
+		) as $order_id ) {
+			$order = wc_get_order( $order_id );
+
+			if ( false !== $order && 'yes' === $order->get_meta( CBJP_AM_MARKER_META ) && ! $order->delete( true ) ) {
+				$failures[] = "could not delete the unrecorded probe order {$order_id}";
+			}
+		}
+
+		foreach ( array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = 'yes'", CBJP_AM_MARKER_META ) ) ) as $post_id ) {
+			$post = get_post( $post_id );
+
+			if ( null === $post ) {
+				continue;
+			}
+
+			if ( 'product' === $post->post_type && CBJP_AM_PRODUCT_NAME === $post->post_title ) {
+				$product = wc_get_product( $post_id );
+
+				if ( ! $product instanceof WC_Product || ! $product->delete( true ) ) {
+					$failures[] = "could not delete the unrecorded probe product {$post_id}";
+				} elseif ( null === get_post( $post_id ) ) {
+					// 属性の索引の予定も、上と同じく消す（製品に属性は無い）。
+					foreach ( cbjp_am_delete_actions( cbjp_am_lookup_action_ids( $post_id ) ) as $action_id ) {
+						$failures[] = "could not delete the scheduled action {$action_id}";
+					}
+				}
+			} elseif ( 'page' === $post->post_type && str_starts_with( $post->post_title, 'cbjp-am-' ) ) {
+				if ( ! wp_delete_post( $post_id, true ) ) {
+					$failures[] = "could not delete the unrecorded probe page {$post_id}";
+				}
+			} else {
+				$failures[] = "post {$post_id} ({$post->post_type}) has the probe marker but is not a probe product or page; left as is";
+			}
+		}
+
+		$unrecorded_buyer = get_user_by( 'login', CBJP_AM_BUYER_LOGIN );
+
+		if ( false !== $unrecorded_buyer ) {
+			require_once ABSPATH . 'wp-admin/includes/user.php';
+
+			if ( 'buyer@example.com' !== $unrecorded_buyer->user_email ) {
+				$failures[] = 'user ' . $unrecorded_buyer->ID . ' has the probe login but another email; left as is';
+			} elseif ( ! wp_delete_user( $unrecorded_buyer->ID ) ) {
+				$failures[] = 'could not delete the unrecorded probe customer ' . $unrecorded_buyer->ID;
+			}
+		}
+
 		// Pro のキーの記録（E2E で有効化したもの。preflight で無いことを確かめてから始めた）・要求の記録・手元の API Manager の package が入った更新の情報。
 		foreach ( $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'cbjp_pro_license_' ) . '%' ) ) as $option ) {
 			delete_option( $option );
@@ -125,6 +181,13 @@ switch ( $opts['step'] ?? '' ) {
 
 		delete_option( CBJP_AM_REQUEST_LOG );
 		delete_site_transient( 'update_plugins' );
+
+		// 手元の API Manager の package が入った更新の情報が、本当に消えたかを読み直す（消し残しの数え方はこの transient を見ない。G3-B3）。
+		wp_cache_flush();
+
+		if ( false !== get_site_transient( 'update_plugins' ) ) {
+			$failures[] = 'could not delete the update_plugins site transient (it may hold the local package URL)';
+		}
 
 		$register   = cbjp_am_approved_register();
 		$dirs_table = $wpdb->prefix . 'wc_product_download_directories';

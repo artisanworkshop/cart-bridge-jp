@@ -26,6 +26,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
   このスキルの mu-plugin、Pro のヘッダーの一時的な行が 1 つでもあれば、何もしないで止まる。残っているものは、中身を確かめてから手で消す（このスキルは、自分の状態ファイルがこの DB と結び付いているときしか消さない）。
 - **作ったものは状態ファイル `dist/api-manager/state.json` に作るたびに書く**。状態ファイルには手元の API Manager のキーが入る（`dist/` は gitignore 済みで、HTTP で読めないことを毎回確かめる）。
 - **teardown が消すもの**: 製品・ページ・注文・顧客は、状態ファイルの ID と目印（投稿・注文の meta `_cbjp_am_probe`、顧客のログイン名 `cbjp-am-buyer`）が一致するときだけ消す。
+  setup が保存した後、ID を記録する前に止まった分も、目印（製品は名前、ページは `cbjp-am-` の題、顧客はメールも）で見つけて消す。ほかの種類の投稿に目印があれば消さずに止まる。
   API Manager のテーブル・option・usermeta・cron・予定と、Pro のキーの記録（`cbjp_pro_license_*`）は**名前で消す**。setup の前に 0 だったことを preflight で確かめているので、消えるのは setup の後にできたもの。
   **setup の間に dev サイトの Pro の設定画面で保存したキーも消える**（その間、Pro の接続先は手元の API Manager）。
 - **状態ファイルとサイトの DB をトークン**（option `cbjp_am_probe_token`）**で結び付ける**。DB を作り直した（`wp-env clean` など）後に古い状態ファイルが残っていても、それで消さない。
@@ -34,7 +35,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 - **更新の実行（`wp plugin update`・管理画面の「今すぐ更新」= Plugin_Upgrader）はしない**。プラグインのディレクトリはリポジトリのマウントで、上書きすると作業ツリーが消える。mu-plugin が
   `upgrader_pre_install` と自動更新を止めている。package は「取得できる URL か」まで（必要なら手で curl して zip の中身を見る）。
 - **E2E は Pro のメインファイルを一時的に書き換える**（`Update URI` が空の間だけ。下の手順 5）。始める前にそのファイルが clean であることを確かめ、`e2e stop`・`teardown` で
-  足した行だけを消して、無くなったことを確かめる。戻し忘れたまま品質チェックを走らせると、`LicenseConfigTest`（ヘッダーの `Update URI` と接続先の host の一致）が止める。**この状態でコミットしない**。
+  足した行だけを消して、無くなったことを確かめる。書き換えは同じディレクトリの一時ファイル（`.cbjp-am-header.*`。権限を引き継ぐ）に書いてから rename する。戻し忘れたまま品質チェックを走らせると、`LicenseConfigTest`（ヘッダーの `Update URI` と接続先の host の一致）が止める。**この状態でコミットしない**。
 
 ## 手順
 
@@ -49,6 +50,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
    - 途中で止まったら `$A teardown`（作ったところまでを消す）。
 3. `$A measure all`（または `$A measure before,activate`）— 下の「測る場面」の要求を送り、応答を `dist/api-manager/out/<API Manager の版>/<名前>.json` に保存する。
    各グループの初めにリソースを戻し（戻ったことを読み直して確かめる）、どのグループからでも、何度でも測れる。API Manager はエラーも HTTP 200 で返すので、200 以外は測定の失敗（exit 1）。
+   どの setup で測ったかの印（`run.json`）は、すべての要求と最後のリセットが成功したときだけ書く（失敗・中断の後は、測り直すまで compare が止まる）。
 4. `$A compare` — 今の setup で測った応答（`out/<版>/run.json` で見分ける）を匿名化して Pro のフィクスチャと比べる。実行時間・日付・期限・版は比べない。
    - 違いがあれば差分を出して exit 1。匿名化した応答は `dist/api-manager/anon/<版>/` に置き（前回の分は消してから書く）、手元の値（URL・ID・ハッシュ・キー。配列のキーも）が残っていれば書かない。
    - 前の setup の応答は比べられない（その setup の ID を知らないので匿名化できない）。別の版と比べるなら、teardown → その版で setup → measure → compare。

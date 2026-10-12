@@ -112,17 +112,27 @@ pro_main_clean() {
   git diff --quiet -- "$PRO_MAIN" && git diff --cached --quiet -- "$PRO_MAIN"
 }
 
+# Pro のメインファイルを awk の結果で置き換える。同じディレクトリの一時ファイル（cp -p で権限を引き継ぐ。拡張子が .php でない）に書いてから
+# rename する（その場で書き戻すと、途中で止まったときに Pro のメインファイルが空や途中までになり、E2E の間のほかの変更も失われる。G3-3・G3-4）。
+# 引数は awk にそのまま渡す（-v … とプログラム）。
+rewrite_pro_main() {
+  local tmp
+  tmp=$(mktemp "$(dirname "$PRO_MAIN")/.cbjp-am-header.XXXXXX") || return 1
+  if ! cp -p "$PRO_MAIN" "$tmp" || ! awk "$@" "$PRO_MAIN" > "$tmp" || [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$PRO_MAIN" || { rm -f "$tmp"; return 1; }
+}
+
 # E2E のために Update URI の行を足す。ファイルが clean で、ヘッダーに Update URI が無いときだけ。足した後は差分が 1 行の追加だけであることを確かめる。
 header_insert() {
-  local tmp numstat
+  local numstat
   pro_main_clean || { echo "$PRO_MAIN has uncommitted changes; commit or stash them first (e2e start edits this file and must be able to restore it exactly)" >&2; return 1; }
   grep -qxF "$HEADER_AFTER" "$PRO_MAIN" || { echo "could not find the line '$HEADER_AFTER' in $PRO_MAIN" >&2; return 1; }
-  tmp=$(mktemp) || return 1
-  if ! awk -v after="$HEADER_AFTER" -v line="$HEADER_LINE" '{ print } $0 == after { print line }' "$PRO_MAIN" > "$tmp"; then rm -f "$tmp"; return 1; fi
-  # cat で書き戻す（mv だとファイルの権限が一時ファイルのものになる）。
-  if ! cat "$tmp" > "$PRO_MAIN"; then rm -f "$tmp"; return 1; fi
-  rm -f "$tmp"
+  # 印を先に置く（書き換えの直後に止まっても、teardown が足した行を探して消せるように）。
   touch "$HEADER_FLAG" || return 1
+  rewrite_pro_main -v after="$HEADER_AFTER" -v line="$HEADER_LINE" '{ print } $0 == after { print line }' || return 1
   numstat=$(git diff --numstat -- "$PRO_MAIN") || return 1
   case "$numstat" in
     "1	0	$PRO_MAIN") echo "added '$HEADER_LINE' to $PRO_MAIN (am.sh e2e stop / teardown removes it)" ;;
@@ -133,14 +143,12 @@ header_insert() {
 # 足した行だけを消し、無くなったことを確かめる。ほかの未コミットの変更（E2E の間に自分で直したもの）は残し、警告だけ出す
 # （teardown を止めると状態ファイルを片付けられない。足した行が無いことが守るべきこと。R1-11）。
 header_remove() {
-  local tmp
   if grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then
-    tmp=$(mktemp) || return 1
-    if ! awk -v line="$HEADER_LINE" '$0 != line { print }' "$PRO_MAIN" > "$tmp"; then rm -f "$tmp"; return 1; fi
-    if ! cat "$tmp" > "$PRO_MAIN"; then rm -f "$tmp"; return 1; fi
-    rm -f "$tmp"
+    rewrite_pro_main -v line="$HEADER_LINE" '$0 != line { print }' || return 1
     echo "removed '$HEADER_LINE' from $PRO_MAIN"
   fi
+  # 置き換えの途中で止まったときの一時ファイル（未追跡のまま作業ツリーに残る）を消す。
+  rm -f "$(dirname "$PRO_MAIN")"/.cbjp-am-header.* || return 1
   if grep -qF "$HEADER_MARK" "$PRO_MAIN"; then
     echo "a line with '$HEADER_MARK' is still in $PRO_MAIN (changed after e2e start?); remove it by hand" >&2
     return 1
@@ -194,7 +202,11 @@ case "$cmd" in
     esac
     case "$am_base" in *[!A-Za-z0-9._-]*) die "unexpected characters in the zip name: $am_base" ;; esac
     if listing=$(unzip -l "$zip" 2>&1); then :; else die "could not read $zip: $listing"; fi
-    printf '%s\n' "$listing" | grep -q ' woocommerce-api-manager/woocommerce-api-manager\.php$' || die "$zip does not hold woocommerce-api-manager/woocommerce-api-manager.php"
+    # 文字列で照合する（大きな一覧を grep -q へパイプすると、grep が先に閉じて printf が SIGPIPE になり、pipefail で正しい zip を拒みうる。G3-1）。
+    case "$listing"$'\n' in
+      *" woocommerce-api-manager/woocommerce-api-manager.php"$'\n'*) ;;
+      *) die "$zip does not hold woocommerce-api-manager/woocommerce-api-manager.php" ;;
+    esac
 
     site_up || exit 1
     guard_output_dir || exit 1
@@ -241,10 +253,10 @@ case "$cmd" in
     # WP-CLI で有効化しても API Manager のテーブルが作られないことがある（R3-8c）。init の check_version を HTTP の要求で起こす。
     # `npx wp-env run` は中のコマンドの終了コードを 1 にまとめるので、テーブルが無いことは出力で見分ける。
     if tables_out=$(php_run setup step=tables); then printf '%s\n' "$tables_out"; else
-      if ! printf '%s\n' "$tables_out" | grep -q '^missing tables:'; then
-        printf '%s\n' "$tables_out" >&2
-        fail_setup "setup step=tables failed"
-      fi
+      case "$tables_out" in
+        *"missing tables:"*) ;;
+        *) printf '%s\n' "$tables_out" >&2; fail_setup "setup step=tables failed" ;;
+      esac
       echo "API Manager did not create its tables on activation; starting its installer with an HTTP request"
       curl -s -o /dev/null "$SITE/wp-admin/admin-ajax.php" || true
       php_run setup step=tables || fail_setup "API Manager did not create its tables"

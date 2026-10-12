@@ -152,8 +152,10 @@ if ( 'all' === $opts['group'] || ! cbjp_am_measured_in_this_setup( $out_dir, $st
 	}
 }
 
-// どの setup で測ったか（compare は、今の状態ファイルの setup で測った応答だけを、その ID で匿名化する。R1-5）。
-cbjp_am_write_run_marker( $out_dir, $state );
+// 測り終えるまでは「この setup で測った」の印を外しておく（途中で止まったとき、まだ測っていない名前の古い応答で compare が通らないように。G3-B2）。
+if ( is_file( $out_dir . '/run.json' ) && ! unlink( $out_dir . '/run.json' ) ) {
+	cbjp_am_abort( "could not remove {$out_dir}/run.json", 1 );
+}
 
 $object   = (string) preg_replace( '#^https?://#i', '', home_url() );
 $failures = 0;
@@ -232,6 +234,9 @@ cbjp_am_reset_resources( $state );
 echo "saved to {$out_dir} (the resources were reset)\n";
 
 if ( 0 !== $failures ) {
-	echo "measure: {$failures} request(s) failed\n";
+	echo "measure: {$failures} request(s) failed (compare refuses these responses until a measurement succeeds)\n";
 	exit( 1 );
 }
+
+// すべての要求と最後のリセットが成功したときだけ、どの setup で測ったかを書く（compare は、今の setup で測った応答だけを、その ID で匿名化する。R1-5・G3-B2）。
+cbjp_am_write_run_marker( $out_dir, $state );
