@@ -891,8 +891,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   （CAS の `JobRepository::mark_failed_if_idle()`。AS を確かめられなければ何もしない `live_action_job_ids()`）。呼ぶのは開始・Retry・ロックで囲むツールの判定の前と `GET /runs`（ロックなし）。
   計画時の独立レビューで、AS が in-progress を 5 分で失敗扱いにするため長いページを処理の途中で誤って回復する High が見つかり、ハートビート（`Sync\JobHeartbeat`。ページの開始時・
   アイテムごと〔`Importer`/`Exporter::run_page()` の末尾の `$heartbeat`〕・`http_api_debug`）で `updated_at` を進めるようにした。致命的エラーは `action_scheduler_unexpected_shutdown` で
-  即時に `fatal_error`（PHP のエラーの 1 行目）にするが、既定の設定では WordPress の致命的エラーハンドラーが `wp_die()` で終わってこのフックが走らないと実測で分かった（その場合は AS の失敗扱いの後に
-  `action_lost` で回復する）。Retry は遷移に勝った後に残った pending のアクションを取り消してから積む。画面は `src/job-error.ts` で理由のコードを訳した文にした。
+  即時に `fatal_error`（PHP のエラーの 1 行目）にする（Web のリクエストで処理したとき。WP-CLI でキューを処理すると `wp_die` のハンドラーが終了してこのフックが走らないと実測で分かった。
+  その場合は AS の失敗扱いの後に `action_lost` で回復する）。Retry は遷移に勝った後に残った pending のアクションを取り消してから積む。画面は `src/job-error.ts` で理由のコードを訳した文にした。
   確認: 品質チェック一式、ガードのミューテーション 29 件（重複していた NullAction の判定は外した）、dev サイトで停止 → キューの実行 → 再有効化 → 回復 → Retry で完了、本物の致命的エラーの 2 経路（`docs/03` §5「孤立したジョブの回復」の実機確認）。
   停止時のフック・再有効化のときの即時の回復・自動の再開は採らない（`docs/03` §5「孤立したジョブの回復」）。
 

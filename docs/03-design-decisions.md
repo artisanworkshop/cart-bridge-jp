@@ -398,7 +398,10 @@ PHP の致命的エラー（AS 4.x の `ActionScheduler_FatalErrorMonitor` が s
    始めるので、ジョブ単位ではなく run 単位で見る。
 3. ジョブの最新の `updated_at` が猶予（`GRACE_SECONDS` = 900 秒）より古い。
 
-書換えは `JobRepository::mark_failed_if_idle()`（`updated_at <= cutoff` を条件に足した `mark_failed()`。判定の後に入ったハートビート・Retry に負ける CAS）で、
+書換えは `JobRepository::mark_failed_if_idle()` で、次を書換えの 1 文の条件で確かめる CAS（同じテーブルを自己結合する複数テーブルの UPDATE）:
+対象が未終了で `updated_at <= cutoff`（判定の後に入ったハートビート・Retry に負ける）、同じ run に失敗したジョブが無く、対象より前に未終了のジョブも無い。
+run 単位の条件が要るのは、ロックの外の回復（`GET /runs`。2 つのブラウザ）が同じ run を同時に読むと、先に書いた側の後で、もう一方が `find_next_incomplete_for_run()`
+（失敗を飛ばす）で次のジョブを選び、それも失敗にしうるため（実体の順序が崩れ、Retry した側が再びアクションを失うと、失敗したジョブを持つ run として二度と回復しない。R1-1）。
 error は `{ code: 'action_lost', message: <英語の固定文> }`。古い run が無ければ AS を照会しない（一覧は数秒ごとに照会される）。
 生きたアクションの照会（`JobRepository::live_action_job_ids()`）は pending と in-progress を 1 回で読む（2 回に分けると、その間に移ったアクションを両方で取りこぼす）。
 確かめられないときは null を返して何もしない（フェイルクローズ）: AS の初期化前（`as_get_scheduled_actions()` は黙って空を返す）・照会の例外・DB エラー
@@ -417,17 +420,19 @@ error は `{ code: 'action_lost', message: <英語の固定文> }`。古い run 
 
 **呼び出す場所**: ロックの中の判定（`JobManager::start_run_locked()`・`retry()`・`RestController::run_exclusively()`）の前と、`GET /runs`（`list_runs()`。画面が 5〜30 秒ごとに照会する）。
 `GET /runs` はロックを取らない（取ると開始・ツールと競合して 409 になりうる）。生きたアクションの無い区間（run の開始の遷移→エンキュー、Retry の `failed→pending`→エンキュー）は
-どれもロックの中で `updated_at` が今になり、書換えは CAS なので、ロックの外から呼んでもその区間を誤認しない。「読むだけの表示はロックを取らない」（上の「同時実行のロック」）の
-例外で、読むついでに CAS で書く。
+どれもロックの中で `updated_at` が今になり、書換えは run 単位の条件つきの CAS なので、ロックの外から呼んでもその区間を誤認せず、同じ照会どうしも重ならない。
+「読むだけの表示はロックを取らない」（上の「同時実行のロック」）の例外で、読むついでに CAS で書く。`GET /runs` は何も失敗にしなければ判定に読んだ一覧をそのまま返す
+（`recover_and_list()`。一覧の照会を倍にしない。R1-4）。古い run に pending のアクションがある間（AS が動いていない低トラフィックのサイト）は、照会のたびに AS を読む。
 
 **致命的エラー**: `Core\Plugin::boot()` が `action_scheduler_unexpected_shutdown`（AS の `FatalErrorMonitor` が shutdown でアクションを失敗にした直後に発火）にフックする。
 自分の hook・group のアクションで `job_id` が正の int なら、猶予を待たずにそのジョブを `{ code: 'fatal_error', message: <PHP のエラーの 1 行目。ABSPATH を外し 300 文字まで> }` で
-失敗にする（`OrphanedRunRecovery::fail_after_fatal_error()`。shutdown の中なので例外を外へ出さない）。メモリ・実行時間の上限が原因だと分かる（Retry しても同じページで
-繰り返せば、ホストの設定の問題）。
-**ただし既定の設定ではこのフックは走らない**（実測）: WordPress の致命的エラーハンドラー（`wp-settings.php` で `shutdown` アクションの登録より先に `register_shutdown_function()` される）が
-エラー画面を出して `wp_die()` で終わるので、`shutdown` アクションが発火せず、AS の `FatalErrorMonitor` もこのフックも動かない（PHP は shutdown 関数の中の `exit` で残りの shutdown 関数を飛ばす）。
+失敗にする（`OrphanedRunRecovery::fail_after_fatal_error()`。shutdown の中なので例外を外へ出さない。サーバーのディレクトリ〔`WP_CONTENT_DIR` は `wp-content/` に、`ABSPATH`・その親は空に〕を
+外す。R1-3）。メモリ・実行時間の上限が原因だと分かる（Retry しても同じページで繰り返せば、ホストの設定の問題）。
+**ただし WP-CLI でキューを処理したとき（`wp action-scheduler run`・システム cron）はこのフックは走らない**（実測）: WordPress の致命的エラーハンドラー
+（`wp-settings.php` で `shutdown` アクションの登録より先に `register_shutdown_function()` される）は、エラー画面を `'exit' => false` の `wp_die()` で出す。
+Web のリクエスト（WP-Cron・非同期のキューランナー）では終了しないので、後ろの `shutdown` アクションから AS の `FatalErrorMonitor` とこのフックまで届く（Web のリクエストの中で
+キューを動かして実測。R1-2）。WP-CLI の `wp_die` のハンドラーは `exit` を無視して `WP_CLI::error()` で終了するので、`shutdown` アクションが発火しない。
 その場合アクションは in-progress のまま残り、AS が 5 分で失敗扱いにした後、上の判定が最後の活動から猶予の後に `action_lost` で拾う（画面の説明に「処理の途中で PHP が止まった場合」を含めた）。
-フックが即時に効くのは、ハンドラーを無効にしたサイト（`WP_DISABLE_FATAL_ERROR_HANDLER`）と、ハンドラーがエラー画面を出さないとき（管理画面の外で出力の後など）。
 強制終了（shutdown が走らない）も上の判定が猶予の後に拾う。
 
 **Retry の取消し**: `retry()` は `failed→pending` の遷移に勝った後、そのジョブの pending のアクションを取り消してから積む（`as_unschedule_all_actions( hook, [ 'job_id' ], group )`）。
@@ -447,15 +452,16 @@ error は `{ code: 'action_lost', message: <英語の固定文> }`。古い run 
 - 猶予を超えてハートビートが止まったまま生きているページ（HTTP の応答もアイテムの区切りも 15 分来ない）は、誤って回復しうる（理論上）。
 - run の最後の未終了のジョブを回復すると、その run は進行中の一覧から消える。run_id を控えていないブラウザには失敗が見えないが、新しい run は始められる
   （通常の例外で最後のジョブが失敗した run と同じ）。
-- 致命的エラーの理由（PHP のエラー文）が残るのは、上のフックが走ったときだけ。既定の設定では `action_lost` になり、原因は PHP のエラーログと Action Scheduler のログで確かめる。
+- 致命的エラーの理由（PHP のエラー文）が残るのは、上のフックが走ったときだけ。WP-CLI でキューを処理するサイトでは `action_lost` になり、原因は PHP のエラーログと Action Scheduler のログで確かめる。
 
 **実機確認（2026-10-13、wp-env の dev サイト・mock アダプタ `mockv`）**:
 - 停止: 2 種類の dry-run を始める → `wp plugin deactivate` → `wp action-scheduler run`（「no callbacks are registered」でアクションが failed）→ `wp plugin activate` で、ジョブが `running`・
   兄弟が `pending` のまま残ることを再現した。猶予の内は `GET /runs` が進行中のまま返し、新しい run は 409（従来どおり）。`updated_at` を猶予より前へ戻すと、`GET /runs` が
   先頭のジョブを `action_lost` の失敗にして `has_failed_job: true` で返し、兄弟は `pending` のまま。`POST /jobs/{id}/retry` → キューの実行で両方のジョブが完了し、新しい run を始められた。
-- 致命的エラー（mu-plugin でジョブのページの中でメモリの上限を超えさせた）: 既定の設定では WordPress のエラー画面が出てアクションが in-progress のまま残った（上の「ただし」）。
+- 致命的エラー（mu-plugin でジョブのページの中でメモリの上限を超えさせた）: `wp action-scheduler run` では WordPress のエラー画面が出てアクションが in-progress のまま残った（上の「ただし」）。
   アクションの開始時刻を 10 分前へ戻して AS の失敗扱い（`mark_failures()`）を通し、ジョブの `updated_at` を猶予より前へ戻すと、`GET /runs` が `action_lost` の失敗にした。
-  `wp --exec="define( 'WP_DISABLE_FATAL_ERROR_HANDLER', true );" action-scheduler run` では、フックがその場でジョブを `fatal_error`（「Allowed memory size of … exhausted …」）の失敗にし、
+  `wp --exec="define( 'WP_DISABLE_FATAL_ERROR_HANDLER', true );" action-scheduler run` と、Web のリクエストの中で `ActionScheduler_QueueRunner::run()` を動かしたとき（一時の mu-plugin。
+  dev サイトの WP-Cron は止まっていて `wp-cron.php` では測れなかった）は、フックがその場でジョブを `fatal_error`（「Allowed memory size of … exhausted …」）の失敗にした。
   mu-plugin を外して Retry すると完了した。
 - 管理画面の目視は未実施（dev サイトが未ログイン。表示の差し替えは `jobErrorMessage()` の Jest で確かめた）。検証の run・ジョブ・オプション・mu-plugin は撤去済み。
 
