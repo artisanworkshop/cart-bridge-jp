@@ -456,8 +456,9 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->page->process( LicensePage::ACTION_ACTIVATE );
 		$output = $this->render();
 
-		$this->assertStringContainsString( 'ライセンスキーを有効化できませんでした。ライセンスサーバーがエラーを返しました: Cannot activate license key.', $output );
-		$this->assertStringContainsString( 'sent with this request.ライセンスサーバーに今のライセンスで', $output );
+		// サーバーの英語の文は括弧で区切るので、後ろに日本語の案内が続いても文がつながって見えない（review-loop R1-L5）。
+		$this->assertStringContainsString( 'ライセンスキーを有効化できませんでした。ライセンスサーバーがエラーを返しました（Cannot activate license key.', $output );
+		$this->assertStringContainsString( 'sent with this request.）。ライセンスサーバーに今のライセンスで', $output );
 		$this->assertStringContainsString( 'に確認しました。ライセンスサーバーには、このサイトが有効化済みとして登録されていません。更新期間: Expired', $output );
 		$this->assertStringNotContainsString( '。 ', $output );
 	}

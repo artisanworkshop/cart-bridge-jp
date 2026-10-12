@@ -111,7 +111,7 @@ msgstr "保存したライセンスキーを読み取れません（このサイ
 #: includes/Admin/LicensePage.php:198
 #, php-format
 msgid "Ending in %s"
-msgstr "末尾が %s"
+msgstr "末尾 4 文字: %s"
 
 #: includes/Admin/LicensePage.php:205
 msgid "Last status check"
@@ -119,7 +119,7 @@ msgstr "前回の状態の確認"
 
 #: includes/Admin/LicensePage.php:213
 msgid "The license server no longer lists this site, for example after the update period ends. Cart Bridge JP Pro keeps working on this site."
-msgstr "ライセンスサーバーには、このサイトが登録されていません（更新期間が終わった後など）。このサイトの Cart Bridge JP Pro は引き続き使えます。"
+msgstr "ライセンスサーバーには、このサイトがもう登録されていません（更新期間が終わった後など）。このサイトの Cart Bridge JP Pro は引き続き使えます。"
 
 #: includes/Admin/LicensePage.php:225
 msgid "Activate license"
@@ -264,7 +264,7 @@ msgstr "ライセンスサーバーに接続できませんでした。"
 #: includes/Admin/LicensePage.php:408
 #, php-format
 msgid "Could not connect to the license server: %s"
-msgstr "ライセンスサーバーに接続できませんでした: %s"
+msgstr "ライセンスサーバーに接続できませんでした（%s）。"
 
 #: includes/Admin/LicensePage.php:410
 msgid "The license server returned an error."
@@ -274,7 +274,7 @@ msgstr "ライセンスサーバーがエラーを返しました。"
 #: includes/Admin/LicensePage.php:412
 #, php-format
 msgid "The license server returned an error: %s"
-msgstr "ライセンスサーバーがエラーを返しました: %s"
+msgstr "ライセンスサーバーがエラーを返しました（%s）。"
 
 #: includes/Admin/LicensePage.php:424
 msgid "If the license server still lists this site under the current license, deactivate it first, or check the status first if its update period has ended."
