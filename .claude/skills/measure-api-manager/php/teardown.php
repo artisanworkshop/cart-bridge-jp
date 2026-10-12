@@ -1,0 +1,213 @@
+<?php
+/**
+ * 後片付け（`am.sh teardown` が呼ぶ）。状態ファイルにあり、目印が一致するものだけを消す。状態ファイルが無いのに残りがあれば、推測で消さずに止める。
+ * 引数: site=<dev サイトの URL> step=<data|am>
+ *
+ * - data: 注文 → 製品・ページ → 顧客、Pro のキーの記録・要求の記録・WP の更新の情報、承認済みディレクトリ（モードを setup の前の値に戻す）、アップロード。
+ *         API Manager が有効な間に行う（注文の削除で API Manager が自分のリソースを片付ける）
+ * - am:   API Manager を無効化・削除した後（am.sh が行う）に、そのテーブル・option・usermeta・WP-Cron・Action Scheduler の予定を消して
+ *         書き換え規則を作り直し、消し残しを数え直す（mu-plugin を除いて 0 でなければ exit 1）。
+ *         API Manager が有効なまま option を消すと、次の要求でインストーラー（init の check_version）がテーブルを作り直す。
+ *
+ * @package CartBridgeJP
+ */
+
+require_once __DIR__ . '/_lib.php';
+
+$opts = cbjp_am_args( $args, [ 'site', 'step' ] );
+cbjp_am_require_site( $opts );
+
+global $wpdb;
+
+$state = cbjp_am_state();
+
+if ( null === $state ) {
+	$counts = cbjp_am_leftovers( null );
+	unset( $counts['mu_plugin'] );
+
+	if ( 0 === array_sum( $counts ) ) {
+		echo "teardown: no state file and nothing left\n";
+		exit( 0 );
+	}
+
+	cbjp_am_abort( 'no state file, but the dev site holds ' . wp_json_encode( array_filter( $counts ) ) . '. Not guessing what to remove: check what it is and remove it by hand', 1 );
+}
+
+$failures = [];
+
+switch ( $opts['step'] ?? '' ) {
+	case 'data':
+		$user_id = is_int( $state['user_id'] ?? null ) ? $state['user_id'] : 0;
+
+		foreach ( array_filter( (array) ( $state['order_ids'] ?? [] ), 'is_int' ) as $order_id ) {
+			$order = wc_get_order( $order_id );
+
+			if ( false === $order ) {
+				continue;
+			}
+
+			if ( 'yes' !== $order->get_meta( CBJP_AM_MARKER_META ) || $order->get_customer_id() !== $user_id ) {
+				$failures[] = "order {$order_id} is not the probe order (marker or customer differs); left as is";
+				continue;
+			}
+
+			if ( ! $order->delete( true ) ) {
+				$failures[] = "could not delete order {$order_id}";
+			}
+		}
+
+		$product_id = is_int( $state['product_id'] ?? null ) ? $state['product_id'] : 0;
+		$product    = $product_id > 0 ? wc_get_product( $product_id ) : null;
+
+		if ( $product instanceof WC_Product ) {
+			if ( CBJP_AM_PRODUCT_NAME === $product->get_name() && 'yes' === $product->get_meta( CBJP_AM_MARKER_META ) ) {
+				if ( ! $product->delete( true ) ) {
+					$failures[] = "could not delete product {$product_id}";
+				}
+			} else {
+				$failures[] = "product {$product_id} is not the probe product; left as is";
+			}
+		}
+
+		// 製品の保存・削除で WooCommerce が積んだ属性の索引の更新の予定。製品に属性は無いので索引に行は無く、走らせても何もしない。
+		// 索引に行が残っていれば（このスキルの製品ではありえない）、予定は消さずに残りとして報告する。
+		if ( $product_id > 0 ) {
+			$lookup_rows = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}wc_product_attributes_lookup WHERE product_or_parent_id = %d", $product_id ) );
+
+			if ( 0 !== $lookup_rows ) {
+				$failures[] = "the attributes lookup still has {$lookup_rows} row(s) for product {$product_id}; its scheduled updates were kept";
+			} else {
+				foreach ( cbjp_am_delete_actions( cbjp_am_lookup_action_ids( $product_id ) ) as $action_id ) {
+					$failures[] = "could not delete the scheduled action {$action_id}";
+				}
+			}
+		}
+
+		foreach ( array_filter( (array) ( $state['page_ids'] ?? [] ), 'is_int' ) as $page_id ) {
+			if ( null === get_post( $page_id ) ) {
+				continue;
+			}
+
+			if ( 'yes' !== get_post_meta( $page_id, CBJP_AM_MARKER_META, true ) ) {
+				$failures[] = "page {$page_id} is not a probe page; left as is";
+			} elseif ( ! wp_delete_post( $page_id, true ) ) {
+				$failures[] = "could not delete page {$page_id}";
+			}
+		}
+
+		if ( $user_id > 0 && false !== get_userdata( $user_id ) ) {
+			require_once ABSPATH . 'wp-admin/includes/user.php';
+
+			if ( CBJP_AM_BUYER_LOGIN !== get_userdata( $user_id )->user_login ) {
+				$failures[] = "user {$user_id} is not the probe customer; left as is";
+			} elseif ( ! wp_delete_user( $user_id ) ) {
+				$failures[] = "could not delete user {$user_id}";
+			}
+		}
+
+		// Pro のキーの記録（E2E で有効化したもの。preflight で無いことを確かめてから始めた）・要求の記録・手元の API Manager の package が入った更新の情報。
+		foreach ( $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'cbjp_pro_license_' ) . '%' ) ) as $option ) {
+			delete_option( $option );
+		}
+
+		delete_option( CBJP_AM_REQUEST_LOG );
+		delete_site_transient( 'update_plugins' );
+
+		$register   = cbjp_am_approved_register();
+		$dirs_table = $wpdb->prefix . 'wc_product_download_directories';
+
+		foreach ( $wpdb->get_col( $wpdb->prepare( "SELECT url_id FROM {$dirs_table} WHERE url LIKE %s", '%' . $wpdb->esc_like( '/cbjp-am/' ) . '%' ) ) as $dir_id ) {
+			$register->delete_by_id( (int) $dir_id );
+		}
+
+		if ( is_string( $state['approved_mode'] ?? null ) && $register->get_mode() !== $state['approved_mode'] ) {
+			$register->set_mode( $state['approved_mode'] );
+		}
+
+		// アップロードは setup が置いた zip だけを消す。ほかのファイルがあれば消さずに残りとして報告する。
+		$dir = wp_upload_dir()['basedir'] . '/' . CBJP_AM_UPLOAD_SUBDIR;
+
+		if ( is_dir( $dir ) ) {
+			$placed = is_string( $state['pro_zip'] ?? null ) ? $dir . '/' . basename( $state['pro_zip'] ) : '';
+
+			if ( '' !== $placed && is_file( $placed ) && ! unlink( $placed ) ) {
+				$failures[] = "could not delete {$placed}";
+			}
+
+			$rest = array_diff( (array) scandir( $dir ), [ '.', '..' ] );
+
+			if ( [] !== $rest ) {
+				$failures[] = "{$dir} holds files this skill did not place: " . implode( ', ', $rest );
+			} elseif ( ! rmdir( $dir ) ) {
+				$failures[] = "could not remove {$dir}";
+			}
+		}
+
+		break;
+
+	case 'am':
+		if ( function_exists( 'WCAM' ) || is_dir( WP_PLUGIN_DIR . '/' . CBJP_AM_PLUGIN_SLUG ) ) {
+			cbjp_am_abort( 'deactivate and delete API Manager first (am.sh teardown does it)', 1 );
+		}
+
+		foreach ( $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wc_am_' ) . '%' ) ) as $table ) {
+			$wpdb->query( "DROP TABLE IF EXISTS `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		}
+
+		foreach ( [ 'woocommerce_api_manager', 'kestrel_api_manager', 'wc_am_', 'wcam_', '_transient_wc_am_', '_transient_timeout_wc_am_', '_site_transient_wc_am_', '_site_transient_timeout_wc_am_' ] as $prefix ) {
+			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $prefix ) . '%' ) );
+		}
+
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key LIKE %s", '%' . $wpdb->esc_like( 'wc_am_' ) . '%', '%' . $wpdb->esc_like( 'api_manager' ) . '%' ) );
+
+		foreach ( (array) _get_cron_array() as $hooks ) {
+			foreach ( array_keys( (array) $hooks ) as $hook ) {
+				if ( 1 === preg_match( '/wc_am|wcam|kestrel_api_manager/i', (string) $hook ) ) {
+					wp_clear_scheduled_hook( (string) $hook );
+				}
+			}
+		}
+
+		$as_table = $wpdb->prefix . 'actionscheduler_actions';
+
+		if ( $as_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $as_table ) ) ) ) {
+			$action_ids = $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT action_id FROM {$as_table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
+					'%' . $wpdb->esc_like( 'wc_am' ) . '%',
+					'%' . $wpdb->esc_like( 'wcam' ) . '%',
+					'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%'
+				)
+			);
+
+			foreach ( cbjp_am_delete_actions( array_map( 'intval', $action_ids ) ) as $action_id ) {
+				$failures[] = "could not delete the scheduled action {$action_id}";
+			}
+		}
+
+		flush_rewrite_rules();
+		wp_cache_flush();
+
+		$counts = cbjp_am_leftovers( $state );
+		unset( $counts['mu_plugin'] );
+		echo 'leftovers: ', wp_json_encode( $counts ), "\n";
+
+		if ( 0 !== array_sum( $counts ) ) {
+			$failures[] = 'the dev site still holds ' . wp_json_encode( array_filter( $counts ) );
+		}
+
+		break;
+
+	default:
+		cbjp_am_abort( 'step=<data|am> is required' );
+}
+
+if ( [] !== $failures ) {
+	foreach ( $failures as $failure ) {
+		fwrite( STDERR, "teardown: {$failure}\n" );
+	}
+
+	exit( 1 );
+}
+
+echo 'teardown ', $opts['step'], ": done\n";

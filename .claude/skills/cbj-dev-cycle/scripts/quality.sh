@@ -16,4 +16,6 @@ npm run i18n:check
 .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
 .claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh
 .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
+# API Manager の実測の匿名化・フィクスチャとの比較（measure-api-manager。ホストの php。wp-env 不要）
+php .claude/skills/measure-api-manager/php/test-anon.php
 echo "quality: all green"
