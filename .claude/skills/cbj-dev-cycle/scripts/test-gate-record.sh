@@ -913,13 +913,15 @@ run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-missing.json" STUB_R
 assert_rc "post: 事前確認で既存の返信を照合できなければ 3" 3
 assert_err "post: 事前確認で照合できないと伝える（何も投稿しない）" "could not compare the existing replies of comment 1003. Nothing was posted"
 
-# サマリを作る段階で記録が読めなくなった（post の途中で記入漏れに書き換わった）ときは、記入漏れの 1 で止まり、何も投稿しない（3 にしない。PR #129 G1-2）。
-mkrec todo 's/判定: 保留/判定: TODO(記入)/'
+# post の途中で記録が書き換わっても、サマリは返信と同じ、最初に読んだ記録から作る（読み直すと、新しい記録のサマリと前の記録の返信が混ざる。
+# 新しい記録の commit は push 済みかも確かめていない。PR #129 G2-B1）。
+mkrec swapped 's/(### \[G9-1\].*?要旨: )/${1}差し替えた後の要旨。/s'
 cp "$WORK/rec-ok.md" "$WORK/rec-swap.md"
-run_gr STUB_PR_HEAD="$SHA" STUB_SWAP_RECORD="$WORK/rec-swap.md" STUB_SWAP_FROM="$WORK/rec-todo.md" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-swap.md"
-assert_rc "post: サマリの段階の記入漏れは 1" 1
-assert_no_log "post: サマリの段階の記入漏れでは返信しない" "gate-reply.sh"
-assert_no_log "post: サマリの段階の記入漏れではサマリを投稿しない" "gh pr comment"
+run_gr STUB_PR_HEAD="$SHA" STUB_SWAP_RECORD="$WORK/rec-swap.md" STUB_SWAP_FROM="$WORK/rec-swapped.md" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-swap.md"
+assert_rc "post: 途中で記録が書き換わっても 0" 0
+assert_out "post: 途中で記録が書き換わってもサマリを投稿する" "summary posted"
+if grep -q "差し替えた後の要旨" "$WORK/rec-swap.md"; then ok "post: スタブが記録を差し替えた（前提）"; else fail "post: スタブが記録を差し替えていない（テストの前提が崩れた）"; fi
+if grep -q "差し替えた後の要旨" "$LOG.summary"; then fail "post: 途中で書き換わった記録のサマリを投稿した"; else ok "post: サマリは最初に読んだ記録から作る"; fi
 
 # 記入漏れの記録は、何も投稿しない（check と同じ検査）。
 mkrec todo 's/判定: 保留/判定: TODO(記入)/'

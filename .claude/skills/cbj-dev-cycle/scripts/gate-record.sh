@@ -244,6 +244,12 @@ cmd_check() {
 
 cmd_summary() {
   load_record || exit 1
+  render_summary
+}
+
+# 読み込み済みの記録（REC_JSON）からサマリの本文を作る。post は返信の計画と同じ REC_JSON から作る（記録を読み直すと、途中で書き換わった
+# 記録のサマリと前の記録の返信が混ざり、新しいサマリの commit が push 済みかも確かめないことになる。PR #129 G2-B1）。
+render_summary() {
   jq -r --arg n "$N" '
     def uniq: reduce .[] as $x ([]; if (index([$x]) != null) then . else . + [$x] end);
     def kindlabel: if .kind == "fixed" then "修正" elif .kind == "held" then "保留" else "対応不要" end;
@@ -416,14 +422,10 @@ cmd_post() {
   POST_TMP=$out
   trap 'rm -rf "$POST_TMP"' EXIT
   plan_out=$(plan_replies "$out" "$THREADS") || exit 3
-  # cmd_summary の記入漏れ（1）はそのまま、それ以外の失敗（gh・jq）は 3 にまとめる（R1-7・R2-2。2 は引数不正と紛れる）。
-  # `if ! summary=$(…); then rc=$?` は ! が反転した後の 0 を読むので、else で受ける（PR #129 G1-2）。
-  if summary=$(cmd_summary); then
-    :
-  else
-    rc=$?
-    [ "$rc" -eq 1 ] || rc=3
-    exit "$rc"
+  # サマリは、検査と返信の計画に使った記録（REC_JSON）から作る。ファイルを読み直さない（PR #129 G2-B1）。
+  if ! summary=$(render_summary); then
+    echo "could not render the summary" >&2
+    exit 3
   fi
   if grep -rqi '@codex' "$out" || grep -qi '@codex' <<<"$summary"; then
     echo "a reply or the summary contains '@codex' (Codex would answer it); rewrite the record without it. Nothing was posted" >&2

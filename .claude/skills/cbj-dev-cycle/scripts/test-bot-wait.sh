@@ -84,9 +84,10 @@ expect_out() { # <label> <fixed string>
   if grep -qF -- "$2" <<<"$OUT"; then ok "$1"; else fail "$1: missing '$2' in: $(printf '%s' "$OUT" | tr '\n' ' ')"; fi
 }
 
-H866="866cf15$(printf '0%.0s' $(seq 1 33))"
-HE35="e3523bc$(printf '0%.0s' $(seq 1 33))"
-H9E9="9e9f645$(printf '0%.0s' $(seq 1 33))"
+# PR の HEAD（40 文字）: 7 文字の sha に 0 を 33 個足す（外部コマンドを使わない。PR #129 G2-B2）。
+H866="866cf15$(printf '%033d' 0)"
+HE35="e3523bc$(printf '%033d' 0)"
+H9E9="9e9f645$(printf '%033d' 0)"
 CODEX_ONLY=(--copilot=0 --codex=1 --timeout=0)
 
 # 1. まとめのコメントが Running のうちは応答と数えない（PR #127 G2・G3 では Running で DONE になっていた）。
