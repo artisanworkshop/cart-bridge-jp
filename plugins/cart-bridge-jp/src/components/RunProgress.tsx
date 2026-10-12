@@ -5,6 +5,7 @@ import {
 	Notice,
 	ProgressBar,
 } from '@wordpress/components';
+import { jobErrorMessage } from '../job-error';
 import { buildReportUrl } from '../report-url';
 import type { EntityType, Job, JobStatus, Run } from '../types';
 
@@ -148,7 +149,7 @@ function JobRow( {
 			     残って見えるのを防ぐ）。 */ }
 			{ 'failed' === job.status && job.error && (
 				<Notice status="error" isDismissible={ false }>
-					{ job.error.message }
+					{ jobErrorMessage( job.error ) }
 				</Notice>
 			) }
 
