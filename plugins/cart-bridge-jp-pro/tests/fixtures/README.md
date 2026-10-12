@@ -7,10 +7,12 @@ tests/fixtures/
 ├── colorme/    # カラーミーショップ（swagger.json + 各エンドポイントのレスポンス）
 ├── makeshop/   # MakeShop（GraphQLレスポンス）
 ├── base/       # BASE
-└── api-manager/ # WooCommerce API Manager（ライセンスの有効化・無効化・状態確認の応答。R3-8a）
+└── api-manager/ # WooCommerce API Manager（ライセンスの有効化・無効化・状態確認の応答〔R3-8a〕、更新の確認・詳細の応答〔R3-8c〕）
 ```
 
-`api-manager/` は手元の API Manager 3.6.0 を dev サイトに入れて実測した応答（2026-10-11）。応答にキーは含まれないが、販売サイトの URL は `https://example.com/`、注文・製品の ID はダミーに置き換えてある。
+`api-manager/` は手元の API Manager を dev サイトに入れて実測した応答。有効化・無効化・状態確認は 3.6.0（2026-10-11。3.8.1 でも形と文が同じことを 2026-10-12 に確かめた）、
+`update_*`・`information_*` は 3.8.1（2026-10-12。`update_without_package` は期限後の応答で、未有効化の instance でも同じ形）。応答にキーは含まれないが、販売サイトの URL は `https://example.com/`、
+注文・製品・ユーザーの ID はダミー、ダウンロードの URL の `hname`・`hkey` は `x` の並びに置き換えてある。
 
 ## 匿名化ルール（コミット前に必須）
 

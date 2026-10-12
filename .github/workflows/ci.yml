@@ -103,9 +103,10 @@ jobs:
       - name: Build
         run: npm run build
 
-  # 無料版の配布 zip を作り、中身（許可した最上位だけ・追跡しているファイルだけ・autoload に --no-dev・Pro の識別子が無いこと）を検査する（D29・R3-7）。
+  # 無料版と Pro の配布 zip を作り、中身（許可した最上位だけ・追跡しているファイルだけ・autoload に --no-dev・無料版に Pro の識別子が無いこと・
+  # Pro に無料版の名前空間が無いこと）を検査する（D29・R3-7・R3-8c）。
   distribution:
-    name: Distribution (free plugin zip)
+    name: Distribution (plugin zips)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -128,6 +129,10 @@ jobs:
 
       - name: Build and check the plugin zip
         run: bin/build-zip.sh
+
+      # Pro アドオンの zip（R3-8c）。JS のビルドは無い。中身の検査は release-pro.yml と同じスクリプト。
+      - name: Build and check the Pro add-on zip
+        run: bin/build-zip.sh --plugin cart-bridge-jp-pro
 
   dev-tooling:
     name: Dev tooling (cbj-dev-cycle scripts)

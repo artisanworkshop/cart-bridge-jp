@@ -1,0 +1,17 @@
+{
+	"success": true,
+	"data": {
+		"package": {
+			"product_id": "1000",
+			"id": "cart-bridge-jp-pro-1000",
+			"slug": "cart-bridge-jp-pro",
+			"plugin": "cart-bridge-jp-pro/cart-bridge-jp-pro.php",
+			"new_version": "0.1.1",
+			"url": "https://example.com/cart-bridge-jp-pro/",
+			"tested": "7.1",
+			"upgrade_notice": "Test upgrade notice <b>bold</b>",
+			"package": "https://example.com/?user_id=1&am_download_file=1000&am_order=1001&hname=xxxxxxxxxxxx&hkey=xxxxxxxxxxxxxxxx&hexpires=1792360276&remote_url=no"
+		}
+	},
+	"api_call_execution_time": "0.031306 seconds"
+}

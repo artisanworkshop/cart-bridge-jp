@@ -15,8 +15,9 @@ namespace CartBridgeJP\Pro\License;
  * - 状態確認は結果を表示用に記録するだけで、有効化の状態を変えない
  * - 無効化はサーバーが成功を返したときだけローカルの状態を消す（ローカルだけ消す手段は作らない。消すと期限後は有効化し直せない）
  * - 有効化は、有効化済みのサイトでも同じ instance で別のキーを試せる（キーの交換。2026-10-11 ユーザー決定）。サーバーにこのサイトの有効化が
- *   残っていれば（期限内）サーバーが「同じ instance で有効化済み」と断るので、先に無効化してもらう。期限後に新しいキーを買った人が、
- *   無効化できない古いキーを替えられるようにするため
+ *   残っていれば（期限内）API Manager 3.6.0 は「同じ instance で有効化済み」と断るので、先に無効化してもらう。期限後に新しいキーを買った人が、
+ *   無効化できない古いキーを替えられるようにするため。3.8.1 は instance・製品・キーの組で有効化を見るので、期限内でも別のキーの有効化を受け付け、
+ *   前のキーの有効化をサーバーに残す（無効化は送ったキーの有効化だけを消す。R3-8c で実測）。先に無効化する手順はどちらの版でも正しい
  */
 final class LicenseManager {
 
@@ -41,6 +42,21 @@ final class LicenseManager {
 
 	public function is_activated(): bool {
 		return $this->store->is_activated();
+	}
+
+	/**
+	 * 販売サイトの host（設定画面で、キー・サイトのアドレス・版を送る先として出す）。未設定なら null。
+	 */
+	public function server_host(): ?string {
+		$url = $this->config->api_url();
+
+		if ( null === $url ) {
+			return null;
+		}
+
+		$host = wp_parse_url( $url, PHP_URL_HOST );
+
+		return is_string( $host ) && '' !== $host ? $host : null;
 	}
 
 	public function store(): LicenseStore {
@@ -76,7 +92,13 @@ final class LicenseManager {
 
 		if ( $server_has_key ) {
 			// サーバーは有効化した。手元に保存できなければ成功と言わない（初めての有効化なら、次の有効化が突き合わせで保存し直す。PR #123 G3-B1）。
-			return $this->store->save_activation( $key, $product_id ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::NOT_RECORDED );
+			if ( ! $this->store->save_activation( $key, $product_id ) ) {
+				return LicenseResult::failure( LicenseResult::NOT_RECORDED );
+			}
+
+			self::forget_update_info();
+
+			return LicenseResult::success();
 		}
 
 		return $result;
@@ -100,7 +122,14 @@ final class LicenseManager {
 
 		$result = $this->client->deactivate( $key, $instance );
 
-		if ( $result->is_success() && ! $this->store->clear_activation() ) {
+		if ( ! $result->is_success() ) {
+			return $result;
+		}
+
+		// サーバーがこのサイトを外した時点で、前の確認の package は使わせない（手元の記録に失敗しても。PR #125 G2-B1）。
+		self::forget_update_info();
+
+		if ( ! $this->store->clear_activation() ) {
 			return LicenseResult::failure( LicenseResult::NOT_RECORDED );
 		}
 
@@ -149,7 +178,21 @@ final class LicenseManager {
 			return LicenseResult::failure( LicenseResult::INVALID_KEY );
 		}
 
-		return $this->store->save_key( $key ) ? LicenseResult::success() : LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		if ( ! $this->store->save_key( $key ) ) {
+			return LicenseResult::failure( LicenseResult::STORAGE_ERROR );
+		}
+
+		self::forget_update_info();
+
+		return LicenseResult::success();
+	}
+
+	/**
+	 * WP が持っている更新の情報（`update_plugins`）を捨て、次に管理画面を開いたときに確かめ直させる（R3-8c の review-loop R1-3）。
+	 * 捨てないと、無効化した後も前の確認で得た package（約 7 日有効）が最大 12 時間残って更新でき、有効化した直後は次の確認まで更新が出ない。
+	 */
+	private static function forget_update_info(): void {
+		delete_site_transient( 'update_plugins' );
 	}
 
 	/**

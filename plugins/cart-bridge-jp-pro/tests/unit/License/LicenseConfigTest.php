@@ -15,6 +15,12 @@ use WP_UnitTestCase;
  */
 final class LicenseConfigTest extends WP_UnitTestCase {
 
+	public static function set_up_before_class(): void {
+		parent::set_up_before_class();
+		// メインファイルの既定値を zip の検査と同じ関数で読む（ルートの bin/。テストのサイトでは wp-content/cbjp-dev）。
+		require_once WP_CONTENT_DIR . '/cbjp-dev/bin/check-pro-zip.php';
+	}
+
 	public function test_accepts_an_https_url_and_a_positive_product_id(): void {
 		$config = new LicenseConfig( 'https://example.com/', 1000 );
 
@@ -106,8 +112,8 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 	public function test_reads_the_defaults_of_the_main_file(): void {
 		$source = self::main_file_source();
 
-		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source ), 'メインファイルに接続先の既定値がある' );
-		$this->assertSame( 1, preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source ), 'メインファイルに製品 ID の既定値がある' );
+		$this->assertNotNull( cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_API_URL' ), 'メインファイルに接続先の既定値がある' );
+		$this->assertNotNull( cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_PRODUCT_ID' ), 'メインファイルに製品 ID の既定値がある' );
 	}
 
 	public function test_the_release_check_stops_an_unconfigured_1_0_0(): void {
@@ -121,6 +127,60 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 		$this->assertFalse( self::is_release_without_license_server( '1.0.0', $configured ) );
 	}
 
+	/**
+	 * 更新の配信（R3-8c）は `Update URI` ヘッダーの host のフィルターで行い、要求は接続先の定数へ送る。ヘッダーは販売サイトの URL が決まったときに入れる
+	 * （2026-10-12 ユーザー決定）。版 1.0.0 以上ではヘッダーが無い（wordpress.org の同じスラッグに上書きされうる。backlog `r3-7-monorepo/R1-L4`）・
+	 * https でない・接続先と host が違う（更新のフィルターが呼ばれない）ままの公開を止める。ヘッダーを入れたら版にかかわらず接続先と合わせる。
+	 * ヘッダーは WP と同じ `get_file_data()` で読み、接続先はメインファイルの既定値で比べる（`test_a_release_has_a_configured_license_server()` と同じ理由）。
+	 */
+	public function test_a_release_has_an_update_uri_on_the_license_server_host(): void {
+		$this->assertFalse(
+			self::has_update_uri_problem( CBJP_PRO_VERSION, self::main_file_update_uri(), self::main_file_defaults() ),
+			'Set the Update URI header of cart-bridge-jp-pro.php to an https URL on the host of CBJP_PRO_LICENSE_API_URL.'
+		);
+	}
+
+	public function test_the_update_uri_check_stops_a_missing_or_mismatched_header(): void {
+		$unconfigured = new LicenseConfig( '', 0 );
+		$configured   = new LicenseConfig( 'https://example.com/', 1000 );
+
+		$this->assertFalse( self::has_update_uri_problem( '0.1.0', '', $unconfigured ), '販売サイトが決まるまでは空でよい' );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', '', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', 'http://example.com/cart-bridge-jp-pro/', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '1.0.0', 'https://updates.example.net/', $configured ) );
+		$this->assertTrue( self::has_update_uri_problem( '0.2.0', 'https://updates.example.net/', $configured ), 'ヘッダーを入れたら版にかかわらず合わせる' );
+		$this->assertTrue( self::has_update_uri_problem( '0.2.0', 'https://example.com/', $unconfigured ) );
+		$this->assertFalse( self::has_update_uri_problem( '1.0.0', 'https://example.com/cart-bridge-jp-pro/', $configured ) );
+		$this->assertFalse( self::has_update_uri_problem( '1.0.0', 'https://EXAMPLE.com/', $configured ), 'host の大文字小文字は区別しない' );
+	}
+
+	public function test_the_version_header_matches_the_constant(): void {
+		$headers = get_file_data( CBJP_PRO_FILE, [ 'Version' => 'Version' ] );
+
+		$this->assertSame( CBJP_PRO_VERSION, $headers['Version'], 'WP はヘッダーの版で更新を比べ、Pro は定数の版を販売サイトへ送る' );
+	}
+
+	private static function has_update_uri_problem( string $version, string $update_uri, LicenseConfig $config ): bool {
+		if ( '' === trim( $update_uri ) ) {
+			return version_compare( $version, '1.0.0', '>=' );
+		}
+
+		$header = wp_parse_url( $update_uri );
+		$server = wp_parse_url( (string) $config->api_url() );
+
+		if ( ! is_array( $header ) || 'https' !== strtolower( (string) ( $header['scheme'] ?? '' ) ) || ! is_array( $server ) ) {
+			return true;
+		}
+
+		return '' === (string) ( $header['host'] ?? '' ) || strtolower( (string) $header['host'] ) !== strtolower( (string) ( $server['host'] ?? '' ) );
+	}
+
+	private static function main_file_update_uri(): string {
+		$headers = get_file_data( CBJP_PRO_FILE, [ 'UpdateURI' => 'Update URI' ] );
+
+		return $headers['UpdateURI'];
+	}
+
 	private static function is_release_without_license_server( string $version, LicenseConfig $config ): bool {
 		if ( version_compare( $version, '1.0.0', '<' ) ) {
 			return false;
@@ -130,18 +190,16 @@ final class LicenseConfigTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * メインファイルの `define( 'CBJP_PRO_LICENSE_*', <既定値> )` から作った設定。読めなければ未設定。
+	 * メインファイルの `define( 'CBJP_PRO_LICENSE_*', <既定値> )` から作った設定。読めなければ未設定。zip の検査（`bin/check-pro-zip.php`）と同じく
+	 * PHP のトークンで読む（コメントアウトした `define()` を読まない。PR #125 G2-B2）。
 	 */
 	private static function main_file_defaults(): LicenseConfig {
 		$source = self::main_file_source();
-		$url    = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_API_URL' ), $source, $url_match ) ? trim( $url_match[1], "'\"" ) : '';
-		$id     = preg_match( self::define_pattern( 'CBJP_PRO_LICENSE_PRODUCT_ID' ), $source, $id_match ) ? trim( $id_match[1], "'\"" ) : '';
 
-		return new LicenseConfig( $url, $id );
-	}
-
-	private static function define_pattern( string $name ): string {
-		return "/define\\(\\s*'" . preg_quote( $name, '/' ) . "'\\s*,\\s*('[^']*'|\"[^\"]*\"|[0-9]+)\\s*\\)/";
+		return new LicenseConfig(
+			(string) cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_API_URL' ),
+			(string) cbjp_zipcheck_define( $source, 'CBJP_PRO_LICENSE_PRODUCT_ID' )
+		);
 	}
 
 	private static function main_file_source(): string {

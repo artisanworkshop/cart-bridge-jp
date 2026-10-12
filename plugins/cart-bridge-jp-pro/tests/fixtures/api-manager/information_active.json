@@ -1,0 +1,27 @@
+{
+	"success": true,
+	"data": {
+		"package": {
+			"product_id": "1000"
+		},
+		"info": {
+			"name": "Cart Bridge JP Pro",
+			"downloaded": 0,
+			"active_installs": 1,
+			"slug": "cart-bridge-jp-pro",
+			"version": "0.1.1",
+			"author": "<a href=\"https://example.com/\">Artisan Workshop</a>",
+			"homepage": "https://example.com/cart-bridge-jp-pro/",
+			"requires": "6.9",
+			"tested": "7.1",
+			"last_updated": "2026-10-12",
+			"requires_php": "8.2",
+			"compatibility": "7.1",
+			"sections": {
+				"Changelog": "<h4>0.1.1</h4><ul><li>Fix</li></ul>",
+				"Description": "<p>Pro description</p>alert(1)"
+			}
+		}
+	},
+	"api_call_execution_time": "0.033759 seconds"
+}

@@ -1,0 +1,16 @@
+# Files in plugins/cart-bridge-jp-pro/ that stay out of the Pro zip (bin/build-zip.sh --plugin cart-bridge-jp-pro rsyncs with this list).
+# The development toolchain (composer, phpcs, phpstan, CI, docs) lives at the repository root and is never copied.
+
+# Test suites
+tests/
+phpunit.xml.dist
+.phpunit.result.cache
+
+# Composer manifests (vendor/ itself is kept — the plugin autoloads via vendor/autoload.php at runtime)
+composer.json
+composer.lock
+
+# Misc
+.distignore
+.DS_Store
+*.DS_Store
