@@ -27,7 +27,7 @@ description: >
 | 設計ドキュメント | `docs/03-design-decisions.md`（他と矛盾したらこちら優先）、`docs/00〜04`、`docs/20`（v2.0 検討事項） |
 | 絶対ルール | `CLAUDE.md` の「コーディング規約」「アーキテクチャ原則」全項目に加え、触るファイルに対応する `.claude/rules/*.md`（カラーミー固有・WooCommerce API 固有・Sync/Export・フロントエンドの落とし穴。パス指定で読み込まれる。索引は CLAUDE.md 末尾）。レビューでは第一級項目として扱う |
 | レビュー基準 | `docs/review-criteria.md` は無い → `review-loop` の重大度定義。`docs/review-baseline.md` / `docs/review-backlog.md` を必ず読む |
-| PR 本文 | 「対応フェーズ / 変更概要 / テスト内容 / 設計ドキュメントからの逸脱 / review-loop サマリ」（日本語）+ システムプロンプト指定の署名 |
+| PR 本文 | 「対応フェーズ / 変更概要 / テスト内容 / 設計ドキュメントからの逸脱 / review-loop サマリ」（日本語）+ システムプロンプト指定の署名。`@codex` という文字列を書かない（Step 4〜7 の「`@codex` という文字列を書かない」） |
 | ローカル環境 | wp-env。**ポートは `.wp-env.json` で固定（dev 10010 / tests 10011。dev-env スキルの台帳のスロット 01）**（下記） |
 | 状態ファイル | `docs/reviews/<ブランチ>/dev-cycle.md`、各ラウンドは `R<n>.md` / `G<n>.md` / `final-report.md`。**ブランチ名のスラッシュはディレクトリ階層としてそのまま使う**（`fix/15-foo` → `docs/reviews/fix/15-foo/`。ハイフンに潰すとラウンド自動判定が既存記録を見つけられない） |
 
@@ -113,7 +113,7 @@ description: >
   5. `bot-wait.sh <PR> <手順 1 の T> --copilot=1 --codex=1 --codex-nudge=300`（background、timeout 960000）。Codex の応答はレビューではなく **issue コメント**（「Didn't find any major issues」）で届くことがあり、`gate-threads.sh`/`gate-bodies.sh` には出ない。`gh api "repos/{owner}/{repo}/issues/<PR>/comments?since=<T>"` の `chatgpt-codex-connector[bot]` を見る（`gate-turn.sh` はこれも自動で表示する）。**Codex は「Codex Review Summary」の issue コメントで応答することもある**: 同じコメントが状態 Running → Completed に書き換わり、指摘が無ければ PR に 👍 が付く（PR #105 G1）。指摘が無いときは、本文ごと「Codex Review: Didn't find any major issues」に置き換わることもある（「Completed」の文字は残らない。PR #109 G2）。`bot-wait.sh`（G2 以降の `gate-turn.sh` も）は、このコメントが Completed で対象の commit が PR の HEAD になるまで待つ（issue #128。以前は Running の時点で DONE になり、待ち直していた）。「Didn't find any major issues」・👍・レビューも応答と数える。Copilot の指摘で `gate-record.sh init` した後に Codex が Completed になったら、記入前に `init --force` で作り直す（Codex のスレッドが記録に入らないため。PR #106 G1）
   6. G2 以降は未収束の bot だけ `gate-turn.sh <PR> <copilot|codex>`（`--first` は付けない）
 - **初回 push（PR 作成前）に含める状態ファイル `dev-cycle.md` は、PR 作成後も偽にならないように書く**: 「PR: 未作成」「現在のステップ: 4（PR 作成前）」のまま push すると、Copilot が「PR 作成済みなのに古い記録」と指摘する（PR #76 G1-1。修正・返信・Resolve・再依頼で余分な 1 ラウンドを使った）。初回版は「PR: 作成後に番号を記入」「現在のステップ: 4〜5（PR 作成・CI 待ち）」のように書き、番号は G1 の記録コミットで入れる。PR 作成後に追加 push して直すと、HEAD が動くため `gate-turn.sh --first` が使えなくなる
-- **PR に投稿する本文（サマリ・スレッド返信）と、その元になる `G<n>.md` の `再依頼:`・要旨・対応の欄に、`@codex` という文字列を書かない**。バッククォートで囲んでも Codex が反応し、約 10 秒後に「To use Codex here, create an environment for this repo」という定型コメントを PR に残す（直近 45 PR の issue コメントで実測: `@codex review` だけの 114 件は 0 件、`@codex` を含む長い本文 13 件中 9 件、含まない 152 件は 0 件）。「Codex へ review コメントを自動投稿」のように書く。再依頼コメントそのもの（本文が `@codex review` だけ。`bot-request.sh` と `bot-wait.sh --codex-nudge` が投稿する）は対象外
+- **PR の本文（`gh pr create`・`gh pr edit` で書く本文）、PR に投稿する本文（サマリ・スレッド返信）と、その元になる `G<n>.md` の `再依頼:`・要旨・対応の欄に、`@codex` という文字列を書かない**。バッククォートで囲んでも Codex が反応し、約 10 秒後に「To use Codex here, create an environment for this repo」という定型コメントを PR に残す（直近 45 PR の issue コメントで実測: `@codex review` だけの 114 件は 0 件、`@codex` を含む長い本文 13 件中 9 件、含まない 152 件は 0 件）。PR の本文も同じで、PR #129 では PR の本文に書いた `@codex` に PR 作成の 13 秒後に定型コメントが付き、PR 作成時の自動レビューは届かなかった（G1 で `@codex review` を手で投稿して依頼した）。「Codex へ review コメントを自動投稿」のように書く。再依頼コメントそのもの（本文が `@codex review` だけ。`bot-request.sh` と `bot-wait.sh --codex-nudge` が投稿する）は対象外。`gate-record.sh post` が確かめるのは返信とサマリだけなので、PR の本文は `gh pr create` の前に自分で確かめる
 - **指摘の取得元は 2 系統ある。片方だけ見て「指摘なし」と判断しない。** Copilot は判定が
   「🔵 Needs a closer look」のとき、インラインコメントを 1 件も投稿せず（`Comments generated: 0 new`）、
   指摘を本文の `Suppressed comments` に畳むことがある（PR #35 の 2 回目のレビューが実例。

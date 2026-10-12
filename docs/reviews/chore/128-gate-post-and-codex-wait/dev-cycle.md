@@ -19,3 +19,4 @@
 | 2026-10-12 17:11 | 7 | G2: Codex 指摘なし（収束）。Copilot の本文の Previously missed 2 件（サマリの読み直し・`seq`）を修正 ead6431。確認ゲート通過 |
 | 2026-10-12 17:34 | 7 | G3: Copilot の本文の Previously missed 1 件（Resolve されないまま 0 で終わる `gate-resolve.sh`）を修正 4badfbb。push 直後の `post` の文言も補足。確認ゲート通過。Copilot は依頼上限 |
 | 2026-10-12 17:40 | 8 | 最終 push（c1a2ac1）の CI green（run 38224451056）。最終 push 以降に新しいレビューなし。最終報告（final-report.md）。マージは人間が行う |
+| 2026-10-12 19:15 | 8 | 最終報告の後、ユーザーの指示で SKILL.md の「`@codex` という文字列を書かない」の対象に PR の本文を足した（ドキュメントだけ。bot への再依頼はしない） |
