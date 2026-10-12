@@ -254,6 +254,7 @@ pending → running → completed
                   → failed      （リトライ上限到達。UIから retry で pending に戻せる）
                   → cancelled   （ユーザー操作）
 running ⇄ paused                （レート制限長期化・ユーザー操作時）
+pending/running/paused → failed （Action Scheduler のアクションを失った: `action_lost`・`fatal_error`。R3-9。§5「孤立したジョブの回復」）
 ```
 
 1回の移行実行（run）はエンティティ順序 `category → tag → product → customer → order → stock → coupon → review`
@@ -323,6 +324,7 @@ running ⇄ paused                （レート制限長期化・ユーザー操�
 （`10 × action_scheduler_queue_runner_time_limit`。`action_scheduler_failure_period` で変わり、負の値なら無効）を超えたものから失敗扱いになって判定から外れる。
 したがって、キャンセルの後にワーカーが強制終了されると、`active_runs` が空のまま「少し待って再試行」の 409 が少なくとも 5 分続く（キャンセルでは解けない）。
 逆に 1 ページの処理がその時間を超えると、書いている途中で AS が失敗扱いにして判定から外れる（ページはその時間に収まる粒度の前提。§5 冒頭）。
+孤立したジョブの回復（R3-9）はハートビートで判定するので、この前提に依らない（下の「孤立したジョブの回復」）。
 
 **ロック**（`Support\PlatformLock`）: core の `WP_Upgrader::create_lock()` と同じ「options への一意な `INSERT IGNORE`」（`GET_LOCK()` は Galera・一部の DB プロキシで
 期待どおり動かないため不採用。2026-09-26 決定）。option 名 `cbjp_platform_lock_` . md5( platform )（アダプタのキーは外部コードが決めるため長さを保証できない）、
@@ -370,7 +372,7 @@ Import/Export タブは接続済みのプラットフォームしか並べない
 - 無条件の `update_status()` はテストで任意の状態を作るためだけに残す。
 
 **残る制限**: 同じジョブのアクションが重複した場合（AS の管理画面からの手動実行等）、`running` のジョブは冒頭の遷移で弾けず 2 本が同じページを処理しうる（重複の元だった二重 Retry・
-次ジョブの二重起動は上の遷移で塞いだので、cursor の CAS は入れていない）。Mappings の PUT はサーバーで拒否しない（§6「進行中 run の発見」の残る制限のとおり）。
+次ジョブの二重起動は上の遷移で塞いだので、cursor の CAS は入れていない）。失敗にされた後もページを書き終えたプロセスが積んだアクションは、Retry が積む前に取り消す（R3-9。下の「孤立したジョブの回復」）。Mappings の PUT はサーバーで拒否しない（§6「進行中 run の発見」の残る制限のとおり）。
 `DELETE /connections/{platform}` は R3-0p で囲んだ（上記）。再接続側は run 中も拒否しない（backlog `r3-0p-guard-disconnect/plan-X1-rest`）。
 
 **実機確認（2026-10-03、wp-env・mock アダプタ `mockv`）**: `wp eval-file` を 2 プロセス同時に走らせた。`query` フィルターで `start_run()` を最初のジョブの INSERT 直前に 8 秒止め
@@ -378,6 +380,84 @@ Import/Export タブは接続済みのプラットフォームしか並べない
 run は 1 本だけ作られ、終わった後にロックの行は残らなかった。続けて、そのジョブのアクションを in-progress にしてページの処理中（dry-run の行の INSERT 直前）に 8 秒止め、その間に
 `POST /runs/{run}/cancel`（200）→ `POST /runs`・`POST /tools/rebuild-mappings` が 409。処理後もジョブは `cancelled` のまま（以前は `completed` で上書きされた）、アクションの完了後は
 `POST /runs` が 200。期限内のロックの行では 409、期限切れの行は回収されて 200（行は解放で消える）。撤去済み。
+
+### 孤立したジョブの回復（R3-9・issue #121）
+
+**問題**: プラグインの停止中も Action Scheduler（AS）は動き、期限の来た `cbjp_process_job` をコールバックの無いまま失敗にする（`ActionScheduler_Action::execute()` が `has_action()` を見る）。
+PHP の致命的エラー（AS 4.x の `ActionScheduler_FatalErrorMonitor` が shutdown で失敗にする）・プロセスの強制終了（AS のキューの掃除が in-progress を 5 分で失敗扱いにする）でも、
+ページを処理していたアクションが失われる。ジョブは `running`（`paused`・Retry した `pending`）のまま残り、同時実行の判定がそのプラットフォームの開始・Retry・ツール・切断を
+409 で止め続けた（Tools タブのキャンセルだけが回復の手段で、画面上は「実行中」のまま進まない）。R3-5a の独立レビューで判明（backlog `r3-5a-uninstall-option-ui/R1-X1`）。
+
+**方針**（2026-10-13 計画承認）: 生きたアクションを失った進行中の run を、理由のコード付きの `failed` にする。通常の例外の失敗と同じ形（run の最初の未終了のジョブだけを失敗にし、
+兄弟は pending のまま）なので、既存の Retry（保存済みの cursor から続ける）・キャンセル・`ActiveRunNotice`（「ジョブが失敗して止まった」）がそのまま使える。
+自動では再開しない（致命的エラーが同じページで繰り返すとループになる）。
+
+**孤立の判定**（`Sync\OrphanedRunRecovery::recover( $platform )`）: 進行中の run のうち、次をすべて満たすもの。
+1. 失敗したジョブを持たない（持つ run は既に「止まった。Retry かキャンセル」の状態）。
+2. run の**どのジョブにも** AS の生きたアクション（pending・in-progress）が無い。`complete_job_and_advance()` は前のジョブのアクションが in-progress のまま次のジョブを
+   始めるので、ジョブ単位ではなく run 単位で見る。
+3. ジョブの最新の `updated_at` が猶予（`GRACE_SECONDS` = 900 秒）より古い。
+
+書換えは `JobRepository::mark_failed_if_idle()`（`updated_at <= cutoff` を条件に足した `mark_failed()`。判定の後に入ったハートビート・Retry に負ける CAS）で、
+error は `{ code: 'action_lost', message: <英語の固定文> }`。古い run が無ければ AS を照会しない（一覧は数秒ごとに照会される）。
+生きたアクションの照会（`JobRepository::live_action_job_ids()`）は pending と in-progress を 1 回で読む（2 回に分けると、その間に移ったアクションを両方で取りこぼす）。
+確かめられないときは null を返して何もしない（フェイルクローズ）: AS の初期化前（`as_get_scheduled_actions()` は黙って空を返す）・照会の例外・DB エラー
+（DBStore は `get_col()` の失敗でも空を返すので `$wpdb->last_error` で見る）・取得できないアクション（`ActionScheduler_NullAction`）・hook/group の違い・`job_id` が正の int でない。
+同時実行の判定（`has_in_flight_job_for_platform()`）は読めないアクションを飛ばすフェイルオープンのまま。
+
+**ハートビート**（`Sync\JobHeartbeat`）: AS は in-progress のアクションを 5 分（`action_scheduler_failure_period`）で失敗扱いにし、続きのページは状態を遷移しないので、
+何もしなければ長いページ（50 件の画像の取込み・多数のバリエーションの保存）を処理の途中で孤立と誤認し、利用者の Retry で古いページと新しいアクションが同じ cursor を
+処理する（計画時の独立レビューの High）。`process_job()` は次の 3 か所で `JobRepository::touch()`（`running` のときだけ `updated_at` を今にする）を打つ。書込みは 60 秒に 1 回まで。
+- ページの開始時（間引かない）。
+- アイテムごと（`Importer::run_page()`・`Exporter::run_page()` の末尾の省略可能な引数 `$heartbeat`。末尾への追加なので既存の呼び出しは変わらない）。
+- HTTP の応答ごと（`http_api_debug` へのフックをそのページの間だけ足し、`finally` で外す。アイテムの中の長い待ち〔API の再試行・画像の取得〕も拾う）。
+
+猶予 900 秒は、打つ間隔の最大（HTTP 1 本〔画像の `download_url` は既定 300 秒〕か 1 件の書込み）の約 3 倍。これで孤立の判定の正しさは、
+「1 ページは AS の失敗扱いの時間に収まる」（§5 冒頭）という前提に依らなくなった（処理中のアクションの判定には残る）。
+
+**呼び出す場所**: ロックの中の判定（`JobManager::start_run_locked()`・`retry()`・`RestController::run_exclusively()`）の前と、`GET /runs`（`list_runs()`。画面が 5〜30 秒ごとに照会する）。
+`GET /runs` はロックを取らない（取ると開始・ツールと競合して 409 になりうる）。生きたアクションの無い区間（run の開始の遷移→エンキュー、Retry の `failed→pending`→エンキュー）は
+どれもロックの中で `updated_at` が今になり、書換えは CAS なので、ロックの外から呼んでもその区間を誤認しない。「読むだけの表示はロックを取らない」（上の「同時実行のロック」）の
+例外で、読むついでに CAS で書く。
+
+**致命的エラー**: `Core\Plugin::boot()` が `action_scheduler_unexpected_shutdown`（AS の `FatalErrorMonitor` が shutdown でアクションを失敗にした直後に発火）にフックする。
+自分の hook・group のアクションで `job_id` が正の int なら、猶予を待たずにそのジョブを `{ code: 'fatal_error', message: <PHP のエラーの 1 行目。ABSPATH を外し 300 文字まで> }` で
+失敗にする（`OrphanedRunRecovery::fail_after_fatal_error()`。shutdown の中なので例外を外へ出さない）。メモリ・実行時間の上限が原因だと分かる（Retry しても同じページで
+繰り返せば、ホストの設定の問題）。
+**ただし既定の設定ではこのフックは走らない**（実測）: WordPress の致命的エラーハンドラー（`wp-settings.php` で `shutdown` アクションの登録より先に `register_shutdown_function()` される）が
+エラー画面を出して `wp_die()` で終わるので、`shutdown` アクションが発火せず、AS の `FatalErrorMonitor` もこのフックも動かない（PHP は shutdown 関数の中の `exit` で残りの shutdown 関数を飛ばす）。
+その場合アクションは in-progress のまま残り、AS が 5 分で失敗扱いにした後、上の判定が最後の活動から猶予の後に `action_lost` で拾う（画面の説明に「処理の途中で PHP が止まった場合」を含めた）。
+フックが即時に効くのは、ハンドラーを無効にしたサイト（`WP_DISABLE_FATAL_ERROR_HANDLER`）と、ハンドラーがエラー画面を出さないとき（管理画面の外で出力の後など）。
+強制終了（shutdown が走らない）も上の判定が猶予の後に拾う。
+
+**Retry の取消し**: `retry()` は `failed→pending` の遷移に勝った後、そのジョブの pending のアクションを取り消してから積む（`as_unschedule_all_actions( hook, [ 'job_id' ], group )`）。
+失敗にされた後もページを書き終えたプロセスは続きのページを積むので、残したままだと 2 本の連鎖が同じジョブを進める。失敗したジョブのアクションは冒頭の終了判定で
+何もしないので、取り消して失うものは無い。遷移に負けた側は取り消さない（勝った側が積んだアクションを消さないため）。in-progress は取り消さない（その間は `is_platform_busy()` が止める）。
+
+**画面**: `RunProgress` は失敗したジョブの理由を `src/job-error.ts` の `jobErrorMessage()` で出す。`action_lost`・`fatal_error` は訳した説明にし、`fatal_error` には PHP のエラーを添える。
+ほかのコードは従来どおり message を出し、読めない値は汎用の文にする。
+
+**採らなかったもの**:
+- 停止時のフック（`register_deactivation_hook`）: 別のプロセスで処理中のページを安全に扱えず、「停止中に AS が動かなかった → 再有効化で続きから」の場合を失敗に変えてしまう。
+- 再有効化のときの即時の回復（猶予 0）: 停止の間に 5 分を超えて処理中だったページを誤って回復しうる。更新時の再有効化（silent）・ネットワーク有効化では有効化のフックが発火しない。
+- 自動の再開: 致命的エラーが同じページで繰り返すとループになる。
+
+**残る制限**:
+- 停止・強制終了から回復までは、最後の活動から 15 分＋一覧の照会の間隔かかる（その間も Tools タブなどからキャンセルできる）。
+- 猶予を超えてハートビートが止まったまま生きているページ（HTTP の応答もアイテムの区切りも 15 分来ない）は、誤って回復しうる（理論上）。
+- run の最後の未終了のジョブを回復すると、その run は進行中の一覧から消える。run_id を控えていないブラウザには失敗が見えないが、新しい run は始められる
+  （通常の例外で最後のジョブが失敗した run と同じ）。
+- 致命的エラーの理由（PHP のエラー文）が残るのは、上のフックが走ったときだけ。既定の設定では `action_lost` になり、原因は PHP のエラーログと Action Scheduler のログで確かめる。
+
+**実機確認（2026-10-13、wp-env の dev サイト・mock アダプタ `mockv`）**:
+- 停止: 2 種類の dry-run を始める → `wp plugin deactivate` → `wp action-scheduler run`（「no callbacks are registered」でアクションが failed）→ `wp plugin activate` で、ジョブが `running`・
+  兄弟が `pending` のまま残ることを再現した。猶予の内は `GET /runs` が進行中のまま返し、新しい run は 409（従来どおり）。`updated_at` を猶予より前へ戻すと、`GET /runs` が
+  先頭のジョブを `action_lost` の失敗にして `has_failed_job: true` で返し、兄弟は `pending` のまま。`POST /jobs/{id}/retry` → キューの実行で両方のジョブが完了し、新しい run を始められた。
+- 致命的エラー（mu-plugin でジョブのページの中でメモリの上限を超えさせた）: 既定の設定では WordPress のエラー画面が出てアクションが in-progress のまま残った（上の「ただし」）。
+  アクションの開始時刻を 10 分前へ戻して AS の失敗扱い（`mark_failures()`）を通し、ジョブの `updated_at` を猶予より前へ戻すと、`GET /runs` が `action_lost` の失敗にした。
+  `wp --exec="define( 'WP_DISABLE_FATAL_ERROR_HANDLER', true );" action-scheduler run` では、フックがその場でジョブを `fatal_error`（「Allowed memory size of … exhausted …」）の失敗にし、
+  mu-plugin を外して Retry すると完了した。
+- 管理画面の目視は未実施（dev サイトが未ログイン。表示の差し替えは `jobErrorMessage()` の Jest で確かめた）。検証の run・ジョブ・オプション・mu-plugin は撤去済み。
 
 ### 受注インポートの詳細（D10）
 
@@ -499,6 +579,7 @@ ASPからの外部リダイレクトで叩かれるためnonce・capabilityを�
 run ごとの値は全ジョブから集約する: `status` は未終了のジョブの running > paused > pending、`entities` は全ジョブ（失敗したものを含む。取り込む UI が前回の dry-run
 件数を捨てる対象）、`has_failed_job`（止まった run を「実行中」と区別して表示する）、`created_at`（最小）/`updated_at`（最大）。一覧は古い順。
 同時実行ガードは「1 プラットフォーム 1 run」を保つ前提だが、判定が原子的でない間（issue #57）は複数ありうるため一覧で返す。
+照会のたびに、Action Scheduler のアクションを失った run を失敗にしてから返す（R3-9。ロックは取らず CAS で書く。§5「孤立したジョブの回復」）。
 
 **UI**（`src/active-runs.ts`〔純粋関数〕・`src/hooks/useActiveRuns.ts`・`src/hooks/useRunAdoption.ts`・`src/components/ActiveRunNotice.tsx`）:
 - 全タブ（Import / Export / Tools / Mappings）が platform ごとに一覧を照会する。一覧を書き換えるのは取得関数だけで、世代カウンタもその中で進める。409 の
