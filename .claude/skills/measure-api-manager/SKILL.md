@@ -23,7 +23,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 
 - **dev サイトでだけ動く**: PHP は `home_url()` が `.wp-env.json` の `port` の URL と一致し、環境が `local` のときだけ動く。
 - **始める前に dev サイトがきれいであることを確かめる**（`preflight`）: API Manager（プラグイン・テーブル・option・cron・予定）、Pro のキーの記録、前回の製品・注文・顧客、
-  このスキルの mu-plugin、Pro のヘッダーの一時的な行が 1 つでもあれば、何もしないで止まる。残っているものは、中身を確かめてから手で消す（このスキルは自分の状態ファイルにあるものしか消さない）。
+  このスキルの mu-plugin、Pro のヘッダーの一時的な行が 1 つでもあれば、何もしないで止まる。残っているものは、中身を確かめてから手で消す（このスキルは、自分の状態ファイルがこの DB と結び付いているときしか消さない）。
 - **作ったものは状態ファイル `dist/api-manager/state.json` に作るたびに書く**。状態ファイルには手元の API Manager のキーが入る（`dist/` は gitignore 済みで、HTTP で読めないことを毎回確かめる）。
 - **teardown が消すもの**: 製品・ページ・注文・顧客は、状態ファイルの ID と目印（投稿・注文の meta `_cbjp_am_probe`、顧客のログイン名 `cbjp-am-buyer`）が一致するときだけ消す。
   API Manager のテーブル・option・usermeta・cron・予定と、Pro のキーの記録（`cbjp_pro_license_*`）は**名前で消す**。setup の前に 0 だったことを preflight で確かめているので、消えるのは setup の後にできたもの。

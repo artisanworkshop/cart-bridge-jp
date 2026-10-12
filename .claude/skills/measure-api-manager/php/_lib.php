@@ -34,7 +34,7 @@ const CBJP_AM_PRODUCT_NAME = 'Cart Bridge JP Pro';
 /** 状態ファイルと dev サイトの DB を結び付けるトークンの option。 */
 const CBJP_AM_TOKEN_OPTION = 'cbjp_am_probe_token';
 /** API Manager の WP-Cron のフック・Action Scheduler の予定の名前（`kestrel_` は 3.7 から）。 */
-const CBJP_AM_HOOK_PATTERN = '/wc_am|wcam|kestrel_api_manager/i';
+const CBJP_AM_HOOK_PATTERN = '/wc_am|wcam|kestrel_api_manager|api_manager_legacy_update/i';
 
 /**
  * `key=value` の引数を読む。未知・重複のキー、`=` の無い引数は止める（rehearse-colorme の `cbjp_rh_args()` と同じ）。
@@ -217,7 +217,8 @@ function cbjp_am_state_belongs_here( array $state ): bool {
 /**
  * API Manager の option（transient を含む）を選ぶ WHERE 句と値。数える（`cbjp_am_leftovers()`）と消す（teardown）が同じ範囲を使う。
  * 前方一致: 3.6 までの `woocommerce_api_manager_`・`wc_am_`、3.7 からの `kestrel_api_manager_`、応答のキャッシュの transient。
- * 名前に含む: バックグラウンド処理（`wp_<blog>_wcam_events_background_process`・`wp_wc_am_updater`）の `_batch_*` と、`_process_lock` の site transient。
+ * 名前に含む: バックグラウンド処理（`wp_<blog>_wcam_events_background_process`・`wp_wc_am_updater`・3.8 の旧版からの移行 `api_manager_legacy_update`）の
+ * `_batch_*` と、`_process_lock` の site transient。
  *
  * @return array{0:string,1:list<string>}
  */
@@ -225,7 +226,7 @@ function cbjp_am_am_option_where(): array {
 	global $wpdb;
 
 	$prefixes = [ 'woocommerce_api_manager', 'kestrel_api_manager', 'wc_am_', 'wcam_', '_transient_wc_am_', '_transient_timeout_wc_am_', '_site_transient_wc_am_', '_site_transient_timeout_wc_am_' ];
-	$contains = [ 'wcam_events_background_process', 'wc_am_updater' ];
+	$contains = [ 'wcam_events_background_process', 'wc_am_updater', 'api_manager_legacy_update' ];
 	$values   = array_merge(
 		array_map( static fn( string $p ): string => $wpdb->esc_like( $p ) . '%', $prefixes ),
 		array_map( static fn( string $c ): string => '%' . $wpdb->esc_like( $c ) . '%', $contains )
@@ -263,10 +264,11 @@ function cbjp_am_am_action_ids(): array {
 		'intval',
 		$wpdb->get_col(
 			$wpdb->prepare(
-				"SELECT action_id FROM {$table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
+				"SELECT action_id FROM {$table} WHERE hook LIKE %s OR hook LIKE %s OR hook LIKE %s OR hook LIKE %s",
 				'%' . $wpdb->esc_like( 'wc_am' ) . '%',
 				'%' . $wpdb->esc_like( 'wcam' ) . '%',
-				'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%'
+				'%' . $wpdb->esc_like( 'kestrel_api_manager' ) . '%',
+				'%' . $wpdb->esc_like( 'api_manager_legacy_update' ) . '%'
 			)
 		)
 	);

@@ -23,6 +23,8 @@ PRO_MAIN="plugins/cart-bridge-jp-pro/cart-bridge-jp-pro.php"
 HEADER_LINE=' * Update URI: http://wordpress/'
 HEADER_AFTER=' * Text Domain: cart-bridge-jp-pro'
 HEADER_FLAG="$OUT/header-inserted"
+# 残っているかの判定は、行が変形していても（空白を整えられた等）拾えるよう、URL の部分で見る（R2-3）。
+HEADER_MARK='Update URI: http://wordpress/'
 
 die() { echo "am: $*" >&2; exit 1; }
 usage() { sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -126,7 +128,12 @@ header_remove() {
     rm -f "$tmp"
     echo "removed '$HEADER_LINE' from $PRO_MAIN"
   fi
-  ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || { echo "could not remove '$HEADER_LINE' from $PRO_MAIN" >&2; return 1; }
+  if grep -qF "$HEADER_MARK" "$PRO_MAIN"; then
+    echo "a line with '$HEADER_MARK' is still in $PRO_MAIN (changed after e2e start?); remove it by hand" >&2
+    return 1
+  else
+    [ "$?" = 1 ] || { echo "could not read $PRO_MAIN" >&2; return 1; }
+  fi
   rm -f "$HEADER_FLAG" || return 1
   if ! pro_main_clean; then
     echo "warning: $PRO_MAIN has other uncommitted changes (not made by this skill); check 'git diff -- $PRO_MAIN'" >&2
@@ -150,7 +157,7 @@ case "$cmd" in
     php_run status
     dir=$(mu_dir) || exit 1
     if [ -e "$dir/$MU_FILE_NAME" ]; then echo "mu-plugin: PRESENT ($dir/$MU_FILE_NAME)"; else echo "mu-plugin: absent"; fi
-    if [ -e "$HEADER_FLAG" ] || grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then echo "Pro header: the temporary Update URI line is PRESENT (am.sh e2e stop)"; else echo "Pro header: no temporary Update URI line"; fi
+    if [ -e "$HEADER_FLAG" ] || grep -qF "$HEADER_MARK" "$PRO_MAIN"; then echo "Pro header: the temporary Update URI line is PRESENT (am.sh e2e stop)"; else echo "Pro header: no temporary Update URI line"; fi
     ;;
 
   setup)
@@ -182,7 +189,7 @@ case "$cmd" in
     # 何かを変える前に、mu-plugin を書けることを確かめる（新しい wp-env には mu-plugins が無い。R1-10）。
     mkdir -p "$dir" && [ -w "$dir" ] || die "cannot write to $dir"
     [ ! -e "$dir/$MU_FILE_NAME" ] || die "a mu-plugin named $MU_FILE_NAME is already there: $dir/$MU_FILE_NAME (an earlier run? run: $0 teardown)"
-    [ ! -e "$HEADER_FLAG" ] && ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || die "the temporary Update URI line from an earlier run is still in $PRO_MAIN (run: $0 teardown)"
+    [ ! -e "$HEADER_FLAG" ] && ! grep -qF "$HEADER_MARK" "$PRO_MAIN" || die "the temporary Update URI line from an earlier run is still in $PRO_MAIN (run: $0 teardown)"
     php_run preflight || die "preflight refused (nothing was changed)"
 
     current=$(sed -n 's/^ \* Version: *\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) *$/\1/p' "$PRO_MAIN" | head -n 1)
@@ -264,7 +271,7 @@ case "$cmd" in
         site_up || exit 1
         guard_output_dir || exit 1
         wp plugin is-active cart-bridge-jp >/dev/null && wp plugin is-active cart-bridge-jp-pro >/dev/null || die "Cart Bridge JP and Cart Bridge JP Pro must be active on the dev site"
-        if [ -e "$HEADER_FLAG" ] || grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then
+        if [ -e "$HEADER_FLAG" ] || grep -qF "$HEADER_MARK" "$PRO_MAIN"; then
           die "e2e is already started (the temporary Update URI line is in $PRO_MAIN). Run: $0 e2e stop"
         fi
         # 先にリセットする（setup が済んでいなければここで止まり、ヘッダーは書き換えない）。
@@ -295,7 +302,7 @@ case "$cmd" in
     dir=$(mu_dir) || exit 1
     # 順序: Pro のヘッダー → データ（API Manager が有効な間）→ API Manager の削除 → そのテーブル・option など → mu-plugin → 数え直し。
     # 途中で失敗したら、その先（とくに mu-plugin の削除）は行わずに止める（もう一度 teardown を走らせれば続きから片付く）。
-    if [ -e "$HEADER_FLAG" ] || grep -qxF "$HEADER_LINE" "$PRO_MAIN"; then
+    if [ -e "$HEADER_FLAG" ] || grep -qF "$HEADER_MARK" "$PRO_MAIN"; then
       header_remove || die "could not restore $PRO_MAIN; nothing else was removed"
     fi
     php_run teardown step=data || die "teardown step=data failed; API Manager and the mu-plugin were kept (fix the cause, then run: $0 teardown)"
@@ -315,7 +322,7 @@ case "$cmd" in
     left=$(printf '%s\n' "$status_out" | sed -n 's/^LEFTOVERS=\([0-9][0-9]*\)$/\1/p')
     [ "$left" = 0 ] || die "the dev site still holds what setup created (LEFTOVERS=$left)"
     [ ! -e "$dir/$MU_FILE_NAME" ] || die "the mu-plugin is still there: $dir/$MU_FILE_NAME"
-    [ ! -e "$HEADER_FLAG" ] && ! grep -qxF "$HEADER_LINE" "$PRO_MAIN" || die "the temporary Update URI line is still in $PRO_MAIN"
+    [ ! -e "$HEADER_FLAG" ] && ! grep -qF "$HEADER_MARK" "$PRO_MAIN" || die "the temporary Update URI line is still in $PRO_MAIN"
     # 状態ファイル（キーを含む）と、写した zip を消す。応答（out/）と匿名化した応答（anon/）は残す。
     rm -f "$OUT/state.json" "$OUT"/woocommerce-api-manager*.zip "$OUT"/cart-bridge-jp-pro-*.zip "$HEADER_FLAG"
     rm -rf "$OUT/build"

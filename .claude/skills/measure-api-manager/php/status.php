@@ -13,13 +13,15 @@ require_once __DIR__ . '/_lib.php';
 $opts = cbjp_am_args( $args, [ 'site' ] );
 cbjp_am_require_site( $opts );
 
-$state  = cbjp_am_state();
-$counts = cbjp_am_leftovers( $state );
+$state   = cbjp_am_state();
+$belongs = null !== $state && cbjp_am_state_belongs_here( $state );
+// この DB と結び付かない状態ファイル（DB を作り直した・teardown がトークンを消した後）の ID は、別の投稿・注文を指しうるので数えに使わない（R2-1）。
+$counts = cbjp_am_leftovers( $belongs ? $state : null );
 
 if ( null === $state ) {
 	echo "state: none\n";
 } else {
-	echo 'state: ', wp_json_encode(
+	echo 'state', $belongs ? '' : ' (not bound to this database: its token is missing here or differs)', ': ', wp_json_encode(
 		[
 			'created_at'    => $state['created_at'] ?? null,
 			'am_version'    => $state['am_version'] ?? null,

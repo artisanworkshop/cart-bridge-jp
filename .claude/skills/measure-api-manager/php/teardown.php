@@ -1,6 +1,8 @@
 <?php
 /**
- * 後片付け（`am.sh teardown` が呼ぶ）。状態ファイルにあり、目印が一致するものだけを消す。状態ファイルが無いのに残りがあれば、推測で消さずに止める。
+ * 後片付け（`am.sh teardown` が呼ぶ）。状態ファイルがこの DB と結び付いている（トークンが一致する）ときだけ消す。投稿・注文・顧客は状態ファイルの ID と
+ * 目印が一致するものだけ、API Manager の分と Pro のキーの記録は名前で消す（preflight で 0 だったので setup の後にできたもの）。
+ * 状態ファイルが無い・結び付かないのに残りがあれば、推測で消さずに止める。
  * 引数: site=<dev サイトの URL> step=<data|am>
  *
  * - data: 注文 → 製品・ページ → 顧客、Pro のキーの記録・要求の記録・WP の更新の情報、承認済みディレクトリ（モードを setup の前の値に戻す）、アップロード。
@@ -17,13 +19,18 @@ require_once __DIR__ . '/_lib.php';
 $opts = cbjp_am_args( $args, [ 'site', 'step' ] );
 cbjp_am_require_site( $opts );
 
+if ( ! in_array( $opts['step'] ?? '', [ 'data', 'am' ], true ) ) {
+	cbjp_am_abort( 'step=<data|am> is required' );
+}
+
 global $wpdb;
 
 $state = cbjp_am_state();
 
 // 状態ファイルが無い、またはこの DB で setup したものでない（トークンが無い・違う。R1-1）: 残りが無ければ何もしない。あれば推測で消さずに止まる。
 if ( null === $state || ! cbjp_am_state_belongs_here( $state ) ) {
-	$counts = cbjp_am_leftovers( $state );
+	// 結び付かない状態ファイルの ID は、この DB では別の投稿・注文を指しうるので数えに使わない（名前と目印だけで数える。R2-1）。
+	$counts = cbjp_am_leftovers( null );
 	unset( $counts['mu_plugin'] );
 
 	if ( 0 === array_sum( $counts ) ) {

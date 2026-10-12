@@ -57,6 +57,14 @@ switch ( $opts['step'] ?? '' ) {
 		break;
 
 	case 'check':
+		// ヘッダーに Update URI が無いと、WP は Pro の update_plugins_{host} を呼ばない（「問い合わせない」と区別できない。R2-2）。
+		$header = get_file_data( CBJP_PRO_FILE, [ 'UpdateURI' => 'Update URI' ] );
+
+		if ( '' === trim( (string) $header['UpdateURI'] ) ) {
+			echo "check: the Pro header has no Update URI, so WordPress never asks Pro (run: am.sh e2e start)\n";
+			exit( 1 );
+		}
+
 		delete_option( CBJP_AM_REQUEST_LOG );
 		delete_site_transient( 'update_plugins' );
 		wp_update_plugins();

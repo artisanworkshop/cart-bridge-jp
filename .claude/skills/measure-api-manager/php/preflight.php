@@ -20,7 +20,7 @@ $counts = cbjp_am_leftovers( null );
 $found  = array_filter( $counts );
 
 if ( [] !== $found ) {
-	cbjp_am_abort( 'the dev site is not clean: ' . wp_json_encode( $found ) . ' (API Manager, a saved Pro license, or data from an earlier run is present. Remove it by hand after checking what it is; this skill only removes what its own state file lists)' );
+	cbjp_am_abort( 'the dev site is not clean: ' . wp_json_encode( $found ) . ' (API Manager, a saved Pro license, or data from an earlier run is present. Remove it by hand after checking what it is; this skill removes things only with its own state file bound to this database)' );
 }
 
 if ( ! class_exists( 'WooCommerce' ) || ! defined( 'CBJP_PRO_FILE' ) ) {
