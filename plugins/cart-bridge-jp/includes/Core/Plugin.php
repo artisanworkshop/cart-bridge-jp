@@ -17,6 +17,7 @@ use CartBridgeJP\Admin\RestController;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\LogCleanup;
 use CartBridgeJP\Sync\LogRepository;
+use CartBridgeJP\Sync\OrphanedRunRecovery;
 use CartBridgeJP\Woo\Support\EntityOrigin;
 
 /**
@@ -98,6 +99,18 @@ final class Plugin {
 			function ( int $job_id ) {
 				JobManager::create()->process_job( $job_id );
 			}
+		);
+
+		// PHP の致命的エラーでページの処理が止まったら、Action Scheduler がアクションを失敗にした直後に、そのジョブも失敗にする
+		// （R3-9。そのままでは進行中のまま残り、同時実行の判定がプラットフォームを塞ぐ）。WordPress の致命的エラーハンドラーが
+		// エラー画面を出すと発火しない（`OrphanedRunRecovery::fail_after_fatal_error()`）。その場合は `recover()` が猶予の後に拾う。
+		add_action(
+			'action_scheduler_unexpected_shutdown',
+			static function ( $action_id, $error ): void {
+				( new OrphanedRunRecovery() )->fail_after_fatal_error( $action_id, $error );
+			},
+			10,
+			2
 		);
 
 		add_action(

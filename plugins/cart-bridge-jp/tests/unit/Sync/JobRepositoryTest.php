@@ -341,4 +341,147 @@ final class JobRepositoryTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->jobs->is_platform_busy( 'mock', 'run-a' ) );
 		$this->assertTrue( $this->jobs->is_platform_busy( 'mock', 'run-b' ) );
 	}
+
+	private function updated_at( int $id ): string {
+		return (string) $this->jobs->find( $id )['updated_at'];
+	}
+
+	/**
+	 * 生きた（pending・in-progress の）アクションを持つジョブの ID（R3-9）。完了・失敗したアクションと、別の hook のアクションは数えない。
+	 */
+	public function test_live_action_job_ids_lists_the_jobs_with_pending_or_in_progress_actions(): void {
+		as_unschedule_all_actions( JobManager::ACTION_HOOK );
+		[ $queued, $running, $failed, $completed ] = $this->create_run(
+			'run-l',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_RUNNING ],
+				[ 'tag', JobRepository::STATUS_PENDING ],
+				[ 'product', JobRepository::STATUS_PENDING ],
+				[ 'stock', JobRepository::STATUS_PENDING ],
+			]
+		);
+
+		as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $queued ], JobManager::ACTION_GROUP );
+		$this->start_action_for( $running );
+		\ActionScheduler::store()->mark_failure( as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $failed ], JobManager::ACTION_GROUP ) );
+		\ActionScheduler::store()->mark_complete( as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $completed ], JobManager::ACTION_GROUP ) );
+		as_enqueue_async_action( 'cbjp_other_hook', [ 'job_id' => $completed ], JobManager::ACTION_GROUP );
+
+		$ids = $this->jobs->live_action_job_ids();
+
+		$this->assertIsArray( $ids );
+		sort( $ids );
+		$this->assertSame( [ $queued, $running ], $ids );
+	}
+
+	/**
+	 * Action Scheduler の照会が DB エラーになると、DBStore は空を返す。「生きたアクションが無い」と区別できないので null（R3-9。フェイルクローズ）。
+	 */
+	public function test_live_action_job_ids_is_null_when_the_action_query_fails(): void {
+		as_unschedule_all_actions( JobManager::ACTION_HOOK );
+		[ $id ] = $this->create_run( 'run-e', 'import', 'mock', [ [ 'category', JobRepository::STATUS_RUNNING ] ] );
+		as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $id ], JobManager::ACTION_GROUP );
+
+		$this->assertSame( [ $id ], $this->jobs->live_action_job_ids() );
+
+		$break = static function ( string $query ): string {
+			return str_starts_with( $query, 'SELECT a.action_id FROM' ) ? 'SELECT cbjp_no_such_column FROM cbjp_no_such_table' : $query;
+		};
+		add_filter( 'query', $break );
+		$suppress = $GLOBALS['wpdb']->suppress_errors( true );
+
+		try {
+			$this->assertNull( $this->jobs->live_action_job_ids() );
+		} finally {
+			$GLOBALS['wpdb']->suppress_errors( $suppress );
+			remove_filter( 'query', $break );
+		}
+	}
+
+	/**
+	 * 取得できなかったアクション（`ActionScheduler_NullAction`）・`job_id` が int でないアクションが 1 件でもあれば null（R3-9）。
+	 */
+	public function test_live_action_job_ids_is_null_when_an_action_cannot_be_read(): void {
+		as_unschedule_all_actions( JobManager::ACTION_HOOK );
+		[ $id ] = $this->create_run( 'run-n', 'import', 'mock', [ [ 'category', JobRepository::STATUS_RUNNING ] ] );
+		as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $id ], JobManager::ACTION_GROUP );
+
+		$hide = static function ( string $query ): string {
+			return str_starts_with( $query, 'SELECT a.*, g.slug AS `group`' ) ? $query . ' AND 1 = 0' : $query;
+		};
+		add_filter( 'query', $hide );
+
+		try {
+			$this->assertNull( $this->jobs->live_action_job_ids() );
+		} finally {
+			remove_filter( 'query', $hide );
+		}
+
+		$this->assertSame( [ $id ], $this->jobs->live_action_job_ids() );
+
+		as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => (string) $id ], JobManager::ACTION_GROUP );
+
+		$this->assertNull( $this->jobs->live_action_job_ids() );
+	}
+
+	/**
+	 * ハートビート（R3-9）は running のジョブの `updated_at` だけを進める。
+	 */
+	public function test_touch_moves_updated_at_only_for_running_jobs(): void {
+		$old                               = '2020-01-01 00:00:00';
+		[ $running, $pending, $cancelled ] = $this->create_run(
+			'run-t',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_RUNNING ],
+				[ 'tag', JobRepository::STATUS_PENDING ],
+				[ 'product', JobRepository::STATUS_CANCELLED ],
+			]
+		);
+
+		foreach ( [ $running, $pending, $cancelled ] as $id ) {
+			$this->set_timestamps( $id, $old, $old );
+			$this->jobs->touch( $id );
+		}
+
+		$this->assertGreaterThan( $old, $this->updated_at( $running ) );
+		$this->assertSame( $old, $this->updated_at( $pending ) );
+		$this->assertSame( $old, $this->updated_at( $cancelled ) );
+		$this->assertSame( JobRepository::STATUS_RUNNING, $this->jobs->find( $running )['status'] );
+	}
+
+	/**
+	 * 孤立の回復の書換え（R3-9）は、最後の更新が cutoff 以前の未終了のジョブだけを失敗にする（判定の後に動いたジョブには負ける）。
+	 */
+	public function test_mark_failed_if_idle_only_fails_unfinished_jobs_not_updated_after_the_cutoff(): void {
+		$error                       = [
+			'code'    => 'action_lost',
+			'message' => 'lost',
+		];
+		[ $idle, $busy, $completed ] = $this->create_run(
+			'run-i',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_RUNNING ],
+				[ 'tag', JobRepository::STATUS_PAUSED ],
+				[ 'product', JobRepository::STATUS_COMPLETED ],
+			]
+		);
+		$this->set_timestamps( $idle, '2020-01-01 00:00:00', '2020-01-01 00:00:00' );
+		$this->set_timestamps( $busy, '2020-01-01 00:00:00', '2020-01-01 00:10:01' );
+		$this->set_timestamps( $completed, '2020-01-01 00:00:00', '2020-01-01 00:00:00' );
+
+		$this->assertTrue( $this->jobs->mark_failed_if_idle( $idle, $error, '2020-01-01 00:10:00' ) );
+		$this->assertFalse( $this->jobs->mark_failed_if_idle( $busy, $error, '2020-01-01 00:10:00' ) );
+		$this->assertFalse( $this->jobs->mark_failed_if_idle( $completed, $error, '2020-01-01 00:10:00' ) );
+
+		$this->assertSame( JobRepository::STATUS_FAILED, $this->jobs->find( $idle )['status'] );
+		$this->assertSame( $error, json_decode( (string) $this->jobs->find( $idle )['error_json'], true ) );
+		$this->assertSame( JobRepository::STATUS_PAUSED, $this->jobs->find( $busy )['status'] );
+		$this->assertSame( JobRepository::STATUS_COMPLETED, $this->jobs->find( $completed )['status'] );
+	}
 }
