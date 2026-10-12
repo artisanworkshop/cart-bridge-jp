@@ -3,8 +3,8 @@
 - 開始: 2026-10-12
 - 引数: issue #128（確認ゲートあり。auto-commit の指定なし）
 - PR: #129
-- 現在のステップ: 7（ボットゲート G3。Copilot だけ）
-- Copilot: 依頼 2 回
+- 現在のステップ: 7〜8（G3 の修正の CI・最終報告）
+- Copilot: 依頼 3 回（上限）
 - Codex: 依頼 2 回（G2 で収束）
 
 ## ログ
@@ -17,3 +17,4 @@
 | 2026-10-12 16:12 | 4〜5 | push（16:11 の c9830ee）・PR #129 作成・CI green |
 | 2026-10-12 16:41 | 7 | G1: Copilot 3 件・Codex 1 件（P2）をすべて修正 35c98c1。Codex の自動レビューは届かず（PR 本文の呼びかけへの定型コメントだけ。新しい `bot-wait.sh` がそれを応答と数えて DONE になった → R1-L1 を G1 で対応）、Codex へ review コメントを手で投稿（依頼 1 回目）。確認ゲート通過 |
 | 2026-10-12 17:11 | 7 | G2: Codex 指摘なし（収束）。Copilot の本文の Previously missed 2 件（サマリの読み直し・`seq`）を修正 ead6431。確認ゲート通過 |
+| 2026-10-12 17:34 | 7 | G3: Copilot の本文の Previously missed 1 件（Resolve されないまま 0 で終わる `gate-resolve.sh`）を修正 4badfbb。push 直後の `post` の文言も補足。確認ゲート通過。Copilot は依頼上限 |
