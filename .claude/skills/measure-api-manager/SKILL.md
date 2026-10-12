@@ -38,7 +38,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
 
 ## 手順
 
-リポジトリのルートで実行する（`A=.claude/skills/measure-api-manager/scripts/am.sh`）。wp-env が起動していて、dev サイトで WooCommerce・Cart Bridge JP・Pro が有効であること。
+リポジトリのルートで実行する（`A=.claude/skills/measure-api-manager/scripts/am.sh`）。wp-env が起動していて、dev サイトで WooCommerce・Cart Bridge JP・Pro が有効で、Pro が起動していること（無料版が古いと Pro は起動しない。preflight が確かめる）。
 
 1. `$A status` — 状態ファイル・消し残し（`LEFTOVERS=0` なら何も無い）・mu-plugin・Pro のヘッダーを見る。
 2. `$A setup --zip ~/Downloads/woocommerce-api-manager.<版>.zip [--new-version X.Y.Z]`
@@ -48,7 +48,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
    - 製品 ID を埋めた mu-plugin を置き、手元の API Manager が状態確認に答えることを確かめる。
    - 途中で止まったら `$A teardown`（作ったところまでを消す）。
 3. `$A measure all`（または `$A measure before,activate`）— 下の「測る場面」の要求を送り、応答を `dist/api-manager/out/<API Manager の版>/<名前>.json` に保存する。
-   各グループの初めにリソースを戻すので、どのグループからでも、何度でも測れる。
+   各グループの初めにリソースを戻し（戻ったことを読み直して確かめる）、どのグループからでも、何度でも測れる。API Manager はエラーも HTTP 200 で返すので、200 以外は測定の失敗（exit 1）。
 4. `$A compare` — 今の setup で測った応答（`out/<版>/run.json` で見分ける）を匿名化して Pro のフィクスチャと比べる。実行時間・日付・期限・版は比べない。
    - 違いがあれば差分を出して exit 1。匿名化した応答は `dist/api-manager/anon/<版>/` に置き（前回の分は消してから書く）、手元の値（URL・ID・ハッシュ・キー。配列のキーも）が残っていれば書かない。
    - 前の setup の応答は比べられない（その setup の ID を知らないので匿名化できない）。別の版と比べるなら、teardown → その版で setup → measure → compare。
@@ -60,7 +60,7 @@ tests サイト（10011）と本番の販売サイトには触れない**。API 
    - `$A e2e check`: 未有効化では販売サイトへの要求が 0 件で、Pro の行が出ない。WP が wordpress.org の確認に失敗して Update URI の段まで進まなかったときは、
      何も言えないので exit 1（コンテナが外に出られないときなど）。
    - `$A e2e activate` → `$A e2e check`: 更新の一覧（`response`）に新しい版と package が出る。
-   - `$A e2e details`（「詳細を表示」の `plugins_api`。節は小文字の名前）、`$A e2e rows`（プラグインの一覧の更新の行）。
+   - `$A e2e details`（「詳細を表示」の `plugins_api`。節は小文字の名前。未有効化では Pro が `WP_Error` を返し、詳細が得られないので exit 1）、`$A e2e rows`（プラグインの一覧の更新の行）。
    - `$A e2e expire` → `$A e2e check` → `$A e2e rows`: package が空で `disable_autoupdate`、更新の行に「自動更新は利用できません」と Pro の説明が出る。
    - `$A e2e forget` → `$A e2e check`: 手元の有効化の記録を消すと要求が 0 件に戻る。
    - `$A e2e stop`: 足した行を消し、無くなったことを確かめる。ほかの未コミットの変更（E2E の間に自分で直したもの）は残して警告する。

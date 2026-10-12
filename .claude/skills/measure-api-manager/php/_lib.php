@@ -155,7 +155,10 @@ function cbjp_am_state_write( array $state ): void {
 	$path = cbjp_am_state_path();
 	$json = wp_json_encode( $state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
-	if ( ! is_string( $json ) || false === file_put_contents( $path, $json . "\n" ) ) {
+	// 一時ファイルに書いてから置き換える（書いている途中で止まっても、壊れた状態ファイルを残さない。G1-5）。
+	$tmp = $path . '.tmp';
+
+	if ( ! is_string( $json ) || false === file_put_contents( $tmp, $json . "\n" ) || ! rename( $tmp, $path ) ) {
 		cbjp_am_abort( "could not write {$path}", 1 );
 	}
 }
@@ -482,27 +485,50 @@ function cbjp_am_reset_resources( array $state ): void {
 	$in  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 
 	// phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}wc_am_api_activation WHERE api_resource_id IN ({$in})", $ids ) );
+	if ( false === $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->prefix}wc_am_api_activation WHERE api_resource_id IN ({$in})", $ids ) ) ) {
+		cbjp_am_abort( 'could not delete the activations of the probe resources: ' . $wpdb->last_error, 1 );
+	}
+
+	$expected = [];
 
 	foreach ( $state['resources'] as $resource ) {
-		$wpdb->update(
-			"{$wpdb->prefix}wc_am_api_resource",
-			[
-				'access_expires'    => (int) $resource['access_expires'],
-				'active'            => 1,
-				'activations_total' => 0,
-			],
-			[ 'api_resource_id' => (int) $resource['id'] ]
-		);
+		$expected[ (int) $resource['id'] ] = [
+			'access_expires'    => (int) $resource['access_expires'],
+			'active'            => 1,
+			'activations_total' => 0,
+		];
+
+		// update() は値が同じなら 0 を返すので、失敗（false）だけを見て、値は下で読み直して確かめる（G1-1）。
+		if ( false === $wpdb->update( "{$wpdb->prefix}wc_am_api_resource", $expected[ (int) $resource['id'] ], [ 'api_resource_id' => (int) $resource['id'] ] ) ) {
+			cbjp_am_abort( 'could not reset the probe resource ' . (int) $resource['id'] . ': ' . $wpdb->last_error, 1 );
+		}
 	}
 
 	cbjp_am_clear_cache();
 
 	$left = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}wc_am_api_activation WHERE api_resource_id IN ({$in})", $ids ) );
+	$rows = $wpdb->get_results( $wpdb->prepare( "SELECT api_resource_id, access_expires, active, activations_total FROM {$wpdb->prefix}wc_am_api_resource WHERE api_resource_id IN ({$in})", $ids ), ARRAY_A );
 	// phpcs:enable
 
 	if ( 0 !== $left ) {
 		cbjp_am_abort( "could not reset the activations of the probe resources ({$left} left)", 1 );
+	}
+
+	$actual = [];
+
+	foreach ( (array) $rows as $row ) {
+		$actual[ (int) $row['api_resource_id'] ] = [
+			'access_expires'    => (int) $row['access_expires'],
+			'active'            => (int) $row['active'],
+			'activations_total' => (int) $row['activations_total'],
+		];
+	}
+
+	ksort( $expected );
+	ksort( $actual );
+
+	if ( $expected !== $actual ) {
+		cbjp_am_abort( 'the probe resources did not reset as expected: ' . wp_json_encode( [ 'expected' => $expected, 'actual' => $actual ] ), 1 );
 	}
 }
 
@@ -515,9 +541,10 @@ function cbjp_am_expire( array $state, int $index, int $seconds_ago ): void {
 	global $wpdb;
 
 	$id      = (int) $state['resources'][ $index ]['id'];
-	$updated = $wpdb->update( "{$wpdb->prefix}wc_am_api_resource", [ 'access_expires' => time() - $seconds_ago ], [ 'api_resource_id' => $id ] );
+	$expires = time() - $seconds_ago;
+	$updated = $wpdb->update( "{$wpdb->prefix}wc_am_api_resource", [ 'access_expires' => $expires ], [ 'api_resource_id' => $id ] );
 
-	if ( 1 !== $updated ) {
+	if ( false === $updated || $expires !== (int) $wpdb->get_var( $wpdb->prepare( "SELECT access_expires FROM {$wpdb->prefix}wc_am_api_resource WHERE api_resource_id = %d", $id ) ) ) {
 		cbjp_am_abort( "could not expire the probe resource {$id}", 1 );
 	}
 
@@ -530,13 +557,16 @@ function cbjp_am_expire( array $state, int $index, int $seconds_ago ): void {
 function cbjp_am_clear_cache(): void {
 	global $wpdb;
 
-	$wpdb->query(
-		$wpdb->prepare(
-			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
-			$wpdb->esc_like( '_transient_wc_am_' ) . '%',
-			$wpdb->esc_like( '_transient_timeout_wc_am_' ) . '%'
-		)
-	);
+	$where  = 'option_name LIKE %s OR option_name LIKE %s';
+	$values = [ $wpdb->esc_like( '_transient_wc_am_' ) . '%', $wpdb->esc_like( '_transient_timeout_wc_am_' ) . '%' ];
+
+	// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	if ( false === $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE {$where}", $values ) )
+		|| 0 !== (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE {$where}", $values ) ) ) {
+		cbjp_am_abort( "could not clear API Manager's response cache: " . $wpdb->last_error, 1 );
+	}
+	// phpcs:enable
+
 	wp_cache_flush();
 }
 

@@ -179,6 +179,13 @@ $check(
 	(string) $anon_update['data']['package']['package']
 );
 
+// URL の中の、この setup のものでない顧客・製品の ID は 0 にする（違いを隠さない。G1-6）。
+$other_ids = cbjp_am_anonymize( [ 'package' => 'http://localhost:10010/?user_id=555&am_download_file=444&am_order=870' ], $ctx );
+$check( 'https://example.com/?user_id=0&am_download_file=0&am_order=1001' === $other_ids['package'], 'anonymize: unknown IDs in the download URL become 0', (string) $other_ids['package'] );
+
+// 配列のキーそのものが手元の ID なら漏れとして報告する（G1-7）。
+$check( str_contains( implode( "\n", cbjp_am_leaks( cbjp_am_anonymize( [ 867 => 'x' ], $ctx ), $ctx ) ), '(key): a local ID (867)' ), 'leaks: reports a local ID used as an array key' );
+
 // ID の欄の、知らない値はフィクスチャに残さない（0）。2 件目の注文は 1002。
 $ids = cbjp_am_anonymize(
 	[

@@ -60,6 +60,18 @@ wp() {
   return "$rc"
 }
 
+# プラグインの状態（active・inactive など。入っていなければ空）。WP-CLI 自体が失敗したら、出力を見せて非ゼロで返す
+# （出力を捨てると、WP-CLI が起動しない・PHP の致命的エラーを「無効」「入っていない」と取り違える。G1-12）。
+plugin_status() {
+  local out
+  if ! out=$(wp plugin list --name="$1" --field=status); then
+    printf '%s\n' "$out" >&2
+    echo "could not read the status of the plugin $1 (WP-CLI failed; see above)" >&2
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -E '^(active|active-network|inactive)$' | head -n 1 || true
+}
+
 # php/<name>.php を dev サイトで実行する（site= は PHP がサイトを確かめるのに使う）。
 php_run() {
   local name=$1
@@ -88,7 +100,8 @@ guard_output_dir() {
 remove_mu() {
   local dest=$1
   [ -e "$dest" ] || return 0
-  grep -q "$MARKER" "$dest" || { echo "not removing $dest (not managed by this skill)" >&2; return 1; }
+  # 目印は文字どおりに比べる（正規表現だと `.` が任意の 1 文字に一致し、よく似た別のファイルを消しうる。G1-4）。
+  grep -qF "$MARKER" "$dest" || { echo "not removing $dest (not managed by this skill)" >&2; return 1; }
   rm "$dest" || return 1
   [ ! -e "$dest" ] || { echo "could not remove $dest" >&2; return 1; }
   echo "removed $dest"
@@ -243,7 +256,7 @@ case "$cmd" in
     product_id=$(printf '%s\n' "$data_out" | sed -n 's/^PRODUCT_ID=\([0-9][0-9]*\)$/\1/p')
     [ -n "$product_id" ] || fail_setup "setup step=data did not report the product ID"
     sed "s/__PRODUCT_ID__/$product_id/" "$TEMPLATE" > "$dir/$MU_FILE_NAME" || fail_setup "could not write the mu-plugin"
-    grep -q "$MARKER" "$dir/$MU_FILE_NAME" && grep -qF "(int) '$product_id'" "$dir/$MU_FILE_NAME" || fail_setup "the mu-plugin was not written as expected"
+    grep -qF "$MARKER" "$dir/$MU_FILE_NAME" && grep -qF "(int) '$product_id'" "$dir/$MU_FILE_NAME" || fail_setup "the mu-plugin was not written as expected"
     echo "installed $dir/$MU_FILE_NAME"
     php_run setup step=verify || fail_setup "setup step=verify failed"
     echo "setup: done. Next: $0 measure all"
@@ -270,13 +283,21 @@ case "$cmd" in
       start)
         site_up || exit 1
         guard_output_dir || exit 1
-        wp plugin is-active cart-bridge-jp >/dev/null && wp plugin is-active cart-bridge-jp-pro >/dev/null || die "Cart Bridge JP and Cart Bridge JP Pro must be active on the dev site"
+        free_status=$(plugin_status cart-bridge-jp) || exit 1
+        pro_status=$(plugin_status cart-bridge-jp-pro) || exit 1
+        [ "$free_status" = active ] && [ "$pro_status" = active ] || die "Cart Bridge JP and Cart Bridge JP Pro must be active on the dev site (cart-bridge-jp: '${free_status}', cart-bridge-jp-pro: '${pro_status}')"
         if [ -e "$HEADER_FLAG" ] || grep -qF "$HEADER_MARK" "$PRO_MAIN"; then
           die "e2e is already started (the temporary Update URI line is in $PRO_MAIN). Run: $0 e2e stop"
         fi
-        # 先にリセットする（setup が済んでいなければここで止まり、ヘッダーは書き換えない）。
+        # ヘッダーを書き換えるなら、dev サイトを変える（リセット）前にファイルが clean であることを確かめる（G1-10）。
+        need_insert=1
+        if grep -q '^ \* Update URI:' "$PRO_MAIN"; then need_insert=0; fi
+        if [ "$need_insert" = 1 ] && ! pro_main_clean; then
+          die "$PRO_MAIN has uncommitted changes; commit or stash them first (e2e start edits this file and must be able to restore it exactly). Nothing was changed"
+        fi
+        # 次にリセットする（setup が済んでいなければここで止まり、ヘッダーは書き換えない）。
         php_run e2e step=reset || die "e2e step=reset failed (has setup finished?)"
-        if grep -q '^ \* Update URI:' "$PRO_MAIN"; then
+        if [ "$need_insert" = 0 ]; then
           # 販売サイトの URL が入った後: ヘッダーは触らない。要求は mu-plugin の接続先の定数で手元へ行く。
           echo "the Pro header already has an Update URI; leaving it as is (requests still go to the local API Manager)"
         else
@@ -306,8 +327,9 @@ case "$cmd" in
       header_remove || die "could not restore $PRO_MAIN; nothing else was removed"
     fi
     php_run teardown step=data || die "teardown step=data failed; API Manager and the mu-plugin were kept (fix the cause, then run: $0 teardown)"
-    if wp plugin is-installed woocommerce-api-manager >/dev/null; then
-      if wp plugin is-active woocommerce-api-manager >/dev/null; then
+    am_status=$(plugin_status woocommerce-api-manager) || die "could not read the status of API Manager; the mu-plugin was kept"
+    if [ -n "$am_status" ]; then
+      if [ "$am_status" != inactive ]; then
         wp plugin deactivate woocommerce-api-manager || die "could not deactivate API Manager"
       fi
       wp plugin delete woocommerce-api-manager || die "could not delete API Manager"

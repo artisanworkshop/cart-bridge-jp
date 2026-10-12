@@ -129,8 +129,17 @@ function cbjp_am_anonymize( $value, array $ctx, string $key = '' ) {
 	}
 
 	$value = str_replace( $ctx['site_url'], 'https://example.com', $value );
-	$value = (string) preg_replace( '/([?&]user_id=)[0-9]+/', '${1}1', $value );
-	$value = (string) preg_replace( '/([?&]am_download_file=)[0-9]+/', '${1}1000', $value );
+	// URL の中の ID も、この setup の ID だけをフィクスチャの値にし、知らない ID は 0 にする（別の顧客・製品の ID が返る違いを隠さない。G1-6）。
+	$value = (string) preg_replace_callback(
+		'/([?&]user_id=)([0-9]+)/',
+		static fn( array $m ): string => $m[1] . cbjp_am_anon_id( $m[2], $ctx, 'user_id' ),
+		$value
+	);
+	$value = (string) preg_replace_callback(
+		'/([?&]am_download_file=)([0-9]+)/',
+		static fn( array $m ): string => $m[1] . cbjp_am_anon_id( $m[2], $ctx, 'product_id' ),
+		$value
+	);
 	$value = (string) preg_replace_callback(
 		'/([?&]am_order=)([0-9]+)/',
 		static fn( array $m ): string => $m[1] . cbjp_am_anon_id( $m[2], $ctx, 'order_id' ),
@@ -224,8 +233,12 @@ function cbjp_am_leaks( $value, array $ctx, string $path = '' ): array {
 	}
 
 	foreach ( $ids as [ $id, $mapped ] ) {
-		// ID は件数などの数と見分けられないので、URL の引数と ID を含む名前だけを見る。
-		if ( $id !== $mapped && 1 === preg_match( '/([?&][a-z_]+=|cart-bridge-jp-pro-)' . $id . '(?![0-9])/', $value ) ) {
+		if ( $id === $mapped ) {
+			continue;
+		}
+
+		// ID は件数などの数と見分けられないので、URL の引数・ID を含む名前と、配列のキーそのもの（G1-7）だけを見る。
+		if ( 1 === preg_match( '/([?&][a-z_]+=|cart-bridge-jp-pro-)' . $id . '(?![0-9])/', $value ) || ( str_ends_with( $path, ' (key)' ) && (string) $id === $value ) ) {
 			$problems[] = "{$path}: a local ID ({$id})";
 		}
 	}

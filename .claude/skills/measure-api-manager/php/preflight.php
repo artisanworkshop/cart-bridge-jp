@@ -23,8 +23,13 @@ if ( [] !== $found ) {
 	cbjp_am_abort( 'the dev site is not clean: ' . wp_json_encode( $found ) . ' (API Manager, a saved Pro license, or data from an earlier run is present. Remove it by hand after checking what it is; this skill removes things only with its own state file bound to this database)' );
 }
 
-if ( ! class_exists( 'WooCommerce' ) || ! defined( 'CBJP_PRO_FILE' ) ) {
-	cbjp_am_abort( 'WooCommerce and Cart Bridge JP Pro must be active on the dev site' );
+// WooCommerce・無料版・Pro が有効で、Pro が実際に起動したこと（Pro のメインファイルの定数は、無料版が無効・古くても定義される。G1-11）。
+// 無料版のクラスを先に確かめる（無料版が無いと、Pro のクラスのオートロードが fatal になりうる）。Pro のクラスは起動で読み込み済みなので、オートロードしない。
+$pro_booted = class_exists( 'WooCommerce' ) && class_exists( \CartBridgeJP\Core\Plugin::class )
+	&& class_exists( \CartBridgeJP\Pro\Core\Plugin::class, false ) && \CartBridgeJP\Pro\Core\Plugin::instance()->is_booted();
+
+if ( ! $pro_booted ) {
+	cbjp_am_abort( 'WooCommerce, Cart Bridge JP, and Cart Bridge JP Pro must be active, and Pro must have started (check the admin notices for an outdated free plugin)' );
 }
 
 echo "preflight: clean\n";

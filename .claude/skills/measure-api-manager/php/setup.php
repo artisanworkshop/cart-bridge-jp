@@ -44,7 +44,8 @@ switch ( $step ) {
 		}
 
 		// 状態ファイルとこの DB を結び付けるトークン（R1-1）。状態ファイルを先に書く: option だけが残ると、状態ファイルの無い残りとして teardown が止まる。
-		$token = wp_generate_password( 32, false );
+		// wp_generate_password() は random_password フィルターで記号を足されうる（G1-8）。フィルターを通らない乱数にする。
+		$token = bin2hex( random_bytes( 16 ) );
 
 		cbjp_am_state_write(
 			[
@@ -215,10 +216,14 @@ switch ( $step ) {
 		$order_ids = [];
 
 		for ( $i = 0; $i < 2; $i++ ) {
-			$order = wc_create_order( [ 'customer_id' => $user_id ] );
+			// 目印と顧客は最初の保存で一緒に書く（記録した ID の注文に目印が無いと、teardown が消さずに止まり続ける。G1-9）。
+			$order = new WC_Order();
+			$order->set_customer_id( $user_id );
+			$order->set_created_via( 'admin' );
+			$order->update_meta_data( CBJP_AM_MARKER_META, 'yes' );
 
-			if ( is_wp_error( $order ) ) {
-				cbjp_am_abort( 'could not create an order: ' . $order->get_error_message(), 1 );
+			if ( $order->save() <= 0 ) {
+				cbjp_am_abort( 'could not create an order', 1 );
 			}
 
 			$order_ids[] = $order->get_id();
@@ -226,7 +231,6 @@ switch ( $step ) {
 
 			$order->add_product( wc_get_product( $product_id ), 1 );
 			$order->set_billing_email( 'buyer@example.com' );
-			$order->update_meta_data( CBJP_AM_MARKER_META, 'yes' );
 			$order->calculate_totals();
 			$order->save();
 			$order->update_status( 'completed' );

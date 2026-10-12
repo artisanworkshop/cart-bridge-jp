@@ -104,8 +104,9 @@ switch ( $opts['step'] ?? '' ) {
 		$api = plugins_api( 'plugin_information', [ 'slug' => 'cart-bridge-jp-pro' ] );
 
 		if ( is_wp_error( $api ) ) {
-			echo 'WP_Error: ', $api->get_error_code(), ' ', $api->get_error_message(), "\n";
-			break;
+			// 未有効化なら Pro が WP_Error を返すのが正しい振る舞い。詳細は得られなかったので exit 1 にする（G1-2）。
+			echo 'WP_Error: ', $api->get_error_code(), ' ', $api->get_error_message(), " (no details: expected while the key is not activated)\n";
+			exit( 1 );
 		}
 
 		$info = (array) $api;

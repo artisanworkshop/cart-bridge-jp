@@ -198,6 +198,13 @@ foreach ( $requested as $name ) {
 			continue;
 		}
 
+		// API Manager はエラーも HTTP 200 で返す。200 以外は、応答の形が合っていても測定の失敗にする（保存した本文には状態が入らない。G1-3）。
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			echo "   {$label}: HTTP ", wp_remote_retrieve_response_code( $response ), " (expected 200)\n";
+			++$failures;
+			continue;
+		}
+
 		$package = $data['data']['package']['package'] ?? null;
 		$summary = array_filter(
 			[
