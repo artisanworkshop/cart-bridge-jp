@@ -12,10 +12,11 @@ npm run lint
 npm run test:js
 # ビルドしてから、ソースの文字列とコミット済みの POT（plugins/cart-bridge-jp/languages/）が同じか確かめる（R3-2。CI の PHPUnit ジョブと同じ）
 npm run i18n:check
-# 開発補助スクリプト（bot レビュー本文の整形・ゲート 1 ターンのオーケストレーター・ラウンド記録の生成）の回帰テスト。ネットワーク不要
+# 開発補助スクリプト（bot レビュー本文の整形・ゲート 1 ターンのオーケストレーター・ラウンド記録の生成と投稿・bot の応答の判定）の回帰テスト。ネットワーク不要
 .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh
 .claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh
 .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
+.claude/skills/cbj-dev-cycle/scripts/test-bot-wait.sh
 # API Manager の実測の匿名化・フィクスチャとの比較（measure-api-manager。ホストの php。wp-env 不要）
 php .claude/skills/measure-api-manager/php/test-anon.php
 echo "quality: all green"
