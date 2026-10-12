@@ -180,12 +180,13 @@ if ! "$DIR/gate-bodies.sh" "$PR" "$T"; then
   exit 3
 fi
 
-# 5. Codex は指摘なしを issue コメント（"Didn't find any major issues" + Reviewed commit）で返す。
+# 5. Codex は指摘なしを issue コメント（"Didn't find any major issues" + Reviewed commit）で返す。「Codex Review Summary」は
+#    G1 で作った 1 件のコメントを書き換えるので、作成の時刻ではなく更新の時刻で拾う（G2 以降で表示から漏れていた。issue #128）。
 if [ "$BOT" = "codex" ]; then
   echo
-  echo "=== codex issue comments (after T) ==="
+  echo "=== codex issue comments (updated after T) ==="
   if out=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments?since=$T" \
-    --jq ".[] | select(.user.login == \"chatgpt-codex-connector[bot]\" and .created_at > \"$T\") | \"\\(.created_at)\\n\\(.body[0:600])\\n---\""); then
+    --jq ".[] | select(.user.login == \"chatgpt-codex-connector[bot]\" and .updated_at > \"$T\") | \"\\(.updated_at)\\n\\(.body[0:600])\\n---\""); then
     if [ -n "$out" ]; then printf '%s\n' "$out"; else echo "(none)"; fi
   else
     echo "gh api (issue comments) failed" >&2
