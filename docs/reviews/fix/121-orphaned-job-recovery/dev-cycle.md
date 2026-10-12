@@ -18,3 +18,4 @@
 | 2026-10-13 04:54 | 3 | review-loop R2（独立サブエージェントの検証。R1-1 は変異で確認）: **APPROVE**（R1 の Medium 解消・新規 Critical/High 0 件）。新規 Low 3 件: エラー文の名前空間・URL が崩れる（修正 `9509809`）・docs の ID の食い違い（修正）・Cancel との理論上のデッドロック（docs/03 と backlog に記録）。quality green（PHPUnit 1312 件） |
 | 2026-10-13 05:09 | 4〜7 | 初回 push（T=2026-10-12T19:55:02Z）→ PR #131 → CI green → Copilot 依頼（timeline で登録確認）。Codex は自動レビューが 5 分で来ず `--codex-nudge` が再依頼。G1: 両 bot とも新規指摘 0 件で収束（Copilot は 0 open findings・総評のみ、Codex は Didn't find any major issues）。修正なし |
 | 2026-10-13 05:10 | 8 | 最終報告（`final-report.md`）。マージは人が行う |
+| 2026-10-13 08:19 | 追記 | マージ後（PR #131 は MERGED）に管理画面を目視（Claude in Chrome。Import タブで `mockv` の dry-run を始め、キューを止める一時の mu-plugin で止めた）: `action_lost` の説明と Retry、Retry 後の `fatal_error` の説明（PHP のエラー文つき）を確認。コンソールのエラー 0 件。実装時の確認の残り（ログ 5 件・終了済みのアクション 10 件）もあわせて撤去。記録は main へ直接コミット |

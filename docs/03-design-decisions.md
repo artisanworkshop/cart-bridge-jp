@@ -466,7 +466,11 @@ Web のリクエスト（WP-Cron・非同期のキューランナー）では終
   `wp --exec="define( 'WP_DISABLE_FATAL_ERROR_HANDLER', true );" action-scheduler run` と、Web のリクエストの中で `ActionScheduler_QueueRunner::run()` を動かしたとき（一時の mu-plugin。
   dev サイトの WP-Cron は止まっていて `wp-cron.php` では測れなかった）は、フックがその場でジョブを `fatal_error`（「Allowed memory size of … exhausted …」）の失敗にした。
   mu-plugin を外して Retry すると完了した。
-- 管理画面の目視は未実施（dev サイトが未ログイン。表示の差し替えは `jobErrorMessage()` の Jest で確かめた）。検証の run・ジョブ・オプション・mu-plugin は撤去済み。
+- 管理画面の目視（マージ後の同日。Import タブで `mockv` の dry-run を始め、キューを止める一時の mu-plugin で先頭のジョブを Running のまま止めた）:
+  ジョブのアクションを失敗にして `updated_at` を猶予より前へ戻すと、画面が照会する `GET /runs` が 10 秒ほどで回復し、そのジョブの進捗に `action_lost` の説明と Retry が出た。
+  Retry で Pending に戻り、新しいアクションが 1 本だけ積まれた。そのアクションを失敗にして `action_scheduler_unexpected_shutdown` を発火すると、`fatal_error` の説明の後に
+  「PHP error: Allowed memory size of … exhausted …」が続いて出た。コンソールのエラーは 0 件。日本語の訳は画面では見ていない（管理者の言語が英語）。
+- 検証の run・ジョブ・オプション・mu-plugin は撤去済み（実装時の確認で残っていたログ 5 件・終了済みのアクション 10 件も、画面の確認の後に消した）。
 
 ### 受注インポートの詳細（D10）
 
