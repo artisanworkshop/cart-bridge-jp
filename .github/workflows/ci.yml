@@ -74,8 +74,9 @@ jobs:
       - name: Run PHPUnit
         run: composer test:wpenv
 
-      # ビルド済みの JS と PHP から POT を作り直し、コミット済みの plugins/cart-bridge-jp/languages/cart-bridge-jp.pot と文字列が同じか確かめる（R3-2）。
-      # PO・生成物（.mo / .l10n.php / JSON）が POT と揃っているかは PHPUnit の TranslationsTest が確かめる。
+      # ビルド済みの JS と PHP から POT を作り直し、コミット済みの POT（plugins/cart-bridge-jp/languages/cart-bridge-jp.pot と
+      # plugins/cart-bridge-jp-pro/languages/cart-bridge-jp-pro.pot）と文字列が同じか確かめる（R3-2・R3-8d）。
+      # PO・生成物（.mo / .l10n.php / 無料版の JSON）が POT と揃っているかは、両プラグインの PHPUnit の TranslationsTest が確かめる。
       - name: Check that translations are up to date
         run: npm run i18n:check
 

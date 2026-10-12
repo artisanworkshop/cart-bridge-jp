@@ -12,8 +12,8 @@
 #
 # 検査（どれかが外れたら zip を作らず非ゼロで終わる）:
 # - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・includes/・build/・languages/・vendor/、
-#   Pro: 本体・includes/・vendor/）
-# - includes/（無料版は languages/ も）は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
+#   Pro: 本体・includes/・languages/・vendor/）
+# - includes/・languages/ は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
 # - vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）。無料版は build/ に管理画面の JS とその依存の一覧がある
 # - 無料版: Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
 # - Pro: bin/check-pro-zip.php が、無料版の名前空間（CartBridgeJP\ で Pro\ でないもの）を宣言する PHP が無いこと（無料版のコードを Pro に同梱しない。
@@ -65,8 +65,8 @@ case "$SLUG" in
 		;;
 	cart-bridge-jp-pro)
 		BUILD=0
-		allowed='cart-bridge-jp-pro.php includes vendor'
-		tracked_dirs='includes'
+		allowed='cart-bridge-jp-pro.php includes languages vendor'
+		tracked_dirs='includes languages'
 		required_files='vendor/autoload.php'
 		;;
 	*) die "unknown plugin: ${SLUG} (expected cart-bridge-jp or cart-bridge-jp-pro)" ;;
@@ -118,7 +118,7 @@ problem() {
 actual=$(cd "$FINAL" && ls -A | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$actual" = "$allowed" ] || problem "top-level entries are '${actual}', expected '${allowed}'"
 
-# includes/（無料版は languages/ も）は追跡しているファイルと同じ。
+# includes/・languages/ は追跡しているファイルと同じ。
 for dir in $tracked_dirs; do
 	expected=$(git ls-files "${SRC}/${dir}" | sed "s#^${SRC}/##" | sort)
 	shipped=$(cd "$FINAL" && find "$dir" -type f | sort)
