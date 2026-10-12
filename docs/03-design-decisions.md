@@ -2851,7 +2851,8 @@ API Manager の製品の版・`tested` などの入力と 0 円の商品に同�
   REST で無料版の画面に出る Pro の文言（種類名・dry-run だけの理由など）は PHP で訳され、`_locale=user`・CSV の `switch_to_user_locale()` もそのまま効く（dev サイトで `switch_to_locale( 'ja' )` の経路を確かめた）
 - **訳**: 文字列 221 件。155 件は R3-6c1 直前（`514458d^`）と現行の無料版の `cart-bridge-jp-ja.po` から完全一致で引き継いだ（原文が同じなので訳も同じ）。新しく訳したのはライセンス画面・更新の配信・通知・ヘッダーの 66 件で、訳語を §6 の表に足した
 - **道具**: `bin/i18n.sh <pot|po|compile|check> [--plugin <スラッグ>]`。`--plugin` が無ければ無料版 → Pro の順に両方（npm の `i18n:*`・CI の `npm run i18n:check`・`quality.sh` は両方）。プラグインごとの違い（PO のヘッダー・make-pot の除外・JS の有無）は
-  `use_plugin()` の 1 か所に持つ。Pro の POT は make-pot が既定で入れる wordpress.org のサポートフォーラムの URL（`Report-Msgid-Bugs-To`）を空にする（Pro は wordpress.org に無い）
+  `use_plugin()` の 1 か所に持つ。Pro の POT は make-pot が既定で入れる wordpress.org のサポートフォーラムの URL（`Report-Msgid-Bugs-To`）を空にする（Pro は wordpress.org に無い）。
+  `pot` は作り直した POT が作成日時（`POT-Creation-Date`）のほかに違わなければ元の POT を残す（片方のプラグインの文字列だけを変えた PR に、もう片方の日時だけの差分を出さない）。`--plugin` は既知のスラッグ 1 語だけを受け付ける
 - **zip**: `bin/build-zip.sh --plugin cart-bridge-jp-pro` の許可する最上位に `languages/` を足し、追跡しているファイルとちょうど同じかを確かめる（`bin/check-pro-zip.php` は `.l10n.php` も走査するが、名前空間を宣言しないので影響しない）
 - **文のつなぎ**: 設定画面（`Admin\LicensePage`）が訳した文を `' '` でつないでいた 4 か所（状態の確認の文・更新期間・結果の文と理由・案内）を、無料版の `joinSentences()` と同じ翻訳する書式（`%1$s %2$s`。日本語は `%1$s%2$s`）にした（日本語で「。 」を残さない）。
   更新の行の「文＋空白＋リンク」（`UpdateChecker::render_update_message()`）は無料版と同じく対象外（§6「含めなかったもの」）

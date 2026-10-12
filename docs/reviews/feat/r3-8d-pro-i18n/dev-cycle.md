@@ -12,3 +12,4 @@
 |---|---|---|
 | 2026-10-12 21:38 | 1 | 計画承認（`bin/i18n.sh` を両プラグイン対応・Pro の `languages/`〔JSON なし〕・訳は R3-6c1 前の無料版 PO から 155 件を引き継ぎ、約 65 件を新規に訳す・zip に `languages/`・Pro の `TranslationsTest`） |
 | 2026-10-12 21:49 | 2 | 実装コミット b7bb80e（`bin/i18n.sh` を両プラグイン対応・Pro の zip に `languages/`）、e9f028b（Pro の訳の読み込み・`languages/`〔155 件を引き継ぎ・66 件を新規〕・`TranslationsTest`・設定画面の文のつなぎ〔計画外の小さな修正: `' '` でつなぐと日本語で「。 」が残る 4 か所〕）。`quality.sh` green（無料版 1277・Pro 841・Jest 99・POT 両方最新）。変異 7 種 CAUGHT。dev サイトで `switch_to_locale( 'ja' )` の REST・警告・設定画面が日本語、サイトの言語 `ja` で `init` 前の読み込みの通知なし（言語は `en_US` に戻した） |
+| 2026-10-12 22:13 | 3 | review-loop R1（自己 + 独立サブエージェント）: Critical/High/Medium 0・Low 6。R1-L1〜L5（`--plugin` の検証・日時だけの POT の差分・docblock・訳 4 件）を修正（）、R1-L6 を backlog。`quality.sh` green |
