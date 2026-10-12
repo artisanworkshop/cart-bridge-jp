@@ -1,6 +1,6 @@
 # Cart Bridge JP – Migrate for WooCommerce
 
-日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。**D27（2026-10-09）**: wordpress.org のガイドライン 5（トライアルウェアの禁止）のため、無料版は商品関連を件数無制限で移し、顧客・受注・クーポンは Pro アドオンへ移す。**D30（2026-10-11）**: 件数の試用は無く、キーを有効化していない Pro は dry-run だけ。購入前は販売サイトの 0 円の注文で配る（`docs/03` §10.7）。R3-6（a〜d）で件数の上限・サンプル（D15）・Pro 案内を外し、顧客・受注・クーポンのコードと OAuth のスコープを Pro へ移し、readme を無料版の範囲に書き直した（Pro の URL は公開準備で足す。`docs/03` §10.0 の各「R3-6x の実装」）。Pro は v1.0 と同時に公開する（2026-10-09 決定。公開準備は R3-8a〜d）。**R3-8a でライセンスのクライアントと Pro の設定画面を作った**（有効化の判定は `License\LicenseStore::is_activated()` で、ローカルの記録だけで決める。状態確認の結果では変えない。D14・`docs/03` §10.7「R3-8a の実装」）。**R3-8b でキーが無い間の dry-run だけの制限を入れた**（無料版は汎用の口 `EntityType::dry_run_only_reason()` だけを持ち、判定は Pro の `License\LicenseGate`。run の作成と Retry をサーバーが断る。`docs/03` §10.7「R3-8b の実装」）。期間で絞る取込み（D31）は v2.0（`docs/03` §10.8）。
+日本のECサイトASP（カラーミーショップ、MakeShop、BASE、将来的に他ASP）とWooCommerce間で、商品・顧客・受注データの移行を行うWordPressプラグイン。**D27（2026-10-09）**: wordpress.org のガイドライン 5（トライアルウェアの禁止）のため、無料版は商品関連を件数無制限で移し、顧客・受注・クーポンは Pro アドオンへ移す。**D30（2026-10-11）**: 件数の試用は無く、キーを有効化していない Pro は dry-run だけ。購入前は販売サイトの 0 円の注文で配る（`docs/03` §10.7）。R3-6（a〜d）で件数の上限・サンプル（D15）・Pro 案内を外し、顧客・受注・クーポンのコードと OAuth のスコープを Pro へ移し、readme を無料版の範囲に書き直した（Pro の URL は公開準備で足す。`docs/03` §10.0 の各「R3-6x の実装」）。Pro は v1.0 と同時に公開する（2026-10-09 決定。公開準備は R3-8a〜d）。**R3-8a でライセンスのクライアントと Pro の設定画面を作った**（有効化の判定は `License\LicenseStore::is_activated()` で、ローカルの記録だけで決める。状態確認の結果では変えない。D14・`docs/03` §10.7「R3-8a の実装」）。**R3-8b でキーが無い間の dry-run だけの制限を入れた**（無料版は汎用の口 `EntityType::dry_run_only_reason()` だけを持ち、判定は Pro の `License\LicenseGate`。run の作成と Retry をサーバーが断る。`docs/03` §10.7「R3-8b の実装」）。**R3-8c で更新の配信と Pro の zip・リリース（`pro-v*.*.*` のタグ）を作った**（`License\UpdateChecker`。キーを有効化したサイトだけが `Update URI` の host に問い合わせる。`Update URI`・`CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID` は販売サイトの URL が決まったときに同じ host で入れ、空のまま版を 1.0.0 以上にすると `LicenseConfigTest` と `bin/check-pro-zip.php` が止める。`docs/03` §10.7「R3-8c の実装」）。期間で絞る取込み（D31）は v2.0（`docs/03` §10.8）。
 
 **D29（2026-10-09）: 無料版と Pro アドオンをこのリポジトリで一緒に開発する（モノレポ）**。配置は `plugins/cart-bridge-jp/`（無料版）と `plugins/cart-bridge-jp-pro/`（Pro）で、開発ツールはルート。R3-7 で構成を変えた（`docs/03` §10.6）。**ルール・docs に書いた `includes/`・`src/`・`tests/`・`languages/`・`readme.txt` などのパスは、断りが無ければ無料版のディレクトリ（`plugins/cart-bridge-jp/`）からの相対パス**（R3-7 より前の記録も同じ読み方をする）。依存は Pro から無料版への一方向にし、無料版の配布物に Pro のコードを入れない。Pro は WooCommerce と無料版を確かめてから Pro のクラスに触れる（`class_exists()` もオートロードを起こし、無料版の型を継承したクラスは無料版が無いと fatal になる。`cbjp_pro_bootstrap()`、PR #113 R2）。
 
@@ -60,6 +60,7 @@ bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中�
 bin/check-dev-mount.sh       # wp-env がルートをマウントした wp-content/cbjp-dev が HTTP で 403 か（quality.sh・CI）
 npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_header_fields,trademarks   # readme・プラグインヘッダー・商標の検査（R3-3）
 # アンインストールの実機確認は tests サイトで `npx wp-env run tests-cli wp plugin uninstall cart-bridge-jp --deactivate --skip-delete`（--skip-delete が無いとマウント元のリポジトリのファイルが消える。テーブルの削除はテスト基盤が DROP TEMPORARY TABLE に書き換えるのでユニットテストでは観測できない。PR #120）
+# プラグインの更新の実行（`wp plugin update`・管理画面の「今すぐ更新」= Plugin_Upgrader）は dev・tests サイトで行わない（プラグインのディレクトリはリポジトリのマウントで、上書き・削除で作業ツリーが消える。更新の配信の確認は transient と package の取得までにする。PR #125）
 ```
 
 ## コーディング規約
@@ -133,6 +134,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 | `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・実体の種類のレジストリ（R3-6b1）・`cbjp_mappings`（checksum・upsert）・リンク再構築等のツールの設計上の罠 | `includes/Sync/**`, `includes/Entities/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
+| `.claude/rules/pro-license.md` | Pro のライセンス・更新の配信: WooCommerce API Manager の応答の癖（訳された節の名前・package の条件）と WP の更新 API（`plugins_api`・`update_plugins_{host}`・`disable_autoupdate`・transient） | Pro の `includes/License/**`, `includes/Admin/LicensePage.php`, `tests/unit/License/**`, `tests/fixtures/api-manager/**` |
 | `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**` |
 
 ## テスト方針
