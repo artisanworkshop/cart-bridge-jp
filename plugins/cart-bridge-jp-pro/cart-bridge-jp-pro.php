@@ -10,6 +10,7 @@
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: cart-bridge-jp-pro
+ * Domain Path: /languages
  *
  * WC requires at least: 10.0
  *
@@ -54,6 +55,15 @@ add_action(
 
 // 無料版の起動（`cbjp_bootstrap()`。plugins_loaded の既定の優先度 10）より後に起動する。
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_bootstrap', 20 );
+add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_load_textdomain' );
+
+/**
+ * 同梱の翻訳（languages/。R3-8d）のパスを登録する。WooCommerce・無料版を確かめる `cbjp_pro_bootstrap()` とは別に行う
+ * （前提が欠けた・無料版が古いときの通知も訳すため。無料版の `cbjp_load_textdomain()` と同じ。Pro は wordpress.org の言語パックの対象外）。
+ */
+function cbjp_pro_load_textdomain(): void {
+	load_plugin_textdomain( 'cart-bridge-jp-pro', false, dirname( plugin_basename( CBJP_PRO_FILE ) ) . '/languages' );
+}
 
 /**
  * Pro アドオンを起動する。WooCommerce と無料版（Cart Bridge JP）が無ければ管理画面に通知だけ出し、fatal にしない。

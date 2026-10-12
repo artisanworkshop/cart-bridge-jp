@@ -10,7 +10,7 @@ composer test:wpenv
 bin/check-dev-mount.sh
 npm run lint
 npm run test:js
-# ビルドしてから、ソースの文字列とコミット済みの POT（plugins/cart-bridge-jp/languages/）が同じか確かめる（R3-2。CI の PHPUnit ジョブと同じ）
+# ビルドしてから、ソースの文字列とコミット済みの POT（無料版と Pro の languages/）が同じか確かめる（R3-2・R3-8d。CI の PHPUnit ジョブと同じ）
 npm run i18n:check
 # 開発補助スクリプト（bot レビュー本文の整形・ゲート 1 ターンのオーケストレーター・ラウンド記録の生成と投稿・bot の応答の判定）の回帰テスト。ネットワーク不要
 .claude/skills/cbj-dev-cycle/scripts/test-gate-bodies.sh

@@ -586,7 +586,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 
 ### 翻訳（R3-2、2026-10-07）
 
-**同梱する訳は日本語（`ja`）だけ**。UI・dry-run CSV の文字列は英語の `__()` のまま書き、`languages/` に次をコミットする（配布物に入る。`.distignore` は除外しない）:
+**同梱する訳は日本語（`ja`）だけ**。UI・dry-run CSV の文字列は英語の `__()` のまま書き、`languages/` に次をコミットする（配布物に入る。`.distignore` は除外しない）。Pro アドオンも同じ仕組みで `plugins/cart-bridge-jp-pro/languages/` に同梱する（R3-8d。JS が無いので JSON は無い。§10.7「R3-8d の実装」）:
 
 | ファイル | 作り方 | 読むもの |
 |---|---|---|
@@ -597,7 +597,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 
 - **JS の文字列は `build/index.js` から抜く**（WP-CLI 2.12 の make-pot は TypeScript を読まない）。参照が `build/index.js` になるので、JSON の名前
   （`cart-bridge-jp-ja-` + `md5( 'build/index.js' )`）が `wp_set_script_translations()` の探す名前と一致する。`src/*.tsx` を参照にすると名前が食い違い、管理画面が英語のままになる。
-  make-pot の除外は `bin/i18n.sh` の `EXCLUDE` に 1 か所で持つ（`src,tests,docs,.claude,dist,.rehearsal,bin,languages`）。wp-scripts の terser は `translators:` コメントを残す。
+  make-pot の除外は `bin/i18n.sh` の `use_plugin()` の `EXCLUDE` に 1 か所で持つ（無料版は `src,tests,languages`。R3-7 からプラグインのディレクトリで抽出するので、ルートの docs・`.claude`・`dist` などは対象外）。wp-scripts の terser は `translators:` コメントを残す。
 - make-json の既定の `--purge` は PO から JS の文字列を消すので `--no-purge`。JSON は Jed の既定のドメイン `messages` で書かれ、WP の読込みはこれを扱う。
   make-mo・make-php は複数形の原文を単数形だけのキーで書くが、WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`）。
 - WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）があればそちらが優先される。翻訳ファイルを置くと、
@@ -628,6 +628,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   | Settings > Payments（設定のタブ） | 設定 > 決済（文脈なしの「Payments」の訳「支払い」ではない） | Regular price / Simple product | 標準価格 / 基本的な商品 |
   | On hold（注文ステータス） | 保留中 | Reduced rate（既定の税区分） | 軽減税 |
   | “Any”（バリエーション） | すべての… | Shop manager | ショップ運営者 |
+  | License key / license server（Pro。R3-8d） | ライセンスキー / ライセンスサーバー | Activate / Deactivate（ライセンス） | 有効化 / 無効化 |
+  | Update period（ライセンスの更新の期間） | 更新期間 | Status / status check（ライセンス） | 状態 / 状態の確認 |
 - **含めなかったもの**（backlog `r3-2-i18n/plan-*`）: サーバーが英語のまま保存・表示する文言（ジョブのエラーの例外メッセージ・Logs のメッセージ・
   カラーミーの API のメッセージ・OAuth のトークン交換のエラー）、OAuth コールバックのエラーがサイトの言語になる件、`ActiveRunNotice` の主語の断片、
   「文＋空白＋リンク」の並び、件数の桁区切り、`PushIntentsPanel` の注文合計の未整形表示、`_x()` の文脈
@@ -2812,7 +2814,7 @@ Import/Export タブの注記と、プレビューだけの種類しか選んで
 **設定画面**: 接続先が設定されているビルドで、販売サイトへ送るもの（キー・サイトのアドレス・Pro の版）と用途（有効化・状態確認・更新の確認。更新はキーを有効化している間だけ）を host 付きで出す（backlog `r3-8a-license-client/R1-X2`）。
 無効化の説明に「DB を複製したサイトで無効化すると、元のサイトもライセンスから外れ、元のサイトに更新が届かなくなる」を足した。新しい文字列は R3-8d でまとめて訳す。
 
-**zip とリリース**: `bin/build-zip.sh --plugin cart-bridge-jp-pro`（JS のビルドなし。最上位は本体・`includes/`・`vendor/` だけ〔R3-8d で `languages/` を足す〕、`includes/` は追跡しているファイルと一致、
+**zip とリリース**: `bin/build-zip.sh --plugin cart-bridge-jp-pro`（JS のビルドなし。最上位は本体・`includes/`・`vendor/` だけ〔R3-8d で `languages/` を足した〕、`includes/` は追跡しているファイルと一致、
 `vendor/` は autoload だけ。残りは `bin/check-pro-zip.php`〔WordPress を読み込まない PHP。Pro の `ProZipCheckTest` が固定〕が zip にする直前のディレクトリで確かめる:
 **無料版の名前空間〔`CartBridgeJP\` で `Pro\` でないもの〕を宣言する PHP が無い**〔PHP のトークンで読む。改行・コメントを挟んだ宣言・小文字も拾い、コメントの中の文は拾わない。`CartBridgeJP\Pro` の宣言が 1 つも無いのも止める。
 review-loop R1-5 の grep は PR #125 G1-B1 で複数行の宣言を見落とすと指摘され、トークンに替えた〕、**リリースの設定**〔ヘッダーの `Version` と `CBJP_PRO_VERSION` が同じ。版 1.0.0 以上では接続先の既定値が https・製品 ID が正の整数・
@@ -2836,6 +2838,26 @@ API Manager の製品の版・`tested` などの入力と 0 円の商品に同�
 **確認**: 品質チェック一式。dev サイト（3.8.1）で、作業ツリーに一時的に `Update URI` を入れて: 未有効化では `wp_update_plugins()` が販売サイトに要求を出さず、詳細は `WP_Error`。有効化すると更新の一覧に 0.1.1 と package が入り、
 更新の行と詳細（節は小文字）が出る。package の URL から 0.1.1 の zip を取得できる。期限後は package が空になり、WP の「自動更新は利用できません」の下に理由が出て、サーバーの有効化は消え、ローカルの有効化は残る。
 更新の実行（`Plugin_Upgrader`）は、プラグインのディレクトリがリポジトリのマウントなので dev サイトでは行っていない（一時 mu-plugin で自動更新とインストールを止めた）。
+
+#### R3-8d の実装（2026-10-12。ブランチ `feat/r3-8d-pro-i18n`）
+
+**目的**: Pro を有効にした日本語のサイトで、Pro の文言（R3-6c1 で無料版から移した種類名・マッピングの節・顧客/受注/クーポンの警告の説明・push intent の要約と、R3-8a〜c のライセンス画面・更新の配信・前提条件の通知）が
+英語のまま出るのを直す（backlog `r3-7-monorepo/G1-1`・`r3-6c1-move-commerce-to-pro/R1-L4`）。Pro は wordpress.org の言語パックの対象外なので、無料版（§6「翻訳（R3-2）」）と同じ仕組みで日本語訳を同梱する。
+
+- **読み込み**: Pro のヘッダーに `Domain Path: /languages`、`cbjp_pro_load_textdomain()`（`plugins_loaded`）が `load_plugin_textdomain( 'cart-bridge-jp-pro', … '/languages' )`。前提（WooCommerce・無料版・拡張点の版）を確かめる
+  `cbjp_pro_bootstrap()` のガードの外に置く（中に置くと、前提が欠けた・無料版が古いときの通知が英語になる）。Pro の `__()` は `init` より後にしか走らない（dev サイトのサイトの言語を `ja` にして、表・REST・管理画面の入口・cron で
+  早すぎる読み込みの通知が出ないことを確かめた）
+- **ファイル**（`plugins/cart-bridge-jp-pro/languages/`。配布物に入る）: `cart-bridge-jp-pro.pot`・`-ja.po`・`-ja.mo`・`-ja.l10n.php`。Pro は JS を持たないので JSON は作らない。
+  REST で無料版の画面に出る Pro の文言（種類名・dry-run だけの理由など）は PHP で訳され、`_locale=user`・CSV の `switch_to_user_locale()` もそのまま効く（dev サイトで `switch_to_locale( 'ja' )` の経路を確かめた）
+- **訳**: 文字列 221 件。155 件は R3-6c1 直前（`514458d^`）と現行の無料版の `cart-bridge-jp-ja.po` から完全一致で引き継いだ（原文が同じなので訳も同じ）。新しく訳したのはライセンス画面・更新の配信・通知・ヘッダーの 66 件で、訳語を §6 の表に足した
+- **道具**: `bin/i18n.sh <pot|po|compile|check> [--plugin <スラッグ>]`。`--plugin` が無ければ無料版 → Pro の順に両方（npm の `i18n:*`・CI の `npm run i18n:check`・`quality.sh` は両方）。プラグインごとの違い（PO のヘッダー・make-pot の除外・JS の有無）は
+  `use_plugin()` の 1 か所に持つ。Pro の POT は make-pot が既定で入れる wordpress.org のサポートフォーラムの URL（`Report-Msgid-Bugs-To`）を空にする（Pro は wordpress.org に無い）。
+  `pot` は作り直した POT が作成日時（`POT-Creation-Date`）のほかに違わなければ元の POT を残す（片方のプラグインの文字列だけを変えた PR に、もう片方の日時だけの差分を出さない）。`--plugin` は既知のスラッグ 1 語だけを受け付ける
+- **zip**: `bin/build-zip.sh --plugin cart-bridge-jp-pro` の許可する最上位に `languages/` を足し、追跡しているファイルとちょうど同じかを確かめる（`bin/check-pro-zip.php` は `.l10n.php` も走査するが、名前空間を宣言しないので影響しない）
+- **文のつなぎ**: 設定画面（`Admin\LicensePage`）が訳した文を `' '` でつないでいた 4 か所（状態の確認の文・更新期間・結果の文と理由・案内）を、無料版の `joinSentences()` と同じ翻訳する書式（`%1$s %2$s`。日本語は `%1$s%2$s`）にした（日本語で「。 」を残さない）。
+  更新の行の「文＋空白＋リンク」（`UpdateChecker::render_update_message()`）は無料版と同じく対象外（§6「含めなかったもの」）
+- **検査**: Pro の `TranslationsTest`（PO と POT の一致・訳の漏れと fuzzy・プレースホルダ・生成物と PO の一致・JS と JSON が無いこと・訳のパスの登録がガードの外・日本語での実行時の読み込みと前提の通知）、`LicensePageTest`（日本語で文を空白なしでつなぐ）、
+  `bin/i18n.sh check`（両プラグインの POT の鮮度）。**Pro の文字列を変える PR も POT と ja.po の更新が必須**（無料版と同じ。`npm run i18n:pot` → `i18n:po` → 訳す → `i18n:compile`）
 
 ### 10.8 期間で絞る取込み（D31・v2.0。2026-10-11）
 

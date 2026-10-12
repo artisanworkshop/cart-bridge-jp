@@ -40,6 +40,8 @@ final class LicensePageTest extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		unset( $_POST[ LicensePage::KEY_FIELD ], $_REQUEST['_wpnonce'], $_POST['_wpnonce'] );
+		// 日本語で読み込んだ訳を後のテストに残さない（`locale` フィルターはテストごとに戻るが、読み込んだ訳は戻らない）。
+		unload_textdomain( 'cart-bridge-jp-pro', true );
 		parent::tear_down();
 	}
 
@@ -437,6 +439,28 @@ final class LicensePageTest extends WP_UnitTestCase {
 		$this->store->save_activation( self::KEY, 1000 );
 
 		$this->assertStringContainsString( 'deactivating here also removes the original site from the license, and the original site stops receiving updates', $this->render() );
+	}
+
+	/**
+	 * R3-8d: 結果の文・状態の確認の文は、訳した文を翻訳する書式（`%1$s %2$s`）でつなぐ。`' '` を直に挟むと日本語で「。 」が残る。
+	 */
+	public function test_joins_translated_sentences_without_a_space_in_japanese(): void {
+		$this->as_shop_manager();
+		$this->store->save_activation( self::KEY, 1000 );
+		$this->store->record_check( false, 'Expired' );
+		$this->server->fixture( 'activate_error_already_activated' );
+		$this->post( LicensePage::ACTION_ACTIVATE, 'fedcba9876543210fedcba9876543210fedcba98' );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+		unload_textdomain( 'cart-bridge-jp-pro', true );
+
+		$this->page->process( LicensePage::ACTION_ACTIVATE );
+		$output = $this->render();
+
+		// サーバーの英語の文は括弧で区切るので、後ろに日本語の案内が続いても文がつながって見えない（review-loop R1-L5）。
+		$this->assertStringContainsString( 'ライセンスキーを有効化できませんでした。ライセンスサーバーがエラーを返しました（Cannot activate license key.', $output );
+		$this->assertStringContainsString( 'sent with this request.）。ライセンスサーバーに今のライセンスで', $output );
+		$this->assertStringContainsString( 'に確認しました。ライセンスサーバーには、このサイトが有効化済みとして登録されていません。更新期間: Expired', $output );
+		$this->assertStringNotContainsString( '。 ', $output );
 	}
 
 	public function test_shows_no_forms_without_a_configured_server(): void {

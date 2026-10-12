@@ -1,0 +1,988 @@
+# Copyright (C) 2026 Artisan Workshop
+# This file is distributed under the GPLv2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Cart Bridge JP Pro 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-10-12T12:41:17+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: cart-bridge-jp-pro\n"
+
+#. Plugin Name of the plugin
+#: cart-bridge-jp-pro.php
+#: includes/Admin/LicensePage.php:76
+#: includes/Admin/LicensePage.php:77
+#: includes/Admin/LicensePage.php:152
+msgid "Cart Bridge JP Pro"
+msgstr ""
+
+#. Description of the plugin
+#: cart-bridge-jp-pro.php
+msgid "Pro add-on for Cart Bridge JP – Migrate for WooCommerce."
+msgstr ""
+
+#. Author of the plugin
+#: cart-bridge-jp-pro.php
+msgid "Artisan Workshop"
+msgstr ""
+
+#: cart-bridge-jp-pro.php:139
+msgid "Cart Bridge JP Pro requires WooCommerce and Cart Bridge JP to be installed and active."
+msgstr ""
+
+#: cart-bridge-jp-pro.php:152
+msgid "Cart Bridge JP Pro requires a newer version of Cart Bridge JP. Update Cart Bridge JP to use the Pro add-on."
+msgstr ""
+
+#: cart-bridge-jp-pro.php:165
+msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
+msgstr ""
+
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:439
+msgid "Unpaid"
+msgstr ""
+
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:443
+msgid "Paid (not shipped)"
+msgstr ""
+
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:447
+msgid "Shipped"
+msgstr ""
+
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:451
+msgid "Cancelled"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:93
+msgid "License"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:114
+msgid "Sorry, you are not allowed to manage the Cart Bridge JP Pro license."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:118
+msgid "Unknown license action."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:156
+msgid "Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:162
+msgid "With the activated key, customers, orders, and coupons can be imported and exported on this site, as far as the connected shop supports each operation."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:163
+msgid "Until a license key is activated on this site, customers, orders, and coupons can only be previewed with a dry run. Importing and exporting them requires an activated key."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:169
+#: includes/Admin/LicensePage.php:400
+msgid "The license server is not configured in this build of Cart Bridge JP Pro."
+msgstr ""
+
+#. translators: %s: the host name of the license server, such as example.com.
+#: includes/Admin/LicensePage.php:182
+#, php-format
+msgid "To activate the license key, check its status, and check for updates, Cart Bridge JP Pro sends the license key, the address of this site, and the version of Cart Bridge JP Pro to the license server (%s). Updates are checked only while a license key is activated on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:190
+msgid "Status"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:194
+#: includes/Admin/LicensePage.php:314
+msgid "License key"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:196
+msgid "The saved license key cannot be read, for example because the security keys of this site have changed."
+msgstr ""
+
+#. translators: %s: the last four characters of the license key.
+#: includes/Admin/LicensePage.php:198
+#, php-format
+msgid "Ending in %s"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:205
+msgid "Last status check"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:213
+msgid "The license server no longer lists this site, for example after the update period ends. Cart Bridge JP Pro keeps working on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:225
+msgid "Activate license"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:227
+msgid "Activate"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:232
+msgid "Enter the license key again"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:233
+msgid "This saves the license key on this site without contacting the license server."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:234
+msgid "Save license key"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:239
+#: includes/Admin/LicensePage.php:241
+msgid "Check status"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:240
+msgid "Ask the license server about this license."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:245
+msgid "Deactivate license"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:246
+msgid "This removes the license from this site. After the update period ends, a license cannot be activated again. If the database of this site was copied from another site, such as a staging copy, deactivating here also removes the original site from the license, and the original site stops receiving updates."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:247
+msgid "Deactivate"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:251
+msgid "Use a different license key"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:252
+msgid "For example, after buying a new license. While the current license is in its update period, deactivate it first. After the update period ends, check the status first instead; this site stays activated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:253
+msgid "Activate this key"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:264
+msgid "Not activated"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:268
+msgid "Activated"
+msgstr ""
+
+#. translators: %s: the date and time the license was activated.
+#: includes/Admin/LicensePage.php:272
+#, php-format
+msgid "Activated on %s"
+msgstr ""
+
+#. translators: %s: the date and time of the status check.
+#: includes/Admin/LicensePage.php:281
+#, php-format
+msgid "Checked on %s."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:283
+msgid "The license server lists this site as activated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:284
+msgid "The license server does not list this site as activated."
+msgstr ""
+
+#. translators: %s: the end of the update period as reported by the license server (for example, a date or "Expired").
+#: includes/Admin/LicensePage.php:289
+#, php-format
+msgid "Update period: %s"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:383
+msgid "The license key was activated on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:384
+msgid "The license key was deactivated on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:385
+msgid "The license status was checked."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:386
+msgid "The license key was saved."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:392
+msgid "The license key could not be activated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:393
+msgid "The license key could not be deactivated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:394
+msgid "The license status could not be checked."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:395
+msgid "The license key could not be saved."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:399
+msgid "Enter a valid license key."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:401
+msgid "This action is not available for the current license."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:402
+msgid "The license data could not be saved on this site. Try again."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:404
+msgid "The response from the license server could not be understood."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:406
+msgid "Could not connect to the license server."
+msgstr ""
+
+#. translators: %s: the error message from the connection.
+#: includes/Admin/LicensePage.php:408
+#, php-format
+msgid "Could not connect to the license server: %s"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:410
+msgid "The license server returned an error."
+msgstr ""
+
+#. translators: %s: the error message from the license server.
+#: includes/Admin/LicensePage.php:412
+#, php-format
+msgid "The license server returned an error: %s"
+msgstr ""
+
+#: includes/Admin/LicensePage.php:424
+msgid "If the license server still lists this site under the current license, deactivate it first, or check the status first if its update period has ended."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:426
+msgid "If the update period has ended, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:427
+msgid "If the update period has ended, the license server may no longer know this license. Cart Bridge JP Pro keeps working on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:441
+msgid "The license server deactivated this site, but this site could not record it. Activate the same license key again, then deactivate it."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:445
+msgid "The license server activated the key, but this site could not record it."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:446
+msgid "The license server activated the key, but this site could not record it. Try again."
+msgstr ""
+
+#. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
+#: includes/Admin/LicensePage.php:454
+#, php-format
+msgid "%1$s %2$s"
+msgstr ""
+
+#: includes/Entities/CouponType.php:46
+msgid "Coupons"
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:62
+msgid "A coupon with the same code that was imported from this platform before already exists, so it is linked and updated."
+msgstr ""
+
+#. translators: %s: the WooCommerce ID of a coupon.
+#: includes/Entities/CouponWarnings.php:65
+#, php-format
+msgid "A coupon with the same code that was imported from this platform before already exists (coupon ID %s), so it is linked and updated."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:70
+msgid "The coupon has usage restrictions that WooCommerce cannot represent, so it is not imported or updated (without them, it could be used more widely). A coupon that was imported before is not changed or disabled, so it stays usable without these restrictions."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:71
+msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand with equivalent restrictions. If it was imported before, add the restrictions to it or disable it."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:75
+msgid "The coupon has settings the platform cannot represent (such as product, category or email restrictions, a maximum spend, “Individual use only”, or a fixed product discount), or it has already been used, so it is not exported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:76
+msgid "Remove those settings, or create the coupon on the platform by hand. For a coupon that has been used, create a new coupon."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:80
+msgid "The platform’s connector did not say whether the coupon has usage restrictions, so it is not imported or updated (to avoid creating it without them). A coupon that was imported before is not changed or disabled, so it stays usable as it was."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:81
+msgid "Check the coupon’s restrictions on the platform and create the coupon in WooCommerce by hand. If it was imported before, check its restrictions, or disable it."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:85
+msgid "Another WooCommerce coupon already uses the same code, so this coupon is not imported or updated."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:86
+msgid "Rename or delete the existing WooCommerce coupon, or change the code on the platform, then import again."
+msgstr ""
+
+#. translators: %s: the WooCommerce ID of a coupon.
+#: includes/Entities/CouponWarnings.php:88
+#, php-format
+msgid "Another WooCommerce coupon (coupon ID %s) already uses the same code, so this coupon is not imported or updated."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:92
+msgid "The coupon’s discount type is not supported (only a fixed amount or a percentage), so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:93
+#: includes/Entities/CouponWarnings.php:107
+msgid "Create the coupon in WooCommerce by hand."
+msgstr ""
+
+#. translators: %s: the discount type received from the platform.
+#: includes/Entities/CouponWarnings.php:95
+#, php-format
+msgid "The coupon’s discount type “%s” is not supported (only a fixed amount or a percentage), so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:99
+msgid "The coupon’s discount is not valid (not a number, negative, or a percentage over 100), so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:100
+msgid "Correct the discount on the platform, or create the coupon in WooCommerce by hand."
+msgstr ""
+
+#. translators: %s: the discount value received from the platform.
+#: includes/Entities/CouponWarnings.php:102
+#, php-format
+msgid "The coupon’s discount (%s) is not valid (not a number, negative, or a percentage over 100), so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:106
+msgid "The coupon’s expiry date cannot be read, so it is not imported."
+msgstr ""
+
+#. translators: %s: the expiry date received from the platform.
+#: includes/Entities/CouponWarnings.php:109
+#, php-format
+msgid "The coupon’s expiry date (%s) cannot be read, so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:113
+msgid "The coupon’s minimum spend is not a number or is negative, so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:114
+msgid "Correct the minimum spend on the platform, then import again."
+msgstr ""
+
+#. translators: %s: the minimum spend received from the platform.
+#: includes/Entities/CouponWarnings.php:116
+#, php-format
+msgid "The coupon’s minimum spend (%s) is not a number or is negative, so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:120
+msgid "WooCommerce could not save the coupon, so it is not imported."
+msgstr ""
+
+#: includes/Entities/CouponWarnings.php:121
+msgid "Check the PHP error log for the cause, then import again."
+msgstr ""
+
+#: includes/Entities/CustomerLinkSource.php:22
+#: includes/Entities/CustomerType.php:45
+msgid "Customers"
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:51
+msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:52
+msgid "Check that the existing account belongs to the same person."
+msgstr ""
+
+#. translators: %s: the WordPress ID of a user.
+#: includes/Entities/CustomerWarnings.php:54
+#, php-format
+msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:61
+msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:62
+msgid "If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:66
+msgid "The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:67
+msgid "Change or remove the email address on the other WordPress user, or correct it on the platform, then import again."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:71
+msgid "WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:72
+msgid "Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again."
+msgstr ""
+
+#. translators: %s: a WordPress error code.
+#: includes/Entities/CustomerWarnings.php:74
+#, php-format
+msgid "WooCommerce could not create the customer account (%s), so the customer is not imported."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:78
+msgid "The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:79
+msgid "Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:83
+msgid "The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens)."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:84
+msgid "Fill in the customer’s name, billing address and phone number in WooCommerce, then export again."
+msgstr ""
+
+#: includes/Entities/OrderLinkSource.php:30
+#: includes/Entities/OrderType.php:47
+msgid "Orders"
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:27
+msgid "Order status mapping"
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:31
+msgid "Overrides the WooCommerce status an imported order gets for each platform status. Leave it at Default to use the standard status."
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:35
+msgid "Platform order status"
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:39
+msgid "WooCommerce order status"
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:43
+msgid "— Default —"
+msgstr ""
+
+#: includes/Entities/OrderStatusMappingKind.php:47
+msgid "No WooCommerce order statuses are available."
+msgstr ""
+
+#: includes/Entities/OrderType.php:88
+msgid "Creates orders (sales) in the connected shop."
+msgstr ""
+
+#. translators: 1: order number, 2: order total, 3: currency code, 4: order creation date/time
+#: includes/Entities/OrderType.php:126
+#, php-format
+msgid "#%1$s — %2$s %3$s (%4$s)"
+msgstr ""
+
+#: includes/Entities/OrderType.php:132
+msgid "date unknown"
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:125
+msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:126
+msgid "If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:131
+msgid "The product of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:132
+msgid "Import products before orders (a full import does this). If the product was deleted on the platform, the line stays without a product link."
+msgstr ""
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Entities/OrderWarnings.php:134
+#, php-format
+msgid "The product %s of an order line is not found in WooCommerce, so the line is added without a link to a product. It is linked when the order is imported again after the product."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:138
+msgid "The options of an order line do not identify one variation of the product (the product’s options may have changed after the order), so the line is added without a link to a product."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:139
+msgid "While this warning remains, the order’s lines are recreated each time the order is imported, so a line linked by hand is undone. Link the line to the right variation by hand only after you finish importing."
+msgstr ""
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Entities/OrderWarnings.php:141
+#, php-format
+msgid "The options of an order line do not identify one variation of the product %s (the product’s options may have changed after the order), so the line is added without a link to a product."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:145
+msgid "The customer of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:146
+msgid "Import customers before orders (a full import does this). If the customer was deleted on the platform, the order stays a guest order."
+msgstr ""
+
+#. translators: %s: the platform's ID of a customer.
+#: includes/Entities/OrderWarnings.php:148
+#, php-format
+msgid "The customer %s of this order is not found in WooCommerce, so the order is imported as a guest order. It is linked when the order is imported again after the customer."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:153
+msgid "The quantity of an order line is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:154
+msgid "Check the order on the platform, and correct the quantity in the WooCommerce order after you finish importing (an order that is imported again is rewritten)."
+msgstr ""
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Entities/OrderWarnings.php:156
+#, php-format
+msgid "The quantity of the order line for the product %s is missing, not a whole number, or zero or less, so the line is imported with a quantity of 1."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:160
+msgid "The quantity of an order line is not a positive whole number, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:161
+msgid "Correct the quantity on the WooCommerce order, or create the order on the platform by hand."
+msgstr ""
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Entities/OrderWarnings.php:163
+#, php-format
+msgid "The quantity of the order line for the platform’s product %s is not a positive whole number, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:168
+msgid "The platform’s payment method is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:169
+msgid "Map the payment method in the Mappings tab. The order is updated the next time it is imported."
+msgstr ""
+
+#. translators: %s: the platform's ID of a payment method.
+#: includes/Entities/OrderWarnings.php:171
+#, php-format
+msgid "The platform’s payment method %s is not mapped to a WooCommerce payment method, so the order is imported without a payment method."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:175
+msgid "The order has no payment method, so it is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:176
+msgid "In the Mappings tab, map exactly one of the platform’s payment methods to the order’s WooCommerce payment method (set a payment method on the order if it has none), then export again."
+msgstr ""
+
+#. translators: %s: the ID of a WooCommerce payment method, such as bacs.
+#: includes/Entities/OrderWarnings.php:178
+#, php-format
+msgid "The payment method “%s” is not mapped to exactly one of the platform’s payment methods, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:183
+msgid "The platform’s delivery method is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:184
+msgid "Map the delivery method in the Mappings tab. The order is updated the next time it is imported."
+msgstr ""
+
+#. translators: %s: the platform's ID of a delivery method.
+#: includes/Entities/OrderWarnings.php:186
+#, php-format
+msgid "The platform’s delivery method %s is not mapped to a WooCommerce shipping method, so the order is imported without a shipping method."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:190
+msgid "The order has no shipping (for example, it has only virtual products), so it is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:191
+msgid "In the Mappings tab, map exactly one of the platform’s delivery methods to the order’s WooCommerce shipping method, then export again. An order without shipping cannot be exported; create it on the platform by hand."
+msgstr ""
+
+#. translators: %s: the ID of a WooCommerce shipping method, such as flat_rate:3.
+#: includes/Entities/OrderWarnings.php:193
+#, php-format
+msgid "The shipping method “%s” is not mapped to exactly one of the platform’s delivery methods, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:197
+msgid "The order status is not registered in WooCommerce, or cannot be used for imported orders (such as “checkout-draft”, which WooCommerce deletes after a day), so the order is imported as “On hold”."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:198
+msgid "In the order status mapping (Mappings tab), choose a regular WooCommerce order status that can be used for imported orders before importing. Correct orders that were already imported by hand after you finish importing (an order that is imported again is rewritten)."
+msgstr ""
+
+#. translators: %s: an order status.
+#: includes/Entities/OrderWarnings.php:200
+#, php-format
+msgid "The order status “%s” is not registered in WooCommerce, or cannot be used for imported orders, so the order is imported as “On hold”."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:204
+msgid "The order total from the platform does not equal the sum of its lines, shipping, fees and discount. The platform’s total is kept."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:205
+msgid "Compare the order with the platform, and correct it in WooCommerce after you finish importing if needed (an order that is imported again is rewritten)."
+msgstr ""
+
+#. translators: %s: an amount in yen.
+#: includes/Entities/OrderWarnings.php:207
+#, php-format
+msgid "The order total from the platform differs from the sum of its lines, shipping, fees and discount by %s yen. The platform’s total is kept."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:211
+msgid "This order is part of a split order, and the platform does not give the tax for the part, so the order’s tax is recorded as 0."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:215
+msgid "The platform does not give an order line’s price before tax, so the line is recorded at its price including tax with a tax of 0. The order total and tax are not affected."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:219
+msgid "The platform does not give the tax breakdown for this order (older orders), so the order’s tax includes only the tax on products, not on shipping."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:223
+msgid "An order line’s amount including tax is less than its price before tax times the quantity (a discount or rounding on the platform), so the line is recorded at its amount including tax with a tax of 0."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:227
+msgid "WooCommerce could not create the order (another plugin may have stopped it while it was being saved), so it is not imported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:228
+msgid "Check WooCommerce > Status > Logs for the error, fix or turn off the plugin that caused it, then import again."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:233
+msgid "An amount of the order (total, discount, shipping fee or tax) from the platform is missing, not a number, or negative, so the order is not imported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:234
+msgid "Correct the order’s amounts on the platform, then import again."
+msgstr ""
+
+#. translators: %s: the name of an amount field, such as shipping_fee.
+#: includes/Entities/OrderWarnings.php:236
+#, php-format
+msgid "The order’s amount “%s” from the platform is missing, not a number, or negative, so the order is not imported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:240
+msgid "An amount of the order (total, discount, shipping, a fee or tax) is not a number or is negative, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:241
+msgid "Correct the amounts on the WooCommerce order (a negative fee is a common cause), or create the order on the platform by hand."
+msgstr ""
+
+#. translators: %s: the name of an amount field, such as payment_fee.
+#: includes/Entities/OrderWarnings.php:243
+#, php-format
+msgid "The order’s amount “%s” is not a number or is negative, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:248
+msgid "An amount of the order (a line’s price, the shipping fee or a fee) from the platform is not a number or is negative, so it is recorded as 0 (for a line’s price before tax, the line’s tax is recorded as 0 instead). The order total from the platform is kept."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:249
+msgid "Compare the order with the platform, and correct the amounts in WooCommerce after you finish importing (an order that is imported again is rewritten)."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:253
+msgid "An order line’s amount or tax is not a number or is negative, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:254
+msgid "Recalculate or correct the line on the WooCommerce order, or create the order on the platform by hand."
+msgstr ""
+
+#. translators: %s: the platform's ID of a product.
+#: includes/Entities/OrderWarnings.php:256
+#, php-format
+msgid "The amount or tax of the order line for the platform’s product %s is not a number or is negative, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:262
+msgid "A product in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:263
+msgid "Include products in the export, or export them first. If the product is not exported because of its own warnings, fix those first."
+msgstr ""
+
+#. translators: %s: the WooCommerce ID of a product.
+#: includes/Entities/OrderWarnings.php:265
+#, php-format
+msgid "The product %s in this order has not been exported to the platform yet. The order can be exported only after the product; a full export sends products before orders."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:269
+msgid "The customer of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:270
+msgid "Include customers in the export (they are sent before orders), or export them first."
+msgstr ""
+
+#. translators: %s: the WordPress ID of a user.
+#: includes/Entities/OrderWarnings.php:272
+#, php-format
+msgid "The customer (user ID %s) of this order has not been exported to the platform yet. If the order is exported before the customer, it is created as a guest order and cannot be linked to the customer later."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:276
+msgid "A product in this order has been deleted from WooCommerce, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:277
+#: includes/Entities/OrderWarnings.php:284
+#: includes/Entities/OrderWarnings.php:296
+#: includes/Entities/OrderWarnings.php:318
+msgid "Create the order on the platform by hand if you need it."
+msgstr ""
+
+#. translators: %s: the WooCommerce ID of a deleted product.
+#: includes/Entities/OrderWarnings.php:279
+#, php-format
+msgid "The product %s in this order has been deleted from WooCommerce, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:283
+msgid "An order line is not linked to any product, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:288
+msgid "The variation of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:289
+msgid "If the product uses three or more attributes for variations, reduce them to two. Otherwise, create the order on the platform by hand."
+msgstr ""
+
+#. translators: %s: the WooCommerce ID of a variation.
+#: includes/Entities/OrderWarnings.php:291
+#, php-format
+msgid "The variation %s of an order line cannot be identified (it was deleted, it uses “Any” for an attribute, or its product uses three or more attributes for variations), so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:295
+msgid "The order has been refunded (fully or partly), and refunds cannot be sent to the platform, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:300
+msgid "An order line’s tax class has no Japanese tax rate of 10% (standard) or 8% (reduced), or its product is not taxable, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:301
+msgid "If the tax class has no Japanese rate, add one: 10% (standard) or 8% (reduced). If the product’s tax status is not “Taxable”, change it. (The tax settings and the product’s tax fields are shown only when tax calculation is turned on in WooCommerce > Settings > General.)"
+msgstr ""
+
+#. translators: %s: the platform's ID of a product. Write a literal percent sign as %%.
+#: includes/Entities/OrderWarnings.php:303
+#, php-format
+msgid "The tax class of the order line for the platform’s product %s has no Japanese tax rate of 10%% (standard) or 8%% (reduced), or its product is not taxable, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:307
+msgid "The order was already exported, and the platform cannot update an order’s items, payment or delivery, so it is not sent again (that would create a duplicate)."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:308
+msgid "If the order changed, update it on the platform by hand."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:312
+msgid "The order’s delivery address is incomplete (a name, phone number, postcode, prefecture and address are required), so the order is not exported. A partly filled shipping address is not completed from the billing address."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:313
+msgid "Complete the shipping address on the WooCommerce order, or clear it so that the billing address is used, then export again."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:317
+msgid "The order has no product lines, and the platform requires at least one, so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:322
+msgid "The unit price of an order line cannot be worked out (the line total does not divide evenly by the quantity, or the platform’s tax setting is unknown), so the order is not exported."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:323
+msgid "Check the platform’s tax setting. If a line total does not divide evenly by its quantity, create the order on the platform by hand."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:327
+msgid "The order has a discount (such as a coupon), but the platform cannot receive discounts. When the order is sent, it is sent at prices before the discount, so its total on the platform is higher than the amount paid."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:328
+msgid "Adjust the order’s amount on the platform by hand if needed."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:332
+msgid "The order’s shipping and other fees cannot be sent. When the order is sent, the platform applies its own fees for the payment and delivery methods, so the totals can differ."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:333
+msgid "Check the fees on the platform’s order if needed."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:337
+msgid "The platform cannot receive the order date, so the order date on the platform is the date of the export."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:344
+msgid "The store currency is not Japanese yen. The order is imported in the store currency with the platform’s yen amounts unchanged (for example, ¥1,000 becomes 1,000 in the store currency)."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:345
+msgid "Set the store currency to Japanese yen in WooCommerce > Settings > General before importing orders. Orders that were already imported keep their currency."
+msgstr ""
+
+#: includes/Entities/OrderWarnings.php:349
+msgid "The currency is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
+msgstr ""
+
+#. translators: %s: a currency code, such as USD.
+#: includes/Entities/OrderWarnings.php:352
+#, php-format
+msgid "The currency %s is not Japanese yen, so the item is not exported (the platform would treat the amounts as yen)."
+msgstr ""
+
+#: includes/Entities/PaymentMappingKind.php:27
+msgid "Payment method mapping"
+msgstr ""
+
+#: includes/Entities/PaymentMappingKind.php:31
+msgid "Maps each platform payment method to a WooCommerce payment method. Imported orders with an unmapped payment method get an empty WooCommerce payment method (the platform’s name is kept as the title) and a warning. When exporting orders, the same mapping is used, where possible, to choose the platform payment method."
+msgstr ""
+
+#: includes/Entities/PaymentMappingKind.php:35
+msgid "Platform payment method"
+msgstr ""
+
+#: includes/Entities/PaymentMappingKind.php:39
+msgid "WooCommerce payment method"
+msgstr ""
+
+#: includes/Entities/PaymentMappingKind.php:43
+msgid "No WooCommerce payment methods are available. Set them up in WooCommerce > Settings > Payments first."
+msgstr ""
+
+#: includes/Entities/ShippingMappingKind.php:27
+msgid "Shipping method mapping"
+msgstr ""
+
+#: includes/Entities/ShippingMappingKind.php:31
+msgid "Maps each platform shipping method to a shipping method in a WooCommerce shipping zone. Imported orders with an unmapped shipping method keep only the platform’s name on the shipping line and get a warning. When exporting orders, the same mapping is used, where possible, to choose the platform shipping method."
+msgstr ""
+
+#: includes/Entities/ShippingMappingKind.php:35
+msgid "Platform shipping method"
+msgstr ""
+
+#: includes/Entities/ShippingMappingKind.php:39
+msgid "WooCommerce shipping method"
+msgstr ""
+
+#: includes/Entities/ShippingMappingKind.php:43
+msgid "No WooCommerce shipping methods are available. Add a shipping zone with a shipping method in WooCommerce > Settings > Shipping first."
+msgstr ""
+
+#: includes/License/LicenseGate.php:29
+msgid "To import and export this data, activate your Cart Bridge JP Pro license key under WooCommerce > Cart Bridge JP Pro."
+msgstr ""
+
+#: includes/License/UpdateChecker.php:142
+msgid "Details of Cart Bridge JP Pro are available after a license key is activated on this site."
+msgstr ""
+
+#: includes/License/UpdateChecker.php:151
+msgid "Details of Cart Bridge JP Pro could not be loaded from the license server."
+msgstr ""
+
+#: includes/License/UpdateChecker.php:187
+msgid "Updates of Cart Bridge JP Pro are delivered while the license key activated on this site is within its update period."
+msgstr ""
+
+#: includes/License/UpdateChecker.php:189
+msgid "Check the license status"
+msgstr ""
+
+#: includes/Woo/Writer/OrderItemBuilder.php:46
+msgid "Unknown product"
+msgstr ""
+
+#: includes/Woo/Writer/OrderItemBuilder.php:208
+msgid "Shipping"
+msgstr ""
+
+#: includes/Woo/Writer/OrderItemBuilder.php:259
+msgid "Payment fee"
+msgstr ""
+
+#: includes/Woo/Writer/OrderItemBuilder.php:269
+msgid "Gift wrapping"
+msgstr ""
