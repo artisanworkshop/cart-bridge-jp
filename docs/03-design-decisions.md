@@ -422,16 +422,16 @@ error は `{ code: 'action_lost', message: <英語の固定文> }`。古い run 
 `GET /runs` はロックを取らない（取ると開始・ツールと競合して 409 になりうる）。生きたアクションの無い区間（run の開始の遷移→エンキュー、Retry の `failed→pending`→エンキュー）は
 どれもロックの中で `updated_at` が今になり、書換えは run 単位の条件つきの CAS なので、ロックの外から呼んでもその区間を誤認せず、同じ照会どうしも重ならない。
 「読むだけの表示はロックを取らない」（上の「同時実行のロック」）の例外で、読むついでに CAS で書く。`GET /runs` は何も失敗にしなければ判定に読んだ一覧をそのまま返す
-（`recover_and_list()`。一覧の照会を倍にしない。R1-4）。古い run に pending のアクションがある間（AS が動いていない低トラフィックのサイト）は、照会のたびに AS を読む。
+（`recover_and_list()`。一覧の照会を倍にしない。R1-L3）。古い run に pending のアクションがある間（AS が動いていない低トラフィックのサイト）は、照会のたびに AS を読む。
 
 **致命的エラー**: `Core\Plugin::boot()` が `action_scheduler_unexpected_shutdown`（AS の `FatalErrorMonitor` が shutdown でアクションを失敗にした直後に発火）にフックする。
 自分の hook・group のアクションで `job_id` が正の int なら、猶予を待たずにそのジョブを `{ code: 'fatal_error', message: <PHP のエラーの 1 行目。ABSPATH を外し 300 文字まで> }` で
 失敗にする（`OrphanedRunRecovery::fail_after_fatal_error()`。shutdown の中なので例外を外へ出さない。サーバーのディレクトリ〔`WP_CONTENT_DIR` は `wp-content/` に、`ABSPATH`・その親は空に〕を
-外す。R1-3）。メモリ・実行時間の上限が原因だと分かる（Retry しても同じページで繰り返せば、ホストの設定の問題）。
+外す。R1-L2）。メモリ・実行時間の上限が原因だと分かる（Retry しても同じページで繰り返せば、ホストの設定の問題）。
 **ただし WP-CLI でキューを処理したとき（`wp action-scheduler run`・システム cron）はこのフックは走らない**（実測）: WordPress の致命的エラーハンドラー
 （`wp-settings.php` で `shutdown` アクションの登録より先に `register_shutdown_function()` される）は、エラー画面を `'exit' => false` の `wp_die()` で出す。
 Web のリクエスト（WP-Cron・非同期のキューランナー）では終了しないので、後ろの `shutdown` アクションから AS の `FatalErrorMonitor` とこのフックまで届く（Web のリクエストの中で
-キューを動かして実測。R1-2）。WP-CLI の `wp_die` のハンドラーは `exit` を無視して `WP_CLI::error()` で終了するので、`shutdown` アクションが発火しない。
+キューを動かして実測。R1-L1）。WP-CLI の `wp_die` のハンドラーは `exit` を無視して `WP_CLI::error()` で終了するので、`shutdown` アクションが発火しない。
 その場合アクションは in-progress のまま残り、AS が 5 分で失敗扱いにした後、上の判定が最後の活動から猶予の後に `action_lost` で拾う（画面の説明に「処理の途中で PHP が止まった場合」を含めた）。
 強制終了（shutdown が走らない）も上の判定が猶予の後に拾う。
 
@@ -452,6 +452,9 @@ Web のリクエスト（WP-Cron・非同期のキューランナー）では終
 - 猶予を超えてハートビートが止まったまま生きているページ（HTTP の応答もアイテムの区切りも 15 分来ない）は、誤って回復しうる（理論上）。
 - run の最後の未終了のジョブを回復すると、その run は進行中の一覧から消える。run_id を控えていないブラウザには失敗が見えないが、新しい run は始められる
   （通常の例外で最後のジョブが失敗した run と同じ）。
+- 古い（孤立した）run をキャンセルした瞬間に、別のタブの `GET /runs` の回復が同じ run に重なると、ロックの順の違い（回復の UPDATE は対象の行から run の索引へ、`cancel_run()` は
+  run の索引から行へ）で InnoDB のデッドロックになりうる（理論上・数マイクロ秒の窓。R2-3）。InnoDB が片方を戻し、回復が戻されれば何もしないだけ、キャンセルが戻されれば
+  REST は従来どおり `cancelled: true` を返すが run は残る（もう一度キャンセルすれば止まる）。
 - 致命的エラーの理由（PHP のエラー文）が残るのは、上のフックが走ったときだけ。WP-CLI でキューを処理するサイトでは `action_lost` になり、原因は PHP のエラーログと Action Scheduler のログで確かめる。
 
 **実機確認（2026-10-13、wp-env の dev サイト・mock アダプタ `mockv`）**:
