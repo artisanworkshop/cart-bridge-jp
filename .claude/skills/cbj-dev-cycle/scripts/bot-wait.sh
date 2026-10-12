@@ -15,6 +15,9 @@
 #   HEAD のときだけ応答と数える（Running・前の commit の Completed・状態の読めない形は数えない。PR #127 では Running の段階で DONE になり、
 #   指摘を取る前に待ち直していた）。ほかの Codex のコメント（指摘が無いときの「Didn't find any major issues」など）は応答と数える。
 #   PR への 👍（`chatgpt-codex-connector[bot]` の +1。T より後）も、指摘が無いときの応答として数える。
+#   まとめのコメントが Running なら Codex は動いているので、`--codex-nudge` は投稿しない（走行中のレビューへの二重依頼を避ける。PR #128 R1-1）。
+#   限界: commit を照合するのはまとめのコメントだけで、レビュー・ほかのコメント・👍 は提出の時刻で数える（どれもまとめの Completed より
+#   数秒早く届く）。待つ間に PR の HEAD が動くと、旧 HEAD への応答で DONE になりうる（gate-turn.sh --first が CI 待ちの前後の HEAD を比べるのはこのため）。
 set -uo pipefail
 PR=${1:?usage: bot-wait.sh <pr> <T> [--copilot=1] [--codex=1] [--timeout=900]}
 T=${2:?missing T (UTC ISO8601, e.g. 2026-09-10T16:14:36Z)}
@@ -38,10 +41,10 @@ count_reviews() { # $1 = bot login
     --jq "[.[] | select(.user.login==\"$1\" and .submitted_at > \"$T\")] | length" 2>&1) || { echo "$out" >&2; return 1; }
   printf '%s\n' "$out" | awk '{s+=$1} END {print s+0}'
 }
-# Codex の issue コメント（T 以降に作成・更新されたもの）のうち、応答と数えるものの件数を出す。まとめのコメントは Completed かつ commit が
-# PR の HEAD のときだけ数える（上の説明）。Running のときは標準エラーに `codex: review running for <sha>` を出す（待っている理由）。
+# Codex の issue コメント（T 以降に作成・更新されたもの）のうち、応答と数えるものの件数と、Running のまとめのコメントの commit
+# （無ければ -）を「<件数> <commit>」で出す。まとめのコメントは Completed かつ commit が PR の HEAD のときだけ数える（上の説明）。
 count_codex_comments() {
-  local out head line n=0 sha
+  local out head line n=0 sha running=-
   head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid 2>&1) || { echo "$head" >&2; return 1; }
   [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "unexpected PR head: '$head'" >&2; return 1; }
   out=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments?since=$T" \
@@ -57,13 +60,13 @@ count_codex_comments() {
         sha=${line#summary Completed }
         if [ "${head:0:${#sha}}" = "$sha" ]; then n=$((n + 1)); else echo "codex: the summary is Completed for ${sha}, not the PR head ${head:0:7}" >&2; fi
         ;;
-      "summary Running "*) echo "codex: review running for ${line#summary Running }" >&2 ;;
+      "summary Running "*) running=${line#summary Running } ;;
       "summary "*) echo "codex: the summary comment has an unrecognized status; not counted" >&2 ;;
       '') ;;
       *) echo "codex: unexpected classification '$line'" >&2; return 1 ;;
     esac
   done <<<"$out"
-  echo "$n"
+  echo "$n $running"
 }
 # PR への Codex の 👍（T より後）。指摘が無いときの応答。
 count_codex_thumbs() {
@@ -78,19 +81,21 @@ deadline=$((SECONDS + TIMEOUT))
 api_fails=0
 while :; do
   # Codex を待たないときは、Codex のコメント・👍 と PR の HEAD を問い合わせない。
-  xc=0; xt=0
+  cc="0 -"; xt=0
   if c=$(count_reviews "copilot-pull-request-reviewer[bot]") \
      && x=$(count_reviews "chatgpt-codex-connector[bot]") \
-     && { [ "$WAIT_CODEX" -eq 0 ] || { xc=$(count_codex_comments) && xt=$(count_codex_thumbs); }; }; then
+     && { [ "$WAIT_CODEX" -eq 0 ] || { cc=$(count_codex_comments) && xt=$(count_codex_thumbs); }; }; then
     api_fails=0
-    x=$((x + xc + xt))
-    echo "copilot=$c codex=$x"
+    running=${cc#* }
+    x=$((x + ${cc%% *} + xt))
+    # Running は進捗の行に添える（別の行にすると gate-turn.sh の同じ行の畳み込みが効かず、ポーリングのたびに行が増える。R1-9）。
+    if [ "$running" = "-" ]; then echo "copilot=$c codex=$x"; else echo "copilot=$c codex=$x (codex review running for $running)"; fi
     if { [ "$WAIT_COPILOT" -eq 0 ] || [ "$c" -ge 1 ]; } && { [ "$WAIT_CODEX" -eq 0 ] || [ "$x" -ge 1 ]; }; then
       echo DONE; exit 0
     fi
     wait_for=$INTERVAL
     # Codex の自動レビューが発火していなければ、一度だけ `@codex review` で起こす（--codex-nudge）。
-    if [ "$NUDGE" -gt 0 ] && [ "$NUDGED" -eq 0 ] && [ "$WAIT_CODEX" -eq 1 ] && [ "$x" -eq 0 ] \
+    if [ "$NUDGE" -gt 0 ] && [ "$NUDGED" -eq 0 ] && [ "$WAIT_CODEX" -eq 1 ] && [ "$x" -eq 0 ] && [ "$running" = "-" ] \
        && [ $((SECONDS - started)) -ge "$NUDGE" ]; then
       if gh pr comment "$PR" --body "@codex review" >/dev/null 2>&1; then
         NUDGED=1

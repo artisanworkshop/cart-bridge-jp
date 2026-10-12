@@ -53,7 +53,8 @@
 # 何も投稿しない。やり直しても二重に投稿しない（同じスレッドへの同じ本文の返信・同じラウンドのサマリがあれば飛ばす）。最後に未解決の bot の
 # スレッドを取り直し、Resolve する計画のスレッドが残っていれば 1。途中の API の失敗は 3 で止まる（もう一度 post すれば続きから）。
 #
-# 終了コード: 0=成功 / 1=記録の記入漏れ・スレッドが見つからない / 2=引数不正・上書きの拒否 / 3=API・ファイルの取得失敗
+# 終了コード: 0=成功 / 1=記録の記入漏れ・スレッドが見つからない・post の前提が欠ける（PR が OPEN でない・修正の commit が未 push・@codex を含む）・
+#   post の後に Resolve するはずのスレッドが残る / 2=引数不正・上書きの拒否 / 3=API・ファイルの取得失敗
 # テスト用に CBJ_GATE_SCRIPTS_DIR（gate-threads.sh 等の置き場）と CBJ_RECORD_ROOT（docs/ を置くルート）を差し替えられる。
 set -uo pipefail
 
@@ -410,8 +411,12 @@ cmd_post() {
     echo "could not create a temporary directory" >&2
     exit 3
   fi
+  # 返信の本文とサマリの一時ファイルは、どう終わっても消す（R1-7。trap は関数を抜けた後に走るので、ローカル変数ではなくグローバルで持つ）。
+  POST_TMP=$out
+  trap 'rm -rf "$POST_TMP"' EXIT
   plan_out=$(plan_replies "$out" "$THREADS") || exit 3
-  summary=$(cmd_summary) || exit 1
+  # cmd_summary の終了コード（記入漏れ 1・gh の失敗 3）をそのまま返す（R1-7）。
+  summary=$(cmd_summary) || exit $?
   if grep -rqi '@codex' "$out" || grep -qi '@codex' <<<"$summary"; then
     echo "a reply or the summary contains '@codex' (Codex would answer it); rewrite the record without it. Nothing was posted" >&2
     exit 1
@@ -426,23 +431,39 @@ cmd_post() {
     echo "could not list the comments of PR #$PR" >&2
     exit 3
   fi
+  # 0 = 同じスレッドに同じ本文の返信がある、1 = 無い、それ以外 = 読めない（呼び出し側は 3 で止まる。「無い」と読んで二重に投稿しない。R1-5）。
   has_reply() { # <dbid> <file>
-    local want
+    local want found
     want=$(cat "$2") || return 2
-    jq -se --argjson d "$1" --arg b "$want" 'any(.[]; .in_reply_to_id == $d and (.body | sub("\\s+$"; "")) == ($b | sub("\\s+$"; "")))' <<<"$existing" >/dev/null
+    found=$(jq -s --argjson d "$1" --arg b "$want" 'any(.[]; .in_reply_to_id == $d and (.body | sub("\\s+$"; "")) == ($b | sub("\\s+$"; "")))' <<<"$existing") || return 2
+    case "$found" in
+      true) return 0 ;;
+      false) return 1 ;;
+      *) return 2 ;;
+    esac
   }
   # 見つからないスレッドに返信が無ければ（Resolve 済みとも言えない）、何も投稿せずに止める。
+  local rc
   while IFS=$'\037' read -r type id kind plan dbid tid file note; do
-    if [ "$type" = thread ] && [ -z "$tid" ] && ! has_reply "$dbid" "$file"; then
-      echo "$id: the thread of comment $dbid was not found among the unresolved bot threads and has no reply from this record (a wrong dbid?). Nothing was posted" >&2
+    [ "$type" = thread ] && [ -z "$tid" ] || continue
+    if has_reply "$dbid" "$file"; then rc=0; else rc=$?; fi
+    if [ "$rc" -eq 1 ]; then
+      echo "$id: the thread of comment $dbid was not found among the unresolved bot threads and has no reply with this record's text (a wrong dbid, or the 対応 changed after the reply was posted). Nothing was posted" >&2
       exit 1
+    elif [ "$rc" -ne 0 ]; then
+      echo "$id: could not compare the existing replies of comment $dbid. Nothing was posted" >&2
+      exit 3
     fi
   done <<<"$plan_out"
   # 4. 返信と Resolve。
   while IFS=$'\037' read -r type id kind plan dbid tid file note; do
     [ "$type" = thread ] || continue
-    if has_reply "$dbid" "$file"; then
+    if has_reply "$dbid" "$file"; then rc=0; else rc=$?; fi
+    if [ "$rc" -eq 0 ]; then
       skipped=$((skipped + 1))
+    elif [ "$rc" -ne 1 ]; then
+      echo "$id: could not compare the existing replies of comment $dbid (run post again to continue)" >&2
+      exit 3
     else
       if ! "$DIR/gate-reply.sh" "$PR" "$dbid" - <"$file" >/dev/null; then
         echo "$id: could not reply to comment $dbid (run post again to continue)" >&2

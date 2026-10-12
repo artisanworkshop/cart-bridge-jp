@@ -55,7 +55,10 @@ case "$url" in
     since=${url#*since=}
     jq --arg s "$since" '[.[] | select(.updated_at >= $s)]' "${STUB_COMMENTS:-$STUB_EMPTY}" | jq -r "$filter"
     ;;
-  */reactions) jq -r "$filter" "${STUB_REACTIONS:-$STUB_EMPTY}" ;;
+  */reactions)
+    if [ "${STUB_RC_REACTIONS:-0}" -ne 0 ]; then exit "$STUB_RC_REACTIONS"; fi
+    jq -r "$filter" "${STUB_REACTIONS:-$STUB_EMPTY}"
+    ;;
   *) exit 1 ;;
 esac
 EOS
@@ -88,7 +91,7 @@ CODEX_ONLY=(--copilot=0 --codex=1 --timeout=0)
 # 1. まとめのコメントが Running のうちは応答と数えない（PR #127 G2・G3 では Running で DONE になっていた）。
 run_bw STUB_HEAD="$HE35" STUB_COMMENTS="$FX/summary-running.json" -- 127 2026-10-12T02:20:00Z "${CODEX_ONLY[@]}"
 expect_rc "running: not a response (TIMEOUT)" 1
-expect_out "running: says why it waits" "codex: review running for e3523bc"
+expect_out "running: says why it waits (on the progress line)" "copilot=0 codex=0 (codex review running for e3523bc)"
 expect_out "running: codex=0" "copilot=0 codex=0"
 
 # 2. Completed で、commit が PR の HEAD なら応答。
@@ -139,6 +142,22 @@ expect_out "unreadable PR head: says so" "unexpected PR head"
 # 11. Codex の応答が無いまま両方を待つと TIMEOUT（Copilot の応答だけでは DONE にしない）。
 run_bw STUB_HEAD="$H866" STUB_REVIEWS="$WORK/copilot-review.json" STUB_COMMENTS="$FX/summary-running.json" -- 127 2026-10-12T02:20:00Z --copilot=1 --codex=1 --timeout=0
 expect_rc "both, codex still running: TIMEOUT" 1
+
+# 12. Running の間は --codex-nudge で `@codex review` を投稿しない（走行中のレビューへの二重依頼。PR #128 R1-1）。2 回目の問い合わせ（2 秒後）で
+#     nudge の時刻（1 秒）を過ぎるようにする。対照として、Codex の応答が何も無ければ投稿する。
+run_bw STUB_HEAD="$HE35" STUB_COMMENTS="$FX/summary-running.json" -- 127 2026-10-12T02:20:00Z --copilot=0 --codex=1 --timeout=2 --codex-nudge=1
+expect_rc "nudge while running: TIMEOUT" 1
+if grep -q "pr comment" "$WORK/calls.log"; then fail "nudge while running: posted '@codex review' to a running review"; else ok "nudge while running: does not post"; fi
+run_bw STUB_HEAD="$HE35" -- 127 2026-10-12T02:20:00Z --copilot=0 --codex=1 --timeout=2 --codex-nudge=1
+if grep -q "pr comment 127 --body @codex review" "$WORK/calls.log"; then ok "nudge without any Codex activity: posts"; else fail "nudge without any Codex activity: did not post: $(tr '\n' ' ' <"$WORK/calls.log")"; fi
+expect_out "nudge without any Codex activity: says so" "posted '@codex review'"
+
+# 13. Codex の問い合わせ（PR の HEAD・👍）の失敗は 0 件にせず、API の失敗として数える（続けば API_ERROR）。
+run_bw STUB_HEAD="$H866" STUB_RC_PRVIEW=1 STUB_COMMENTS="$FX/didnt-find.json" -- 125 2026-10-11T22:50:00Z "${CODEX_ONLY[@]}"
+expect_out "PR head lookup failure: counted as an API failure" "gh api failed (1/3)"
+run_bw STUB_HEAD="$H866" STUB_RC_REACTIONS=1 STUB_COMMENTS="$FX/didnt-find.json" -- 125 2026-10-11T22:50:00Z "${CODEX_ONLY[@]}"
+expect_out "thumbs lookup failure: counted as an API failure" "gh api failed (1/3)"
+expect_rc "thumbs lookup failure: not DONE" 1
 
 DONE=1
 if [ "$FAILS" -ne 0 ]; then

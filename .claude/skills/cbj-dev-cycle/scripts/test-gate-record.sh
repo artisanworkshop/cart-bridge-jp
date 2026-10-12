@@ -100,7 +100,11 @@ case "$*" in
     if [ "${STUB_RC_PRCOMMENT:-0}" -ne 0 ]; then exit "$STUB_RC_PRCOMMENT"; fi
     cp "$5" "$STUB_LOG.summary"
     ;;
-  *"/pulls/"*"/comments"*) jq -r "$jqf" "${STUB_REVIEW_COMMENTS_FILE:-$STUB_EMPTY_JSON}" ;;
+  *"/pulls/"*"/comments"*)
+    # STUB_REVIEW_COMMENTS_RAW: gh は成功するが、出力が JSON でない（post の has_reply の読めない分岐を通すため）。
+    if [ -n "${STUB_REVIEW_COMMENTS_RAW:-}" ]; then cat "$STUB_REVIEW_COMMENTS_RAW"; exit 0; fi
+    jq -r "$jqf" "${STUB_REVIEW_COMMENTS_FILE:-$STUB_EMPTY_JSON}"
+    ;;
   *"/issues/"*"/comments"*) jq -r "$jqf" "${STUB_ISSUE_COMMENTS_FILE:-$STUB_EMPTY_JSON}" ;;
   "pr view"*)
     if [ "${STUB_RC_GH_META:-0}" -ne 0 ]; then exit "$STUB_RC_GH_META"; fi
@@ -857,6 +861,37 @@ run_gr STUB_PR_HEAD="$SHA" STUB_RC_REPLY=1 -- post 66 9 --file="$WORK/rec-ok.md"
 assert_rc "post: 返信の失敗は 3" 3
 assert_no_log "post: 返信に失敗したらサマリを投稿しない" "gh pr comment"
 if [ "$(count_log '^gate-reply.sh 66 ')" -eq 1 ]; then ok "post: 返信に失敗した時点で止める"; else fail "post: 返信の失敗の後も続けた: $(count_log '^gate-reply.sh 66 ')"; fi
+
+# サマリだけに載る欄（要旨）の @codex も止める（返信にだけ載る 対応: とは別の検査。R1-2）。
+mkrec codexsummary 's/(### \[G9-2\].*?要旨: )/${1}\@codex に確認した。/s'
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-codexsummary.md"
+assert_rc "post: サマリだけに @codex があっても 1" 1
+assert_no_log "post: サマリの @codex でも返信しない" "gate-reply.sh"
+assert_no_log "post: サマリの @codex でもサマリを投稿しない" "gh pr comment"
+
+# 1 つの指摘が 2 スレッドを持ち、1 本目（r1002）にだけ返信がある状態からのやり直し: 2 本目（r1006）に返信する（スレッドの一致を見る。R1-3）。
+jq '. + [(.[1] | .id = "PRRT_6" | .comments.nodes[0].databaseId = 1006)]' "$FX/threads.json" >"$WORK/threads-two.json"
+jq -n --rawfile r2 "$WORK/out dir/reply-G9-2.md" '[{in_reply_to_id: 1002, body: ($r2 | rtrimstr("\n"))}]' >"$WORK/review-comments-one.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-two.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" STUB_REVIEW_COMMENTS_FILE="$WORK/review-comments-one.json" -- post 66 9 --file="$WORK/rec-twothreads.md"
+assert_rc "post: 2 スレッドの指摘のやり直し: 0" 0
+assert_log "post: 返信の無い 2 本目のスレッドに返信する" "gate-reply.sh 66 1006 -"
+assert_no_log "post: 返信済みの 1 本目には返信しない" "gate-reply.sh 66 1002 -"
+assert_log "post: 2 本目のスレッドも Resolve する" "gate-resolve.sh PRRT_6"
+
+# Resolve に失敗したら、そこで止める（サマリを投稿しない）。
+run_gr STUB_PR_HEAD="$SHA" STUB_RC_RESOLVE=1 STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: Resolve の失敗は 3" 3
+assert_no_log "post: Resolve に失敗したらサマリを投稿しない" "gh pr comment"
+
+# 既存の返信の一覧が読めないときは「返信なし」と読まず、何も投稿せずに止める（二重投稿を避ける。R1-5）。
+printf 'not json\n' >"$WORK/review-comments-broken.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_REVIEW_COMMENTS_FILE="$WORK/review-comments-broken.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 既存の返信の一覧が取れなければ 3" 3
+assert_no_log "post: 既存の返信の一覧が取れなければ返信しない" "gate-reply.sh"
+run_gr STUB_PR_HEAD="$SHA" STUB_REVIEW_COMMENTS_RAW="$WORK/review-comments-broken.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 既存の返信を照合できなければ 3（返信なしと読まない）" 3
+assert_err "post: 照合できないと伝える" "could not compare the existing replies"
+assert_no_log "post: 既存の返信を照合できなければ返信しない" "gate-reply.sh"
 
 # 記入漏れの記録は、何も投稿しない（check と同じ検査）。
 mkrec todo 's/判定: 保留/判定: TODO(記入)/'
