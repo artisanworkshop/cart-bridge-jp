@@ -9,6 +9,7 @@
 #   thumbs.json             PR #125 の Codex の 👍（2026-10-11T22:52:29Z）
 #   summary-running.json    合成: summary-completed.json の状態の行を、PR #127 の G1 で表示された Running の行（commit e3523bc）に置き換えた
 #   summary-unknown.json    合成: 状態を読めない語（Paused）に置き換えた
+#   environment.json        PR #129 の、環境の作成を促す Codex の定型コメント（PR 本文の `@codex` に反応したもの。レビューの結果ではない）
 set -euo pipefail
 if ! HERE=$(cd "$(dirname "$0")" && pwd) || [ -z "$HERE" ]; then
   echo "test-bot-wait: could not resolve the script directory" >&2
@@ -91,13 +92,13 @@ CODEX_ONLY=(--copilot=0 --codex=1 --timeout=0)
 # 1. まとめのコメントが Running のうちは応答と数えない（PR #127 G2・G3 では Running で DONE になっていた）。
 run_bw STUB_HEAD="$HE35" STUB_COMMENTS="$FX/summary-running.json" -- 127 2026-10-12T02:20:00Z "${CODEX_ONLY[@]}"
 expect_rc "running: not a response (TIMEOUT)" 1
-expect_out "running: says why it waits (on the progress line)" "copilot=0 codex=0 (codex review running for e3523bc)"
-expect_out "running: codex=0" "copilot=0 codex=0"
+expect_out "running: says why it waits (on the progress line)" "copilot=- codex=0 (codex review running for e3523bc)"
+expect_out "running: codex=0" "copilot=- codex=0"
 
 # 2. Completed で、commit が PR の HEAD なら応答。
 run_bw STUB_HEAD="$H866" STUB_COMMENTS="$FX/summary-completed.json" -- 127 2026-10-12T03:33:11Z "${CODEX_ONLY[@]}"
 expect_rc "completed for the head: DONE" 0
-expect_out "completed for the head: codex=1" "copilot=0 codex=1"
+expect_out "completed for the head: codex=1" "copilot=- codex=1"
 
 # 3. Completed でも、前の commit なら応答と数えない（新しい HEAD のレビューはまだ）。
 run_bw STUB_HEAD="$H9E9" STUB_COMMENTS="$FX/summary-completed.json" -- 127 2026-10-12T03:33:11Z "${CODEX_ONLY[@]}"
@@ -132,7 +133,12 @@ expect_rc "codex review: DONE" 0
 echo '[{"user":{"login":"copilot-pull-request-reviewer[bot]"},"submitted_at":"2026-10-12T03:39:02Z"}]' >"$WORK/copilot-review.json"
 run_bw STUB_HEAD="$H866" STUB_REVIEWS="$WORK/copilot-review.json" STUB_COMMENTS="$FX/summary-running.json" -- 127 2026-10-12T03:33:11Z --copilot=1 --codex=0 --timeout=0
 expect_rc "copilot only: DONE" 0
-if grep -qE "pr view|/comments|/reactions" "$WORK/calls.log"; then fail "copilot only: queried Codex data: $(tr '\n' ' ' <"$WORK/calls.log")"; else ok "copilot only: no Codex queries"; fi
+if grep -qE "pr view|/comments|/reactions|chatgpt-codex-connector" "$WORK/calls.log"; then fail "copilot only: queried Codex data: $(tr '\n' ' ' <"$WORK/calls.log")"; else ok "copilot only: no Codex queries"; fi
+expect_out "copilot only: codex is not shown as a count" "copilot=1 codex=-"
+# 逆に Codex だけを待つときは、Copilot のレビューを問い合わせない（PR #129 G1-1。Copilot の API の失敗に左右されない）。
+run_bw STUB_HEAD="$H866" STUB_COMMENTS="$FX/didnt-find.json" -- 125 2026-10-11T22:50:00Z "${CODEX_ONLY[@]}"
+expect_rc "codex only: DONE" 0
+if grep -q "copilot-pull-request-reviewer" "$WORK/calls.log"; then fail "codex only: queried Copilot reviews: $(tr '\n' ' ' <"$WORK/calls.log")"; else ok "codex only: no Copilot queries"; fi
 
 # 10. PR の HEAD を読めないときは、応答なしとして扱う（DONE にしない）。
 run_bw STUB_HEAD="not-a-sha" STUB_COMMENTS="$FX/didnt-find.json" -- 125 2026-10-11T22:50:00Z "${CODEX_ONLY[@]}"
@@ -158,6 +164,19 @@ expect_out "PR head lookup failure: counted as an API failure" "gh api failed (1
 run_bw STUB_HEAD="$H866" STUB_RC_REACTIONS=1 STUB_COMMENTS="$FX/didnt-find.json" -- 125 2026-10-11T22:50:00Z "${CODEX_ONLY[@]}"
 expect_out "thumbs lookup failure: counted as an API failure" "gh api failed (1/3)"
 expect_rc "thumbs lookup failure: not DONE" 1
+
+# 14. レビューの結果ではない Codex のコメント（環境の作成を促す定型コメント）は応答と数えない。ID を一度だけ表示する
+#     （PR #129 G1: これを応答と数えて DONE になった）。2 回問い合わせても 1 回だけ出す。
+run_bw STUB_HEAD="$H866" STUB_COMMENTS="$FX/environment.json" -- 129 2026-10-12T07:12:07Z --copilot=0 --codex=1 --timeout=2
+expect_rc "environment comment: not a response (TIMEOUT)" 1
+expect_out "environment comment: names the comment" "codex: comment 6119518755 is not a review result; not counted"
+n=$(grep -c "comment 6119518755 is not a review result" <<<"$OUT" || true)
+polls=$(grep -c "^copilot=- codex=0$" <<<"$OUT" || true)
+if [ "$n" = 1 ] && [ "$polls" = 2 ]; then ok "environment comment: shown once over 2 polls"; else fail "environment comment: shown $n time(s) over $polls poll(s): $(printf '%s' "$OUT" | tr '\n' ' ')"; fi
+# 前の commit の Completed も、問い合わせのたびには出さない。
+run_bw STUB_HEAD="$H9E9" STUB_COMMENTS="$FX/summary-completed.json" -- 127 2026-10-12T03:30:00Z --copilot=0 --codex=1 --timeout=2
+n=$(grep -c "the summary is Completed for 866cf15" <<<"$OUT" || true)
+if [ "$n" = 1 ]; then ok "stale completed: shown once over 2 polls"; else fail "stale completed: shown $n time(s): $(printf '%s' "$OUT" | tr '\n' ' ')"; fi
 
 DONE=1
 if [ "$FAILS" -ne 0 ]; then

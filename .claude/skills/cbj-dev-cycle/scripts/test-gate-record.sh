@@ -59,6 +59,8 @@ n=$(cat "$STUB_LOG.threads.n" 2>/dev/null || echo 0)
 n=$((n + 1))
 echo "$n" > "$STUB_LOG.threads.n"
 if [ "$n" -ge 2 ] && [ -n "${STUB_THREADS_FILE_AFTER:-}" ]; then cat "$STUB_THREADS_FILE_AFTER"; exit 0; fi
+# STUB_SWAP_RECORD=<記録> STUB_SWAP_FROM=<別の記録>: 1 回目の呼び出しで記録を差し替える（post の途中で記録が書き換わった場合）。
+if [ -n "${STUB_SWAP_RECORD:-}" ]; then cp "$STUB_SWAP_FROM" "$STUB_SWAP_RECORD"; fi
 cat "${STUB_THREADS_FILE:-$FX/threads.json}"
 EOS
 # gate-reply.sh / gate-resolve.sh（post が呼ぶ）: 呼び出しを記録し、返信の本文は $STUB_LOG.reply.<dbid> に残す。
@@ -812,6 +814,20 @@ assert_no_log "post のやり直し: Resolve 済みのスレッドを Resolve �
 assert_no_log "post のやり直し: 既にあるサマリを二重に投稿しない" "gh pr comment"
 assert_out "post のやり直し: 件数" "post: replies posted 0, already there 5; threads resolved 0, already resolved 3; summary already posted"
 
+# 同じラウンドの見出しで本文の違うサマリ（手で投稿した・記録を後から変えた）があれば、何も投稿せずに止める（PR #129 G1-4）。
+jq '[.[] | if (.body | startswith("## レビュー指摘への対応サマリ（G9）")) then .body = "## レビュー指摘への対応サマリ（G9）\n\n古い版のサマリ" else . end]' \
+  "$WORK/issue-comments.keep.json" >"$WORK/issue-comments-stale.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_ISSUE_COMMENTS_FILE="$WORK/issue-comments-stale.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 本文の違う同じラウンドのサマリがあれば 1" 1
+assert_err "post: 本文の違うサマリがあると伝える" "already has a summary for G9 with a different text"
+assert_no_log "post: 本文の違うサマリがあれば返信しない" "gate-reply.sh"
+assert_no_log "post: 本文の違うサマリがあればサマリを投稿しない" "gh pr comment"
+# 見出しを本文の途中で引用しているだけのコメントは、サマリとみなさない（投稿する）。
+jq -n '[{body: "前のラウンドで「## レビュー指摘への対応サマリ（G9）」を投稿した"}]' >"$WORK/issue-comments-quote.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_ISSUE_COMMENTS_FILE="$WORK/issue-comments-quote.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 見出しを引用しただけのコメントでは止めない" 0
+assert_out "post: 見出しを引用しただけのコメントがあってもサマリを投稿する" "summary posted"
+
 # 本文が違う返信（前の版の対応）は、同じ本文とはみなさない。
 jq 'map(if .in_reply_to_id == 1001 then .body = "ご指摘のとおりです（古い sha で修正）。" else . end)' "$WORK/review-comments.json" >"$WORK/review-comments-old.json"
 run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-after.json" STUB_REVIEW_COMMENTS_FILE="$WORK/review-comments-old.json" STUB_ISSUE_COMMENTS_FILE="$WORK/issue-comments.keep.json" -- post 66 9 --file="$WORK/rec-ok.md"
@@ -896,6 +912,14 @@ assert_no_log "post: 既存の返信を照合できなければ返信しない" 
 run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-missing.json" STUB_REVIEW_COMMENTS_RAW="$WORK/review-comments-broken.json" -- post 66 9 --file="$WORK/rec-ok.md"
 assert_rc "post: 事前確認で既存の返信を照合できなければ 3" 3
 assert_err "post: 事前確認で照合できないと伝える（何も投稿しない）" "could not compare the existing replies of comment 1003. Nothing was posted"
+
+# サマリを作る段階で記録が読めなくなった（post の途中で記入漏れに書き換わった）ときは、記入漏れの 1 で止まり、何も投稿しない（3 にしない。PR #129 G1-2）。
+mkrec todo 's/判定: 保留/判定: TODO(記入)/'
+cp "$WORK/rec-ok.md" "$WORK/rec-swap.md"
+run_gr STUB_PR_HEAD="$SHA" STUB_SWAP_RECORD="$WORK/rec-swap.md" STUB_SWAP_FROM="$WORK/rec-todo.md" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-swap.md"
+assert_rc "post: サマリの段階の記入漏れは 1" 1
+assert_no_log "post: サマリの段階の記入漏れでは返信しない" "gate-reply.sh"
+assert_no_log "post: サマリの段階の記入漏れではサマリを投稿しない" "gh pr comment"
 
 # 記入漏れの記録は、何も投稿しない（check と同じ検査）。
 mkrec todo 's/判定: 保留/判定: TODO(記入)/'

@@ -50,7 +50,8 @@
 # post（issue #128）は replies と同じ計画で返信・Resolve を行い、summary を投稿する。投稿してよいかの判断（確認ゲート・判定・【承認済み】）は
 # 済んでいる前提で、その後の機械的な部分だけを受け持つ。何かを投稿する前に、記入漏れ・PR が OPEN・修正の commit が PR の HEAD に含まれる
 # （push 済み）・返信とサマリに @codex が無い・未解決の一覧に無いスレッドには記録の返信が付いている（Resolve 済み）を確かめ、どれかが欠ければ
-# 何も投稿しない。やり直しても二重に投稿しない（同じスレッドへの同じ本文の返信・同じラウンドのサマリがあれば飛ばす）。最後に未解決の bot の
+# 何も投稿しない。やり直しても二重に投稿しない（同じスレッドへの同じ本文の返信・同じ本文のサマリがあれば飛ばす。同じラウンドの見出しで本文の
+# 違うサマリ〔手で投稿した・記録を後から変えた〕があれば、何も投稿せずに止める）。最後に未解決の bot の
 # スレッドを取り直し、Resolve する計画のスレッドが残っていれば 1。途中の API の失敗は 3 で止まる（もう一度 post すれば続きから）。
 #
 # 終了コード: 0=成功 / 1=記録の記入漏れ・スレッドが見つからない・post の前提が欠ける（PR が OPEN でない・修正の commit が未 push・@codex を含む）・
@@ -416,7 +417,10 @@ cmd_post() {
   trap 'rm -rf "$POST_TMP"' EXIT
   plan_out=$(plan_replies "$out" "$THREADS") || exit 3
   # cmd_summary の記入漏れ（1）はそのまま、それ以外の失敗（gh・jq）は 3 にまとめる（R1-7・R2-2。2 は引数不正と紛れる）。
-  if ! summary=$(cmd_summary); then
+  # `if ! summary=$(…); then rc=$?` は ! が反転した後の 0 を読むので、else で受ける（PR #129 G1-2）。
+  if summary=$(cmd_summary); then
+    :
+  else
     rc=$?
     [ "$rc" -eq 1 ] || rc=3
     exit "$rc"
@@ -431,7 +435,7 @@ cmd_post() {
     echo "could not list the review comments of PR #$PR" >&2
     exit 3
   fi
-  if ! comments=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments" --jq '.[] | .body'); then
+  if ! comments=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments" --jq '.[] | {body}'); then
     echo "could not list the comments of PR #$PR" >&2
     exit 3
   fi
@@ -458,6 +462,29 @@ cmd_post() {
       exit 3
     fi
   done <<<"$plan_out"
+  # サマリ: 同じ本文が既にあれば飛ばす。同じラウンドの見出しで本文の違うコメントがあれば、古いサマリを残したまま「投稿済み」と
+  # 報告しないよう、何も投稿せずに止める（PR #129 G1-4。見出しの部分一致だけで「投稿済み」としていた）。
+  body="$out/summary.md"
+  printf '%s\n' "$summary" >"$body" || exit 3
+  if ! summary_state=$(jq -rs --arg b "$summary" --arg h "$(head -n 1 "$body")" '
+      [.[] | .body | sub("\\s+$"; "")] as $bodies
+      | if any($bodies[]; . == ($b | sub("\\s+$"; ""))) then "already posted"
+        elif any($bodies[]; startswith($h)) then "different"
+        else "new" end' <<<"$comments"); then
+    echo "could not compare the existing comments of PR #$PR. Nothing was posted" >&2
+    exit 3
+  fi
+  case "$summary_state" in
+    "already posted"|new) ;;
+    different)
+      echo "PR #$PR already has a summary for G$N with a different text (posted by hand, or the record changed after it was posted). Edit or delete that comment, then run post again. Nothing was posted" >&2
+      exit 1
+      ;;
+    *)
+      echo "could not compare the existing comments of PR #$PR. Nothing was posted" >&2
+      exit 3
+      ;;
+  esac
   # 4. 返信と Resolve。
   while IFS=$'\037' read -r type id kind plan dbid tid file note; do
     [ "$type" = thread ] || continue
@@ -485,11 +512,9 @@ cmd_post() {
       fi
     fi
   done <<<"$plan_out"
-  # 5. サマリ（同じラウンドのサマリが既にあれば投稿しない）。
-  body="$out/summary.md"
-  printf '%s\n' "$summary" >"$body" || exit 3
-  if grep -qF -- "$(head -n 1 "$body")" <<<"$comments"; then
-    summary_state="already posted"
+  # 5. サマリ（同じ本文が既にあれば投稿しない。上で確かめた）。
+  if [ "$summary_state" = "already posted" ]; then
+    :
   elif ! gh pr comment "$PR" --body-file "$body" >/dev/null; then
     echo "could not post the summary comment (run post again to continue)" >&2
     exit 3
