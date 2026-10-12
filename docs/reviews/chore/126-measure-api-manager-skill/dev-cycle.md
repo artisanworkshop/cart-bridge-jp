@@ -3,7 +3,7 @@
 - 開始: 2026-10-12
 - 引数: issue #126（確認ゲートあり。auto-commit の指定なし）
 - PR: 作成後に番号を記入
-- 現在のステップ: 2（実装）
+- 現在のステップ: 4〜5（PR 作成・CI 待ち）
 - Copilot: 依頼 0 回
 - Codex: 依頼 0 回
 
@@ -12,3 +12,5 @@
 |---|---|---|
 | 2026-10-12 10:05 | 1 | 計画承認（E2E を含める〔作業ツリーの Pro のヘッダーに一時的に `Update URI` を足し、後片付けで戻す。守りつき〕・本番の販売サイトに要求を送るモードは作らない〔AskUserQuestion でユーザー決定〕） |
 | 2026-10-12 10:34 | 2 | 実装コミット d969e14（スキル本体・`quality.sh` と CI の dev-tooling への `test-anon.php` の組み込み）。dev サイトで 3.8.1 の setup → measure all → compare（フィクスチャ 13 件すべて一致。`deactivate` のグループは別の instance も有効化する形にそろえた）→ E2E → teardown、3.6.0 で setup → measure → compare（information の節の名前だけ違う）→ teardown。setup の前と teardown の後を丸ごと比べ、WC の属性の索引の予定と注文のメールのログが残ったので直し、直した後は差 0。守り（2 回目の setup・未コミットの変更がある E2E・目印の無い mu-plugin・状態ファイルの無い残り）を実測。`anon.php` の変異 9 種 CAUGHT。`quality.sh` green（無料版 1277・Pro 829・Jest 99） |
+| 2026-10-12 11:03 | 3 | review-loop R1（自己 + 独立サブエージェント）: Medium 3（状態ファイルと DB の結び付き・wordpress.org に届かないときの E2E の偽の合格・`host:port` の漏れの検出のテスト）・Low 9（自己 3 を含む）をすべて修正 e200e30。DB のトークン・`checked` の確認を dev サイトで実測、変異 2 種 CAUGHT、`quality.sh` green |
+| 2026-10-12 11:17 | 3 | review-loop R2: APPROVE（R1 の Medium はすべて解消）。新しい Low 3（結び付かない状態ファイルの ID で数える・ヘッダーの無い `check` の偽の合格・ヘッダーの行の完全一致）と言い残し・範囲外 2 件を修正 e4c1f13。`quality.sh` green |
