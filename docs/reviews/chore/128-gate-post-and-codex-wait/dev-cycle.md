@@ -3,7 +3,7 @@
 - 開始: 2026-10-12
 - 引数: issue #128（確認ゲートあり。auto-commit の指定なし）
 - PR: 作成後に番号を記入
-- 現在のステップ: 2（実装）
+- 現在のステップ: 4〜5（PR 作成・CI 待ち）
 - Copilot: 依頼 0 回
 - Codex: 依頼 0 回
 
@@ -12,3 +12,5 @@
 |---|---|---|
 | 2026-10-12 15:02 | 1 | 計画承認（`post` はゲートの判断の後の機械的な実行だけ・二重投稿しない・Codex のまとめのコメントは Completed かつ HEAD の commit のときだけ応答・👍 も応答） |
 | 2026-10-12 15:21 | 2 | 実装コミット（`bot-wait.sh` の Codex の判定・`gate-turn.sh` の表示・`test-bot-wait.sh`／`gate-record.sh post` とそのテスト／品質チェック・CI・SKILL.md）。`quality.sh` green、Ubuntu の bash 5.2 でも 3 つのテストが通る、変異 14 種 CAUGHT（`bot-wait.sh` 7・`post` 7） |
+| 2026-10-12 15:51 | 3 | review-loop R1（自己 + 独立サブエージェント）: Medium 5（Running の間の nudge の退行・サマリだけの `@codex`・返信のスレッドの一致・API の失敗の扱いのテスト・既存の返信の読み取りのエラー）・Low 5 を修正 33f7f03、Low 1 を backlog。変異 6 種 CAUGHT、`quality.sh` green |
+| 2026-10-12 16:11 | 3 | review-loop R2: APPROVE（R1 の Medium はすべて解消）。新しい Low 3（事前確認の分岐のテスト・サマリの失敗の終了コード・Running のまま止まったときの手順）を修正 d4a5cef。`quality.sh` green |
