@@ -46,6 +46,7 @@ if ! GIT_COMMITTER_DATE="2026-01-01T00:00:00+0000" git -C "$GITREPO" "${GITC[@]}
 fi
 STUBS="$WORK/stubs"
 LOG="$WORK/calls.log"
+echo '[]' >"$WORK/empty.json"
 mkdir -p "$STUBS/bin" "$WORK/root"
 
 # gate-threads.sh: --json で STUB_THREADS_FILE（既定 fixtures の threads.json）を返す。
@@ -53,8 +54,26 @@ cat >"$STUBS/gate-threads.sh" <<'EOS'
 #!/usr/bin/env bash
 echo "gate-threads $*" >> "$STUB_LOG"
 if [ "${STUB_RC_THREADS:-0}" -ne 0 ]; then exit "$STUB_RC_THREADS"; fi
+# 2 回目以降の呼び出し（post の数え直し）は STUB_THREADS_FILE_AFTER を返す（未指定なら 1 回目と同じ）。
+n=$(cat "$STUB_LOG.threads.n" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" > "$STUB_LOG.threads.n"
+if [ "$n" -ge 2 ] && [ -n "${STUB_THREADS_FILE_AFTER:-}" ]; then cat "$STUB_THREADS_FILE_AFTER"; exit 0; fi
 cat "${STUB_THREADS_FILE:-$FX/threads.json}"
 EOS
+# gate-reply.sh / gate-resolve.sh（post が呼ぶ）: 呼び出しを記録し、返信の本文は $STUB_LOG.reply.<dbid> に残す。
+cat >"$STUBS/gate-reply.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "gate-reply.sh $*" >> "$STUB_LOG"
+cat > "$STUB_LOG.reply.$2"
+exit "${STUB_RC_REPLY:-0}"
+EOS
+cat >"$STUBS/gate-resolve.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "gate-resolve.sh $*" >> "$STUB_LOG"
+exit "${STUB_RC_RESOLVE:-0}"
+EOS
+chmod +x "$STUBS/gate-reply.sh" "$STUBS/gate-resolve.sh"
 chmod +x "$STUBS/gate-threads.sh"
 
 # gh: `pr view --json headRefName` はブランチ名、`pr view --json url,headRefOid` は PR のメタ、`api` はレビュー一覧を返す。
@@ -63,8 +82,26 @@ cat >"$STUBS/bin/gh" <<'EOS'
 #!/usr/bin/env bash
 echo "gh $*" >> "$STUB_LOG"
 if [ "${STUB_RC_GH:-0}" -ne 0 ]; then exit "$STUB_RC_GH"; fi
+# post 用: `pr view --json state,headRefOid` は STUB_PR_STATE（既定 OPEN）と STUB_PR_HEAD、`pr comment` はサマリを $STUB_LOG.summary に残す、
+#   `api …/pulls/<n>/comments`・`api …/issues/<n>/comments` は STUB_REVIEW_COMMENTS_FILE・STUB_ISSUE_COMMENTS_FILE（既定は空）に --jq の式を当てる。
+jqf=.
+prev=""
+for a in "$@"; do
+  if [ "$prev" = --jq ]; then jqf=$a; fi
+  prev=$a
+done
 case "$*" in
   *headRefName*) printf '%s\n' "${STUB_BRANCH:-chore/66-example}" ;;
+  *state,headRefOid*)
+    if [ "${STUB_RC_GH_STATE:-0}" -ne 0 ]; then exit "$STUB_RC_GH_STATE"; fi
+    printf '{"state":"%s","headRefOid":"%s"}\n' "${STUB_PR_STATE:-OPEN}" "${STUB_PR_HEAD:-}"
+    ;;
+  "pr comment"*)
+    if [ "${STUB_RC_PRCOMMENT:-0}" -ne 0 ]; then exit "$STUB_RC_PRCOMMENT"; fi
+    cp "$5" "$STUB_LOG.summary"
+    ;;
+  *"/pulls/"*"/comments"*) jq -r "$jqf" "${STUB_REVIEW_COMMENTS_FILE:-$STUB_EMPTY_JSON}" ;;
+  *"/issues/"*"/comments"*) jq -r "$jqf" "${STUB_ISSUE_COMMENTS_FILE:-$STUB_EMPTY_JSON}" ;;
   "pr view"*)
     if [ "${STUB_RC_GH_META:-0}" -ne 0 ]; then exit "$STUB_RC_GH_META"; fi
     printf '%s\n' '{"url":"https://example.com/o/r/pull/66","headRefOid":"1111111111111111111111111111111111111111"}'
@@ -85,7 +122,8 @@ run_gr() {
   shift
   : >"$LOG"
   RC=0
-  OUT=$(env CBJ_GATE_SCRIPTS_DIR="$STUBS" CBJ_RECORD_ROOT="$WORK/root" STUB_LOG="$LOG" FX="$FX" PATH="$STUBS/bin:$PATH" "${envs[@]+"${envs[@]}"}" "$GR" "$@" 2>"$WORK/err.txt") || RC=$?
+  rm -f "$LOG".*
+  OUT=$(env CBJ_GATE_SCRIPTS_DIR="$STUBS" CBJ_RECORD_ROOT="$WORK/root" STUB_LOG="$LOG" STUB_EMPTY_JSON="$WORK/empty.json" FX="$FX" PATH="$STUBS/bin:$PATH" "${envs[@]+"${envs[@]}"}" "$GR" "$@" 2>"$WORK/err.txt") || RC=$?
   ERR=$(cat "$WORK/err.txt")
 }
 
@@ -737,6 +775,95 @@ run_gr -- check 66 9 --file="$WORK/rec-ok.md" --force
 assert_rc "--force は init 専用: 2" 2
 run_gr -- check 66 9 --file="$WORK/rec-ok.md" --out="$WORK/x"
 assert_rc "--out は replies 専用: 2" 2
+
+# ---- post（issue #128）: 返信・Resolve・サマリの投稿 ----
+assert_no_log() { if grep -qF -- "$2" "$LOG"; then fail "$1: 呼び出しログにあってはならない: $2"; else ok "$1"; fi; }
+count_log() { grep -c -- "$1" "$LOG" || true; }
+# Resolve の後の未解決の一覧（修正・承認済みの対応不要の 1001〜1003 が消え、1004・1005 が残る）。
+jq 'map(select(.id == "PRRT_4" or .id == "PRRT_5"))' "$FX/threads.json" >"$WORK/threads-after.json"
+
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 終了コード 0" 0
+assert_log "post: PR の状態と HEAD を確かめる" "gh pr view 66 --json state,headRefOid"
+if [ "$(count_log '^gate-reply.sh 66 ')" -eq 5 ]; then ok "post: スレッドのある 5 件に返信する"; else fail "post: 返信の数が違う: $(count_log '^gate-reply.sh 66 ')"; fi
+assert_log "post: 修正の G9-1 を Resolve" "gate-resolve.sh PRRT_1"
+assert_log "post: 承認済みの対応不要の G9-3 を Resolve" "gate-resolve.sh PRRT_3"
+assert_no_log "post: 承認の記録がない対応不要は Resolve しない" "gate-resolve.sh PRRT_4"
+assert_no_log "post: 保留は Resolve しない" "gate-resolve.sh PRRT_5"
+assert_file_has "post: 返信の本文は記録から作る（sha つきの書き出し）" "$LOG.reply.1002" "ご指摘のとおりです（${SHA7} で修正）。"
+assert_file_has "post: サマリを投稿する" "$LOG.summary" "## レビュー指摘への対応サマリ（G9）"
+assert_out "post: 件数を表示する" "post: replies posted 5, already there 0; threads resolved 3, already resolved 0; summary posted"
+
+# やり直し: 同じ本文の返信とサマリが既にあり、Resolve 済みのスレッドは未解決の一覧に無い → 何も投稿しない。
+jq -n --rawfile r1 "$WORK/out dir/reply-G9-1.md" --rawfile r2 "$WORK/out dir/reply-G9-2.md" --rawfile r3 "$WORK/out dir/reply-G9-3.md" \
+  --rawfile r4 "$WORK/out dir/reply-G9-4.md" --rawfile r5 "$WORK/out dir/reply-G9-5.md" \
+  '[{in_reply_to_id: 1001, body: ($r1 | rtrimstr("\n"))}, {in_reply_to_id: 1002, body: ($r2 | rtrimstr("\n"))}, {in_reply_to_id: 1003, body: ($r3 | rtrimstr("\n"))},
+    {in_reply_to_id: 1004, body: ($r4 | rtrimstr("\n"))}, {in_reply_to_id: 1005, body: ($r5 | rtrimstr("\n"))}, {in_reply_to_id: null, body: "unrelated"}]' >"$WORK/review-comments.json"
+jq -n --rawfile s "$LOG.summary" '[{body: "前のラウンドのサマリ"}, {body: $s}]' >"$WORK/issue-comments.json" 2>/dev/null || cp "$WORK/empty.json" "$WORK/issue-comments.json"
+cp "$WORK/issue-comments.json" "$WORK/issue-comments.keep.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-after.json" STUB_REVIEW_COMMENTS_FILE="$WORK/review-comments.json" STUB_ISSUE_COMMENTS_FILE="$WORK/issue-comments.keep.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post のやり直し: 終了コード 0" 0
+assert_no_log "post のやり直し: 既にある返信を二重に投稿しない" "gate-reply.sh"
+assert_no_log "post のやり直し: Resolve 済みのスレッドを Resolve しない" "gate-resolve.sh"
+assert_no_log "post のやり直し: 既にあるサマリを二重に投稿しない" "gh pr comment"
+assert_out "post のやり直し: 件数" "post: replies posted 0, already there 5; threads resolved 0, already resolved 3; summary already posted"
+
+# 本文が違う返信（前の版の対応）は、同じ本文とはみなさない。
+jq 'map(if .in_reply_to_id == 1001 then .body = "ご指摘のとおりです（古い sha で修正）。" else . end)' "$WORK/review-comments.json" >"$WORK/review-comments-old.json"
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-after.json" STUB_REVIEW_COMMENTS_FILE="$WORK/review-comments-old.json" STUB_ISSUE_COMMENTS_FILE="$WORK/issue-comments.keep.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 本文の違う返信しか無い Resolve 済みのスレッドは止める（1）" 1
+assert_err "post: 見つからないスレッドを示す" "comment 1001 was not found"
+assert_no_log "post: 止めるときは何も返信しない" "gate-reply.sh"
+
+# @codex を含む記録は、何も投稿せずに止める。
+mkrec codex 's/(### \[G9-2\].*?対応: )/${1}\@codex に聞いた。/s'
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-codex.md"
+assert_rc "post: @codex を含む記録は 1" 1
+assert_err "post: @codex を含むと伝える" "contains '@codex'"
+assert_no_log "post: @codex を含むときは返信しない" "gate-reply.sh"
+assert_no_log "post: @codex を含むときはサマリを投稿しない" "gh pr comment"
+
+# PR が OPEN でないときは、何も投稿しない（マージ済みのブランチへ返信しても本流に入らない）。
+# 数え直しが通る条件にして、終了コードをこのガードだけで決める（ガードを外すと 0 になる）。
+run_gr STUB_PR_HEAD="$SHA" STUB_PR_STATE=MERGED STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: マージ済みの PR は 1" 1
+assert_err "post: OPEN でないと伝える" "is MERGED, not OPEN"
+assert_no_log "post: マージ済みのときはスレッドも取らない" "gate-threads"
+
+# 修正の commit が PR の HEAD に入っていない（push していない）ときは、何も投稿しない。
+mkrec_sha pushed "$SHA_B" "- 承認: auto-commit"
+run_gr GIT_DIR="$GITREPO/.git" STUB_PR_HEAD="$SHA_A" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-pushed.md"
+assert_rc "post: push していない commit は 1" 1
+assert_err "post: push していない commit を示す" "commit ${SHA_B:0:7} is not in the PR head ${SHA_A:0:7}"
+assert_no_log "post: push していないときは返信しない" "gate-reply.sh"
+run_gr GIT_DIR="$GITREPO/.git" STUB_PR_HEAD="$SHA_B" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-pushed.md"
+assert_rc "post: 修正の commit が PR の HEAD にあれば 0" 0
+run_gr STUB_PR_HEAD="0000000000000000000000000000000000000000" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: PR の HEAD がローカルに無ければ 3" 3
+assert_err "post: fetch を促す" "run git fetch first"
+
+# 未解決の一覧に無く、返信も付いていないスレッド（dbid の誤り）は、何も投稿せずに止める。
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE="$WORK/threads-missing.json" STUB_THREADS_FILE_AFTER="$WORK/threads-after.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 見つからないスレッドは 1" 1
+assert_no_log "post: 見つからないスレッドがあれば返信しない" "gate-reply.sh"
+
+# 数え直しで Resolve するはずのスレッドが残っていれば 1。
+run_gr STUB_PR_HEAD="$SHA" STUB_THREADS_FILE_AFTER="$FX/threads.json" -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 数え直しで残れば 1" 1
+assert_err "post: 残ったスレッドを示す" "still unresolved: r1001, r1002, r1003"
+
+# 返信に失敗したら、そこで止める（サマリを投稿しない）。やり直せば続きから。
+run_gr STUB_PR_HEAD="$SHA" STUB_RC_REPLY=1 -- post 66 9 --file="$WORK/rec-ok.md"
+assert_rc "post: 返信の失敗は 3" 3
+assert_no_log "post: 返信に失敗したらサマリを投稿しない" "gh pr comment"
+if [ "$(count_log '^gate-reply.sh 66 ')" -eq 1 ]; then ok "post: 返信に失敗した時点で止める"; else fail "post: 返信の失敗の後も続けた: $(count_log '^gate-reply.sh 66 ')"; fi
+
+# 記入漏れの記録は、何も投稿しない（check と同じ検査）。
+mkrec todo 's/判定: 保留/判定: TODO(記入)/'
+run_gr STUB_PR_HEAD="$SHA" -- post 66 9 --file="$WORK/rec-todo.md"
+assert_rc "post: 記入漏れは 1" 1
+assert_no_log "post: 記入漏れのときは PR を見に行かない" "gh pr view 66 --json state,headRefOid"
+
 
 DONE=1
 if [ "$FAILS" -ne 0 ]; then

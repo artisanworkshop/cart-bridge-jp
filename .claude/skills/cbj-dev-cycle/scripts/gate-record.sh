@@ -5,7 +5,8 @@
 #   gate-record.sh init    <PR> <n> [--since=T] [--force] [--file=PATH]   骨組みを作る（判断が要る欄は TODO(記入)）
 #   gate-record.sh check   <PR> <n> [--file=PATH]                        記入漏れを検査する
 #   gate-record.sh summary <PR> <n> [--file=PATH]                        PR のサマリコメント本文を標準出力へ
-#   gate-record.sh replies <PR> <n> [--file=PATH] [--out=DIR]            スレッドごとの返信ファイルと実行コマンドを出す
+#   gate-record.sh replies <PR> <n> [--file=PATH] [--out=DIR]            スレッドごとの返信ファイルと実行コマンドを出す（投稿の前に中身を見る用）
+#   gate-record.sh post    <PR> <n> [--file=PATH]                        返信・Resolve・サマリを投稿し、未解決が残っていないか数え直す（push の後）
 #   gate-record.sh approve <PR> <n> [--auto-commit] [--force] [--file=PATH]   確認ゲート（AskUserQuestion）を通した印をヘッダに書く
 # --file を省くと PR の head ブランチから docs/reviews/<branch>/G<n>.md を決める。--since は init だけ（gate-threads.sh の T）。
 #
@@ -46,19 +47,24 @@
 # 閉じていない HTML コメント／コードフェンス）は check/summary/replies が非ゼロで止める（記入途中のものを PR に投稿しない）。
 # sha はこのリポジトリのローカルに存在するかだけを確認する（push 済みか・PR に含まれるかは見ない）。replies は返信ファイルを作って
 # 実行コマンドを表示するだけで、投稿・Resolve はしない（コマンドを確認して実行する）。
+# post（issue #128）は replies と同じ計画で返信・Resolve を行い、summary を投稿する。投稿してよいかの判断（確認ゲート・判定・【承認済み】）は
+# 済んでいる前提で、その後の機械的な部分だけを受け持つ。何かを投稿する前に、記入漏れ・PR が OPEN・修正の commit が PR の HEAD に含まれる
+# （push 済み）・返信とサマリに @codex が無い・未解決の一覧に無いスレッドには記録の返信が付いている（Resolve 済み）を確かめ、どれかが欠ければ
+# 何も投稿しない。やり直しても二重に投稿しない（同じスレッドへの同じ本文の返信・同じラウンドのサマリがあれば飛ばす）。最後に未解決の bot の
+# スレッドを取り直し、Resolve する計画のスレッドが残っていれば 1。途中の API の失敗は 3 で止まる（もう一度 post すれば続きから）。
 #
 # 終了コード: 0=成功 / 1=記録の記入漏れ・スレッドが見つからない / 2=引数不正・上書きの拒否 / 3=API・ファイルの取得失敗
 # テスト用に CBJ_GATE_SCRIPTS_DIR（gate-threads.sh 等の置き場）と CBJ_RECORD_ROOT（docs/ を置くルート）を差し替えられる。
 set -uo pipefail
 
 usage() {
-  echo "usage: gate-record.sh <init|check|summary|replies|approve> <pr> <n> [--since=T] [--force] [--auto-commit] [--file=PATH] [--out=DIR]" >&2
+  echo "usage: gate-record.sh <init|check|summary|replies|post|approve> <pr> <n> [--since=T] [--force] [--auto-commit] [--file=PATH] [--out=DIR]" >&2
   exit 2
 }
 
 CMD=${1:-}
 case "$CMD" in
-  init | check | summary | replies | approve) ;;
+  init | check | summary | replies | post | approve) ;;
   *) usage ;;
 esac
 PR=${2:-}
@@ -265,31 +271,14 @@ cmd_summary() {
   ' <<<"$REC_JSON"
 }
 
-cmd_replies() {
-  load_record || exit 1
-  local threads out missing=0
-  if ! threads=$("$DIR/gate-threads.sh" "$PR" --json); then
-    echo "gate-threads.sh failed" >&2
-    exit 3
-  fi
-  if [ -n "$OUT" ]; then
-    out=$OUT
-    mkdir -p "$out" || exit 3
-  elif ! out=$(mktemp -d) || [ -z "$out" ]; then
-    echo "could not create a temporary directory" >&2
-    exit 3
-  fi
-  echo "# reply files: $out"
-  local count idx id kind approved action commits opener plan note file dbid tid extra
-  if ! extra=$(jq -r --argjson known "$(jq -c '[.findings[].dbids[]]' <<<"$REC_JSON")" \
-    '[.[] | .comments.nodes[0].databaseId | select((. as $d | $known | index($d)) == null) | "r\(.)"] | join(", ")' <<<"$threads"); then
-    echo "could not compare the threads with the record" >&2
-    exit 3
-  fi
-  if [ -n "$extra" ]; then
-    echo "note: unresolved bot thread(s) not in this record: $extra (expected for threads held in earlier rounds; otherwise add them to the record)" >&2
-  fi
-  count=$(jq '.findings | length' <<<"$REC_JSON")
+# 返信の計画を作る（replies と post が共有する）。返信のファイルを $1 のディレクトリに書き、計画を 1 行ずつ標準出力へ出す。
+# 区切りは \037（タブは IFS の空白として連続をまとめ、空の欄がずれるため）:
+#   body \037 id                                                    本文指摘（スレッド無し）
+#   thread \037 id \037 kind \037 plan \037 dbid \037 tid \037 file \037 note   tid はスレッドが未解決の一覧（$2。gate-threads.sh --json）に無ければ空
+plan_replies() {
+  local out=$1 threads=$2 count idx id kind approved action commits opener plan note file dbid tid
+  local sep=$'\037'
+  count=$(jq '.findings | length' <<<"$REC_JSON") || return 3
   for ((idx = 0; idx < count; idx++)); do
     id=$(jq -r ".findings[$idx].id" <<<"$REC_JSON")
     kind=$(jq -r ".findings[$idx].kind" <<<"$REC_JSON")
@@ -297,7 +286,7 @@ cmd_replies() {
     action=$(jq -r ".findings[$idx].action" <<<"$REC_JSON")
     commits=$(jq -r ".findings[$idx].commits | map(.[0:7]) | join(\", \")" <<<"$REC_JSON")
     if [ "$(jq ".findings[$idx].dbids | length" <<<"$REC_JSON")" -eq 0 ]; then
-      echo "# $id: 本文指摘（スレッド無し）— 返信・Resolve の対象なし"
+      printf 'body%s%s\n' "$sep" "$id"
       continue
     fi
     note=""
@@ -322,23 +311,183 @@ cmd_replies() {
         ;;
     esac
     file="$out/reply-$(printf '%s' "$id" | tr -c 'A-Za-z0-9._-' '_').md"
-    printf '%s\n\n%s\n' "$opener" "$action" >"$file" || exit 3
+    printf '%s\n\n%s\n' "$opener" "$action" >"$file" || return 3
     while IFS= read -r dbid; do
-      tid=$(jq -r --argjson d "$dbid" 'first(.[] | select(.comments.nodes[0].databaseId == $d) | .id) // empty' <<<"$threads")
-      if [ -z "$tid" ]; then
-        echo "$id: the thread of comment $dbid was not found among the unresolved bot threads (already resolved, or a wrong dbid)" >&2
-        echo "# $id: SKIPPED (thread of comment $dbid not found)"
-        missing=1
-        continue
-      fi
-      echo "# $id ($kind): $plan$note"
-      printf '%q %q %q - < %q\n' "$DIR/gate-reply.sh" "$PR" "$dbid" "$file"
-      if [ "$plan" = "resolve" ]; then
-        printf '%q %q\n' "$DIR/gate-resolve.sh" "$tid"
-      fi
+      tid=$(jq -r --argjson d "$dbid" 'first(.[] | select(.comments.nodes[0].databaseId == $d) | .id) // empty' <<<"$threads") || return 3
+      printf 'thread%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n' "$sep" "$id" "$sep" "$kind" "$sep" "$plan" "$sep" "$dbid" "$sep" "$tid" "$sep" "$file" "$sep" "$note"
     done < <(jq -r ".findings[$idx].dbids[]" <<<"$REC_JSON")
   done
+}
+
+# 未解決の bot のスレッドを取り、記録に無いものを通知する（replies・post）。THREADS に入れる。
+fetch_threads() {
+  local extra
+  if ! THREADS=$("$DIR/gate-threads.sh" "$PR" --json); then
+    echo "gate-threads.sh failed" >&2
+    return 3
+  fi
+  if ! extra=$(jq -r --argjson known "$(jq -c '[.findings[].dbids[]]' <<<"$REC_JSON")" \
+    '[.[] | .comments.nodes[0].databaseId | select((. as $d | $known | index($d)) == null) | "r\(.)"] | join(", ")' <<<"$THREADS"); then
+    echo "could not compare the threads with the record" >&2
+    return 3
+  fi
+  if [ -n "$extra" ]; then
+    echo "note: unresolved bot thread(s) not in this record: $extra (expected for threads held in earlier rounds; otherwise add them to the record)" >&2
+  fi
+}
+
+cmd_replies() {
+  load_record || exit 1
+  local out missing=0 plan_out type id kind plan dbid tid file note
+  fetch_threads || exit 3
+  if [ -n "$OUT" ]; then
+    out=$OUT
+    mkdir -p "$out" || exit 3
+  elif ! out=$(mktemp -d) || [ -z "$out" ]; then
+    echo "could not create a temporary directory" >&2
+    exit 3
+  fi
+  echo "# reply files: $out"
+  plan_out=$(plan_replies "$out" "$THREADS") || exit 3
+  while IFS=$'\037' read -r type id kind plan dbid tid file note; do
+    case "$type" in
+      body) echo "# $id: 本文指摘（スレッド無し）— 返信・Resolve の対象なし" ;;
+      thread)
+        if [ -z "$tid" ]; then
+          echo "$id: the thread of comment $dbid was not found among the unresolved bot threads (already resolved, or a wrong dbid)" >&2
+          echo "# $id: SKIPPED (thread of comment $dbid not found)"
+          missing=1
+          continue
+        fi
+        echo "# $id ($kind): $plan$note"
+        printf '%q %q %q - < %q\n' "$DIR/gate-reply.sh" "$PR" "$dbid" "$file"
+        if [ "$plan" = "resolve" ]; then
+          printf '%q %q\n' "$DIR/gate-resolve.sh" "$tid"
+        fi
+        ;;
+      '') ;;
+      *) echo "internal error: unexpected plan line" >&2; exit 3 ;;
+    esac
+  done <<<"$plan_out"
   [ "$missing" -eq 0 ] || exit 1
+}
+
+# 返信・Resolve・サマリを投稿する（issue #128）。投稿してよいかの判断（確認ゲート・判定・【承認済み】）は済んでいる前提で、
+# その後の機械的な部分だけを行う。何かを投稿する前にすべてを確かめ、やり直しても同じ返信・サマリを二重に投稿しない。
+cmd_post() {
+  load_record || exit 1
+  local meta state head sha out plan_out summary type id kind plan dbid tid file note body
+  local posted=0 skipped=0 resolved=0 already=0 summary_state
+  # 1. PR が OPEN で、修正の commit がすべて PR の HEAD に含まれる（push 済み）こと。
+  if ! meta=$(gh pr view "$PR" --json state,headRefOid); then
+    echo "gh pr view failed" >&2
+    exit 3
+  fi
+  state=$(jq -r '.state // empty' <<<"$meta") || exit 3
+  head=$(jq -r '.headRefOid // empty' <<<"$meta") || exit 3
+  if [ "$state" != "OPEN" ]; then
+    echo "PR #$PR is ${state:-unknown}, not OPEN; nothing was posted (a merged branch does not reach the default branch)" >&2
+    exit 1
+  fi
+  if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "could not read the head commit of PR #$PR" >&2
+    exit 3
+  fi
+  if ! git cat-file -e "$head^{commit}" 2>/dev/null; then
+    echo "the PR head ${head:0:7} is not in this repository; run git fetch first. Nothing was posted" >&2
+    exit 3
+  fi
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    if ! git merge-base --is-ancestor "$sha^{commit}" "$head^{commit}" 2>/dev/null; then
+      echo "commit ${sha:0:7} is not in the PR head ${head:0:7} (push it first). Nothing was posted" >&2
+      exit 1
+    fi
+  done < <(jq -r '[.findings[] | select(.kind == "fixed") | .commits[]] | unique | .[]' <<<"$REC_JSON")
+  # 2. 未解決のスレッド・返信のファイル・サマリを用意し、@codex が無いことを確かめる（含むと Codex が定型のコメントを残す。SKILL.md）。
+  fetch_threads || exit 3
+  if ! out=$(mktemp -d) || [ -z "$out" ]; then
+    echo "could not create a temporary directory" >&2
+    exit 3
+  fi
+  plan_out=$(plan_replies "$out" "$THREADS") || exit 3
+  summary=$(cmd_summary) || exit 1
+  if grep -rqi '@codex' "$out" || grep -qi '@codex' <<<"$summary"; then
+    echo "a reply or the summary contains '@codex' (Codex would answer it); rewrite the record without it. Nothing was posted" >&2
+    exit 1
+  fi
+  # 3. 既に付いている返信（同じスレッドへの同じ本文）とサマリを調べる。見つからないスレッドは、返信が付いていれば Resolve 済みとみなす。
+  local existing comments
+  if ! existing=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/comments" --jq '.[] | {in_reply_to_id, body}' ); then
+    echo "could not list the review comments of PR #$PR" >&2
+    exit 3
+  fi
+  if ! comments=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments" --jq '.[] | .body'); then
+    echo "could not list the comments of PR #$PR" >&2
+    exit 3
+  fi
+  has_reply() { # <dbid> <file>
+    local want
+    want=$(cat "$2") || return 2
+    jq -se --argjson d "$1" --arg b "$want" 'any(.[]; .in_reply_to_id == $d and (.body | sub("\\s+$"; "")) == ($b | sub("\\s+$"; "")))' <<<"$existing" >/dev/null
+  }
+  # 見つからないスレッドに返信が無ければ（Resolve 済みとも言えない）、何も投稿せずに止める。
+  while IFS=$'\037' read -r type id kind plan dbid tid file note; do
+    if [ "$type" = thread ] && [ -z "$tid" ] && ! has_reply "$dbid" "$file"; then
+      echo "$id: the thread of comment $dbid was not found among the unresolved bot threads and has no reply from this record (a wrong dbid?). Nothing was posted" >&2
+      exit 1
+    fi
+  done <<<"$plan_out"
+  # 4. 返信と Resolve。
+  while IFS=$'\037' read -r type id kind plan dbid tid file note; do
+    [ "$type" = thread ] || continue
+    if has_reply "$dbid" "$file"; then
+      skipped=$((skipped + 1))
+    else
+      if ! "$DIR/gate-reply.sh" "$PR" "$dbid" - <"$file" >/dev/null; then
+        echo "$id: could not reply to comment $dbid (run post again to continue)" >&2
+        exit 3
+      fi
+      posted=$((posted + 1))
+    fi
+    if [ "$plan" = "resolve" ]; then
+      if [ -z "$tid" ]; then
+        already=$((already + 1))
+      elif ! "$DIR/gate-resolve.sh" "$tid" >/dev/null; then
+        echo "$id: could not resolve the thread $tid (run post again to continue)" >&2
+        exit 3
+      else
+        resolved=$((resolved + 1))
+      fi
+    fi
+  done <<<"$plan_out"
+  # 5. サマリ（同じラウンドのサマリが既にあれば投稿しない）。
+  body="$out/summary.md"
+  printf '%s\n' "$summary" >"$body" || exit 3
+  if grep -qF -- "$(head -n 1 "$body")" <<<"$comments"; then
+    summary_state="already posted"
+  elif ! gh pr comment "$PR" --body-file "$body" >/dev/null; then
+    echo "could not post the summary comment (run post again to continue)" >&2
+    exit 3
+  else
+    summary_state="posted"
+  fi
+  # 6. 数え直す: Resolve する計画のスレッドが、未解決の一覧に 1 件も残っていないこと。
+  local left want
+  want=$(while IFS=$'\037' read -r type id kind plan dbid tid file note; do
+    if [ "$type" = thread ] && [ "$plan" = resolve ]; then printf '%s\n' "$dbid"; fi
+  done <<<"$plan_out" | jq -sc '.') || exit 3
+  fetch_threads || exit 3
+  if ! left=$(jq -r --argjson want "$want" \
+    '[.[] | .comments.nodes[0].databaseId | select(. as $d | $want | index($d))] | map("r\(.)") | join(", ")' <<<"$THREADS"); then
+    echo "could not recount the threads" >&2
+    exit 3
+  fi
+  echo "post: replies posted $posted, already there $skipped; threads resolved $resolved, already resolved $already; summary $summary_state"
+  if [ -n "$left" ]; then
+    echo "these threads are still unresolved: $left" >&2
+    exit 1
+  fi
 }
 
 cmd_init() {
@@ -498,5 +647,6 @@ case "$CMD" in
   check) cmd_check ;;
   summary) cmd_summary ;;
   replies) cmd_replies ;;
+  post) cmd_post ;;
   approve) cmd_approve ;;
 esac
