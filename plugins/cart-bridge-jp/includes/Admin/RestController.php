@@ -1398,13 +1398,12 @@ final class RestController {
 
 		// アクションを失って進まなくなった run（R3-9）を失敗にしてから返す。画面はこの一覧を数秒ごとに照会するので、停止・致命的エラーの後に
 		// 開いた画面にも Retry・キャンセルの対象として出る。ロックは取らない（取ると開始・ツールと競合して 409 になりうる）: 回復は猶予より古い
-		// run だけを対象にし、書換えは CAS（`JobRepository::mark_failed_if_idle()`）なので、ロックの中の区間とは重ならない。
-		( new OrphanedRunRecovery() )->recover( $platform );
-
+		// run だけを対象にし、書換えは run 単位の条件つきの CAS（`JobRepository::mark_failed_if_idle()`）なので、ロックの中の区間とも、
+		// 別のブラウザの同じ照会とも重ならない。
 		return rest_ensure_response(
 			[
 				'platform' => $platform,
-				'runs'     => ( new JobRepository() )->find_active_runs_for_platform( $platform ),
+				'runs'     => ( new OrphanedRunRecovery() )->recover_and_list( $platform ),
 			]
 		);
 	}

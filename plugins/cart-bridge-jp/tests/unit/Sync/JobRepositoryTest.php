@@ -372,6 +372,8 @@ final class JobRepositoryTest extends WP_UnitTestCase {
 		$ids = $this->jobs->live_action_job_ids();
 
 		$this->assertIsArray( $ids );
+		// tests サイトにコミット済みで残った in-progress のアクション（set_up の取消しは pending だけ）が混ざっても判定できるよう、このテストのジョブに絞る。
+		$ids = array_values( array_intersect( $ids, [ $queued, $running, $failed, $completed ] ) );
 		sort( $ids );
 		$this->assertSame( [ $queued, $running ], $ids );
 	}
@@ -483,5 +485,50 @@ final class JobRepositoryTest extends WP_UnitTestCase {
 		$this->assertSame( $error, json_decode( (string) $this->jobs->find( $idle )['error_json'], true ) );
 		$this->assertSame( JobRepository::STATUS_PAUSED, $this->jobs->find( $busy )['status'] );
 		$this->assertSame( JobRepository::STATUS_COMPLETED, $this->jobs->find( $completed )['status'] );
+	}
+
+	/**
+	 * 孤立の回復の書換え（R3-9 R1-1）は、run の最初の未終了のジョブで、run に失敗したジョブが無いときだけ失敗にする。
+	 */
+	public function test_mark_failed_if_idle_only_fails_the_first_unfinished_job_of_a_run_without_failures(): void {
+		$error  = [
+			'code'    => 'action_lost',
+			'message' => 'lost',
+		];
+		$old    = '2020-01-01 00:00:00';
+		$cutoff = '2020-01-01 00:10:00';
+
+		[ $first, $second ]   = $this->create_run(
+			'run-order',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_RUNNING ],
+				[ 'tag', JobRepository::STATUS_PENDING ],
+			]
+		);
+		[ $failed, $waiting ] = $this->create_run(
+			'run-failed',
+			'import',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_FAILED ],
+				[ 'tag', JobRepository::STATUS_PENDING ],
+			]
+		);
+		[ $other ]            = $this->create_run( 'run-other', 'import', 'mock', [ [ 'category', JobRepository::STATUS_FAILED ] ] );
+		[ $alone ]            = $this->create_run( 'run-alone', 'import', 'mock', [ [ 'tag', JobRepository::STATUS_RUNNING ] ] );
+
+		foreach ( [ $first, $second, $failed, $waiting, $other, $alone ] as $id ) {
+			$this->set_timestamps( $id, $old, $old );
+		}
+
+		$this->assertFalse( $this->jobs->mark_failed_if_idle( $second, $error, $cutoff ), 'A job behind an unfinished job of its run is not failed.' );
+		$this->assertFalse( $this->jobs->mark_failed_if_idle( $waiting, $error, $cutoff ), 'A job of a run that already has a failed job is not failed.' );
+		$this->assertTrue( $this->jobs->mark_failed_if_idle( $alone, $error, $cutoff ), 'A failed job of another run does not count.' );
+		$this->assertTrue( $this->jobs->mark_failed_if_idle( $first, $error, $cutoff ) );
+
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $second )['status'] );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->jobs->find( $waiting )['status'] );
 	}
 }

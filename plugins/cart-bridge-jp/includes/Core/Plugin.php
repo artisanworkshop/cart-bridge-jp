@@ -102,8 +102,8 @@ final class Plugin {
 		);
 
 		// PHP の致命的エラーでページの処理が止まったら、Action Scheduler がアクションを失敗にした直後に、そのジョブも失敗にする
-		// （R3-9。そのままでは進行中のまま残り、同時実行の判定がプラットフォームを塞ぐ）。WordPress の致命的エラーハンドラーが
-		// エラー画面を出すと発火しない（`OrphanedRunRecovery::fail_after_fatal_error()`）。その場合は `recover()` が猶予の後に拾う。
+		// （R3-9。そのままでは進行中のまま残り、同時実行の判定がプラットフォームを塞ぐ）。WP-CLI でキューを処理したときは発火しない
+		// （`OrphanedRunRecovery::fail_after_fatal_error()`）。その場合は `recover()` が猶予の後に拾う。
 		add_action(
 			'action_scheduler_unexpected_shutdown',
 			static function ( $action_id, $error ): void {

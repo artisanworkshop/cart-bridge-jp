@@ -13,6 +13,8 @@ use Throwable;
 /**
  * Action Scheduler のアクションを失って進まなくなった run を、理由のコード付きの失敗にする（R3-9・issue #121）。
  *
+ * @phpstan-import-type ActiveRun from JobRepository
+ *
  * プラグインを停止している間も Action Scheduler は動き、期限の来た `cbjp_process_job` をコールバックの無いまま失敗にする。PHP の致命的エラー・
  * プロセスの強制終了でも、ページを処理していたアクションが失敗扱いになる。どちらもジョブは `running`（`paused`・Retry した `pending`）のまま残り、
  * 同時実行の判定（`JobRepository::is_platform_busy()`）がそのプラットフォームの新しい run・ツールを止め続ける。失敗にすれば、通常の例外で
@@ -59,9 +61,29 @@ final class OrphanedRunRecovery {
 	 * @return int 失敗にしたジョブの数。
 	 */
 	public function recover( string $platform ): int {
+		return $this->recover_runs( $platform, $this->jobs->find_active_runs_for_platform( $platform ) );
+	}
+
+	/**
+	 * `GET /runs` 用: 孤立した run を失敗にしてから、進行中の run の一覧を返す。何も失敗にしなければ、判定に読んだ一覧をそのまま返す
+	 * （画面は数秒ごとに照会するので、一覧の照会を倍にしない）。
+	 *
+	 * @return list<ActiveRun>
+	 */
+	public function recover_and_list( string $platform ): array {
+		$runs = $this->jobs->find_active_runs_for_platform( $platform );
+
+		return 0 === $this->recover_runs( $platform, $runs ) ? $runs : $this->jobs->find_active_runs_for_platform( $platform );
+	}
+
+	/**
+	 * @param list<ActiveRun> $runs 進行中の run（`JobRepository::find_active_runs_for_platform()`）。
+	 * @return int 失敗にしたジョブの数。
+	 */
+	private function recover_runs( string $platform, array $runs ): int {
 		$cutoff     = gmdate( 'Y-m-d H:i:s', time() - self::GRACE_SECONDS );
 		$candidates = array_filter(
-			$this->jobs->find_active_runs_for_platform( $platform ),
+			$runs,
 			// MySQL の DATETIME 文字列（`Y-m-d H:i:s`）は辞書順＝時刻順。
 			static fn ( array $run ): bool => ! $run['has_failed_job'] && $run['updated_at'] <= $cutoff
 		);
@@ -117,9 +139,10 @@ final class OrphanedRunRecovery {
 	 * `action_scheduler_unexpected_shutdown` のコールバック。Action Scheduler が PHP の致命的エラー（メモリ・実行時間の上限など）で
 	 * アクションを失敗にした直後に、そのアクションが処理していたジョブを失敗にする（猶予を待たない。ページを処理していたプロセスは終わる）。
 	 * 自分の hook・group のアクションで、`job_id` が正の int のときだけ。shutdown の中なので例外を外へ出さない。
-	 * 既定の設定では走らない（実測）: WordPress の致命的エラーハンドラーは `shutdown` アクションより先に登録された shutdown 関数で、エラー画面を
-	 * 出して `wp_die()` で終わるため、`shutdown` アクションが発火しない。その場合は AS が in-progress を失敗扱いにした後、`recover()` が猶予の後に拾う。
-	 * 即時に効くのは、ハンドラーを無効にしたサイト（`WP_DISABLE_FATAL_ERROR_HANDLER`）と、ハンドラーがエラー画面を出さないとき。
+	 * WP-CLI（`wp action-scheduler run`・システム cron）で処理したときは走らない（実測）: WordPress の致命的エラーハンドラーは `shutdown` アクションより
+	 * 先に登録された shutdown 関数で、エラー画面を `wp_die()` で出す。Web のリクエスト（WP-Cron・非同期のキューランナー）では `exit` しないので
+	 * `shutdown` アクションまで届くが、WP-CLI の `wp_die` のハンドラーはそこで終了する。その場合は AS が in-progress を失敗扱いにした後、`recover()` が
+	 * 猶予の後に拾う。
 	 *
 	 * @param mixed $action_id Action Scheduler のアクションの ID。
 	 * @param mixed $error     `error_get_last()` の値。
@@ -166,17 +189,45 @@ final class OrphanedRunRecovery {
 	}
 
 	/**
-	 * PHP のエラーの 1 行目（キャッチされない例外は 2 行目以降がスタックトレース）。WordPress のディレクトリを外して短くし、長さに上限を付ける。
+	 * PHP のエラーの 1 行目（キャッチされない例外は 2 行目以降がスタックトレース）。サーバーのディレクトリ（`WP_CONTENT_DIR`・`ABSPATH`・その親）を外して
+	 * 短くし（`WP_CONTENT_DIR` は `wp-content/` にする。ABSPATH の外に置く構成〔Bedrock 等〕でも絶対パスを画面に出さない）、長さに上限を付ける。
 	 */
 	private static function fatal_error_message( mixed $error ): string {
 		$message = is_array( $error ) && is_string( $error['message'] ?? null ) ? $error['message'] : '';
 		$lines   = preg_split( '/\R/', $message, 2 );
-		$line    = trim( is_array( $lines ) ? (string) $lines[0] : '' );
+		$line    = wp_normalize_path( trim( is_array( $lines ) ? (string) $lines[0] : '' ) );
 
-		if ( defined( 'ABSPATH' ) && '' !== ABSPATH ) {
-			$line = str_replace( ABSPATH, '', $line );
+		foreach ( self::server_directories() as $directory => $replacement ) {
+			$line = str_replace( $directory, $replacement, $line );
 		}
 
 		return mb_substr( $line, 0, self::FATAL_MESSAGE_MAX_LENGTH );
+	}
+
+	/**
+	 * 外すサーバーのディレクトリ（末尾のスラッシュつき）と置き換える文字列。具体的なものから順に置き換える。
+	 *
+	 * @return array<string,string>
+	 */
+	private static function server_directories(): array {
+		$directories = [];
+
+		if ( defined( 'WP_CONTENT_DIR' ) && '' !== WP_CONTENT_DIR ) {
+			$directories[ trailingslashit( wp_normalize_path( WP_CONTENT_DIR ) ) ] = 'wp-content/';
+		}
+
+		if ( defined( 'ABSPATH' ) && '' !== ABSPATH ) {
+			$abspath = trailingslashit( wp_normalize_path( ABSPATH ) );
+			$parent  = trailingslashit( wp_normalize_path( dirname( $abspath ) ) );
+
+			$directories[ $abspath ] = '';
+
+			// ABSPATH がファイルシステムのルート直下（親が `/`）なら、親は外さない（すべてのパスの先頭の `/` を消してしまう）。
+			if ( '/' !== $parent && ! isset( $directories[ $parent ] ) ) {
+				$directories[ $parent ] = '';
+			}
+		}
+
+		return $directories;
 	}
 }

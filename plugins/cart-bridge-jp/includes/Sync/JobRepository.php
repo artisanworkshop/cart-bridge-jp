@@ -501,9 +501,13 @@ final class JobRepository {
 	}
 
 	/**
-	 * 孤立したジョブの回復（`OrphanedRunRecovery`。R3-9）用の `mark_failed()`: 最後の更新が `$cutoff`（UTC の `Y-m-d H:i:s`）以前のときだけ
-	 * `failed` にする。孤立の判定（読むだけ・ロックの外のこともある）と書換えの間に、Retry・ハートビート（`touch()`）・状態の遷移が入れば
-	 * `updated_at` が新しくなるので、書き換えずに負ける（CAS）。
+	 * 孤立したジョブの回復（`OrphanedRunRecovery`。R3-9）用の `mark_failed()`。次のすべてを、判定ではなく書換えの 1 文の条件で確かめる（CAS）:
+	 * - 対象が未終了で、最後の更新が `$cutoff`（UTC の `Y-m-d H:i:s`）以前（判定の後に入った Retry・ハートビート〔`touch()`〕・遷移には負ける）。
+	 * - 同じ run に失敗したジョブが無く、対象より前に未終了のジョブも無い（対象が run の最初の未終了のジョブ）。回復はロックの外（`GET /runs`）からも
+	 *   呼ばれるので、2 つの回復が同じ run を同時に読むと、先に失敗にした側の後で、もう一方が `find_next_incomplete_for_run()`（失敗を飛ばす）で
+	 *   次のジョブを選び、それも失敗にしうる（実体の順序が崩れ、Retry した側が再びアクションを失うと二度と回復しない。R1-1）。
+	 * 同じテーブルを自己結合する複数テーブルの UPDATE で書く（MySQL は UPDATE の対象を同じ文のサブクエリで読めない）。結合先の行も UPDATE の中で読むので、
+	 * 先に書いた回復の結果を見て負ける。
 	 *
 	 * @param array{code:string,message:string} $error
 	 * @return bool 失敗を記録したときだけ true。
@@ -514,7 +518,13 @@ final class JobRepository {
 		$updated = $wpdb->query(
 			$wpdb->prepare(
 				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
-				"UPDATE {$this->table()} SET status = %s, error_json = %s, updated_at = %s WHERE id = %d AND status IN (%s, %s, %s) AND updated_at <= %s",
+				"UPDATE {$this->table()} AS j LEFT JOIN {$this->table()} AS o ON o.run_id = j.run_id AND o.id <> j.id AND ( o.status = %s OR ( o.id < j.id AND o.status IN (%s, %s, %s) ) )
+				SET j.status = %s, j.error_json = %s, j.updated_at = %s
+				WHERE j.id = %d AND j.status IN (%s, %s, %s) AND j.updated_at <= %s AND o.id IS NULL",
+				self::STATUS_FAILED,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED,
 				self::STATUS_FAILED,
 				(string) wp_json_encode( $error ),
 				current_time( 'mysql', true ),

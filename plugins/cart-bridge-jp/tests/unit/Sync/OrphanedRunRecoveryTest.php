@@ -253,7 +253,7 @@ final class OrphanedRunRecoveryTest extends WP_UnitTestCase {
 
 		$filter = null;
 		$filter = function ( string $query ) use ( $running, &$filter ): string {
-			if ( str_contains( $query, 'AND updated_at <=' ) ) {
+			if ( str_contains( $query, 'AS j LEFT JOIN' ) ) {
 				remove_filter( 'query', $filter );
 				$this->jobs->touch( $running );
 			}
@@ -264,6 +264,41 @@ final class OrphanedRunRecoveryTest extends WP_UnitTestCase {
 
 		$this->assertSame( 0, $this->recovery->recover( 'mock' ) );
 		$this->assertSame( JobRepository::STATUS_RUNNING, $this->status( $running ) );
+	}
+
+	/**
+	 * ロックの外（`GET /runs`）の回復が 2 つ同時に同じ run を読んでも、失敗にするのは最初の未終了のジョブ 1 つだけ（R1-1）。先に書いた側の後で、
+	 * もう一方は `find_next_incomplete_for_run()`（失敗を飛ばす）で次のジョブを選ぶが、書換えの条件（同じ run に失敗したジョブが無い）で負ける。
+	 */
+	public function test_concurrent_recoveries_fail_only_the_first_unfinished_job_of_a_run(): void {
+		[ $category, $tag, $product ] = $this->create_run(
+			'run-race',
+			'mock',
+			[
+				[ 'category', JobRepository::STATUS_RUNNING ],
+				[ 'tag', JobRepository::STATUS_PENDING ],
+				[ 'product', JobRepository::STATUS_PENDING ],
+			],
+			$this->stale()
+		);
+
+		// こちらが run を候補に読んだ後（Action Scheduler の照会の直前）に、別の要求の回復が最後まで走る。
+		$filter = null;
+		$filter = function ( string $query ) use ( &$filter ): string {
+			if ( str_starts_with( $query, 'SELECT a.action_id FROM' ) ) {
+				remove_filter( 'query', $filter );
+				( new OrphanedRunRecovery( $this->jobs ) )->recover( 'mock' );
+			}
+
+			return $query;
+		};
+		add_filter( 'query', $filter );
+
+		$this->assertSame( 0, $this->recovery->recover( 'mock' ) );
+
+		$this->assertSame( JobRepository::STATUS_FAILED, $this->status( $category ) );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->status( $tag ) );
+		$this->assertSame( JobRepository::STATUS_PENDING, $this->status( $product ) );
 	}
 
 	/**
@@ -325,6 +360,27 @@ final class OrphanedRunRecoveryTest extends WP_UnitTestCase {
 		);
 
 		$this->assertSame( str_repeat( 'あ', 300 ), $this->error( $running )['message'] ?? null );
+	}
+
+	/**
+	 * ABSPATH の外に置いた `WP_CONTENT_DIR`（Bedrock 等）・ABSPATH の親のパスも外す（R1-3）。
+	 */
+	public function test_a_fatal_error_message_does_not_keep_server_directories(): void {
+		[ $running ] = $this->create_run( 'run-paths', 'mock', [ [ 'category', JobRepository::STATUS_RUNNING ] ], 0 );
+		$action_id   = as_enqueue_async_action( JobManager::ACTION_HOOK, [ 'job_id' => $running ], JobManager::ACTION_GROUP );
+		$parent      = trailingslashit( dirname( untrailingslashit( ABSPATH ) ) );
+
+		$this->assertTrue(
+			$this->recovery->fail_after_fatal_error(
+				$action_id,
+				[
+					'type'    => E_ERROR,
+					'message' => 'Failed opening ' . WP_CONTENT_DIR . '/plugins/a.php and ' . $parent . 'vendor/b.php',
+				]
+			)
+		);
+
+		$this->assertSame( 'Failed opening wp-content/plugins/a.php and vendor/b.php', $this->error( $running )['message'] ?? null );
 	}
 
 	/**
