@@ -3,7 +3,7 @@
 - 開始: 2026-10-12
 - 引数: issue #126（確認ゲートあり。auto-commit の指定なし）
 - PR: #127 https://github.com/artisanworkshop/cart-bridge-jp/pull/127
-- 現在のステップ: 7〜8（G3 の修正の CI 待ち。再依頼はしない）
+- 現在のステップ: 完了（最終報告済み。マージ待ち）
 - Copilot: 依頼 3 回 / 上限（G1 で 10 件、G2 で 4 件、G3 で 5 件を修正）
 - Codex: 依頼 3 回 / 上限（G1・G2・G3 で各 2 件を修正。G1 は自動レビューが 5 分で来ず review コメントを自動投稿）
 
@@ -18,3 +18,4 @@
 | 2026-10-12 11:38 | 7 | G1: Copilot 10 件（本人の評価で High 4・Medium 6）・Codex P2 2 件をすべて修正 c99ea72（確認ゲートで承認。リセットの読み直し・HTTP 200・目印の文字どおりの照合・状態ファイルの rename・URL の ID の匿名化・キーの ID の漏れ・トークンの乱数・注文の目印・`e2e start` の順序・preflight の起動の確認・WP-CLI の出力）。dev サイトで通し、変異 2 種 CAUGHT、`quality.sh` green |
 | 2026-10-12 12:27 | 7 | G2: Codex P2 2 件・Copilot のスレッド 2 件（High 1）・本文 2 件をすべて修正 e85b6a6（確認ゲートで承認。前の応答の削除・E2E の消した後の読み直し・mu-plugin の一時ファイルからの置き換え・リソース ID の漏れ・予定のログの削除の失敗）。dev サイトで通し、変異 1 種 CAUGHT、`quality.sh` green |
 | 2026-10-12 12:57 | 7 | G3: Codex P2 2 件・Copilot のスレッド 2 件（High 2）・本文 3 件をすべて修正 6f73418（確認ゲートで承認。zip の一覧の照合・記録の前に止まった分の回収・Pro のヘッダーの rename による置き換え・予定のログを先に消す・`run.json` は成功の後に書く・`update_plugins` の読み直し）。dev サイトで通しと回収を確かめ、`quality.sh` green。両 bot とも上限なので再依頼しない |
+| 2026-10-12 13:02 | 8 | 最終 push の CI green（run 38201854958）。最後の push 以降に新しいレビューなし。`final-report.md` を書いて完了 |
