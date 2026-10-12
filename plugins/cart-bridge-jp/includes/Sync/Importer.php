@@ -36,6 +36,7 @@ final class Importer {
 	/**
 	 * カーソル走査エンティティを1ページ処理する。
 	 *
+	 * @param (callable():void)|null $heartbeat アイテムごとに呼ぶ（処理中であることを示す。R3-9。`JobManager::process_job()` が渡す）。
 	 * @return array{next_cursor:?Cursor,total:?int,totals:array<string,int>}
 	 */
 	public function run_page(
@@ -45,11 +46,12 @@ final class Importer {
 		Cursor $cursor,
 		bool $is_dry_run,
 		?int $job_id = null,
-		?string $run_id = null
+		?string $run_id = null,
+		?callable $heartbeat = null
 	): array {
 		[ $items, $next_cursor, $total ] = $this->fetch_page( $adapter, $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $job_id, $run_id );
+		$totals = $this->process_items( $adapter, $writer, $entity, $items, $is_dry_run, $job_id, $run_id, $heartbeat );
 
 		return [
 			'next_cursor' => $next_cursor,
@@ -60,6 +62,7 @@ final class Importer {
 
 	/**
 	 * @param array<int,CanonicalModel> $items
+	 * @param (callable():void)|null $heartbeat
 	 * @return array<string,int>
 	 */
 	private function process_items(
@@ -69,7 +72,8 @@ final class Importer {
 		array $items,
 		bool $is_dry_run,
 		?int $job_id = null,
-		?string $run_id = null
+		?string $run_id = null,
+		?callable $heartbeat = null
 	): array {
 		$totals = [
 			'processed'     => 0,
@@ -106,6 +110,11 @@ final class Importer {
 		$type = EntityTypeRegistry::get( $entity );
 
 		foreach ( $items as $index => $item ) {
+			// 処理中であることを示す（R3-9。`JobManager::process_job()` の `JobHeartbeat::beat()`。間引きは呼ばれる側）。
+			if ( null !== $heartbeat ) {
+				$heartbeat();
+			}
+
 			++$totals['processed'];
 
 			// 移行後検証レポート（D17）用: この run で ASP から取得したアイテムの金額（受注の種類だけが返す）を、書込の成否・

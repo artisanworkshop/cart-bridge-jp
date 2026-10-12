@@ -18,6 +18,7 @@ use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Woo\Export\AdapterPlatformWriterFactory;
 use CartBridgeJP\Woo\WooReaderRepositoryFactory;
 use CartBridgeJP\Woo\WooRepositoryFactory;
+use Closure;
 use RuntimeException;
 use Throwable;
 
@@ -44,12 +45,16 @@ final class JobManager {
 	 */
 	private const PAUSED_RESUME_DELAY_SECONDS = 60;
 
+	/**
+	 * @param Closure():int|null $clock 今の UNIX 時刻（ハートビートの間引き〔`JobHeartbeat`〕をテストで進めるため。既定は `time()`）。
+	 */
 	public function __construct(
 		private readonly JobRepository $jobs,
 		private readonly Importer $importer,
 		private readonly WooWriterFactory $writer_factory,
 		private readonly Logger $logger = new Logger(),
-		private readonly PlatformLock $lock = new PlatformLock()
+		private readonly PlatformLock $lock = new PlatformLock(),
+		private readonly ?Closure $clock = null
 	) {}
 
 	/**
@@ -98,6 +103,9 @@ final class JobManager {
 	 * @param array<int,string> $entities
 	 */
 	private function start_run_locked( string $type, string $platform, array $entities ): string {
+		// アクションを失って進まなくなった run（停止・致命的エラー。R3-9）は、判定の前に失敗にする（そのままでは判定がずっと進行中と見る）。
+		$this->recovery()->recover( $platform );
+
 		if ( $this->jobs->is_platform_busy( $platform ) ) {
 			throw new RunAlreadyInProgressException( $platform );
 		}
@@ -183,6 +191,9 @@ final class JobManager {
 			$platform,
 			PlatformLock::TTL_SHORT,
 			function () use ( $job_id, $platform, $run_id, $type, $entity ): bool {
+				// 別の run がアクションを失って進まなくなっていれば、判定の前に失敗にする（R3-9。`start_run_locked()` と同じ）。
+				$this->recovery()->recover( $platform );
+
 				if ( $this->jobs->is_platform_busy( $platform, $run_id ) ) {
 					throw new RunAlreadyInProgressException( $platform );
 				}
@@ -201,6 +212,11 @@ final class JobManager {
 					return false;
 				}
 
+				// 失敗していた間に残った pending のアクションを取り消してから積む（R3-9）。失敗にされた後もページを書き終えたプロセスは続きの
+				// ページを積むので、残したまま Retry すると、そのアクションと新しいアクションの 2 本の連鎖が同じジョブを進める。失敗したジョブの
+				// アクションは冒頭の終了判定で何もしないので、取り消して失うものは無い。遷移に勝ってから取り消す（負けた側が勝った側の積んだ
+				// アクションを取り消さないように）。in-progress のアクションは取り消さない（その間は上の `is_platform_busy()` が止める）。
+				$this->unschedule_pending_actions( $job_id );
 				$this->enqueue( $job_id );
 
 				return true;
@@ -281,6 +297,15 @@ final class JobManager {
 		$is_dry_run     = in_array( $job['type'], [ self::TYPE_DRY_RUN, self::TYPE_DRY_RUN_EXPORT ], true );
 		$entity         = $job['entity'];
 
+		// 処理中であることを示す（R3-9。`JobHeartbeat`）: ページの開始時・アイテムごと（`run_page()` の `$heartbeat`）・HTTP の応答ごと。
+		// HTTP の応答はアイテムの中の長い待ち（API の再試行・画像の取得）も拾う。フックはこのページの間だけ足す。
+		$heartbeat = new JobHeartbeat( $this->jobs, $job_id, $this->clock );
+		$heartbeat->start();
+		$on_http_response = static function () use ( $heartbeat ): void {
+			$heartbeat->beat();
+		};
+		add_action( 'http_api_debug', $on_http_response, 10, 0 );
+
 		try {
 			// `for_platform()`はwriter組み立て（Writerクラス群のnew）であり現状は例外を投げないが、
 			// 将来的に検証等が加わって例外を投げるようになった場合でも、この呼び出し全体を
@@ -290,10 +315,10 @@ final class JobManager {
 			if ( $is_export_type ) {
 				$platform_writer               = $is_dry_run ? $this->platform_writer_factory()->for_dry_run( $adapter ) : $this->platform_writer_factory()->for_platform( $adapter );
 				$reader                        = $this->reader_factory()->for_platform( $job['platform'] );
-				[ $page_totals, $next_cursor ] = $this->process_export_page( $adapter, $platform_writer, $reader, $entity, $job, $is_dry_run );
+				[ $page_totals, $next_cursor ] = $this->process_export_page( $adapter, $platform_writer, $reader, $entity, $job, $is_dry_run, $heartbeat );
 			} else {
 				$writer                        = $is_dry_run ? $this->writer_factory->for_dry_run( $job['platform'] ) : $this->writer_factory->for_platform( $job['platform'] );
-				[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run );
+				[ $page_totals, $next_cursor ] = $this->process_page( $adapter, $writer, $entity, $job, $is_dry_run, $heartbeat );
 			}
 		} catch ( RateLimitExhaustedException ) {
 			// レート制限の長期枯渇は一時停止して後で再開する（03 §3 ステートマシン / §4 RateLimiter）。
@@ -331,6 +356,8 @@ final class JobManager {
 			);
 
 			return;
+		} finally {
+			remove_action( 'http_api_debug', $on_http_response, 10 );
 		}
 
 		$accumulated = $this->merge_totals( $this->decode_totals( $job['totals_json'] ), $page_totals );
@@ -365,9 +392,9 @@ final class JobManager {
 	 * @param array<string,mixed> $job
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
-	private function process_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $job, bool $is_dry_run ): array {
+	private function process_page( PlatformAdapter $adapter, WooWriter $writer, string $entity, array $job, bool $is_dry_run, JobHeartbeat $heartbeat ): array {
 		$cursor = Cursor::from_json( $job['cursor_json'] );
-		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'] );
+		$result = $this->importer->run_page( $adapter, $writer, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'], $heartbeat->beat( ... ) );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {
@@ -398,6 +425,10 @@ final class JobManager {
 		}
 	}
 
+	private function recovery(): OrphanedRunRecovery {
+		return new OrphanedRunRecovery( $this->jobs, $this->logger );
+	}
+
 	private function exporter(): Exporter {
 		return new Exporter( new MappingRepository() );
 	}
@@ -414,9 +445,9 @@ final class JobManager {
 	 * @param array<string,mixed> $job
 	 * @return array{0:array<string,int>,1:?Cursor}
 	 */
-	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run ): array {
+	private function process_export_page( PlatformAdapter $adapter, PlatformWriter $writer, WooReader $reader, string $entity, array $job, bool $is_dry_run, JobHeartbeat $heartbeat ): array {
 		$cursor = Cursor::from_json( $job['cursor_json'] );
-		$result = $this->exporter()->run_page( $adapter, $writer, $reader, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'] );
+		$result = $this->exporter()->run_page( $adapter, $writer, $reader, $entity, $cursor, $is_dry_run, (int) $job['id'], (string) $job['run_id'], $heartbeat->beat( ... ) );
 		$totals = $result['totals'];
 
 		if ( null !== $result['total'] ) {
@@ -458,6 +489,12 @@ final class JobManager {
 	private function enqueue( int $job_id ): void {
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
 			as_enqueue_async_action( self::ACTION_HOOK, [ 'job_id' => $job_id ], self::ACTION_GROUP );
+		}
+	}
+
+	private function unschedule_pending_actions( int $job_id ): void {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::ACTION_HOOK, [ 'job_id' => $job_id ], self::ACTION_GROUP );
 		}
 	}
 

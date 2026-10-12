@@ -26,6 +26,7 @@ use CartBridgeJP\Sync\DryRunOnlyException;
 use CartBridgeJP\Sync\JobManager;
 use CartBridgeJP\Sync\JobRepository;
 use CartBridgeJP\Sync\MappingRepository;
+use CartBridgeJP\Sync\OrphanedRunRecovery;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Sync\RunAlreadyInProgressException;
 use CartBridgeJP\Sync\VerificationReport;
@@ -1395,10 +1396,14 @@ final class RestController {
 			return $platform;
 		}
 
+		// アクションを失って進まなくなった run（R3-9）を失敗にしてから返す。画面はこの一覧を数秒ごとに照会するので、停止・致命的エラーの後に
+		// 開いた画面にも Retry・キャンセルの対象として出る。ロックは取らない（取ると開始・ツールと競合して 409 になりうる）: 回復は猶予より古い
+		// run だけを対象にし、書換えは run 単位の条件つきの CAS（`JobRepository::mark_failed_if_idle()`）なので、ロックの中の区間とも、
+		// 別のブラウザの同じ照会とも重ならない。
 		return rest_ensure_response(
 			[
 				'platform' => $platform,
-				'runs'     => ( new JobRepository() )->find_active_runs_for_platform( $platform ),
+				'runs'     => ( new OrphanedRunRecovery() )->recover_and_list( $platform ),
 			]
 		);
 	}
@@ -1849,6 +1854,9 @@ final class RestController {
 				$platform,
 				$ttl_seconds,
 				function () use ( $platform, $callback, $run_message ): WP_REST_Response|WP_Error {
+					// アクションを失って進まなくなった run（R3-9）は、判定の前に失敗にする（`JobManager::start_run()` と同じ）。
+					( new OrphanedRunRecovery() )->recover( $platform );
+
 					if ( ( new JobRepository() )->is_platform_busy( $platform ) ) {
 						return $this->run_in_progress_error( $platform, null, $run_message );
 					}

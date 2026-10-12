@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Sync;
 
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * `cbjp_jobs` テーブルへのアクセス。
@@ -222,6 +223,66 @@ final class JobRepository {
 		);
 
 		return $count > 0;
+	}
+
+	/**
+	 * 生きた（pending・in-progress の）`process_job()` のアクションを持つジョブの ID（R3-9・issue #121）。孤立したジョブの回復
+	 * （`OrphanedRunRecovery`）が「アクションが無い」と判定するのに使うので、確かめられないときは空ではなく null を返す（フェイルクローズ。
+	 * `has_in_flight_job_for_platform()` は同時実行の判定で、読めないアクションを飛ばすフェイルオープンのまま）:
+	 * - Action Scheduler の初期化前（`as_get_scheduled_actions()` は黙って空を返す）・照会の例外・照会の DB エラー
+	 *   （DBStore は `get_col()` の失敗でも空を返す。`$wpdb->last_error` で見る）。
+	 * - 読めないアクション（hook や group の違い・`job_id` が正の int でない）が 1 件でもある。取得に失敗したアクションは
+	 *   `ActionScheduler_NullAction`（hook が空）になるので、hook の違いで止まる。
+	 *
+	 * pending と in-progress は 1 回の照会で読む（2 回に分けると、その間に pending から in-progress へ移ったアクションを両方で取りこぼす）。
+	 *
+	 * @return list<int>|null
+	 */
+	public function live_action_job_ids(): ?array {
+		global $wpdb;
+
+		if ( ! function_exists( 'as_get_scheduled_actions' ) || ! class_exists( \ActionScheduler::class ) || ! class_exists( \ActionScheduler_Store::class )
+			|| ! class_exists( \ActionScheduler_Action::class ) || ! \ActionScheduler::is_initialized() ) {
+			return null;
+		}
+
+		try {
+			$actions = as_get_scheduled_actions(
+				[
+					'hook'     => JobManager::ACTION_HOOK,
+					'group'    => JobManager::ACTION_GROUP,
+					'status'   => [ \ActionScheduler_Store::STATUS_PENDING, \ActionScheduler_Store::STATUS_RUNNING ],
+					'per_page' => -1,
+					'orderby'  => 'none',
+				]
+			);
+		} catch ( Throwable ) {
+			return null;
+		}
+
+		// 照会（`query_actions()`）が失敗すると、アクションを 1 件も取得しないので、そのエラーが最後のエラーとして残る。
+		if ( '' !== $wpdb->last_error ) {
+			return null;
+		}
+
+		$job_ids = [];
+
+		foreach ( $actions as $action ) {
+			if ( ! $action instanceof \ActionScheduler_Action
+				|| JobManager::ACTION_HOOK !== $action->get_hook() || JobManager::ACTION_GROUP !== $action->get_group() ) {
+				return null;
+			}
+
+			$job_id = $action->get_args()['job_id'] ?? null;
+
+			if ( ! is_int( $job_id ) || $job_id <= 0 ) {
+				return null;
+			}
+
+			$job_ids[] = $job_id;
+		}
+
+		return array_values( array_unique( $job_ids ) );
 	}
 
 	/**
@@ -440,7 +501,65 @@ final class JobRepository {
 	}
 
 	/**
-	 * `remote_amount` は受注ジョブのみ意味を持つ: この run で ASP から取得した受注の合計金額
+	 * 孤立したジョブの回復（`OrphanedRunRecovery`。R3-9）用の `mark_failed()`。次のすべてを、判定ではなく書換えの 1 文の条件で確かめる（CAS）:
+	 * - 対象が未終了で、最後の更新が `$cutoff`（UTC の `Y-m-d H:i:s`）以前（判定の後に入った Retry・ハートビート〔`touch()`〕・遷移には負ける）。
+	 * - 同じ run に失敗したジョブが無く、対象より前に未終了のジョブも無い（対象が run の最初の未終了のジョブ）。回復はロックの外（`GET /runs`）からも
+	 *   呼ばれるので、2 つの回復が同じ run を同時に読むと、先に失敗にした側の後で、もう一方が `find_next_incomplete_for_run()`（失敗を飛ばす）で
+	 *   次のジョブを選び、それも失敗にしうる（実体の順序が崩れ、Retry した側が再びアクションを失うと二度と回復しない。R1-1）。
+	 * 同じテーブルを自己結合する複数テーブルの UPDATE で書く（MySQL は UPDATE の対象を同じ文のサブクエリで読めない）。結合先の行も UPDATE の中で読むので、
+	 * 先に書いた回復の結果を見て負ける。
+	 *
+	 * @param array{code:string,message:string} $error
+	 * @return bool 失敗を記録したときだけ true。
+	 */
+	public function mark_failed_if_idle( int $id, array $error, string $cutoff ): bool {
+		global $wpdb;
+
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"UPDATE {$this->table()} AS j LEFT JOIN {$this->table()} AS o ON o.run_id = j.run_id AND o.id <> j.id AND ( o.status = %s OR ( o.id < j.id AND o.status IN (%s, %s, %s) ) )
+				SET j.status = %s, j.error_json = %s, j.updated_at = %s
+				WHERE j.id = %d AND j.status IN (%s, %s, %s) AND j.updated_at <= %s AND o.id IS NULL",
+				self::STATUS_FAILED,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED,
+				self::STATUS_FAILED,
+				(string) wp_json_encode( $error ),
+				current_time( 'mysql', true ),
+				$id,
+				self::STATUS_PENDING,
+				self::STATUS_RUNNING,
+				self::STATUS_PAUSED,
+				$cutoff
+			)
+		);
+
+		return 1 === $updated;
+	}
+
+	/**
+	 * 処理中のジョブの `updated_at` を今にする（ハートビート。`JobHeartbeat`。R3-9）。孤立の判定は、生きたアクションが無く `updated_at` が
+	 * 猶予より古いジョブを失敗にするので、Action Scheduler が 5 分で in-progress を失敗扱いにした長いページでも、処理している間は
+	 * 孤立と誤認させない。`running` のときだけ更新する（ページの処理中にキャンセル・失敗にされたジョブは変えない）。
+	 */
+	public function touch( int $id ): void {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- テーブル名のみの埋め込み。値はプレースホルダー経由。
+				"UPDATE {$this->table()} SET updated_at = %s WHERE id = %d AND status = %s",
+				current_time( 'mysql', true ),
+				$id,
+				self::STATUS_RUNNING
+			)
+		);
+	}
+
+	/**
+	 * `remote_amount` は受注ジョブのみ意味を持つ:この run で ASP から取得した受注の合計金額
 	 * （1/100単位の整数。`Support\Money`）。移行後検証レポート（D17。`VerificationReport`）が
 	 * Woo 側の受注合計と突合するために `Importer::process_items()` が累積する。
 	 *

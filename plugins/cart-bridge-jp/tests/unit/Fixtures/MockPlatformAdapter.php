@@ -86,6 +86,9 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	 *   別のキー（例: `colorme`）で登録する手動検証（`verify-with-mock-adapter` スキル）では、そのキーと同じ値を渡す。
 	 * @param \Throwable|null                $fetch_by_id_failure 指定すると`fetch_product_by_remote_id()`だけがこの例外を投げる
 	 *   （`$fetch_failure`と違い一覧の取得へ影響しない。push intent の解除の障害シナリオのテスト用。R3-6c1 で顧客・受注から商品へ移した）。
+	 * @param \Closure|null                  $on_push_product 指定すると`push_product()`が送る前に商品を渡して呼ぶ（ページの処理中の状態を
+	 *   調べるテスト用。R3-9 のハートビート）。
+	 * @param \Closure|null                  $on_fetch 指定すると一覧の取得（fetch 系メソッド）の初めに呼ぶ（同じ用途）。
 	 */
 	public function __construct(
 		private readonly array $products = [],
@@ -99,7 +102,9 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		private readonly bool $push_stocks_supported = false,
 		private readonly ?\Throwable $create_push_failure = null,
 		private readonly string $platform_id = 'mock',
-		private readonly ?\Throwable $fetch_by_id_failure = null
+		private readonly ?\Throwable $fetch_by_id_failure = null,
+		private readonly ?\Closure $on_push_product = null,
+		private readonly ?\Closure $on_fetch = null
 	) {}
 
 	public function id(): string {
@@ -107,6 +112,10 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 	}
 
 	private function maybe_fail(): void {
+		if ( null !== $this->on_fetch ) {
+			( $this->on_fetch )();
+		}
+
 		if ( null !== $this->fetch_failure ) {
 			throw $this->fetch_failure;
 		}
@@ -212,6 +221,10 @@ final class MockPlatformAdapter extends AbstractPlatformAdapter {
 		}
 
 		$this->maybe_fail_create( $remote_id );
+
+		if ( null !== $this->on_push_product ) {
+			( $this->on_push_product )( $product );
+		}
 
 		$this->pushed_products[] = [ $product, $remote_id ];
 

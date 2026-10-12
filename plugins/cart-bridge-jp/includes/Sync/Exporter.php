@@ -77,6 +77,7 @@ final class Exporter {
 	/**
 	 * カーソル走査エンティティを1ページ処理する。
 	 *
+	 * @param (callable():void)|null $heartbeat アイテムごとに呼ぶ（処理中であることを示す。R3-9。`JobManager::process_job()` が渡す）。
 	 * @return array{next_cursor:?Cursor,total:?int,totals:array<string,int>}
 	 */
 	public function run_page(
@@ -87,11 +88,12 @@ final class Exporter {
 		Cursor $cursor,
 		bool $is_dry_run,
 		?int $job_id = null,
-		?string $run_id = null
+		?string $run_id = null,
+		?callable $heartbeat = null
 	): array {
 		$page = $reader->read( $entity, $cursor );
 
-		$totals = $this->process_items( $adapter, $writer, $entity, $page->items, $is_dry_run, $job_id, $run_id );
+		$totals = $this->process_items( $adapter, $writer, $entity, $page->items, $is_dry_run, $job_id, $run_id, $heartbeat );
 
 		return [
 			'next_cursor' => $page->next_cursor,
@@ -102,6 +104,7 @@ final class Exporter {
 
 	/**
 	 * @param array<int,ReadItem> $items
+	 * @param (callable():void)|null $heartbeat
 	 * @return array<string,int>
 	 */
 	private function process_items(
@@ -111,7 +114,8 @@ final class Exporter {
 		array $items,
 		bool $is_dry_run,
 		?int $job_id = null,
-		?string $run_id = null
+		?string $run_id = null,
+		?callable $heartbeat = null
 	): array {
 		$totals = [
 			'processed'     => 0,
@@ -146,6 +150,11 @@ final class Exporter {
 		$push_intent_entity = null !== $type && $this->records_push_intent( $type );
 
 		foreach ( $items as $read_item ) {
+			// 処理中であることを示す（R3-9。`JobManager::process_job()` の `JobHeartbeat::beat()`。間引きは呼ばれる側）。
+			if ( null !== $heartbeat ) {
+				$heartbeat();
+			}
+
 			++$totals['processed'];
 
 			$local_id           = $read_item->local_id;
