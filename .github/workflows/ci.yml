@@ -149,6 +149,9 @@ jobs:
       - name: Regression test for gate-record.sh
         run: .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
 
+      - name: Regression test for bot-wait.sh
+        run: .claude/skills/cbj-dev-cycle/scripts/test-bot-wait.sh
+
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
