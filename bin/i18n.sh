@@ -94,8 +94,23 @@ make_pot() {
 
 cmd_pot() {
 	require_build
-	make_pot "$POT"
-	echo "i18n: ${DOMAIN}: ${POT} を作り直しました"
+
+	# make-pot は実行のたびに POT-Creation-Date を書き換える。ほかに違いが無ければ元の POT を残す（npm run i18n:pot は両プラグインを作り直すので、
+	# 片方の文字列だけを変えた PR に、もう片方の POT の日時だけの差分を出さない。review-loop R1-L2）。
+	local fresh="${POT}.new"
+	rm -f "$fresh"
+	if ! make_pot "$fresh"; then
+		rm -f "$fresh"
+		exit 1
+	fi
+
+	if [ -f "$POT" ] && cmp -s <(grep -v '^"POT-Creation-Date: ' "$fresh") <(grep -v '^"POT-Creation-Date: ' "$POT"); then
+		rm -f "$fresh"
+		echo "i18n: ${DOMAIN}: ${POT} は変わっていません"
+	else
+		mv -f "$fresh" "$POT"
+		echo "i18n: ${DOMAIN}: ${POT} を作り直しました"
+	fi
 }
 
 cmd_po() {
@@ -167,10 +182,12 @@ PLUGINS='cart-bridge-jp cart-bridge-jp-pro'
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--plugin)
-			if [ $# -lt 2 ] || [ -z "$2" ]; then
-				usage
-			fi
-			PLUGINS=$2
+			# 1 語の既知のスラッグだけ（空白だけ・複数語の値を、何もしない・途中まで動いてから止まる形で通さない。review-loop R1-L1）。
+			[ $# -ge 2 ] || usage
+			case "$2" in
+				cart-bridge-jp | cart-bridge-jp-pro) PLUGINS=$2 ;;
+				*) usage ;;
+			esac
 			shift
 			;;
 		*) usage ;;
