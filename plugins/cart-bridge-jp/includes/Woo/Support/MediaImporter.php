@@ -22,13 +22,6 @@ final class MediaImporter {
 	 */
 	private array $resolved = [];
 
-	/**
-	 * `media_sideload_image()` に許す拡張子（WP の既定の一覧と、`wp_get_image_mime()` が判定できる AVIF・HEIC）。
-	 *
-	 * @var array<int,string>
-	 */
-	private const RASTER_EXTENSIONS = [ 'jpg', 'jpeg', 'jpe', 'png', 'gif', 'webp', 'avif', 'heic' ];
-
 	public function __construct( private readonly string $platform ) {}
 
 	/**
@@ -42,26 +35,13 @@ final class MediaImporter {
 			return $existing;
 		}
 
-		if ( ! function_exists( 'media_sideload_image' ) ) {
+		if ( ! function_exists( 'media_handle_sideload' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/file.php';
 			require_once ABSPATH . 'wp-admin/includes/media.php';
 			require_once ABSPATH . 'wp-admin/includes/image.php';
 		}
 
-		// `media_sideload_image()` は URL の拡張子が `image_sideload_extensions` にあれば、中身を画像として確かめずに保存しうる
-		// （サイトが SVG を足していると、スクリプトを含む SVG がサイトと同じオリジンに置かれる）。この呼び出しの間だけ、
-		// ラスター画像の拡張子に絞る（R3-5b。ほかの拡張子はフォールバックが中身を確かめる）。
-		add_filter( 'image_sideload_extensions', [ self::class, 'raster_extensions_only' ], PHP_INT_MAX );
-
-		try {
-			$attachment_id = media_sideload_image( $url, $post_id, null, 'id' );
-		} finally {
-			remove_filter( 'image_sideload_extensions', [ self::class, 'raster_extensions_only' ], PHP_INT_MAX );
-		}
-
-		if ( $attachment_id instanceof WP_Error ) {
-			$attachment_id = $this->fallback_sideload( $url, $post_id );
-		}
+		$attachment_id = $this->sideload( $url, $post_id );
 
 		if ( ! is_int( $attachment_id ) ) {
 			return null;
@@ -78,21 +58,14 @@ final class MediaImporter {
 	}
 
 	/**
-	 * `image_sideload_extensions` を、`wp_get_image_mime()` が中身を判定できるラスター画像の拡張子だけに絞る（{@see self::import()}）。
+	 * `download_url()` で取得し、中身が画像のときだけ `media_handle_sideload()` で保存する（すべての画像の取得の経路）。
 	 *
-	 * @param mixed $extensions サイト・他のプラグインが渡した拡張子。
-	 * @return array<int,string>
+	 * R3-5b で `media_sideload_image()` を先に呼ぶ形をやめた: `media_sideload_image()` は URL の拡張子が `image_sideload_extensions`
+	 * にあれば中身を画像として確かめずに保存しうる（サイトが SVG を足していると SVG が、fileinfo の無いサーバーでは画像の拡張子の
+	 * 別の中身が通る）。経路を 1 つにして、下の判定をすべての取得に掛ける（G1-1・G3-1）。`media_sideload_image()` と同じく、
+	 * 名前は URL のパスの最後の部分で、`_source_url` も記録する。拡張子の無い URL・クエリ付きの URL も扱える。
 	 */
-	public static function raster_extensions_only( mixed $extensions ): array {
-		return array_values( array_intersect( is_array( $extensions ) ? $extensions : [], self::RASTER_EXTENSIONS ) );
-	}
-
-	/**
-	 * `media_sideload_image()` は拡張子をURLパスから正規表現で判定できないと失敗する
-	 * （クエリ文字列付きURL・拡張子なしURル等）。`download_url()` で一旦取得し、レスポンスの
-	 * Content-Typeからファイル種別を判定して `media_handle_sideload()` に渡すフォールバック。
-	 */
-	private function fallback_sideload( string $url, int $post_id ): ?int {
+	private function sideload( string $url, int $post_id ): ?int {
 		$tmp_file = download_url( $url );
 
 		if ( $tmp_file instanceof WP_Error ) {
@@ -152,6 +125,9 @@ final class MediaImporter {
 			wp_delete_file( $tmp_file );
 			return null;
 		}
+
+		// `media_sideload_image()` が残す元の URL（WordPress の慣習。プラグインは `_cbjp_source_url` を使う）。
+		add_post_meta( $attachment_id, '_source_url', $url );
 
 		return $attachment_id;
 	}

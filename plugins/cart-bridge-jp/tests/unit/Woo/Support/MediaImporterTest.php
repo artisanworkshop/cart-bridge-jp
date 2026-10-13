@@ -24,6 +24,10 @@ final class MediaImporterTest extends WooTestCase {
 
 		$this->assertNotNull( $attachment_id );
 		$this->assertSame( 'https://example.test/image.png', get_post_meta( $attachment_id, '_cbjp_source_url', true ) );
+		// `media_sideload_image()` と同じく、元の URL（WP の慣習）と URL の名前を残す（R3-5b G3-1 で取得の経路を 1 つにした）。
+		$this->assertSame( 'https://example.test/image.png', get_post_meta( $attachment_id, '_source_url', true ) );
+		$this->assertStringStartsWith( 'image', wp_basename( (string) get_attached_file( $attachment_id ) ) );
+		$this->assertSame( 'image/png', get_post_mime_type( $attachment_id ) );
 	}
 
 	public function test_reuses_existing_attachment_for_same_url(): void {
@@ -102,6 +106,8 @@ final class MediaImporterTest extends WooTestCase {
 			'pdf as nobody'            => [ 'https://example.test/file.pdf', 'application/pdf', "%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n", false ],
 			// SVG を許すプラグインのあるサイト（下の `upload_mimes`）。`wp_get_image_mime()` は SVG を判定できない（R1-L6）。
 			'svg where svg is allowed' => [ 'https://example.test/icon.svg', 'image/svg+xml', "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><script>alert(1)</script></svg>\n", true ],
+			// 画像の拡張子で中身が HTML（G3-1）。
+			'html named as a jpeg'     => [ 'https://example.test/payload.jpg', 'image/jpeg', "<!DOCTYPE html>\n<html><body><script>alert(1)</script></body></html>\n", true ],
 		];
 	}
 
@@ -157,7 +163,7 @@ final class MediaImporterTest extends WooTestCase {
 	}
 
 	/**
-	 * サイトが `image_sideload_extensions` に SVG を足していても、最初の `media_sideload_image()` で SVG を保存しない（R3-5b G1-1）。
+	 * サイトが `image_sideload_extensions` に SVG を足していても SVG を保存しない（R3-5b G1-1。取得は中身を確かめる経路だけにした。G3-1）。
 	 */
 	public function test_does_not_save_svg_even_if_the_site_allows_svg_sideloads(): void {
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
@@ -207,13 +213,6 @@ final class MediaImporterTest extends WooTestCase {
 
 		$this->assertNull( ( new MediaImporter( 'colorme' ) )->import( 'https://example.test/icon.svg', $product_id ) );
 		$this->assertSame( $before, (int) wp_count_posts( 'attachment' )->inherit );
-		// 絞り込みはこの呼び出しの間だけ（サイトの設定はそのまま）。
-		$this->assertContains( 'svg', apply_filters( 'image_sideload_extensions', [ 'jpg' ], '' ) );
-	}
-
-	public function test_raster_extensions_only_keeps_raster_types(): void {
-		$this->assertSame( [ 'jpg', 'png', 'webp' ], MediaImporter::raster_extensions_only( [ 'jpg', 'svg', 'png', 'html', 'webp' ] ) );
-		$this->assertSame( [], MediaImporter::raster_extensions_only( 'jpg' ) );
 	}
 
 	public function test_returns_null_on_http_failure(): void {
