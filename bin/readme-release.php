@@ -7,9 +7,12 @@
  *
  * 1. 版は `X.Y.Z`（数字だけ）。
  * 2. ヘッダーの `Stable tag` が版と同じ（wordpress.org は Stable tag の版を配る。プラグインヘッダーの Version との一致は `bin/build-zip.sh --version` と `ReadmeTest`）。
- * 3. `== Changelog ==` の節の中に `= <version> =` の見出しがあり、本文が空でない（`== Upgrade Notice ==` の同じ見出しは読まない）。
+ * 3. `== Changelog ==` の節の中に `= <version> =` の見出しがちょうど 1 つあり、本文が空でない（`== Upgrade Notice ==` の同じ見出しは読まない）。
  *
- * 問題が無ければ Changelog の本文（次の `= … =`・`== … ==` の見出しの前まで。前後の空行を除く）を標準出力へ出して 0、問題は 1 行ずつ標準エラーへ出して 1、
+ * 節・節の中の見出し・ヘッダーの区切りは wordpress.org の readme のパーサーと同じ規則で読む（`##` の見出し・行頭の空白・閉じの無い `== X` も節の見出し。
+ * 規則が違うと、wordpress.org では別の節にある文を changelog として読み、リリースを通してしまう。R3-4a の review-loop R1-1）。同じ名前のヘッダーが複数あるのも止める。
+ *
+ * 問題が無ければ Changelog の本文（次の見出しの前まで。前後の空行を除く）を標準出力へ出して 0、問題は 1 行ずつ標準エラーへ出して 1、
  * 引数の誤り・読めないファイルは 2 で終わる。タグのリリースは CI のテストを通らないので、リリースを止める条件はこのスクリプトに置き、`ReadmeTest` も同じ関数で読む。
  *
  * @package CartBridgeJP
@@ -18,82 +21,143 @@
 // phpcs:disable WordPress.WP.AlternativeFunctions,WordPress.Security.EscapeOutput.OutputNotEscaped,WordPress.PHP.YodaConditions -- WordPress を読み込まない CLI の検査スクリプト（終了コードは整数）。
 
 /**
- * readme の改行を LF にそろえる。
+ * wordpress.org がヘッダーとして読む名前（`Plugin_Directory\Readme\Parser::$valid_headers`。Plugin Check 2.1.0 の `includes/Lib/Readme/Parser.php` に同梱）。
  */
-function cbjp_readme_release_normalize( string $readme ): string {
-	return str_replace( [ "\r\n", "\r" ], "\n", $readme );
-}
+const CBJP_README_RELEASE_HEADERS = [ 'tested', 'tested up to', 'requires', 'requires at least', 'requires php', 'tags', 'contributors', 'donate link', 'stable tag', 'license', 'license uri' ];
 
 /**
- * 節の見出し（`== Name ==`）なら名前、そうでなければ null。
+ * readme の行（改行を LF にそろえ、先頭の UTF-8 の BOM を除く）。
+ *
+ * @return array<int,string>
  */
-function cbjp_readme_release_section_name( string $line ): ?string {
-	if ( 1 === preg_match( '/^==\s*([^=].*?)\s*==\s*$/', $line, $match ) ) {
-		return $match[1];
+function cbjp_readme_release_lines( string $readme ): array {
+	$lines = explode( "\n", str_replace( [ "\r\n", "\r" ], "\n", $readme ) );
+
+	if ( str_starts_with( $lines[0], "\xEF\xBB\xBF" ) ) {
+		$lines[0] = substr( $lines[0], 3 );
 	}
 
-	return null;
+	return $lines;
 }
 
 /**
- * 節の中の見出し（`= Name =`。`==` で始まる行は除く）なら名前、そうでなければ null。
+ * ヘッダーに見える行なら [ 小文字の名前, 値 ]、そうでなければ null（wordpress.org の `parse_possible_header()` と同じ規則）。
+ *
+ * @return array{0:string,1:string}|null
  */
-function cbjp_readme_release_subsection_name( string $line ): ?string {
-	if ( 1 === preg_match( '/^=\s*([^=].*?)\s*=\s*$/', $line, $match ) ) {
-		return $match[1];
+function cbjp_readme_release_possible_header( string $line ): ?array {
+	if ( ! str_contains( $line, ':' ) || str_starts_with( $line, '#' ) || str_starts_with( $line, '=' ) ) {
+		return null;
 	}
 
-	return null;
+	[ $name, $value ] = explode( ':', $line, 2 );
+
+	return [ strtolower( trim( $name, " \t*-\r\n" ) ), trim( $value, " \t*-\r\n" ) ];
 }
 
 /**
- * ヘッダーの値（タイトルの行から最初の節の見出しまでの `Name: value` の行。名前は大文字小文字を区別しない）。無ければ null。
+ * 節の見出しか（wordpress.org と同じく、前後の空白を除いた行が `==`、または `##` で始まる行。`###` は節の中の見出し）。
  */
-function cbjp_readme_release_header( string $readme, string $name ): ?string {
-	foreach ( explode( "\n", cbjp_readme_release_normalize( $readme ) ) as $line ) {
-		if ( null !== cbjp_readme_release_section_name( $line ) ) {
+function cbjp_readme_release_is_section_heading( string $line ): bool {
+	$trimmed = trim( $line );
+
+	return str_starts_with( $trimmed, '==' ) || ( str_starts_with( $trimmed, '##' ) && ! str_starts_with( $trimmed, '###' ) );
+}
+
+/**
+ * readme をヘッダーと本文に分ける（wordpress.org のパーサーと同じ区切り）。タイトル（最初の空でない行。ヘッダーに見える行でなければ）と、
+ * その直後の `===`・空の行を 1 行読み飛ばし、空の行を挟んでヘッダーを読む。ヘッダーに見えない行・空の行の後の知らない名前のヘッダーで終わる
+ * （そこからが短い説明と本文）。
+ *
+ * @return array{0:array<string,array<int,string>>,1:array<int,string>} 名前（小文字）ごとのヘッダーの値の一覧（出てきた順）と、本文の行
+ */
+function cbjp_readme_release_parse( string $readme ): array {
+	$lines = cbjp_readme_release_lines( $readme );
+	$count = count( $lines );
+	$index = 0;
+
+	while ( $index < $count && '' === trim( $lines[ $index ] ) ) {
+		++$index;
+	}
+
+	$first = $index < $count ? cbjp_readme_release_possible_header( $lines[ $index ] ) : null;
+
+	if ( $index < $count && ( null === $first || ! in_array( $first[0], CBJP_README_RELEASE_HEADERS, true ) ) ) {
+		++$index;
+
+		if ( $index < $count && '' === trim( $lines[ $index ], '=-' ) ) {
+			++$index;
+		}
+	}
+
+	while ( $index < $count && '' === trim( $lines[ $index ] ) ) {
+		++$index;
+	}
+
+	$headers    = [];
+	$last_blank = false;
+
+	for ( ; $index < $count; $index++ ) {
+		$header = cbjp_readme_release_possible_header( $lines[ $index ] );
+
+		if ( null === $header ) {
+			if ( '' === $lines[ $index ] ) {
+				$last_blank = true;
+				continue;
+			}
 			break;
 		}
 
-		if ( 1 === preg_match( '/^' . preg_quote( $name, '/' ) . ':(.*)$/i', $line, $match ) ) {
-			return trim( $match[1] );
+		if ( in_array( $header[0], CBJP_README_RELEASE_HEADERS, true ) ) {
+			$headers[ $header[0] ][] = $header[1];
+		} elseif ( $last_blank ) {
+			break;
 		}
+
+		$last_blank = false;
 	}
 
-	return null;
+	return [ $headers, array_slice( $lines, $index ) ];
 }
 
 /**
- * `== Changelog ==` の節の `= <version> =` の本文（前後の空行を除く）。見出しが無い・本文が空なら null。
+ * ヘッダーの値（名前は大文字小文字を区別しない）。同じ名前が複数あれば、wordpress.org と同じく最後の値。無ければ null。
  */
-function cbjp_readme_release_changelog( string $readme, string $version ): ?string {
-	$section = null;
+function cbjp_readme_release_header( string $readme, string $name ): ?string {
+	$values = cbjp_readme_release_parse( $readme )[0][ strtolower( $name ) ] ?? [];
+
+	return [] === $values ? null : $values[ count( $values ) - 1 ];
+}
+
+/**
+ * Changelog の節（`== Changelog ==`・`## Changelog`。別名 `Change log`）の中の、見出しが版と同じ節の本文の一覧（出てきた順。前後の空行を除く）。
+ * 節の中の見出しは `=`・`#` で始まる行（wordpress.org が節の本文を見出しで分ける規則）で、`= 1.0.0 =` も `### 1.0.0` も `1.0.0` と読む。
+ *
+ * @return array<int,string>
+ */
+function cbjp_readme_release_changelog_entries( string $readme, string $version ): array {
+	$section = '';
+	$entries = [];
 	$body    = null;
 
-	foreach ( explode( "\n", cbjp_readme_release_normalize( $readme ) ) as $line ) {
-		$section_name = cbjp_readme_release_section_name( $line );
+	foreach ( cbjp_readme_release_parse( $readme )[1] as $line ) {
+		$trimmed    = trim( $line );
+		$is_section = cbjp_readme_release_is_section_heading( $line );
+		$is_heading = $is_section || ( 'changelog' === $section && ( str_starts_with( $trimmed, '=' ) || str_starts_with( $trimmed, '#' ) ) );
 
-		if ( null !== $section_name ) {
-			if ( null !== $body ) {
-				break;
-			}
+		if ( $is_heading && null !== $body ) {
+			$entries[] = trim( implode( "\n", $body ), "\n" );
+			$body      = null;
+		}
 
-			$section = strtolower( $section_name );
+		if ( $is_section ) {
+			$section = strtolower( str_replace( ' ', '_', trim( $line, "#= \t" ) ) );
+			$section = 'change_log' === $section ? 'changelog' : $section;
 			continue;
 		}
 
-		if ( 'changelog' !== $section ) {
-			continue;
-		}
-
-		$subsection = cbjp_readme_release_subsection_name( $line );
-
-		if ( null !== $subsection ) {
-			if ( null !== $body ) {
-				break;
-			}
-
-			if ( $subsection === $version ) {
+		if ( $is_heading ) {
+			if ( trim( $trimmed, $trimmed[0] . " \t" ) === $version ) {
 				$body = [];
 			}
 			continue;
@@ -104,13 +168,20 @@ function cbjp_readme_release_changelog( string $readme, string $version ): ?stri
 		}
 	}
 
-	if ( null === $body ) {
-		return null;
+	if ( null !== $body ) {
+		$entries[] = trim( implode( "\n", $body ), "\n" );
 	}
 
-	$text = trim( implode( "\n", $body ), "\n" );
+	return $entries;
+}
 
-	return '' === trim( $text ) ? null : $text;
+/**
+ * Changelog の版の節の本文。節がちょうど 1 つで本文が空でなければその本文、そうでなければ null。
+ */
+function cbjp_readme_release_changelog( string $readme, string $version ): ?string {
+	$entries = cbjp_readme_release_changelog_entries( $readme, $version );
+
+	return 1 === count( $entries ) && '' !== trim( $entries[0] ) ? $entries[0] : null;
 }
 
 /**
@@ -123,17 +194,25 @@ function cbjp_readme_release_problems( string $readme, string $version ): array 
 		return [ "invalid version '{$version}' (expected X.Y.Z)" ];
 	}
 
-	$problems   = [];
-	$stable_tag = cbjp_readme_release_header( $readme, 'Stable tag' );
+	$problems    = [];
+	$stable_tags = cbjp_readme_release_parse( $readme )[0]['stable tag'] ?? [];
 
-	if ( $stable_tag !== $version ) {
-		$problems[] = null === $stable_tag
-			? 'the readme has no Stable tag header'
-			: "the readme's Stable tag is {$stable_tag}, not {$version}";
+	if ( [] === $stable_tags ) {
+		$problems[] = 'the readme has no Stable tag header';
+	} elseif ( 1 < count( $stable_tags ) ) {
+		$problems[] = 'the readme has more than one Stable tag header';
+	} elseif ( $stable_tags[0] !== $version ) {
+		$problems[] = "the readme's Stable tag is {$stable_tags[0]}, not {$version}";
 	}
 
-	if ( null === cbjp_readme_release_changelog( $readme, $version ) ) {
-		$problems[] = "the readme's Changelog has no entry '= {$version} =' (or the entry is empty)";
+	$entries = cbjp_readme_release_changelog_entries( $readme, $version );
+
+	if ( [] === $entries ) {
+		$problems[] = "the readme's Changelog has no entry '= {$version} ='";
+	} elseif ( 1 < count( $entries ) ) {
+		$problems[] = "the readme's Changelog has more than one entry '= {$version} ='";
+	} elseif ( '' === trim( $entries[0] ) ) {
+		$problems[] = "the readme's Changelog entry '= {$version} =' is empty";
 	}
 
 	return $problems;

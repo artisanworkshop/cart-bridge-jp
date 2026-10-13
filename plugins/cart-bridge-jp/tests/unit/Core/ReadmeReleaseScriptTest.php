@@ -114,6 +114,56 @@ README;
 
 		$last = str_replace( "* One.\n", '', self::README );
 		$this->assertNull( cbjp_readme_release_changelog( $last, '1.0.0' ), '節の最後の版の本文が空' );
+
+		$this->assertSame(
+			[ "the readme's Changelog entry '= 2.0.0 =' is empty" ],
+			cbjp_readme_release_problems( $empty, '2.0.0' )
+		);
+	}
+
+	/**
+	 * 節の見出しは wordpress.org のパーサーと同じく、前後の空白を除いた行が `==` か `##`（`###` 以外）で始まる行。閉じの無い見出し・`##`・
+	 * 行頭の空白・`===` も節の見出しで、その後の Upgrade Notice の見出しを changelog の節として読まない（R1-1: 以前は読み、リリースを通した）。
+	 */
+	public function test_section_headings_follow_the_wordpress_org_parser(): void {
+		foreach ( [ ' == Upgrade Notice ==', '== Upgrade Notice', '## Upgrade Notice', '=== Upgrade Notice ===', "\t==Upgrade Notice==  " ] as $heading ) {
+			$readme = str_replace( '== Upgrade Notice ==', $heading, self::README );
+			$label  = (string) wp_json_encode( $heading );
+
+			$this->assertSame( '* One.', cbjp_readme_release_changelog( $readme, '1.0.0' ), $label );
+			$this->assertSame( [], cbjp_readme_release_changelog_entries( $readme, '3.0.0' ), $label );
+			$this->assertSame( [], cbjp_readme_release_problems( $readme, '2.0.0' ), $label . '（Upgrade Notice の 2.0.0 を 2 つ目の節と読む）' );
+		}
+
+		// `###` は節の中の見出し（wordpress.org は節を分けない）。
+		$nested = str_replace( '== Upgrade Notice ==', '### Upgrade Notice', self::README );
+		$this->assertSame( '* One.', cbjp_readme_release_changelog( $nested, '1.0.0' ) );
+	}
+
+	/**
+	 * Markdown の書き方（`## Changelog` と `### 2.0.0`）・別名の `Change log` も読む。
+	 */
+	public function test_reads_markdown_headings_and_the_change_log_alias(): void {
+		$markdown = str_replace( [ '== Changelog ==', '= 2.0.0 =', '= 1.0.0 =' ], [ '## Changelog', '### 2.0.0', '#### 1.0.0' ], self::README );
+		$this->assertSame( "* Two.\n* Two again.", cbjp_readme_release_changelog( $markdown, '2.0.0' ) );
+		$this->assertSame( '* One.', cbjp_readme_release_changelog( $markdown, '1.0.0' ) );
+
+		$alias = str_replace( '== Changelog ==', '== Change log ==', self::README );
+		$this->assertSame( '* One.', cbjp_readme_release_changelog( $alias, '1.0.0' ) );
+	}
+
+	/**
+	 * 同じ版の節が 2 つあると、どちらが本文か決められない（wordpress.org は両方を表示する）。
+	 */
+	public function test_a_duplicated_entry_stops_the_release(): void {
+		$duplicated = str_replace( "= 1.0.0 =\n* One.\n", "= 2.0.0 =\n* Two once more.\n\n= 1.0.0 =\n* One.\n", self::README );
+
+		$this->assertCount( 2, cbjp_readme_release_changelog_entries( $duplicated, '2.0.0' ) );
+		$this->assertNull( cbjp_readme_release_changelog( $duplicated, '2.0.0' ) );
+		$this->assertSame(
+			[ "the readme's Changelog has more than one entry '= 2.0.0 ='" ],
+			cbjp_readme_release_problems( $duplicated, '2.0.0' )
+		);
 	}
 
 	/**
@@ -141,14 +191,35 @@ README;
 	}
 
 	/**
-	 * ヘッダーはタイトルから最初の `== … ==` の前まで（節の中の `Stable tag:` の行をヘッダーと読まない）。名前の大文字小文字は区別しない。
+	 * ヘッダーは wordpress.org と同じく、タイトルの後から短い説明の前まで（短い説明・節の中の `Stable tag:` の行をヘッダーと読まない）。名前の大文字小文字は区別しない。
 	 */
 	public function test_reads_the_stable_tag_from_the_header_only(): void {
 		$this->assertSame( '2.0.0', cbjp_readme_release_header( self::README, 'Stable tag' ) );
-		$this->assertSame( '2.0.0', cbjp_readme_release_header( str_replace( 'Stable tag:', 'Stable Tag:', self::README ), 'Stable tag' ) );
+		$this->assertSame( '2.0.0', cbjp_readme_release_header( str_replace( 'Stable tag:', 'Stable Tag :', self::README ), 'Stable tag' ) );
+		$this->assertSame( '2.0.0', cbjp_readme_release_header( "\xEF\xBB\xBF" . self::README, 'Stable tag' ), 'BOM' );
 
-		$moved = str_replace( [ "Stable tag: 2.0.0\n", "Description text.\n" ], [ '', "Stable tag: 2.0.0\n" ], self::README );
-		$this->assertNull( cbjp_readme_release_header( $moved, 'Stable tag' ) );
+		// タイトルの行は省ける（wordpress.org は最初の行がヘッダーならタイトル無しと読む）。BOM が付いていても最初のヘッダーを読む。
+		$untitled = str_replace( "=== Example Plugin ===\nContributors: example\n", '', self::README );
+		$this->assertSame( '2.0.0', cbjp_readme_release_header( $untitled, 'Stable tag' ), 'タイトル無し' );
+		$this->assertSame( '2.0.0', cbjp_readme_release_header( "\xEF\xBB\xBF" . $untitled, 'Stable tag' ), 'タイトル無し・BOM' );
+		$this->assertSame( '2.0.0', cbjp_readme_release_header( str_replace( "===\nContributors", "===\n\nContributors", self::README ), 'Stable tag' ), 'タイトルの後の空行' );
+
+		$in_section = str_replace( [ "Stable tag: 2.0.0\n", "Description text.\n" ], [ '', "Stable tag: 2.0.0\n" ], self::README );
+		$this->assertNull( cbjp_readme_release_header( $in_section, 'Stable tag' ) );
+
+		$after_short_description = str_replace( [ "Stable tag: 2.0.0\n", "Short description.\n" ], [ '', "Short description.\nStable tag: 2.0.0\n" ], self::README );
+		$this->assertNull( cbjp_readme_release_header( $after_short_description, 'Stable tag' ) );
+		$this->assertSame( [ 'the readme has no Stable tag header' ], cbjp_readme_release_problems( $after_short_description, '2.0.0' ) );
+	}
+
+	/**
+	 * 同じヘッダーが 2 つあると wordpress.org は後の値を使う。どちらを配るつもりか分からないので止める。
+	 */
+	public function test_a_duplicated_stable_tag_stops_the_release(): void {
+		$duplicated = str_replace( "Stable tag: 2.0.0\n", "Stable tag: 2.0.0\nStable tag: 1.0.0\n", self::README );
+
+		$this->assertSame( '1.0.0', cbjp_readme_release_header( $duplicated, 'Stable tag' ) );
+		$this->assertSame( [ 'the readme has more than one Stable tag header' ], cbjp_readme_release_problems( $duplicated, '2.0.0' ) );
 	}
 
 	public function test_problems_name_what_stops_the_release(): void {
@@ -162,12 +233,12 @@ README;
 		$this->assertSame(
 			[
 				"the readme's Stable tag is 2.0.0, not 4.0.0",
-				"the readme's Changelog has no entry '= 4.0.0 =' (or the entry is empty)",
+				"the readme's Changelog has no entry '= 4.0.0 ='",
 			],
 			cbjp_readme_release_problems( self::README, '4.0.0' )
 		);
 		$this->assertSame(
-			[ "the readme's Changelog has no entry '= 3.0.0 =' (or the entry is empty)" ],
+			[ "the readme's Changelog has no entry '= 3.0.0 ='" ],
 			cbjp_readme_release_problems( str_replace( 'Stable tag: 2.0.0', 'Stable tag: 3.0.0', self::README ), '3.0.0' )
 		);
 
@@ -198,6 +269,17 @@ README;
 		$this->assertStringStartsWith( 'cannot read ', $err );
 	}
 
+	/**
+	 * コマンドラインからの起動（`realpath( $argv[0] ) === __FILE__`・引数の数・`exit()` の終了コード）。release.yml・deploy-wporg.yml はこの形で呼ぶ（R1-L1）。
+	 */
+	public function test_the_command_line_entry_point(): void {
+		$path = $this->write_readme( self::README );
+
+		$this->assertSame( [ 0, "* Two.\n* Two again.\n", '' ], self::run_command( [ $path, '2.0.0' ] ) );
+		$this->assertSame( [ 1, '', "readme-release: the readme's Stable tag is 2.0.0, not 1.0.0\n" ], self::run_command( [ $path, '1.0.0' ] ) );
+		$this->assertSame( [ 2, '', "usage: php bin/readme-release.php <readme.txt> <version>\n" ], self::run_command( [ $path ] ) );
+	}
+
 	private function write_readme( string $contents ): string {
 		$path = (string) tempnam( get_temp_dir(), 'cbjp-readme-release' );
 		file_put_contents( $path, $contents ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- 一時ファイルのテスト用の readme。
@@ -223,5 +305,34 @@ README;
 		// phpcs:enable WordPress.WP.AlternativeFunctions
 
 		return $result;
+	}
+
+	/**
+	 * スクリプトを別の PHP のプロセスで実行する。
+	 *
+	 * @param array<int,string> $args スクリプトの引数。
+	 * @return array{0:int,1:string,2:string} 終了コード・標準出力・標準エラー
+	 */
+	private static function run_command( array $args ): array {
+		$command = array_merge( [ PHP_BINARY, WP_CONTENT_DIR . '/cbjp-dev/bin/readme-release.php' ], $args );
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- テストで CLI の入口を別のプロセスとして走らせる（引数は配列で渡し、シェルを通さない）。
+		$process = proc_open(
+			$command,
+			[
+				1 => [ 'pipe', 'w' ],
+				2 => [ 'pipe', 'w' ],
+			],
+			$pipes
+		);
+		self::assertIsResource( $process );
+
+		// phpcs:disable WordPress.WP.AlternativeFunctions -- 子のプロセスの出力を読む。
+		$out = (string) stream_get_contents( $pipes[1] );
+		$err = (string) stream_get_contents( $pipes[2] );
+		fclose( $pipes[1] );
+		fclose( $pipes[2] );
+		// phpcs:enable WordPress.WP.AlternativeFunctions
+
+		return [ proc_close( $process ), $out, $err ];
 	}
 }
