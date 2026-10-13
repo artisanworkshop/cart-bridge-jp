@@ -99,7 +99,8 @@ interface PlatformAdapter {
    を継承する。** 直接 `implements` する実装は本ポリシーの互換保証の対象外
 2. **v1.0.0 公開前**: 従来どおりインターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`の
    シグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例）。変更したら
-   `AbstractPlatformAdapterTest::BASELINE` を更新する
+   `AbstractPlatformAdapterTest::BASELINE` を更新する（R3-4a で `v1_method_names()` を固定したので、メソッドを足す・消すときは
+   そのリストも同じ PR で直す。直さずに足すと `AbstractPlatformAdapter` の既定実装を求められる。規則 5）
 3. **v1.0.0 公開後**（BASELINEの既存エントリは凍結）: 既存メソッドのシグネチャ（引数・型・戻り値型）を
    変更しない。変更が要る場合は新しいメソッドを足す。新しいメソッドは `AbstractPlatformAdapter` に
    既定実装を、`AbstractPlatformAdapterTest::BASELINE` にシグネチャを**同時に**追加する
@@ -802,7 +803,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 |---|---|---|
 | `release.yml` | `v*.*.*` のタグの push | `bin/readme-release.php` で readme を版と照合して Changelog の `= <版> =` の節を取り出し → `bin/build-zip.sh --version` の zip → GitHub Release（本文はその節） |
 | `release-pro.yml` | `pro-v*.*.*` のタグの push | Pro の zip（R3-8c。§10.7）。wordpress.org には送らない |
-| `deploy-wporg.yml` | **手動（workflow_dispatch）**。入力は版と `dry_run` | 版の形を確かめ → `v<版>` の**タグ**を checkout → `bin/readme-release.php` → 同じ `bin/build-zip.sh` の zip を展開 → `10up/action-wordpress-plugin-deploy`（2.3.0。commit で固定）で SVN の trunk・`tags/<版>` と `assets/`（`plugins/cart-bridge-jp/.wordpress-org`） |
+| `deploy-wporg.yml` | **手動（workflow_dispatch）**。入力は版と `dry_run` | build ジョブ（secrets なし）: 版の形を確かめ → `v<版>` の**タグ**を checkout → `bin/readme-release.php` → 同じ `bin/build-zip.sh` の zip を展開して artifact に。deploy ジョブ（Environment `wordpress-org`）: artifact と assets（`plugins/cart-bridge-jp/.wordpress-org`）だけを受け取り、`10up/action-wordpress-plugin-deploy`（2.3.0。commit で固定）で SVN の trunk・`tags/<版>` と `assets/` へ |
 
 - **GitHub Release の本文は readme の Changelog の節**（ユーザー決定）。以前の `generate_release_notes` は直前のリリースからの差分で、Pro の `pro-v*` のリリースが間に入ると
   その差分になりうる（backlog `r3-8c-pro-updates-and-release/R1-X1`）。wordpress.org の changelog と同じ文になる。
@@ -810,9 +811,17 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   本文（次の `= … =`・`== … ==` の前まで）を標準出力へ出す。問題は標準エラーへ出して 1、読めなければ 2。タグのリリースは CI のテストを通らないので、リリースを止める条件をこのスクリプトに置き
   （`.claude/rules/skill-scripts.md`「リリースを止める検査は…」）、`ReadmeTest`（版 1.0.0 以上ではその版で問題が無い。それより前は用意した 1.0.0 の節があって残るのは Stable tag だけ）と
   `ReadmeReleaseScriptTest` が同じ関数で読む。見出しの版は文字どおりに比べ、`== Upgrade Notice ==` などの同じ見出しは読まない。
-- **`deploy-wporg.yml` は手動実行だけ**（ユーザー決定。saai-knowledge と同じ形）: タグの push では wordpress.org へ送らない。使えるのは、申請が承認され、secrets に `SVN_USERNAME`・`SVN_PASSWORD` を
-  登録し、送る版の `v<版>` のタグがある後（R3-4b）。ソースのディレクトリ（`src/`・`tests/` がある）ではなく、検査した zip の中身を trunk に写す。`dry_run` は SVN の作業コピーの差分を出すだけ
-  （secrets と承認済みのリポジトリは要る）。
+  **節・節の中の見出し・ヘッダーの区切りは wordpress.org の readme のパーサー（Plugin Check 2.1.0 に同梱の `Readme/Parser.php`）と同じ規則**（review-loop R1-1）: 節の見出しは前後の空白を除いた行が
+  `==` か `##`（`###` 以外）で始まる行（閉じの無い `== X`・`=== X ===`・行頭の空白も見出し）、別名 `Change log`。節の中の見出しは `=`・`#` で始まる行で、`= 1.0.0 =` も `### 1.0.0` も `1.0.0` と読む。
+  ヘッダーはタイトル（最初の行がヘッダーでなければ）の後から短い説明の前まで。規則が違うと、wordpress.org では Upgrade Notice にある節を changelog として読み、リリースを通してしまう（以前は通した）。
+  `Stable tag` が 2 つある（wordpress.org は後の値を使う）・同じ版の節が 2 つある・節が空のときも止める。
+  版は `X.Y.Z` だけを受けるので、プレリリースのタグ（`v1.0.0-rc.1`。`v*.*.*` に一致する）は release.yml がここで止める（wordpress.org の版の流れでは使わない。R1-L3。以前は GitHub だけで配るプレリリースを作れた）。
+  `release.yml` は本文のファイルが空でないことも確かめる（R1-L1）。
+- **`deploy-wporg.yml` は手動実行だけ**（ユーザー決定。saai-knowledge と同じ形）: タグの push では wordpress.org へ送らない。使えるのは、申請が承認され、Environment `wordpress-org` の secrets に `SVN_USERNAME`・`SVN_PASSWORD` を
+  登録し、送る版の `v<版>` のタグがある後（R3-4b。Environment の承認者・デプロイできるタグの保護も設定するとよい）。ソースのディレクトリ（`src/`・`tests/` がある）ではなく、検査した zip の中身を trunk に写す。`dry_run` は SVN の作業コピーを用意して変更の一覧（`svn status`）を出すだけ
+  （secrets と承認済みのリポジトリは要る）。**ジョブを 2 つに分けた**（review-loop R1-L2）: `npm ci`（依存のスクリプトが動く）と zip の作成は secrets の無い build ジョブで行い、deploy ジョブは artifact（zip の中身）と
+  assets だけを受け取ってリポジトリのコードを実行しない。同じジョブだと、前の step のコードが取得済みの action のスクリプトを書き換えて資格情報を読める。checkout は `persist-credentials: false`。
+  入力した版が今の版より低いと trunk と Stable tag を戻せてしまう（10up の action が止めるのは `tags/<版>` が既にあるときだけ）ので、実行する人が版を確かめる。
 - **配布 zip に `composer.json` を入れる**（Plugin Check の `missing_composer_json_file`: `vendor/autoload.php` があって `composer.json` が無いと警告する。`File_Type_Check::look_for_composer_files()`）。
   zip の `vendor/` は実行時の依存の無い PSR-4 の autoloader だけ。`composer.lock` は除いたまま。Pro の zip は wordpress.org で配らないので変えない。
 - **Plugin Check（2.1.0、配布 zip を展開して全チェック）**: R3-5b の残りの警告 2 つ（`missing_composer_json_file`・`load_plugin_textdomainFound`〔§6「翻訳（R3-2）」〕）が消え、
