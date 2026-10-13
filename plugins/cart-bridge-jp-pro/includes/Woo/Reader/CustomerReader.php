@@ -9,11 +9,13 @@ namespace CartBridgeJP\Pro\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
+use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Pro\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Woo\Reader\EntityReader;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\Reader\ReadPage;
+use CartBridgeJP\Woo\WarningCode;
 use WP_User;
 use WP_User_Query;
 
@@ -68,11 +70,7 @@ final class CustomerReader implements EntityReader {
 		}
 
 		$query = new WP_User_Query( $args );
-		// クエリは保存したロール・能力のメタでしか絞れない（`capability__not_in` は権限のメタの NOT LIKE で、`user_has_cap` などで
-		// 足される能力は見えない）。取得した後に取込みと同じ判定で外す（R3-5b review-loop R1-L7）。外した分は件数〔total〕に残るので、
-		// 進捗が 100% に届く前に終わることがある（まれ。スタッフに動的な能力を足すプラグインのサイトだけ）。
-		$users = array_filter( $query->get_results(), static fn ( WP_User $user ): bool => ! CustomerWriter::has_protected_role( $user->ID ) );
-		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->to_read_item( $user ), $users ) );
+		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->read_item( $user ), $query->get_results() ) );
 
 		$page          = (int) ( $args['paged'] ?? 1 );
 		$total_pages   = null !== $only_local_ids ? 1 : (int) ceil( $query->get_total() / self::PAGE_SIZE );
@@ -88,6 +86,29 @@ final class CustomerReader implements EntityReader {
 	 */
 	private static function non_customer_roles(): array {
 		return array_values( array_diff( array_keys( wp_roles()->get_names() ), CustomerWriter::CUSTOMER_ROLES ) );
+	}
+
+	/**
+	 * クエリは保存したロール・能力のメタでしか絞れない（`capability__not_in` は権限のメタの NOT LIKE で、`user_has_cap` などで足される能力は
+	 * 見えない）。取込みと同じ判定（`CustomerWriter::has_protected_role()`）で保護するアカウントは、送らない理由（`CUSTOMER_ACCOUNT_PROTECTED`。
+	 * エクスポートを止める印つき。detail はユーザー ID）を付けて返す（R3-5b review-loop R1-L7）。結果から外すと件数（total）と処理した数が
+	 * ずれ、送らなかった理由も残らない（G2）。
+	 */
+	private function read_item( WP_User $user ): ReadItem {
+		$read_item = $this->to_read_item( $user );
+
+		if ( ! CustomerWriter::has_protected_role( $user->ID ) ) {
+			return $read_item;
+		}
+
+		return new ReadItem(
+			$read_item->local_id,
+			$read_item->item,
+			[ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $user->ID ) ],
+			true,
+			[],
+			$read_item->linked_by_import
+		);
 	}
 
 	private function to_read_item( WP_User $user ): ReadItem {

@@ -8,9 +8,11 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
+use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Pro\Woo\Reader\CustomerReader;
 use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Tests\Woo\WooTestCase;
+use CartBridgeJP\Woo\WarningCode;
 
 final class CustomerReaderTest extends WooTestCase {
 
@@ -221,9 +223,10 @@ final class CustomerReaderTest extends WooTestCase {
 	}
 
 	/**
-	 * `user_has_cap` で足される能力（権限のメタに無い）はクエリでは絞れないので、取得した後に取込みと同じ判定で外す（R3-5b review-loop R1-L7）。
+	 * `user_has_cap` で足される能力（権限のメタに無い）はクエリでは絞れないので、取込みと同じ判定で保護し、送らない理由（エクスポートを止める印つき）を
+	 * 付けて返す（R3-5b review-loop R1-L7。結果から外すと件数と処理した数がずれる。G2）。
 	 */
-	public function test_query_excludes_customers_given_a_staff_capability_at_runtime(): void {
+	public function test_customers_given_a_staff_capability_at_runtime_are_blocked_from_export(): void {
 		$plain_customer_id = $this->create_customer( 'plain@example.com' );
 		$dynamic_staff_id  = $this->create_customer( 'dynamic@example.com' );
 
@@ -240,9 +243,17 @@ final class CustomerReaderTest extends WooTestCase {
 			4
 		);
 
-		$page = $this->make_reader()->query( Cursor::start(), null );
+		$page     = $this->make_reader()->query( Cursor::start(), null );
+		$warnings = [];
 
-		$this->assertSame( [ $plain_customer_id ], array_map( static fn ( $item ) => $item->local_id, $page->items ) );
+		foreach ( $page->items as $item ) {
+			$warnings[ $item->local_id ] = $item->warnings;
+		}
+
+		$this->assertSame( 2, $page->total );
+		$this->assertSame( [], $warnings[ $plain_customer_id ] );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $dynamic_staff_id ) ], $warnings[ $dynamic_staff_id ] );
+		$this->assertTrue( WarningCode::indicates_export_blocking( $warnings[ $dynamic_staff_id ] ) );
 	}
 
 	/**

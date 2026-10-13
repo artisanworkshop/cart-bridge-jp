@@ -60,11 +60,12 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 
 	/**
 	 * 警告の判定関数ごとに、真になるコード（`WarningCode` の全定数のうち）。R3-6b1 の前のコードで算出した。
+	 * R3-5b で `customer_account_protected` をエクスポートを止める印に足した（顧客のエクスポートで保護したアカウントを送らない）。
 	 *
 	 * @var array<string,array<int,string>>
 	 */
 	private const PREDICATE_TABLE = [
-		'export_blocking'            => [ 'all_variations_excluded', 'coupon_restrictions_unsupported', 'currency_mismatch', 'order_line_amount_invalid', 'order_line_product_deleted', 'order_line_product_missing', 'order_line_quantity_invalid', 'order_line_tax_class_unsupported', 'order_line_variation_unresolved', 'order_refunded', 'order_totals_invalid', 'price_tax_basis_unresolved', 'product_price_invalid', 'stock_product_not_exported', 'tax_class_unsupported', 'tax_status_not_taxable', 'variation_any_attribute_unsupported', 'variation_axis_limit_exceeded', 'variation_tax_class_unsupported' ],
+		'export_blocking'            => [ 'all_variations_excluded', 'coupon_restrictions_unsupported', 'currency_mismatch', 'customer_account_protected', 'order_line_amount_invalid', 'order_line_product_deleted', 'order_line_product_missing', 'order_line_quantity_invalid', 'order_line_tax_class_unsupported', 'order_line_variation_unresolved', 'order_refunded', 'order_totals_invalid', 'price_tax_basis_unresolved', 'product_price_invalid', 'stock_product_not_exported', 'tax_class_unsupported', 'tax_status_not_taxable', 'variation_any_attribute_unsupported', 'variation_axis_limit_exceeded', 'variation_tax_class_unsupported' ],
 		'unresolved_reference'       => [ 'category_map_unresolved', 'category_parent_unresolved', 'category_ref_unresolved', 'order_customer_not_exported', 'order_customer_unresolved', 'order_line_product_not_exported', 'order_line_product_unresolved', 'order_line_variation_unmatched', 'payment_method_unmapped', 'product_details_push_incomplete', 'product_image_push_incomplete', 'product_variant_push_incomplete', 'push_interrupted_after_create', 'shipping_method_unmapped', 'tag_ref_unresolved' ],
 		'pending_import'             => [ 'category_parent_unresolved', 'category_ref_unresolved', 'product_details_push_incomplete', 'product_image_push_incomplete', 'product_variant_push_incomplete', 'push_interrupted_after_create', 'stock_product_unresolved', 'tag_ref_unresolved' ],
 		'reference_not_found'        => [ 'order_customer_unresolved', 'order_line_product_unresolved' ],
@@ -105,9 +106,9 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 	/**
 	 * `WarningCatalog::describe()` の全結果（全コード × 向き × 行の種類 × detail の有無）の sha256。R3-6b1 の前のコードで算出した。
 	 * カタログの分岐を移しても文言・重大度・対処が 1 文字も変わらないことを確かめる。変わったら、意図した変更かを確かめてから更新する。
-	 * R3-5b で `customer_reused_existing`（紐づけだけにした）と `customer_account_protected`（保護の対象を広げた）の文言を変えて更新した。
+	 * R3-5b で `customer_reused_existing`（紐づけだけにした）と `customer_account_protected`（保護の対象を広げた。エクスポートの向きの説明を足した）の文言を変えて更新した。
 	 */
-	private const CATALOG_SHA256 = '524e54d437dae7126c3b5cf81f5a18fa1dfe2f76b1d86be8b531a0ed677a8f7e';
+	private const CATALOG_SHA256 = '0edc5be450fb0b9b28c92873b33ba8596dae0d88c064e0c9ebae34011dd7c2ea';
 
 	public function set_up(): void {
 		parent::set_up();
