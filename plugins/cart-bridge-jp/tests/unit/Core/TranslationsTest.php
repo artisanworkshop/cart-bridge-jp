@@ -157,12 +157,14 @@ final class TranslationsTest extends WP_UnitTestCase {
 	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
 	 */
 	public function test_php_strings_are_translated_when_the_locale_is_japanese(): void {
-		$expected = self::po()->entries['Unknown platform.']->translations[0];
-		$this->assertNotSame( 'Unknown platform.', $expected );
+		// PHP だけが使う文字列（R3-5b で 'Unknown platform.' を消したので替えた）。
+		$msgid    = 'Save the Client ID and Client Secret first, then connect.';
+		$expected = self::po()->entries[ $msgid ]->translations[0];
+		$this->assertNotSame( $msgid, $expected );
 
 		$this->use_japanese();
 
-		$this->assertSame( $expected, __( 'Unknown platform.', 'cart-bridge-jp' ) );
+		$this->assertSame( $expected, __( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ) );
 	}
 
 	public function test_admin_script_translations_load_when_the_locale_is_japanese(): void {

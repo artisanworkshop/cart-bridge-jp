@@ -1,25 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 import { Notice, Spinner } from '@wordpress/components';
 import apiFetch from '../api';
 import ConnectionCard from '../components/ConnectionCard';
+import { oauthNoticeMessage, parseOAuthStatus } from '../oauth-status';
+import type { OAuthStatus } from '../oauth-status';
 import type { Connection } from '../types';
-
-type OAuthStatus =
-	| { status: 'success'; platform: string }
-	| { status: 'error'; message: string };
 
 /**
  * OAuthコールバック（`/connect/{platform}/callback`）は完了後、このタブへ
- * `?cbjp_connected=` / `?cbjp_connect_error=` を付けてリダイレクトしてくる。
- * `cbjp_connected` はプラットフォームの ID（`colorme`）なので、表示名は接続一覧を読んでから引く（`oauthNoticeMessage()`）。
+ * `?cbjp_connected=` / `?cbjp_connect_error=` を付けてリダイレクトしてくる。読んだら URL から消す
+ * （再読込で同じ通知を出さない）。文にするのは `oauth-status.ts`（URL の文字は出さない。R3-5b）。
  */
 function readAndClearOAuthStatus(): OAuthStatus | null {
 	const params = new URLSearchParams( window.location.search );
-	const connected = params.get( 'cbjp_connected' );
-	const error = params.get( 'cbjp_connect_error' );
+	const status = parseOAuthStatus( params );
 
-	if ( ! connected && ! error ) {
+	if ( null === status ) {
 		return null;
 	}
 
@@ -32,31 +29,7 @@ function readAndClearOAuthStatus(): OAuthStatus | null {
 		window.location.hash;
 	window.history.replaceState( {}, '', newUrl );
 
-	if ( error ) {
-		return { status: 'error', message: error };
-	}
-
-	return { status: 'success', platform: connected as string };
-}
-
-function oauthNoticeMessage(
-	notice: OAuthStatus,
-	connections: Connection[]
-): string {
-	if ( 'error' === notice.status ) {
-		return notice.message;
-	}
-
-	const label =
-		connections.find(
-			( connection ) => connection.platform === notice.platform
-		)?.label ?? notice.platform;
-
-	return sprintf(
-		/* translators: %s: the name of the shop, or of the platform (e.g. "Color Me Shop") */
-		__( 'Connected to %s.', 'cart-bridge-jp' ),
-		label
-	);
+	return status;
 }
 
 export default function ConnectionsTab() {
