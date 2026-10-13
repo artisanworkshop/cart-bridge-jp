@@ -92,3 +92,10 @@ paths:
 - **`WC_Product::save()` の更新は、投稿の列（名前・説明・短い説明・状態・menu_order・スラッグ・日付など）が変わったときだけ `wp_update_post()` を呼ぶ**（`WC_Product_Data_Store_CPT::update()`）。
   価格・在庫・メタだけの更新は `wp_insert_post` 系のフィルター（kses・`wp_insert_post_data`・`post_updated`）を通らない。保存時のフィルターを確かめるテストは投稿の列も変え、
   `did_action( 'post_updated' )` などで通ったことを前提として確かめる（価格だけ変えたテストは、正しいコードでは何も通らず退行を見逃す。PR #105 R1-2）
+- **WooCommerce のテンプレートは SKU と可変商品の軸の名前をエスケープせずに出す**（WC 11.2 の実ソース。R3-5b）: `single-product/meta.php` の SKU・SKU のブロック（`ProductSKU`）と、
+  `single-product/add-to-cart/variable.php` の `wc_attribute_label()`（phpcs:ignore の理由は「属性の名前は保存時に浄化済み」）。WooCommerce 自身の管理画面・REST は SKU を `wc_clean()`、
+  属性の名前を `wc_clean( esc_html() )` で保存する前提で、CRUD のセッター（`set_sku()`・`WC_Product_Attribute::set_name()`）は何もしない。ASP の値をこれらに書く Writer は自分で整形する
+  （SKU は `SkuGuard::normalize()`、属性の名前は `HtmlText::from_plain()`。軸の名前は変換後の値をバリエーションの属性のキー〔`sanitize_title()`〕にも使う。`A<B` は変換の前後でキーが変わる）。
+  属性の値・住所・受注の明細名は WooCommerce が出力時に `esc_html`・`wp_kses_post` する。新しい項目を Woo に書くときは、出力するテンプレートを読んでエスケープの有無を確かめる
+- **管理者の Cookie で動く非同期ランナーは、画像のふりをした HTML も保存できる**（R3-5b）: `wp_check_filetype_and_ext()` はファイル名の拡張子が画像でなければ中身を見ずに、
+  実行するユーザーに許された種類（管理者なら `text/html`、WP-Cron でも PDF・zip など）として通す。ASP の URL から取ったファイルは `image/` の種類だけを保存する（`MediaImporter::fallback_sideload()`）
