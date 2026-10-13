@@ -98,4 +98,5 @@ paths:
   （SKU は `SkuGuard::normalize()`、属性の名前は `HtmlText::from_plain()`。軸の名前は変換後の値をバリエーションの属性のキー〔`sanitize_title()`〕にも使う。`A<B` は変換の前後でキーが変わる）。
   属性の値・住所・受注の明細名は WooCommerce が出力時に `esc_html`・`wp_kses_post` する。新しい項目を Woo に書くときは、出力するテンプレートを読んでエスケープの有無を確かめる
 - **管理者の Cookie で動く非同期ランナーは、画像のふりをした HTML も保存できる**（R3-5b）: `wp_check_filetype_and_ext()` はファイル名の拡張子が画像でなければ中身を見ずに、
-  実行するユーザーに許された種類（管理者なら `text/html`、WP-Cron でも PDF・zip など）として通す。ASP の URL から取ったファイルは `image/` の種類だけを保存する（`MediaImporter::fallback_sideload()`）
+  実行するユーザーに許された種類（管理者なら `text/html`、WP-Cron でも PDF・zip など）として通す。画像の拡張子でも、`wp_get_image_mime()` が判定できない種類（SVG）は fileinfo の判定に回り、
+  SVG を許すプラグインのあるサイトでは `image/svg+xml` のまま通る。ASP の URL から取ったファイルは、`image/` の種類で `wp_get_image_mime()` も画像と答えるものだけを保存する（`MediaImporter::fallback_sideload()`。R3-5b review-loop R1-L6）
