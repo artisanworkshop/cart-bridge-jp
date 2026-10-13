@@ -332,11 +332,15 @@ final class PasswordEmailPage {
 	}
 
 	/**
-	 * @param array{send:int,unknown:int,legacy_send:int,excluded:array<string,int>,legacy_ids:array<int,int>,sending_ids:array<int,int>,failed_ids:array<int,int>} $summary
-	 * @param array{ids:array<int,int>,discarded:bool}|null                                                                                                      $estimate
+	 * @param array{send:int,unknown:int,legacy_send:int,excluded:array<string,int>,legacy_ids:array<int,int>,sending_ids:array<int,int>,failed_ids:array<int,int>,incomplete:bool} $summary
+	 * @param array{ids:array<int,int>,discarded:bool}|null                                                                                                                      $estimate
 	 */
 	private function render_summary( array $summary, ?array $estimate, bool $running ): void {
 		printf( '<h2>%s</h2>', esc_html__( 'Recipients', 'cart-bridge-jp-pro' ) );
+
+		if ( $summary['incomplete'] ) {
+			printf( '<div class="notice notice-warning inline"><p>%s</p></div>', esc_html__( 'Some customers could not be read from the database, so the numbers below may be too low. Reload this page to count again.', 'cart-bridge-jp-pro' ) );
+		}
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 		// 始める前は、0.1.0 の推定を除いた件数（推定は下の一覧。含めるかを開始のときに選ぶ）。
@@ -595,6 +599,7 @@ final class PasswordEmailPage {
 			Campaign::STOP_MAIL_FAILING      => __( 'Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume.', 'cart-bridge-jp-pro' ),
 			Campaign::STOP_RECORD_FAILING    => __( 'The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume.', 'cart-bridge-jp-pro' ),
 			Campaign::STOP_SCHEDULE_FAILED   => __( 'The background task could not be scheduled. Try again.', 'cart-bridge-jp-pro' ),
+			Campaign::STOP_SCAN_FAILED       => __( 'The customers could not be read from the database, so sending stopped instead of skipping them. Check the database, and then resume.', 'cart-bridge-jp-pro' ),
 			default                          => __( 'The sending state changed unexpectedly. Check the status and start again if needed.', 'cart-bridge-jp-pro' ),
 		};
 	}

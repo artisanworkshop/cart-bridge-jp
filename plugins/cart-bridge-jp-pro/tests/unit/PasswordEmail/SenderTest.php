@@ -13,6 +13,7 @@ use CartBridgeJP\Pro\PasswordEmail\LegacyAccountEstimator;
 use CartBridgeJP\Pro\PasswordEmail\Sender;
 use CartBridgeJP\Pro\PasswordEmail\SendLock;
 use CartBridgeJP\Pro\PasswordEmail\SendRecord;
+use CartBridgeJP\Pro\PasswordEmail\StateOption;
 use CartBridgeJP\Pro\Tests\Fixtures\CreatesImportedCustomers;
 use CartBridgeJP\Pro\Tests\Fixtures\PreparesPasswordEmail;
 use CartBridgeJP\Tests\Woo\WooTestCase;
@@ -380,11 +381,36 @@ final class SenderTest extends WooTestCase {
 
 		Campaign::cancel( $run['run_id'] );
 		$run = $this->start();
-		update_option( Campaign::PROGRESS_OPTION, (string) wp_json_encode( [ 'run_id' => str_repeat( 'd', 32 ) ] ) );
+		StateOption::delete( Campaign::progress_option( $run['run_id'] ) );
 		Sender::handle( $run['run_id'], $run['token'] );
 		$this->assertSame( Campaign::STOP_STATE, Campaign::control()['reason'] );
 
 		$this->assertSame( [], $this->recipients() );
+	}
+
+	/**
+	 * 候補を DB から読めなければ、完了にせず止める（空のページを「見尽くした」と読んで、残りの顧客を黙って飛ばさない。PR #135 G3-1）。
+	 */
+	public function test_stops_instead_of_finishing_when_candidates_cannot_be_read(): void {
+		global $wpdb;
+
+		$this->imported_customer( '1' );
+		$run = $this->start();
+		add_filter(
+			'query',
+			static fn ( string $sql ): string => str_contains( $sql, 'SELECT DISTINCT u.ID' ) ? 'SELECT broken FROM no_such_table' : $sql
+		);
+		$suppress = $wpdb->suppress_errors( true );
+
+		try {
+			Sender::handle( $run['run_id'], $run['token'] );
+		} finally {
+			$wpdb->suppress_errors( $suppress );
+		}
+
+		$this->assertSame( [], $this->recipients() );
+		$this->assertSame( Campaign::STATUS_STOPPED, Campaign::control()['status'] );
+		$this->assertSame( Campaign::STOP_SCAN_FAILED, Campaign::control()['reason'] );
 	}
 
 	/**

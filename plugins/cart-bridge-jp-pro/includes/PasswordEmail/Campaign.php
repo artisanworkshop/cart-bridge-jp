@@ -13,18 +13,22 @@ namespace CartBridgeJP\Pro\PasswordEmail;
  * 状態は 2 つの option に分ける（どちらも autoload なし）:
  * - **制御**（{@see self::CONTROL_OPTION}）: run の ID・状態・停止の理由・チェーンのトークン・0.1.0 の推定を含めるか。開始・取消・再開・次のバッチへの引継ぎ・完了・停止は、
  *   直前に DB から読んだ値と一致するときだけ書く（CAS。{@see StateOption}）。取消がバッチの書き戻しで消えない。
- * - **進捗**（{@see self::PROGRESS_OPTION}）: カーソル（見終えた最大のユーザー ID）と件数。バッチだけが CAS で書き、開始で作り直す。
+ * - **進捗**（{@see self::progress_option()}。run ごとの option）: カーソル（見終えた最大のユーザー ID）と件数。バッチだけが CAS で書く。
+ *   進捗と 0.1.0 の推定は run の ID を名前に含めた別々の行にし、開始は制御の CAS の**前に**新しい run の行を作る（開始・取消・次の開始がほぼ同時に重なっても、
+ *   遅れた古い要求が新しい run の行を書き換えない。PR #135 G3-2）。CAS に負けたら自分の行を消し、勝ったら前の run の行を消す。
  *
  * Action Scheduler のアクションはトークンを持ち（`Sender::HOOK` の引数 `[ run_id, token ]`）、制御のトークンと一致するバッチだけが進む。次のバッチを予約するときと
  * 再開するときにトークンを替えるので、古いチェーン・2 回目の再開の要求は進めない。
  */
 final class Campaign {
 
-	public const CONTROL_OPTION  = 'cbjp_pro_password_email_control';
-	public const PROGRESS_OPTION = 'cbjp_pro_password_email_progress';
+	public const CONTROL_OPTION = 'cbjp_pro_password_email_control';
 
-	/** 0.1.0 で作ったと推定したアカウント（開始のときに推定して控える。run の間は変えない）。 */
-	public const LEGACY_OPTION = 'cbjp_pro_password_email_legacy';
+	/** 進捗の行の名前の接頭辞（後ろに run の ID）。 */
+	public const PROGRESS_OPTION_PREFIX = 'cbjp_pro_password_email_progress_';
+
+	/** 0.1.0 で作ったと推定したアカウントの行の名前の接頭辞（後ろに run の ID。開始のときに推定して控える。run の間は変えない）。 */
+	public const LEGACY_OPTION_PREFIX = 'cbjp_pro_password_email_legacy_';
 
 	public const STATUS_RUNNING   = 'running';
 	public const STATUS_COMPLETED = 'completed';
@@ -49,6 +53,9 @@ final class Campaign {
 	/** 進捗の行が run と食い違う（後から書き換えられた）。 */
 	public const STOP_STATE = 'state';
 
+	/** 送る相手の候補を DB から読めなかった（読めない間に「完了」にしない。PR #135 G3-1）。 */
+	public const STOP_SCAN_FAILED = 'scan_failed';
+
 	private function __construct() {}
 
 	/**
@@ -62,13 +69,22 @@ final class Campaign {
 		return null === $read ? null : self::normalize_control( $read['value'] );
 	}
 
+	public static function progress_option( string $run_id ): string {
+		return self::PROGRESS_OPTION_PREFIX . $run_id;
+	}
+
+	public static function legacy_option( string $run_id ): string {
+		return self::LEGACY_OPTION_PREFIX . $run_id;
+	}
+
 	/**
-	 * 今の進捗（DB から読む）。無い・壊れていれば空の進捗。
+	 * 今の run の進捗（DB から読む）。run が無い・行が無い・壊れていれば空の進捗。
 	 *
 	 * @return array{run_id:string,cursor:int,sent:int,failed:int,unknown:int,legacy:int,consecutive_failures:int,last_batch_at:int,rev:int}
 	 */
 	public static function progress(): array {
-		$read = StateOption::read( self::PROGRESS_OPTION );
+		$control = self::control();
+		$read    = null === $control || '' === $control['run_id'] ? null : StateOption::read( self::progress_option( $control['run_id'] ) );
 
 		return self::normalize_progress( null === $read ? [] : $read['value'] );
 	}
@@ -101,22 +117,31 @@ final class Campaign {
 			'rev'            => null === $current ? 1 : self::normalize_control( $current['value'] )['rev'] + 1,
 		];
 
-		// 制御の CAS に勝ってから進捗と推定を作り直す（同時の開始で負けた側が、勝った run の進捗を書き換えない）。バッチは呼び出し側がこの後に予約するので、
-		// 最初のバッチは新しい進捗を読む。前の run のバッチが残っていても、制御の run が替わったので進捗を書かずに止まる（進捗の書込みも CAS）。
-		if ( ! StateOption::swap( self::CONTROL_OPTION, $current, $control ) ) {
-			return null;
-		}
-
-		StateOption::delete( self::PROGRESS_OPTION );
-		StateOption::insert( self::PROGRESS_OPTION, self::empty_progress( $run_id ) );
-		StateOption::delete( self::LEGACY_OPTION );
+		// 新しい run の行は制御の CAS の前に作る（名前に run の ID を含むので、ほかの run の行と重ならない。G3-2）。バッチは呼び出し側がこの後に予約するので、
+		// 最初のバッチは新しい進捗を読む。前の run のバッチが残っていても、制御の run が替わったので進捗を書かずに止まる。
+		StateOption::insert( self::progress_option( $run_id ), self::empty_progress( $run_id ) );
 		StateOption::insert(
-			self::LEGACY_OPTION,
+			self::legacy_option( $run_id ),
 			[
 				'run_id' => $run_id,
 				'ids'    => $include_legacy ? array_values( array_map( 'intval', $legacy_ids ) ) : [],
 			]
 		);
+
+		if ( ! StateOption::swap( self::CONTROL_OPTION, $current, $control ) ) {
+			StateOption::delete( self::progress_option( $run_id ) );
+			StateOption::delete( self::legacy_option( $run_id ) );
+
+			return null;
+		}
+
+		// 置き換えた前の run の行を消す（その run のバッチは制御の run が替わったので書かない）。
+		$previous = null === $current ? '' : self::normalize_control( $current['value'] )['run_id'];
+
+		if ( '' !== $previous ) {
+			StateOption::delete( self::progress_option( $previous ) );
+			StateOption::delete( self::legacy_option( $previous ) );
+		}
 
 		return [
 			'run_id' => $run_id,
@@ -146,12 +171,12 @@ final class Campaign {
 
 		// 連続の失敗の数を戻す（メールを送れずに止まった run を設定を直して再開したとき、最初の 1 通の失敗でまた止めない。R1-L6）。
 		// 止まった・中断した run の進捗を書くバッチは無いので、ここで書いてよい（書けなくても再開は成り立つ）。
-		$state = self::progress_for_update();
+		$state = self::progress_for_update( $run_id );
 
 		if ( null !== $state && $state['progress']['run_id'] === $run_id && $state['progress']['consecutive_failures'] > 0 ) {
 			$progress                         = $state['progress'];
 			$progress['consecutive_failures'] = 0;
-			self::save_progress( $state['raw'], $progress );
+			self::save_progress( $run_id, $state['raw'], $progress );
 		}
 
 		return $token;
@@ -177,23 +202,23 @@ final class Campaign {
 	}
 
 	/**
-	 * 進捗を書く（`$expected` は同じバッチが読んだ生の値。開始で作り直されていれば書かない）。
+	 * run の進捗を書く（`$expected` は同じバッチが読んだ生の値。読んだ後に書き換えられた・行が消された〔次の run が始まった〕なら書かない）。
 	 *
 	 * @param array{run_id:string,cursor:int,sent:int,failed:int,unknown:int,legacy:int,consecutive_failures:int,last_batch_at:int,rev:int} $progress
 	 */
-	public static function save_progress( string $expected, array $progress ): bool {
+	public static function save_progress( string $run_id, string $expected, array $progress ): bool {
 		$progress['rev'] = $progress['rev'] + 1;
 
-		return StateOption::replace( self::PROGRESS_OPTION, $expected, $progress );
+		return StateOption::replace( self::progress_option( $run_id ), $expected, $progress );
 	}
 
 	/**
-	 * 進捗の生の値（バッチの CAS 用）と読んだ進捗。
+	 * run の進捗の生の値（バッチの CAS 用）と読んだ進捗。行が無ければ null。
 	 *
 	 * @return array{raw:string,progress:array{run_id:string,cursor:int,sent:int,failed:int,unknown:int,legacy:int,consecutive_failures:int,last_batch_at:int,rev:int}}|null
 	 */
-	public static function progress_for_update(): ?array {
-		$read = StateOption::read( self::PROGRESS_OPTION );
+	public static function progress_for_update( string $run_id ): ?array {
+		$read = StateOption::read( self::progress_option( $run_id ) );
 
 		if ( null === $read ) {
 			return null;
@@ -211,7 +236,7 @@ final class Campaign {
 	 * @return array<int,int>
 	 */
 	public static function legacy_ids( string $run_id ): array {
-		$read  = StateOption::read( self::LEGACY_OPTION );
+		$read  = StateOption::read( self::legacy_option( $run_id ) );
 		$value = null === $read ? [] : $read['value'];
 
 		if ( ( $value['run_id'] ?? null ) !== $run_id || ! is_array( $value['ids'] ?? null ) ) {

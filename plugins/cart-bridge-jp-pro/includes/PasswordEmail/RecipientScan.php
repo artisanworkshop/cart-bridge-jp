@@ -19,11 +19,12 @@ final class RecipientScan {
 	private function __construct() {}
 
 	/**
-	 * `$after` より大きい候補の ID（昇順、最大 `$limit` 件）。
+	 * `$after` より大きい候補の ID（昇順、最大 `$limit` 件）。照会の DB エラーなら null（`get_col()` は失敗しても空を返すので `$wpdb->last_error` で見る。
+	 * 空のページを「候補を見尽くした」と読んで送信を完了にしない。PR #135 G3-1）。
 	 *
-	 * @return array<int,int>
+	 * @return array<int,int>|null
 	 */
-	public static function ids_after( int $after, int $limit ): array {
+	public static function ids_after( int $after, int $limit ): ?array {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 候補の ID をカーソルの次から読む（WP_User_Query は「ID より大きい」を表せない）。
@@ -36,17 +37,24 @@ final class RecipientScan {
 			)
 		);
 
-		return array_map( 'intval', is_array( $ids ) ? $ids : [] );
+		if ( '' !== $wpdb->last_error || ! is_array( $ids ) ) {
+			return null;
+		}
+
+		return array_map( 'intval', $ids );
 	}
 
 	/**
 	 * 全候補を判定して数える（画面の件数）。送る相手の内訳（判定できない・0.1.0 の推定）と、外した理由ごとの件数、送る相手のうち 0.1.0 の推定の ID、
 	 * `sending` のまま残った顧客・前の送信の失敗の ID。
 	 *
-	 * @return array{send:int,unknown:int,legacy_send:int,excluded:array<string,int>,legacy_ids:array<int,int>,sending_ids:array<int,int>,failed_ids:array<int,int>}
+	 * 候補を読めなかった（DB エラー）ときは、そこまでの件数で止め、`incomplete` を真にする。
+	 *
+	 * @return array{send:int,unknown:int,legacy_send:int,excluded:array<string,int>,legacy_ids:array<int,int>,sending_ids:array<int,int>,failed_ids:array<int,int>,incomplete:bool}
 	 */
 	public static function summarize( RecipientPolicy $policy ): array {
 		$summary = [
+			'incomplete'  => false,
 			'send'        => 0,
 			'unknown'     => 0,
 			'legacy_send' => 0,
@@ -59,6 +67,11 @@ final class RecipientScan {
 
 		do {
 			$ids = self::ids_after( $after, self::CHUNK );
+
+			if ( null === $ids ) {
+				$summary['incomplete'] = true;
+				break;
+			}
 
 			if ( [] === $ids ) {
 				break;

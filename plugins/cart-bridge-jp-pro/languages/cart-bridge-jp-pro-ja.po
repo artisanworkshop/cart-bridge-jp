@@ -304,7 +304,7 @@ msgstr "ライセンスサーバーではキーを有効化しましたが、こ
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
 #: includes/Admin/LicensePage.php:475
-#: includes/Admin/PasswordEmailPage.php:637
+#: includes/Admin/PasswordEmailPage.php:642
 #, php-format
 msgid "%1$s %2$s"
 msgstr "%1$s%2$s"
@@ -1115,197 +1115,197 @@ msgstr "送れなかった件数"
 msgid "Recipients"
 msgstr "送る相手"
 
-#: includes/Admin/PasswordEmailPage.php:343
+#: includes/Admin/PasswordEmailPage.php:347
 msgid "Will receive the email"
 msgstr "メールを送る相手"
 
-#: includes/Admin/PasswordEmailPage.php:350
+#: includes/Admin/PasswordEmailPage.php:354
 msgid "Password status unknown"
 msgstr "パスワードの状態が不明"
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:366
+#: includes/Admin/PasswordEmailPage.php:370
 msgid "Could not be sent last time"
 msgstr "前回送れなかった顧客"
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:366
+#: includes/Admin/PasswordEmailPage.php:370
 #, php-format
 msgid "%s (included again)"
 msgstr "%s 人（今回も送ります）"
 
-#: includes/Admin/PasswordEmailPage.php:370
+#: includes/Admin/PasswordEmailPage.php:374
 msgid "Already set a password"
 msgstr "パスワードを設定済み"
 
-#: includes/Admin/PasswordEmailPage.php:371
+#: includes/Admin/PasswordEmailPage.php:375
 msgid "Already received the email"
 msgstr "メールを送信済み"
 
-#: includes/Admin/PasswordEmailPage.php:372
+#: includes/Admin/PasswordEmailPage.php:376
 msgid "Staff or other non-customer accounts"
 msgstr "スタッフなど顧客以外のアカウント"
 
-#: includes/Admin/PasswordEmailPage.php:373
+#: includes/Admin/PasswordEmailPage.php:377
 msgid "Accounts the import did not create"
 msgstr "インポートが作らなかったアカウント"
 
-#: includes/Admin/PasswordEmailPage.php:374
+#: includes/Admin/PasswordEmailPage.php:378
 msgid "No valid email address"
 msgstr "正しいメールアドレスが無い"
 
-#: includes/Admin/PasswordEmailPage.php:375
+#: includes/Admin/PasswordEmailPage.php:379
 msgid "Password reset not allowed"
 msgstr "パスワードの再設定が許可されていない"
 
 #. translators: %s: the reason the customers are left out.
-#: includes/Admin/PasswordEmailPage.php:383
+#: includes/Admin/PasswordEmailPage.php:387
 #, php-format
 msgid "Left out: %s"
 msgstr "対象外（%s）"
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:395
+#: includes/Admin/PasswordEmailPage.php:399
 #, php-format
 msgid "Sending to %s customer was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
 msgid_plural "Sending to %s customers was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
 msgstr[0] "%s 人の顧客への送信が途中で止まったため、メールが届いたかが分かりません。未送信に戻すまで、この顧客には送りません。"
 
-#: includes/Admin/PasswordEmailPage.php:418
+#: includes/Admin/PasswordEmailPage.php:422
 msgid "Accounts imported by version 0.1.0 could not be identified reliably, so they are left out."
 msgstr "バージョン 0.1.0 で取り込んだアカウントを確実に見分けられなかったため、対象から外しました。"
 
-#: includes/Admin/PasswordEmailPage.php:426
+#: includes/Admin/PasswordEmailPage.php:430
 msgid "Accounts likely imported by version 0.1.0"
 msgstr "バージョン 0.1.0 で取り込んだと思われるアカウント"
 
-#: includes/Admin/PasswordEmailPage.php:427
+#: includes/Admin/PasswordEmailPage.php:431
 msgid "Version 0.1.0 did not mark the accounts it created. These accounts were registered while a customer import of version 0.1.0 was running, so they were most likely created by it. They receive the email only if you include them when you start sending. Whether they have already set a password cannot be told."
 msgstr "バージョン 0.1.0 は、作ったアカウントに印を付けませんでした。次のアカウントは、バージョン 0.1.0 の顧客のインポートの実行中に登録されたため、そのインポートが作った可能性が高いアカウントです。送信を始めるときに含めた場合だけ、メールを送ります。パスワードを設定し直したかは判定できません。"
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Name"
 msgstr "名前"
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Email"
 msgstr "メールアドレス"
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Registered"
 msgstr "登録日時"
 
 #. translators: %s: the number of accounts.
-#: includes/Admin/PasswordEmailPage.php:453
+#: includes/Admin/PasswordEmailPage.php:457
 #, php-format
 msgid "And %s more."
 msgstr "ほか %s 件。"
 
-#: includes/Admin/PasswordEmailPage.php:466
-#: includes/Admin/PasswordEmailPage.php:469
+#: includes/Admin/PasswordEmailPage.php:470
+#: includes/Admin/PasswordEmailPage.php:473
 msgid "Send a test email"
 msgstr "テストメールを送る"
 
-#: includes/Admin/PasswordEmailPage.php:467
+#: includes/Admin/PasswordEmailPage.php:471
 msgid "Sends the email to your own address with a sample name and a sample link, so that you can check the text and the design."
 msgstr "見本の名前とリンクで、あなたのアドレスにメールを送ります。文面とデザインを確認できます。"
 
-#: includes/Admin/PasswordEmailPage.php:474
+#: includes/Admin/PasswordEmailPage.php:478
 msgid "Resume sending"
 msgstr "送信を再開"
 
-#: includes/Admin/PasswordEmailPage.php:476
+#: includes/Admin/PasswordEmailPage.php:480
 msgid "Resume"
 msgstr "再開"
 
-#: includes/Admin/PasswordEmailPage.php:480
-#: includes/Admin/PasswordEmailPage.php:483
+#: includes/Admin/PasswordEmailPage.php:484
+#: includes/Admin/PasswordEmailPage.php:487
 msgid "Cancel sending"
 msgstr "送信を取り消す"
 
-#: includes/Admin/PasswordEmailPage.php:481
+#: includes/Admin/PasswordEmailPage.php:485
 msgid "Stops sending to the remaining customers. Emails already sent cannot be recalled."
 msgstr "残りの顧客への送信を止めます。送ったメールは取り消せません。"
 
-#: includes/Admin/PasswordEmailPage.php:488
+#: includes/Admin/PasswordEmailPage.php:492
 msgid "Mark interrupted emails as not sent"
 msgstr "途中で止まったメールを未送信に戻す"
 
-#: includes/Admin/PasswordEmailPage.php:489
+#: includes/Admin/PasswordEmailPage.php:493
 msgid "These customers receive the email in the next sending. Some of them may receive it twice."
 msgstr "この顧客には次の送信でメールを送ります。2 通届く顧客がいるかもしれません。"
 
-#: includes/Admin/PasswordEmailPage.php:491
+#: includes/Admin/PasswordEmailPage.php:495
 msgid "Mark as not sent"
 msgstr "未送信に戻す"
 
-#: includes/Admin/PasswordEmailPage.php:499
+#: includes/Admin/PasswordEmailPage.php:503
 msgid "Send to customers"
 msgstr "顧客へ送る"
 
-#: includes/Admin/PasswordEmailPage.php:520
+#: includes/Admin/PasswordEmailPage.php:524
 msgid "This site is not marked as a production site (for example, a staging copy). Send the emails from this site anyway. Customers will receive links to this site."
 msgstr "このサイトは本番のサイトとして設定されていません（ステージングの複製など）。それでもこのサイトからメールを送ります。顧客にはこのサイトへのリンクが届きます。"
 
-#: includes/Admin/PasswordEmailPage.php:538
+#: includes/Admin/PasswordEmailPage.php:542
 msgid "Start sending"
 msgstr "送信を開始"
 
-#: includes/Admin/PasswordEmailPage.php:543
+#: includes/Admin/PasswordEmailPage.php:547
 msgid "Before sending"
 msgstr "送る前に"
 
-#: includes/Admin/PasswordEmailPage.php:547
+#: includes/Admin/PasswordEmailPage.php:551
 msgid "Many hosting services limit how many emails a site can send per hour. Use an SMTP plugin or an email delivery service, and send a test email first. The emails are sent in small batches, and sending stops if several emails in a row cannot be sent."
 msgstr "多くのレンタルサーバーは、1 時間に送れるメールの数を制限しています。SMTP のプラグインかメール配信サービスを使い、先にテストメールを送ってください。メールは少しずつ送り、続けて何通か送れなかったときは送信を止めます。"
 
-#: includes/Admin/PasswordEmailPage.php:548
+#: includes/Admin/PasswordEmailPage.php:552
 msgid "The subject, heading, and additional text can be changed in the WooCommerce email settings. Do not add advertisements to this email."
 msgstr "件名・見出し・追加の文は、WooCommerce のメールの設定で変えられます。このメールに広告を入れないでください。"
 
 #. translators: %s: how long the link works, such as "1 day".
-#: includes/Admin/PasswordEmailPage.php:550
+#: includes/Admin/PasswordEmailPage.php:554
 #, php-format
 msgid "The link in the email works for %s. Customers can request a new link from the lost password page, which the email also shows."
 msgstr "メールのリンクの有効期限は %s です。期限が切れたら、顧客はパスワードを忘れた場合のページから新しいリンクを受け取れます（このページもメールに載せます）。"
 
-#: includes/Admin/PasswordEmailPage.php:551
+#: includes/Admin/PasswordEmailPage.php:555
 msgid "Creating the link updates each customer account, so other plugins that watch account changes may react to it."
 msgstr "リンクを作ると各顧客のアカウントが更新されるため、アカウントの変更を監視する他のプラグインが反応する場合があります。"
 
-#: includes/Admin/PasswordEmailPage.php:552
+#: includes/Admin/PasswordEmailPage.php:556
 msgid "The email goes to the address stored in each account. If the previous shop did not verify email addresses, an address may belong to someone else."
 msgstr "メールは各アカウントに保存されたアドレスに送ります。前のショップがメールアドレスを確認していなかった場合、別の人のアドレスの可能性があります。"
 
-#: includes/Admin/PasswordEmailPage.php:553
+#: includes/Admin/PasswordEmailPage.php:557
 msgid "Only accounts created by the import receive the email. Accounts that already existed and were matched by email, and staff accounts, are left out."
 msgstr "メールを送るのは、インポートが作ったアカウントだけです。メールアドレスの一致で結び付けた既存のアカウントとスタッフのアカウントには送りません。"
 
-#: includes/Admin/PasswordEmailPage.php:564
+#: includes/Admin/PasswordEmailPage.php:568
 msgid "Edit the email in the WooCommerce settings"
 msgstr "WooCommerce の設定でメールを編集"
 
-#: includes/Admin/PasswordEmailPage.php:593
+#: includes/Admin/PasswordEmailPage.php:597
 msgid "The password setup email is disabled. Enable it in the WooCommerce email settings."
 msgstr "パスワード設定メールが無効です。WooCommerce のメールの設定で有効にしてください。"
 
-#: includes/Admin/PasswordEmailPage.php:594
+#: includes/Admin/PasswordEmailPage.php:598
 msgid "The link in the email needs the My account page and its lost password endpoint. Publish the My account page and set the endpoint in the WooCommerce settings."
 msgstr "メールのリンクには、マイアカウントのページとパスワード紛失のエンドポイントが必要です。マイアカウントのページを公開し、WooCommerce の設定でエンドポイントを設定してください。"
 
-#: includes/Admin/PasswordEmailPage.php:595
+#: includes/Admin/PasswordEmailPage.php:599
 msgid "Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume."
 msgstr "続けて何通か送れませんでした。このサイトのメールの設定（SMTP のプラグインやレンタルサーバーの送信数の上限など）を確認してから再開してください。"
 
-#: includes/Admin/PasswordEmailPage.php:597
+#: includes/Admin/PasswordEmailPage.php:601
 msgid "The background task could not be scheduled. Try again."
 msgstr "バックグラウンドの処理を予約できませんでした。もう一度試してください。"
 
-#: includes/Admin/PasswordEmailPage.php:598
+#: includes/Admin/PasswordEmailPage.php:603
 msgid "The sending state changed unexpectedly. Check the status and start again if needed."
 msgstr "送信の状態が思いがけず変わりました。状態を確認し、必要ならもう一度始めてください。"
 
-#: includes/Admin/PasswordEmailPage.php:603
+#: includes/Admin/PasswordEmailPage.php:608
 msgid "Sending to customers requires an activated license key. Activate it on the License tab."
 msgstr "顧客へ送るには、有効化したライセンスキーが必要です。「ライセンス」タブで有効化してください。"
 
@@ -1363,26 +1363,34 @@ msgid "If the link has expired, you can request a new one on this page:"
 msgstr "期限が切れた場合は、次のページから新しいリンクを受け取れます："
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:353
+#: includes/Admin/PasswordEmailPage.php:357
 #, php-format
 msgid "%s of them was imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
 msgid_plural "%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
 msgstr[0] "このうち %s 人は以前の版で取り込んだため、パスワードを設定し直したかを判定できません。この顧客にも送ります。"
 
 #. translators: 1: the address of this site, 2: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:509
+#: includes/Admin/PasswordEmailPage.php:513
 #, php-format
 msgid "The store has moved to this site (%1$s). Send the email to %2$s customer."
 msgid_plural "The store has moved to this site (%1$s). Send the email to %2$s customers."
 msgstr[0] "ストアはこのサイト（%1$s）へ移りました。%2$s 人の顧客にメールを送ります。"
 
 #. translators: %s: the number of accounts.
-#: includes/Admin/PasswordEmailPage.php:531
+#: includes/Admin/PasswordEmailPage.php:535
 #, php-format
 msgid "Also send to the %s account likely imported by version 0.1.0 (listed above)."
 msgid_plural "Also send to the %s accounts likely imported by version 0.1.0 (listed above)."
 msgstr[0] "バージョン 0.1.0 で取り込んだと思われる %s 件のアカウント（上の一覧）にも送る。"
 
-#: includes/Admin/PasswordEmailPage.php:596
+#: includes/Admin/PasswordEmailPage.php:600
 msgid "The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume."
 msgstr "このサイトに送信の記録を保存できなかったため、同じ顧客に 2 通送らないよう送信を止めました。データベースと、ユーザーのデータの保存を変えるプラグインを確認してから再開してください。"
+
+#: includes/Admin/PasswordEmailPage.php:342
+msgid "Some customers could not be read from the database, so the numbers below may be too low. Reload this page to count again."
+msgstr "データベースから読めなかった顧客がいるため、下の件数は実際より少ない可能性があります。このページを再読み込みして数え直してください。"
+
+#: includes/Admin/PasswordEmailPage.php:602
+msgid "The customers could not be read from the database, so sending stopped instead of skipping them. Check the database, and then resume."
+msgstr "データベースから顧客を読めなかったため、飛ばさずに送信を止めました。データベースを確認してから再開してください。"

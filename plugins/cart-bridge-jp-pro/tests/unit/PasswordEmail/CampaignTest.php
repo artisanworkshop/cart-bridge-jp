@@ -110,27 +110,92 @@ final class CampaignTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 進捗は読んだ値と一致するときだけ書く（新しい run が進捗を作り直した後、前の run のバッチが書き戻さない）。
+	 * 進捗は読んだ値と一致するときだけ書く（次の run が始まって前の run の行が消えた後、前の run のバッチが書き戻さない）。
 	 */
 	public function test_progress_is_written_only_over_the_value_read(): void {
 		$first = Campaign::start( 5, false, [] );
-		$state = Campaign::progress_for_update();
+		$state = Campaign::progress_for_update( $first['run_id'] );
 		Campaign::cancel( $first['run_id'] );
 		$second = Campaign::start( 5, false, [] );
 
 		$progress         = $state['progress'];
 		$progress['sent'] = 9;
 
-		$this->assertFalse( Campaign::save_progress( $state['raw'], $progress ) );
+		$this->assertFalse( Campaign::save_progress( $first['run_id'], $state['raw'], $progress ) );
+		$this->assertNull( StateOption::read( Campaign::progress_option( $first['run_id'] ) ), '前の run の行は消えている' );
 		$this->assertSame( $second['run_id'], Campaign::progress()['run_id'] );
 		$this->assertSame( 0, Campaign::progress()['sent'] );
 
-		$state            = Campaign::progress_for_update();
+		$state            = Campaign::progress_for_update( $second['run_id'] );
 		$progress         = $state['progress'];
 		$progress['sent'] = 2;
 
-		$this->assertTrue( Campaign::save_progress( $state['raw'], $progress ) );
+		$this->assertTrue( Campaign::save_progress( $second['run_id'], $state['raw'], $progress ) );
 		$this->assertSame( 2, Campaign::progress()['sent'] );
+	}
+
+	/**
+	 * 開始が制御の CAS に勝った直後に、取消と次の開始が割り込んでも、遅れた古い要求は新しい run の行を書き換えない（行は run ごとで、CAS の前に作る。PR #135 G3-2）。
+	 */
+	public function test_a_late_start_does_not_overwrite_a_newer_run(): void {
+		global $wpdb;
+
+		$older = Campaign::start( 5, false, [] );
+		Campaign::complete( $older['run_id'], $older['token'] );
+		$newer = null;
+		$done  = false;
+		add_filter(
+			'query',
+			static function ( string $sql ) use ( &$done, &$newer, $wpdb, $older ): string {
+				// 開始が CAS に勝った後、前の run の行を消す直前に、取消と次の開始を割り込ませる。
+				if ( ! $done && str_starts_with( $sql, "DELETE FROM {$wpdb->options}" ) && str_contains( $sql, Campaign::progress_option( $older['run_id'] ) ) ) {
+					$done    = true;
+					$current = Campaign::control();
+					Campaign::cancel( $current['run_id'] );
+					$newer = Campaign::start( 6, true, [ 42 ] );
+				}
+
+				return $sql;
+			}
+		);
+
+		$late = Campaign::start( 5, false, [] );
+
+		$this->assertTrue( $done );
+		$this->assertNotNull( $late );
+		$this->assertNotNull( $newer );
+		$this->assertSame( $newer['run_id'], Campaign::control()['run_id'] );
+		$this->assertSame( $newer['run_id'], Campaign::progress()['run_id'], '新しい run の進捗が残る' );
+		$this->assertSame( [ 42 ], Campaign::legacy_ids( $newer['run_id'] ), '新しい run の推定が残る' );
+	}
+
+	/**
+	 * 開始の CAS に負けたら、作った自分の行を消す。
+	 */
+	public function test_a_lost_start_removes_its_own_rows(): void {
+		global $wpdb;
+
+		$winner = null;
+		$done   = false;
+		add_filter(
+			'query',
+			static function ( string $sql ) use ( &$done, &$winner, $wpdb ): string {
+				// 制御を作る（INSERT IGNORE）直前に、別の開始が先に制御を作る。
+				if ( ! $done && str_starts_with( $sql, "INSERT IGNORE INTO {$wpdb->options}" ) && str_contains( $sql, Campaign::CONTROL_OPTION ) ) {
+					$done   = true;
+					$winner = Campaign::start( 6, false, [] );
+				}
+
+				return $sql;
+			}
+		);
+
+		$this->assertNull( Campaign::start( 5, false, [] ) );
+
+		$this->assertNotNull( $winner );
+		$this->assertSame( $winner['run_id'], Campaign::control()['run_id'] );
+		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( Campaign::PROGRESS_OPTION_PREFIX ) . '%' ) );
+		$this->assertSame( [ Campaign::progress_option( $winner['run_id'] ) ], $rows, '負けた開始の進捗の行は残らない' );
 	}
 
 	/**
@@ -196,10 +261,10 @@ final class CampaignTest extends WP_UnitTestCase {
 	 */
 	public function test_resume_resets_the_consecutive_failures(): void {
 		$run                              = Campaign::start( 5, false, [] );
-		$state                            = Campaign::progress_for_update();
+		$state                            = Campaign::progress_for_update( $run['run_id'] );
 		$progress                         = $state['progress'];
 		$progress['consecutive_failures'] = 3;
-		$this->assertTrue( Campaign::save_progress( $state['raw'], $progress ) );
+		$this->assertTrue( Campaign::save_progress( $run['run_id'], $state['raw'], $progress ) );
 		Campaign::stop( $run['run_id'], $run['token'], Campaign::STOP_MAIL_FAILING );
 
 		$this->assertNotNull( Campaign::resume( $run['run_id'], $run['token'] ) );
@@ -210,9 +275,9 @@ final class CampaignTest extends WP_UnitTestCase {
 	public function test_state_options_are_not_autoloaded(): void {
 		global $wpdb;
 
-		Campaign::start( 5, false, [] );
+		$run = Campaign::start( 5, false, [] );
 
-		foreach ( [ Campaign::CONTROL_OPTION, Campaign::PROGRESS_OPTION, Campaign::LEGACY_OPTION ] as $name ) {
+		foreach ( [ Campaign::CONTROL_OPTION, Campaign::progress_option( $run['run_id'] ), Campaign::legacy_option( $run['run_id'] ) ] as $name ) {
 			$this->assertSame( 'off', $wpdb->get_var( $wpdb->prepare( "SELECT autoload FROM {$wpdb->options} WHERE option_name = %s", $name ) ), $name );
 		}
 	}

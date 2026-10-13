@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T21:10:45+00:00\n"
+"POT-Creation-Date: 2026-10-13T21:50:30+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp-pro\n"
@@ -309,7 +309,7 @@ msgstr ""
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
 #: includes/Admin/LicensePage.php:475
-#: includes/Admin/PasswordEmailPage.php:637
+#: includes/Admin/PasswordEmailPage.php:642
 #, php-format
 msgid "%1$s %2$s"
 msgstr ""
@@ -429,16 +429,20 @@ msgstr ""
 msgid "Recipients"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:343
+#: includes/Admin/PasswordEmailPage.php:342
+msgid "Some customers could not be read from the database, so the numbers below may be too low. Reload this page to count again."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:347
 msgid "Will receive the email"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:350
+#: includes/Admin/PasswordEmailPage.php:354
 msgid "Password status unknown"
 msgstr ""
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:353
+#: includes/Admin/PasswordEmailPage.php:357
 #, php-format
 msgid "%s of them was imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
 msgid_plural "%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
@@ -446,209 +450,213 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:366
+#: includes/Admin/PasswordEmailPage.php:370
 msgid "Could not be sent last time"
 msgstr ""
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:366
+#: includes/Admin/PasswordEmailPage.php:370
 #, php-format
 msgid "%s (included again)"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:370
+#: includes/Admin/PasswordEmailPage.php:374
 msgid "Already set a password"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:371
+#: includes/Admin/PasswordEmailPage.php:375
 msgid "Already received the email"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:372
+#: includes/Admin/PasswordEmailPage.php:376
 msgid "Staff or other non-customer accounts"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:373
+#: includes/Admin/PasswordEmailPage.php:377
 msgid "Accounts the import did not create"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:374
+#: includes/Admin/PasswordEmailPage.php:378
 msgid "No valid email address"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:375
+#: includes/Admin/PasswordEmailPage.php:379
 msgid "Password reset not allowed"
 msgstr ""
 
 #. translators: %s: the reason the customers are left out.
-#: includes/Admin/PasswordEmailPage.php:383
+#: includes/Admin/PasswordEmailPage.php:387
 #, php-format
 msgid "Left out: %s"
 msgstr ""
 
 #. translators: %s: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:395
+#: includes/Admin/PasswordEmailPage.php:399
 #, php-format
 msgid "Sending to %s customer was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
 msgid_plural "Sending to %s customers was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/PasswordEmailPage.php:418
+#: includes/Admin/PasswordEmailPage.php:422
 msgid "Accounts imported by version 0.1.0 could not be identified reliably, so they are left out."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:426
+#: includes/Admin/PasswordEmailPage.php:430
 msgid "Accounts likely imported by version 0.1.0"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:427
+#: includes/Admin/PasswordEmailPage.php:431
 msgid "Version 0.1.0 did not mark the accounts it created. These accounts were registered while a customer import of version 0.1.0 was running, so they were most likely created by it. They receive the email only if you include them when you start sending. Whether they have already set a password cannot be told."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Name"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Email"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:430
+#: includes/Admin/PasswordEmailPage.php:434
 msgid "Registered"
 msgstr ""
 
 #. translators: %s: the number of accounts.
-#: includes/Admin/PasswordEmailPage.php:453
+#: includes/Admin/PasswordEmailPage.php:457
 #, php-format
 msgid "And %s more."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:466
-#: includes/Admin/PasswordEmailPage.php:469
+#: includes/Admin/PasswordEmailPage.php:470
+#: includes/Admin/PasswordEmailPage.php:473
 msgid "Send a test email"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:467
+#: includes/Admin/PasswordEmailPage.php:471
 msgid "Sends the email to your own address with a sample name and a sample link, so that you can check the text and the design."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:474
+#: includes/Admin/PasswordEmailPage.php:478
 msgid "Resume sending"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:476
+#: includes/Admin/PasswordEmailPage.php:480
 msgid "Resume"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:480
-#: includes/Admin/PasswordEmailPage.php:483
+#: includes/Admin/PasswordEmailPage.php:484
+#: includes/Admin/PasswordEmailPage.php:487
 msgid "Cancel sending"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:481
+#: includes/Admin/PasswordEmailPage.php:485
 msgid "Stops sending to the remaining customers. Emails already sent cannot be recalled."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:488
+#: includes/Admin/PasswordEmailPage.php:492
 msgid "Mark interrupted emails as not sent"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:489
+#: includes/Admin/PasswordEmailPage.php:493
 msgid "These customers receive the email in the next sending. Some of them may receive it twice."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:491
+#: includes/Admin/PasswordEmailPage.php:495
 msgid "Mark as not sent"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:499
+#: includes/Admin/PasswordEmailPage.php:503
 msgid "Send to customers"
 msgstr ""
 
 #. translators: 1: the address of this site, 2: the number of customers.
-#: includes/Admin/PasswordEmailPage.php:509
+#: includes/Admin/PasswordEmailPage.php:513
 #, php-format
 msgid "The store has moved to this site (%1$s). Send the email to %2$s customer."
 msgid_plural "The store has moved to this site (%1$s). Send the email to %2$s customers."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/PasswordEmailPage.php:520
+#: includes/Admin/PasswordEmailPage.php:524
 msgid "This site is not marked as a production site (for example, a staging copy). Send the emails from this site anyway. Customers will receive links to this site."
 msgstr ""
 
 #. translators: %s: the number of accounts.
-#: includes/Admin/PasswordEmailPage.php:531
+#: includes/Admin/PasswordEmailPage.php:535
 #, php-format
 msgid "Also send to the %s account likely imported by version 0.1.0 (listed above)."
 msgid_plural "Also send to the %s accounts likely imported by version 0.1.0 (listed above)."
 msgstr[0] ""
 msgstr[1] ""
 
-#: includes/Admin/PasswordEmailPage.php:538
+#: includes/Admin/PasswordEmailPage.php:542
 msgid "Start sending"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:543
+#: includes/Admin/PasswordEmailPage.php:547
 msgid "Before sending"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:547
+#: includes/Admin/PasswordEmailPage.php:551
 msgid "Many hosting services limit how many emails a site can send per hour. Use an SMTP plugin or an email delivery service, and send a test email first. The emails are sent in small batches, and sending stops if several emails in a row cannot be sent."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:548
+#: includes/Admin/PasswordEmailPage.php:552
 msgid "The subject, heading, and additional text can be changed in the WooCommerce email settings. Do not add advertisements to this email."
 msgstr ""
 
 #. translators: %s: how long the link works, such as "1 day".
-#: includes/Admin/PasswordEmailPage.php:550
+#: includes/Admin/PasswordEmailPage.php:554
 #, php-format
 msgid "The link in the email works for %s. Customers can request a new link from the lost password page, which the email also shows."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:551
+#: includes/Admin/PasswordEmailPage.php:555
 msgid "Creating the link updates each customer account, so other plugins that watch account changes may react to it."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:552
+#: includes/Admin/PasswordEmailPage.php:556
 msgid "The email goes to the address stored in each account. If the previous shop did not verify email addresses, an address may belong to someone else."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:553
+#: includes/Admin/PasswordEmailPage.php:557
 msgid "Only accounts created by the import receive the email. Accounts that already existed and were matched by email, and staff accounts, are left out."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:564
+#: includes/Admin/PasswordEmailPage.php:568
 msgid "Edit the email in the WooCommerce settings"
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:593
+#: includes/Admin/PasswordEmailPage.php:597
 msgid "The password setup email is disabled. Enable it in the WooCommerce email settings."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:594
+#: includes/Admin/PasswordEmailPage.php:598
 msgid "The link in the email needs the My account page and its lost password endpoint. Publish the My account page and set the endpoint in the WooCommerce settings."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:595
+#: includes/Admin/PasswordEmailPage.php:599
 msgid "Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:596
+#: includes/Admin/PasswordEmailPage.php:600
 msgid "The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:597
+#: includes/Admin/PasswordEmailPage.php:601
 msgid "The background task could not be scheduled. Try again."
 msgstr ""
 
-#: includes/Admin/PasswordEmailPage.php:598
-msgid "The sending state changed unexpectedly. Check the status and start again if needed."
+#: includes/Admin/PasswordEmailPage.php:602
+msgid "The customers could not be read from the database, so sending stopped instead of skipping them. Check the database, and then resume."
 msgstr ""
 
 #: includes/Admin/PasswordEmailPage.php:603
+msgid "The sending state changed unexpectedly. Check the status and start again if needed."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:608
 msgid "Sending to customers requires an activated license key. Activate it on the License tab."
 msgstr ""
 

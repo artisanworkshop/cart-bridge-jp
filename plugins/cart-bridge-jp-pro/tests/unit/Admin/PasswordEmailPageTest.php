@@ -379,6 +379,29 @@ final class PasswordEmailPageTest extends WooTestCase {
 	}
 
 	/**
+	 * 候補を DB から読めなければ、件数が少なく出うることを知らせる（PR #135 G3-1）。
+	 */
+	public function test_warns_when_the_count_is_incomplete(): void {
+		global $wpdb;
+
+		$this->as_shop_manager();
+		$this->imported_customer( '1' );
+		add_filter(
+			'query',
+			static fn ( string $sql ): string => str_contains( $sql, 'SELECT DISTINCT u.ID' ) ? 'SELECT broken FROM no_such_table' : $sql
+		);
+		$suppress = $wpdb->suppress_errors( true );
+
+		try {
+			$output = $this->render();
+		} finally {
+			$wpdb->suppress_errors( $suppress );
+		}
+
+		$this->assertStringContainsString( 'Some customers could not be read from the database', $output );
+	}
+
+	/**
 	 * 画面の件数を数えた後、読んだユーザーのキャッシュを手放す（全員を読むときのメモリを抑える。R1-1）。
 	 */
 	public function test_releases_the_user_cache_after_counting(): void {
@@ -555,8 +578,10 @@ final class PasswordEmailPageTest extends WooTestCase {
 	}
 
 	private function assert_nothing_started(): void {
+		global $wpdb;
+
 		$this->assertNull( Campaign::control() );
-		$this->assertNull( StateOption::read( Campaign::PROGRESS_OPTION ) );
+		$this->assertSame( '0', $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( Campaign::PROGRESS_OPTION_PREFIX ) . '%' ) ) );
 		$this->assertFalse( as_has_scheduled_action( Sender::HOOK ) );
 		$this->assertSame( [], $this->sent_mails() );
 	}

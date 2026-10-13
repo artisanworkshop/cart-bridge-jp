@@ -232,7 +232,7 @@ final class Sender {
 			return;
 		}
 
-		$state = Campaign::progress_for_update();
+		$state = Campaign::progress_for_update( $run_id );
 
 		if ( null === $state || $state['progress']['run_id'] !== $run_id ) {
 			Campaign::stop( $run_id, $token, Campaign::STOP_STATE );
@@ -246,6 +246,12 @@ final class Sender {
 		$ids      = RecipientScan::ids_after( $progress['cursor'], self::SCAN_LIMIT );
 		$examined = 0;
 		$stopped  = null;
+
+		// 候補を読めなければ止める（空のページを「見尽くした」と読んで完了にし、残りの顧客を黙って飛ばさない。G3-1）。
+		if ( null === $ids ) {
+			Campaign::stop( $run_id, $token, Campaign::STOP_SCAN_FAILED );
+			return;
+		}
 
 		foreach ( $ids as $user_id ) {
 			if ( $sent_now >= self::batch_size() || time() - $started >= self::TIME_BUDGET_SECONDS ) {
@@ -315,7 +321,7 @@ final class Sender {
 
 		$progress['last_batch_at'] = time();
 
-		if ( ! Campaign::save_progress( $state['raw'], $progress ) || 'superseded' === $stopped ) {
+		if ( ! Campaign::save_progress( $run_id, $state['raw'], $progress ) || 'superseded' === $stopped ) {
 			return;
 		}
 
