@@ -9,6 +9,7 @@ namespace CartBridgeJP\Pro\Tests\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Pro\Woo\Reader\CustomerReader;
+use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Tests\Woo\WooTestCase;
 
 final class CustomerReaderTest extends WooTestCase {
@@ -147,7 +148,7 @@ final class CustomerReaderTest extends WooTestCase {
 	 * `role => 'customer'`は「customerロールを持つ」の意味で、他ロールを併せ持つことを
 	 * 否定しない。店舗の管理者・スタッフアカウントに`customer`ロールも付与されている場合
 	 * （WP上では複数ロールの併存が可能）、`role`絞り込みだけではPII付きでexportされてしまう
-	 * （`Woo\Writer\CustomerWriter::PROTECTED_ROLES`と同じ一覧で除外する必要がある。
+	 * （`Woo\Writer\CustomerWriter::has_protected_role()`と同じ条件で除外する必要がある。
 	 * レビュー指摘）。
 	 */
 	public function test_query_excludes_users_who_also_have_a_protected_role(): void {
@@ -168,6 +169,55 @@ final class CustomerReaderTest extends WooTestCase {
 
 		$this->assertContains( $plain_customer_id, $ids );
 		$this->assertNotContains( $shop_manager_customer_id, $ids );
+	}
+
+	/**
+	 * R3-5b: ロール名の固定の一覧ではカスタムロールのスタッフ・ユーザーに直接付いた能力・顧客以外のロールの併有が漏れた。
+	 * `CustomerWriter::has_protected_role()` が保護するアカウントは、クエリでも除く（total も数えない）。
+	 */
+	public function test_query_excludes_the_same_accounts_as_the_import_protection(): void {
+		add_role(
+			'cbjp_test_staff',
+			'Test staff',
+			[
+				'read'               => true,
+				'manage_woocommerce' => true,
+			]
+		);
+		add_role( 'cbjp_test_member', 'Test member', [ 'read' => true ] );
+
+		try {
+			$plain_customer_id = $this->create_customer( 'plain@example.com' );
+			$subscriber_id     = $this->create_customer( 'subscriber@example.com' );
+			( new \WP_User( $subscriber_id ) )->add_role( 'subscriber' );
+
+			$staff_id = $this->create_customer( 'staff@example.com' );
+			( new \WP_User( $staff_id ) )->add_role( 'cbjp_test_staff' );
+
+			$member_id = $this->create_customer( 'member@example.com' );
+			( new \WP_User( $member_id ) )->add_role( 'cbjp_test_member' );
+
+			$direct_cap_id = $this->create_customer( 'direct@example.com' );
+			( new \WP_User( $direct_cap_id ) )->add_cap( 'edit_shop_orders' );
+
+			$page = $this->make_reader()->query( Cursor::start(), null );
+			$ids  = array_map( static fn ( $item ) => $item->local_id, $page->items );
+
+			sort( $ids );
+			$this->assertSame( [ $plain_customer_id, $subscriber_id ], $ids );
+			$this->assertSame( 2, $page->total );
+
+			foreach ( [ $plain_customer_id, $subscriber_id, $staff_id, $member_id, $direct_cap_id ] as $user_id ) {
+				$this->assertSame( ! in_array( $user_id, $ids, true ), CustomerWriter::has_protected_role( $user_id ), "user {$user_id}" );
+			}
+
+			// ID を指定した照会（エクスポートの再送）でも除く。
+			$only = $this->make_reader()->query( Cursor::start(), [ $plain_customer_id, $staff_id, $direct_cap_id ] );
+			$this->assertSame( [ $plain_customer_id ], array_map( static fn ( $item ) => $item->local_id, $only->items ) );
+		} finally {
+			remove_role( 'cbjp_test_staff' );
+			remove_role( 'cbjp_test_member' );
+		}
 	}
 
 	/**

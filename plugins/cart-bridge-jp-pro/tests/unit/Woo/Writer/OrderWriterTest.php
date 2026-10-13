@@ -1456,7 +1456,7 @@ final class OrderWriterTest extends WooTestCase {
 	public function test_customer_mapping_pointing_to_protected_role_account_is_treated_as_unresolved(): void {
 		// ASP側顧客のメールが店舗の管理者・スタッフアカウントと偶然一致した場合、
 		// `CustomerWriter::write()`はプロフィールを上書きしないままmappingだけを維持する
-		// （`CustomerWriter::PROTECTED_ROLES`参照）。このmappingを無条件に信用すると、
+		// （`CustomerWriter::has_protected_role()`参照）。このmappingを無条件に信用すると、
 		// 見ず知らずのASP顧客の注文が管理者アカウントに紐付いてしまうため、注文側でも
 		// 再検証してゲスト注文として扱うことを確認する。
 		$admin_id = wp_insert_user(
@@ -1479,6 +1479,39 @@ final class OrderWriterTest extends WooTestCase {
 		// 保護は解除されない）、`ORDER_CUSTOMER_UNRESOLVED`と異なりfully_resolvedはtrueのまま
 		// （falseにすると、解決される可能性が無いのに毎回無駄に再処理されてしまう）。
 		$this->assertTrue( $result->fully_resolved );
+	}
+
+	public function test_customer_mapping_pointing_to_custom_staff_role_is_treated_as_unresolved(): void {
+		// R3-5b: ロール名の固定の一覧では、`manage_woocommerce` を持つカスタムロールのスタッフに受注が結び付いた。
+		add_role(
+			'cbjp_test_staff',
+			'Test staff',
+			[
+				'read'               => true,
+				'manage_woocommerce' => true,
+			]
+		);
+
+		try {
+			$staff_id = wp_insert_user(
+				[
+					'user_login' => 'store-staff',
+					'user_email' => 'staff@example.com',
+					'user_pass'  => 'x',
+					'role'       => 'cbjp_test_staff',
+				]
+			);
+			$this->seed_mapping( 'colorme', 'customer', 'c-staff', $staff_id );
+
+			$order    = $this->make_order( '1021', 'processing', 'c-staff' );
+			$result   = $this->make_writer()->write( $order, null );
+			$wc_order = wc_get_order( $result->local_id );
+
+			$this->assertSame( 0, $wc_order->get_customer_id() );
+			$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, 'c-staff' ), $result->warnings );
+		} finally {
+			remove_role( 'cbjp_test_staff' );
+		}
 	}
 
 	public function test_unresolved_customer_ref_warns_and_is_guest(): void {

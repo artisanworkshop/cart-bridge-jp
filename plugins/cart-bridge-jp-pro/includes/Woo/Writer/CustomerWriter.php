@@ -23,19 +23,37 @@ use WP_User;
 /**
  * `CanonicalCustomer` をWPユーザー（`customer`ロール）として書き込む。email突合で既存ユーザーが
  * 見つかった場合は再利用する（ユーザー方針: 顧客のみ積極的な既存データ突合を行う）。
+ *
+ * プロフィール（氏名・住所・extras・ログイン用のメール）を書くのは、取込みがこの顧客のために作ったアカウントだけ
+ * （{@see self::owns_profile()}。R3-5b、2026-10-13 ユーザー決定）。メールの一致・mapping で結んだそれ以外のアカウントは
+ * 紐づけ（mapping と `_cbjp_platform`・`_cbjp_remote_id`）だけにする: ASP の会員登録がメールの持ち主を確かめないと、
+ * 他人のメールで登録した ASP の顧客が既存のアカウントの住所を書き換え（チェックアウトの初期値になる）、ASP 側でメールを
+ * 変えて以後の取込みでログイン用のメールまで変えさせ、パスワードの再設定でアカウントを乗っ取れるため。
  */
 final class CustomerWriter implements EntityWriter {
 
 	/**
-	 * これらのロールを1つでも持つ既存WPユーザーはプロフィール上書きの対象外とする
-	 * （店舗の管理者・スタッフアカウントとASP側顧客のメールアドレスが偶然一致した場合に、
-	 * 業務アカウントの氏名・住所を破壊しないため）。`Woo\Reader\CustomerReader`もexport方向で
-	 * 同じ理由（`role => 'customer'`だけでは、これらのロールを併せ持つスタッフアカウントを
-	 * 除外できない）で参照するためpublicにする。
+	 * 顧客として書いてよいアカウントのロール（このサイトのロールがこれだけ。{@see self::has_protected_role()}）。
 	 *
 	 * @var array<int,string>
 	 */
-	public const PROTECTED_ROLES = [ 'administrator', 'shop_manager', 'editor', 'author', 'contributor' ];
+	public const CUSTOMER_ROLES = [ 'customer', 'subscriber' ];
+
+	/**
+	 * どれか 1 つでも持てば保護する能力（店舗のスタッフ。WooCommerce 自身は `edit_posts`・`manage_woocommerce`・
+	 * `view_admin_dashboard` でスタッフを見分ける）。ロールにも、ユーザーに直接付いた能力にも効く。
+	 *
+	 * @var array<int,string>
+	 */
+	public const STAFF_CAPABILITIES = [
+		'manage_options',
+		'manage_woocommerce',
+		'edit_posts',
+		'view_admin_dashboard',
+		'edit_shop_orders',
+		'list_users',
+		'edit_users',
+	];
 
 	/**
 	 * このユーザーを新規作成したプラットフォームIDを保持するユーザーメタ。email突合で採用した既存
@@ -44,6 +62,12 @@ final class CustomerWriter implements EntityWriter {
 	 * 書き換わる可変の印。`Woo\Support\EntityOrigin`）。
 	 */
 	public const CREATED_BY_IMPORT_META = '_cbjp_created_by_import';
+
+	/**
+	 * 取込みがこのアカウントを作ったときの ASP の顧客 ID（R3-5b）。作成時にだけ書く不変の印。`_cbjp_remote_id` は紐づけのたびに
+	 * 書き換わるので、「この顧客のために作ったアカウントか」（{@see self::owns_profile()}）の判定には使えない。
+	 */
+	public const CREATED_REMOTE_ID_META = '_cbjp_created_remote_id';
 
 	public function __construct( private readonly string $platform ) {}
 
@@ -83,6 +107,10 @@ final class CustomerWriter implements EntityWriter {
 			}
 
 			$user_id = $created;
+
+			// 作成の印は最初に書く（この後の書込みが失敗しても、次の取込みがこのアカウントを「この顧客のために作った」と判定できる）。
+			update_user_meta( $user_id, self::CREATED_BY_IMPORT_META, $this->platform );
+			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, $item->remote_id() ?? '' );
 		}
 
 		if ( null === $user_id ) {
@@ -91,10 +119,11 @@ final class CustomerWriter implements EntityWriter {
 			return new WriteResult( 0, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
+		// 判定の順は 保護 → 紐づけだけ → 作ったアカウントの更新（`validate()` も同じ）。
 		if ( self::has_protected_role( $user_id ) ) {
 			// email突合で見つかった既存アカウント（または過去のインポートで紐付いた
 			// アカウントが後から昇格したケース）が管理者・スタッフ権限を持つ場合、
-			// プロフィール（氏名・住所・extras）を一切上書きしない。受注等からの
+			// プロフィール（氏名・住所・extras）を一切上書きせず、紐づけの印も書かない。受注等からの
 			// 顧客参照解決に必要なmappingの記録（呼び出し元Importerがlocal_idを見て行う）
 			// のみは維持する。detailはOrderWriter側の同名警告・F1-6の結果レポート契約
 			// （ASP側remote_idで問題箇所を特定する）と揃え、Woo内部のuser IDではなく
@@ -104,24 +133,30 @@ final class CustomerWriter implements EntityWriter {
 			return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $warnings );
 		}
 
+		if ( ! $resolved->is_new && ! $this->owns_profile( $user_id, $item ) ) {
+			return $this->link_only( $user_id, $item, $warnings );
+		}
+
 		if ( WriteResult::OPERATION_UPDATED === $resolved->operation ) {
-			// 既存ユーザーのロールは変更しない（管理者と同じメールアドレスの場合に権限を壊さないため）。
-			// user_emailも同期する: mappings経由の再利用（existing_local_id指定）では、ASP側で
-			// 前回インポート後にメールアドレスが変更されている可能性があり、同期しないとWPアカウント
-			// のログイン用メールが古いまま残り続ける（email突合で解決した場合は既に一致しているため
-			// 実質no-op）。他ユーザーが既に使用中のメールと衝突した場合、`wp_update_user()`は
-			// メール重複チェックをDB書込前に行うため氏名・display_name含む更新全体が失敗する
+			// 既存ユーザーのロールは変更しない。user_emailも同期する: ASP側で前回インポート後にメールアドレスが
+			// 変更されている可能性があり、同期しないとWPアカウントのログイン用メールが古いまま残り続ける。
+			// ここに来るのは取込みがこの顧客のために作ったアカウントだけ（`owns_profile()`）。形の正しくないメールは
+			// 同期しない（`wp_update_user()` は `sanitize_email()` で空にして保存しうる）。他ユーザーが既に使用中のメールと
+			// 衝突した場合、`wp_update_user()`はメール重複チェックをDB書込前に行うため氏名・display_name含む更新全体が失敗する
 			// （メールだけでなくこの呼び出しに渡した全フィールドが未反映のまま）。無警告で
 			// 握りつぶすと古い氏名等が残り続ける理由が分からなくなるため警告を積んで可視化する。
-			$update_result = wp_update_user(
-				[
-					'ID'           => $user_id,
-					'user_email'   => $item->email,
-					'first_name'   => $billing['first_name'],
-					'last_name'    => $billing['last_name'],
-					'display_name' => $item->name,
-				]
-			);
+			$profile = [
+				'ID'           => $user_id,
+				'first_name'   => $billing['first_name'],
+				'last_name'    => $billing['last_name'],
+				'display_name' => $item->name,
+			];
+
+			if ( is_email( $item->email ) ) {
+				$profile['user_email'] = $item->email;
+			}
+
+			$update_result = wp_update_user( $profile );
 
 			if ( $update_result instanceof WP_Error ) {
 				// detailはメールアドレス自体（PII）ではなくASP側remote_idにする。dry-runの
@@ -148,12 +183,7 @@ final class CustomerWriter implements EntityWriter {
 			$warnings[] = CommerceWarningCode::ADDRESS_OVERSEAS;
 		}
 
-		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
-		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
-
-		if ( $resolved->is_new ) {
-			update_user_meta( $user_id, self::CREATED_BY_IMPORT_META, $this->platform );
-		}
+		$this->write_link_markers( $user_id, $item );
 
 		return new WriteResult( $user_id, $resolved->operation, $warnings );
 	}
@@ -173,7 +203,7 @@ final class CustomerWriter implements EntityWriter {
 		if ( ! $resolved->is_new ) {
 			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
 			// 保護ロール判定は新規作成パスには存在しない（新規WPユーザーが最初から
-			// administrator等になることはない）ため、write()と同じくこの分岐内でのみ行う。
+			// administrator等になることはない）ため、write()と同じくこの分岐内でのみ行う。判定の順も write() と同じ。
 			$user_id = $resolved->user_id ?? 0;
 
 			if ( self::has_protected_role( $user_id ) ) {
@@ -182,11 +212,17 @@ final class CustomerWriter implements EntityWriter {
 				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $warnings );
 			}
 
+			// 紐づけだけのアカウントはメールを書かないので、メールの衝突も判定しない（dry-run と本番をそろえる）。
+			if ( ! $this->owns_profile( $user_id, $item ) ) {
+				return new ValidationResult( WriteResult::OPERATION_SKIPPED, $this->with_reuse_warning( $warnings, $user_id ) );
+			}
+
 			// `wp_update_user()`→`wp_insert_user()`のメール一意性チェック（wp-includes/user.php）を
 			// 読取専用で再現する: 新メールが現在の値と（大文字小文字を区別せず）異なり、かつ
 			// 他の誰かが既にそのメールを使っている場合にのみ`existing_user_email`エラーになる
 			// （`email_exists()`はIDを除外しないため、まずメール自体の変更有無を先に見る必要がある）。
 			// wp evalでの実測により、この判定はwrite()の`wp_update_user()`呼び出し結果と一致することを確認済み。
+			// 形の正しくないメールは write() が同期しないが、そのメールを持つユーザーはいないので、ここでも衝突にならない。
 			$current_user  = get_userdata( $user_id );
 			$current_email = $current_user instanceof WP_User ? $current_user->user_email : '';
 
@@ -200,7 +236,7 @@ final class CustomerWriter implements EntityWriter {
 		}
 
 		// `AddressMapper::is_overseas()`はDB読取・永続化を伴わない純粋な判定で、write()は
-		// 新規作成/更新どちらのパスでも（保護ロールでない場合）警告を積む。ここも同じ位置で
+		// 新規作成/更新どちらのパスでも（保護ロール・紐づけだけでない場合）警告を積む。ここも同じ位置で
 		// 呼ぶ: write()側でだけ判定すると、実際には移行後に付く警告がdry-runのCSVレポート
 		// から欠落する。
 		if ( AddressMapper::is_overseas( $this->platform, $item->address ) ) {
@@ -217,8 +253,14 @@ final class CustomerWriter implements EntityWriter {
 	}
 
 	/**
-	 * `OrderWriter::apply_customer()`が、mappings経由で解決した顧客参照先が管理者・スタッフ
-	 * アカウントでないか再検証するために公開する（`write()`内の同種チェックと同じ判定）。
+	 * 顧客として書いてはいけないアカウントか（R3-5b で許可リストにした）。次のどれかなら保護する（フェイルクローズ）:
+	 * このサイトのロールが無い（マルチサイトの別のサイトだけのユーザーを含む）、{@see self::CUSTOMER_ROLES} 以外のロールを持つ、
+	 * 特権管理者、{@see self::STAFF_CAPABILITIES} のどれかを持つ（ロール・ユーザーに直接付いた能力のどちらでも）。
+	 * 存在しないユーザーは false（呼び出し側が存在を確かめる。`resolve_target()`）。
+	 *
+	 * 名前どおり保護の判定で、`OrderWriter::apply_customer()`（受注をスタッフのアカウントに結ばない）・`CustomerType`（D25）・
+	 * `CustomerReader`（エクスポートしない。クエリは同じ条件）も使う。フォーラムなどのロールを併せ持つ顧客も保護になる
+	 * （受注はゲスト、エクスポートの対象外）。
 	 */
 	public static function has_protected_role( int $user_id ): bool {
 		$user = get_userdata( $user_id );
@@ -227,7 +269,96 @@ final class CustomerWriter implements EntityWriter {
 			return false;
 		}
 
-		return [] !== array_intersect( $user->roles, self::PROTECTED_ROLES );
+		$roles = array_values( array_filter( (array) $user->roles, 'is_string' ) );
+
+		if ( [] === $roles || [] !== array_diff( $roles, self::CUSTOMER_ROLES ) ) {
+			return true;
+		}
+
+		if ( is_multisite() && is_super_admin( $user_id ) ) {
+			return true;
+		}
+
+		foreach ( self::STAFF_CAPABILITIES as $capability ) {
+			if ( user_can( $user, $capability ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * 取込みがこの ASP の顧客のために作ったアカウントか（プロフィールを書いてよいか。R3-5b）。作成の印
+	 * （{@see self::CREATED_BY_IMPORT_META}）がこのプラットフォームで、作成時の顧客 ID（{@see self::CREATED_REMOTE_ID_META}）が
+	 * この顧客のときだけ真。R3-5b より前に作ったアカウント（作成時の顧客 ID が無い）は、`_cbjp_remote_id` を作成時の値とみなす
+	 * （紐づけだけの経路は書き換える前に作成時の顧客 ID を控える。{@see self::link_only()}）。
+	 */
+	private function owns_profile( int $user_id, CanonicalCustomer $item ): bool {
+		$remote_id = $item->remote_id();
+
+		if ( null === $remote_id || '' === $remote_id || get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) !== $this->platform ) {
+			return false;
+		}
+
+		return $this->created_remote_id( $user_id ) === $remote_id;
+	}
+
+	private function created_remote_id( int $user_id ): string {
+		$created = get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true );
+
+		if ( is_string( $created ) && '' !== $created ) {
+			return $created;
+		}
+
+		$linked = get_user_meta( $user_id, '_cbjp_remote_id', true );
+
+		return is_string( $linked ) ? $linked : '';
+	}
+
+	/**
+	 * 紐づけだけ（R3-5b）: プロフィール・住所・extras・メールに触れず、mapping（呼び出し元の Importer が local_id から書く）と
+	 * 紐づけの印（D25・リンク再構築が読む）だけを残す。何も書き換えていないので `OPERATION_SKIPPED` で、理由を毎回積む。
+	 *
+	 * @param array<int,string> $warnings
+	 */
+	private function link_only( int $user_id, CanonicalCustomer $item, array $warnings ): WriteResult {
+		// R3-5b より前に作ったアカウントは作成時の顧客 ID を `_cbjp_remote_id` から読むので、書き換える前に控える
+		// （控えないと、ここで書く別の顧客の ID を次の取込みが作成時の値と読み、プロフィールを書いてしまう）。
+		if ( '' !== get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) && '' === get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true ) ) {
+			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, $this->created_remote_id( $user_id ) );
+		}
+
+		$this->write_link_markers( $user_id, $item );
+
+		return new WriteResult( $user_id, WriteResult::OPERATION_SKIPPED, $this->with_reuse_warning( $warnings, $user_id ) );
+	}
+
+	/**
+	 * 紐づけだけの理由（`CUSTOMER_REUSED_EXISTING`。detail はユーザー ID）を 1 つだけ積む。メールで採用したときは
+	 * `resolve_target()` が既に積んでいる。mapping で結んだときは積まれていないので、毎回の結果に理由が残るよう足す。
+	 *
+	 * @param array<int,string> $warnings
+	 * @return array<int,string>
+	 */
+	private function with_reuse_warning( array $warnings, int $user_id ): array {
+		$warning = WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $user_id );
+
+		if ( in_array( $warning, $warnings, true ) ) {
+			return $warnings;
+		}
+
+		$warnings[] = $warning;
+
+		return $warnings;
+	}
+
+	/**
+	 * 取込みで結んだ印（`_cbjp_platform`・`_cbjp_remote_id`。D25 の向きとリンク再構築が読む）。
+	 */
+	private function write_link_markers( int $user_id, CanonicalCustomer $item ): void {
+		update_user_meta( $user_id, '_cbjp_platform', $this->platform );
+		update_user_meta( $user_id, '_cbjp_remote_id', $item->remote_id() ?? '' );
 	}
 
 	/**

@@ -105,8 +105,9 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 	/**
 	 * `WarningCatalog::describe()` の全結果（全コード × 向き × 行の種類 × detail の有無）の sha256。R3-6b1 の前のコードで算出した。
 	 * カタログの分岐を移しても文言・重大度・対処が 1 文字も変わらないことを確かめる。変わったら、意図した変更かを確かめてから更新する。
+	 * R3-5b で `customer_reused_existing`（紐づけだけにした）と `customer_account_protected`（保護の対象を広げた）の文言を変えて更新した。
 	 */
-	private const CATALOG_SHA256 = 'df668212267e79492ab247d48379d0c3524033866284b316bc1e4c37f64c2c57';
+	private const CATALOG_SHA256 = '524e54d437dae7126c3b5cf81f5a18fa1dfe2f76b1d86be8b531a0ed677a8f7e';
 
 	public function set_up(): void {
 		parent::set_up();

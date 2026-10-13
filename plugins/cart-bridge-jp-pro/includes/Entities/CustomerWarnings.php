@@ -48,17 +48,17 @@ final class CustomerWarnings {
 		return match ( $code ) {
 			CommerceWarningCode::CUSTOMER_REUSED_EXISTING => self::make(
 				$info,
-				__( 'A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp-pro' ),
-				__( 'Check that the existing account belongs to the same person.', 'cart-bridge-jp-pro' ),
+				__( 'A WordPress user that this plugin did not create for this customer has the same email address, so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it.', 'cart-bridge-jp-pro' ),
+				__( 'Check that the existing account belongs to the same person. To use the platform’s details, update the account in WordPress by hand.', 'cart-bridge-jp-pro' ),
 				/* translators: %s: the WordPress ID of a user. */
-				__( 'A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one.', 'cart-bridge-jp-pro' )
+				__( 'A WordPress user that this plugin did not create for this customer has the same email address (user ID %s), so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it.', 'cart-bridge-jp-pro' )
 			),
 			// 受注の行（`order`）は `OrderWarnings` が説明する（ゲスト受注として書く）。それ以外の行は顧客の行として扱う（重いほうに倒す）。
 			CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED => 'order' === $row_entity
 				? null
 				: self::make(
 					$blocking,
-					__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders.', 'cart-bridge-jp-pro' ),
+					__( 'The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders.', 'cart-bridge-jp-pro' ),
 					__( 'If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp-pro' )
 				),
 			CommerceWarningCode::CUSTOMER_EMAIL_CONFLICT => self::make(

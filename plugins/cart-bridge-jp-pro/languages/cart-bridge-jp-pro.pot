@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-12T12:41:17+00:00\n"
+"POT-Creation-Date: 2026-10-13T01:32:08+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp-pro\n"
@@ -44,19 +44,19 @@ msgstr ""
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:439
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:440
 msgid "Unpaid"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:443
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:444
 msgid "Paid (not shipped)"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:447
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:448
 msgid "Shipped"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:451
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:452
 msgid "Cancelled"
 msgstr ""
 
@@ -426,21 +426,21 @@ msgid "Customers"
 msgstr ""
 
 #: includes/Entities/CustomerWarnings.php:51
-msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
+msgid "A WordPress user that this plugin did not create for this customer has the same email address, so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
 msgstr ""
 
 #: includes/Entities/CustomerWarnings.php:52
-msgid "Check that the existing account belongs to the same person."
+msgid "Check that the existing account belongs to the same person. To use the platform’s details, update the account in WordPress by hand."
 msgstr ""
 
 #. translators: %s: the WordPress ID of a user.
 #: includes/Entities/CustomerWarnings.php:54
 #, php-format
-msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
+msgid "A WordPress user that this plugin did not create for this customer has the same email address (user ID %s), so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
 msgstr ""
 
 #: includes/Entities/CustomerWarnings.php:61
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
 msgstr ""
 
 #: includes/Entities/CustomerWarnings.php:62
@@ -529,7 +529,7 @@ msgid "date unknown"
 msgstr ""
 
 #: includes/Entities/OrderWarnings.php:125
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so this order is imported as a guest order instead of being assigned to that account."
 msgstr ""
 
 #: includes/Entities/OrderWarnings.php:126

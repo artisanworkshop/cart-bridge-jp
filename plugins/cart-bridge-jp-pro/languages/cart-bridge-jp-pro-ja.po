@@ -43,19 +43,19 @@ msgstr "Cart Bridge JP Pro には、より新しいバージョンの Cart Bridg
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP Pro の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:439
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:440
 msgid "Unpaid"
 msgstr "未入金"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:443
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:444
 msgid "Paid (not shipped)"
 msgstr "入金済み（未発送）"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:447
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:448
 msgid "Shipped"
 msgstr "発送済み"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:451
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:452
 msgid "Cancelled"
 msgstr "キャンセル"
 
@@ -424,24 +424,6 @@ msgstr "PHP のエラーログで原因を確認してから、もう一度イ�
 msgid "Customers"
 msgstr "顧客"
 
-#: includes/Entities/CustomerWarnings.php:51
-msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
-msgstr "同じメールアドレスの WordPress ユーザーがすでにいるため、新しく作らずにそのアカウントを紐づけ、プラットフォームの情報で更新します。"
-
-#: includes/Entities/CustomerWarnings.php:52
-msgid "Check that the existing account belongs to the same person."
-msgstr "既存のアカウントが同じ人のものか確認してください。"
-
-#. translators: %s: the WordPress ID of a user.
-#: includes/Entities/CustomerWarnings.php:54
-#, php-format
-msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
-msgstr "同じメールアドレスの WordPress ユーザー（ユーザー ID %s）がすでにいるため、新しく作らずにそのアカウントを紐づけ、プラットフォームの情報で更新します。"
-
-#: includes/Entities/CustomerWarnings.php:61
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
-msgstr "顧客のメールアドレスが管理者かスタッフ（ショップ運営者など）のアカウントのものなので、顧客の情報はインポートせず、そのアカウントも変更しません。この顧客の注文はゲストの注文としてインポートします。"
-
 #: includes/Entities/CustomerWarnings.php:62
 msgid "If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
 msgstr "そのアカウントが本当に購入者のものなら、インポートを終えた後に WooCommerce で注文を手作業で割り当ててください（もう一度インポートした注文は、またゲストの注文になります）。"
@@ -526,10 +508,6 @@ msgstr "#%1$s — %2$s %3$s（%4$s）"
 #: includes/Entities/OrderType.php:132
 msgid "date unknown"
 msgstr "日付不明"
-
-#: includes/Entities/OrderWarnings.php:125
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
-msgstr "顧客のメールアドレスが管理者かスタッフ（ショップ運営者など）のアカウントのものなので、この注文はそのアカウントに割り当てず、ゲストの注文としてインポートします。"
 
 #: includes/Entities/OrderWarnings.php:126
 msgid "If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
@@ -985,3 +963,25 @@ msgstr "決済手数料"
 #: includes/Woo/Writer/OrderItemBuilder.php:269
 msgid "Gift wrapping"
 msgstr "ギフトラッピング"
+
+#: includes/Entities/CustomerWarnings.php:51
+msgid "A WordPress user that this plugin did not create for this customer has the same email address, so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
+msgstr "このプラグインがこの顧客のために作ったのではない WordPress ユーザーが同じメールアドレスを使っているため、新しく作らずに、顧客をそのアカウントに紐づけます。そのアカウントの氏名・住所・メールアドレスは変更せず、この顧客の注文はそのアカウントに割り当てます。"
+
+#: includes/Entities/CustomerWarnings.php:52
+msgid "Check that the existing account belongs to the same person. To use the platform’s details, update the account in WordPress by hand."
+msgstr "既存のアカウントが同じ人のものか確認してください。プラットフォームの情報を使うときは、WordPress でアカウントを手作業で更新してください。"
+
+#. translators: %s: the WordPress ID of a user.
+#: includes/Entities/CustomerWarnings.php:54
+#, php-format
+msgid "A WordPress user that this plugin did not create for this customer has the same email address (user ID %s), so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
+msgstr "このプラグインがこの顧客のために作ったのではない WordPress ユーザー（ユーザー ID %s）が同じメールアドレスを使っているため、新しく作らずに、顧客をそのアカウントに紐づけます。そのアカウントの氏名・住所・メールアドレスは変更せず、この顧客の注文はそのアカウントに割り当てます。"
+
+#: includes/Entities/CustomerWarnings.php:61
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+msgstr "顧客のメールアドレスが、このサイトの通常の顧客アカウントではない WordPress ユーザー（管理者・ショップ運営者・その他のスタッフのアカウントなど）のものなので、顧客の情報はインポートせず、そのアカウントも変更しません。この顧客の注文はゲストの注文としてインポートします。"
+
+#: includes/Entities/OrderWarnings.php:125
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so this order is imported as a guest order instead of being assigned to that account."
+msgstr "顧客のメールアドレスが、このサイトの通常の顧客アカウントではない WordPress ユーザー（管理者・ショップ運営者・その他のスタッフのアカウントなど）のものなので、この注文はそのアカウントに割り当てず、ゲストの注文としてインポートします。"

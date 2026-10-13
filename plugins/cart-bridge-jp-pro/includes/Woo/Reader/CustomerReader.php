@@ -36,17 +36,23 @@ final class CustomerReader implements EntityReader {
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
-			'role'         => 'customer',
+			'role'               => 'customer',
 			// `role => 'customer'`は「customerロールを持つ」の意味で、他ロールを併せ持つことを
 			// 否定しない。店舗の管理者・スタッフアカウントに（WooCommerceが自動付与する等で）
 			// `customer`ロールも付いている場合、それらのPII（氏名・住所）が無警告でASP側へ
-			// exportされうる。importの`CustomerWriter::PROTECTED_ROLES`と同じ一覧を除外する。
-			'role__not_in' => CustomerWriter::PROTECTED_ROLES,
-			'orderby'      => 'ID',
-			'order'        => 'ASC',
-			'number'       => self::PAGE_SIZE,
-			'paged'        => (int) $cursor->get( 'page', 1 ),
+			// exportされうる。importの`CustomerWriter::has_protected_role()`と同じ条件で除外する（R3-5b: ロール名の
+			// 固定の一覧ではカスタムロールのスタッフが漏れたので、顧客のロール以外の全ロール・スタッフの能力・特権管理者を外す）。
+			'role__not_in'       => self::non_customer_roles(),
+			'capability__not_in' => CustomerWriter::STAFF_CAPABILITIES,
+			'orderby'            => 'ID',
+			'order'              => 'ASC',
+			'number'             => self::PAGE_SIZE,
+			'paged'              => (int) $cursor->get( 'page', 1 ),
 		];
+
+		if ( is_multisite() ) {
+			$args['login__not_in'] = get_super_admins();
+		}
 
 		if ( null !== $only_local_ids ) {
 			if ( [] === $only_local_ids ) {
@@ -69,6 +75,15 @@ final class CustomerReader implements EntityReader {
 		$has_next_page = null === $only_local_ids && $page < $total_pages;
 
 		return new ReadPage( $items, $has_next_page ? new Cursor( [ 'page' => $page + 1 ] ) : null, null !== $only_local_ids ? null : (int) $query->get_total() );
+	}
+
+	/**
+	 * このサイトに登録されたロールのうち、顧客のロール（`CustomerWriter::CUSTOMER_ROLES`）以外のもの。
+	 *
+	 * @return array<int,string>
+	 */
+	private static function non_customer_roles(): array {
+		return array_values( array_diff( array_keys( wp_roles()->get_names() ), CustomerWriter::CUSTOMER_ROLES ) );
 	}
 
 	private function to_read_item( WP_User $user ): ReadItem {

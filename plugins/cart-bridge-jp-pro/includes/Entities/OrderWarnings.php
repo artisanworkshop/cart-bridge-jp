@@ -122,7 +122,7 @@ final class OrderWarnings {
 			CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED => 'order' === $row_entity
 				? self::make(
 					$action,
-					__( 'The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account.', 'cart-bridge-jp-pro' ),
+					__( 'The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so this order is imported as a guest order instead of being assigned to that account.', 'cart-bridge-jp-pro' ),
 					__( 'If the account really is the buyer’s, assign the order to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again).', 'cart-bridge-jp-pro' )
 				)
 				: null,
