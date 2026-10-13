@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T01:32:36+00:00\n"
+"POT-Creation-Date: 2026-10-13T02:11:32+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp\n"
@@ -75,149 +75,150 @@ msgstr ""
 msgid "Cart Bridge JP"
 msgstr ""
 
-#: includes/Admin/RestController.php:495
+#: includes/Admin/RestController.php:496
 msgid "A run on this platform has not finished yet. Cancel it on the Tools tab (or the Import or Export tab) first, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:544
+#: includes/Admin/RestController.php:545
 msgid "No recognized connection fields were provided."
 msgstr ""
 
-#: includes/Admin/RestController.php:554
+#: includes/Admin/RestController.php:555
 msgid "The connection settings changed while saving. Please try again."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:622
+#: includes/Admin/RestController.php:623
 #, php-format
 msgid "\"%s\" must be an object mapping one id to another."
 msgstr ""
 
 #. translators: %s: settings map key (category_map/payment_map/shipping_map/status_map)
-#: includes/Admin/RestController.php:640
+#: includes/Admin/RestController.php:641
 #, php-format
 msgid "\"%s\" contains an invalid entry."
 msgstr ""
 
-#: includes/Admin/RestController.php:701
+#: includes/Admin/RestController.php:702
 msgid "\"push_images\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:709
+#: includes/Admin/RestController.php:710
 msgid "This platform cannot upload product images, so the option cannot be turned on."
 msgstr ""
 
-#: includes/Admin/RestController.php:751
+#: includes/Admin/RestController.php:752
 msgid "\"delete_data\" must be true or false."
 msgstr ""
 
-#: includes/Admin/RestController.php:1208
+#: includes/Admin/RestController.php:1209
 #: build/index.js:7
 msgid "Connection test failed."
 msgstr ""
 
-#: includes/Admin/RestController.php:1250
+#: includes/Admin/RestController.php:1251
+#: build/index.js:7
 msgid "The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1251
+#: includes/Admin/RestController.php:1252
 msgid "Save the Client ID and Client Secret first, then connect."
 msgstr ""
 
-#: includes/Admin/RestController.php:1361
+#: includes/Admin/RestController.php:1370
 msgid "A code (or the authorization URL containing it) is required."
 msgstr ""
 
-#: includes/Admin/RestController.php:1425
+#: includes/Admin/RestController.php:1434
 msgid "Exporting writes to the connected shop right away. Confirm the warning before running an export."
 msgstr ""
 
-#: includes/Admin/RestController.php:1439
+#: includes/Admin/RestController.php:1448
 msgid "The run request is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1480
-#: includes/Admin/RestController.php:1521
-#: includes/Admin/RestController.php:1591
-#: includes/Admin/RestController.php:1685
+#: includes/Admin/RestController.php:1489
+#: includes/Admin/RestController.php:1530
+#: includes/Admin/RestController.php:1600
+#: includes/Admin/RestController.php:1694
 msgid "Run not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1605
+#: includes/Admin/RestController.php:1614
 msgid "Job not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1619
+#: includes/Admin/RestController.php:1628
 msgid "Only failed jobs can be retried."
 msgstr ""
 
-#: includes/Admin/RestController.php:1691
+#: includes/Admin/RestController.php:1700
 msgid "The verification report is only available for import runs."
 msgstr ""
 
-#: includes/Admin/RestController.php:1718
+#: includes/Admin/RestController.php:1727
 msgid "The rebuild cursor is invalid."
 msgstr ""
 
-#: includes/Admin/RestController.php:1786
+#: includes/Admin/RestController.php:1795
 msgid "A remote_id is required to link this item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1831
+#: includes/Admin/RestController.php:1840
 msgid "Push intent not found."
 msgstr ""
 
-#: includes/Admin/RestController.php:1836
+#: includes/Admin/RestController.php:1845
 msgid "The given remote_id does not exist on the connected platform."
 msgstr ""
 
-#: includes/Admin/RestController.php:1841
+#: includes/Admin/RestController.php:1850
 msgid "The given remote_id is already linked to a different local item."
 msgstr ""
 
-#: includes/Admin/RestController.php:1846
+#: includes/Admin/RestController.php:1855
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr ""
 
-#: includes/Admin/RestController.php:1853
+#: includes/Admin/RestController.php:1862
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr ""
 
-#: includes/Admin/RestController.php:1859
+#: includes/Admin/RestController.php:1868
 msgid "The platform API returned an error. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1864
+#: includes/Admin/RestController.php:1873
 msgid "The push intent could not be resolved."
 msgstr ""
 
-#: includes/Admin/RestController.php:1874
+#: includes/Admin/RestController.php:1883
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr ""
 
-#: includes/Admin/RestController.php:1955
+#: includes/Admin/RestController.php:1964
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr ""
 
-#: includes/Admin/RestController.php:1956
+#: includes/Admin/RestController.php:1965
 msgid "A run is already in progress for this platform."
 msgstr ""
 
 #. translators: %s: list of the kinds of records, e.g. "Customers and Orders".
-#: includes/Admin/RestController.php:1978
+#: includes/Admin/RestController.php:1987
 #, php-format
 msgid "Only a dry run is available for %s on this site."
 msgstr ""
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: includes/Admin/RestController.php:1983
+#: includes/Admin/RestController.php:1992
 #: build/index.js:2
 #, php-format,js-format
 msgid "%1$s %2$s"
 msgstr ""
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:2000
+#: includes/Admin/RestController.php:2009
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr ""
@@ -1002,7 +1003,7 @@ msgid "The connection request could not be verified. Please try again, or use th
 msgstr ""
 
 #: build/index.js:7
-msgid "Access was not allowed on the platform. To connect, click Connect again and allow access."
+msgid "Access was not allowed on the platform. To connect, start connecting again and allow access."
 msgstr ""
 
 #: build/index.js:7
@@ -1018,7 +1019,7 @@ msgid "The platform’s server is busy or unavailable. Please wait a few minutes
 msgstr ""
 
 #: build/index.js:7
-msgid "The saved Client ID and Client Secret are missing or changed while connecting. Save them again, then connect."
+msgid "The saved Client ID and Client Secret are missing or were changed while connecting. Save them again, then connect."
 msgstr ""
 
 #: build/index.js:7

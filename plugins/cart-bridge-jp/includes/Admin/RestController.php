@@ -73,6 +73,7 @@ final class RestController {
 		'network',
 		'unavailable',
 		'credentials_changed',
+		'credentials_unreadable',
 		'unexpected',
 	];
 
@@ -1296,7 +1297,15 @@ final class RestController {
 		try {
 			$oauth->exchange_code( $code, $this->oauth_callback_url( $platform ), $state );
 		} catch ( Throwable $exception ) {
-			return $this->redirect_to_connections( [ 'cbjp_connect_error' => self::oauth_error_code( $exception ) ] );
+			$error = self::oauth_error_code( $exception );
+
+			// 保存した資格情報を復号できない（要再接続）と、資格情報の保存も失敗するので「保存し直す」は行き止まりの案内になる。
+			// 唯一の復旧手段の消去へ案内する（CLAUDE.md の `TokenStore` の項。review-loop R1-L8）。
+			if ( 'credentials_changed' === $error && ( new TokenStore( $platform ) )->needs_reconnect() ) {
+				$error = 'credentials_unreadable';
+			}
+
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => $error ] );
 		}
 
 		return $this->redirect_to_connections( [ 'cbjp_connected' => $platform ] );

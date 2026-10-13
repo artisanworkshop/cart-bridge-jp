@@ -100,6 +100,8 @@ final class MediaImporterTest extends WooTestCase {
 			'html as an administrator' => [ 'https://example.test/page.html', 'text/html', "<!DOCTYPE html>\n<html><body><script>alert(1)</script></body></html>\n", true ],
 			// WP-Cron（ユーザー 0）でも PDF は許される。
 			'pdf as nobody'            => [ 'https://example.test/file.pdf', 'application/pdf', "%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n", false ],
+			// SVG を許すプラグインのあるサイト（下の `upload_mimes`）。`wp_get_image_mime()` は SVG を判定できない（R1-L6）。
+			'svg where svg is allowed' => [ 'https://example.test/icon.svg', 'image/svg+xml', "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><script>alert(1)</script></svg>\n", true ],
 		];
 	}
 
@@ -112,6 +114,15 @@ final class MediaImporterTest extends WooTestCase {
 		if ( $as_admin ) {
 			wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
 		}
+
+		add_filter(
+			'upload_mimes',
+			static function ( array $mimes ): array {
+				$mimes['svg'] = 'image/svg+xml';
+
+				return $mimes;
+			}
+		);
 
 		add_filter(
 			'pre_http_request',

@@ -104,9 +104,10 @@ final class MediaImporter {
 
 		// 画像だけを保存する（R3-5b）。`wp_check_filetype_and_ext()` はファイル名の拡張子が画像でなければ中身を見ずに、
 		// 実行するユーザーに許された種類として通す（管理者の Cookie で動く非同期ランナーでは `x.html` の `text/html` も通る）。
-		// URL は ASP の応答なので、画像の URL のふりをした HTML をサイトと同じオリジンに置かせない。`image/` の種類は、
-		// `wp_check_filetype_and_ext()`（画像の拡張子なら中身を `wp_get_image_mime()` で確かめる）か上の `wp_get_image_mime()` が中身から決めたもの。
-		if ( ! str_starts_with( (string) $filetype['type'], 'image/' ) ) {
+		// URL は ASP の応答なので、画像の URL のふりをした HTML をサイトと同じオリジンに置かせない。`wp_get_image_mime()` も確かめる:
+		// SVG（`image/svg+xml`。スクリプトを含められる）は `wp_get_image_mime()` が判定できず、SVG を許すプラグインのあるサイトでは
+		// `wp_check_filetype_and_ext()` が fileinfo の判定で通すため（review-loop R1-L6）。
+		if ( ! str_starts_with( (string) $filetype['type'], 'image/' ) || false === wp_get_image_mime( $tmp_file ) ) {
 			wp_delete_file( $tmp_file );
 			return null;
 		}

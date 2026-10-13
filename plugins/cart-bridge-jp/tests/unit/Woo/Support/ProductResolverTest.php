@@ -15,7 +15,7 @@ use CartBridgeJP\Woo\Writer\ProductWriter;
 use CartBridgeJP\Woo\Writer\VariationWriter;
 
 /**
- * SKU で引く側も、保存した SKU と同じ形（`SkuGuard::normalize()`。R3-5b）で引く。
+ * SKU で引くのは、整形（`SkuGuard::normalize()`。R3-5b）で変わらない型番だけ（`SkuGuard::lookup_key()`）。
  */
 final class ProductResolverTest extends WooTestCase {
 
@@ -29,30 +29,39 @@ final class ProductResolverTest extends WooTestCase {
 		return $result->local_id;
 	}
 
-	public function test_an_order_line_finds_the_product_by_the_raw_model_number(): void {
-		$product_id = $this->import_product( '91', '  <b>MUG-91</b> ' );
+	public function test_a_plain_model_number_finds_the_product_by_sku(): void {
+		$product_id = $this->import_product( '91', 'MUG-91' );
 		$resolver   = new ProductResolver( 'colorme', $this->mappings );
 
-		$found = $resolver->resolve_by_sku_or_remote_id( '  <b>MUG-91</b> ', null );
-
-		$this->assertNotNull( $found );
-		$this->assertSame( $product_id, $found->get_id() );
+		$this->assertSame( $product_id, $resolver->resolve_by_sku_or_remote_id( 'MUG-91', null )?->get_id() );
+		$this->assertSame( $product_id, $resolver->resolve_stock_target( null, 'missing', 'MUG-91' )?->get_id() );
 	}
 
-	public function test_a_stock_row_finds_the_product_by_the_raw_model_number(): void {
-		$product_id = $this->import_product( '92', '<i>MUG-92</i>' );
-		$resolver   = new ProductResolver( 'colorme', $this->mappings );
-
-		$found = $resolver->resolve_stock_target( null, 'missing', '<i>MUG-92</i>' );
-
-		$this->assertNotNull( $found );
-		$this->assertSame( $product_id, $found->get_id() );
-	}
-
-	public function test_a_model_number_that_cleans_to_nothing_finds_nothing(): void {
+	/**
+	 * 整形で同じ SKU になる別の型番（後ろの空白・タグ）で、別の商品に結び付けない（review-loop R1-L5）。
+	 */
+	public function test_a_model_number_that_cleaning_changes_does_not_match_another_product(): void {
+		$this->import_product( '92', 'AB' );
 		$resolver = new ProductResolver( 'colorme', $this->mappings );
 
-		$this->assertNull( $resolver->resolve_by_sku_or_remote_id( '<script>x</script>', null ) );
-		$this->assertNull( $resolver->resolve_stock_target( null, 'missing', '   ' ) );
+		foreach ( [ 'AB ', ' AB', '<b>AB</b>', 'AB%41' ] as $raw ) {
+			$this->assertNull( $resolver->resolve_by_sku_or_remote_id( $raw, null ), $raw );
+			$this->assertNull( $resolver->resolve_stock_target( null, 'missing', $raw ), $raw );
+		}
+	}
+
+	/**
+	 * WooCommerce は空の SKU でも照合するので、空になる型番では引かない（SKU の無い自前の商品に当たる。review-loop R1-2）。
+	 */
+	public function test_a_model_number_that_cleans_to_nothing_finds_no_product_without_a_sku(): void {
+		$product_id = $this->import_product( '93', '<b></b>' );
+		$this->assertSame( '', wc_get_product( $product_id )->get_sku() );
+
+		$resolver = new ProductResolver( 'colorme', $this->mappings );
+
+		foreach ( [ '', '   ', '<b></b>', '<script>x</script>' ] as $raw ) {
+			$this->assertNull( $resolver->resolve_by_sku_or_remote_id( $raw, null ), "[{$raw}]" );
+			$this->assertNull( $resolver->resolve_stock_target( null, 'missing', $raw ), "[{$raw}]" );
+		}
 	}
 }

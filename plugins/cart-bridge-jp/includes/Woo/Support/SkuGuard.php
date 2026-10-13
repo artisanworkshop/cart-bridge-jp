@@ -25,8 +25,7 @@ final class SkuGuard {
 	/**
 	 * ASP の型番を Woo の SKU の形にする（R3-5b）。WooCommerce のテンプレート（`single-product/meta.php`・SKU のブロック）は
 	 * SKU をエスケープせずに出し、WooCommerce 自身の管理画面・REST は保存の前に `wc_clean()` を掛けている。CRUD の `set_sku()` は
-	 * 何もしないので、ここで同じ `wc_clean()` を掛けないと、型番の `<script>` が商品ページでそのまま実行される。
-	 * SKU で商品を引く側（`ProductResolver`）も、保存した値と同じ形で引くためにこれを通す。空になったら null（SKU なし）。
+	 * 何もしないので、ここで同じ `wc_clean()` を掛けないと、型番の `<script>` が商品ページでそのまま実行される。空になったら null（SKU なし）。
 	 */
 	public static function normalize( ?string $sku ): ?string {
 		if ( null === $sku ) {
@@ -36,6 +35,18 @@ final class SkuGuard {
 		$clean = wc_clean( $sku );
 
 		return is_string( $clean ) && '' !== $clean ? $clean : null;
+	}
+
+	/**
+	 * SKU で商品を引くときの値（`ProductResolver`）。整形（{@see self::normalize()}）で変わらない型番だけを使い、変わる型番（タグ・
+	 * 前後や連続の空白・`%XX` を含む）と空の型番は null（SKU では引かない。mapping で引く）。整形した値で引くと、別々の型番
+	 * （`AB` と `AB `）が同じ SKU に当たり、受注の明細・在庫が別の商品に結び付く（R3-5b review-loop R1-L5）。空の SKU で引くと、
+	 * SKU の無い商品に当たる（WooCommerce は空の SKU も照合する。R1-2）。
+	 */
+	public static function lookup_key( ?string $sku ): ?string {
+		$clean = self::normalize( $sku );
+
+		return null !== $clean && $clean === $sku ? $clean : null;
 	}
 
 	/**

@@ -1431,6 +1431,52 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 認可の後に保存した資格情報を復号できなくなった（AUTH_KEY の変更など）ときは「保存し直す」ではなく消去へ案内する（保存も失敗する。review-loop R1-L8）。
+	 */
+	public function test_oauth_callback_points_to_clearing_credentials_that_cannot_be_read(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(
+			[
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'my-client-secret',
+			]
+		);
+
+		$authorize_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' ) );
+		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+
+		update_option( 'cbjp_token_colorme', 'not-decryptable' );
+		$this->assertTrue( ( new TokenStore( 'colorme' ) )->needs_reconnect() );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$request->set_query_params(
+			[
+				'code'  => 'some-code',
+				'state' => $params['state'],
+			]
+		);
+
+		$this->assertSame( 'credentials_unreadable', $this->connect_error_of( $this->server->dispatch( $request ) ) );
+	}
+
+	/**
+	 * 画面（`src/oauth-status.ts`）が訳すコードの一覧は、サーバーが渡す一覧と同じ（ずれると汎用の文になる。review-loop R1-L11）。
+	 */
+	public function test_the_admin_screen_knows_every_oauth_error_code(): void {
+		$source = (string) file_get_contents( dirname( __DIR__, 3 ) . '/src/oauth-status.ts' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- テストがリポジトリのソースを読む。
+
+		$this->assertSame( 1, preg_match( '/export const OAUTH_ERROR_CODES = \[(.*?)\] as const;/s', $source, $list ) );
+		preg_match_all( "/'([a-z_]+)'/", $list[1], $codes );
+
+		$this->assertSame( RestController::OAUTH_ERROR_CODES, $codes[1] );
+
+		// 汎用の文（switch の default）になる unexpected 以外は、それぞれの文を持つ。
+		foreach ( array_diff( RestController::OAUTH_ERROR_CODES, [ 'unexpected' ] ) as $code ) {
+			$this->assertStringContainsString( "case '{$code}':", $source, $code );
+		}
+	}
+
+	/**
 	 * @return array<string,array{0:\Throwable,1:string}>
 	 */
 	public static function oauth_error_cases(): array {

@@ -17,6 +17,7 @@ export const OAUTH_ERROR_CODES = [
 	'network',
 	'unavailable',
 	'credentials_changed',
+	'credentials_unreadable',
 	'unexpected',
 ] as const;
 
@@ -65,7 +66,7 @@ export function oauthErrorMessage( code: string ): string {
 			);
 		case 'denied':
 			return __(
-				'Access was not allowed on the platform. To connect, click Connect again and allow access.',
+				'Access was not allowed on the platform. To connect, start connecting again and allow access.',
 				'cart-bridge-jp'
 			);
 		case 'rejected':
@@ -85,7 +86,12 @@ export function oauthErrorMessage( code: string ): string {
 			);
 		case 'credentials_changed':
 			return __(
-				'The saved Client ID and Client Secret are missing or changed while connecting. Save them again, then connect.',
+				'The saved Client ID and Client Secret are missing or were changed while connecting. Save them again, then connect.',
+				'cart-bridge-jp'
+			);
+		case 'credentials_unreadable':
+			return __(
+				'The saved credentials cannot be read. Click “Clear saved credentials”, enter the Client ID and Client Secret again, click “Save settings”, then connect.',
 				'cart-bridge-jp'
 			);
 		default:
