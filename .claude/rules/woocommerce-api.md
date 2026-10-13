@@ -2,11 +2,14 @@
 paths:
   - "plugins/*/includes/Woo/**"
   - "plugins/*/tests/unit/Woo/**"
+  - "plugins/*/includes/PasswordEmail/**"
+  - "plugins/*/tests/unit/PasswordEmail/**"
+  - "plugins/*/templates/emails/**"
 ---
 
 # WooCommerce API の実測結果・落とし穴
 
-> Woo 側の Writer/Reader/Support（`includes/Woo/**`）を触るときに効く。WooCommerce のクラスの挙動は「同系クラスだから同じはず」の推測が外れるため、実ソースか `wp eval-file` で確認した結果を集めている（一般原則は CLAUDE.md の「WooCommerceのAPI挙動は…」）。
+> Woo 側の Writer/Reader/Support（`includes/Woo/**`）と、Pro の WooCommerce のメール（`includes/PasswordEmail/**`・`templates/emails/**`。R3-10）を触るときに効く。WooCommerce のクラスの挙動は「同系クラスだから同じはず」の推測が外れるため、実ソースか `wp eval-file` で確認した結果を集めている（一般原則は CLAUDE.md の「WooCommerceのAPI挙動は…」）。
 > CLAUDE.md の「コーディング規約」「アーキテクチャ原則」と併せて守る。ここは**触るファイルに対応するときだけ読み込まれる**パス指定ルール（`paths` frontmatter）で、内容は CLAUDE.md にあった項目をそのまま移したもの（issue/PR の番号は各項目に残してある）。
 
 - `WC_Order::set_status()` はステータスが実際に遷移したとき `maybe_set_date_paid()`/`maybe_set_date_completed()` を呼び、`date_paid`/`date_completed` に **`time()`（＝移行の実行時刻）** を打刻する。過去の受注日を保つため、日付の設定・補正は必ず `set_status()` より**後**に行うこと
@@ -101,3 +104,18 @@ paths:
   実行するユーザーに許された種類（管理者なら `text/html`、WP-Cron でも PDF・zip など）として通す。画像の拡張子でも、`wp_get_image_mime()` が判定できない種類（SVG）は fileinfo の判定に回り、
   SVG を許すプラグインのあるサイトでは `image/svg+xml` のまま通る。ASP の URL から取ったファイルは、`image/` の種類で `wp_get_image_mime()` も画像と答えるものだけを保存する（`MediaImporter::sideload()`。R3-5b review-loop R1-L6）。
   `media_sideload_image()` は URL の拡張子が `image_sideload_extensions`（サイトが SVG を足せる）にあれば中身を確かめずに保存しうるので使わない（取得は `download_url()`＋判定＋`media_handle_sideload()` の 1 経路。G1-1・G3-1）
+- **WooCommerce の `wc_last_active`（ユーザーメタ）はログインの印にならない**: ログイン・ストアの閲覧に加え、受注の保存（`OrdersTableDataStore`・CPT のデータストアが受注の顧客に `wc_update_user_last_active()`）と
+  更新処理の一括補完でも書かれる。取り込んだ受注を持つ顧客にも付く。「パスワードを設定し直したか」は、作成時の `user_pass` の控え（sha256）と比べる（R3-10。`PasswordEmail\RecipientPolicy`）。
+  `user_pass` が変わるのは再設定・プロフィール・管理者の変更・認証に成功したときの再ハッシュだけで、`wp_update_user()`（`user_pass` を渡さない）と `get_password_reset_key()`（`user_activation_key` だけ）は変えない。
+  WP の `reset_password()` と WooCommerce の再設定は `default_password_nag` を書き、`wc_create_new_customer()` はパスワードを渡すと書かない（渡さないと `true` で書く）
+- **秘密のリンクを送る `WC_Email` は CC・BCC を付けない**: WooCommerce 9.8〜11.1 はすべてのメールに CC・BCC の設定（「メールの改善」が有効なとき）があり、11.2 で `supports_cc_bcc`（protected。既定 true）が入ったが、
+  フィルター（`woocommerce_email_cc_recipient_{id}`・`…bcc…`）は 11.2 でも効く。`get_cc_recipient()`・`get_bcc_recipient()` を空にし、`init_form_fields()` で欄も外す（R3-10 の `PasswordSetupEmail`。WooCommerce の新規アカウント・再設定のメールも付けない）。
+  CC・BCC の見出しは「メールの改善」（option `woocommerce_feature_email_improvements_enabled`）が有効なときだけ付くので、テストは有効にしてから確かめる（無効のままだと上書きを外しても通る）
+- **`WC_Email` は autoload できない**（`WC_Emails::init()` が include する）。継承したクラスは `woocommerce_email_classes` のコールバックの中でだけ `new` し、使う側は `WC()->mailer()->get_emails()` から引く
+  （先に `new`・`class_exists()` すると fatal。コンストラクタはフックを足すので 2 つ目を作らない）。mailer のインスタンスは 1 つなので、宛先ごとの値（`object`・`recipient`・名前・リンク）は送るたびに設定し直し、
+  送り終えたら消す（前の宛先の値が残ると別の顧客のリンクを送る）。`trigger()` は void が慣習で、送れたかは `send()` の bool を見る（`send_notification()` は 10.9 から）
+- WooCommerce のメールのプレビュー（`EmailPreview::set_email_type()`）は、利用者向けと登録されていないメールに**ダミーの受注**を `object` として入れる。`object` を `WP_User` と決めつけるテンプレートは壊れるので、
+  `woocommerce_prepare_email_for_preview` で見本の値を入れる（再設定キーなど副作用のある値を作らない）
+- **WooCommerce の新規アカウントのメールのパスワード設定のリンク**（`generate_set_password_url()`）は `wc_get_account_endpoint_url( 'lost-password' ) . '?action=newaccount&key=…&login=…'` と文字列をつなぐので、
+  プレーンなパーマリンクでは `?` が二重になる。自分で作るときは `add_query_arg()`（値はエンコードしないので `login` は `rawurlencode()`）。マイアカウントのページが下書きでも ID は正のまま、
+  エンドポイント（`woocommerce_myaccount_lost_password_endpoint`）が空なら URL が壊れるので、送る前に確かめる（`PasswordEmail\AccountLinks::problem()`）
