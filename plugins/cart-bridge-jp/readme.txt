@@ -1,5 +1,5 @@
 === Cart Bridge JP – Migrate for WooCommerce ===
-Contributors: TODO-set-wporg-username-before-submission
+Contributors: artisan-workshop-1, shohei.tanaka
 Tags: migration, import, export, woocommerce, japan
 Requires at least: 6.9
 Tested up to: 7.1

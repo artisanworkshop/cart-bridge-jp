@@ -13,6 +13,7 @@
  * Domain Path: /languages
  *
  * WC requires at least: 10.0
+ * WC tested up to: 11.2
  *
  * @package CartBridgeJP
  */
@@ -55,8 +56,13 @@ add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_bootstrap' );
 /**
  * 同梱の翻訳（languages/）のパスを登録する。WooCommerce・オートロードの有無を確かめる前に、`cbjp_bootstrap()` とは別に行う
  * （前提条件が欠けたときの通知も訳すため。WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、言語パックがあればそちらが優先）。
+ *
+ * WordPress はサイトで有効なプラグインのパスをヘッダーの Domain Path から自動で登録するが、7.1 まではマルチサイトのネットワークで有効にした
+ * プラグインを登録しない（`wp-settings.php`。7.0〜7.1.3 で確認し、7.2-alpha は登録する）。wordpress.org の言語パックができるまでは、そのサイトでも
+ * 同梱の日本語訳を読むためにここで登録する（R3-4a。Plugin Check の「不要」の警告は注釈で抑える）。
  */
 function cbjp_load_textdomain(): void {
+	// phpcs:ignore PluginCheck.CodeAnalysis.DiscouragedFunctions.load_plugin_textdomainFound -- Up to WordPress 7.1, network-activated plugins get no automatic translation path, and the bundled Japanese translation must load before a language pack exists.
 	load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
 }
 

@@ -89,7 +89,7 @@ final class ReadmeTest extends WP_UnitTestCase {
 		$this->assertSame( $plugin['license'], $readme['License'] ?? null );
 		$this->assertSame( $plugin['license_'], $readme['License URI'] ?? null );
 
-		// wordpress.org は Stable tag の版を配る。ヘッダーの Version・`CBJP_VERSION` と一緒に上げる（R3-4 で 1.0.0）。
+		// wordpress.org は Stable tag の版を配る。ヘッダーの Version・`CBJP_VERSION` と一緒に上げる（R3-4b で 1.0.0）。
 		$this->assertSame( $plugin['version'], $readme['Stable tag'] ?? null );
 		$this->assertSame( CBJP_VERSION, $plugin['version'] );
 	}
@@ -106,10 +106,28 @@ final class ReadmeTest extends WP_UnitTestCase {
 			'Tested up to must not be older than Requires at least.'
 		);
 
-		// Contributors は wordpress.org のユーザー名に差し替えるまで仮の値（R3-4）。1.0.0 へ上げる時点で残っていれば止める。
-		if ( version_compare( CBJP_VERSION, '1.0.0', '>=' ) ) {
-			$this->assertStringNotContainsString( 'TODO', $headers['Contributors'] );
-		}
+		// Contributors は R3-3 では仮の値で、R3-4a で wordpress.org のユーザー名にした。仮の値に戻さない。
+		$this->assertStringNotContainsString( 'TODO', $headers['Contributors'] );
+	}
+
+	/**
+	 * WooCommerce は `WC tested up to` を読み、それより新しい WooCommerce へ更新するときに「この版で試していない」と案内する
+	 * （`WC_Plugin_Updates::get_untested_plugins()`。major.minor で比べる）。R3-4a で足した（backlog `r3-3-readme-v1/R1-X2`）。
+	 */
+	public function test_plugin_header_declares_the_tested_woocommerce_version(): void {
+		$plugin = get_file_data(
+			CBJP_FILE,
+			[
+				'requires' => 'WC requires at least',
+				'tested'   => 'WC tested up to',
+			]
+		);
+
+		$this->assertMatchesRegularExpression( '/\A\d+\.\d+(?:\.\d+)?\z/', $plugin['tested'] );
+		$this->assertTrue(
+			version_compare( $plugin['tested'], $plugin['requires'], '>=' ),
+			'WC tested up to must not be older than WC requires at least.'
+		);
 	}
 
 	/**
@@ -289,12 +307,14 @@ final class ReadmeTest extends WP_UnitTestCase {
 
 	/**
 	 * readme は配布物に入れ、ディレクトリのアセット（SVN の assets/ へ置く）は zip に入れない（`bin/build-zip.sh`〔CI の Distribution ジョブと release.yml〕は `.distignore` で rsync する）。
+	 * zip は vendor/ の autoloader を同梱するので composer.json も入れる（無ければ Plugin Check が missing_composer_json_file を警告する。R3-4a）。
 	 */
 	public function test_distignore_ships_the_readme_but_not_the_directory_assets(): void {
 		$lines = array_map( 'trim', (array) file( CBJP_PATH . '.distignore', FILE_IGNORE_NEW_LINES ) );
 
 		$this->assertContains( '.wordpress-org/', $lines );
 		$this->assertNotContains( 'readme.txt', $lines );
+		$this->assertNotContains( 'composer.json', $lines );
 	}
 
 	private static function readme(): string {

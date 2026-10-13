@@ -5,14 +5,15 @@
 #
 # 1. npm run build（無料版だけ。--skip-build で省く。Pro は JS を持たない）
 # 2. vendor/ を除いて一時ディレクトリへ写し、そこで composer install --no-dev -o（開発用の plugins/<slug>/vendor は触らない。
-#    .distignore は composer.json を除くので、除く前の写しで実行する）
+#    Pro の .distignore は composer.json を除くので、除く前の写しで実行する）
 # 3. .distignore で最終ディレクトリへ写して検査し、通ったときだけ <out>/<slug>-<version>.zip を作る（既定の plugin は無料版、out は dist/、
 #    version はプラグインヘッダーの Version。--version を渡したときはヘッダーの Version と同じでなければ止める〔タグとヘッダーの版の食い違い。
 #    backlog r3-7-monorepo/R1-L2〕）
 #
 # 検査（どれかが外れたら zip を作らず非ゼロで終わる）:
-# - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・includes/・build/・languages/・vendor/、
-#   Pro: 本体・includes/・languages/・vendor/）
+# - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・composer.json・includes/・build/・languages/・vendor/、
+#   Pro: 本体・includes/・languages/・vendor/）。無料版は vendor/ の autoloader を同梱するので composer.json も同梱する（無ければ wordpress.org の
+#   Plugin Check が missing_composer_json_file を警告する。R3-4a）。Pro は wordpress.org で配らないので除いたまま
 # - includes/・languages/ は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
 # - vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）。無料版は build/ に管理画面の JS とその依存の一覧がある
 # - 無料版: Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
@@ -59,7 +60,7 @@ done
 # プラグインごとの違い: JS のビルド・許可する最上位・追跡と一致させるディレクトリ・必ずあるファイル。
 case "$SLUG" in
 	cart-bridge-jp)
-		allowed='build cart-bridge-jp.php includes languages readme.txt uninstall.php vendor'
+		allowed='build cart-bridge-jp.php composer.json includes languages readme.txt uninstall.php vendor'
 		tracked_dirs='includes languages'
 		required_files='build/index.js build/index.asset.php vendor/autoload.php'
 		;;
