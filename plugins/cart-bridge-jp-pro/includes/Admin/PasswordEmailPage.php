@@ -355,8 +355,16 @@ final class PasswordEmailPage {
 		if ( $unknown > 0 ) {
 			self::render_row(
 				__( 'Password status unknown', 'cart-bridge-jp-pro' ),
-				/* translators: %s: the number of customers. */
-				sprintf( __( '%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email.', 'cart-bridge-jp-pro' ), number_format_i18n( $unknown ) )
+				sprintf(
+					/* translators: %s: the number of customers. */
+					_n(
+						'%s of them was imported by an earlier version, so whether they have already set a password cannot be told. They receive the email.',
+						'%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email.',
+						$unknown,
+						'cart-bridge-jp-pro'
+					),
+					number_format_i18n( $unknown )
+				)
 			);
 		}
 
@@ -496,6 +504,8 @@ final class PasswordEmailPage {
 		}
 
 		printf( '<h2>%s</h2>', esc_html__( 'Send to customers', 'cart-bridge-jp-pro' ) );
+		$count = $summary['send'] - $summary['legacy_send'];
+
 		$this->open_form( self::ACTION_START );
 		printf(
 			'<p><label><input type="checkbox" name="%1$s" value="1" required /> %2$s</label></p>',
@@ -503,9 +513,9 @@ final class PasswordEmailPage {
 			esc_html(
 				sprintf(
 					/* translators: 1: the address of this site, 2: the number of customers. */
-					__( 'The store has moved to this site (%1$s). Send the email to %2$s customers.', 'cart-bridge-jp-pro' ),
+					_n( 'The store has moved to this site (%1$s). Send the email to %2$s customer.', 'The store has moved to this site (%1$s). Send the email to %2$s customers.', $count, 'cart-bridge-jp-pro' ),
 					home_url( '/' ),
-					number_format_i18n( $summary['send'] - $summary['legacy_send'] )
+					number_format_i18n( $count )
 				)
 			)
 		);
@@ -525,7 +535,7 @@ final class PasswordEmailPage {
 				esc_html(
 					sprintf(
 						/* translators: %s: the number of accounts. */
-						__( 'Also send to the %s accounts likely imported by version 0.1.0 (listed above).', 'cart-bridge-jp-pro' ),
+						_n( 'Also send to the %s account likely imported by version 0.1.0 (listed above).', 'Also send to the %s accounts likely imported by version 0.1.0 (listed above).', count( $summary['legacy_ids'] ), 'cart-bridge-jp-pro' ),
 						number_format_i18n( count( $summary['legacy_ids'] ) )
 					)
 				)
