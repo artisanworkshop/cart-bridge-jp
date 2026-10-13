@@ -279,6 +279,28 @@ final class PasswordEmailPageTest extends WooTestCase {
 	}
 
 	/**
+	 * 壊れた記録: `sent:` で始まる値は送信済みとして読み（「未送信に戻す」の対象の SQL と同じ区切り。戻せないのに途中で止まったと出さない）、
+	 * それ以外の壊れた値は途中で止まったとして読み、未送信に戻せる（PR #135 G2-1）。
+	 */
+	public function test_reads_broken_records_consistently_with_the_cleanup(): void {
+		$this->as_shop_manager();
+		$sent_broken  = $this->imported_customer( '1' );
+		$other_broken = $this->imported_customer( '2' );
+		update_user_meta( $sent_broken, SendRecord::META, 'sent:truncated' );
+		update_user_meta( $other_broken, SendRecord::META, 'garbage' );
+
+		$this->assertSame( SendRecord::STATE_SENT, SendRecord::get( $sent_broken )['state'] );
+		$this->assertSame( SendRecord::STATE_SENDING, SendRecord::get( $other_broken )['state'] );
+		$this->assertSame( [ $other_broken ], SendRecord::unsent_user_ids() );
+
+		$this->post( PasswordEmailPage::ACTION_CLEAR_SENDING );
+		$this->assertTrue( $this->page->process( PasswordEmailPage::ACTION_CLEAR_SENDING ) );
+
+		$this->assertNull( SendRecord::get( $other_broken ) );
+		$this->assertSame( SendRecord::STATE_SENT, SendRecord::get( $sent_broken )['state'] );
+	}
+
+	/**
 	 * 「未送信に戻す」は、読んだ後にバッチが `sent` に書き換えた記録を消さない（値が一致するときだけ消す。PR #135 G1-2）。
 	 */
 	public function test_does_not_clear_a_record_that_was_just_marked_sent(): void {
@@ -410,7 +432,7 @@ final class PasswordEmailPageTest extends WooTestCase {
 		$interrupted = $this->imported_customer( '1' );
 		$sent        = $this->imported_customer( '2' );
 		SendRecord::mark_sending( $interrupted, str_repeat( 'a', 32 ) );
-		SendRecord::mark_sent( $sent, str_repeat( 'a', 32 ) );
+		update_user_meta( $sent, SendRecord::META, 'sent:' . str_repeat( 'a', 32 ) . ':1700000000' );
 		$running = Campaign::start( 1, false, [] );
 		Sender::schedule( $running['run_id'], $running['token'], 60 );
 		$this->post( PasswordEmailPage::ACTION_CLEAR_SENDING );

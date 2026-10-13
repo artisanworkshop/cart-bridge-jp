@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\PasswordEmail;
 
+use Throwable;
 use WP_User;
 
 /**
@@ -60,22 +61,57 @@ final class Sender {
 	}
 
 	/**
-	 * 生きた予約（pending・in-progress）があるか。確かめられなければ null（Action Scheduler が読み込まれていない）。
+	 * この run のこのトークンの生きた予約（pending・in-progress）があるか（取り消した run の残りの予約を、今の run が生きている証拠にしない。PR #135 G2-3）。
+	 * 確かめられなければ null（Action Scheduler の初期化前・照会の例外・照会の DB エラー〔照会は失敗しても空を返すので `$wpdb->last_error` で見る〕・
+	 * 読めない予約。無料版の `JobRepository::live_action_job_ids()` と同じ考え方）。
 	 */
-	public static function has_live_action(): ?bool {
-		if ( ! function_exists( 'as_has_scheduled_action' ) || ! class_exists( \ActionScheduler::class ) || ! \ActionScheduler::is_initialized() ) {
+	public static function has_live_action( string $run_id, string $token ): ?bool {
+		global $wpdb;
+
+		if ( ! function_exists( 'as_get_scheduled_actions' ) || ! class_exists( \ActionScheduler::class ) || ! \ActionScheduler::is_initialized() ) {
 			return null;
 		}
 
-		return as_has_scheduled_action( self::HOOK, null, self::GROUP );
+		try {
+			$actions = as_get_scheduled_actions(
+				[
+					'hook'     => self::HOOK,
+					'group'    => self::GROUP,
+					// `ActionScheduler_Store::STATUS_PENDING`・`STATUS_RUNNING`（静的解析が Action Scheduler のクラスを知らないので文字列で書く）。
+					'status'   => [ 'pending', 'in-progress' ],
+					'per_page' => -1,
+					'orderby'  => 'none',
+				]
+			);
+		} catch ( Throwable ) {
+			return null;
+		}
+
+		if ( '' !== $wpdb->last_error || ! is_array( $actions ) ) {
+			return null;
+		}
+
+		foreach ( $actions as $action ) {
+			if ( ! is_object( $action ) || ! method_exists( $action, 'get_args' ) || ! method_exists( $action, 'get_hook' ) || self::HOOK !== $action->get_hook() ) {
+				return null;
+			}
+
+			$args = $action->get_args();
+
+			if ( is_array( $args ) && ( $args[0] ?? null ) === $run_id && ( $args[1] ?? null ) === $token ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
 	 * 進行中のはずの run が中断したか: running なのに生きた予約が無く、最後のバッチ（無ければ開始）から排他の期限より長く経った。
 	 * 確かめられないときは中断と言わない（再開を勧めない）。
 	 *
-	 * @param array{status:string,started_at:int,updated_at:int} $control
-	 * @param array{last_batch_at:int}                           $progress
+	 * @param array{run_id:string,status:string,token:string,started_at:int,updated_at:int} $control
+	 * @param array{last_batch_at:int}                                                     $progress
 	 */
 	public static function is_interrupted( array $control, array $progress ): bool {
 		if ( Campaign::STATUS_RUNNING !== $control['status'] ) {
@@ -88,7 +124,7 @@ final class Sender {
 			return false;
 		}
 
-		return false === self::has_live_action();
+		return false === self::has_live_action( $control['run_id'], $control['token'] );
 	}
 
 	/**
@@ -308,25 +344,28 @@ final class Sender {
 	 */
 	private static function send_one( PasswordSetupEmail $email, WP_User $user, string $run_id ): ?string {
 		// 送る前に記録する（この後で処理が落ちても、次のバッチ・次の run がこの顧客へ 2 通目を送らない）。記録を確かめられなければ送らない（G1-6）。
-		if ( ! SendRecord::mark_sending( $user->ID, $run_id ) ) {
+		$sending = SendRecord::mark_sending( $user->ID, $run_id );
+
+		if ( null === $sending ) {
 			return self::FAILURE_RECORD;
 		}
 
 		$key = get_password_reset_key( $user );
 
 		if ( ! is_string( $key ) || '' === $key ) {
-			SendRecord::mark_failed( $user->ID, $run_id, self::FAILURE_RESET_KEY );
+			SendRecord::mark_failed( $user->ID, $sending, $run_id, self::FAILURE_RESET_KEY );
 
 			return self::FAILURE_RESET_KEY;
 		}
 
+		// 送れた・送れなかったの記録は、記録がまだ自分の書いた値のときだけ書き換える（G2-2）。
 		if ( ! $email->send_to( $user, AccountLinks::set_password_url( $user, $key ) ) ) {
-			SendRecord::mark_failed( $user->ID, $run_id, self::FAILURE_MAIL );
+			SendRecord::mark_failed( $user->ID, $sending, $run_id, self::FAILURE_MAIL );
 
 			return self::FAILURE_MAIL;
 		}
 
-		SendRecord::mark_sent( $user->ID, $run_id );
+		SendRecord::mark_sent( $user->ID, $sending, $run_id );
 
 		return null;
 	}

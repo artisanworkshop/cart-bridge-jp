@@ -321,7 +321,7 @@ final class SenderTest extends WooTestCase {
 	 */
 	public function test_a_success_clears_the_failure(): void {
 		$user_id = $this->imported_customer( '1' );
-		SendRecord::mark_failed( $user_id, str_repeat( 'a', 32 ), Sender::FAILURE_MAIL );
+		update_user_meta( $user_id, SendRecord::FAILED_META, str_repeat( 'a', 32 ) . ':1700000000:' . Sender::FAILURE_MAIL );
 		$run = $this->start();
 
 		Sender::handle( $run['run_id'], $run['token'] );
@@ -425,7 +425,9 @@ final class SenderTest extends WooTestCase {
 	public function test_detects_an_interrupted_run(): void {
 		$old     = time() - SendLock::TTL - 10;
 		$control = [
+			'run_id'     => str_repeat( 'a', 32 ),
 			'status'     => Campaign::STATUS_RUNNING,
+			'token'      => str_repeat( 'b', 32 ),
 			'started_at' => $old,
 			'updated_at' => $old,
 		];
@@ -434,8 +436,81 @@ final class SenderTest extends WooTestCase {
 		$this->assertFalse( Sender::is_interrupted( $control, [ 'last_batch_at' => time() ] ) );
 		$this->assertFalse( Sender::is_interrupted( [ 'status' => Campaign::STATUS_STOPPED ] + $control, [ 'last_batch_at' => $old ] ) );
 
+		// 別の run・古いトークンの予約は、今の run が生きている証拠にしない（取り消した run の残り。PR #135 G2-3）。
+		Sender::schedule( str_repeat( 'c', 32 ), str_repeat( 'b', 32 ), 60 );
+		Sender::schedule( str_repeat( 'a', 32 ), str_repeat( 'd', 32 ), 60 );
+		$this->assertTrue( Sender::is_interrupted( $control, [ 'last_batch_at' => $old ] ) );
+
 		Sender::schedule( str_repeat( 'a', 32 ), str_repeat( 'b', 32 ), 60 );
 		$this->assertFalse( Sender::is_interrupted( $control, [ 'last_batch_at' => $old ] ) );
+	}
+
+	/**
+	 * 予約を確かめられない（照会の DB エラー）ときは中断と言わない（再開を勧めない。PR #135 G2-3）。
+	 */
+	public function test_does_not_call_a_run_interrupted_when_the_queue_cannot_be_read(): void {
+		global $wpdb;
+
+		$old     = time() - SendLock::TTL - 10;
+		$control = [
+			'run_id'     => str_repeat( 'a', 32 ),
+			'status'     => Campaign::STATUS_RUNNING,
+			'token'      => str_repeat( 'b', 32 ),
+			'started_at' => $old,
+			'updated_at' => $old,
+		];
+		$table   = $wpdb->prefix . 'actionscheduler_actions';
+		add_filter(
+			'query',
+			static function ( string $sql ) use ( $table ): string {
+				return str_contains( $sql, $table ) && str_starts_with( ltrim( $sql ), 'SELECT' ) ? 'SELECT broken FROM no_such_table' : $sql;
+			}
+		);
+		$suppress = $wpdb->suppress_errors( true );
+
+		try {
+			$this->assertNull( Sender::has_live_action( $control['run_id'], $control['token'] ) );
+			$this->assertFalse( Sender::is_interrupted( $control, [ 'last_batch_at' => $old ] ) );
+		} finally {
+			$wpdb->suppress_errors( $suppress );
+		}
+	}
+
+	/**
+	 * 送信が長引く間に記録が書き換えられた（管理者が未送信に戻し、別の run が送った）ら、送れた・送れなかったで上書きしない（PR #135 G2-2）。
+	 *
+	 * @dataProvider delivery_results
+	 */
+	public function test_does_not_overwrite_a_record_replaced_during_the_send( bool $delivered ): void {
+		global $wpdb;
+
+		$user_id = $this->imported_customer( '1' );
+		$run     = $this->start();
+		$other   = 'sent:' . str_repeat( 'e', 32 ) . ':1700000000';
+		add_filter(
+			'pre_wp_mail',
+			static function () use ( $wpdb, $user_id, $other, $delivered ) {
+				$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->usermeta} SET meta_value = %s WHERE user_id = %d AND meta_key = %s", $other, $user_id, SendRecord::META ) );
+
+				return $delivered;
+			}
+		);
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		wp_cache_delete( $user_id, 'user_meta' );
+		$this->assertSame( $other, get_user_meta( $user_id, SendRecord::META, true ) );
+		$this->assertNull( SendRecord::failure( $user_id ) );
+	}
+
+	/**
+	 * @return array<string,array{0:bool}>
+	 */
+	public static function delivery_results(): array {
+		return [
+			'delivered' => [ true ],
+			'failed'    => [ false ],
+		];
 	}
 
 	/**
