@@ -775,7 +775,8 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     配布 zip の Plugin Check（2 つの警告が消え、ほかは R3-5b と同じ）、`actionlint`。詳細は `docs/03` §8「リリースと wordpress.org への配信」。
     review-loop R1（独立サブエージェント）で、`readme-release.php` の見出し・ヘッダーの判定が wordpress.org のパーサーと違い、Upgrade Notice の節を changelog として通しうる（Medium）と分かり、
     同じ規則に合わせた（`Stable tag`・同じ版の節の重複も止める）。CLI の入口のテスト（`PHP_BINARY` で実行）、release.yml の本文が空でないことの確認、`deploy-wporg.yml` のジョブの分割
-    （secrets の無い build と Environment `wordpress-org` の deploy。`persist-credentials: false`）も R1 で直した
+    （secrets の無い build と Environment `wordpress-org` の deploy。`persist-credentials: false`）も R1 で直した。
+    **マージ後の追加（2026-10-13。ブランチ `feat/r3-4a-readme-source-code`）**: readme に `= Source code =` の節（ガイドライン 4: 圧縮した `build/` のソースの場所とビルドの手順。審査で差し戻されやすい）。`ReadmeTest` が節とルートの `package.json` のビルドの設定を照合する
   - [ ] **R3-4b: 版上げと申請**（販売サイトの後）: Pro の販売サイトの URL を readme の FAQ「Can it migrate customers, orders, and coupons?」へ（`ReadmeTest`）、1.0.0（プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag`。`ReadmeTest`・`bin/readme-release.php` が changelog の節と照合する）、
     バナーとアイコンを `plugins/cart-bridge-jp/.wordpress-org/` に置く、Plugin Check（ソースと `bin/build-zip.sh` の zip）、申請。承認の後に Environment `wordpress-org` の secrets（`SVN_USERNAME`・`SVN_PASSWORD`）を登録し
     （保護は承認者と「デプロイできるブランチ = main」）、`v1.0.0` のタグ（release.yml）→ `deploy-wporg.yml` を手動で実行（初回は `dry_run` で変更の一覧を見る）。版上げの前に、リリースの経路で `CBJP_VERSION` も照合するか判断する（backlog `r3-4a-wporg-submission-prep/R1-X1`）。
