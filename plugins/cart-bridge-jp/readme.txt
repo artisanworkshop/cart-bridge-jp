@@ -66,7 +66,7 @@ WooCommerce and its associated designs are trademarks of Automattic Inc. Color M
 
 = Source code =
 
-The JavaScript and CSS of the admin screens in `build/` are compiled from TypeScript with `@wordpress/scripts`. The source code is on GitHub: https://github.com/artisanworkshop/cart-bridge-jp (this plugin is in `plugins/cart-bridge-jp/`, and the sources of the admin screens are in its `src/` directory). To build them, run `npm install` and then `npm run build` in the root directory of the repository. The `vendor/` directory contains only the Composer autoloader; the plugin has no third-party PHP packages.
+The JavaScript of the admin screens in `build/` is compiled from TypeScript, and their CSS from `style.css`, with `@wordpress/scripts`. The source code is on GitHub: https://github.com/artisanworkshop/cart-bridge-jp (this plugin is in `plugins/cart-bridge-jp/`, and the TypeScript files and `style.css` of the admin screens are in its `src/` directory). To build them, run `npm install` and then `npm run build` in the root directory of the repository. The `vendor/` directory contains only the Composer autoloader; the plugin has no third-party PHP packages.
 
 == Installation ==
 
