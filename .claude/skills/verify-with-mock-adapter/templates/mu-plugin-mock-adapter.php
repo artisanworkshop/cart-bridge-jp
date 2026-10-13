@@ -213,6 +213,7 @@ add_action(
 						push_supported: $push_enabled,
 						capabilities_override: $commerce_caps,
 						create_push_failure: $create_push_fail,
+						// Pro の mock は顧客・受注の ID 指定取得で同じ例外を投げる（受注でも例外の文は "customer"。判定には使わない）。
 						fetch_by_id_failure: $fetch_by_id_fail( 'customer' ),
 						platform_id: '__PLATFORM_KEY__',
 						candidates: null === $candidates_seed ? [] : array_intersect_key( $candidates_seed, array_flip( [ 'payment', 'shipping', 'status' ] ) )

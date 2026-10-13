@@ -71,6 +71,12 @@ $left = [
 	'jobs'     => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ),
 	'logs'     => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_logs WHERE context_json LIKE %s", $like ) ),
 	'dry_run_items' => '' !== $job_in ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$job_in})" ) : 0,
+	// 上で外した seed のキー（読み直して数える。`update_option()` の失敗を「完全に戻った」と報告しない。R3-11 review-loop R1-L1）。
+	'seed_keys'     => ( static function (): int {
+		$after = get_option( 'cbjp_verify_seed', null );
+
+		return is_array( $after ) ? count( array_intersect_key( $after, [ 'push' => true, 'fetch_by_id_failure' => true ] ) ) : 0;
+	} )(),
 ];
 // phpcs:enable
 echo 'left: ' . wp_json_encode( $left ) . "\n";
