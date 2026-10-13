@@ -9,8 +9,8 @@ tests/
 phpunit.xml.dist
 .phpunit.result.cache
 
-# Composer manifests (vendor/ itself is kept — the plugin autoloads via vendor/autoload.php at runtime)
-composer.json
+# Composer lock file. vendor/ is kept (the plugin autoloads via vendor/autoload.php at runtime), and so is composer.json:
+# the WordPress.org Plugin Check warns (missing_composer_json_file) when vendor/ ships without it.
 composer.lock
 
 # WordPress.org directory assets (screenshots, banners, icons) go to the SVN assets/ directory, not the plugin zip

@@ -99,7 +99,8 @@ interface PlatformAdapter {
    を継承する。** 直接 `implements` する実装は本ポリシーの互換保証の対象外
 2. **v1.0.0 公開前**: 従来どおりインターフェースへの追加・シグネチャ変更を許容する（D19、`push_order`の
    シグネチャ変更=#45、`fetch_order_by_remote_id()`追加=#46 の前例）。変更したら
-   `AbstractPlatformAdapterTest::BASELINE` を更新する
+   `AbstractPlatformAdapterTest::BASELINE` を更新する（R3-4a で `v1_method_names()` を固定したので、メソッドを足す・消すときは
+   そのリストも同じ PR で直す。直さずに足すと `AbstractPlatformAdapter` の既定実装を求められる。規則 5）
 3. **v1.0.0 公開後**（BASELINEの既存エントリは凍結）: 既存メソッドのシグネチャ（引数・型・戻り値型）を
    変更しない。変更が要る場合は新しいメソッドを足す。新しいメソッドは `AbstractPlatformAdapter` に
    既定実装を、`AbstractPlatformAdapterTest::BASELINE` にシグネチャを**同時に**追加する
@@ -122,11 +123,13 @@ interface PlatformAdapter {
    シグネチャがどのテストでも一切凍結されないまま変更できてしまう。本ポリシー導入PRのG2でCodexが指摘）。
    `test_new_methods_have_default_implementations`は、`v1_method_names()`に無いメソッドが
    `AbstractPlatformAdapter`で既定実装を持たないまま（＝抽象のまま）追加されていないかを確認する。
-   `v1_method_names()`は**v1.0.0公開前の今は`BASELINE`のキーと連動して動く**（D20が公開前のメソッド
+   `v1_method_names()`は固定まで`BASELINE`のキーと連動して動いていた（D20が公開前のメソッド
    追加に既定実装を要求しないため。固定リストにすると公開前の正当な追加まで失敗する。本ポリシー導入PR
-   のG3でCopilotが指摘）。**v1.0.0公開時（R3-4）に必ずこの実装をその時点のメソッド名のリテラル配列へ
-   書き換えて固定すること**。固定しないと、公開後に追加されたメソッドの既定実装が（シグネチャは変えずに）
-   削除される変更を検出できなくなる（同PRのG1でCodexが指摘）。固定した後は`BASELINE`のキーをそのまま
+   のG3でCopilotが指摘）。~~**v1.0.0公開時（R3-4）に必ずこの実装をその時点のメソッド名のリテラル配列へ
+   書き換えて固定すること**。~~ → **R3-4a（2026-10-13）で、その時点の 15 メソッドのリテラル配列へ固定した**
+   （R3-6 で無料版のインターフェースの形が決まり、残る公開の準備〔R3-4b・販売サイト〕はインターフェースに触れないので、
+   版上げを待たなかった。1.0.0 の公開前に`PlatformAdapter`の形を変えるときは、同じ PR でこのリストも直す）。固定しないと、公開後に追加されたメソッドの既定実装が（シグネチャは変えずに）
+   削除される変更を検出できなくなる（同PRのG1でCodexが指摘。R3-4a で、既定実装の無いメソッドを足す変更を固定前は通し、固定後は止めることを確かめた）。固定した後は`BASELINE`のキーをそのまま
    使わないため、`BASELINE`にだけ追記して既定実装を削除する変更も検出し続けられる。ただし`BASELINE`や
    固定後の`v1_method_names()`自体の書き換えはテストでは防げない（公開後に既存エントリを書き換えて
    テストを通してしまうことは技術的に可能なため、レビューで検出する運用が前提）
@@ -696,7 +699,11 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   make-mo・make-php は複数形の原文を単数形だけのキーで書くが、WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`）。
 - WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）があればそちらが優先される。翻訳ファイルを置くと、
   `init` より前の `__()` が「too early」通知を出す条件になるが、プラグインの `__()` は `admin_notices` 以降でしか走らない（サイトの言語を `ja` にして実測）。
-  Plugin Check が wordpress.org 向けに `load_plugin_textdomain()` を「不要」と警告するかは R3-4 で確かめる。
+  ~~Plugin Check が wordpress.org 向けに `load_plugin_textdomain()` を「不要」と警告するかは R3-4 で確かめる。~~
+  → **警告する**（Plugin Check 2.1.0 の `PluginCheck.CodeAnalysis.DiscouragedFunctions.load_plugin_textdomainFound`。WARNING で申請は止めない）。**R3-4a（2026-10-13 ユーザー決定）で残し、理由つきの
+  `phpcs:ignore` で抑えた**: WordPress はサイトで有効なプラグインの翻訳のパスをヘッダーの `Domain Path` から自動で登録するが、7.1 まではマルチサイトのネットワークで有効にしたプラグインを
+  登録しない（`wp-settings.php` のネットワークのプラグインのループ。7.0〜7.1.3 で確認し、7.2-alpha は登録する）。wordpress.org の言語パックができるまでは、そのサイトでは同梱の日本語訳が
+  読まれなくなるため。言語パックが出る・最低の WordPress が 7.2 以上になったら外せる。Pro（wordpress.org で配らない）の `cbjp_pro_load_textdomain()` は対象外のまま
 - **検査**: `TranslationsTest`（PHPUnit）が、PO と POT の文字列（msgctxt・msgid・msgid_plural と JS から参照されるか）の一致・訳の漏れと fuzzy・プレースホルダ
   （`%s`・`%1$s`・`%d`・`%%`）の一致・生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）を確かめる。`bin/i18n.sh check`（CI の PHPUnit ジョブと
   `quality.sh`）がビルド済みのソースから POT をコンテナの中で作り直し、コミット済みの POT と同じ項目で比べる（行番号・翻訳者コメント・作成日時は比べない）。make-pot の
@@ -747,12 +754,15 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
  * Domain Path: /languages
  *
  * WC requires at least: 10.0
+ * WC tested up to: 11.2
  */
 ```
 
+- **`WC tested up to`（R3-4a、2026-10-13。backlog `r3-3-readme-v1/R1-X2`）**: CI・wp-env の WooCommerce（11.2.0）に合わせて `11.2`。WooCommerce は major・major.minor で比べて、
+  それより新しい WooCommerce へ更新するときに「試していない」と案内する（`WC_Plugin_Updates::get_untested_plugins()`）。WooCommerce の新しい版で動作を確かめたら上げる（`ReadmeTest` は形と `WC requires at least` 以上であることを確かめる）
 - **Description の v1.0 化（D18）**: ヘッダーと `composer.json` の Description は、以前は3ASPを併記していたが、R3-3（2026-10-09）で「Color Me Shop」のみへ改めた。
   R3-6d（2026-10-11）で無料版の範囲（D27）に合わせ「Migrate products and stock …」にした（以前は「products, customers, and orders」）。BASE（v2.0 / R5-1）・MakeShop（v3.0 / R7-1）はそれぞれの公開時に追記する（readme も同じ。`ReadmeTest` が「Description と readme に MakeShop・BASE が無い」ことを確かめるので、追記する PR でテストも改める）。ヘッダーの Description は POT に入るので、変えたら日本語訳も更新する
-- **`readme.txt`（R3-3）**: wordpress.org 用の英語の readme（日本語は承認後に translate.wordpress.org）。ヘッダーの `Stable tag` はプラグインヘッダーの Version・`CBJP_VERSION` と一致させ（`ReadmeTest`）、1.0.0 への引き上げは R3-4 で一括する。`Contributors` は仮の値で、R3-4 の申請前に wordpress.org のユーザー名へ差し替える。
+- **`readme.txt`（R3-3）**: wordpress.org 用の英語の readme（日本語は承認後に translate.wordpress.org）。ヘッダーの `Stable tag` はプラグインヘッダーの Version・`CBJP_VERSION` と一致させ（`ReadmeTest`）、1.0.0 への引き上げは R3-4 で一括する（R3-4b）。~~`Contributors` は仮の値で、R3-4 の申請前に wordpress.org のユーザー名へ差し替える。~~ → R3-4a で `artisan-workshop-1, shohei.tanaka`（ユーザー決定。`ReadmeTest` が版によらず仮の値を止める）。
   ~~Pro 版には触れない（§10.3 R3-0h の「購入 URL が無い間は Pro に触れない」と同じ。無料版の上限は事実として書く）。~~ BASE・MakeShop の対応予定も載せない（2026-10-09 ユーザー決定）。
   **D27（2026-10-09、§10.0）で無料版の上限を無くし、顧客・受注・クーポンを Pro アドオンへ移すので、R3-6 で readme を書き直す**（「Free version limits」の節・無料版と顧客・受注・クーポンの FAQ・スクリーンショット、`ReadmeTest` の上限の照合。Pro への言及はリンク程度〔ガイドライン 9・11〕）。
   → **R3-6a で上限の節を外し、R3-6d（2026-10-11）で無料版の範囲に書き直した**。Pro には、Description の 1 文・FAQ「Can it migrate customers, orders, and coupons?」・changelog・Upgrade Notice で名前だけ触れる
@@ -762,7 +772,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   Requirements の「店舗オーナーのアカウントで認可する（副管理者のアカウントは認可できない）」は、2026-09-08 に副管理者で認可を試みて Color Me Shop に拒否された事実による（docs の要検証には未記載だった）。
   ~~サンプルのクリーンアップは取込みのサンプル用で、エクスポートの後に使うと紐づけとエクスポートのサンプルが消え、次のエクスポートで Color Me Shop に重複を作る（§10.2「E2-2 PR-A」の既知の制限。ツール側の対処は backlog `r3-3-readme-v1/R1-X1`）ので、readme にそう書いた。~~（R3-6a でサンプルのクリーンアップごと削除し、readme からも外した）
   External services 節（ガイドライン）に Color Me Shop API（`api.shop-pro.jp`）へ送る・読むデータと規約の URL を書いた（2026-10-09 に確認: API 利用規約 `https://api.shop-pro.jp/developers/tos`、サービス利用規約 `https://shop-pro.jp/terms/colorme-terms/`、GMO ペパボのプライバシーポリシー `https://pepabo.com/company/privacy/`。`ReadmeTest` は接続先のホストが節に書かれていることを確かめる）。
-  スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、R3-4 で SVN の `assets/` へ置く）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
+  スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、SVN の `assets/` へは `deploy-wporg.yml` が送る〔R3-4a。§8〕）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:
@@ -786,6 +796,38 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 3. **js**: `npm ci && npm run lint && npm run test:js && npm run build`（tsc型チェック含む）
 4. **distribution**: `bin/build-zip.sh`（無料版の zip を作り、中身を検査する。`release.yml` も同じスクリプトで zip を作る。§10.6）
 5. **dev-tooling**: `cbj-dev-cycle` の補助スクリプトの回帰テスト
+
+### リリースと wordpress.org への配信（R3-4a、2026-10-13。ブランチ `feat/r3-4a-wporg-submission-prep`）
+
+| ワークフロー | きっかけ | すること |
+|---|---|---|
+| `release.yml` | `v*.*.*` のタグの push | `bin/readme-release.php` で readme を版と照合して Changelog の `= <版> =` の節を取り出し → `bin/build-zip.sh --version` の zip → GitHub Release（本文はその節） |
+| `release-pro.yml` | `pro-v*.*.*` のタグの push | Pro の zip（R3-8c。§10.7）。wordpress.org には送らない |
+| `deploy-wporg.yml` | **手動（workflow_dispatch）**。入力は版と `dry_run` | build ジョブ（secrets なし）: 版の形を確かめ → `v<版>` の**タグ**を checkout → `bin/readme-release.php` → 同じ `bin/build-zip.sh` の zip を展開して artifact に。deploy ジョブ（Environment `wordpress-org`）: artifact と assets（`plugins/cart-bridge-jp/.wordpress-org`）だけを受け取り、`10up/action-wordpress-plugin-deploy`（2.3.0。commit で固定）で SVN の trunk・`tags/<版>` と `assets/` へ |
+
+- **GitHub Release の本文は readme の Changelog の節**（ユーザー決定）。以前の `generate_release_notes` は直前のリリースからの差分で、Pro の `pro-v*` のリリースが間に入ると
+  その差分になりうる（backlog `r3-8c-pro-updates-and-release/R1-X1`）。wordpress.org の changelog と同じ文になる。
+- **`bin/readme-release.php <readme> <版>`**: 版が `X.Y.Z`、ヘッダー（最初の `== … ==` の前）の `Stable tag` が版と同じ、`== Changelog ==` の中に `= <版> =` があり本文が空でない、を確かめ、
+  本文（次の `= … =`・`== … ==` の前まで）を標準出力へ出す。問題は標準エラーへ出して 1、読めなければ 2。タグのリリースは CI のテストを通らないので、リリースを止める条件をこのスクリプトに置き
+  （`.claude/rules/skill-scripts.md`「リリースを止める検査は…」）、`ReadmeTest`（版 1.0.0 以上ではその版で問題が無い。それより前は用意した 1.0.0 の節があって残るのは Stable tag だけ）と
+  `ReadmeReleaseScriptTest` が同じ関数で読む。見出しの版は文字どおりに比べ、`== Upgrade Notice ==` などの同じ見出しは読まない。
+  **節・節の中の見出し・ヘッダーの区切りは wordpress.org の readme のパーサー（Plugin Check 2.1.0 に同梱の `Readme/Parser.php`）と同じ規則**（review-loop R1-1）: 節の見出しは前後の空白を除いた行が
+  `==` か `##`（`###` 以外）で始まる行（閉じの無い `== X`・`=== X ===`・行頭の空白も見出し）、別名 `Change log`。節の中の見出しは `=`・`#` で始まる行で、`= 1.0.0 =` も `### 1.0.0` も `1.0.0` と読む。
+  ヘッダーはタイトル（最初の行がヘッダーでなければ）の後から短い説明の前まで。規則が違うと、wordpress.org では Upgrade Notice にある節を changelog として読み、リリースを通してしまう（以前は通した）。
+  `Stable tag` が 2 つある（wordpress.org は後の値を使う）・同じ版の節が 2 つある・節が空のときも止める。
+  版は `X.Y.Z` だけを受けるので、プレリリースのタグ（`v1.0.0-rc.1`。`v*.*.*` に一致する）は release.yml がここで止める（wordpress.org の版の流れでは使わない。R1-L3。以前は GitHub だけで配るプレリリースを作れた）。
+  `release.yml` は本文のファイルが空でないことも確かめる（R1-L1）。
+- **`deploy-wporg.yml` は手動実行だけ**（ユーザー決定。saai-knowledge と同じ形）: タグの push では wordpress.org へ送らない。使えるのは、申請が承認され、Environment `wordpress-org` の secrets に `SVN_USERNAME`・`SVN_PASSWORD` を
+  登録し、送る版の `v<版>` のタグがある後（R3-4b。Environment の保護は承認者と「デプロイできるブランチ = main」。ブランチ・タグの制限は実行した ref に掛かり、入力した版のタグには掛からない〔review-loop R2-3〕。
+承認は artifact の保存期間〔7 日〕のうちに）。ソースのディレクトリ（`src/`・`tests/` がある）ではなく、検査した zip の中身を trunk に写す。`dry_run` は SVN の作業コピーを用意して変更の一覧（`svn status`）を出すだけ
+  （secrets と承認済みのリポジトリは要る）。**ジョブを 2 つに分けた**（review-loop R1-L2）: `npm ci`（依存のスクリプトが動く）と zip の作成は secrets の無い build ジョブで行い、deploy ジョブは artifact（zip の中身）と
+  assets だけを受け取ってリポジトリのコードを実行しない。同じジョブだと、前の step のコードが取得済みの action のスクリプトを書き換えて資格情報を読める。checkout は `persist-credentials: false`。
+  入力した版が今の版より低いと trunk と Stable tag を戻せてしまう（10up の action が止めるのは `tags/<版>` が既にあるときだけ）ので、実行する人が版を確かめる。
+  review-loop R2 で、行の区切り（UTF-8 なら `\R` を Unicode で。`\f`・U+2028 なども）・ヘッダーの空の行（`empty()`。空白だけの行で終わり、`0` だけの行は空の行）・`##` だけの行（節ではない）も wordpress.org に合わせた。
+- **配布 zip に `composer.json` を入れる**（Plugin Check の `missing_composer_json_file`: `vendor/autoload.php` があって `composer.json` が無いと警告する。`File_Type_Check::look_for_composer_files()`）。
+  zip の `vendor/` は実行時の依存の無い PSR-4 の autoloader だけ。`composer.lock` は除いたまま。Pro の zip は wordpress.org で配らないので変えない。
+- **Plugin Check（2.1.0、配布 zip を展開して全チェック）**: R3-5b の残りの警告 2 つ（`missing_composer_json_file`・`load_plugin_textdomainFound`〔§6「翻訳（R3-2）」〕）が消え、
+  残るのは自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP の警告（§10.9）と、展開したフォルダ名がスラッグと違うことによる TextDomainMismatch だけ。
 
 ## 9. 要検証事項トラッカー（00 §7 の具体化）
 
@@ -991,7 +1033,8 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
 
 **互換方針**: `EntityType`・`MappingKind`・`LinkSource` は Pro が継承する。v1.0.0 公開後はシグネチャを変えず、新しいメソッドは既定実装つきで足す（D20 と同じ）。
 `EntityTypeContractTest` が公開シグネチャ（継承する基底クラスは protected も）と抽象メソッドの一覧を BASELINE で固定する（`WooServices`・`ColorMeApi` も）。
-R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す。
+~~R3-4 で `AbstractPlatformAdapterTest` と一緒に固定の扱いを見直す。~~ → R3-4a（2026-10-13）で見直し、変えなかった: 抽象メソッドの一覧（`ABSTRACT_METHODS`）は最初からリテラル配列で
+（固定した後の `AbstractPlatformAdapterTest::v1_method_names()` と同じ形。抽象メソッドを足すと失敗する）、BASELINE も完全一致で比べる（足すにも BASELINE の追記が要る）。公開後は既存のエントリを書き換えない（レビューで確かめる）。
 
 **Pro が使ってよい無料版の API**（決め残し 8。公開後に互換を保つ範囲。**R3-6c1 で更新した**。Pro の `FreeApiSurfaceTest` がクラス単位で照合する）:
 - 拡張点: フィルター `cbjp/adapters/register`・`cbjp/entity_types/register`、`AdapterRegistry`・`EntityTypeRegistry`（`reset_cache()` を含む）、`Adapters\OAuthScopes::add()`（R3-6c2。接続先の認可に足すスコープの宣言。ColorMe の既知のスコープだけが要求に入る）、
@@ -2731,8 +2774,8 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 - PHPCS: ruleset は 1 つ（無料版・`bin`・`.claude/skills`。テキストドメイン `cart-bridge-jp`。`.claude/worktrees` は Claude Code のワークツリーなので対象にしない）。Pro は `--runtime-set text_domain cart-bridge-jp-pro` で別に検査する（コマンドラインのファイル指定が ruleset の `<file>` より優先される）。
 - JS: ルートの `package.json` のまま（依存・lock は変えない）。`wp-scripts` に `--source-path`・`--output-path` を渡す。`bin/i18n.sh` はプラグインのディレクトリで POT を作り（参照パスと JSON の名前は R3-7 の前と同じ）、`npx wp-env` だけはルートから呼ぶ（wp-env は呼び出したディレクトリから `.wp-env.json` を探す）。
 
-**配布物の検査**（`bin/build-zip.sh`。CI の Distribution ジョブと `release.yml` が使う）: 無料版を `vendor/` 抜きで一時ディレクトリへ写し、そこで `composer install --no-dev -o`（開発用の vendor を壊さない。`.distignore` が `composer.json` を除くので、除く前の写しで実行する）→ `.distignore` で写して検査 → zip。
-検査: 最上位は許可したものだけ（本体・`uninstall.php`・`readme.txt`・`includes/`・`build/`・`languages/`・`vendor/`）、`includes/`・`languages/` は git が追跡しているファイルと一致、`vendor/` は autoload だけでテストの名前空間を含まない、Pro のコード上の識別子（`CartBridgeJP\Pro`・`CBJP_PRO_`・`cbjp_pro_`・`cbjp/pro/`・`cart-bridge-jp-pro`）が PHP・JS・JSON に無い。readme などの文章は対象にしない（Pro への案内のリンクを書ける。ガイドライン 11）。
+**配布物の検査**（`bin/build-zip.sh`。CI の Distribution ジョブと `release.yml` が使う）: 無料版を `vendor/` 抜きで一時ディレクトリへ写し、そこで `composer install --no-dev -o`（開発用の vendor を壊さない。~~`.distignore` が `composer.json` を除くので、~~ 除く前の写しで実行する。R3-4a から無料版の zip は `composer.json` を含み、Pro の `.distignore` は除く）→ `.distignore` で写して検査 → zip。
+検査: 最上位は許可したものだけ（本体・`uninstall.php`・`readme.txt`・`composer.json`〔R3-4a。§8「リリースと wordpress.org への配信」〕・`includes/`・`build/`・`languages/`・`vendor/`）、`includes/`・`languages/` は git が追跡しているファイルと一致、`vendor/` は autoload だけでテストの名前空間を含まない、Pro のコード上の識別子（`CartBridgeJP\Pro`・`CBJP_PRO_`・`cbjp_pro_`・`cbjp/pro/`・`cart-bridge-jp-pro`）が PHP・JS・JSON に無い。readme などの文章は対象にしない（Pro への案内のリンクを書ける。ガイドライン 11）。
 
 **Pro アドオンの骨組み**: `Requires Plugins: woocommerce, cart-bridge-jp`、`plugins_loaded` の優先度 20（無料版の 10 の後）で WooCommerce と無料版を確かめ、無ければ管理画面に通知を出して起動しない（fatal にしない）。HPOS 互換を宣言する。
 名前空間 `CartBridgeJP\Pro\`、接頭辞 `cbjp_pro_`・`CBJP_PRO_`、フック `cbjp/pro/...`、テキストドメイン `cart-bridge-jp-pro`。配布物（zip）・翻訳・ライセンス・リリースのタグは Pro の公開準備で決める。
@@ -3015,7 +3058,7 @@ R3-4（wordpress.org 申請）の前に、無料版と Pro をまとめて監査
 review-loop R1 の修正 9 か所はすべて検出。backfill の条件を「空なら」に戻す変異は、作成時の顧客 ID を空でも読むようになったため等価〔同じ値を書き直すだけ〕で、backfill を外す変異で確かめた）、
 dev サイトのストアフロント（Twenty Twenty-Five。店舗は「近日公開」なので管理者のセッションで取得）: 修正前と同じ値を CRUD で書いた商品は SKU のブロックが `<script>` をそのまま出し、`ProductWriter` で書いた商品は出さない
 （軸名はこのブロックテーマでは除かれるが、クラシックのテンプレートは生のまま出す。単体テストで描いて確認）。配布 zip（`bin/build-zip.sh`）を展開して Plugin Check: 無料版は ERROR 0
-（警告は自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP・`load_plugin_textdomain()`・`missing_composer_json_file`。後の 2 つは R3-4 で判断）、Pro は `no_plugin_readme` だけ（wordpress.org で配らない）。
+（警告は自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP・`load_plugin_textdomain()`・`missing_composer_json_file`。後の 2 つは R3-4 で判断 → R3-4a で消した。§8「リリースと wordpress.org への配信」）、Pro は `no_plugin_readme` だけ（wordpress.org で配らない）。
 
 **採らなかった・受け入れたもの**:
 - OAuth の state をログイン中のユーザーに結び付ける: コールバックは REST の Cookie 認証の外（nonce が無いので現在のユーザーは 0）。ログインの Cookie を直接読めば結び付けられるが、`secure` の Cookie と http の home の組み合わせなどで正しい接続が壊れうる。前提（10 分以内に state が漏れる）が厳しいので受け入れた。

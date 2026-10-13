@@ -57,6 +57,7 @@ npm install && npm start     # 管理画面UIの開発ビルド（watch）
 npm run build                # 本番ビルド
 npm run test:js              # 管理画面 UI の純粋関数の単体テスト（wp-scripts 同梱の Jest。`plugins/cart-bridge-jp/src/**/test/*.test.ts`。型は `@jest/globals` から import）
 bin/build-zip.sh             # 無料版の配布 zip を dist/ に作り、中身を検査する（許可した最上位だけ・追跡しているファイルだけ・--no-dev・Pro の識別子なし。CI・release と同じ）。`--plugin cart-bridge-jp-pro` で Pro の zip（`bin/check-pro-zip.php` が無料版の名前空間なし・版 1.0.0 以上のリリースの設定〔接続先・製品 ID・`Update URI`〕を確かめる。release-pro.yml・`pro-v*.*.*` のタグ）。`--version` はヘッダーの Version と違えば止まる
+php bin/readme-release.php plugins/cart-bridge-jp/readme.txt <版>   # readme の Stable tag と Changelog の `= <版> =` の節を確かめ、節を出す（release.yml の GitHub Release の本文・deploy-wporg.yml〔wordpress.org の SVN へ。手動実行だけ〕の検査。R3-4a）
 bin/check-dev-mount.sh       # wp-env がルートをマウントした wp-content/cbjp-dev が HTTP で 403 か（quality.sh・CI）
 npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_header_fields,trademarks   # readme・プラグインヘッダー・商標の検査（R3-3）
 # 配布 zip に Plugin Check を掛けるときは、cli コンテナで `wp-content/plugins/zzv-zipcheck-<slug>` へ PHP の ZipArchive で展開して `wp plugin check zzv-zipcheck-<slug>`（フォルダ名が違うので TextDomainMismatch は無視）、終わったら `find <dir> -delete` で消す（R3-5b。無料版 ERROR 0）

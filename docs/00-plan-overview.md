@@ -256,8 +256,8 @@ cart-bridge-jp/                     # リポジトリのルート = 開発ツー
 ├── CLAUDE.md / AGENTS.md
 ├── docs/                           # 00〜04・10・20、reviews/（PR ごとの記録）
 ├── .claude/                        # rules/（落とし穴集）・skills/（cbj-dev-cycle ほか）
-├── .github/workflows/              # ci.yml（PHP・PHPUnit・JS・配布 zip の検査）・release.yml
-├── bin/                            # build-zip.sh・check-dev-mount.sh・i18n.sh
+├── .github/workflows/              # ci.yml（PHP・PHPUnit・JS・配布 zip の検査）・release.yml・release-pro.yml・deploy-wporg.yml（wordpress.org へ。手動）
+├── bin/                            # build-zip.sh・check-pro-zip.php・readme-release.php・check-dev-mount.sh・i18n.sh
 ├── .htaccess                       # Require all denied（wp-env がルートを wp-content/cbjp-dev にマウントするため）
 ├── .wp-env.json                    # 2 つのプラグインと、ルートのマウント
 ├── composer.json                   # 開発ツール（phpcs・phpstan・phpunit）。post-install で各プラグインの autoload を作る
