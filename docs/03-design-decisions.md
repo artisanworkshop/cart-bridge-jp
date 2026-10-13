@@ -1043,11 +1043,11 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
   `Entities\EntityType`（R3-8b で `dry_run_only_reason( PlatformAdapter ): ?string` を足した。既定 null＝制限なし。§10.7「R3-8b の実装」）・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
   `LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
   `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
-- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2、R3-8b で 3）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
+- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2、R3-8b で 3、R3-10 で 4）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
   無料版が読み込まれているかは `Core\Plugin` の有無で見る（`cbjp_pro_bootstrap()`）
 - 型・契約: `Canonical\CanonicalModel`・`Concerns\{ChecksumTrait, RemoteIdFromExtrasTrait}`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException,
   UnsupportedOperationException}`、`Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
-- 補助: `Sync\MappingRepository`、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`。R3-6c1 で `indicates_order_reference_unresolved()` を
+- 補助: `Sync\MappingRepository`、`Sync\JobHistory`（R3-10。`jobs()` でジョブの行の値をそのまま読む。判定はしない。§10.5「R3-10 の実装」）、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`。R3-6c1 で `indicates_order_reference_unresolved()` を
   `indicates_reference_not_found()` に改名）・`Woo\WarningCatalog`（`SEVERITY_*`）、`Support\{Money, Logger, ApiException, RateLimitExhaustedException}`、
   `Woo\Support\{Value, MethodMap（R3-6c1 で汎用の読取り `lookup()`・`reverse_lookup()` を public にした）, ExtrasMeta, EntityOrigin（`post_linked_by_import()`・`blocks_import()`・`is_linked_by_export()` 等の汎用の判定）,
   TaxClass, VariationAxisResolver, ProductResolver, PlatformOwnership, HtmlText}`、`Woo\Tools\LocalEntityLookup`（汎用の `existing_ids()`・`existing_posts()`・`existing_terms()`・`existing_comments()`）
@@ -2752,9 +2752,91 @@ Pro アドオンに、取込みで作った顧客へパスワード設定の案�
    R3-5b 以後は「その顧客のために作ったアカウント」（`CustomerWriter::owns_profile()`。作成時の顧客 ID `_cbjp_created_remote_id` も一致）に絞る（§10.9）。
    送った日時をユーザーごとに記録し、二重送信を防いで途中から再開できるようにする。~~すでにパスワードを設定し直した顧客を除くかは実装で決める。~~
    → **すでにパスワードを設定し直した顧客は除く**（2026-10-13 ユーザー決定）。判定の方法（判定の材料が無い顧客〔0.1.0 で取り込んだ顧客など〕の扱いを含む）は R3-10 の計画で決める。
+   → **決定（2026-10-13、R3-10 の計画）**: 作成時のパスワードのハッシュの控えと比べる。控えの無い顧客は判定できないので送る。0.1.0 で取り込んだ顧客も推定して、管理者が含めたときに送る（下の「R3-10 の実装」）。
 3. **送る時期**: 新しいストアに切り替えた後に管理者が手動で始める。先に管理者宛てのテスト送信と文面の確認ができるようにする。
 4. **送り方**: Action Scheduler で少しずつ送り、失敗した宛先を記録する。レンタルサーバーの送信数の上限に当たりやすいので、SMTP プラグインの利用を案内する。
 5. **文面**: ストアの移転とパスワード設定の案内だけにし、宣伝を混ぜない（宣伝を含むと特定電子メール法の対象になりうる）。デザインは WooCommerce のメールのテンプレートに揃える。
+
+#### R3-10 の実装（2026-10-14。ブランチ `feat/r3-10-password-setup-email`）
+
+**計画のユーザー決定（2026-10-13）**: 判定できない顧客は送る（画面に件数を別に出す）。一斉送信の開始・再開だけキーの有効化が要る（件数の確認・テスト送信・取消は要らない。D30 の延長）。
+0.1.0 で取り込んだ顧客の救済策も R3-10 に含める。
+
+**パスワードを設定し直したかの判定**（`PasswordEmail\RecipientPolicy`）:
+- `CustomerWriter` が作成の直後に `_cbjp_created_password_fingerprint` = `hash( 'sha256', user_pass )` を書き、今の値と `hash_equals()` で比べる。どの経路で変えても検出できる（顧客の再設定・プロフィール・管理者）。
+  `user_pass` を変えるのは、それらと認証に成功したときの再ハッシュ（＝パスワードを知っている）だけ。再取込みの `wp_update_user()`（`user_pass` を渡さない）と `get_password_reset_key()`（`user_activation_key` だけ）は変えない。
+  ハッシュそのものは複製せず、salt にも依存させない（鍵を替えたサイトで全員が「設定し直した」に化けない。bcrypt の前処理の鍵も固定）。控えが読めない値なら「設定し直した」に倒す。
+- 控えの無い顧客（この版より前の取込み・0.1.0）は、WP の `reset_password()` と WooCommerce の再設定が書く `default_password_nag` があれば「設定し直した」。無ければ判定できない → 送る。
+  プロフィールの画面から変えた人は見分けられない（受け入れた）。
+- 使わなかったもの: WooCommerce の `wc_last_active` は受注の保存（`OrdersTableDataStore`・CPT のデータストア）でも更新され、取り込んだ受注を持つ顧客にも付くので、ログインした印にならない。
+  パスワード変更のフックで記録する案は、Pro を入れる前・止めている間の変更を取りこぼす。
+
+**送る相手**（判定の順。画面の件数と送る直前の両方で同じ判定）: 存在する → 保護するアカウントでない（`has_protected_role()`。マルチサイトのこのサイトでロールの無い人も保護側）→
+取込みで作った（作成の印が今の紐づけ〔`_cbjp_platform`・`_cbjp_remote_id`〕と一致する `CustomerWriter::is_created_for()`。`owns_profile()` から切り出した。紐づけの顧客 ID が空なら作ったとみなさない）か、
+0.1.0 の推定を管理者が含めた → 送信の記録が無い → パスワードを設定し直していない → メールの形が正しい（`is_email()`）→ 再設定が許されている（`wp_is_password_reset_allowed_for_user()`）。
+
+**0.1.0 の推定**（`PasswordEmail\LegacyAccountEstimator`。ユーザー決定）: 0.1.0 の `CustomerWriter` は作成の印を書かなかった（印は F1-7 から）。`cbjp_mappings` に作成時刻は無い（`synced_at` は upsert のたびに動く）ので、
+**ジョブの時間帯**で推定する: 作成の印が無く紐づけの印があり、`user_registered` が同じプラットフォームの 0.1.0 の顧客の取込みジョブの `[created_at, updated_at]` に入る（両端を含む。UTC の文字列のまま比べる）。
+- 使うジョブは 0.1.0 のものだけ: totals に F1-7 で足した `remote_amount` が無い（続きを今の版が処理したジョブには既定値がマージされて付く）・状態が completed か failed で孤立の回復のエラー（`action_lost`・`fatal_error`）でない・作った件数が 1 以上。
+  今の無料版は終わった後のジョブの `updated_at` も動かす（`cancel_run()`・孤立の回復・Retry）ので、取消・未終了・回復したジョブの窓は後から広がりうる。
+- どれかのプラットフォームで推定した件数が窓の作った件数の合計を超えたら推定をすべて捨てる。推定は画面に一覧で出し、開始のときのチェックボックス（既定は外れ）で含めたときだけ送る（0.1.0 は既定で顧客を 10 件しか取り込まなかった）。
+- 既知の限界（R1-L1。backlog）: 0.1.0 で失敗した顧客のジョブを今の版で Retry し、最初のページで例外になると（`mark_failed('exception')`。totals は更新されない）、
+  `updated_at` だけが今になり、窓が広がったまま使われる。件数の安全網と管理者の選択で実害は抑えられる。
+- **推定は送る相手の判定にだけ使い、作成の印は書かない**（R3-5b の保護を緩めない）。送り先はアカウントの今のメールなので、推定を誤っても乗っ取りの経路にはならない
+  （0.1.0 がメールを ASP の値に同期したアカウントは、攻撃者がもともと「パスワードをお忘れですか」で乗っ取れた状態で、この機能が新しく作る経路ではない）。
+- ジョブの記録は無料版の新しい拡張点 `Sync\JobHistory::jobs()`（行の値をそのまま返す読取り。判定はしない）から読む。拡張点の版を 4 にした（§10.0「Pro が使ってよい無料版の API」）。
+
+**メール**（`PasswordEmail\PasswordSetupEmail extends WC_Email`。`EmailRegistry` が `woocommerce_email_classes` で登録）: WooCommerce > 設定 > メール で件名・見出し・追加の文の編集と無効化ができ、テンプレート
+（Pro の `templates/emails/`。Pro の zip に `templates/` が増えた）はテーマで上書きできる。`customer_email`・`manual`。
+- **CC・BCC を付けない**: 付けると全員の有効なリンクが他の宛先に届く。WooCommerce 9.8〜11.1 はすべてのメールに CC・BCC の設定があり、11.2 の `supports_cc_bcc()` の後もフィルター
+  （`woocommerce_email_cc_recipient_{id}`）は効くので、`supports_cc_bcc()` を false にし、`get_cc_recipient()`・`get_bcc_recipient()` を空にし、設定の欄も外し、
+  `get_headers()` の結果からも `Cc:`・`Bcc:` の行を除く（`woocommerce_email_headers` で全メールに BCC を足す汎用のスニペット。review-loop R1-L5）。
+  親のプロパティ `$supports_cc_bcc` は宣言し直さず、メソッドは戻り値の型を付けて上書きする（WooCommerce が型を付けると全メールのクラスの読込みが止まる。R1-L4・R2-3）。WooCommerce の新規アカウント・再設定のメールも CC・BCC を付けない。
+- mailer のインスタンスは 1 つなので、宛先ごとの値（ユーザー・宛先・宛名・リンク）は送るたびに設定し直し、送り終えたら消す。送れたかは自前の `send_to()` が `send()` の結果で返す（`Throwable` も失敗）。
+- `WC_Email` は autoload できず `WC()->mailer()` の初期化で読まれるので、インスタンスは登録のコールバックの中でだけ作り、使う側は mailer から引く。
+- 設定のリンクは WooCommerce の新規アカウントのメールと同じ形（パスワード忘れのエンドポイントを `action=newaccount&key=…&login=…` で開く）を `add_query_arg()` で組み立てる
+  （WooCommerce のように文字列をつなぐと、プレーンなパーマリンクで `?` が二重になる）。期限（`password_reset_expiration`、既定 1 日）と、切れたときのパスワード忘れのページ（`wp_lostpassword_url()`）を添える。
+  マイアカウントのページが公開されていない・エンドポイントが空なら、開始の前に断り、送信中なら止める。
+- テスト送信と WooCommerce のメールのプレビュー（`woocommerce_prepare_email_for_preview`。既定ではダミーの受注を入れる）は見本の名前と見本のリンクで描き、再設定キーを作らない。
+- プレーンテキストでは URL を文の外に出す（`esc_html()` を通すと `&` が `&amp;` になりリンクが壊れる）。
+
+**一斉送信**（`PasswordEmail\Campaign`・`Sender`・`SendLock`。独立レビューの指摘で計画を直した）:
+- 状態は option（autoload なし。JSON の文字列）: **制御**（run の ID・状態 running／completed／cancelled／stopped と理由・チェーンのトークン・推定を含めるか）と、run ごとの**進捗**（カーソル・件数・最後のバッチの時刻）・
+  **0.1.0 の推定**の行（名前に run の ID。開始は制御の CAS の前に新しい run の行を作り、負けたら消し、勝ったら前の run の行を消す。開始・取消・次の開始がほぼ同時に重なっても、
+  遅れた古い要求が新しい run の行を書き換えない。PR #135 G3-2）。
+  制御の遷移は直前に DB から読んだ値と一致するときだけ書く CAS で、進捗はバッチだけが CAS で書く（1 つの option だと、取消をバッチの書き戻しが消して送り続ける）。
+  開始は制御の CAS に勝ってから進捗と推定を作り直す（同時の開始で負けた側が勝った run の進捗を書き換えない）。
+- Action Scheduler の `cbjp_pro_send_password_emails`（グループ `cart-bridge-jp-pro`）の引数は `[ run_id, token ]`。トークンが今の制御と一致するバッチだけが進み、次のバッチを予約するときと再開のときにトークンを替える
+  （古いチェーン・2 回目の再開の要求は進めない。取消・再開のフォームは画面が見た run とトークンを持つ）。
+- 1 バッチは option の行の排他（`INSERT IGNORE`・期限切れは CAS で奪う・自分の値のときだけ消す。期限 5 分）の中で動く。排他は借りで、送る前と状態を書く前に `SendLock::renew()`（値がまだ自分のときだけ期限を延ばす CAS）で延ばし、
+  延ばせなければ（1 通の送信が期限より長引いて他のバッチが取った）何も書かずに止まる（PR #135 G1-4）。ID 順にカーソルの次から候補（`_cbjp_remote_id` を持つユーザー）を見て、
+  20 通・25 秒・候補 200 件のどれかで区切り、60 秒後に次を予約する（`cbjp/pro/password_email/batch_size`・`…/interval`。範囲に収める）。排他を取れなければ、今のチェーンなら同じトークンで後に回す。
+- 宛先ごとに: 制御を読み直す（取消・別の run なら止まる）→ ユーザーのキャッシュを捨てて判定をやり直す → **送る前に** `sending:{run}:{時刻}` を記録し、DB から読み直して書けたことを確かめる
+  （メタのフィルター・DB の失敗で書けないまま送ると最大 1 通を守れないので、書けなければ送らない。続けて 3 人書けなければ止める。PR #135 G1-6）→ 再設定キーを作って送る → `sent:{run}:{時刻}`。
+  送れなければ記録を消して失敗の記録（理由のコード）を残し、次の run で送り直す。`sending` のまま残った顧客（処理の途中で落ちた）は画面に出し、管理者が「未送信に戻す」で送り直せる（最大 1 通を優先）。
+  「未送信に戻す」は読んだ値のままの行だけを消す（`DELETE … AND meta_value = 読んだ値`。`delete_user_meta()` は行を選んでから ID で消すので、その間にバッチが `sent` に書き換えた行も消してしまう。PR #135 G1-2）。
+  取消は取り消した run の予約（引数の先頭が run の ID）だけを外す（取消の直後に始まった別の run の予約まで消さない。G1-1）。
+  送れた・送れなかったの記録も、記録がまだ自分の書いた `sending` の値のときだけ書き換える（送信が長引く間に管理者が未送信に戻し、別の run が送った記録を上書きして 2 通目を送らせない。G2-2）。
+  壊れた記録は送り直さない側に倒す: `sent:` で始まる値は送信済み（「未送信に戻す」の対象の SQL と同じ区切り）、それ以外は途中で止まった扱い（G2-1）。
+  続けて 3 通送れなければ止める（SMTP の上限で残りを全員「失敗」にしない）。候補を DB から読めなければ（照会のエラー。`$wpdb->last_error`）完了にせず止める
+  （空のページを「見尽くした」と読んで残りの顧客を黙って飛ばさない。画面の件数は、読めなかったら少なく出うると知らせる。PR #135 G3-1）。
+- 中断の検出: running なのに、この run のこのトークンの生きた予約（pending・in-progress）が無く、最後のバッチから排他の期限より長く経ったときだけ「中断」と出して再開を出す
+  （取り消した run の残りの予約を生きている証拠にしない。照会の DB エラーは `$wpdb->last_error` で見分けて「確かめられない」とし、中断と言わない。無料版の `live_action_job_ids()` と同じ。PR #135 G2-3）。Pro の停止時に予約を消す処理は置かない（R3-9 と同じく画面で回復する）。
+- 再設定キーを作ると `wp_update_user()` が走り、顧客ごとに `profile_update`・`retrieve_password_key` が動く（他のプラグインが反応しうる）。画面の案内に書いた。
+
+**画面**（`Admin\PasswordEmailPage`。`LicensePage` がメニューとタブを持つ。通知は共通の `Admin\AdminNotice`）: 件数（送る相手・判定できない・前回の失敗・外した理由別）、0.1.0 の推定の一覧、
+前回の送信の状態、テスト送信・開始（「ストアがこのサイトへ移った」の確認と送り先の `home_url()`。`wp_get_environment_type()` が production でなければ追加の確認）・取消・再開・未送信に戻す、
+送る前の注意（送信数の上限と SMTP・広告を入れない・リンクの期限・再設定キーの副作用・ASP がメールを確かめていない場合・対象外のアカウント）。
+
+**extras の信頼境界**: extras は `_cbjp_{key}` に書かれ、meta_key の照合は大文字小文字を区別しないので、`CustomerWriter` は予約した鍵（紐づけ・作成の印・控え）と `pro_` で始まる鍵（Pro の記録 `_cbjp_pro_*`）、
+`^[a-z0-9_]+\z` に合わない鍵を書かない（原則 8。R3-5b review-loop R2 の除外を一覧にした）。
+
+**確認**: 品質チェック一式（無料版 1391 件・Pro 973 件・Jest 111 件）、ガード 50 か所余りのミューテーション（検出されなかった 3 件はテストを足した。等価なものは推定を含めない run の推定の省略〔`Campaign::start()` も空にする〕・
+`init_form_fields()` の CC・BCC の欄の除外〔WooCommerce 11.2 は `supports_cc_bcc()` が false なので欄が元から足されない。11.1 まで向け〕）。dev サイトで、一時の mu-plugin で `pre_wp_mail` を記録し、取込みで作った顧客 2 人・設定し直した顧客・メールの一致で採用した既存のアカウント・
+0.1.0 相当（窓の内と外）を用意して、キーなしの開始の拒否・テスト送信・推定を含めた開始 → Action Scheduler で 3 通送信 → 完了・CC/BCC の無い見出し・名前のエスケープ・取消（予約も消える）を確かめ、
+送ったリンクを curl で開いて WooCommerce の「Set password」の画面からパスワードを設定でき、控えとの比較で「設定し直した」と判定されることを確かめた。
+管理画面のタブと WooCommerce のメールの設定（CC/BCC の欄が無い・プレビューが見本の名前）を目視し、「1 customers」の複数形を直した。取込みで作った顧客 3,000 人で、画面の件数の集計は 0.3 秒・推定は 0.08 秒だったので、件数は transient に入れず毎回数える。ただし読んだユーザーのキャッシュを 500 件ごとに捨てる
+（捨てないとメモリが顧客数に比例して残り、3,000 人で +53.7 MB〔1 万人前後で管理画面の 256 MB を超えうる〕。捨てた後は +0.7 MB。review-loop R1-1）。「未送信に戻す」は送信の記録を持つユーザーだけを引く。作ったものはすべて消した（dev サイトの既存の取込み済みの顧客 15 人は確認の間だけ仮の送信済みの記録で外し、後で消した）。
 
 ### 10.6 モノレポの構成（D29・R3-7）
 
@@ -2800,7 +2882,7 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 | 有効化済み（期限内） | dry-run・取込み・エクスポート | 届く |
 | 有効化済み（期限後。D14） | 同上（そのサイトでは期限後も使える） | 届かない |
 
-新しいサイトでの有効化は期限内だけ（D14）。
+新しいサイトでの有効化は期限内だけ（D14）。パスワード設定メール（R3-10）は、キーが無くても送る相手の確認・テスト送信・取消ができ、一斉送信の開始・再開だけキーの有効化が要る（§10.5「R3-10 の実装」）。
 
 **購入前の配布**: 販売サイトで Pro を **0 円の注文**として配る（2026-10-11 ユーザー決定）。利用者の流れ:
 1. 販売サイトで Pro を 0 円で注文してダウンロードする

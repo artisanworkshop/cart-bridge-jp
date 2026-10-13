@@ -66,8 +66,8 @@ case "$SLUG" in
 		;;
 	cart-bridge-jp-pro)
 		BUILD=0
-		allowed='cart-bridge-jp-pro.php includes languages vendor'
-		tracked_dirs='includes languages'
+		allowed='cart-bridge-jp-pro.php includes languages templates vendor'
+		tracked_dirs='includes languages templates'
 		required_files='vendor/autoload.php'
 		;;
 	*) die "unknown plugin: ${SLUG} (expected cart-bridge-jp or cart-bridge-jp-pro)" ;;

@@ -17,7 +17,7 @@ file; other tools do not, so open the ones that match the files you change or re
 | Rule file | Applies to (plugin paths are under `plugins/*/`, e.g. `plugins/cart-bridge-jp/includes/...`; `.claude/`, `bin/`, and `.github/` are at the repository root) |
 |---|---|
 | [`adapters-colorme.md`](./.claude/rules/adapters-colorme.md) | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
-| [`woocommerce-api.md`](./.claude/rules/woocommerce-api.md) | `includes/Woo/**` |
+| [`woocommerce-api.md`](./.claude/rules/woocommerce-api.md) | `includes/Woo/**`, Pro の `includes/PasswordEmail/**`・`templates/emails/**` |
 | [`sync-export-tools.md`](./.claude/rules/sync-export-tools.md) | `includes/Sync/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | [`frontend.md`](./.claude/rules/frontend.md) | `src/**`, `includes/Admin/Assets.php` |
 | [`skill-scripts.md`](./.claude/rules/skill-scripts.md) | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.github/workflows/**` |

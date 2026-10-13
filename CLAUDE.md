@@ -137,7 +137,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 | ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/`・`bin/`・`.github/` はルート） |
 |---|---|---|
 | `.claude/rules/adapters-colorme.md` | ASP アダプタ共通の基準（境界データ・`Page::$total`・push の部分失敗・税込換算）とカラーミー API の癖（クーポン・画像・税・`pref_id`・受注明細ほか） | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
-| `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
+| `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()`/`WC_Email` など WooCommerce の実測結果 | `includes/Woo/**`, Pro の `includes/PasswordEmail/**`・`templates/emails/**` |
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・実体の種類のレジストリ（R3-6b1）・`cbjp_mappings`（checksum・upsert）・リンク再構築等のツールの設計上の罠 | `includes/Sync/**`, `includes/Entities/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
 | `.claude/rules/pro-license.md` | Pro のライセンス・更新の配信: WooCommerce API Manager の応答の癖（訳された節の名前・package の条件）と WP の更新 API（`plugins_api`・`update_plugins_{host}`・`disable_autoupdate`・transient） | Pro の `includes/License/**`, `includes/Admin/LicensePage.php`, `tests/unit/License/**`, `tests/fixtures/api-manager/**` |

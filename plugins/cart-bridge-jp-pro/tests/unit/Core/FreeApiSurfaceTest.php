@@ -63,6 +63,7 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 		'CartBridgeJP\Support\Logger',
 		'CartBridgeJP\Support\Money',
 		'CartBridgeJP\Support\RateLimitExhaustedException',
+		'CartBridgeJP\Sync\JobHistory',
 		'CartBridgeJP\Sync\MappingRepository',
 		'CartBridgeJP\Woo\Support\EntityOrigin',
 		'CartBridgeJP\Woo\Support\ExtrasMeta',

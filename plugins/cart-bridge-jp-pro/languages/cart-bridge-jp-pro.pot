@@ -9,16 +9,16 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T03:32:28+00:00\n"
+"POT-Creation-Date: 2026-10-13T21:50:30+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp-pro\n"
 
 #. Plugin Name of the plugin
 #: cart-bridge-jp-pro.php
-#: includes/Admin/LicensePage.php:76
-#: includes/Admin/LicensePage.php:77
-#: includes/Admin/LicensePage.php:152
+#: includes/Admin/LicensePage.php:87
+#: includes/Admin/LicensePage.php:88
+#: includes/Admin/LicensePage.php:163
 msgid "Cart Bridge JP Pro"
 msgstr ""
 
@@ -60,251 +60,604 @@ msgstr ""
 msgid "Cancelled"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:93
+#: includes/Admin/LicensePage.php:104
+#: includes/Admin/LicensePage.php:365
 msgid "License"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:114
+#: includes/Admin/LicensePage.php:125
 msgid "Sorry, you are not allowed to manage the Cart Bridge JP Pro license."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:118
+#: includes/Admin/LicensePage.php:129
 msgid "Unknown license action."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:156
+#: includes/Admin/LicensePage.php:178
 msgid "Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:162
+#: includes/Admin/LicensePage.php:184
 msgid "With the activated key, customers, orders, and coupons can be imported and exported on this site, as far as the connected shop supports each operation."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:163
+#: includes/Admin/LicensePage.php:185
 msgid "Until a license key is activated on this site, customers, orders, and coupons can only be previewed with a dry run. Importing and exporting them requires an activated key."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:169
-#: includes/Admin/LicensePage.php:400
+#: includes/Admin/LicensePage.php:191
+#: includes/Admin/LicensePage.php:421
 msgid "The license server is not configured in this build of Cart Bridge JP Pro."
 msgstr ""
 
 #. translators: %s: the host name of the license server, such as example.com.
-#: includes/Admin/LicensePage.php:182
+#: includes/Admin/LicensePage.php:204
 #, php-format
 msgid "To activate the license key, check its status, and check for updates, Cart Bridge JP Pro sends the license key, the address of this site, and the version of Cart Bridge JP Pro to the license server (%s). Updates are checked only while a license key is activated on this site."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:190
+#: includes/Admin/LicensePage.php:212
+#: includes/Admin/PasswordEmailPage.php:323
 msgid "Status"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:194
-#: includes/Admin/LicensePage.php:314
+#: includes/Admin/LicensePage.php:216
+#: includes/Admin/LicensePage.php:336
 msgid "License key"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:196
+#: includes/Admin/LicensePage.php:218
 msgid "The saved license key cannot be read, for example because the security keys of this site have changed."
 msgstr ""
 
 #. translators: %s: the last four characters of the license key.
-#: includes/Admin/LicensePage.php:198
+#: includes/Admin/LicensePage.php:220
 #, php-format
 msgid "Ending in %s"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:205
+#: includes/Admin/LicensePage.php:227
 msgid "Last status check"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:213
+#: includes/Admin/LicensePage.php:235
 msgid "The license server no longer lists this site, for example after the update period ends. Cart Bridge JP Pro keeps working on this site."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:225
+#: includes/Admin/LicensePage.php:247
 msgid "Activate license"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:227
+#: includes/Admin/LicensePage.php:249
 msgid "Activate"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:232
+#: includes/Admin/LicensePage.php:254
 msgid "Enter the license key again"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:233
+#: includes/Admin/LicensePage.php:255
 msgid "This saves the license key on this site without contacting the license server."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:234
+#: includes/Admin/LicensePage.php:256
 msgid "Save license key"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:239
-#: includes/Admin/LicensePage.php:241
+#: includes/Admin/LicensePage.php:261
+#: includes/Admin/LicensePage.php:263
 msgid "Check status"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:240
+#: includes/Admin/LicensePage.php:262
 msgid "Ask the license server about this license."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:245
+#: includes/Admin/LicensePage.php:267
 msgid "Deactivate license"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:246
+#: includes/Admin/LicensePage.php:268
 msgid "This removes the license from this site. After the update period ends, a license cannot be activated again. If the database of this site was copied from another site, such as a staging copy, deactivating here also removes the original site from the license, and the original site stops receiving updates."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:247
+#: includes/Admin/LicensePage.php:269
 msgid "Deactivate"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:251
+#: includes/Admin/LicensePage.php:273
 msgid "Use a different license key"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:252
+#: includes/Admin/LicensePage.php:274
 msgid "For example, after buying a new license. While the current license is in its update period, deactivate it first. After the update period ends, check the status first instead; this site stays activated."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:253
+#: includes/Admin/LicensePage.php:275
 msgid "Activate this key"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:264
+#: includes/Admin/LicensePage.php:286
 msgid "Not activated"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:268
+#: includes/Admin/LicensePage.php:290
 msgid "Activated"
 msgstr ""
 
 #. translators: %s: the date and time the license was activated.
-#: includes/Admin/LicensePage.php:272
+#: includes/Admin/LicensePage.php:294
 #, php-format
 msgid "Activated on %s"
 msgstr ""
 
 #. translators: %s: the date and time of the status check.
-#: includes/Admin/LicensePage.php:281
+#: includes/Admin/LicensePage.php:303
 #, php-format
 msgid "Checked on %s."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:283
+#: includes/Admin/LicensePage.php:305
 msgid "The license server lists this site as activated."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:284
+#: includes/Admin/LicensePage.php:306
 msgid "The license server does not list this site as activated."
 msgstr ""
 
 #. translators: %s: the end of the update period as reported by the license server (for example, a date or "Expired").
-#: includes/Admin/LicensePage.php:289
+#: includes/Admin/LicensePage.php:311
 #, php-format
 msgid "Update period: %s"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:383
-msgid "The license key was activated on this site."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:384
-msgid "The license key was deactivated on this site."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:385
-msgid "The license status was checked."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:386
-msgid "The license key was saved."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:392
-msgid "The license key could not be activated."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:393
-msgid "The license key could not be deactivated."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:394
-msgid "The license status could not be checked."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:395
-msgid "The license key could not be saved."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:399
-msgid "Enter a valid license key."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:401
-msgid "This action is not available for the current license."
-msgstr ""
-
-#: includes/Admin/LicensePage.php:402
-msgid "The license data could not be saved on this site. Try again."
+#: includes/Admin/LicensePage.php:366
+msgid "Password setup emails"
 msgstr ""
 
 #: includes/Admin/LicensePage.php:404
-msgid "The response from the license server could not be understood."
+msgid "The license key was activated on this site."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:405
+msgid "The license key was deactivated on this site."
 msgstr ""
 
 #: includes/Admin/LicensePage.php:406
+msgid "The license status was checked."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:407
+msgid "The license key was saved."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:413
+msgid "The license key could not be activated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:414
+msgid "The license key could not be deactivated."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:415
+msgid "The license status could not be checked."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:416
+msgid "The license key could not be saved."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:420
+msgid "Enter a valid license key."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:422
+msgid "This action is not available for the current license."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:423
+msgid "The license data could not be saved on this site. Try again."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:425
+msgid "The response from the license server could not be understood."
+msgstr ""
+
+#: includes/Admin/LicensePage.php:427
 msgid "Could not connect to the license server."
 msgstr ""
 
 #. translators: %s: the error message from the connection.
-#: includes/Admin/LicensePage.php:408
+#: includes/Admin/LicensePage.php:429
 #, php-format
 msgid "Could not connect to the license server: %s"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:410
+#: includes/Admin/LicensePage.php:431
 msgid "The license server returned an error."
 msgstr ""
 
 #. translators: %s: the error message from the license server.
-#: includes/Admin/LicensePage.php:412
+#: includes/Admin/LicensePage.php:433
 #, php-format
 msgid "The license server returned an error: %s"
 msgstr ""
 
-#: includes/Admin/LicensePage.php:424
+#: includes/Admin/LicensePage.php:445
 msgid "If the license server still lists this site under the current license, deactivate it first, or check the status first if its update period has ended."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:426
+#: includes/Admin/LicensePage.php:447
 msgid "If the update period has ended, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:427
+#: includes/Admin/LicensePage.php:448
 msgid "If the update period has ended, the license server may no longer know this license. Cart Bridge JP Pro keeps working on this site."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:441
+#: includes/Admin/LicensePage.php:462
 msgid "The license server deactivated this site, but this site could not record it. Activate the same license key again, then deactivate it."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:445
+#: includes/Admin/LicensePage.php:466
 msgid "The license server activated the key, but this site could not record it."
 msgstr ""
 
-#: includes/Admin/LicensePage.php:446
+#: includes/Admin/LicensePage.php:467
 msgid "The license server activated the key, but this site could not record it. Try again."
 msgstr ""
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: includes/Admin/LicensePage.php:454
+#: includes/Admin/LicensePage.php:475
+#: includes/Admin/PasswordEmailPage.php:642
 #, php-format
 msgid "%1$s %2$s"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:107
+msgid "Sorry, you are not allowed to send password setup emails."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:111
+msgid "Unknown password setup email action."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:144
+msgid "Your account has no valid email address to send the test email to."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:148
+msgid "The test email could not be sent. Check the email settings of this site, such as an SMTP plugin."
+msgstr ""
+
+#. translators: %s: the email address the test email was sent to.
+#: includes/Admin/PasswordEmailPage.php:152
+#, php-format
+msgid "A test email was sent to %s. It uses a sample name and a sample link."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:163
+msgid "Confirm that the store has moved to this site before sending the emails."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:167
+msgid "This site is not marked as a production site. Confirm that you want to send the emails from this site."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:181
+msgid "Password setup emails are already being sent."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:190
+msgid "Sending password setup emails started. They are sent in small batches in the background."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:197
+msgid "The sending could not be canceled. It may have finished or changed. Check the status below."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:203
+msgid "Sending password setup emails was canceled. Emails already sent cannot be recalled."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:217
+#: includes/Admin/PasswordEmailPage.php:229
+msgid "The sending could not be resumed. It may be running, finished, or changed. Check the status below."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:238
+msgid "Sending password setup emails resumed."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:250
+msgid "Wait until the current sending finishes or cancel it first."
+msgstr ""
+
+#. translators: %d: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:262
+#, php-format
+msgid "%d customer will receive the email in the next sending."
+msgid_plural "%d customers will receive the email in the next sending."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/PasswordEmailPage.php:281
+msgid "Customers imported from another shop have accounts on this store, but their passwords could not be moved. After the store has moved to this site, send them an email with a link to set a password. Importing never sends emails by itself."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:284
+msgid "Until a license key is activated on this site, you can check the recipients and send a test email to yourself. Sending to customers requires an activated license key."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:312
+msgid "Last sending"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:315
+msgid "Interrupted. The background task stopped, for example because the plugin was deactivated. Resume to continue from where it stopped."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:316
+msgid "Sending in the background."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:317
+msgid "Finished."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:318
+msgid "Stopped."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:319
+msgid "Canceled."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:324
+msgid "Started"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:327
+msgid "Sent"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:328
+msgid "Could not be sent"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:339
+msgid "Recipients"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:342
+msgid "Some customers could not be read from the database, so the numbers below may be too low. Reload this page to count again."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:347
+msgid "Will receive the email"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:354
+msgid "Password status unknown"
+msgstr ""
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:357
+#, php-format
+msgid "%s of them was imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
+msgid_plural "%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:370
+msgid "Could not be sent last time"
+msgstr ""
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:370
+#, php-format
+msgid "%s (included again)"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:374
+msgid "Already set a password"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:375
+msgid "Already received the email"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:376
+msgid "Staff or other non-customer accounts"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:377
+msgid "Accounts the import did not create"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:378
+msgid "No valid email address"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:379
+msgid "Password reset not allowed"
+msgstr ""
+
+#. translators: %s: the reason the customers are left out.
+#: includes/Admin/PasswordEmailPage.php:387
+#, php-format
+msgid "Left out: %s"
+msgstr ""
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:399
+#, php-format
+msgid "Sending to %s customer was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
+msgid_plural "Sending to %s customers was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/PasswordEmailPage.php:422
+msgid "Accounts imported by version 0.1.0 could not be identified reliably, so they are left out."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:430
+msgid "Accounts likely imported by version 0.1.0"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:431
+msgid "Version 0.1.0 did not mark the accounts it created. These accounts were registered while a customer import of version 0.1.0 was running, so they were most likely created by it. They receive the email only if you include them when you start sending. Whether they have already set a password cannot be told."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Name"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Email"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Registered"
+msgstr ""
+
+#. translators: %s: the number of accounts.
+#: includes/Admin/PasswordEmailPage.php:457
+#, php-format
+msgid "And %s more."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:470
+#: includes/Admin/PasswordEmailPage.php:473
+msgid "Send a test email"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:471
+msgid "Sends the email to your own address with a sample name and a sample link, so that you can check the text and the design."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:478
+msgid "Resume sending"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:480
+msgid "Resume"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:484
+#: includes/Admin/PasswordEmailPage.php:487
+msgid "Cancel sending"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:485
+msgid "Stops sending to the remaining customers. Emails already sent cannot be recalled."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:492
+msgid "Mark interrupted emails as not sent"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:493
+msgid "These customers receive the email in the next sending. Some of them may receive it twice."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:495
+msgid "Mark as not sent"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:503
+msgid "Send to customers"
+msgstr ""
+
+#. translators: 1: the address of this site, 2: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:513
+#, php-format
+msgid "The store has moved to this site (%1$s). Send the email to %2$s customer."
+msgid_plural "The store has moved to this site (%1$s). Send the email to %2$s customers."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/PasswordEmailPage.php:524
+msgid "This site is not marked as a production site (for example, a staging copy). Send the emails from this site anyway. Customers will receive links to this site."
+msgstr ""
+
+#. translators: %s: the number of accounts.
+#: includes/Admin/PasswordEmailPage.php:535
+#, php-format
+msgid "Also send to the %s account likely imported by version 0.1.0 (listed above)."
+msgid_plural "Also send to the %s accounts likely imported by version 0.1.0 (listed above)."
+msgstr[0] ""
+msgstr[1] ""
+
+#: includes/Admin/PasswordEmailPage.php:542
+msgid "Start sending"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:547
+msgid "Before sending"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:551
+msgid "Many hosting services limit how many emails a site can send per hour. Use an SMTP plugin or an email delivery service, and send a test email first. The emails are sent in small batches, and sending stops if several emails in a row cannot be sent."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:552
+msgid "The subject, heading, and additional text can be changed in the WooCommerce email settings. Do not add advertisements to this email."
+msgstr ""
+
+#. translators: %s: how long the link works, such as "1 day".
+#: includes/Admin/PasswordEmailPage.php:554
+#, php-format
+msgid "The link in the email works for %s. Customers can request a new link from the lost password page, which the email also shows."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:555
+msgid "Creating the link updates each customer account, so other plugins that watch account changes may react to it."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:556
+msgid "The email goes to the address stored in each account. If the previous shop did not verify email addresses, an address may belong to someone else."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:557
+msgid "Only accounts created by the import receive the email. Accounts that already existed and were matched by email, and staff accounts, are left out."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:568
+msgid "Edit the email in the WooCommerce settings"
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:597
+msgid "The password setup email is disabled. Enable it in the WooCommerce email settings."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:598
+msgid "The link in the email needs the My account page and its lost password endpoint. Publish the My account page and set the endpoint in the WooCommerce settings."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:599
+msgid "Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:600
+msgid "The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:601
+msgid "The background task could not be scheduled. Try again."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:602
+msgid "The customers could not be read from the database, so sending stopped instead of skipping them. Check the database, and then resume."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:603
+msgid "The sending state changed unexpectedly. Check the status and start again if needed."
+msgstr ""
+
+#: includes/Admin/PasswordEmailPage.php:608
+msgid "Sending to customers requires an activated license key. Activate it on the License tab."
 msgstr ""
 
 #: includes/Entities/CouponType.php:46
@@ -979,6 +1332,26 @@ msgstr ""
 msgid "Check the license status"
 msgstr ""
 
+#: includes/PasswordEmail/PasswordSetupEmail.php:38
+msgid "Password setup after store migration"
+msgstr ""
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:39
+msgid "Sent from WooCommerce > Cart Bridge JP Pro > Password setup emails to customers whose accounts were created by importing them from another shop. The email asks them to set a password for this store."
+msgstr ""
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:108
+msgid "Set a password for your account at {site_title}"
+msgstr ""
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:115
+msgid "Our store has moved"
+msgstr ""
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:229
+msgid "Sample Customer"
+msgstr ""
+
 #: includes/Woo/Writer/OrderItemBuilder.php:46
 msgid "Unknown product"
 msgstr ""
@@ -993,4 +1366,37 @@ msgstr ""
 
 #: includes/Woo/Writer/OrderItemBuilder.php:269
 msgid "Gift wrapping"
+msgstr ""
+
+#. translators: %s: the customer name.
+#: templates/emails/cbjp-pro-password-setup.php:26
+#: templates/emails/plain/cbjp-pro-password-setup.php:25
+#, php-format
+msgid "Hi %s,"
+msgstr ""
+
+#: templates/emails/cbjp-pro-password-setup.php:27
+#: templates/emails/plain/cbjp-pro-password-setup.php:27
+msgid "Our online store has moved to a new website:"
+msgstr ""
+
+#: templates/emails/cbjp-pro-password-setup.php:28
+#: templates/emails/plain/cbjp-pro-password-setup.php:29
+msgid "Your customer account has been moved to the new store, but your password could not be moved. To sign in, set a new password using the link below."
+msgstr ""
+
+#: templates/emails/cbjp-pro-password-setup.php:29
+msgid "Set your password"
+msgstr ""
+
+#. translators: %s: how long the link works, such as "1 day".
+#: templates/emails/cbjp-pro-password-setup.php:31
+#: templates/emails/plain/cbjp-pro-password-setup.php:32
+#, php-format
+msgid "This link expires in %s."
+msgstr ""
+
+#: templates/emails/cbjp-pro-password-setup.php:32
+#: templates/emails/plain/cbjp-pro-password-setup.php:33
+msgid "If the link has expired, you can request a new one on this page:"
 msgstr ""

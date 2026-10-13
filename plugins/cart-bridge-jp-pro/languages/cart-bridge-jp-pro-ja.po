@@ -15,9 +15,9 @@ msgstr ""
 
 #. Plugin Name of the plugin
 #: cart-bridge-jp-pro.php
-#: includes/Admin/LicensePage.php:76
-#: includes/Admin/LicensePage.php:77
-#: includes/Admin/LicensePage.php:152
+#: includes/Admin/LicensePage.php:87
+#: includes/Admin/LicensePage.php:88
+#: includes/Admin/LicensePage.php:163
 msgid "Cart Bridge JP Pro"
 msgstr "Cart Bridge JP Pro"
 
@@ -59,249 +59,252 @@ msgstr "発送済み"
 msgid "Cancelled"
 msgstr "キャンセル"
 
-#: includes/Admin/LicensePage.php:93
+#: includes/Admin/LicensePage.php:104
+#: includes/Admin/LicensePage.php:365
 msgid "License"
 msgstr "ライセンス"
 
-#: includes/Admin/LicensePage.php:114
+#: includes/Admin/LicensePage.php:125
 msgid "Sorry, you are not allowed to manage the Cart Bridge JP Pro license."
 msgstr "Cart Bridge JP Pro のライセンスを管理する権限がありません。"
 
-#: includes/Admin/LicensePage.php:118
+#: includes/Admin/LicensePage.php:129
 msgid "Unknown license action."
 msgstr "不明なライセンスの操作です。"
 
-#: includes/Admin/LicensePage.php:156
+#: includes/Admin/LicensePage.php:178
 msgid "Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site."
 msgstr "購入時に受け取ったライセンスキーを入力して、このサイトで Cart Bridge JP Pro を有効化してください。"
 
-#: includes/Admin/LicensePage.php:162
+#: includes/Admin/LicensePage.php:184
 msgid "With the activated key, customers, orders, and coupons can be imported and exported on this site, as far as the connected shop supports each operation."
 msgstr "有効化したキーで、このサイトでは顧客・注文・クーポンをインポート・エクスポートできます（接続したショップがそれぞれの操作に対応している範囲で）。"
 
-#: includes/Admin/LicensePage.php:163
+#: includes/Admin/LicensePage.php:185
 msgid "Until a license key is activated on this site, customers, orders, and coupons can only be previewed with a dry run. Importing and exporting them requires an activated key."
 msgstr "このサイトでライセンスキーを有効化するまでは、顧客・注文・クーポンはプレビュー（書き込みなし）だけを実行できます。インポート・エクスポートには、有効化したキーが必要です。"
 
-#: includes/Admin/LicensePage.php:169
-#: includes/Admin/LicensePage.php:400
+#: includes/Admin/LicensePage.php:191
+#: includes/Admin/LicensePage.php:421
 msgid "The license server is not configured in this build of Cart Bridge JP Pro."
 msgstr "この Cart Bridge JP Pro のビルドには、ライセンスサーバーが設定されていません。"
 
 #. translators: %s: the host name of the license server, such as example.com.
-#: includes/Admin/LicensePage.php:182
+#: includes/Admin/LicensePage.php:204
 #, php-format
 msgid "To activate the license key, check its status, and check for updates, Cart Bridge JP Pro sends the license key, the address of this site, and the version of Cart Bridge JP Pro to the license server (%s). Updates are checked only while a license key is activated on this site."
 msgstr "ライセンスキーの有効化・状態の確認・更新の確認のために、Cart Bridge JP Pro はライセンスキー・このサイトのアドレス・Cart Bridge JP Pro のバージョンをライセンスサーバー（%s）に送ります。更新の確認は、このサイトでライセンスキーを有効化している間だけ行います。"
 
-#: includes/Admin/LicensePage.php:190
+#: includes/Admin/LicensePage.php:212
+#: includes/Admin/PasswordEmailPage.php:323
 msgid "Status"
 msgstr "状態"
 
-#: includes/Admin/LicensePage.php:194
-#: includes/Admin/LicensePage.php:314
+#: includes/Admin/LicensePage.php:216
+#: includes/Admin/LicensePage.php:336
 msgid "License key"
 msgstr "ライセンスキー"
 
-#: includes/Admin/LicensePage.php:196
+#: includes/Admin/LicensePage.php:218
 msgid "The saved license key cannot be read, for example because the security keys of this site have changed."
 msgstr "保存したライセンスキーを読み取れません（このサイトのセキュリティキーが変わった場合など）。"
 
 #. translators: %s: the last four characters of the license key.
-#: includes/Admin/LicensePage.php:198
+#: includes/Admin/LicensePage.php:220
 #, php-format
 msgid "Ending in %s"
 msgstr "末尾 4 文字: %s"
 
-#: includes/Admin/LicensePage.php:205
+#: includes/Admin/LicensePage.php:227
 msgid "Last status check"
 msgstr "前回の状態の確認"
 
-#: includes/Admin/LicensePage.php:213
+#: includes/Admin/LicensePage.php:235
 msgid "The license server no longer lists this site, for example after the update period ends. Cart Bridge JP Pro keeps working on this site."
 msgstr "ライセンスサーバーには、このサイトがもう登録されていません（更新期間が終わった後など）。このサイトの Cart Bridge JP Pro は引き続き使えます。"
 
-#: includes/Admin/LicensePage.php:225
+#: includes/Admin/LicensePage.php:247
 msgid "Activate license"
 msgstr "ライセンスの有効化"
 
-#: includes/Admin/LicensePage.php:227
+#: includes/Admin/LicensePage.php:249
 msgid "Activate"
 msgstr "有効化"
 
-#: includes/Admin/LicensePage.php:232
+#: includes/Admin/LicensePage.php:254
 msgid "Enter the license key again"
 msgstr "ライセンスキーの再入力"
 
-#: includes/Admin/LicensePage.php:233
+#: includes/Admin/LicensePage.php:255
 msgid "This saves the license key on this site without contacting the license server."
 msgstr "ライセンスサーバーには問い合わせず、このサイトにライセンスキーを保存します。"
 
-#: includes/Admin/LicensePage.php:234
+#: includes/Admin/LicensePage.php:256
 msgid "Save license key"
 msgstr "ライセンスキーを保存"
 
-#: includes/Admin/LicensePage.php:239
-#: includes/Admin/LicensePage.php:241
+#: includes/Admin/LicensePage.php:261
+#: includes/Admin/LicensePage.php:263
 msgid "Check status"
 msgstr "状態を確認"
 
-#: includes/Admin/LicensePage.php:240
+#: includes/Admin/LicensePage.php:262
 msgid "Ask the license server about this license."
 msgstr "このライセンスについてライセンスサーバーに問い合わせます。"
 
-#: includes/Admin/LicensePage.php:245
+#: includes/Admin/LicensePage.php:267
 msgid "Deactivate license"
 msgstr "ライセンスの無効化"
 
-#: includes/Admin/LicensePage.php:246
+#: includes/Admin/LicensePage.php:268
 msgid "This removes the license from this site. After the update period ends, a license cannot be activated again. If the database of this site was copied from another site, such as a staging copy, deactivating here also removes the original site from the license, and the original site stops receiving updates."
 msgstr "このサイトからライセンスを外します。更新期間が終わった後は、ライセンスをもう一度有効化できません。このサイトのデータベースを別のサイトから複製した場合（ステージング環境など）、ここで無効化すると複製元のサイトもライセンスから外れ、複製元のサイトに更新が届かなくなります。"
 
-#: includes/Admin/LicensePage.php:247
+#: includes/Admin/LicensePage.php:269
 msgid "Deactivate"
 msgstr "無効化"
 
-#: includes/Admin/LicensePage.php:251
+#: includes/Admin/LicensePage.php:273
 msgid "Use a different license key"
 msgstr "別のライセンスキーを使う"
 
-#: includes/Admin/LicensePage.php:252
+#: includes/Admin/LicensePage.php:274
 msgid "For example, after buying a new license. While the current license is in its update period, deactivate it first. After the update period ends, check the status first instead; this site stays activated."
 msgstr "新しいライセンスを購入した後などに使います。今のライセンスが更新期間内なら、先に無効化してください。更新期間が終わった後は、代わりに先に状態を確認してください（このサイトは有効化したままです）。"
 
-#: includes/Admin/LicensePage.php:253
+#: includes/Admin/LicensePage.php:275
 msgid "Activate this key"
 msgstr "このキーを有効化"
 
-#: includes/Admin/LicensePage.php:264
+#: includes/Admin/LicensePage.php:286
 msgid "Not activated"
 msgstr "有効化していません"
 
-#: includes/Admin/LicensePage.php:268
+#: includes/Admin/LicensePage.php:290
 msgid "Activated"
 msgstr "有効化済み"
 
 #. translators: %s: the date and time the license was activated.
-#: includes/Admin/LicensePage.php:272
+#: includes/Admin/LicensePage.php:294
 #, php-format
 msgid "Activated on %s"
 msgstr "有効化済み（%s）"
 
 #. translators: %s: the date and time of the status check.
-#: includes/Admin/LicensePage.php:281
+#: includes/Admin/LicensePage.php:303
 #, php-format
 msgid "Checked on %s."
 msgstr "%s に確認しました。"
 
-#: includes/Admin/LicensePage.php:283
+#: includes/Admin/LicensePage.php:305
 msgid "The license server lists this site as activated."
 msgstr "ライセンスサーバーには、このサイトが有効化済みとして登録されています。"
 
-#: includes/Admin/LicensePage.php:284
+#: includes/Admin/LicensePage.php:306
 msgid "The license server does not list this site as activated."
 msgstr "ライセンスサーバーには、このサイトが有効化済みとして登録されていません。"
 
 #. translators: %s: the end of the update period as reported by the license server (for example, a date or "Expired").
-#: includes/Admin/LicensePage.php:289
+#: includes/Admin/LicensePage.php:311
 #, php-format
 msgid "Update period: %s"
 msgstr "更新期間: %s"
 
-#: includes/Admin/LicensePage.php:383
+#: includes/Admin/LicensePage.php:404
 msgid "The license key was activated on this site."
 msgstr "このサイトでライセンスキーを有効化しました。"
 
-#: includes/Admin/LicensePage.php:384
+#: includes/Admin/LicensePage.php:405
 msgid "The license key was deactivated on this site."
 msgstr "このサイトでライセンスキーを無効化しました。"
 
-#: includes/Admin/LicensePage.php:385
+#: includes/Admin/LicensePage.php:406
 msgid "The license status was checked."
 msgstr "ライセンスの状態を確認しました。"
 
-#: includes/Admin/LicensePage.php:386
+#: includes/Admin/LicensePage.php:407
 msgid "The license key was saved."
 msgstr "ライセンスキーを保存しました。"
 
-#: includes/Admin/LicensePage.php:392
+#: includes/Admin/LicensePage.php:413
 msgid "The license key could not be activated."
 msgstr "ライセンスキーを有効化できませんでした。"
 
-#: includes/Admin/LicensePage.php:393
+#: includes/Admin/LicensePage.php:414
 msgid "The license key could not be deactivated."
 msgstr "ライセンスキーを無効化できませんでした。"
 
-#: includes/Admin/LicensePage.php:394
+#: includes/Admin/LicensePage.php:415
 msgid "The license status could not be checked."
 msgstr "ライセンスの状態を確認できませんでした。"
 
-#: includes/Admin/LicensePage.php:395
+#: includes/Admin/LicensePage.php:416
 msgid "The license key could not be saved."
 msgstr "ライセンスキーを保存できませんでした。"
 
-#: includes/Admin/LicensePage.php:399
+#: includes/Admin/LicensePage.php:420
 msgid "Enter a valid license key."
 msgstr "有効なライセンスキーを入力してください。"
 
-#: includes/Admin/LicensePage.php:401
+#: includes/Admin/LicensePage.php:422
 msgid "This action is not available for the current license."
 msgstr "今のライセンスでは、この操作はできません。"
 
-#: includes/Admin/LicensePage.php:402
+#: includes/Admin/LicensePage.php:423
 msgid "The license data could not be saved on this site. Try again."
 msgstr "このサイトにライセンスの情報を保存できませんでした。もう一度お試しください。"
 
-#: includes/Admin/LicensePage.php:404
+#: includes/Admin/LicensePage.php:425
 msgid "The response from the license server could not be understood."
 msgstr "ライセンスサーバーの応答を解釈できませんでした。"
 
-#: includes/Admin/LicensePage.php:406
+#: includes/Admin/LicensePage.php:427
 msgid "Could not connect to the license server."
 msgstr "ライセンスサーバーに接続できませんでした。"
 
 #. translators: %s: the error message from the connection.
-#: includes/Admin/LicensePage.php:408
+#: includes/Admin/LicensePage.php:429
 #, php-format
 msgid "Could not connect to the license server: %s"
 msgstr "ライセンスサーバーに接続できませんでした（%s）。"
 
-#: includes/Admin/LicensePage.php:410
+#: includes/Admin/LicensePage.php:431
 msgid "The license server returned an error."
 msgstr "ライセンスサーバーがエラーを返しました。"
 
 #. translators: %s: the error message from the license server.
-#: includes/Admin/LicensePage.php:412
+#: includes/Admin/LicensePage.php:433
 #, php-format
 msgid "The license server returned an error: %s"
 msgstr "ライセンスサーバーがエラーを返しました（%s）。"
 
-#: includes/Admin/LicensePage.php:424
+#: includes/Admin/LicensePage.php:445
 msgid "If the license server still lists this site under the current license, deactivate it first, or check the status first if its update period has ended."
 msgstr "ライセンスサーバーに今のライセンスでこのサイトがまだ登録されている場合は、先に無効化してください。更新期間が終わっている場合は、先に状態を確認してください。"
 
-#: includes/Admin/LicensePage.php:426
+#: includes/Admin/LicensePage.php:447
 msgid "If the update period has ended, the license server no longer accepts deactivation. Cart Bridge JP Pro keeps working on this site."
 msgstr "更新期間が終わった後は、ライセンスサーバーは無効化を受け付けません。このサイトの Cart Bridge JP Pro は引き続き使えます。"
 
-#: includes/Admin/LicensePage.php:427
+#: includes/Admin/LicensePage.php:448
 msgid "If the update period has ended, the license server may no longer know this license. Cart Bridge JP Pro keeps working on this site."
 msgstr "更新期間が終わった後は、ライセンスサーバーがこのライセンスを認識しないことがあります。このサイトの Cart Bridge JP Pro は引き続き使えます。"
 
-#: includes/Admin/LicensePage.php:441
+#: includes/Admin/LicensePage.php:462
 msgid "The license server deactivated this site, but this site could not record it. Activate the same license key again, then deactivate it."
 msgstr "ライセンスサーバーではこのサイトを無効化しましたが、このサイトに記録できませんでした。同じライセンスキーをもう一度有効化してから、無効化してください。"
 
-#: includes/Admin/LicensePage.php:445
+#: includes/Admin/LicensePage.php:466
 msgid "The license server activated the key, but this site could not record it."
 msgstr "ライセンスサーバーではキーを有効化しましたが、このサイトに記録できませんでした。"
 
-#: includes/Admin/LicensePage.php:446
+#: includes/Admin/LicensePage.php:467
 msgid "The license server activated the key, but this site could not record it. Try again."
 msgstr "ライセンスサーバーではキーを有効化しましたが、このサイトに記録できませんでした。もう一度お試しください。"
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: includes/Admin/LicensePage.php:454
+#: includes/Admin/LicensePage.php:475
+#: includes/Admin/PasswordEmailPage.php:642
 #, php-format
 msgid "%1$s %2$s"
 msgstr "%1$s%2$s"
@@ -993,3 +996,401 @@ msgstr "この WordPress ユーザーは、このサイトの通常の顧客ア�
 #: includes/Entities/CustomerWarnings.php:65
 msgid "No action is needed. If the account really is a customer, remove the staff role or capability, then export again."
 msgstr "対応は不要です。このアカウントが本当に顧客なら、スタッフのロールか権限を外してから、もう一度エクスポートしてください。"
+
+#: includes/Admin/LicensePage.php:366
+msgid "Password setup emails"
+msgstr "パスワード設定メール"
+
+#: includes/Admin/PasswordEmailPage.php:107
+msgid "Sorry, you are not allowed to send password setup emails."
+msgstr "パスワード設定メールを送る権限がありません。"
+
+#: includes/Admin/PasswordEmailPage.php:111
+msgid "Unknown password setup email action."
+msgstr "パスワード設定メールの操作が不明です。"
+
+#: includes/Admin/PasswordEmailPage.php:144
+msgid "Your account has no valid email address to send the test email to."
+msgstr "あなたのアカウントには、テストメールを送れる正しいメールアドレスがありません。"
+
+#: includes/Admin/PasswordEmailPage.php:148
+msgid "The test email could not be sent. Check the email settings of this site, such as an SMTP plugin."
+msgstr "テストメールを送れませんでした。このサイトのメールの設定（SMTP のプラグインなど）を確認してください。"
+
+#. translators: %s: the email address the test email was sent to.
+#: includes/Admin/PasswordEmailPage.php:152
+#, php-format
+msgid "A test email was sent to %s. It uses a sample name and a sample link."
+msgstr "テストメールを %s に送りました。名前とリンクは見本です。"
+
+#: includes/Admin/PasswordEmailPage.php:163
+msgid "Confirm that the store has moved to this site before sending the emails."
+msgstr "メールを送る前に、ストアがこのサイトへ移ったことを確認してください。"
+
+#: includes/Admin/PasswordEmailPage.php:167
+msgid "This site is not marked as a production site. Confirm that you want to send the emails from this site."
+msgstr "このサイトは本番のサイトとして設定されていません。このサイトからメールを送ることを確認してください。"
+
+#: includes/Admin/PasswordEmailPage.php:181
+msgid "Password setup emails are already being sent."
+msgstr "パスワード設定メールはすでに送信中です。"
+
+#: includes/Admin/PasswordEmailPage.php:190
+msgid "Sending password setup emails started. They are sent in small batches in the background."
+msgstr "パスワード設定メールの送信を始めました。バックグラウンドで少しずつ送ります。"
+
+#: includes/Admin/PasswordEmailPage.php:197
+msgid "The sending could not be canceled. It may have finished or changed. Check the status below."
+msgstr "送信を取り消せませんでした。終わったか、状態が変わった可能性があります。下の状態を確認してください。"
+
+#: includes/Admin/PasswordEmailPage.php:203
+msgid "Sending password setup emails was canceled. Emails already sent cannot be recalled."
+msgstr "パスワード設定メールの送信を取り消しました。送ったメールは取り消せません。"
+
+#: includes/Admin/PasswordEmailPage.php:217
+#: includes/Admin/PasswordEmailPage.php:229
+msgid "The sending could not be resumed. It may be running, finished, or changed. Check the status below."
+msgstr "送信を再開できませんでした。送信中か、終わったか、状態が変わった可能性があります。下の状態を確認してください。"
+
+#: includes/Admin/PasswordEmailPage.php:238
+msgid "Sending password setup emails resumed."
+msgstr "パスワード設定メールの送信を再開しました。"
+
+#: includes/Admin/PasswordEmailPage.php:250
+msgid "Wait until the current sending finishes or cancel it first."
+msgstr "今の送信が終わるまで待つか、先に取り消してください。"
+
+#. translators: %d: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:262
+#, php-format
+msgid "%d customer will receive the email in the next sending."
+msgid_plural "%d customers will receive the email in the next sending."
+msgstr[0] "%d 人の顧客に、次の送信でメールを送ります。"
+
+#: includes/Admin/PasswordEmailPage.php:281
+msgid "Customers imported from another shop have accounts on this store, but their passwords could not be moved. After the store has moved to this site, send them an email with a link to set a password. Importing never sends emails by itself."
+msgstr "別のショップから取り込んだ顧客は、このストアにアカウントがありますが、パスワードは移せませんでした。ストアがこのサイトへ移った後に、パスワードを設定するリンクをメールで送ってください。インポート自体はメールを送りません。"
+
+#: includes/Admin/PasswordEmailPage.php:284
+msgid "Until a license key is activated on this site, you can check the recipients and send a test email to yourself. Sending to customers requires an activated license key."
+msgstr "このサイトでライセンスキーを有効化するまでは、送る相手の確認と自分へのテスト送信だけを行えます。顧客へ送るには、有効化したライセンスキーが必要です。"
+
+#: includes/Admin/PasswordEmailPage.php:312
+msgid "Last sending"
+msgstr "前回の送信"
+
+#: includes/Admin/PasswordEmailPage.php:315
+msgid "Interrupted. The background task stopped, for example because the plugin was deactivated. Resume to continue from where it stopped."
+msgstr "中断しました。バックグラウンドの処理が止まりました（プラグインを停止した場合など）。再開すると、止まったところから続けます。"
+
+#: includes/Admin/PasswordEmailPage.php:316
+msgid "Sending in the background."
+msgstr "バックグラウンドで送信中です。"
+
+#: includes/Admin/PasswordEmailPage.php:317
+msgid "Finished."
+msgstr "完了しました。"
+
+#: includes/Admin/PasswordEmailPage.php:318
+msgid "Stopped."
+msgstr "停止しました。"
+
+#: includes/Admin/PasswordEmailPage.php:319
+msgid "Canceled."
+msgstr "取り消しました。"
+
+#: includes/Admin/PasswordEmailPage.php:324
+msgid "Started"
+msgstr "開始"
+
+#: includes/Admin/PasswordEmailPage.php:327
+msgid "Sent"
+msgstr "送れた件数"
+
+#: includes/Admin/PasswordEmailPage.php:328
+msgid "Could not be sent"
+msgstr "送れなかった件数"
+
+#: includes/Admin/PasswordEmailPage.php:339
+msgid "Recipients"
+msgstr "送る相手"
+
+#: includes/Admin/PasswordEmailPage.php:347
+msgid "Will receive the email"
+msgstr "メールを送る相手"
+
+#: includes/Admin/PasswordEmailPage.php:354
+msgid "Password status unknown"
+msgstr "パスワードの状態が不明"
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:370
+msgid "Could not be sent last time"
+msgstr "前回送れなかった顧客"
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:370
+#, php-format
+msgid "%s (included again)"
+msgstr "%s 人（今回も送ります）"
+
+#: includes/Admin/PasswordEmailPage.php:374
+msgid "Already set a password"
+msgstr "パスワードを設定済み"
+
+#: includes/Admin/PasswordEmailPage.php:375
+msgid "Already received the email"
+msgstr "メールを送信済み"
+
+#: includes/Admin/PasswordEmailPage.php:376
+msgid "Staff or other non-customer accounts"
+msgstr "スタッフなど顧客以外のアカウント"
+
+#: includes/Admin/PasswordEmailPage.php:377
+msgid "Accounts the import did not create"
+msgstr "インポートが作らなかったアカウント"
+
+#: includes/Admin/PasswordEmailPage.php:378
+msgid "No valid email address"
+msgstr "正しいメールアドレスが無い"
+
+#: includes/Admin/PasswordEmailPage.php:379
+msgid "Password reset not allowed"
+msgstr "パスワードの再設定が許可されていない"
+
+#. translators: %s: the reason the customers are left out.
+#: includes/Admin/PasswordEmailPage.php:387
+#, php-format
+msgid "Left out: %s"
+msgstr "対象外（%s）"
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:399
+#, php-format
+msgid "Sending to %s customer was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
+msgid_plural "Sending to %s customers was interrupted, so it is unknown whether the email reached them. They are left out until you mark them as not sent."
+msgstr[0] "%s 人の顧客への送信が途中で止まったため、メールが届いたかが分かりません。未送信に戻すまで、この顧客には送りません。"
+
+#: includes/Admin/PasswordEmailPage.php:422
+msgid "Accounts imported by version 0.1.0 could not be identified reliably, so they are left out."
+msgstr "バージョン 0.1.0 で取り込んだアカウントを確実に見分けられなかったため、対象から外しました。"
+
+#: includes/Admin/PasswordEmailPage.php:430
+msgid "Accounts likely imported by version 0.1.0"
+msgstr "バージョン 0.1.0 で取り込んだと思われるアカウント"
+
+#: includes/Admin/PasswordEmailPage.php:431
+msgid "Version 0.1.0 did not mark the accounts it created. These accounts were registered while a customer import of version 0.1.0 was running, so they were most likely created by it. They receive the email only if you include them when you start sending. Whether they have already set a password cannot be told."
+msgstr "バージョン 0.1.0 は、作ったアカウントに印を付けませんでした。次のアカウントは、バージョン 0.1.0 の顧客のインポートの実行中に登録されたため、そのインポートが作った可能性が高いアカウントです。送信を始めるときに含めた場合だけ、メールを送ります。パスワードを設定し直したかは判定できません。"
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Name"
+msgstr "名前"
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Email"
+msgstr "メールアドレス"
+
+#: includes/Admin/PasswordEmailPage.php:434
+msgid "Registered"
+msgstr "登録日時"
+
+#. translators: %s: the number of accounts.
+#: includes/Admin/PasswordEmailPage.php:457
+#, php-format
+msgid "And %s more."
+msgstr "ほか %s 件。"
+
+#: includes/Admin/PasswordEmailPage.php:470
+#: includes/Admin/PasswordEmailPage.php:473
+msgid "Send a test email"
+msgstr "テストメールを送る"
+
+#: includes/Admin/PasswordEmailPage.php:471
+msgid "Sends the email to your own address with a sample name and a sample link, so that you can check the text and the design."
+msgstr "見本の名前とリンクで、あなたのアドレスにメールを送ります。文面とデザインを確認できます。"
+
+#: includes/Admin/PasswordEmailPage.php:478
+msgid "Resume sending"
+msgstr "送信を再開"
+
+#: includes/Admin/PasswordEmailPage.php:480
+msgid "Resume"
+msgstr "再開"
+
+#: includes/Admin/PasswordEmailPage.php:484
+#: includes/Admin/PasswordEmailPage.php:487
+msgid "Cancel sending"
+msgstr "送信を取り消す"
+
+#: includes/Admin/PasswordEmailPage.php:485
+msgid "Stops sending to the remaining customers. Emails already sent cannot be recalled."
+msgstr "残りの顧客への送信を止めます。送ったメールは取り消せません。"
+
+#: includes/Admin/PasswordEmailPage.php:492
+msgid "Mark interrupted emails as not sent"
+msgstr "途中で止まったメールを未送信に戻す"
+
+#: includes/Admin/PasswordEmailPage.php:493
+msgid "These customers receive the email in the next sending. Some of them may receive it twice."
+msgstr "この顧客には次の送信でメールを送ります。2 通届く顧客がいるかもしれません。"
+
+#: includes/Admin/PasswordEmailPage.php:495
+msgid "Mark as not sent"
+msgstr "未送信に戻す"
+
+#: includes/Admin/PasswordEmailPage.php:503
+msgid "Send to customers"
+msgstr "顧客へ送る"
+
+#: includes/Admin/PasswordEmailPage.php:524
+msgid "This site is not marked as a production site (for example, a staging copy). Send the emails from this site anyway. Customers will receive links to this site."
+msgstr "このサイトは本番のサイトとして設定されていません（ステージングの複製など）。それでもこのサイトからメールを送ります。顧客にはこのサイトへのリンクが届きます。"
+
+#: includes/Admin/PasswordEmailPage.php:542
+msgid "Start sending"
+msgstr "送信を開始"
+
+#: includes/Admin/PasswordEmailPage.php:547
+msgid "Before sending"
+msgstr "送る前に"
+
+#: includes/Admin/PasswordEmailPage.php:551
+msgid "Many hosting services limit how many emails a site can send per hour. Use an SMTP plugin or an email delivery service, and send a test email first. The emails are sent in small batches, and sending stops if several emails in a row cannot be sent."
+msgstr "多くのレンタルサーバーは、1 時間に送れるメールの数を制限しています。SMTP のプラグインかメール配信サービスを使い、先にテストメールを送ってください。メールは少しずつ送り、続けて何通か送れなかったときは送信を止めます。"
+
+#: includes/Admin/PasswordEmailPage.php:552
+msgid "The subject, heading, and additional text can be changed in the WooCommerce email settings. Do not add advertisements to this email."
+msgstr "件名・見出し・追加の文は、WooCommerce のメールの設定で変えられます。このメールに広告を入れないでください。"
+
+#. translators: %s: how long the link works, such as "1 day".
+#: includes/Admin/PasswordEmailPage.php:554
+#, php-format
+msgid "The link in the email works for %s. Customers can request a new link from the lost password page, which the email also shows."
+msgstr "メールのリンクの有効期限は %s です。期限が切れたら、顧客はパスワードを忘れた場合のページから新しいリンクを受け取れます（このページもメールに載せます）。"
+
+#: includes/Admin/PasswordEmailPage.php:555
+msgid "Creating the link updates each customer account, so other plugins that watch account changes may react to it."
+msgstr "リンクを作ると各顧客のアカウントが更新されるため、アカウントの変更を監視する他のプラグインが反応する場合があります。"
+
+#: includes/Admin/PasswordEmailPage.php:556
+msgid "The email goes to the address stored in each account. If the previous shop did not verify email addresses, an address may belong to someone else."
+msgstr "メールは各アカウントに保存されたアドレスに送ります。前のショップがメールアドレスを確認していなかった場合、別の人のアドレスの可能性があります。"
+
+#: includes/Admin/PasswordEmailPage.php:557
+msgid "Only accounts created by the import receive the email. Accounts that already existed and were matched by email, and staff accounts, are left out."
+msgstr "メールを送るのは、インポートが作ったアカウントだけです。メールアドレスの一致で結び付けた既存のアカウントとスタッフのアカウントには送りません。"
+
+#: includes/Admin/PasswordEmailPage.php:568
+msgid "Edit the email in the WooCommerce settings"
+msgstr "WooCommerce の設定でメールを編集"
+
+#: includes/Admin/PasswordEmailPage.php:597
+msgid "The password setup email is disabled. Enable it in the WooCommerce email settings."
+msgstr "パスワード設定メールが無効です。WooCommerce のメールの設定で有効にしてください。"
+
+#: includes/Admin/PasswordEmailPage.php:598
+msgid "The link in the email needs the My account page and its lost password endpoint. Publish the My account page and set the endpoint in the WooCommerce settings."
+msgstr "メールのリンクには、マイアカウントのページとパスワード紛失のエンドポイントが必要です。マイアカウントのページを公開し、WooCommerce の設定でエンドポイントを設定してください。"
+
+#: includes/Admin/PasswordEmailPage.php:599
+msgid "Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume."
+msgstr "続けて何通か送れませんでした。このサイトのメールの設定（SMTP のプラグインやレンタルサーバーの送信数の上限など）を確認してから再開してください。"
+
+#: includes/Admin/PasswordEmailPage.php:601
+msgid "The background task could not be scheduled. Try again."
+msgstr "バックグラウンドの処理を予約できませんでした。もう一度試してください。"
+
+#: includes/Admin/PasswordEmailPage.php:603
+msgid "The sending state changed unexpectedly. Check the status and start again if needed."
+msgstr "送信の状態が思いがけず変わりました。状態を確認し、必要ならもう一度始めてください。"
+
+#: includes/Admin/PasswordEmailPage.php:608
+msgid "Sending to customers requires an activated license key. Activate it on the License tab."
+msgstr "顧客へ送るには、有効化したライセンスキーが必要です。「ライセンス」タブで有効化してください。"
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:38
+msgid "Password setup after store migration"
+msgstr "ストア移転後のパスワード設定"
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:39
+msgid "Sent from WooCommerce > Cart Bridge JP Pro > Password setup emails to customers whose accounts were created by importing them from another shop. The email asks them to set a password for this store."
+msgstr "WooCommerce > Cart Bridge JP Pro > パスワード設定メール から、別のショップから取り込んで作ったアカウントの顧客へ送ります。このストアのパスワードを設定するよう案内します。"
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:108
+msgid "Set a password for your account at {site_title}"
+msgstr "{site_title} のアカウントのパスワードを設定してください"
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:115
+msgid "Our store has moved"
+msgstr "ストアを移転しました"
+
+#: includes/PasswordEmail/PasswordSetupEmail.php:229
+msgid "Sample Customer"
+msgstr "山田 太郎"
+
+#. translators: %s: the customer name.
+#: templates/emails/cbjp-pro-password-setup.php:26
+#: templates/emails/plain/cbjp-pro-password-setup.php:25
+#, php-format
+msgid "Hi %s,"
+msgstr "%s 様"
+
+#: templates/emails/cbjp-pro-password-setup.php:27
+#: templates/emails/plain/cbjp-pro-password-setup.php:27
+msgid "Our online store has moved to a new website:"
+msgstr "オンラインストアは新しいサイトへ移転しました："
+
+#: templates/emails/cbjp-pro-password-setup.php:28
+#: templates/emails/plain/cbjp-pro-password-setup.php:29
+msgid "Your customer account has been moved to the new store, but your password could not be moved. To sign in, set a new password using the link below."
+msgstr "お客様のアカウントは新しいストアへ移しましたが、パスワードは移せませんでした。ログインするには、下のリンクから新しいパスワードを設定してください。"
+
+#: templates/emails/cbjp-pro-password-setup.php:29
+msgid "Set your password"
+msgstr "パスワードを設定する"
+
+#. translators: %s: how long the link works, such as "1 day".
+#: templates/emails/cbjp-pro-password-setup.php:31
+#: templates/emails/plain/cbjp-pro-password-setup.php:32
+#, php-format
+msgid "This link expires in %s."
+msgstr "このリンクの有効期限は %s です。"
+
+#: templates/emails/cbjp-pro-password-setup.php:32
+#: templates/emails/plain/cbjp-pro-password-setup.php:33
+msgid "If the link has expired, you can request a new one on this page:"
+msgstr "期限が切れた場合は、次のページから新しいリンクを受け取れます："
+
+#. translators: %s: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:357
+#, php-format
+msgid "%s of them was imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
+msgid_plural "%s of them were imported by an earlier version, so whether they have already set a password cannot be told. They receive the email."
+msgstr[0] "このうち %s 人は以前の版で取り込んだため、パスワードを設定し直したかを判定できません。この顧客にも送ります。"
+
+#. translators: 1: the address of this site, 2: the number of customers.
+#: includes/Admin/PasswordEmailPage.php:513
+#, php-format
+msgid "The store has moved to this site (%1$s). Send the email to %2$s customer."
+msgid_plural "The store has moved to this site (%1$s). Send the email to %2$s customers."
+msgstr[0] "ストアはこのサイト（%1$s）へ移りました。%2$s 人の顧客にメールを送ります。"
+
+#. translators: %s: the number of accounts.
+#: includes/Admin/PasswordEmailPage.php:535
+#, php-format
+msgid "Also send to the %s account likely imported by version 0.1.0 (listed above)."
+msgid_plural "Also send to the %s accounts likely imported by version 0.1.0 (listed above)."
+msgstr[0] "バージョン 0.1.0 で取り込んだと思われる %s 件のアカウント（上の一覧）にも送る。"
+
+#: includes/Admin/PasswordEmailPage.php:600
+msgid "The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume."
+msgstr "このサイトに送信の記録を保存できなかったため、同じ顧客に 2 通送らないよう送信を止めました。データベースと、ユーザーのデータの保存を変えるプラグインを確認してから再開してください。"
+
+#: includes/Admin/PasswordEmailPage.php:342
+msgid "Some customers could not be read from the database, so the numbers below may be too low. Reload this page to count again."
+msgstr "データベースから読めなかった顧客がいるため、下の件数は実際より少ない可能性があります。このページを再読み込みして数え直してください。"
+
+#: includes/Admin/PasswordEmailPage.php:602
+msgid "The customers could not be read from the database, so sending stopped instead of skipping them. Check the database, and then resume."
+msgstr "データベースから顧客を読めなかったため、飛ばさずに送信を止めました。データベースを確認してから再開してください。"
