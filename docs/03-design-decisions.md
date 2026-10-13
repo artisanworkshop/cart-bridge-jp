@@ -2142,7 +2142,9 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     | 登録の無い種類（拡張を停止した後に残った intent） | TYPE_UNAVAILABLE | 409 `cbjp_entity_type_unavailable`（拡張を有効にすれば解除できる） |
 
     REMOTE_UNREADABLE の文は、ID と Logs タブを確かめること、エクスポートが作った項目なら「Mark as not created」でもう一度作られることを書く。
-    非会員の顧客・ID の不一致ではアダプタのログが残らないので、REST が warning を 1 行残す（platform・entity_type・local_id。remote_id は書かない）。
+    非会員の顧客・ID の不一致ではアダプタのログが残らないので、REST が warning を 1 行残す（platform・entity_type・local_id と原因 `cause`〔`unreadable_row`＝取り込まない行・
+    `transform_failed`＝変換の失敗・`id_mismatch`＝ID の不一致。`PushIntentResolutionException::cause()`。review-loop R1-L2〕。remote_id は書かない）。
+    TYPE_UNAVAILABLE の文は「アドオンが有効でないか、読み込めていない」とし、「有効にせよ」と決めつけない（拡張が有効でも、無料版より新しい拡張点の版を要る・登録に失敗した場合も来る。R1-L3）。
   - **登録の無い種類**（2026-10-14 ユーザー決定〔案 C〕）: `link` は ASP に問い合わせずに、`not_created` も断る（消すと、拡張を戻した後のエクスポートが
     作成済みだった実体をもう一度作りうる）。`GET /push-intents` はその行を出さない（解除できず、その種類はエクスポートもされないので店舗にできることが無い。行は DB に残り、
     拡張を戻せば出る）。以前は一覧に「(deleted from WooCommerce…)」と出て、`link` は REMOTE_NOT_FOUND だった（§10.0「実体の種類の拡張点」の既定の説明）。
