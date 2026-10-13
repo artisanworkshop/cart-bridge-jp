@@ -1816,13 +1816,15 @@ final class RestController {
 		} catch ( PushIntentResolutionException $exception ) {
 			if ( PushIntentResolutionException::REMOTE_UNREADABLE === $exception->reason() && null !== $intent_for_log ) {
 				// 断りの文は Logs タブを案内する。変換の例外はアダプタが記録するが、取り込まない種類の行・ID の不一致は何も残らないので、
-				// ここで 1 行残す（R3-11）。remote_id・PII は記録しない（下の解除のログと同じ）。
+				// ここで 1 行残す（R3-11）。原因（`cause`）で、ID の打ち間違いと接続先の行の問題を見分けられる（review-loop R1-L2）。
+				// remote_id・PII は記録しない（下の解除のログと同じ）。
 				( new Logger() )->warning(
 					'A push intent could not be linked because the platform returned an item that could not be read.',
 					[
 						'platform'    => $platform,
 						'entity_type' => $intent_for_log['entity_type'],
 						'local_id'    => $intent_for_log['local_id'],
+						'cause'       => $exception->cause(),
 					]
 				);
 			}
@@ -1873,7 +1875,8 @@ final class RestController {
 			PushIntentResolutionException::TYPE_UNAVAILABLE  => new WP_Error(
 				'cbjp_entity_type_unavailable',
 				// 状態を直せば（拡張を有効にすれば）解除できるので、接続切れと同じ 409（R3-11）。
-				__( 'The add-on that handles this item type is not active on this site. Activate it, then resolve this item.', 'cart-bridge-jp' ),
+				// 有効でも読み込めない場合（無料版より新しい拡張点の版を要る拡張・登録の失敗）もここに来るので、「有効にせよ」と決めつけない（review-loop R1-L3）。
+				__( 'The add-on that handles this item type is not active on this site, or it could not be loaded. Check the add-on, then resolve this item.', 'cart-bridge-jp' ),
 				[ 'status' => 409 ]
 			),
 			PushIntentResolutionException::REMOTE_ID_IN_USE  => new WP_Error(

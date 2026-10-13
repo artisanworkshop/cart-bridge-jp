@@ -88,10 +88,12 @@ final class PushIntentResolver {
 		} catch ( UnsupportedOperationException ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
-		} catch ( RemoteEntityUnreadableException ) {
+		} catch ( RemoteEntityUnreadableException $exception ) {
 			// 接続先は項目を返したが読めない（変換の失敗・取り込まない種類の行）。実在しないとは言えない（R3-11）。
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
-			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE );
+			// 原因はログの context に書く（店舗が ID の打ち間違いと接続先の行の問題を見分けるため。R3-11 review-loop R1-L2）。
+			$cause = null === $exception->getPrevious() ? PushIntentResolutionException::CAUSE_UNREADABLE_ROW : PushIntentResolutionException::CAUSE_TRANSFORM_FAILED;
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由と原因のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE, $cause );
 		} catch ( RateLimitExhaustedException ) {
 			// クライアント側スロットル。待てば再開できる（`classify_api_failure()`のASP側429と同じ区分）。
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
@@ -117,8 +119,8 @@ final class PushIntentResolver {
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
 		// `$remote_id`と一致することまで確認する。接続先は何かを返しているので「無い」とは答えない（`0123` を要求して `123` が返る等。R3-11）。
 		if ( $fetched_id !== $remote_id ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
-			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由と原因のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE, PushIntentResolutionException::CAUSE_ID_MISMATCH );
 		}
 
 		$existing_local_id = $this->mappings->find_local_id( $platform, $entity_type, $remote_id );

@@ -116,6 +116,7 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 			$this->resolver->resolve_link( 'mock', $id, $adapter, 'requested-remote-id' );
 		} catch ( PushIntentResolutionException $exception ) {
 			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::CAUSE_ID_MISMATCH, $exception->cause() );
 
 			throw $exception;
 		} finally {
@@ -155,10 +156,28 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 			$this->fail( 'PushIntentResolutionException was not thrown' );
 		} catch ( PushIntentResolutionException $exception ) {
 			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			// 変換の例外があれば、原因は「変換の失敗」（ログの context。review-loop R1-L2）。
+			$this->assertSame( PushIntentResolutionException::CAUSE_TRANSFORM_FAILED, $exception->cause() );
 		}
 
 		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'remote-c1' ) );
 		$this->assertTrue( $this->intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * 変換の例外の無い「読めない」（取り込まない種類の行。Pro の顧客の非会員など）は、原因を「取り込まない行」にする（review-loop R1-L2）。
+	 */
+	public function test_resolve_link_reports_an_unreadable_row_without_a_transform_failure_as_its_cause(): void {
+		$id      = $this->begin_product_intent();
+		$adapter = new MockPlatformAdapter( fetch_by_id_failure: new RemoteEntityUnreadableException( 'mock', 'product' ) );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'remote-c1' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::CAUSE_UNREADABLE_ROW, $exception->cause() );
+		}
 	}
 
 	/**

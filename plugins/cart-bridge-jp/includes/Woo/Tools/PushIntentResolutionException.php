@@ -68,11 +68,34 @@ final class PushIntentResolutionException extends RuntimeException {
 	 */
 	public const REMOTE_UNAVAILABLE = 'remote_unavailable';
 
-	public function __construct( private readonly string $reason ) {
+	/**
+	 * REMOTE_UNREADABLE の原因（`cause()`。REST がログの context に書く。個人情報を含まない固定の値。R3-11 review-loop R1-L2）:
+	 * 接続先が返した行は取り込まない種類（例外なし。Pro の顧客の非会員・メールの無い会員など）。
+	 */
+	public const CAUSE_UNREADABLE_ROW = 'unreadable_row';
+
+	/**
+	 * 接続先が返した行を変換できなかった（変換の例外。アダプタが別に「Failed to transform…」をログに残す）。
+	 */
+	public const CAUSE_TRANSFORM_FAILED = 'transform_failed';
+
+	/**
+	 * 返った実体の remote_id が要求と一致しない（ID の打ち間違い・契約違反）。
+	 */
+	public const CAUSE_ID_MISMATCH = 'id_mismatch';
+
+	public function __construct( private readonly string $reason, private readonly string $cause = '' ) {
 		parent::__construct( "Push intent resolution failed: {$reason}" );
 	}
 
 	public function reason(): string {
 		return $this->reason;
+	}
+
+	/**
+	 * 理由の内訳（今は REMOTE_UNREADABLE だけ。ほかの理由は ''）。
+	 */
+	public function cause(): string {
+		return $this->cause;
 	}
 }

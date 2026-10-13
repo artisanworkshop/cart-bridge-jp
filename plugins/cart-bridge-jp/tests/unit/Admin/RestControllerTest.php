@@ -2368,6 +2368,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $logs );
 		$this->assertStringNotContainsString( 'remote-unreadable-1', (string) wp_json_encode( $logs[0] ) );
 		$this->assertStringContainsString( '"local_id":101', (string) $logs[0]['context_json'] );
+		// 原因（取り込まない行・変換の失敗・ID の不一致）で、店舗が ID の打ち間違いと接続先の行の問題を見分けられる（review-loop R1-L2）。
+		$this->assertStringContainsString( '"cause":"unreadable_row"', (string) $logs[0]['context_json'] );
 	}
 
 	/**
