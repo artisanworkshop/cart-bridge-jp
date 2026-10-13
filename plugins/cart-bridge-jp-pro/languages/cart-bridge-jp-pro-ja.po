@@ -43,19 +43,19 @@ msgstr "Cart Bridge JP Pro には、より新しいバージョンの Cart Bridg
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP Pro の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:440
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:454
 msgid "Unpaid"
 msgstr "未入金"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:444
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:458
 msgid "Paid (not shipped)"
 msgstr "入金済み（未発送）"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:448
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:462
 msgid "Shipped"
 msgstr "発送済み"
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:452
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:466
 msgid "Cancelled"
 msgstr "キャンセル"
 
