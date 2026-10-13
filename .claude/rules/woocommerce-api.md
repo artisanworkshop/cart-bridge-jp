@@ -109,7 +109,9 @@ paths:
   `user_pass` が変わるのは再設定・プロフィール・管理者の変更・認証に成功したときの再ハッシュだけで、`wp_update_user()`（`user_pass` を渡さない）と `get_password_reset_key()`（`user_activation_key` だけ）は変えない。
   WP の `reset_password()` と WooCommerce の再設定は `default_password_nag` を書き、`wc_create_new_customer()` はパスワードを渡すと書かない（渡さないと `true` で書く）
 - **秘密のリンクを送る `WC_Email` は CC・BCC を付けない**: WooCommerce 9.8〜11.1 はすべてのメールに CC・BCC の設定（「メールの改善」が有効なとき）があり、11.2 で `supports_cc_bcc`（protected。既定 true）が入ったが、
-  フィルター（`woocommerce_email_cc_recipient_{id}`・`…bcc…`）は 11.2 でも効く。`get_cc_recipient()`・`get_bcc_recipient()` を空にし、`init_form_fields()` で欄も外す（R3-10 の `PasswordSetupEmail`。WooCommerce の新規アカウント・再設定のメールも付けない）。
+  フィルター（`woocommerce_email_cc_recipient_{id}`・`…bcc…`）は 11.2 でも効く。`supports_cc_bcc()` を false にし、`get_cc_recipient()`・`get_bcc_recipient()` を空にし、`init_form_fields()` で欄も外し、
+  `get_headers()` の結果から `Cc:`・`Bcc:` の行を除く（`woocommerce_email_headers` で全メールに BCC を足すスニペットがある。R3-10 の `PasswordSetupEmail`。WooCommerce の新規アカウント・再設定のメールも付けない）。
+  親の protected のプロパティ `$supports_cc_bcc` を型なしで宣言し直さない（WooCommerce が型を付けると、`WC_Emails::init()` がまとめて読む全メールのクラスが fatal になる。メソッドを上書きする）。
   CC・BCC の見出しは「メールの改善」（option `woocommerce_feature_email_improvements_enabled`）が有効なときだけ付くので、テストは有効にしてから確かめる（無効のままだと上書きを外しても通る）
 - **`WC_Email` は autoload できない**（`WC_Emails::init()` が include する）。継承したクラスは `woocommerce_email_classes` のコールバックの中でだけ `new` し、使う側は `WC()->mailer()->get_emails()` から引く
   （先に `new`・`class_exists()` すると fatal。コンストラクタはフックを足すので 2 つ目を作らない）。mailer のインスタンスは 1 つなので、宛先ごとの値（`object`・`recipient`・名前・リンク）は送るたびに設定し直し、
