@@ -64,6 +64,10 @@ GMO Pepabo privacy policy: https://pepabo.com/company/privacy/
 
 WooCommerce and its associated designs are trademarks of Automattic Inc. Color Me Shop (カラーミーショップ) is a trademark of GMO Pepabo, Inc. This plugin is not affiliated with or endorsed by Automattic Inc. or GMO Pepabo, Inc.
 
+= Source code =
+
+The JavaScript of the admin screens in `build/` is compiled from TypeScript, and their CSS from `style.css`, with `@wordpress/scripts`. The source code is on GitHub: https://github.com/artisanworkshop/cart-bridge-jp (this plugin is in `plugins/cart-bridge-jp/`, and the TypeScript files and `style.css` of the admin screens are in its `src/` directory). To build them, run `npm install` and then `npm run build` in the root directory of the repository. The `vendor/` directory contains only the Composer autoloader; the plugin has no third-party PHP packages.
+
 == Installation ==
 
 1. Install and activate WooCommerce, then install and activate this plugin.

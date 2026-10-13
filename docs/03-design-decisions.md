@@ -773,6 +773,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   ~~サンプルのクリーンアップは取込みのサンプル用で、エクスポートの後に使うと紐づけとエクスポートのサンプルが消え、次のエクスポートで Color Me Shop に重複を作る（§10.2「E2-2 PR-A」の既知の制限。ツール側の対処は backlog `r3-3-readme-v1/R1-X1`）ので、readme にそう書いた。~~（R3-6a でサンプルのクリーンアップごと削除し、readme からも外した）
   External services 節（ガイドライン）に Color Me Shop API（`api.shop-pro.jp`）へ送る・読むデータと規約の URL を書いた（2026-10-09 に確認: API 利用規約 `https://api.shop-pro.jp/developers/tos`、サービス利用規約 `https://shop-pro.jp/terms/colorme-terms/`、GMO ペパボのプライバシーポリシー `https://pepabo.com/company/privacy/`。`ReadmeTest` は接続先のホストが節に書かれていることを確かめる）。
   スクリーンショットは `.wordpress-org/screenshot-N.png`（`.distignore` で配布 zip から除き、SVN の `assets/` へは `deploy-wporg.yml` が送る〔R3-4a。§8〕）。tests サイト（10011）で、実 `ColorMeAdapter` の HTTP を匿名化済みフィクスチャへ向けた一時 mu-plugin で撮った（実店舗・テストショップのデータは写っていない）
+  **`= Source code =`（R3-4a の追加、2026-10-13）**: 配布 zip の `build/`（管理画面の JS・CSS）は圧縮しているので、ガイドライン 4（人が読めるコード）に沿って、ソースの場所（GitHub の公開リポジトリ・`plugins/cart-bridge-jp/src/`）と作り方（ルートで `npm install` → `npm run build`）、`vendor/` が Composer の autoloader だけであることを書いた。`ReadmeTest` が節の内容と、ルートの `package.json` の `build` の `--source-path`・`--output-path` を照合する（ビルドの設定を変えたら readme も直す）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:

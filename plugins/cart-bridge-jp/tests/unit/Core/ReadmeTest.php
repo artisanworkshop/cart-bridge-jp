@@ -325,6 +325,24 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * ガイドライン 4（人が読めるコード）: zip の管理画面の JS・CSS（build/）は圧縮しているので、ソースの場所と作り方を readme に書く（審査で差し戻されやすい。R3-4a の追加）。
+	 * 書いた手順がリポジトリのビルドの設定（ルートの package.json の `build`。テストのサイトでは wp-content/cbjp-dev）とずれたら止める。
+	 */
+	public function test_readme_points_to_the_source_of_the_compiled_admin_screens(): void {
+		$source = $this->subsection( 'Description', 'Source code' );
+
+		$this->assertStringContainsString( 'https://github.com/artisanworkshop/cart-bridge-jp ', $source );
+		$this->assertStringContainsString( '`plugins/cart-bridge-jp/`', $source );
+		$this->assertStringContainsString( '`src/`', $source );
+		$this->assertStringContainsString( '`npm run build`', $source );
+
+		$package = wp_json_file_decode( WP_CONTENT_DIR . '/cbjp-dev/package.json', [ 'associative' => true ] );
+		$this->assertIsArray( $package );
+		$this->assertStringContainsString( '--source-path=plugins/cart-bridge-jp/src ', $package['scripts']['build'] ?? '' );
+		$this->assertStringContainsString( '--output-path=plugins/cart-bridge-jp/build', $package['scripts']['build'] ?? '' );
+	}
+
+	/**
 	 * readme は配布物に入れ、ディレクトリのアセット（SVN の assets/ へ置く）は zip に入れない（`bin/build-zip.sh`〔CI の Distribution ジョブと release.yml〕は `.distignore` で rsync する）。
 	 * zip は vendor/ の autoloader を同梱するので composer.json も入れる（無ければ Plugin Check が missing_composer_json_file を警告する。R3-4a）。
 	 */
