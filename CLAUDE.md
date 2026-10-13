@@ -69,7 +69,7 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 
 - WordPress Coding Standards（PHPCS: `WordPress` ruleset + PSR-4クラス構成）
 - UI文字列は英語で書き、`__( 'Text', 'cart-bridge-jp' )`（Pro は `'cart-bridge-jp-pro'`）で必ずi18n化。日本語訳は `languages/cart-bridge-jp-ja.po`（Pro は `plugins/cart-bridge-jp-pro/languages/cart-bridge-jp-pro-ja.po`。JS が無いので JSON なし。R3-8d）に同梱している。**文字列を足す・変えたら同じ PR で**（Pro も）`npm run i18n:pot`（ビルドしてから POT。JS は `build/index.js` から抜く）→ `npm run i18n:po` → 足された項目を訳す（用語集は `docs/03` §6「翻訳（R3-2）」）→ `npm run i18n:compile`。CI（`npm run i18n:check`。`bin/i18n.sh` は `--plugin` が無ければ両プラグイン）と両方の `TranslationsTest` が、POT の鮮度・訳の漏れ・プレースホルダの食い違いを止める。訳のパスの登録（メインファイルの `cbjp_load_textdomain()`）は、WooCommerce・オートロードを確かめる `cbjp_bootstrap()` のガードの外に置く（中に置くと前提条件の通知が英語のまま出る。PR #109 G1-1）。PHP でも訳した文を `' '` でつながず、`__( '%1$s %2$s', <ドメイン> )`（翻訳者コメントは無料版と同じ文言）を通す（JS は `joinSentences()`。日本語訳で「。 」が残る。Pro の設定画面が 4 か所で `' '` を使っていた。PR #130）
-- `readme.txt` は配布物。事実の記述（取り込む／送るデータ・外部への接続）は実装を読んで書く。過去の版の挙動（changelog・Upgrade Notice の旧版向けの項目）は、今のコードから類推せず、その版のタグのコード（`git show v0.1.0:<path>`）を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた。PR #119 では 0.1.0 の挙動の記述の漏れ・誤りを独立レビューが 3 件見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー（Description は `plugins/cart-bridge-jp/composer.json` の `description` とも）・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合し、件数の上限の記述・無料版の範囲を説明する箇所の顧客・受注・クーポン・決済・配送の記述が無いこと、Pro の FAQ が Pro を名指しすること（版 1.0.0 以上では URL も）、Upgrade Notice が 300 字以内でマークアップを含まないことを確かめるので、これらを変えたら同じ PR で readme も直す
+- `readme.txt` は配布物。事実の記述（取り込む／送るデータ・外部への接続）は実装を読んで書く。過去の版の挙動（changelog・Upgrade Notice の旧版向けの項目）は、今のコードから類推せず、その版のタグのコード（`git show v0.1.0:<path>`）を読んで書く（PR #111 では Copilot が 3 ラウンド続けて readme の細部の誤りを見つけた。PR #119 では 0.1.0 の挙動の記述の漏れ・誤りを独立レビューが 3 件見つけた）。`ReadmeTest` が `CBJP_VERSION`・プラグインヘッダー（Description は `plugins/cart-bridge-jp/composer.json` の `description` とも）・`WarningCatalog` のエクスポートの対処文・スクリーンショットの連番と照合し、件数の上限の記述・無料版の範囲を説明する箇所の顧客・受注・クーポン・決済・配送の記述が無いこと、Pro の FAQ が Pro を名指しすること（版 1.0.0 以上では URL も）、Upgrade Notice が 300 字以内でマークアップを含まないこと、版 1.0.0 以上ではその版の Changelog の節があること（`bin/readme-release.php`）、Source code の節がルートの `package.json` の `build` のパス（`src/` → `build/`）と合うことを確かめるので、これらを変えたら同じ PR で readme も直す
 - コードコメントは日本語可
 - 入力は必ずサニタイズ、出力は必ずエスケープ、DB操作は `$wpdb->prepare()`
 - APIトークン等の機密情報は暗号化して保存（`Support\TokenStore` 経由。オプションテーブルに平文保存禁止）
@@ -134,14 +134,14 @@ npx wp-env run cli wp plugin check cart-bridge-jp --checks=plugin_readme,plugin_
 長い落とし穴集はパス指定ルールへ分割してある（Claude Code は**該当ファイルを Read したときだけ**読み込む）。CLAUDE.md にある規約と同格の**必須ルール**で、
 触るファイルに対応するものは実装・レビューの前に必ず読むこと（Codex/Copilot など Claude Code 以外のツールやサブエージェントは自動では読み込まないため、明示的に開くこと。`AGENTS.md` も参照）。
 
-| ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/`・`bin/` はルート） |
+| ファイル | 内容 | 対象パス（`plugins/*/` 配下。`.claude/`・`bin/`・`.github/` はルート） |
 |---|---|---|
 | `.claude/rules/adapters-colorme.md` | ASP アダプタ共通の基準（境界データ・`Page::$total`・push の部分失敗・税込換算）とカラーミー API の癖（クーポン・画像・税・`pref_id`・受注明細ほか） | `includes/Adapters/**`, `includes/Canonical/**`, `AddressMapper`, `tests/fixtures/**` |
 | `.claude/rules/woocommerce-api.md` | `WC_Order`/`WC_Product`/`WC_Coupon`/在庫/税/term/`save()` など WooCommerce の実測結果 | `includes/Woo/**` |
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・実体の種類のレジストリ（R3-6b1）・`cbjp_mappings`（checksum・upsert）・リンク再構築等のツールの設計上の罠 | `includes/Sync/**`, `includes/Entities/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
 | `.claude/rules/pro-license.md` | Pro のライセンス・更新の配信: WooCommerce API Manager の応答の癖（訳された節の名前・package の条件）と WP の更新 API（`plugins_api`・`update_plugins_{host}`・`disable_autoupdate`・transient） | Pro の `includes/License/**`, `includes/Admin/LicensePage.php`, `tests/unit/License/**`, `tests/fixtures/api-manager/**` |
-| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**` |
+| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim）、`bin/` のリリースの検査と GitHub Actions のワークフロー（secrets を使うジョブの分け方） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**`, `.github/workflows/**` |
 
 ## テスト方針
 

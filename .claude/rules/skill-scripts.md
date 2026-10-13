@@ -5,11 +5,12 @@ paths:
   - ".claude/skills/**/examples/**"
   - ".claude/skills/**/php/**"
   - "bin/**"
+  - ".github/workflows/**"
 ---
 
 # `.claude/skills/` 配下のスクリプト・テンプレート・example の落とし穴
 
-`ci-wait.sh`・`bot-wait.sh`・`mock-adapter.sh` などの開発補助スクリプトが対象（プラグイン本体ではない）。
+`ci-wait.sh`・`bot-wait.sh`・`mock-adapter.sh` などの開発補助スクリプト・`bin/` のリリースの検査・`.github/workflows/` が対象（プラグイン本体ではない）。
 PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受けた。
 
 - **判定の前提になる取得（PR の HEAD・ブランチ名・存在確認など）を `|| true` で握りつぶさない**。一時的な API 失敗が
@@ -92,6 +93,10 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **PHP のソースから宣言・設定（名前空間・`define()` の既定値）を読む検査は、正規表現・grep ではなく `token_get_all( $src, TOKEN_PARSE )` で読む**。正規表現は、コメントアウトした `define()`・
   複数行に分けた `namespace` の宣言・式の値を読み違え、フェイルクローズのはずの検査を通す（PR #125 で G1-B1・G2-B2・G3-B1 と 3 ラウンド続けて指摘された）。読めない形（同じ名前の定義が 2 つ・
   値や名前が式・メソッドの `define`）は「未設定」として止め、ほかのリテラルの定義を拾わない（`bin/check-pro-zip.php` の `cbjp_zipcheck_define()`）
+- **外部のパーサーと同じ判定をする検査（wordpress.org の readme の節・ヘッダーなど）は、似た正規表現で近づけて書かない**。そのパーサーのソースの規則を書き写し、元のパーサーを同じ入力で動かして突き合わせる。
+  `bin/readme-release.php` は最初、`== X ==` の形だけを節の見出しにしたため、wordpress.org が見出しとして扱う行頭の空白・閉じの無い `== X`・`## X` を Changelog の続きとして読み、
+  Upgrade Notice の `= 1.0.0 =` を changelog の節として通した（フェイルオープン。R3-4a R1-1）。R2 で Plugin Check 同梱の `includes/Lib/Readme/Parser.php` を WP 関数のスタブ付きでホストの PHP から動かして比べると、
+  行の区切り（UTF-8 なら `\R` を Unicode で分ける）・`empty()` の空の行（`0` だけの行も空）・`##` だけの行の差がさらに見つかった
 - **`npx wp-env run` は中のコマンドの終了コードを 1 にまとめる**（`exit( 3 )` も 1）。PHP の結果の種類は出力の印（`missing tables:`・`PRODUCT_ID=`・`LEFTOVERS=`）で見分ける。
   `set -o pipefail` の下で `printf '%s\n' "$大きな出力" | grep -q …` は、grep が先に閉じると printf が SIGPIPE になり、正しい入力でもパイプが失敗しうる。文字列は `case "$out"$'\n' in *"…"$'\n'*)` で照合する（`measure-api-manager` の zip の一覧。PR #127 G3-1）
 - **中断で壊れると復旧できないファイル**（mu-plugin・追跡しているファイル・状態ファイル）**はその場で書き戻さない**（`cat tmp > file`・`file_put_contents( $path )` は途中で止まると空や途中までのファイルを残す。
@@ -104,3 +109,7 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   (4) 実装中に一度、setup の前と teardown の後で DB を丸ごと（全テーブルの行数・option・transient・cron・予定・ファイルの一覧）比べ、数え方の漏れを探す（WC が副作用で積む属性の索引の予定と、注文のメールのログが見つかった）
 - **PHP は関数をファイルの読み込み時に宣言する**ので、先頭の `if ( function_exists( 'x' ) ) { return; }` の守りは初回の読み込みから真になり、後ろの `const` の定義を飛ばす（`Undefined constant`）。
   定数を持つ補助ファイルは守りを書かず、`require_once` だけで読む（`measure-api-manager` の `php/anon.php`）
+- **GitHub Actions のワークフロー**（R3-4a の `deploy-wporg.yml`）: (1) 入力・タグ名は `env:` で渡し、`run:` に `${{ }}` で埋め込まない。
+  (2) secrets を使う step は `npm ci`（依存のスクリプトが動く）と同じジョブに置かない（同じジョブの前の step は、取得済みの action のスクリプトを書き換えて資格情報を読める）。
+  secrets の無いジョブで作った物を artifact で渡し（v4 は既定でドットで始まるファイルを落とすので `include-hidden-files: true`）、checkout は `persist-credentials: false`。
+  (3) Environment の「デプロイできるブランチ・タグ」の制限は、ワークフローを実行した ref に掛かり、入力で選んで checkout したタグには掛からない（タグだけを許すと main からの手動実行が拒否される。R3-4a R2-3）
