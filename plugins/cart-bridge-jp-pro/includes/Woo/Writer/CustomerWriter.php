@@ -406,7 +406,10 @@ final class CustomerWriter implements EntityWriter {
 
 	private function apply_extras_meta( int $user_id, CanonicalCustomer $item ): void {
 		$extras = $item->extras;
-		unset( $extras['remote_id'] );
+
+		// extras は `_cbjp_{key}` のメタになるので、紐づけと作成の印（`_cbjp_remote_id`・`_cbjp_platform`・作成の印 2 つ）と同じ名前のキーは
+		// 書かない（アダプタは信頼境界。原則 8。所有の判定〔`owns_profile()`〕に使う印を書き換えさせない。R3-5b review-loop R2）。
+		unset( $extras['remote_id'], $extras['platform'], $extras['created_by_import'], $extras['created_remote_id'] );
 
 		$extras = array_merge(
 			$extras,

@@ -242,7 +242,49 @@ final class CustomerWriterTest extends WooTestCase {
 
 		// 保護したアカウントには受注を結ばない（ゲスト）ので、「受注をそのアカウントに割り当てる」理由は付けない。
 		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->write( $customer, null )->warnings );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->validate( $customer, null )->warnings );
 		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->validate( $customer, $admin_id )->warnings );
+	}
+
+	/**
+	 * extras は `_cbjp_{key}` のメタになるので、印と同じ名前のキーで所有の判定に使う印を書き換えさせない（アダプタは信頼境界。review-loop R2）。
+	 */
+	public function test_extras_cannot_overwrite_the_link_and_creation_markers(): void {
+		$customer = new CanonicalCustomer(
+			'markers@example.com',
+			'Taro Yamada',
+			null,
+			null,
+			null,
+			[],
+			null,
+			null,
+			null,
+			null,
+			[
+				'remote_id'         => '7',
+				'platform'          => 'other',
+				'created_by_import' => 'other',
+				'created_remote_id' => '99',
+				'fax'               => '03-0000-0000',
+			]
+		);
+
+		$result = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, '_cbjp_platform', true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, '_cbjp_remote_id', true ) );
+		// ほかの extras は今どおり書く。
+		$this->assertSame( '03-0000-0000', get_user_meta( $result->local_id, '_cbjp_fax', true ) );
+
+		// 次の取込み（mapping 経由）でも、印を書き換えさせない（作ったアカウントのまま更新される）。
+		$again = $this->make_writer()->write( $customer, $result->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $again->operation );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
 	}
 
 	public function test_account_created_before_r3_5b_without_a_remote_id_is_never_owned_after_relinking(): void {
