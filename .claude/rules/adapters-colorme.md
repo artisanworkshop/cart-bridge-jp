@@ -16,6 +16,10 @@ paths:
 
 - **`CanonicalModel::$extras` の鍵は小文字の snake_case（`^[a-z0-9_]+\z`）にする**（新しい ASP アダプタの共通の基準。R3-10）: extras は `_cbjp_{key}` のメタになり、meta_key の照合は大文字小文字を
   区別しないので、Pro の `CustomerWriter::writable_extras()` は形の違う鍵（camelCase など）と予約した鍵（紐づけ・作成の印・パスワードの控え・`pro_` で始まる鍵）を黙って書かない。camelCase の鍵を返すとそのデータが落ちる
+- **ID 指定取得（`fetch_*_by_remote_id()`）の null は「接続先に無い」（404）だけの意味にする**（新しい ASP アダプタの共通の基準。R3-11）。接続先が返した項目を Canonical にできない
+  （変換の例外・取り込まない種類の行）ときは null にせず `Adapters\RemoteEntityUnreadableException` を投げる（変換の例外はログに残してから。取り込まない種類の行の throw は try の外に書く）。
+  null にすると push intent の「リンクして解除」が「存在しない」と答え、それを信じた「未作成として解除」が実在する実体をもう一度作る（D21-B が防ぐ重複）。
+  一覧の取得（`transform_rows()`）の行単位の握りつぶしは今までどおりでよい（ID 指定取得とは意味が違う）
 - カラーミー `shopCoupon.usage_limit` は `indisposable`/`disposable` の**enum文字列**（1ユーザーあたりの利用回数制限）であり、`CanonicalCoupon::usage_limit`（発行総数のint）に対応するのは別フィールドの `total_usage_limit`。`(int) 'indisposable'` は `0` になるため誤って `usage_limit` にキャストしないこと
 - カラーミー `shopCoupon.group_limit_type`（`none`/`including`/`excluding`）は**商品**グループによる制限であり会員グループ制限ではない（swagger の description で確認可能）。「会員グループ限定クーポン」と読み違えたコメントが実際にコードへ入り込んだ実績があるため、制限系フィールドの意味は必ず swagger の description を読んでから書くこと
 - `CanonicalCoupon::$has_unsupported_restrictions` は三値（`false`=Wooへ写せない制限が残っていない / `true`=残っている / `null`=アダプタが宣言していない）。`CouponWriter` は `true` と `null` の両方で保存を見送るため、新しいアダプタのクーポン変換で明示的に `false` を渡し忘れるとクーポンが1件も取り込まれない（テストで `new CanonicalCoupon(...)` を書く場合も同じ。名前付き引数 `has_unsupported_restrictions:` を使う）。Woo自身は商品・カテゴリ・メール制限をネイティブに持つが、`CanonicalCoupon` にそれらを運ぶフィールドが無く `CouponWriter` も該当setterを呼ばないため、**現時点で `false` にしてよいのは「ASP側に制限が無い」場合のみ**。「Wooに機能があるから写せるはず」で `false` を立てると制限が落ちた無制限クーポンが保存される

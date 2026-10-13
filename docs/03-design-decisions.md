@@ -142,6 +142,9 @@ interface PlatformAdapter {
    区別）。前者は`PushResult`への末尾追加（規則4）で対応できる見込みだが、後者は既存メソッドの戻り値の
    意味論変更が要る可能性がある。**R3-4（公開）前にこれらの対応要否を判断すること**（凍結後は新メソッド
    追加でしか解決できなくなる）
+   → **後者は R3-11（2026-10-14）で決着した**: シグネチャを変えず、例外の契約で区別する。`fetch_*_by_remote_id()` の null は
+   404（接続先に無い）だけで、接続先が返した項目を Canonical にできないときは `Adapters\RemoteEntityUnreadableException` を投げる
+   （`AbstractPlatformAdapter` の docblock。BASELINE・固定した `v1_method_names()` は不変。§10.2「R3-11 の実装」）
 
 **PR #48の申し送り**: `fetch_order_by_remote_id()`追加（#46）に対するCodex/Copilotの指摘
 （[Codex](https://github.com/artisanworkshop/cart-bridge-jp/pull/48#discussion_r4057015250) /
@@ -857,6 +860,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 | 21 | カラーミー: `sale.details[].product_num=0` の明細 | 実店舗の受注 dry-run（R3-0n） | **済（実店舗で実測 2026-09-30）**: キャンセルした受注は全明細が `product_num=0`・`subtotal_price=0`（商品合計・受注合計も0）、一部の明細を外した受注はその行だけ同じ形（単価 `price`/`price_with_tax` は残る。商品合計はその行を含まない）。該当の受注の多くはキャンセル受注。数量0・金額0のまま取り込む（D10「数量0の明細」） |
 | 22 | カラーミー: 受注明細の `option1_value`/`option2_value`/`product_model_number` は受注時点の値か現在の商品の値か（swagger は「最新の商品情報」） | 実店舗の受注 dry-run（R3-0n） | **一部確認（2026-09-30）**: 受注後にオプションの軸が増えた商品の2018年の受注では、`option2_value` が null・`product_model_number` が当時のバリエーションの型番（現在のバリエーションには型番が無い）で、**受注時点の値**だった。現存するバリエーションだけが対象のときに現在の値へ置き換わるかは未確認。`ProductResolver` は軸の数が合わなければ特定を諦める（`order_line_variation_unmatched`） |
 | 23 | カラーミー: `GET /customers.json?ids=` で一度に取れる件数と、日付の制限が掛からないか（受注の `ids` は直近7日の制限を受けた。#18）。あわせて `GET /sales.json` の `after` に渡す日時の形式とタイムゾーン | D31（期間で絞る取込み、§10.8）の検討で判明。v2.0 の計画の前にテストショップで | 未 |
+| 24 | カラーミー: 会員機能を無効にしたショップで `POST /v1/customers` の `add_member: true` が無視され、作った顧客が非会員（`member: false`）になるか | R3-11 の計画（Plan エージェントの検証）で判明。Pro の公開の前か、利用者の報告があったときにテストショップで | 未。R3-11 で、ID 指定取得の非会員の顧客は「読めない」として push intent の紐づけを断る（エクスポートは会員で作るので、非会員なら ID の打ち間違いの可能性が高い）。無視されるなら、エクスポートで作った顧客を紐づけられない（§10.2「R3-11 の実装」） |
 
 確定したら本表と該当計画ドキュメント（Capabilities値等）を更新すること。
 
@@ -994,7 +998,7 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
   D25〔`is_linked_by_export`〕、ツール・検証〔`link_sources`・`existing_local_ids`・`remote_amount`・`local_amount_summary`・`dry_run_label`〕、
   警告〔`warning_flags`・`describe_warning`〕、マッピング〔`mapping_kinds`〕）。既定は「その種類では扱わない」で、`push()` は以前の既定のアームと同じ
   `ENTITY_NOT_SUPPORTED` のスキップ。`fetch_by_remote_id()` は `UnsupportedOperationException`（push intent の解除は LINK_UNSUPPORTED。以前は登録の無い種類が
-  REMOTE_NOT_FOUND で、LINK_UNSUPPORTED はクーポンだけだった。今も登録の無い種類は REMOTE_NOT_FOUND で、LINK_UNSUPPORTED になるのは上書きしない登録済みの種類
+  REMOTE_NOT_FOUND で、LINK_UNSUPPORTED はクーポンだけだった。R3-6b1 でも登録の無い種類は REMOTE_NOT_FOUND のままで〔R3-11 で 409 TYPE_UNAVAILABLE に変え、not_created も断り一覧から外した。§10.2「R3-11 の実装」〕、LINK_UNSUPPORTED になるのは上書きしない登録済みの種類
   〔category・tag・stock・review。push intent を残さないので実害なし〕）。`existing_local_ids()` は null（確かめられない）。null・空配列など正常な結果と区別できない値を
   既定にしない（D20 と同じ）。`LocalEntityLookup::existing_ids()` は種類の `existing_local_ids()` を呼ぶ形になり、種類でない `variant` には空を返す（呼び出し元なし）。
 - `EntityTypeRegistry`: 無料版の種類（category 10・tag 20・product 30・stock 60・review 80）＋ `cbjp/entity_types/register` の登録（顧客 40・受注 50・クーポン 70。
@@ -1043,10 +1047,10 @@ Writer/Reader のファクトリ・`EntityOrigin`・`MappingRebuilder`・`LocalE
   `Entities\EntityType`（R3-8b で `dry_run_only_reason( PlatformAdapter ): ?string` を足した。既定 null＝制限なし。§10.7「R3-8b の実装」）・`MappingKind`（R3-6c1 で `platform_candidates( PlatformAdapter ): ?array` を足した。既定 null＝アダプタの `mapping_candidates()` のキーで引く）・
   `LinkSource`・`WarningText`・`WarningFlag`・`WooServices`（`mappings()`・`product_resolver()`・`method_map()`。`media()`・`variations()` は無料版の内部用）、
   `Woo\Tools\Link\PostLinkSource`・`TermLinkSource`
-- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2、R3-8b で 3、R3-10 で 4）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
+- 起動: 定数 `CBJP_EXTENSION_API_VERSION`（整数。R3-6c1 で 1、R3-6c2 で 2、R3-8b で 3、R3-10 で 4、R3-11 で 5）。Pro は `CBJP_PRO_REQUIRED_EXTENSION_API` 未満なら起動せず、無料版の更新を促す。
   無料版が読み込まれているかは `Core\Plugin` の有無で見る（`cbjp_pro_bootstrap()`）
 - 型・契約: `Canonical\CanonicalModel`・`Concerns\{ChecksumTrait, RemoteIdFromExtrasTrait}`、`Adapters\{PlatformAdapter（読取）, Capabilities（読取）, Cursor, Page, PushResult, PartialPushException,
-  UnsupportedOperationException}`、`Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
+  UnsupportedOperationException, RemoteEntityUnreadableException（R3-11。ID 指定取得で接続先が返した項目を読めない。null は 404 だけ）}`、`Sync\WriteResult`、`Woo\Writer\{EntityWriter, ValidationResult}`、`Woo\Reader\{EntityReader, ReadItem, ReadPage}`
 - 補助: `Sync\MappingRepository`、`Sync\JobHistory`（R3-10。`jobs()` でジョブの行の値をそのまま読む。判定はしない。§10.5「R3-10 の実装」）、`Woo\WarningCode`（無料版の定数・`split()`・`with_detail()`・`indicates_*()`。R3-6c1 で `indicates_order_reference_unresolved()` を
   `indicates_reference_not_found()` に改名）・`Woo\WarningCatalog`（`SEVERITY_*`）、`Support\{Money, Logger, ApiException, RateLimitExhaustedException}`、
   `Woo\Support\{Value, MethodMap（R3-6c1 で汎用の読取り `lookup()`・`reverse_lookup()` を public にした）, ExtrasMeta, EntityOrigin（`post_linked_by_import()`・`blocks_import()`・`is_linked_by_export()` 等の汎用の判定）,
@@ -2070,7 +2074,8 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     - `link` ＋ `remote_id`: ColorMe に作成済みだった → `fetch_{entity}_by_remote_id()` で実在と種別を確認し、その remote_id が
       別の実体の mapping に使われていないこと（`upsert()` の `ON DUPLICATE KEY UPDATE` が他の `local_id` を黙って
       付け替えるため）を確認してから、checksum=null で upsert して intent を削除する。
-      `PlatformAdapter` に ID 指定取得が無いエンティティ（クーポン）とアダプタが `UnsupportedOperationException` を投げる場合は、実在を確認できないため `link` を 422 で拒否し `not_created` だけを許す
+      `PlatformAdapter` に ID 指定取得が無いエンティティ（クーポン）とアダプタが `UnsupportedOperationException` を投げる場合は、実在を確認できないため `link` を 422 で拒否し `not_created` だけを許す。
+      「接続先に無い」（404）と答えるのは ID 指定取得が null のときだけで、接続先が返した項目を読めないときは 422、登録の無い種類は `link`・`not_created` とも 409（R3-11。下の「R3-11 の実装」）
   - Export タブ: 未解決の intent があれば Notice と一覧（解除ボタン、ColorMe ID の入力欄）を表示する。
     `window.confirm()` は使わない（`.claude/rules/frontend.md`）
 - **周辺への影響**: `SampleCleanup` は対応するローカル実体を削除・unlink する際に、その実体の intent も消す
@@ -2120,6 +2125,36 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     `link` の 404（remote 側に存在しない）応答が正しく届くことのみ確認した（mock アダプタに商品を事前登録して
     いないため、実機での link 成功系統は未確認のまま）。検証に使った一時スクリプトはコミットしていない
     （撤去済み。手順は `.claude/skills/verify-with-mock-adapter/SKILL.md`）
+- **R3-11 の実装（2026-10-14。ブランチ `fix/r3-11-push-intent-link-unreadable`。backlog `r3-0b-push-intent-backend/R1-X1`）**:
+  `link` が「接続先に無い」と答えるのは、ID 指定取得が null を返したとき（404）だけにした。以前はアダプタが 404 と「実在するが変換できない」の両方で null を
+  返し（Pro の顧客は非会員・メールの無い行も null）、`resolve_link()` がどれも REMOTE_NOT_FOUND（404）にしていた。それを信じた「未作成として解除」の次の
+  エクスポートが、実在する実体をもう一度作る（この節が防ぐ重複）。
+  - **契約**（D20 規則 7 の決着。シグネチャは変えない）: `fetch_*_by_remote_id()` は、接続先が返した項目を Canonical にできないとき
+    `Adapters\RemoteEntityUnreadableException`（`Exception` 派生。`RuntimeException` は応答の形の崩れで、解除では 502 になる）を投げる。
+    ColorMe の商品（無料版）と顧客・受注（Pro）は、変換の例外をログに残してから投げる（`product_transformer()`・`order_transformer()` の解決は try の外のまま）。
+    顧客の変換が null を返す行（非会員・メールの無い会員）も、例外にする（try の外で投げる）。
+  - **解除の理由**（`PushIntentResolutionException`・`RestController::push_intent_resolution_error()`）:
+
+    | 場合 | 理由 | REST |
+    |---|---|---|
+    | ID 指定取得が null（404） | REMOTE_NOT_FOUND | 404 `cbjp_remote_entity_not_found`（今のまま） |
+    | 読めない（上の例外）・返った実体の remote_id が要求と違う（契約違反。`0123` を要求して `123` が返る等） | REMOTE_UNREADABLE | 422 `cbjp_remote_entity_unreadable`（再試行では直らないので 502 にしない） |
+    | 登録の無い種類（拡張を停止した後に残った intent） | TYPE_UNAVAILABLE | 409 `cbjp_entity_type_unavailable`（拡張を有効にすれば解除できる） |
+
+    REMOTE_UNREADABLE の文は、ID と Logs タブを確かめること、エクスポートが作った項目なら「Mark as not created」でもう一度作られることを書く。
+    非会員の顧客・ID の不一致ではアダプタのログが残らないので、REST が warning を 1 行残す（platform・entity_type・local_id。remote_id は書かない）。
+  - **登録の無い種類**（2026-10-14 ユーザー決定〔案 C〕）: `link` は ASP に問い合わせずに、`not_created` も断る（消すと、拡張を戻した後のエクスポートが
+    作成済みだった実体をもう一度作りうる）。`GET /push-intents` はその行を出さない（解除できず、その種類はエクスポートもされないので店舗にできることが無い。行は DB に残り、
+    拡張を戻せば出る）。以前は一覧に「(deleted from WooCommerce…)」と出て、`link` は REMOTE_NOT_FOUND だった（§10.0「実体の種類の拡張点」の既定の説明）。
+  - **非会員の顧客への紐づけは断る**: エクスポートは `add_member: true` で作るので、非会員なら ID の打ち間違いの可能性が高い。会員機能を無効にしたショップで
+    ColorMe がこの指定を無視するかは未確認（§9 要検証 #24）。無視するなら、エクスポートで作った顧客を紐づけられず、店舗の手段は ColorMe 側で直すことだけになる。
+  - **拡張点の版 5**（Pro が無料版の新しい例外を使う。`CBJP_PRO_REQUIRED_EXTENSION_API` も 5）。新しい無料版と古い Pro の組合せでは、Pro の顧客・受注は今日と同じく
+    読めない項目を 404 と答える（Pro は未公開なので許容）。
+  - **確認**: 無料版（`ColorMeAdapterTest`・`PushIntentResolverTest`・`RestControllerTest`〔mock と、同梱の `ColorMeAdapter` を `pre_http_request` で通す 422〕・
+    `DispatchCharacterizationTest`）と Pro（`ColorMeCommerceAdapterTest`・`CommercePushIntentResolverTest`・`CommerceRestControllerTest`〔同梱の ColorMe の非会員の顧客・
+    変換できない受注が 422〕・`CommerceDispatchCharacterizationTest`）。dev サイトで `/verify-with-mock-adapter` の `push-intent-resolution`（4b: seed の
+    `fetch_by_id_failure: 'unreadable'` で 422・印と mapping が変わらない・ログが 1 行、7: 登録の無い種類の印が一覧に出ず link・not_created とも 409）と、Export タブの行に断りの文が出て行が残ることを確かめた。
+    顧客の変換が例外を投げる枝は、`Cast` が値をすべて吸収するので到達させる入力が無い（テストできない防御として残す）
 - **テスト方針**: `Exporter` は結果表の全行（特に「残す」行）を、分岐を一時的に壊して落ちることまで確認する（CLAUDE.md
   「テスト方針」のミューテーション）。ColorMe は HTTP モックで「POST 成功→追いPUT で `RateLimitExhaustedException`」と
   「POST が 5xx／タイムアウト」を再現する。実機（wp-env）では `/verify-with-mock-adapter` のモックアダプタに
