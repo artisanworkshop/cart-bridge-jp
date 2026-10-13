@@ -131,6 +131,25 @@ final class ReadmeTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 版を上げたら、その版の changelog（GitHub Release の本文。`release.yml`）と Stable tag をそろえる。タグのリリースは CI のテストを
+	 * 通らないので `bin/readme-release.php` もリリースを止めるが、版を上げる PR のうちに気付けるようにする（同じ関数で読む）。
+	 * 1.0.0 より前（0.1.0 は GitHub だけで配り、readme は R3-3 から）は、用意した 1.0.0 の節があり、残るのは Stable tag だけであること。
+	 */
+	public function test_the_release_version_has_a_changelog_entry(): void {
+		require_once WP_CONTENT_DIR . '/cbjp-dev/bin/readme-release.php';
+
+		if ( version_compare( CBJP_VERSION, '1.0.0', '<' ) ) {
+			$this->assertSame(
+				[ "the readme's Stable tag is " . CBJP_VERSION . ', not 1.0.0' ],
+				cbjp_readme_release_problems( self::readme(), '1.0.0' )
+			);
+			return;
+		}
+
+		$this->assertSame( [], cbjp_readme_release_problems( self::readme(), CBJP_VERSION ) );
+	}
+
+	/**
 	 * wordpress.org は 5 個を超えるタグを使わない。
 	 */
 	public function test_readme_has_at_most_five_tags(): void {

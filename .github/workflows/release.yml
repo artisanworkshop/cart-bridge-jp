@@ -36,6 +36,14 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # リリースの本文は readme.txt の Changelog の `= <版> =` の節（wordpress.org の changelog と同じ文。R3-4a）。readme の Stable tag が版と違う・
+      # 節が無いならここで止める（タグのリリースは CI のテストを通らない）。自動生成のリリースノートは直前のリリース〔Pro の pro-v* のタグかもしれない〕
+      # からの差分になりうるので使わない（backlog r3-8c-pro-updates-and-release/R1-X1）。
+      - name: Release notes from the readme changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: php bin/readme-release.php plugins/cart-bridge-jp/readme.txt "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+
       # 無料版（plugins/cart-bridge-jp）の zip。ビルド・composer install --no-dev・.distignore・中身の検査は CI の Distribution ジョブと同じスクリプト（D29・R3-7）。
       # タグ由来の値は `${{ }}` で run に埋め込まず、環境変数で渡す（ref 名に `$(...)` を含むタグでシェルにコマンドが入らないように。R3-8c の review-loop R1-7）。
       - name: Build and check the plugin zip
@@ -48,5 +56,5 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           files: cart-bridge-jp-${{ steps.version.outputs.VERSION }}.zip
