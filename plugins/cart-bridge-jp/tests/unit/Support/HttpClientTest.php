@@ -305,4 +305,76 @@ final class HttpClientTest extends WP_UnitTestCase {
 		$this->assertLessThan( 2.0, microtime( true ) - $started );
 		$this->assertSame( 1, $call_count );
 	}
+
+	/**
+	 * R3-5b: リダイレクトには追従しない（WP の HTTP API は転送先へ Bearer トークン・本文を送り直す）。呼び出し元の引数でも変えられない。
+	 */
+	public function test_never_follows_redirects_even_if_the_caller_asks(): void {
+		$seen = [];
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $parsed_args ) use ( &$seen ) {
+				$seen[] = $parsed_args['redirection'] ?? null;
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => '{}',
+				];
+			},
+			10,
+			2
+		);
+
+		$this->make_client()->request( 'GET', 'https://example.test/api' );
+		$this->make_client()->request( 'POST', 'https://example.test/api', [ 'redirection' => 5 ] );
+
+		$this->assertSame( [ 0, 0 ], $seen );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:int}>
+	 */
+	public static function redirect_cases(): array {
+		return [
+			'GET 302'  => [ 'GET', 302 ],
+			'POST 303' => [ 'POST', 303 ],
+			'PUT 307'  => [ 'PUT', 307 ],
+			'GET 301'  => [ 'GET', 301 ],
+		];
+	}
+
+	/**
+	 * 3xx は失敗にする。status は実際の 3xx のまま（0 にすると通信断と区別できない）で、転送先と本文は context に入れない。再試行もしない。
+	 *
+	 * @dataProvider redirect_cases
+	 */
+	public function test_a_redirect_is_an_error_with_its_status( string $method, int $status ): void {
+		$call_count = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$call_count, $status ) {
+				++$call_count;
+
+				return [
+					'response' => [ 'code' => $status ],
+					'headers'  => [ 'location' => 'https://elsewhere.example/steal' ],
+					'body'     => 'moved',
+				];
+			}
+		);
+
+		try {
+			$this->make_client()->request( $method, 'https://example.test/api' );
+			$this->fail( 'A redirect should throw.' );
+		} catch ( ApiException $exception ) {
+			$this->assertSame( $status, $exception->status_code() );
+			$this->assertSame( [ 'redirect' => true ], $exception->context() );
+			$this->assertStringNotContainsString( 'elsewhere', $exception->getMessage() );
+		}
+
+		$this->assertSame( 1, $call_count );
+	}
 }

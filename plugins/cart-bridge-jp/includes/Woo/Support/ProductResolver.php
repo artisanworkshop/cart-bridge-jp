@@ -43,6 +43,9 @@ final class ProductResolver {
 	 * 軸の数や値が合わなければ未解決になる（`OrderItemBuilder`は`ORDER_LINE_VARIATION_UNMATCHED`を付ける）。
 	 */
 	public function resolve_by_sku_or_remote_id( ?string $sku, ?string $remote_id, ?string $option1_value = null, ?string $option2_value = null ): ?WC_Product {
+		// 保存した SKU と同じ形で引く（`SkuGuard::normalize()`。R3-5b）。
+		$sku = SkuGuard::normalize( $sku );
+
 		if ( null !== $sku ) {
 			$product_id = wc_get_product_id_by_sku( $sku );
 
@@ -210,6 +213,8 @@ final class ProductResolver {
 	 * 同じガードをここにも掛け、自プラットフォームが作成したレコード以外には書き込まない）。
 	 */
 	public function resolve_stock_target( ?string $variant_ref, string $product_ref, ?string $sku ): ?WC_Product {
+		$sku = SkuGuard::normalize( $sku );
+
 		if ( null !== $variant_ref ) {
 			$local_id = $this->mappings->find_local_id( $this->platform, 'variant', $variant_ref );
 

@@ -52,8 +52,12 @@ final class VariationAxisResolver {
 		return $axis;
 	}
 
+	/**
+	 * 属性の名前を平文で返す（ASP へ送る・ASP の名前と比べる）。Woo は属性の名前を HTML として保存する: 取込みは
+	 * `HtmlText::from_plain()` で（R3-5b）、WooCommerce の管理画面は `wc_clean( esc_html() )` で保存するので、`&amp;` などを戻す。
+	 */
 	public static function attribute_label( WC_Product_Attribute $attribute ): string {
-		return $attribute->is_taxonomy() ? wc_attribute_label( $attribute->get_name() ) : $attribute->get_name();
+		return HtmlText::to_plain( $attribute->is_taxonomy() ? wc_attribute_label( $attribute->get_name() ) : $attribute->get_name() );
 	}
 
 	/**

@@ -142,6 +142,64 @@ final class ColorMeOAuthTest extends WP_UnitTestCase {
 		[ $oauth ] = $this->make_oauth();
 
 		$this->assertFalse( $oauth->verify_state( 'never-issued' ) );
+		$this->assertFalse( $oauth->verify_state( str_repeat( 'a', 32 ) ) );
+	}
+
+	/**
+	 * R3-5b: state は `random_bytes()` の 16 進数（`random_password` フィルターで記号の足された値・別の値に変わらない）。
+	 */
+	public function test_state_is_random_hex_that_password_filters_cannot_change(): void {
+		add_filter( 'random_password', static fn (): string => 'not-random!' );
+
+		[ $oauth ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$first  = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
+		$second = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
+
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{32}$/', $first );
+		$this->assertNotSame( $first, $second );
+		$this->assertTrue( $oauth->verify_state( $first ) );
+	}
+
+	/**
+	 * 形の違う state は transient を引かない（認証の要らないコールバックの 1 回ごとに DB を引かせない）。
+	 */
+	public function test_verify_state_does_not_look_up_a_malformed_state(): void {
+		[ $oauth ] = $this->make_oauth();
+		$looked_up = [];
+
+		foreach ( [ 'ABCDEF', str_repeat( 'A', 32 ), str_repeat( 'a', 31 ), str_repeat( 'a', 32 ) . "\n", '../x' ] as $state ) {
+			add_filter(
+				'pre_transient_cbjp_colorme_oauth_state_' . $state,
+				static function () use ( &$looked_up, $state ) {
+					$looked_up[] = $state;
+
+					return 7;
+				}
+			);
+
+			$this->assertFalse( $oauth->verify_state( $state ), $state );
+		}
+
+		$this->assertSame( [], $looked_up );
+	}
+
+	/**
+	 * 一度きりは「消せた要求だけが通る」で守る（R3-5b）。読んでから消すまでの間に、同じ state の別の要求が先に消した状態を作る:
+	 * 読みは成功する（`pre_transient_*`）が、行はもう無い。
+	 */
+	public function test_verify_state_fails_when_another_request_consumed_it_first(): void {
+		[ $oauth ] = $this->make_oauth();
+		$oauth->save_credentials( 'my-client-id', 'my-client-secret' );
+
+		$state = $this->query_of( $oauth->authorize_url( 'https://example.test/callback', 7 ) )['state'];
+		$key   = 'cbjp_colorme_oauth_state_' . $state;
+
+		$this->assertTrue( delete_transient( $key ), '先に別の要求が消した' );
+		add_filter( 'pre_transient_' . $key, static fn () => 7 );
+
+		$this->assertFalse( $oauth->verify_state( $state ) );
 	}
 
 	public function test_extract_code_from_input_accepts_a_raw_code(): void {

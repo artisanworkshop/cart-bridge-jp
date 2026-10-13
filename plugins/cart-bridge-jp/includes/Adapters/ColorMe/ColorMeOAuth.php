@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Adapters\ColorMe;
 
+use CartBridgeJP\Adapters\OAuthCredentialsException;
 use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\HttpClient;
@@ -60,6 +61,11 @@ final class ColorMeOAuth {
 	private const RATE_LIMIT_PER_MINUTE = 100;
 
 	private const STATE_TTL_SECONDS = 600;
+
+	/**
+	 * `state` の形（{@see self::issue_state()} の 16 バイトの 16 進数）。
+	 */
+	private const STATE_PATTERN = '/^[a-f0-9]{32}\z/';
 
 	public const OOB_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
 
@@ -164,7 +170,7 @@ final class ColorMeOAuth {
 	}
 
 	/**
-	 * @throws \RuntimeException client_id/client_secret が未設定の場合。
+	 * @throws OAuthCredentialsException client_id/client_secret が未設定の場合。
 	 */
 	public function authorize_url( string $redirect_uri, ?int $state_user_id = null ): string {
 		$settings      = $this->token_store->settings();
@@ -172,7 +178,7 @@ final class ColorMeOAuth {
 		$client_secret = (string) ( $settings['client_secret'] ?? '' );
 
 		if ( '' === $client_id || '' === $client_secret ) {
-			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
+			throw new OAuthCredentialsException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
 		$scopes = self::scopes();
@@ -202,9 +208,12 @@ final class ColorMeOAuth {
 
 	/**
 	 * `state` を一度きりの transient として発行する（管理ユーザーIDに紐付け、10分）。
+	 *
+	 * `wp_generate_password()` は `random_password` フィルターで記号の足された値・別の値に変わりうるので使わない
+	 * （コールバックは形〔{@see self::STATE_PATTERN}〕を確かめてから引く。R3-5b）。
 	 */
 	private function issue_state( int $user_id ): string {
-		$state = wp_generate_password( 32, false );
+		$state = bin2hex( random_bytes( 16 ) );
 
 		set_transient( $this->state_transient_key( $state ), $user_id, self::STATE_TTL_SECONDS );
 
@@ -220,14 +229,24 @@ final class ColorMeOAuth {
 	 * 本番のコールバックで必ず失敗する。stateトークン自体が`get_authorize_url()`
 	 * （nonce+capability保護下）でのみ発行される一度きりの乱数のため、存在確認のみで
 	 * CSRF対策として十分である。
+	 *
+	 * 一度きりは「消せた要求だけが通る」で守る（R3-5b）: 読んでから消すまでの間に同じ state の要求が重なると、どちらも
+	 * 読めてしまう。`delete_transient()` は行（永続キャッシュではキー）を実際に消したときだけ true を返すので、重なった要求の
+	 * 片方だけが通る。形の違う state は transient を引かない（認証の要らないコールバックの 1 回ごとに DB を引かせない）。
 	 */
 	public function verify_state( string $state ): bool {
-		$key         = $this->state_transient_key( $state );
-		$stored_user = get_transient( $key );
+		if ( 1 !== preg_match( self::STATE_PATTERN, $state ) ) {
+			return false;
+		}
 
-		delete_transient( $key );
+		$key = $this->state_transient_key( $state );
 
-		return false !== $stored_user;
+		if ( false === get_transient( $key ) ) {
+			// 期限切れ・使用済み。期限切れの行が残っていても `get_transient()` が消している。
+			return false;
+		}
+
+		return delete_transient( $key );
 	}
 
 	private function state_transient_key( string $state ): string {
@@ -318,6 +337,7 @@ final class ColorMeOAuth {
 	 * @param string      $redirect_uri 認可で使ったリダイレクト URI。
 	 * @param string|null $state        リダイレクトの認可の state（{@see self::verify_state()} で確かめた後）。OOB は null（今のユーザーの控えを使う）。
 	 * @throws ApiException トークン交換に失敗した場合。
+	 * @throws OAuthCredentialsException 資格情報が未設定の場合、または交換の途中で資格情報が変わった・消された場合。
 	 */
 	public function exchange_code( string $code, string $redirect_uri, ?string $state = null ): void {
 		$settings      = $this->token_store->settings();
@@ -325,7 +345,7 @@ final class ColorMeOAuth {
 		$client_secret = (string) ( $settings['client_secret'] ?? '' );
 
 		if ( '' === $client_id || '' === $client_secret ) {
-			throw new \RuntimeException( 'ColorMe client_id/client_secret are not configured yet.' );
+			throw new OAuthCredentialsException( 'ColorMe client_id/client_secret are not configured yet.' );
 		}
 
 		// 応答に `scope` が無いときに記録する値（要求したとおりに付与された。RFC 6749 §5.1）。認可を始めたときに控えたもの（R3-6c2 G1-1。
@@ -350,13 +370,14 @@ final class ColorMeOAuth {
 				]
 			);
 		} catch ( ApiException $exception ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は捕まえた例外（ColorMe のエラーの文に読み替える）。ColorMe の文は esc_html() すると画面に実体参照の文字のまま出る（例外の文は HTML に出さず、REST の JSON を画面がテキストとして表示する）。
 			throw $this->translate_exception( $exception );
 		}
 
 		$decoded = json_decode( $response['body'], true );
 
 		if ( ! is_array( $decoded ) || ! isset( $decoded['access_token'] ) || ! is_string( $decoded['access_token'] ) || '' === $decoded['access_token'] ) {
-			throw new ApiException( 'ColorMe token exchange returned an unexpected response.', $response['status'] );
+			throw new ApiException( 'ColorMe token exchange returned an unexpected response.', (int) $response['status'] );
 		}
 
 		// トークンPOSTの往復中に管理者が資格情報を削除・変更している可能性がある。
@@ -372,7 +393,7 @@ final class ColorMeOAuth {
 		);
 
 		if ( ! $saved ) {
-			throw new \RuntimeException(
+			throw new OAuthCredentialsException(
 				'The stored credentials were changed or removed while the token exchange was in flight. Please try connecting again.'
 			);
 		}
