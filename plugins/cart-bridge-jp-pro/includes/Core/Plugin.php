@@ -12,13 +12,17 @@ namespace CartBridgeJP\Pro\Core;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Pro\Adapters\CommerceAdapters;
 use CartBridgeJP\Pro\Admin\LicensePage;
+use CartBridgeJP\Pro\Admin\PasswordEmailPage;
 use CartBridgeJP\Pro\Entities\CommerceEntityTypes;
 use CartBridgeJP\Pro\License\UpdateChecker;
+use CartBridgeJP\Pro\PasswordEmail\EmailRegistry;
+use CartBridgeJP\Pro\PasswordEmail\Sender;
 
 /**
  * Pro アドオンのフックを配線して起動する。顧客・受注・クーポンの実体の種類を無料版の拡張点（`cbjp/entity_types/register`）に
  * 登録し（R3-6c1 で無料版から移した。D27）、それらに要る OAuth のスコープを無料版の認可の要求に足す（R3-6c2）。
- * ライセンスキーの設定画面を WooCommerce メニューの下に置き（R3-8a）、更新を販売サイトから配る（R3-8c）。
+ * ライセンスキーの設定画面を WooCommerce メニューの下に置き（R3-8a）、更新を販売サイトから配る（R3-8c）。取込みで作った顧客へのパスワード設定メールを
+ * 同じ画面のタブから送る（R3-10）。
  */
 final class Plugin {
 
@@ -54,8 +58,14 @@ final class Plugin {
 		// フィルターでなく宣言にするのは、別の拡張の例外・置き換えで失われず、認可の要求と Pro の判定がずれないため。PR #118 G1-3・G3-B1）。
 		CommerceAdapters::declare_oauth_scopes();
 
-		// ライセンスキーの設定画面（R3-8a）。
-		LicensePage::create()->register();
+		// パスワード設定メール（R3-10）: WooCommerce のメールへの登録・Action Scheduler の送信・設定画面のタブ。
+		EmailRegistry::register();
+		Sender::register();
+		$password_emails = PasswordEmailPage::create();
+		$password_emails->register();
+
+		// ライセンスキーの設定画面（R3-8a）。パスワード設定メールはそのタブ。
+		LicensePage::create( $password_emails )->register();
 
 		// 更新の配信（R3-8c）。キーを有効化しているサイトだけが販売サイトに問い合わせる。
 		UpdateChecker::create()->register();

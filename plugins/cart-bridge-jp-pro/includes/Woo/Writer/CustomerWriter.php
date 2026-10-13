@@ -69,6 +69,28 @@ final class CustomerWriter implements EntityWriter {
 	 */
 	public const CREATED_REMOTE_ID_META = '_cbjp_created_remote_id';
 
+	/**
+	 * 取込みがこのアカウントを作ったときのパスワードのハッシュの控え（`hash( 'sha256', user_pass )`。R3-10）。作成時にだけ書く。
+	 * 今の値と違えば、顧客（または管理者）がパスワードを設定し直した（パスワード設定メールの対象から外す。`PasswordEmail\RecipientPolicy`）。
+	 * ハッシュそのものは複製しない。乱数のパスワードのハッシュの sha256 なので、漏れても元のパスワードの手掛かりにならない。salt に依存させない
+	 * （鍵を替えたサイトで全員が「設定し直した」に化けない。bcrypt の前処理の鍵も固定）。
+	 */
+	public const CREATED_PASSWORD_META = '_cbjp_created_password_fingerprint';
+
+	/**
+	 * extras（`_cbjp_{key}` のメタになる）に書かせない鍵: 紐づけ・作成の印と、Pro 自身の記録の名前空間（`_cbjp_pro_*`。鍵が `pro_` で始まるもの）。
+	 * アダプタは信頼境界（原則 8）。所有の判定・送信の記録を書き換えさせない（R3-5b review-loop R2・R3-10）。
+	 *
+	 * @var array<int,string>
+	 */
+	private const RESERVED_EXTRAS_KEYS = [ 'remote_id', 'platform', 'created_by_import', 'created_remote_id', 'created_password_fingerprint' ];
+
+	/**
+	 * extras の鍵として書いてよい形。meta_key の照合は大文字小文字を区別しない（`utf8mb4_unicode_ci`）ので、`Created_By_Import` のような鍵が
+	 * 予約した鍵の行を書き換えないよう、小文字・数字・下線だけを書く（R3-10）。
+	 */
+	private const EXTRAS_KEY_PATTERN = '/^[a-z0-9_]+\z/';
+
 	public function __construct( private readonly string $platform ) {}
 
 	public function write( CanonicalModel $item, ?int $existing_local_id ): WriteResult {
@@ -106,6 +128,7 @@ final class CustomerWriter implements EntityWriter {
 			// 作成の印は最初に書く（この後の書込みが失敗しても、次の取込みがこのアカウントを「この顧客のために作った」と判定できる）。
 			update_user_meta( $user_id, self::CREATED_BY_IMPORT_META, $this->platform );
 			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, $item->remote_id() ?? '' );
+			self::record_created_password( $user_id );
 		}
 
 		if ( null === $user_id ) {
@@ -286,19 +309,51 @@ final class CustomerWriter implements EntityWriter {
 	 * （紐づけだけの経路は書き換える前に作成時の顧客 ID を控える。{@see self::link_only()}）。
 	 */
 	private function owns_profile( int $user_id, CanonicalCustomer $item ): bool {
-		if ( get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) !== $this->platform ) {
+		return self::is_created_for( $user_id, $this->platform, $item->remote_id() );
+	}
+
+	/**
+	 * 取込みがこのプラットフォームのこの顧客のために作ったアカウントか（{@see self::owns_profile()} の判定。パスワード設定メールの送る相手
+	 * 〔`PasswordEmail\RecipientPolicy`〕も、アカウントの今の紐づけの印を渡して使う。R3-10）。
+	 */
+	public static function is_created_for( int $user_id, string $platform, ?string $remote_id ): bool {
+		if ( '' === $platform || get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) !== $platform ) {
 			return false;
 		}
 
 		// 厳密に比べる（ASP の顧客 ID が無い〔null〕ときに、空の作成時の顧客 ID と一致と読まない）。
-		return $this->created_remote_id( $user_id ) === $item->remote_id();
+		return self::created_remote_id( $user_id ) === $remote_id;
+	}
+
+	/**
+	 * 作成したときのパスワードのハッシュの控えを書く（{@see self::CREATED_PASSWORD_META}）。読めなければ書かない（控えが無いアカウントは「判定できない」）。
+	 */
+	private static function record_created_password( int $user_id ): void {
+		$fingerprint = self::password_fingerprint( $user_id );
+
+		if ( null !== $fingerprint ) {
+			update_user_meta( $user_id, self::CREATED_PASSWORD_META, $fingerprint );
+		}
+	}
+
+	/**
+	 * 今のパスワードのハッシュの控え（`hash( 'sha256', user_pass )`）。ユーザーが無い・ハッシュが空なら null。
+	 */
+	public static function password_fingerprint( int $user_id ): ?string {
+		$user = get_userdata( $user_id );
+
+		if ( ! $user instanceof WP_User || ! is_string( $user->user_pass ) || '' === $user->user_pass ) {
+			return null;
+		}
+
+		return hash( 'sha256', $user->user_pass );
 	}
 
 	/**
 	 * 作成時の顧客 ID。印が有れば空でもそれを使う（控えた値が空なら、どの顧客のものでもない）。R3-5b より前に作ったアカウント
 	 * （印が無い）だけ `_cbjp_remote_id` を作成時の値とみなす。
 	 */
-	private function created_remote_id( int $user_id ): string {
+	private static function created_remote_id( int $user_id ): string {
 		if ( metadata_exists( 'user', $user_id, self::CREATED_REMOTE_ID_META ) ) {
 			$created = get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true );
 
@@ -321,7 +376,7 @@ final class CustomerWriter implements EntityWriter {
 		// （控えないと、ここで書く別の顧客の ID を次の取込みが作成時の値と読み、プロフィールを書いてしまう）。`_cbjp_remote_id` が
 		// 空でも空のまま控える（印が有れば空でも使う。{@see self::created_remote_id()}。review-loop R1-L2）。
 		if ( '' !== get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) && ! metadata_exists( 'user', $user_id, self::CREATED_REMOTE_ID_META ) ) {
-			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, $this->created_remote_id( $user_id ) );
+			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, self::created_remote_id( $user_id ) );
 		}
 
 		$this->write_link_markers( $user_id, $item );
@@ -407,12 +462,8 @@ final class CustomerWriter implements EntityWriter {
 	private function apply_extras_meta( int $user_id, CanonicalCustomer $item ): void {
 		$extras = $item->extras;
 
-		// extras は `_cbjp_{key}` のメタになるので、紐づけと作成の印（`_cbjp_remote_id`・`_cbjp_platform`・作成の印 2 つ）と同じ名前のキーは
-		// 書かない（アダプタは信頼境界。原則 8。所有の判定〔`owns_profile()`〕に使う印を書き換えさせない。R3-5b review-loop R2）。
-		unset( $extras['remote_id'], $extras['platform'], $extras['created_by_import'], $extras['created_remote_id'] );
-
 		$extras = array_merge(
-			$extras,
+			self::writable_extras( $extras ),
 			[
 				'kana'           => $item->kana,
 				'department'     => $item->department,
@@ -430,5 +481,31 @@ final class CustomerWriter implements EntityWriter {
 			static fn ( string $meta_key ) => delete_user_meta( $user_id, $meta_key ),
 			$extras
 		);
+	}
+
+	/**
+	 * extras のうち書いてよいもの。extras は `_cbjp_{key}` のメタになるので、紐づけ・作成の印と Pro 自身の記録（{@see self::RESERVED_EXTRAS_KEYS}・`pro_` で始まる鍵）と
+	 * 同じ名前の鍵、形の違う鍵（{@see self::EXTRAS_KEY_PATTERN}）は書かない（アダプタは信頼境界。原則 8。所有の判定〔`owns_profile()`〕・パスワード設定メールの
+	 * 送信の記録と控えを書き換えさせない。R3-5b review-loop R2・R3-10）。
+	 *
+	 * @param array<int|string,mixed> $extras
+	 * @return array<string,mixed>
+	 */
+	private static function writable_extras( array $extras ): array {
+		$writable = [];
+
+		foreach ( $extras as $key => $value ) {
+			if ( ! is_string( $key ) || 1 !== preg_match( self::EXTRAS_KEY_PATTERN, $key ) ) {
+				continue;
+			}
+
+			if ( in_array( $key, self::RESERVED_EXTRAS_KEYS, true ) || str_starts_with( $key, 'pro_' ) ) {
+				continue;
+			}
+
+			$writable[ $key ] = $value;
+		}
+
+		return $writable;
 	}
 }

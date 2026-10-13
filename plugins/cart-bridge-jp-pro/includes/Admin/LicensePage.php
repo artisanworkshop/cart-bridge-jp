@@ -12,10 +12,11 @@ use CartBridgeJP\Pro\License\LicenseResult;
 use Closure;
 
 /**
- * Pro の設定画面（ライセンスキーの有効化・無効化・状態確認。R3-8a）。WooCommerce メニューの下に置く。
+ * Pro の設定画面（ライセンスキーの有効化・無効化・状態確認。R3-8a）。WooCommerce メニューの下に置く。パスワード設定メール（R3-10）は同じ画面のタブで、
+ * 中身は `PasswordEmailPage` が描く。
  *
  * Pro は JS を持たないので PHP で描く（`docs/03` §10.0「決め残し」2・§10.7「守ること」5）。操作は `admin-post.php` へのフォームで、
- * 権限（`manage_woocommerce`）と nonce を確かめてから行い、結果の文はユーザーごとの短い transient で画面へ渡す（サーバーの文を URL に載せない）。
+ * 権限（`manage_woocommerce`）と nonce を確かめてから行い、結果の文はユーザーごとの短い transient で画面へ渡す（サーバーの文を URL に載せない。`AdminNotice`）。
  */
 final class LicensePage {
 
@@ -30,23 +31,29 @@ final class LicensePage {
 	public const KEY_FIELD = 'cbjp_pro_license_key';
 
 	private const NOTICE_TRANSIENT_PREFIX = 'cbjp_pro_license_notice_';
-	private const NOTICE_TTL              = 300;
+
+	/** パスワード設定メールのタブ（`&tab=…`）。 */
+	public const TAB_PASSWORD_EMAILS = 'password-emails';
 
 	/** 転送の後にリクエストを終える処理（既定は `exit`）。 */
 	private readonly Closure $terminate;
 
+	private readonly AdminNotice $notice;
+
 	/**
-	 * @param Closure|null $terminate 転送の後にリクエストを終える処理。テストは `exit` の代わりを渡す（`exit` に届くと PHPUnit が
-	 *                                終了コード 0 のまま止まり、残りのテストが黙って走らなくなる。review-loop R2-1）。
+	 * @param Closure|null           $terminate 転送の後にリクエストを終える処理。テストは `exit` の代わりを渡す（`exit` に届くと PHPUnit が
+	 *                                          終了コード 0 のまま止まり、残りのテストが黙って走らなくなる。review-loop R2-1）。
+	 * @param PasswordEmailPage|null $emails    パスワード設定メールのタブ（R3-10）。無ければタブを出さない。
 	 */
-	public function __construct( private readonly LicenseManager $manager, ?Closure $terminate = null ) {
+	public function __construct( private readonly LicenseManager $manager, ?Closure $terminate = null, private readonly ?PasswordEmailPage $emails = null ) {
 		$this->terminate = $terminate ?? static function (): never {
 			exit;
 		};
+		$this->notice    = new AdminNotice( self::NOTICE_TRANSIENT_PREFIX );
 	}
 
-	public static function create(): self {
-		return new self( LicenseManager::create() );
+	public static function create( ?PasswordEmailPage $emails = null ): self {
+		return new self( LicenseManager::create(), null, $emails );
 	}
 
 	/**
@@ -58,6 +65,10 @@ final class LicensePage {
 
 	public static function page_url(): string {
 		return admin_url( 'admin.php?page=' . self::PAGE_SLUG );
+	}
+
+	public static function tab_url( string $tab ): string {
+		return add_query_arg( 'tab', $tab, self::page_url() );
 	}
 
 	public function register(): void {
@@ -130,7 +141,7 @@ final class LicensePage {
 			default                 => $this->manager->replace_unreadable_key( $this->posted_key() ),
 		};
 
-		$this->set_notice(
+		$this->notice->set(
 			$result->is_success() ? 'success' : 'error',
 			$result->is_success() ? self::success_message( $action ) : self::failure_message( $action, $result, $was_activated )
 		);
@@ -151,7 +162,18 @@ final class LicensePage {
 		echo '<div class="wrap">';
 		printf( '<h1>%s</h1>', esc_html__( 'Cart Bridge JP Pro', 'cart-bridge-jp-pro' ) );
 
-		$this->render_notice();
+		if ( null !== $this->emails ) {
+			$tab = self::current_tab();
+			$this->render_tabs( $tab );
+
+			if ( self::TAB_PASSWORD_EMAILS === $tab ) {
+				$this->emails->render();
+				echo '</div>';
+				return;
+			}
+		}
+
+		$this->notice->render();
 
 		printf( '<p>%s</p>', esc_html__( 'Enter the license key you received with your purchase to activate Cart Bridge JP Pro on this site.', 'cart-bridge-jp-pro' ) );
 
@@ -328,36 +350,35 @@ final class LicensePage {
 		echo '</form>';
 	}
 
-	private function render_notice(): void {
-		$key    = self::NOTICE_TRANSIENT_PREFIX . get_current_user_id();
-		$notice = get_transient( $key );
+	/**
+	 * 表示するタブ（読むだけの画面の切替なので nonce は要らない。知らない値はライセンスのタブ）。
+	 */
+	private static function current_tab(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- 表示するタブを選ぶだけ（状態を変えない）。
+		$tab = isset( $_GET['tab'] ) && is_string( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 
-		if ( false === $notice ) {
-			return;
-		}
-
-		delete_transient( $key );
-
-		if ( ! is_array( $notice ) || ! in_array( $notice['type'] ?? null, [ 'success', 'error' ], true ) || ! is_string( $notice['message'] ?? null ) ) {
-			return;
-		}
-
-		printf(
-			'<div class="notice notice-%1$s"><p>%2$s</p></div>',
-			esc_attr( $notice['type'] ),
-			esc_html( $notice['message'] )
-		);
+		return self::TAB_PASSWORD_EMAILS === $tab ? self::TAB_PASSWORD_EMAILS : 'license';
 	}
 
-	private function set_notice( string $type, string $message ): void {
-		set_transient(
-			self::NOTICE_TRANSIENT_PREFIX . get_current_user_id(),
-			[
-				'type'    => $type,
-				'message' => $message,
-			],
-			self::NOTICE_TTL
-		);
+	private function render_tabs( string $current ): void {
+		$tabs = [
+			'license'                 => [ self::page_url(), __( 'License', 'cart-bridge-jp-pro' ) ],
+			self::TAB_PASSWORD_EMAILS => [ self::tab_url( self::TAB_PASSWORD_EMAILS ), __( 'Password setup emails', 'cart-bridge-jp-pro' ) ],
+		];
+
+		echo '<nav class="nav-tab-wrapper">';
+
+		foreach ( $tabs as $tab => [ $url, $label ] ) {
+			printf(
+				'<a href="%1$s" class="nav-tab%2$s"%3$s>%4$s</a>',
+				esc_url( $url ),
+				$tab === $current ? ' nav-tab-active' : '',
+				$tab === $current ? ' aria-current="page"' : '',
+				esc_html( $label )
+			);
+		}
+
+		echo '</nav>';
 	}
 
 	/**

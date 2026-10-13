@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Pro\Tests\Woo\Writer;
 
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
+use CartBridgeJP\Pro\Tests\Fixtures\CommerceFactory;
 use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Sync\WriteResult;
@@ -285,6 +286,64 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( WriteResult::OPERATION_UPDATED, $again->operation );
 		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
 		$this->assertSame( '7', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+	}
+
+	/**
+	 * パスワード設定メール（R3-10）の記録・控えの名前（`_cbjp_pro_*`・`_cbjp_created_password_fingerprint`）と、大文字を含む鍵
+	 * （meta_key の照合は大文字小文字を区別しないので、予約した鍵の行を書き換えうる）は extras から書かない。
+	 */
+	public function test_extras_cannot_write_the_password_email_records_or_case_variants(): void {
+		$customer = new CanonicalCustomer(
+			'records@example.com',
+			'Taro Yamada',
+			null,
+			null,
+			null,
+			[],
+			null,
+			null,
+			null,
+			null,
+			[
+				'remote_id'                    => '7',
+				'created_password_fingerprint' => 'forged',
+				'pro_password_email'           => 'sent:0123456789abcdef0123456789abcdef:1',
+				'pro_anything'                 => 'x',
+				'Created_By_Import'            => 'other',
+				' fax'                         => 'spaced',
+				'fax'                          => '03-0000-0000',
+			]
+		);
+
+		$user_id = $this->make_writer()->write( $customer, null )->local_id;
+
+		$this->assertSame( CustomerWriter::password_fingerprint( $user_id ), get_user_meta( $user_id, CustomerWriter::CREATED_PASSWORD_META, true ) );
+		$this->assertFalse( metadata_exists( 'user', $user_id, '_cbjp_pro_password_email' ) );
+		$this->assertFalse( metadata_exists( 'user', $user_id, '_cbjp_pro_anything' ) );
+		$this->assertSame( 'colorme', get_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertFalse( metadata_exists( 'user', $user_id, '_cbjp_ fax' ) );
+		$this->assertSame( '03-0000-0000', get_user_meta( $user_id, '_cbjp_fax', true ) );
+	}
+
+	/**
+	 * 作成したときのパスワードのハッシュの控え（R3-10）。作ったときだけ書き、ハッシュそのものは複製しない。採用した既存のアカウントには書かない。
+	 */
+	public function test_records_the_created_password_only_when_creating(): void {
+		$created = $this->make_writer()->write( CommerceFactory::customer( '1', 'new@example.com' ), null )->local_id;
+		$hash    = get_userdata( $created )->user_pass;
+
+		$this->assertSame( hash( 'sha256', $hash ), get_user_meta( $created, CustomerWriter::CREATED_PASSWORD_META, true ) );
+		$this->assertNotSame( $hash, get_user_meta( $created, CustomerWriter::CREATED_PASSWORD_META, true ) );
+
+		$existing = self::factory()->user->create(
+			[
+				'role'       => 'customer',
+				'user_email' => 'own@example.com',
+			]
+		);
+		$this->make_writer()->write( CommerceFactory::customer( '2', 'own@example.com' ), null );
+
+		$this->assertFalse( metadata_exists( 'user', $existing, CustomerWriter::CREATED_PASSWORD_META ) );
 	}
 
 	public function test_account_created_before_r3_5b_without_a_remote_id_is_never_owned_after_relinking(): void {
