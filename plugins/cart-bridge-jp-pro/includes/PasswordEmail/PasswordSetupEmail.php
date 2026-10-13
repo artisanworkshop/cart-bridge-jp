@@ -47,22 +47,21 @@ final class PasswordSetupEmail extends WC_Email {
 
 	/**
 	 * CC・BCC を扱わない（WooCommerce 11.2 から。設定の読込みと欄の表示がこれを見る）。親のプロパティ `$supports_cc_bcc` は宣言し直さない
-	 * （WooCommerce が型を付けると、宣言し直したクラスの読込みで全メールが止まる。R1-L4）。
-	 *
-	 * @return bool
+	 * （WooCommerce が型を付けると、宣言し直したクラスの読込みで全メールが止まる。R1-L4）。戻り値の型も付ける（型の無い親は型つきの子を許すが、
+	 * WooCommerce が親に `: bool` を付けたとき型の無い子は fatal になる。R2-3）。
 	 */
-	public function supports_cc_bcc() {
+	public function supports_cc_bcc(): bool {
 		return false;
 	}
 
 	/**
 	 * 見出しから CC・BCC の行を除く（`woocommerce_email_headers` で全メールに BCC を足す汎用のスニペットにも、全員のリンクを渡さない。R1-L5）。
-	 *
-	 * @return string
+	 * フィルターが配列を返しても、要素の途中の改行で分けてから判定し、1 つの文字列で返す（`wp_mail()` は文字列を行に分けて読む。R2-2）。
 	 */
-	public function get_headers() {
+	public function get_headers(): string {
 		$headers = parent::get_headers();
-		$lines   = is_array( $headers ) ? $headers : preg_split( '/\r\n|\n|\r/', is_string( $headers ) ? $headers : '' );
+		$text    = is_array( $headers ) ? implode( "\n", array_filter( $headers, 'is_string' ) ) : ( is_string( $headers ) ? $headers : '' );
+		$lines   = preg_split( '/\r\n|\n|\r/', $text );
 		$kept    = [];
 
 		foreach ( is_array( $lines ) ? $lines : [] as $line ) {

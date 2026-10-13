@@ -82,7 +82,7 @@ final class PasswordSetupEmailTest extends WooTestCase {
 		$this->assertStringNotContainsString( 'cc@example.com', $mail['header'] );
 		$this->assertStringNotContainsString( 'bcc@example.com', $mail['header'] );
 		$this->assertStringNotContainsString( 'spy', $mail['header'] );
-		$this->assertStringContainsString( 'Content-Type:', $mail['header'], 'ほかの見出しは残す' );
+		$this->assertStringContainsString( 'Reply-To:', $mail['header'], 'ほかの見出し（WooCommerce の `get_headers()` が付ける返信先）は残す' );
 
 		$this->assertSame( '', $this->email->get_cc_recipient() );
 		$this->assertSame( '', $this->email->get_bcc_recipient() );
@@ -92,6 +92,23 @@ final class PasswordSetupEmailTest extends WooTestCase {
 		$this->email->init_form_fields();
 		$this->assertArrayNotHasKey( 'cc', $this->email->form_fields );
 		$this->assertArrayNotHasKey( 'bcc', $this->email->form_fields );
+	}
+
+	/**
+	 * 見出しのフィルターが配列を返し、要素の途中に BCC の行があっても除き、ほかの見出しは残す（R2-2）。
+	 */
+	public function test_strips_cc_and_bcc_from_header_arrays(): void {
+		add_filter( 'woocommerce_email_headers', static fn ( $headers ) => [ $headers . "Bcc: spy@example.com\r\n", 'Cc: spy-cc@example.com' ] );
+		$user = get_userdata( $this->imported_customer( '1' ) );
+		$this->forget_sent_mails();
+
+		$this->assertTrue( $this->email->send_to( $user, AccountLinks::set_password_url( $user, 'abc123' ) ) );
+
+		$mail = $this->sent_mails()[0];
+		$this->assertSame( [], $mail['cc'] );
+		$this->assertSame( [], $mail['bcc'] );
+		$this->assertStringNotContainsString( 'spy', $mail['header'] );
+		$this->assertStringContainsString( 'Reply-To:', $mail['header'] );
 	}
 
 	/**

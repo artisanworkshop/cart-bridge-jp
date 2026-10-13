@@ -253,12 +253,10 @@ final class PasswordEmailPage {
 
 		$cleared = 0;
 
-		foreach ( array_chunk( SendRecord::user_ids(), 500 ) as $ids ) {
-			foreach ( $ids as $user_id ) {
-				$cleared += SendRecord::clear_sending( $user_id ) ? 1 : 0;
-			}
-
-			RecipientScan::forget_users( $ids );
+		foreach ( SendRecord::unsent_user_ids() as $user_id ) {
+			$cleared += SendRecord::clear_sending( $user_id ) ? 1 : 0;
+			// 読んだメタだけを捨てる（ユーザーは読んでいない。R2-4）。
+			wp_cache_delete( $user_id, 'user_meta' );
 		}
 
 		/* translators: %d: the number of customers. */

@@ -2791,7 +2791,7 @@ Pro アドオンに、取込みで作った顧客へパスワード設定の案�
 - **CC・BCC を付けない**: 付けると全員の有効なリンクが他の宛先に届く。WooCommerce 9.8〜11.1 はすべてのメールに CC・BCC の設定があり、11.2 の `supports_cc_bcc()` の後もフィルター
   （`woocommerce_email_cc_recipient_{id}`）は効くので、`supports_cc_bcc()` を false にし、`get_cc_recipient()`・`get_bcc_recipient()` を空にし、設定の欄も外し、
   `get_headers()` の結果からも `Cc:`・`Bcc:` の行を除く（`woocommerce_email_headers` で全メールに BCC を足す汎用のスニペット。review-loop R1-L5）。
-  親のプロパティ `$supports_cc_bcc` は宣言し直さない（WooCommerce が型を付けると全メールのクラスの読込みが止まる。R1-L4）。WooCommerce の新規アカウント・再設定のメールも CC・BCC を付けない。
+  親のプロパティ `$supports_cc_bcc` は宣言し直さず、メソッドは戻り値の型を付けて上書きする（WooCommerce が型を付けると全メールのクラスの読込みが止まる。R1-L4・R2-3）。WooCommerce の新規アカウント・再設定のメールも CC・BCC を付けない。
 - mailer のインスタンスは 1 つなので、宛先ごとの値（ユーザー・宛先・宛名・リンク）は送るたびに設定し直し、送り終えたら消す。送れたかは自前の `send_to()` が `send()` の結果で返す（`Throwable` も失敗）。
 - `WC_Email` は autoload できず `WC()->mailer()` の初期化で読まれるので、インスタンスは登録のコールバックの中でだけ作り、使う側は mailer から引く。
 - 設定のリンクは WooCommerce の新規アカウントのメールと同じ形（パスワード忘れのエンドポイントを `action=newaccount&key=…&login=…` で開く）を `add_query_arg()` で組み立てる
@@ -2822,7 +2822,7 @@ Pro アドオンに、取込みで作った顧客へパスワード設定の案�
 `^[a-z0-9_]+\z` に合わない鍵を書かない（原則 8。R3-5b review-loop R2 の除外を一覧にした）。
 
 **確認**: 品質チェック一式（無料版 1391 件・Pro 973 件・Jest 111 件）、ガード 50 か所余りのミューテーション（検出されなかった 3 件はテストを足した。等価なものは推定を含めない run の推定の省略〔`Campaign::start()` も空にする〕・
-`supports_cc_bcc` の既定値〔コンストラクタでも書く〕）。dev サイトで、一時の mu-plugin で `pre_wp_mail` を記録し、取込みで作った顧客 2 人・設定し直した顧客・メールの一致で採用した既存のアカウント・
+`init_form_fields()` の CC・BCC の欄の除外〔WooCommerce 11.2 は `supports_cc_bcc()` が false なので欄が元から足されない。11.1 まで向け〕）。dev サイトで、一時の mu-plugin で `pre_wp_mail` を記録し、取込みで作った顧客 2 人・設定し直した顧客・メールの一致で採用した既存のアカウント・
 0.1.0 相当（窓の内と外）を用意して、キーなしの開始の拒否・テスト送信・推定を含めた開始 → Action Scheduler で 3 通送信 → 完了・CC/BCC の無い見出し・名前のエスケープ・取消（予約も消える）を確かめ、
 送ったリンクを curl で開いて WooCommerce の「Set password」の画面からパスワードを設定でき、控えとの比較で「設定し直した」と判定されることを確かめた。
 管理画面のタブと WooCommerce のメールの設定（CC/BCC の欄が無い・プレビューが見本の名前）を目視し、「1 customers」の複数形を直した。取込みで作った顧客 3,000 人で、画面の件数の集計は 0.3 秒・推定は 0.08 秒だったので、件数は transient に入れず毎回数える。ただし読んだユーザーのキャッシュを 500 件ごとに捨てる
