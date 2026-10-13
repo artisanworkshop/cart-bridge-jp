@@ -4,7 +4,8 @@ name: Deploy to WordPress.org
 # 人が Actions のタブから版を入力して実行する。使えるのは次の後だけ:
 #   1. https://wordpress.org/plugins/developers/add/ に申請して承認された（承認の前は SVN のリポジトリが無い）
 #   2. GitHub の Environment「wordpress-org」（無ければ初回の実行で作られる）の secrets に SVN_USERNAME・SVN_PASSWORD（wordpress.org のユーザー名と
-#      SVN のパスワード）を登録した。Environment の保護（承認者・デプロイできるタグ）を設定しておくとよい
+#      SVN のパスワード）を登録した。Environment の保護は、承認者と「デプロイできるブランチ = main」を設定しておくとよい（ブランチ・タグの制限は
+#      実行した ref〔Actions のタブで選んだブランチ〕に掛かり、入力した版のタグには掛からない。承認は artifact の保存期間〔7 日〕のうちに）
 #   3. 送る版の v<版> のタグがある（release.yml が GitHub Release を作ったもの）
 # 送るものは、そのタグで release.yml と同じ bin/build-zip.sh が作る zip の中身（trunk と tags/<版>）と、plugins/cart-bridge-jp/.wordpress-org
 # （SVN の assets/。スクリーンショット・バナー・アイコン）。dry_run は SVN の作業コピーを用意して変更の一覧（svn status）を出すだけで、commit しない
@@ -95,7 +96,8 @@ jobs:
           if-no-files-found: error
           # zip の中身をそのまま trunk に写す（v4 の既定はドットで始まるファイルを落とす。今の zip には無い）。
           include-hidden-files: true
-          retention-days: 1
+          # deploy ジョブが Environment の承認を待つ間も残す（過ぎると download が失敗し、全ジョブを実行し直す）。
+          retention-days: 7
 
   deploy:
     name: SVN deploy
