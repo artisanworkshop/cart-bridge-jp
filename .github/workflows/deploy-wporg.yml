@@ -3,10 +3,15 @@ name: Deploy to WordPress.org
 # 無料版（plugins/cart-bridge-jp）を wordpress.org の SVN（公開されるディレクトリ）へ送る。手動実行だけ（R3-4a）: タグの push（release.yml）とは別に、
 # 人が Actions のタブから版を入力して実行する。使えるのは次の後だけ:
 #   1. https://wordpress.org/plugins/developers/add/ に申請して承認された（承認の前は SVN のリポジトリが無い）
-#   2. このリポジトリの secrets に SVN_USERNAME・SVN_PASSWORD（wordpress.org のユーザー名と SVN のパスワード）を登録した
+#   2. GitHub の Environment「wordpress-org」（無ければ初回の実行で作られる）の secrets に SVN_USERNAME・SVN_PASSWORD（wordpress.org のユーザー名と
+#      SVN のパスワード）を登録した。Environment の保護（承認者・デプロイできるタグ）を設定しておくとよい
 #   3. 送る版の v<版> のタグがある（release.yml が GitHub Release を作ったもの）
 # 送るものは、そのタグで release.yml と同じ bin/build-zip.sh が作る zip の中身（trunk と tags/<版>）と、plugins/cart-bridge-jp/.wordpress-org
-# （SVN の assets/。スクリーンショット・バナー・アイコン）。dry_run は SVN の作業コピーを用意して差分を出すだけで、commit しない（secrets は要る）。
+# （SVN の assets/。スクリーンショット・バナー・アイコン）。dry_run は SVN の作業コピーを用意して変更の一覧（svn status）を出すだけで、commit しない
+# （secrets と承認済みのリポジトリは要る）。今の版より低い版を入力すると trunk と Stable tag を戻せてしまうので、版は確かめてから実行する。
+#
+# ジョブを 2 つに分ける（R3-4a の review-loop R1-L2）: build は npm ci（依存のスクリプトが動く）と zip の作成を secrets なしで行い、deploy は
+# その zip の中身と assets だけを受け取って secrets を使う。同じジョブにすると、前の step のコードが取得済みの action のスクリプトを書き換えて資格情報を読める。
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +20,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: 'Prepare the SVN working copy and show the changes without committing'
+        description: 'Prepare the SVN working copy and list the changes without committing'
         required: false
         type: boolean
         default: false
@@ -28,10 +33,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: SVN deploy
+  build:
+    name: Build the plugin zip
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       # 入力の値は `${{ }}` で run に埋め込まず、環境変数で渡す（release.yml と同じ。R3-8c の review-loop R1-7）。
@@ -49,6 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: refs/tags/v${{ inputs.version }}
+          persist-credentials: false
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -80,6 +86,38 @@ jobs:
         run: |
           bin/build-zip.sh --version "$VERSION" --out "$RUNNER_TEMP"
           unzip -q "$RUNNER_TEMP/cart-bridge-jp-${VERSION}.zip" -d "$RUNNER_TEMP/wporg-deploy"
+
+      - name: Upload the plugin files
+        uses: actions/upload-artifact@v4
+        with:
+          name: cart-bridge-jp-plugin
+          path: ${{ runner.temp }}/wporg-deploy/cart-bridge-jp
+          if-no-files-found: error
+          # zip の中身をそのまま trunk に写す（v4 の既定はドットで始まるファイルを落とす。今の zip には無い）。
+          include-hidden-files: true
+          retention-days: 1
+
+  deploy:
+    name: SVN deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: wordpress-org
+
+    steps:
+      # assets（plugins/cart-bridge-jp/.wordpress-org）だけを使う。このジョブではリポジトリのコードを実行しない。
+      - name: Checkout the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          persist-credentials: false
+          sparse-checkout: plugins/cart-bridge-jp/.wordpress-org
+
+      - name: Download the plugin files
+        uses: actions/download-artifact@v4
+        with:
+          name: cart-bridge-jp-plugin
+          path: ${{ runner.temp }}/wporg-deploy/cart-bridge-jp
 
       # 2.3.0。secrets を渡すサードパーティの action は commit で固定する。
       - name: Deploy to the WordPress.org SVN
