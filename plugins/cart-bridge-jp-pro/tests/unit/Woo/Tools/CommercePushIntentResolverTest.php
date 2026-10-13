@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Pro\Tests\Woo\Tools;
 
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Pro\Tests\Fixtures\CommerceFactory;
@@ -247,5 +248,37 @@ final class CommercePushIntentResolverTest extends WP_UnitTestCase {
 
 			throw $exception;
 		}
+	}
+
+	/**
+	 * R3-11（backlog `r3-0b-push-intent-backend/R1-X1`）: 顧客・受注でも、接続先が返した項目を読めないときは「存在しない」と答えず
+	 * REMOTE_UNREADABLE で断り、印を残し、mapping を書かない。
+	 *
+	 * @dataProvider commerce_entities
+	 */
+	public function test_resolve_link_reports_an_unreadable_commerce_entity_instead_of_not_found( string $entity ): void {
+		$this->intents->begin( 'mock', $entity, 101, null, null );
+		$id      = $this->intents->find_unresolved( 'mock' )[0]['id'];
+		$adapter = $this->adapter_with( new MockCommerceAdapter( fetch_by_id_failure: new RemoteEntityUnreadableException( 'mock', $entity ) ) );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'remote-c1' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+		}
+
+		$this->assertNull( $this->mappings->find_local_id( 'mock', $entity, 'remote-c1' ) );
+		$this->assertTrue( $this->intents->has_unresolved( 'mock', $entity, 101 ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function commerce_entities(): array {
+		return [
+			'customer' => [ 'customer' ],
+			'order'    => [ 'order' ],
+		];
 	}
 }

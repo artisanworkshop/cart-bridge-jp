@@ -24,5 +24,9 @@ namespace CartBridgeJP\Adapters;
  * {@see PartialPushException}（remote_id付き）に包んで投げる。`Sync\Exporter` がそのremote_idを
  * 書き留め、次回のexportを作成ではなく更新にするため、重複作成を防げる。これは例外クラスと
  * 挙動の契約の追加であり、`PlatformAdapter` のシグネチャは変えない（D20 の BASELINE は不変）。
+ *
+ * ID 指定取得（`fetch_product_by_remote_id()`）の契約（R3-11。`docs/03-design-decisions.md` §2 D20 規則 7 の決着）:
+ * null を返すのは接続先が「無い」と答えたとき（404）だけで、接続先が返した項目を Canonical にできないときは
+ * {@see RemoteEntityUnreadableException} を投げる。これも例外クラスと挙動の契約の追加で、シグネチャは変えない。
  */
 abstract class AbstractPlatformAdapter implements PlatformAdapter {}

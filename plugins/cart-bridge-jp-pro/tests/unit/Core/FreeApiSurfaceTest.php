@@ -48,6 +48,8 @@ final class FreeApiSurfaceTest extends WP_UnitTestCase {
 		'CartBridgeJP\Adapters\PartialPushException',
 		'CartBridgeJP\Adapters\PlatformAdapter',
 		'CartBridgeJP\Adapters\PushResult',
+		// R3-11（拡張点の版 5）: ID 指定取得で接続先が返した項目を読めないとき（null は 404 だけ）。
+		'CartBridgeJP\Adapters\RemoteEntityUnreadableException',
 		'CartBridgeJP\Adapters\UnsupportedOperationException',
 		'CartBridgeJP\Canonical\CanonicalModel',
 		'CartBridgeJP\Canonical\Concerns\ChecksumTrait',

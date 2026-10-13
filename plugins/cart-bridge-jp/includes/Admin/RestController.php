@@ -1743,10 +1743,16 @@ final class RestController {
 		}
 
 		$presenter = new PushIntentPresenter();
+		// 登録の無い種類（拡張を停止した後に残った intent）の行は出さない。解除は link・not_created とも断り（TYPE_UNAVAILABLE）、
+		// その種類はエクスポートもされないので、店舗にできることが無い。種類が戻ればまた出る（R3-11）。
+		$intents = array_filter(
+			( new PushIntentRepository() )->find_unresolved( $platform ),
+			static fn ( array $intent ): bool => null !== EntityTypeRegistry::get( $intent['entity_type'] )
+		);
 
 		$items = array_map(
 			static fn ( array $intent ): array => array_merge( $intent, $presenter->describe( $intent['entity_type'], $intent['local_id'] ) ),
-			( new PushIntentRepository() )->find_unresolved( $platform )
+			array_values( $intents )
 		);
 
 		return rest_ensure_response(
@@ -1808,6 +1814,19 @@ final class RestController {
 				( new PushIntentResolver( $intents, new MappingRepository() ) )->resolve_not_created( $platform, $id );
 			}
 		} catch ( PushIntentResolutionException $exception ) {
+			if ( PushIntentResolutionException::REMOTE_UNREADABLE === $exception->reason() && null !== $intent_for_log ) {
+				// 断りの文は Logs タブを案内する。変換の例外はアダプタが記録するが、取り込まない種類の行・ID の不一致は何も残らないので、
+				// ここで 1 行残す（R3-11）。remote_id・PII は記録しない（下の解除のログと同じ）。
+				( new Logger() )->warning(
+					'A push intent could not be linked because the platform returned an item that could not be read.',
+					[
+						'platform'    => $platform,
+						'entity_type' => $intent_for_log['entity_type'],
+						'local_id'    => $intent_for_log['local_id'],
+					]
+				);
+			}
+
 			return $this->push_intent_resolution_error( $exception );
 		}
 
@@ -1844,6 +1863,18 @@ final class RestController {
 				'cbjp_remote_entity_not_found',
 				__( 'The given remote_id does not exist on the connected platform.', 'cart-bridge-jp' ),
 				[ 'status' => 404 ]
+			),
+			PushIntentResolutionException::REMOTE_UNREADABLE => new WP_Error(
+				'cbjp_remote_entity_unreadable',
+				// 再試行では直らないので 502（接続先のエラー）にしない。実在しないとも言えないので 404 にしない（R3-11）。
+				__( 'The connected platform returned an item for this ID, but it could not be read or confirmed, so it was not linked. Check that the ID is correct, and see the Logs tab for details. If the export did create this item, “Mark as not created” would create it again.', 'cart-bridge-jp' ),
+				[ 'status' => 422 ]
+			),
+			PushIntentResolutionException::TYPE_UNAVAILABLE  => new WP_Error(
+				'cbjp_entity_type_unavailable',
+				// 状態を直せば（拡張を有効にすれば）解除できるので、接続切れと同じ 409（R3-11）。
+				__( 'The add-on that handles this item type is not active on this site. Activate it, then resolve this item.', 'cart-bridge-jp' ),
+				[ 'status' => 409 ]
 			),
 			PushIntentResolutionException::REMOTE_ID_IN_USE  => new WP_Error(
 				'cbjp_remote_id_in_use',

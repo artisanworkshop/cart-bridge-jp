@@ -10,9 +10,11 @@ namespace CartBridgeJP\Pro\Tests\Admin;
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Core\Activator;
+use CartBridgeJP\Pro\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Pro\Tests\Fixtures\MockCommerceAdapter;
 use CartBridgeJP\Pro\Tests\Fixtures\RegistersCommerceAdapters;
 use CartBridgeJP\Support\TokenStore;
+use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use WC_Coupon;
@@ -417,6 +419,92 @@ final class CommerceRestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 'cbjp_not_connected', $response->as_error()->get_error_code() );
 		$this->assertTrue( $intents->has_unresolved( ColorMeAdapter::ID, 'customer', $user_id ) );
 		$this->assertSame( 0, $requests );
+	}
+
+	/**
+	 * R3-11（backlog `r3-0b-push-intent-backend/R1-X1`）: 同梱の ColorMe の顧客・受注でも、接続先が返した項目を読めないとき
+	 * （非会員の顧客・`make_date` の欠けた受注）は 404（「存在しない」）ではなく 422 で断り、印を残し、mapping を書かない。
+	 *
+	 * @dataProvider unreadable_colorme_rows
+	 *
+	 * @param array<string,array<string,mixed>> $responses URL に含まれる文字列 => 応答の本文。
+	 */
+	public function test_resolve_push_intent_link_returns_422_for_an_unreadable_colorme_item( string $entity, string $remote_id, array $responses ): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters[ ColorMeAdapter::ID ] = new ColorMeAdapter();
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+		( new TokenStore( ColorMeAdapter::ID ) )->save(
+			[
+				'access_token' => 'token',
+				'scopes'       => [ 'read_products', 'write_products', 'read_sales', 'write_sales', 'read_shop_coupons' ],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $responses ) {
+				foreach ( $responses as $needle => $body ) {
+					if ( str_contains( $url, $needle ) ) {
+						return [
+							'response' => [ 'code' => 200 ],
+							'headers'  => [],
+							'body'     => (string) wp_json_encode( $body ),
+						];
+					}
+				}
+
+				return new \WP_Error( 'unexpected_request', "Unhandled ColorMe API request: {$url}" );
+			},
+			10,
+			3
+		);
+
+		$intents = new PushIntentRepository();
+		$intents->begin( ColorMeAdapter::ID, $entity, 101, null, null );
+		$id = $intents->find_unresolved( ColorMeAdapter::ID )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/colorme/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => $remote_id,
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 422, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_entity_unreadable', $response->as_error()->get_error_code() );
+		$this->assertTrue( $intents->has_unresolved( ColorMeAdapter::ID, $entity, 101 ) );
+		$this->assertNull( ( new MappingRepository() )->find_local_id( ColorMeAdapter::ID, $entity, $remote_id ) );
+	}
+
+	/**
+	 * @return array<string,array{0:string,1:string,2:array<string,array<string,mixed>>}>
+	 */
+	public static function unreadable_colorme_rows(): array {
+		$customer                       = FixtureLoader::load( 'colorme', 'customer_corporate_detail' );
+		$customer['customer']['member'] = false;
+		$sale                           = FixtureLoader::load( 'colorme', 'sale_bank_detail' );
+		unset( $sale['sale']['make_date'] );
+
+		return [
+			'non-member customer'              => [ 'customer', '174712086', [ 'customers/174712086.json' => $customer ] ],
+			'order that cannot be transformed' => [
+				'order',
+				'219293424',
+				[
+					'sales/219293424.json' => $sale,
+					'payments.json'        => FixtureLoader::load( 'colorme', 'payments' ),
+					'deliveries.json'      => FixtureLoader::load( 'colorme', 'deliveries' ),
+				],
+			],
+		];
 	}
 
 	/**

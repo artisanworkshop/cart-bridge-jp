@@ -78,6 +78,10 @@ interface PlatformAdapter {
 	/**
 	 * 商品をID指定で1件取得する。404はnullを返す（例外にしない）。送信の結果が不明な実体の確定
 	 * （`Woo\Tools\PushIntentResolver`。D21-B）が、リモートに実体があるかを確かめるために使う。
+	 * null は「無い」の意味だけに使い、接続先が返した商品を変換できないときは null にせず
+	 * `RemoteEntityUnreadableException` を投げる（null にすると、実在する商品を「無い」と案内して重複作成を招く。R3-11）。
+	 *
+	 * @throws RemoteEntityUnreadableException 接続先が返した商品を Canonical にできない。
 	 */
 	public function fetch_product_by_remote_id( string $remote_id ): ?CanonicalProduct;
 

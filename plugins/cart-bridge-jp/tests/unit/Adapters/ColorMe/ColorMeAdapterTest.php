@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Canonical\CanonicalStock;
@@ -22,6 +23,7 @@ use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\Exporter;
+use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
 use CartBridgeJP\Tests\Fixtures\FixedWooReader;
@@ -2760,6 +2762,43 @@ final class ColorMeAdapterTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $result );
 		$this->assertSame( '192616831', $result->extras['remote_id'] );
+	}
+
+	/**
+	 * R3-11: 接続先が返した商品を変換できないときは null（＝404）にせず例外にする。null にすると push intent の解除が「接続先に存在しない」と
+	 * 答え、それを信じた「未作成として解除」の次のエクスポートが実在する商品をもう一度作る。変換の失敗は今までどおりログに残す。
+	 */
+	public function test_fetch_product_by_remote_id_throws_when_the_returned_product_cannot_be_transformed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$product = $this->product_fixture( 192616831 );
+		unset( $product['variants'] ); // `ProductTransformer::variants()` は欠けた `variants` で RuntimeException を投げる。
+
+		$this->respond_from_map(
+			[
+				'products/192616831.json' => [
+					'status' => 200,
+					'body'   => [ 'product' => $product ],
+				],
+			]
+		);
+
+		try {
+			$adapter->fetch_product_by_remote_id( '192616831' );
+			$this->fail( 'RemoteEntityUnreadableException was not thrown' );
+		} catch ( RemoteEntityUnreadableException $exception ) {
+			$previous = $exception->getPrevious();
+			$this->assertNotNull( $previous );
+			$this->assertSame( RuntimeException::class, $previous::class );
+			$this->assertStringNotContainsString( '192616831', $exception->getMessage() );
+		}
+
+		$logs = array_filter(
+			( new LogRepository() )->list( null, 'error' ),
+			static fn ( array $log ): bool => 'Failed to transform a ColorMe "product" row.' === $log['message']
+		);
+		$this->assertCount( 1, $logs );
 	}
 
 	public function test_fetch_product_by_remote_id_propagates_shop_json_failures_instead_of_swallowing_them(): void {
