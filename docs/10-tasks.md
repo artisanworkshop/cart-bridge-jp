@@ -778,7 +778,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     （secrets の無い build と Environment `wordpress-org` の deploy。`persist-credentials: false`）も R1 で直した
   - [ ] **R3-4b: 版上げと申請**（販売サイトの後）: Pro の販売サイトの URL を readme の FAQ「Can it migrate customers, orders, and coupons?」へ（`ReadmeTest`）、1.0.0（プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag`。`ReadmeTest`・`bin/readme-release.php` が changelog の節と照合する）、
     バナーとアイコンを `plugins/cart-bridge-jp/.wordpress-org/` に置く、Plugin Check（ソースと `bin/build-zip.sh` の zip）、申請。承認の後に Environment `wordpress-org` の secrets（`SVN_USERNAME`・`SVN_PASSWORD`）を登録し
-    （承認者・デプロイできるタグの保護も）、`v1.0.0` のタグ（release.yml）→ `deploy-wporg.yml` を手動で実行（初回は `dry_run` で変更の一覧を見る）。版上げの前に、リリースの経路で `CBJP_VERSION` も照合するか判断する（backlog `r3-4a-wporg-submission-prep/R1-X1`）。
+    （保護は承認者と「デプロイできるブランチ = main」）、`v1.0.0` のタグ（release.yml）→ `deploy-wporg.yml` を手動で実行（初回は `dry_run` で変更の一覧を見る）。版上げの前に、リリースの経路で `CBJP_VERSION` も照合するか判断する（backlog `r3-4a-wporg-submission-prep/R1-X1`）。
     translate.wordpress.org へ同梱の日本語訳を取り込む（言語パックができたら `load_plugin_textdomain()` の扱いを見直せる。`docs/03` §6「翻訳（R3-2）」）。版上げに使うグローバルの release-bump スキルを `plugins/cart-bridge-jp/` に対応させる（R3-7 の申し送り）
 - [x] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル。UI を足したら readme の FAQ「What happens to my data when I uninstall the plugin?」も改める）。
   **進め方（2026-10-11）**: アンインストールの UI は無料版だけで閉じ、R3-8 に依存しないので先に進めてよい。セキュリティ監査は R3-8 の後（R3-4 の前）に回し、無料版と Pro をまとめて対象にする（R3-8a・c のライセンスキーの保存・API Manager との通信・更新の配信が新しく攻撃面になるため）。→ R3-5a と R3-5b に分けた

@@ -818,10 +818,12 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   版は `X.Y.Z` だけを受けるので、プレリリースのタグ（`v1.0.0-rc.1`。`v*.*.*` に一致する）は release.yml がここで止める（wordpress.org の版の流れでは使わない。R1-L3。以前は GitHub だけで配るプレリリースを作れた）。
   `release.yml` は本文のファイルが空でないことも確かめる（R1-L1）。
 - **`deploy-wporg.yml` は手動実行だけ**（ユーザー決定。saai-knowledge と同じ形）: タグの push では wordpress.org へ送らない。使えるのは、申請が承認され、Environment `wordpress-org` の secrets に `SVN_USERNAME`・`SVN_PASSWORD` を
-  登録し、送る版の `v<版>` のタグがある後（R3-4b。Environment の承認者・デプロイできるタグの保護も設定するとよい）。ソースのディレクトリ（`src/`・`tests/` がある）ではなく、検査した zip の中身を trunk に写す。`dry_run` は SVN の作業コピーを用意して変更の一覧（`svn status`）を出すだけ
+  登録し、送る版の `v<版>` のタグがある後（R3-4b。Environment の保護は承認者と「デプロイできるブランチ = main」。ブランチ・タグの制限は実行した ref に掛かり、入力した版のタグには掛からない〔review-loop R2-3〕。
+承認は artifact の保存期間〔7 日〕のうちに）。ソースのディレクトリ（`src/`・`tests/` がある）ではなく、検査した zip の中身を trunk に写す。`dry_run` は SVN の作業コピーを用意して変更の一覧（`svn status`）を出すだけ
   （secrets と承認済みのリポジトリは要る）。**ジョブを 2 つに分けた**（review-loop R1-L2）: `npm ci`（依存のスクリプトが動く）と zip の作成は secrets の無い build ジョブで行い、deploy ジョブは artifact（zip の中身）と
   assets だけを受け取ってリポジトリのコードを実行しない。同じジョブだと、前の step のコードが取得済みの action のスクリプトを書き換えて資格情報を読める。checkout は `persist-credentials: false`。
   入力した版が今の版より低いと trunk と Stable tag を戻せてしまう（10up の action が止めるのは `tags/<版>` が既にあるときだけ）ので、実行する人が版を確かめる。
+  review-loop R2 で、行の区切り（UTF-8 なら `\R` を Unicode で。`\f`・U+2028 なども）・ヘッダーの空の行（`empty()`。空白だけの行で終わり、`0` だけの行は空の行）・`##` だけの行（節ではない）も wordpress.org に合わせた。
 - **配布 zip に `composer.json` を入れる**（Plugin Check の `missing_composer_json_file`: `vendor/autoload.php` があって `composer.json` が無いと警告する。`File_Type_Check::look_for_composer_files()`）。
   zip の `vendor/` は実行時の依存の無い PSR-4 の autoloader だけ。`composer.lock` は除いたまま。Pro の zip は wordpress.org で配らないので変えない。
 - **Plugin Check（2.1.0、配布 zip を展開して全チェック）**: R3-5b の残りの警告 2 つ（`missing_composer_json_file`・`load_plugin_textdomainFound`〔§6「翻訳（R3-2）」〕）が消え、
