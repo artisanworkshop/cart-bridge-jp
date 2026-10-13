@@ -43,12 +43,12 @@ $deleted['jobs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix
 $deleted['logs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", $like ) );
 // phpcs:enable
 
-// `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push` キーだけを外す。
-// `cbjp_verify_ids` はこの example が書かない（seed を投入する example が書く）ので触らない。
+// `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push`・`fetch_by_id_failure`（R3-11 の 4b。
+// 途中で止まると残る）キーだけを外す。`cbjp_verify_ids` はこの example が書かない（seed を投入する example が書く）ので触らない。
 $seed = get_option( 'cbjp_verify_seed', null );
 
 if ( is_array( $seed ) ) {
-	unset( $seed['push'] );
+	unset( $seed['push'], $seed['fetch_by_id_failure'] );
 
 	if ( [] === $seed ) {
 		delete_option( 'cbjp_verify_seed' );

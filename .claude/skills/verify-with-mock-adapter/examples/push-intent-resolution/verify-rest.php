@@ -12,6 +12,7 @@
 //
 // 確認しないこと: `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）。mock は商品を保持しないため、実在確認は常に
 // 「見つからない」になる。そちらは PushIntentResolverTest／RestControllerTest（単体）の担当。
+// R3-11 で足した確認: 4b（接続先は返したが読めない → 422。seed の `fetch_by_id_failure`）と 7（登録の無い種類の印は一覧に出ず、link・not_created とも 409）。
 use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
@@ -143,6 +144,25 @@ if ( ! is_array( get_option( 'cbjp_verify_seed', [] ) ) ) {
 	$abort( 'option cbjp_verify_seed is not an array — run cleanup.php first (it removes the broken value), then retry', 2 );
 }
 
+// 4b で一時的に書く seed のキー（R3-11）。前回の中断で残っていると 1〜3 の結果が変わる（ID 指定取得が全部失敗する）ので、先に止める。
+if ( array_key_exists( 'fetch_by_id_failure', get_option( 'cbjp_verify_seed', [] ) ) ) {
+	$abort( "option cbjp_verify_seed still has the 'fetch_by_id_failure' key — run cleanup.php first (it removes the key), then retry", 2 );
+}
+
+// 4b の seed のキーを差し替える（他のキーは残す。`$run_export` の `push` と同じ）。null で外す。
+$set_fetch_by_id_failure = static function ( ?string $value ): void {
+	$current = get_option( 'cbjp_verify_seed', [] );
+	$current = is_array( $current ) ? $current : [];
+	unset( $current['fetch_by_id_failure'] );
+
+	if ( null !== $value ) {
+		$current['fetch_by_id_failure'] = $value;
+	}
+
+	update_option( 'cbjp_verify_seed', $current );
+	AdapterRegistry::reset_cache();
+};
+
 global $wpdb;
 $repo     = new PushIntentRepository();
 // cleanup.php は `$platform` の intent・mapping・job・ログをすべて消すので、始める前にそれらが残っていたら（別の検証の残りを巻き込まないよう）先に止める。
@@ -201,6 +221,18 @@ $res   = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolv
 $check( '4 存在しない remote_id の link は 404 cbjp_remote_entity_not_found', 404 === $res['status'] && 'cbjp_remote_entity_not_found' === ( $res['data']['code'] ?? '' ), wp_json_encode( $res ) );
 $check( '4 失敗した link では印が消えない', count( $intents_now() ) === $initial );
 
+// ---- 4b) link: 接続先は項目を返したが読めない → 422（「存在しない」と答えない。R3-11）。印は残り、mapping も書かない ----
+$mappings_of = static function () use ( $wpdb, $platform ): int {
+	return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s AND remote_id = %s", $platform, 'ZZV-UNREADABLE' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+};
+$set_fetch_by_id_failure( 'unreadable' );
+$res = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolve", [ 'action' => 'link', 'remote_id' => 'ZZV-UNREADABLE' ] );
+$set_fetch_by_id_failure( null );
+$check( '4b 読めない項目の link は 422 cbjp_remote_entity_unreadable', 422 === $res['status'] && 'cbjp_remote_entity_unreadable' === ( $res['data']['code'] ?? '' ), wp_json_encode( $res ) );
+$check( '4b 読めない項目の link では印が消えず、mapping も書かない', count( $intents_now() ) === $initial && 0 === $mappings_of() );
+$unreadable_logs = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_logs WHERE job_id IS NULL AND message = %s AND context_json LIKE %s", 'A push intent could not be linked because the platform returned an item that could not be read.', $log_like ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+$check( '4b Logs タブに 1 行残る（remote_id は書かない）', 1 === $unreadable_logs, 'logs=' . $unreadable_logs );
+
 // ---- 5) not_created で解除 ----
 $res = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$first['id']}/resolve", [ 'action' => 'not_created' ] );
 $check( '5 not_created で解除できる', 200 === $res['status'] && true === ( $res['data']['resolved'] ?? false ), wp_json_encode( $res ) );
@@ -211,6 +243,25 @@ $check( '5 一覧が1件減る', count( $after ) === $initial - 1, 'before=' . $
 $r = $run_export( [ 'push' => [ 'enabled' => true ] ] );
 $check( '6 解除した1件だけが次の export で作成される', 1 === (int) ( $r['created'] ?? 0 ), wp_json_encode( $r ) );
 $check( '6 解除していない実体は引き続きブロックされる（印の数が変わらず、その数以上の警告）', count( $intents_now() ) === $initial - 1 && (int) ( $r['warned'] ?? 0 ) >= $initial - 1, wp_json_encode( $r ) );
+
+// ---- 7) 登録の無い種類の印（拡張を停止した後の残り。R3-11）: 一覧に出ず、link も not_created も 409 で断り、印は消えない ----
+// 既存の印の数のチェックを崩さないよう最後に置く。種類のキー `zzv_gone` はどの拡張も登録しない（cleanup.php が platform 単位で消す）。
+$repo->begin( $platform, 'zzv_gone', 990001, null, null );
+$check( '7 登録の無い種類の印は一覧に出ない', count( $intents_now() ) === $initial - 1 && $repo->has_unresolved( $platform, 'zzv_gone', 990001 ) );
+$gone_id = null;
+
+foreach ( $repo->find_unresolved( $platform ) as $row ) {
+	if ( 'zzv_gone' === $row['entity_type'] ) {
+		$gone_id = (int) $row['id'];
+	}
+}
+
+foreach ( [ 'link', 'not_created' ] as $action ) {
+	$res = $call( 'POST', "/cbjp/v1/push-intents/{$platform}/{$gone_id}/resolve", [ 'action' => $action, 'remote_id' => 'ZZV-GONE' ] );
+	$check( "7 登録の無い種類の {$action} は 409 cbjp_entity_type_unavailable", 409 === $res['status'] && 'cbjp_entity_type_unavailable' === ( $res['data']['code'] ?? '' ), wp_json_encode( $res ) );
+}
+
+$check( '7 断った後も印は残る', $repo->has_unresolved( $platform, 'zzv_gone', 990001 ) );
 
 echo "\n" . ( 0 === $failures ? 'ALL PASS' : "{$failures} FAILED" ) . "\n";
 echo "次: cleanup.php で '{$platform}' の痕跡を撤去し、mock-adapter.sh uninstall → inspect で検証前に戻ったことを確認する\n";
