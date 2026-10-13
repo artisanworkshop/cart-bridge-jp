@@ -84,6 +84,10 @@ final class RecipientPolicyTest extends WooTestCase {
 		$this->assertSame( Verdict::SEND, $verdict->outcome );
 		$this->assertTrue( $verdict->password_unknown );
 
+		// 値が '1' は「生成されたパスワードのまま」の印（`wc_create_new_customer()` がパスワードを生成したとき）なので、設定し直したとは読まない（R1-L7）。
+		update_user_meta( $user_id, 'default_password_nag', true );
+		$this->assertSame( Verdict::SEND, ( new RecipientPolicy() )->evaluate( $user_id )->outcome );
+
 		update_user_meta( $user_id, 'default_password_nag', false );
 
 		$this->assertSame( Verdict::PASSWORD_SET, ( new RecipientPolicy() )->evaluate( $user_id )->outcome );

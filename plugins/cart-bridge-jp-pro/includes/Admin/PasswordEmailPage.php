@@ -252,18 +252,14 @@ final class PasswordEmailPage {
 		}
 
 		$cleared = 0;
-		$after   = 0;
 
-		do {
-			$ids = RecipientScan::ids_after( $after, 500 );
-
+		foreach ( array_chunk( SendRecord::user_ids(), 500 ) as $ids ) {
 			foreach ( $ids as $user_id ) {
 				$cleared += SendRecord::clear_sending( $user_id ) ? 1 : 0;
 			}
 
-			$after = [] === $ids ? $after : (int) end( $ids );
-			$read  = count( $ids );
-		} while ( 500 === $read );
+			RecipientScan::forget_users( $ids );
+		}
 
 		/* translators: %d: the number of customers. */
 		$this->notice->set( 'success', sprintf( _n( '%d customer will receive the email in the next sending.', '%d customers will receive the email in the next sending.', $cleared, 'cart-bridge-jp-pro' ), $cleared ) );

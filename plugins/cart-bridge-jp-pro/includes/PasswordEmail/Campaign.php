@@ -137,7 +137,21 @@ final class Campaign {
 	public static function resume( string $run_id, string $expected_token ): ?string {
 		$token = self::random_id();
 
-		return self::transition( $run_id, $expected_token, [ self::STATUS_RUNNING, self::STATUS_STOPPED ], self::STATUS_RUNNING, '', $token ) ? $token : null;
+		if ( ! self::transition( $run_id, $expected_token, [ self::STATUS_RUNNING, self::STATUS_STOPPED ], self::STATUS_RUNNING, '', $token ) ) {
+			return null;
+		}
+
+		// 連続の失敗の数を戻す（メールを送れずに止まった run を設定を直して再開したとき、最初の 1 通の失敗でまた止めない。R1-L6）。
+		// 止まった・中断した run の進捗を書くバッチは無いので、ここで書いてよい（書けなくても再開は成り立つ）。
+		$state = self::progress_for_update();
+
+		if ( null !== $state && $state['progress']['run_id'] === $run_id && $state['progress']['consecutive_failures'] > 0 ) {
+			$progress                         = $state['progress'];
+			$progress['consecutive_failures'] = 0;
+			self::save_progress( $state['raw'], $progress );
+		}
+
+		return $token;
 	}
 
 	/**
@@ -242,13 +256,22 @@ final class Campaign {
 	 */
 	private static function normalize_control( array $value ): array {
 		$status = $value['status'] ?? null;
+		$run_id = self::id_or_empty( $value['run_id'] ?? null );
+		$token  = self::id_or_empty( $value['token'] ?? null );
+
+		// 知らない状態は取消として読む（壊れた値で送り続けない）。run の ID・トークンの無い進行中・停止中も取消として読む
+		// （どの操作も run を名指しできず、開始もできずに行き詰まる。R1-L3）。
+		if ( ! in_array( $status, [ self::STATUS_RUNNING, self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_STOPPED ], true )
+			|| ( in_array( $status, [ self::STATUS_RUNNING, self::STATUS_STOPPED ], true ) && ( '' === $run_id || '' === $token ) )
+		) {
+			$status = self::STATUS_CANCELLED;
+		}
 
 		return [
-			'run_id'         => self::id_or_empty( $value['run_id'] ?? null ),
-			// 知らない状態は取消として読む（壊れた値で送り続けない）。
-			'status'         => in_array( $status, [ self::STATUS_RUNNING, self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_STOPPED ], true ) ? $status : self::STATUS_CANCELLED,
+			'run_id'         => $run_id,
+			'status'         => $status,
 			'reason'         => is_string( $value['reason'] ?? null ) ? $value['reason'] : '',
-			'token'          => self::id_or_empty( $value['token'] ?? null ),
+			'token'          => $token,
 			// 推定を含めるのは実 bool の true のときだけ（`(bool) 'false'` は true。CLAUDE.md）。
 			'include_legacy' => true === ( $value['include_legacy'] ?? null ),
 			'started_at'     => self::int_or_zero( $value['started_at'] ?? null ),

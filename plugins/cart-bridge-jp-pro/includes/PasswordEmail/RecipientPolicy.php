@@ -105,9 +105,10 @@ final class RecipientPolicy {
 			return 'unchanged';
 		}
 
-		// 控えの無いアカウント（この版より前の取込み・0.1.0）: WP の `reset_password()` と WooCommerce の再設定は `default_password_nag` を書く
-		// （取込みの `wc_create_new_customer()` はパスワードを渡すので書かない）。プロフィールの画面から変えた人は見分けられない。
-		if ( metadata_exists( 'user', $user_id, 'default_password_nag' ) ) {
+		// 控えの無いアカウント（この版より前の取込み・0.1.0）: WP の `reset_password()` と WooCommerce の再設定は `default_password_nag` を false（空）で書く
+		// （取込みの `wc_create_new_customer()` はパスワードを渡すので書かない。渡さないと「生成されたパスワードのまま」の印として '1' を書く。R1-L7）。
+		// プロフィールの画面から変えた人は見分けられない。
+		if ( metadata_exists( 'user', $user_id, 'default_password_nag' ) && '1' !== get_user_meta( $user_id, 'default_password_nag', true ) ) {
 			return 'set';
 		}
 

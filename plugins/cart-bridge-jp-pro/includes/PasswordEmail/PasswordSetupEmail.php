@@ -20,17 +20,10 @@ use WP_User;
  *
  * 宛先ごとの値は送るたびにすべて設定し直し、送り終えたら消す（mailer のインスタンスは 1 つで、前の宛先の値が次のメールに残ると、別の顧客のリンクを送ってしまう）。
  * CC・BCC は付けない（付けると、設定した宛先に全員の有効なリンクが届く。WooCommerce の新規アカウント・再設定のメールも付けない）。WooCommerce 9.8〜11.1 は
- * すべてのメールに CC・BCC の設定があり、11.2 で `supports_cc_bcc` が入ったが、フィルター（`woocommerce_email_cc_recipient_{id}`）は 11.2 でも効くので、
- * 宛先を返す処理（{@see self::get_cc_recipient()}・{@see self::get_bcc_recipient()}）ごと空にし、設定の欄も外す。
+ * すべてのメールに CC・BCC の設定があり、11.2 で `supports_cc_bcc()` が入ったが、フィルター（`woocommerce_email_cc_recipient_{id}`）は 11.2 でも効くので、
+ * 宛先を返す処理（{@see self::get_cc_recipient()}・{@see self::get_bcc_recipient()}）ごと空にし、設定の欄も外し、見出しからも除く（{@see self::get_headers()}）。
  */
 final class PasswordSetupEmail extends WC_Email {
-
-	/**
-	 * CC・BCC を付けない（親の既定は付ける。WooCommerce の版によっては親に宣言が無いので、ここでも宣言する）。
-	 *
-	 * @var bool
-	 */
-	public $supports_cc_bcc = false;
 
 	/** 宛名（表示名。無ければ名、ログイン名）。 */
 	public string $user_display_name = '';
@@ -39,21 +32,46 @@ final class PasswordSetupEmail extends WC_Email {
 	public string $set_password_url = '';
 
 	public function __construct() {
-		$this->id              = EmailRegistry::EMAIL_ID;
-		$this->customer_email  = true;
-		$this->manual          = true;
-		$this->supports_cc_bcc = false;
-		$this->title           = __( 'Password setup after store migration', 'cart-bridge-jp-pro' );
-		$this->description     = __( 'Sent from WooCommerce > Cart Bridge JP Pro > Password setup emails to customers whose accounts were created by importing them from another shop. The email asks them to set a password for this store.', 'cart-bridge-jp-pro' );
-		$this->template_html   = 'emails/cbjp-pro-password-setup.php';
-		$this->template_plain  = 'emails/plain/cbjp-pro-password-setup.php';
-		$this->template_base   = plugin_dir_path( CBJP_PRO_FILE ) . 'templates/';
-		$this->placeholders    = [];
+		$this->id             = EmailRegistry::EMAIL_ID;
+		$this->customer_email = true;
+		$this->manual         = true;
+		$this->title          = __( 'Password setup after store migration', 'cart-bridge-jp-pro' );
+		$this->description    = __( 'Sent from WooCommerce > Cart Bridge JP Pro > Password setup emails to customers whose accounts were created by importing them from another shop. The email asks them to set a password for this store.', 'cart-bridge-jp-pro' );
+		$this->template_html  = 'emails/cbjp-pro-password-setup.php';
+		$this->template_plain = 'emails/plain/cbjp-pro-password-setup.php';
+		$this->template_base  = plugin_dir_path( CBJP_PRO_FILE ) . 'templates/';
+		$this->placeholders   = [];
 
 		parent::__construct();
+	}
 
-		// 親のコンストラクタの後にも固定する（親や他の拡張が既定値に戻さないように）。
-		$this->supports_cc_bcc = false;
+	/**
+	 * CC・BCC を扱わない（WooCommerce 11.2 から。設定の読込みと欄の表示がこれを見る）。親のプロパティ `$supports_cc_bcc` は宣言し直さない
+	 * （WooCommerce が型を付けると、宣言し直したクラスの読込みで全メールが止まる。R1-L4）。
+	 *
+	 * @return bool
+	 */
+	public function supports_cc_bcc() {
+		return false;
+	}
+
+	/**
+	 * 見出しから CC・BCC の行を除く（`woocommerce_email_headers` で全メールに BCC を足す汎用のスニペットにも、全員のリンクを渡さない。R1-L5）。
+	 *
+	 * @return string
+	 */
+	public function get_headers() {
+		$headers = parent::get_headers();
+		$lines   = is_array( $headers ) ? $headers : preg_split( '/\r\n|\n|\r/', is_string( $headers ) ? $headers : '' );
+		$kept    = [];
+
+		foreach ( is_array( $lines ) ? $lines : [] as $line ) {
+			if ( is_string( $line ) && '' !== trim( $line ) && 1 !== preg_match( '/^\s*b?cc\s*:/i', $line ) ) {
+				$kept[] = $line;
+			}
+		}
+
+		return [] === $kept ? '' : implode( "\r\n", $kept ) . "\r\n";
 	}
 
 	/**

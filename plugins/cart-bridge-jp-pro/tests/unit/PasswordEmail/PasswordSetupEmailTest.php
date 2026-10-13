@@ -69,6 +69,8 @@ final class PasswordSetupEmailTest extends WooTestCase {
 		update_option( 'woocommerce_feature_email_improvements_enabled', 'yes' );
 		add_filter( 'woocommerce_email_cc_recipient_' . EmailRegistry::EMAIL_ID, static fn () => 'cc@example.com' );
 		add_filter( 'woocommerce_email_bcc_recipient_' . EmailRegistry::EMAIL_ID, static fn () => 'bcc@example.com' );
+		// 全メールに BCC を足す汎用のスニペット（`woocommerce_email_headers`）にも全員のリンクを渡さない（R1-L5）。
+		add_filter( 'woocommerce_email_headers', static fn ( $headers ) => $headers . "Bcc: spy@example.com\r\nCC: spy-cc@example.com\r\n" );
 		$user = get_userdata( $this->imported_customer( '1' ) );
 		$this->forget_sent_mails();
 
@@ -79,17 +81,15 @@ final class PasswordSetupEmailTest extends WooTestCase {
 		$this->assertSame( [], $mail['bcc'] );
 		$this->assertStringNotContainsString( 'cc@example.com', $mail['header'] );
 		$this->assertStringNotContainsString( 'bcc@example.com', $mail['header'] );
+		$this->assertStringNotContainsString( 'spy', $mail['header'] );
+		$this->assertStringContainsString( 'Content-Type:', $mail['header'], 'ほかの見出しは残す' );
 
 		$this->assertSame( '', $this->email->get_cc_recipient() );
 		$this->assertSame( '', $this->email->get_bcc_recipient() );
+		$this->assertFalse( $this->email->supports_cc_bcc() );
 
-		// WooCommerce 11.1 まで（`supports_cc_bcc` が無い版）は、すべてのメールに CC・BCC の欄を足す。その版を真似ても欄を出さない。
-		$this->email->supports_cc_bcc = true;
-		try {
-			$this->email->init_form_fields();
-		} finally {
-			$this->email->supports_cc_bcc = false;
-		}
+		// 11.2 は `supports_cc_bcc()` で欄を足さない。11.1 まで（全メールに欄を足す）向けの `init_form_fields()` の除外は、この版では確かめられない。
+		$this->email->init_form_fields();
 		$this->assertArrayNotHasKey( 'cc', $this->email->form_fields );
 		$this->assertArrayNotHasKey( 'bcc', $this->email->form_fields );
 	}

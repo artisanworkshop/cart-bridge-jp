@@ -77,6 +77,62 @@ final class SenderTest extends WooTestCase {
 	}
 
 	/**
+	 * 候補を上限（200 人）まで見て送る相手がいなくても、上限に達したら完了せずに次のバッチへ引き継ぐ（最初の 200 人だけで「完了」にしない。R1-2）。
+	 */
+	public function test_does_not_finish_while_candidates_remain_beyond_the_scan_limit(): void {
+		for ( $i = 0; $i < Sender::SCAN_LIMIT; $i++ ) {
+			$linked = self::factory()->user->create( [ 'role' => 'customer' ] );
+			update_user_meta( $linked, '_cbjp_remote_id', "linked{$i}" );
+		}
+		$this->imported_customer( '1' );
+		$run = $this->start();
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		$this->assertSame( [], $this->recipients() );
+		$this->assertSame( Campaign::STATUS_RUNNING, Campaign::control()['status'] );
+		$next = Campaign::control()['token'];
+		$this->assertNotSame( $run['token'], $next );
+
+		Sender::handle( $run['run_id'], $next );
+
+		$this->assertSame( [ 'customer1@example.com' ], $this->recipients() );
+		$this->assertSame( Campaign::STATUS_COMPLETED, Campaign::control()['status'] );
+	}
+
+	/**
+	 * 排他の期限が近ければ送らずに引き継ぐ（期限の後は他のバッチが奪いうる。R1-3）。
+	 */
+	public function test_does_not_send_when_the_lock_is_about_to_expire(): void {
+		$this->imported_customer( '1' );
+		$run = $this->start();
+
+		Sender::run_batch( $run['run_id'], $run['token'], ( time() + SendLock::MARGIN ) . '|' . str_repeat( 'a', 32 ) );
+
+		$this->assertSame( [], $this->recipients() );
+		$this->assertSame( 0, Campaign::progress()['cursor'] );
+		$next = Campaign::control()['token'];
+		$this->assertNotFalse( as_next_scheduled_action( Sender::HOOK, [ $run['run_id'], $next ], Sender::GROUP ) );
+	}
+
+	/**
+	 * 次のバッチを予約できなければ止める（チェーンが黙って切れない。R1-4）。
+	 */
+	public function test_stops_when_the_next_batch_cannot_be_scheduled(): void {
+		add_filter( 'cbjp/pro/password_email/batch_size', static fn () => 1 );
+		$this->imported_customer( '1' );
+		$this->imported_customer( '2' );
+		$run = $this->start();
+		add_filter( 'pre_as_schedule_single_action', static fn () => 0 );
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		$this->assertCount( 1, $this->recipients() );
+		$this->assertSame( Campaign::STATUS_STOPPED, Campaign::control()['status'] );
+		$this->assertSame( Campaign::STOP_SCHEDULE_FAILED, Campaign::control()['reason'] );
+	}
+
+	/**
 	 * 送る前に記録する（送信の途中で処理が落ちても、2 通目を送らない）。`pre_wp_mail` の中で DB の値を直接読んで確かめる。
 	 */
 	public function test_records_the_customer_before_sending(): void {

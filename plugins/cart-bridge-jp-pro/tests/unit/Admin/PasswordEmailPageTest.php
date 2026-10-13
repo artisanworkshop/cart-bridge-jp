@@ -279,6 +279,68 @@ final class PasswordEmailPageTest extends WooTestCase {
 	}
 
 	/**
+	 * 中断した run（進行中なのに予約が無く、最後のバッチから排他の期限より長く経った）は再開でき、中断の間は「未送信に戻す」もできる（R1-4）。
+	 */
+	public function test_resumes_an_interrupted_run(): void {
+		$this->activate_license();
+		$this->as_shop_manager();
+		$sending = $this->imported_customer( '1' );
+		SendRecord::mark_sending( $sending, str_repeat( 'a', 32 ) );
+		$run = Campaign::start( 1, false, [] );
+		$this->make_old( $run['run_id'] );
+
+		$this->post( PasswordEmailPage::ACTION_CLEAR_SENDING );
+		$this->assertTrue( $this->page->process( PasswordEmailPage::ACTION_CLEAR_SENDING ) );
+		$this->assertNull( SendRecord::get( $sending ) );
+
+		$this->post(
+			PasswordEmailPage::ACTION_RESUME,
+			[
+				PasswordEmailPage::FIELD_RUN_ID => $run['run_id'],
+				PasswordEmailPage::FIELD_TOKEN  => $run['token'],
+			]
+		);
+
+		$this->assertTrue( $this->page->process( PasswordEmailPage::ACTION_RESUME ) );
+
+		$control = Campaign::control();
+		$this->assertSame( Campaign::STATUS_RUNNING, $control['status'] );
+		$this->assertNotSame( $run['token'], $control['token'] );
+		$this->assertNotFalse( as_next_scheduled_action( Sender::HOOK, [ $run['run_id'], $control['token'] ], Sender::GROUP ) );
+	}
+
+	/**
+	 * 開始の予約に失敗したら止め、理由を出す（R1-4）。
+	 */
+	public function test_stops_a_run_whose_first_batch_cannot_be_scheduled(): void {
+		$this->imported_customer( '1' );
+		$this->activate_license();
+		$this->as_shop_manager();
+		add_filter( 'pre_as_schedule_single_action', static fn () => 0 );
+		$this->post( PasswordEmailPage::ACTION_START, $this->start_fields() );
+
+		$this->assertFalse( $this->page->process( PasswordEmailPage::ACTION_START ) );
+
+		$this->assertSame( Campaign::STATUS_STOPPED, Campaign::control()['status'] );
+		$this->assertSame( Campaign::STOP_SCHEDULE_FAILED, Campaign::control()['reason'] );
+		$this->assertStringContainsString( 'could not be scheduled', $this->render() );
+	}
+
+	/**
+	 * 画面の件数を数えた後、読んだユーザーのキャッシュを手放す（全員を読むときのメモリを抑える。R1-1）。
+	 */
+	public function test_releases_the_user_cache_after_counting(): void {
+		$this->as_shop_manager();
+		$user_id = $this->imported_customer( '1' );
+		clean_user_cache( $user_id );
+
+		$this->render();
+
+		$this->assertFalse( wp_cache_get( $user_id, 'users' ) );
+		$this->assertFalse( wp_cache_get( $user_id, 'user_meta' ) );
+	}
+
+	/**
 	 * キーが無ければ再開しない。動いている run（中断していない）も再開しない（チェーンを 2 本にしない）。
 	 */
 	public function test_refuses_to_resume_without_a_license_or_a_live_run(): void {
@@ -426,6 +488,18 @@ final class PasswordEmailPageTest extends WooTestCase {
 		$this->assertStringNotContainsString( 'Send a test email', $license_tab );
 		$this->assertStringContainsString( 'Send a test email', $email_tab );
 		$this->assertStringNotContainsString( 'Enter the license key', $email_tab );
+	}
+
+	/**
+	 * 進行中の run を、予約が無く最後の動きが古い（中断した）状態にする。
+	 */
+	private function make_old( string $run_id ): void {
+		$control               = Campaign::control();
+		$control['started_at'] = time() - 3600;
+		$control['updated_at'] = time() - 3600;
+		update_option( Campaign::CONTROL_OPTION, (string) wp_json_encode( $control ) );
+		$this->assertSame( $run_id, Campaign::control()['run_id'] );
+		$this->assertTrue( Sender::is_interrupted( Campaign::control(), Campaign::progress() ) );
 	}
 
 	private function assert_nothing_started(): void {

@@ -157,6 +157,56 @@ final class CampaignTest extends WP_UnitTestCase {
 		$this->assertNull( Campaign::handoff( str_repeat( 'a', 32 ), '' ) );
 	}
 
+	/**
+	 * run の ID・トークンの無い進行中・停止中は取消として読む（どの操作も run を名指しできず、開始もできずに行き詰まらない。R1-L3）。
+	 *
+	 * @dataProvider stuck_controls
+	 *
+	 * @param array<string,string> $control
+	 */
+	public function test_reads_a_running_run_without_ids_as_cancelled( array $control ): void {
+		update_option( Campaign::CONTROL_OPTION, (string) wp_json_encode( $control ) );
+
+		$this->assertSame( Campaign::STATUS_CANCELLED, Campaign::control()['status'] );
+		$this->assertNotNull( Campaign::start( 5, false, [] ), '新しい run を始められる' );
+	}
+
+	/**
+	 * @return array<string,array{0:array<string,string>}>
+	 */
+	public static function stuck_controls(): array {
+		return [
+			'running without a run ID' => [
+				[
+					'status' => 'running',
+					'token'  => str_repeat( 'a', 32 ),
+				],
+			],
+			'stopped without a token'  => [
+				[
+					'status' => 'stopped',
+					'run_id' => str_repeat( 'a', 32 ),
+				],
+			],
+		];
+	}
+
+	/**
+	 * 再開は連続の失敗の数を戻す（メールを送れずに止まった run を再開して、最初の 1 通の失敗でまた止めない。R1-L6）。
+	 */
+	public function test_resume_resets_the_consecutive_failures(): void {
+		$run                              = Campaign::start( 5, false, [] );
+		$state                            = Campaign::progress_for_update();
+		$progress                         = $state['progress'];
+		$progress['consecutive_failures'] = 3;
+		$this->assertTrue( Campaign::save_progress( $state['raw'], $progress ) );
+		Campaign::stop( $run['run_id'], $run['token'], Campaign::STOP_MAIL_FAILING );
+
+		$this->assertNotNull( Campaign::resume( $run['run_id'], $run['token'] ) );
+
+		$this->assertSame( 0, Campaign::progress()['consecutive_failures'] );
+	}
+
 	public function test_state_options_are_not_autoloaded(): void {
 		global $wpdb;
 

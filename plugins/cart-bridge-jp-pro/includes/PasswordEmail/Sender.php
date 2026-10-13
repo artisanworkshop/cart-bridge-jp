@@ -116,7 +116,12 @@ final class Sender {
 		}
 	}
 
-	private static function run_batch( string $run_id, string $token, string $lock ): void {
+	/**
+	 * 1 バッチ（{@see self::handle()} が排他を取ってから呼ぶ）。テストが期限の近い排他で呼ぶために public にしている。
+	 *
+	 * @internal
+	 */
+	public static function run_batch( string $run_id, string $token, string $lock ): void {
 		$control = Campaign::control();
 
 		if ( null === $control || ! self::matches( $control, $run_id, $token ) ) {

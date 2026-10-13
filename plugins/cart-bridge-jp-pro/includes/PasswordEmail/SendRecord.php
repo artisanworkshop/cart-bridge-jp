@@ -91,6 +91,20 @@ final class SendRecord {
 	}
 
 	/**
+	 * 送信の記録を持つユーザーの ID（昇順）。「未送信に戻す」が全候補を読まずに済むように、記録の行から引く（R1-1）。
+	 *
+	 * @return array<int,int>
+	 */
+	public static function user_ids(): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- 管理者の操作で、送信の記録を持つユーザーだけを引く。
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT user_id FROM {$wpdb->usermeta} WHERE meta_key = %s ORDER BY user_id ASC", self::META ) );
+
+		return array_map( 'intval', is_array( $ids ) ? $ids : [] );
+	}
+
+	/**
 	 * `sending` のまま残った記録を消す（管理者が「未送信に戻す」を選んだとき）。送れた記録（`sent`）は消さない。
 	 *
 	 * @return bool 消したか。

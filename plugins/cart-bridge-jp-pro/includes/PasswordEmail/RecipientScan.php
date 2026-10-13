@@ -9,7 +9,8 @@ namespace CartBridgeJP\Pro\PasswordEmail;
 
 /**
  * パスワード設定メールの候補（取込みの紐づけの印 `_cbjp_remote_id` を持つユーザー）を ID の順に読む（R3-10）。送る相手かは `RecipientPolicy` が決める。
- * 送信（`Sender`）はカーソルの次から少しずつ、画面の件数（{@see self::summarize()}）は全員を 500 件ずつキャッシュを温めて数える。
+ * 送信（`Sender`）はカーソルの次から少しずつ、画面の件数（{@see self::summarize()}）は全員を 500 件ずつキャッシュを温めて数え、数え終えたチャンクのキャッシュを捨てる
+ * （捨てないとメモリが顧客数に比例して増え、1 万人前後で管理画面の上限を超えうる。R1-1）。
  */
 final class RecipientScan {
 
@@ -92,10 +93,22 @@ final class RecipientScan {
 				$summary['excluded'][ $verdict->outcome ] = ( $summary['excluded'][ $verdict->outcome ] ?? 0 ) + 1;
 			}
 
+			self::forget_users( $ids );
 			$after = (int) end( $ids );
 			$read  = count( $ids );
 		} while ( self::CHUNK === $read );
 
 		return $summary;
+	}
+
+	/**
+	 * 読み終えたユーザーのキャッシュ（ユーザー・メタ・ログイン名などの索引）を捨てる（1 回の画面で全員を読むときのメモリを抑える）。
+	 *
+	 * @param array<int,int> $ids
+	 */
+	public static function forget_users( array $ids ): void {
+		foreach ( $ids as $user_id ) {
+			clean_user_cache( $user_id );
+		}
 	}
 }

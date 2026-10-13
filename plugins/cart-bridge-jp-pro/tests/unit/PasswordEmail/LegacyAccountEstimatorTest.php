@@ -167,6 +167,18 @@ final class LegacyAccountEstimatorTest extends WooTestCase {
 	}
 
 	/**
+	 * 読んだ候補のメタのキャッシュを手放す（全員を読むときのメモリを抑える。R1-1）。
+	 */
+	public function test_releases_the_meta_cache_after_reading(): void {
+		$this->legacy_import_job( self::START, self::END );
+		$user_id = $this->legacy_customer( '1', '2026-09-01 10:01:00' );
+		wp_cache_delete( $user_id, 'user_meta' );
+
+		$this->assertSame( [ $user_id ], LegacyAccountEstimator::create()->estimate()['ids'] );
+		$this->assertFalse( wp_cache_get( $user_id, 'user_meta' ) );
+	}
+
+	/**
 	 * 判定に使う状態・エラーコードの文字列は、無料版の定数と同じ（無料版の名前を Pro のコードに書かないので、テストで突き合わせる）。
 	 */
 	public function test_status_and_error_literals_match_the_free_plugin(): void {

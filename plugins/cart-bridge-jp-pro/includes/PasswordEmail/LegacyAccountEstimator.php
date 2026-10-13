@@ -18,7 +18,7 @@ use WP_User_Query;
  *
  * 使うジョブ（窓）は 0.1.0 のものだけ: totals に F1-7 で足した `remote_amount` が無く（0.1.0 の `empty_totals()`。続きを今の版が処理したジョブには既定値がマージされて付く）、
  * 状態が completed か failed で孤立の回復のエラーでなく（取消・孤立の回復・Retry は今の版が `updated_at` を今にして窓を広げる）、作った件数が 1 以上のもの。
- * 推定した件数が窓の作った件数の合計を超えたら、そのプラットフォームの推定をすべて捨てる（窓の取り違えの安全網。フェイルクローズ）。
+ * どれかのプラットフォームで、推定した件数が窓の作った件数の合計を超えたら、推定をすべて捨てる（窓の取り違えの安全網。フェイルクローズ）。
  *
  * **推定はパスワード設定メールの送る相手の判定にだけ使い、作成の印は書かない**（R3-5b の保護〔プロフィールとメールを書くのは作ったアカウントだけ〕を緩めない）。
  * 送り先はアカウントの今のメールなので、推定を誤っても乗っ取りの経路にはならない。
@@ -26,7 +26,8 @@ use WP_User_Query;
 final class LegacyAccountEstimator {
 
 	/**
-	 * 推定するアカウントの上限（0.1.0 は既定で顧客を 10 件しか取り込まなかった。これを超えるなら窓を取り違えている）。超えたら推定しない。
+	 * 推定するアカウントの上限（推定は画面に一覧で出し、開始のときに控える。0.1.0 は既定で顧客を 10 件しか取り込まなかったので、ふつうはずっと少ない）。
+	 * 超えたら推定しない。
 	 */
 	public const MAX_ACCOUNTS = 5000;
 
@@ -93,7 +94,11 @@ final class LegacyAccountEstimator {
 					],
 				]
 			);
-			$rows = $query->get_results();
+			$rows      = $query->get_results();
+			$chunk_ids = array_map( static fn ( $row ): int => (int) $row->ID, $rows );
+
+			// メタは 1 回のクエリで温め、読み終えたら捨てる（全員を読むときのメモリを抑える。R1-1）。
+			update_meta_cache( 'user', $chunk_ids );
 
 			foreach ( $rows as $row ) {
 				$user_id  = (int) $row->ID;
@@ -109,6 +114,10 @@ final class LegacyAccountEstimator {
 				}
 			}
 
+			foreach ( $chunk_ids as $user_id ) {
+				wp_cache_delete( $user_id, 'user_meta' );
+			}
+
 			++$page;
 			$read = count( $rows );
 		} while ( self::CHUNK === $read );
@@ -116,7 +125,7 @@ final class LegacyAccountEstimator {
 		$ids = [];
 
 		foreach ( $by_platform as $platform => $platform_ids ) {
-			// 窓で作った件数より多いアカウントが窓に入るなら、窓の取り違え（後から触られた行など）。そのプラットフォームの推定をすべて捨てる。
+			// 窓で作った件数より多いアカウントが窓に入るなら、窓の取り違え（後から触られた行など）。推定をすべて捨てる。
 			if ( count( $platform_ids ) > $this->platform( $platform )['created'] ) {
 				return [
 					'ids'       => [],
