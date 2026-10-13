@@ -24,14 +24,15 @@ use WP_UnitTestCase;
  *   1対1で記録する**。新しいメソッドを追加したらそのメソッドも同時に`BASELINE`へ追加しないとこのテストが
  *   失敗する — 追加を「任意」にすると、そのメソッドのシグネチャが以降まったく凍結されないまま
  *   `AbstractPlatformAdapter`の既定実装ごと変更できてしまう。PR #58 G2 Codex指摘）
- * - v1.0.0公開後に追加された（＝`v1_method_names()`に無い）メソッドが `AbstractPlatformAdapter`
+ * - v1.0.0の形（＝`v1_method_names()`の固定リスト）に無いメソッドが `AbstractPlatformAdapter`
  *   で既定実装を持たないまま追加された（`test_new_methods_have_default_implementations`。
- *   `v1_method_names()`は公開時に固定するまでは`BASELINE`と連動して動く。PR #58 G1-2/G3指摘）
+ *   `v1_method_names()`は R3-4a で固定した。それまでは`BASELINE`と連動していた。PR #58 G1-2/G3指摘）
  * いずれも `AbstractPlatformAdapter` を継承した外部実装を fatal にしうる変更である。
  * 公開後はBASELINEの既存エントリを書き換えず、新しいメソッドを`PlatformAdapter`へ追加するときは
  * `AbstractPlatformAdapter`への既定実装の追加と`BASELINE`への追記を**同時に**行うこと。
  *
- * v1.0.0 公開前はBASELINEを自由に更新してよい（D19/D20が許容する期間）。
+ * v1.0.0 公開前はBASELINEを自由に更新してよい（D19/D20が許容する期間）。ただし`v1_method_names()`は固定済みなので、
+ * 公開前に`PlatformAdapter`のメソッドを足す・消すときは、同じ PR でそのリストも直す（直さずに足すと既定実装を求められる）。
  */
 final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 
@@ -61,23 +62,35 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	];
 
 	/**
-	 * 「既定実装が無くても許容される（＝抽象のままでよい）」メソッド名の一覧。
+	 * 「既定実装が無くても許容される（＝抽象のままでよい）」メソッド名の一覧。v1.0.0 の`PlatformAdapter`の形。
 	 *
-	 * v1.0.0 公開前の**今は**`BASELINE`のキーをそのまま返す（動的）。D20は公開前のメソッド追加に
-	 * 既定実装を要求しないため、`BASELINE`に追記されたメソッドは（`test_interface_signatures_match_v1_baseline`
-	 * によってシグネチャ凍結の対象にはなるが）自動的にこちらの「既定実装不要」側にも含まれる
-	 * （PR #58 G3 Copilot指摘。固定リストにすると公開前の正当な追加まで失敗していた）。
-	 *
-	 * **v1.0.0 公開時（`docs/10-tasks.md` R3-4）に必ずこの実装を書き換え、その時点の
-	 * `array_keys( self::BASELINE )` をコピーしたリテラル配列に置き換えること。** 書き換えないと、
-	 * 公開後に追加されたメソッドの既定実装が（シグネチャを変えずに）削除される変更を検出できなくなる
-	 * （PR #58 G1-2 Codex指摘のケースが再発する）。書き換え後は本メソッドの内容が固定され、以降
-	 * `BASELINE`が成長してもこちらは変わらなくなる。
+	 * **R3-4a（2026-10-13）で、その時点の`array_keys( self::BASELINE )`を書き写したリテラル配列に固定した**
+	 * （D20・issue #49。R3-6 で無料版のインターフェースの形が決まり、残る公開の準備はインターフェースに触れないため、
+	 * 版上げを待たずに固定した）。`BASELINE`から導出しないこと: 導出すると、公開後に追加したメソッドの既定実装が
+	 * （シグネチャを変えずに）削除される変更を検出できなくなる（PR #58 G1-2 Codex指摘のケース）。以降`BASELINE`が
+	 * 成長してもこちらは変わらない。固定までは`BASELINE`と連動していた（公開前の追加に既定実装を求めないため。PR #58 G3）。
+	 * v1.0.0 の公開前に`PlatformAdapter`の形を変えるときだけ、同じ PR でこのリストも直す。
 	 *
 	 * @return array<int,string>
 	 */
 	private static function v1_method_names(): array {
-		return array_keys( self::BASELINE );
+		return [
+			'capabilities',
+			'connection_fields',
+			'fetch_categories',
+			'fetch_product_by_remote_id',
+			'fetch_products',
+			'fetch_reviews',
+			'fetch_stocks',
+			'fetch_tags',
+			'id',
+			'label',
+			'mapping_candidates',
+			'push_category',
+			'push_product',
+			'push_stock',
+			'test_connection',
+		];
 	}
 
 	/**
@@ -107,10 +120,8 @@ final class AbstractPlatformAdapterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `v1_method_names()`に無い（＝v1.0.0公開後に追加された）メソッドは、`AbstractPlatformAdapter`で
-	 * 既定実装を持っている（＝抽象のままではない）こと。v1.0.0公開前の今は`v1_method_names()`が
-	 * `BASELINE`と連動するため実質的に何もチェックしない（D20が公開前の既定実装なし追加を許容するため）。
-	 * `v1_method_names()`が公開時に固定される理由は同メソッドのdocblock参照。
+	 * `v1_method_names()`に無い（＝v1.0.0の形より後に追加された）メソッドは、`AbstractPlatformAdapter`で
+	 * 既定実装を持っている（＝抽象のままではない）こと。`v1_method_names()`を固定した理由は同メソッドのdocblock参照。
 	 */
 	public function test_new_methods_have_default_implementations(): void {
 		$interface_method_names = array_keys( self::describe_methods( new ReflectionClass( PlatformAdapter::class ) ) );
