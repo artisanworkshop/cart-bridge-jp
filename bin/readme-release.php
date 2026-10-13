@@ -26,12 +26,14 @@
 const CBJP_README_RELEASE_HEADERS = [ 'tested', 'tested up to', 'requires', 'requires at least', 'requires php', 'tags', 'contributors', 'donate link', 'stable tag', 'license', 'license uri' ];
 
 /**
- * readme の行（改行を LF にそろえ、先頭の UTF-8 の BOM を除く）。
+ * readme の行（wordpress.org と同じく、UTF-8 なら Unicode の改行〔`\f`・`\v`・U+0085・U+2028・U+2029 も〕で、そうでなければバイトの改行で分け、
+ * 先頭の UTF-8 の BOM を除く）。
  *
  * @return array<int,string>
  */
 function cbjp_readme_release_lines( string $readme ): array {
-	$lines = explode( "\n", str_replace( [ "\r\n", "\r" ], "\n", $readme ) );
+	$lines = 1 === preg_match( '//u', $readme ) ? preg_split( '/\R/u', $readme ) : preg_split( '/\R/', $readme );
+	$lines = false === $lines ? [ '' ] : array_map( static fn( string $line ): string => rtrim( $line, "\r\n" ), $lines );
 
 	if ( str_starts_with( $lines[0], "\xEF\xBB\xBF" ) ) {
 		$lines[0] = substr( $lines[0], 3 );
@@ -56,12 +58,12 @@ function cbjp_readme_release_possible_header( string $line ): ?array {
 }
 
 /**
- * 節の見出しか（wordpress.org と同じく、前後の空白を除いた行が `==`、または `##` で始まる行。`###` は節の中の見出し）。
+ * 節の見出しか（wordpress.org と同じく、前後の空白を除いた行が `==`、または `##` の後に `#` 以外の文字が続く行。`###`・`##` だけの行は節の中の見出し）。
  */
 function cbjp_readme_release_is_section_heading( string $line ): bool {
 	$trimmed = trim( $line );
 
-	return str_starts_with( $trimmed, '==' ) || ( str_starts_with( $trimmed, '##' ) && ! str_starts_with( $trimmed, '###' ) );
+	return str_starts_with( $trimmed, '==' ) || ( str_starts_with( $trimmed, '##' ) && isset( $trimmed[2] ) && '#' !== $trimmed[2] );
 }
 
 /**
@@ -101,7 +103,8 @@ function cbjp_readme_release_parse( string $readme ): array {
 		$header = cbjp_readme_release_possible_header( $lines[ $index ] );
 
 		if ( null === $header ) {
-			if ( '' === $lines[ $index ] ) {
+			// wordpress.org の `empty( $line )`（空白だけの行はヘッダーの終わり。`0` だけの行は空の行）。
+			if ( in_array( $lines[ $index ], [ '', '0' ], true ) ) {
 				$last_blank = true;
 				continue;
 			}

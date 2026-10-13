@@ -213,6 +213,43 @@ README;
 	}
 
 	/**
+	 * ヘッダーの終わりも wordpress.org と同じ（R2-1）: 空の行の後の知らない名前の行（コロンを含む短い説明）と、空白だけの行で終わる。
+	 * `0` だけの行は空の行として読み進める（`empty()`）。
+	 */
+	public function test_the_header_block_ends_like_wordpress_org(): void {
+		$after_colon = str_replace( [ "Stable tag: 2.0.0\n", "Short description.\n" ], [ '', "Migrate products: import and export.\nStable tag: 2.0.0\n" ], self::README );
+		$this->assertNull( cbjp_readme_release_header( $after_colon, 'Stable tag' ) );
+		$this->assertSame( [ 'the readme has no Stable tag header' ], cbjp_readme_release_problems( $after_colon, '2.0.0' ) );
+
+		$after_spaces = str_replace( "Stable tag: 2.0.0\nLicense: GPLv2 or later\n", "License: GPLv2 or later\n   \nStable tag: 2.0.0\n", self::README );
+		$this->assertNull( cbjp_readme_release_header( $after_spaces, 'Stable tag' ) );
+
+		$after_zero = str_replace( "Stable tag: 2.0.0\n", "Stable tag: 2.0.0\n0\nStable tag: 1.0.0\n", self::README );
+		$this->assertSame( [ 'the readme has more than one Stable tag header' ], cbjp_readme_release_problems( $after_zero, '2.0.0' ) );
+	}
+
+	/**
+	 * 行の区切りも wordpress.org と同じ（R2-2）: UTF-8 なら Unicode の改行（`\f`・`\v`・U+0085・U+2028・U+2029）も区切り。`##` だけの行は節の見出しではない。
+	 */
+	public function test_line_breaks_and_bare_markers_follow_wordpress_org(): void {
+		foreach ( [ "\f", "\v", "\u{85}", "\u{2028}", "\u{2029}" ] as $separator ) {
+			$readme = str_replace( "* One.\n\n== Upgrade Notice ==", "* One.{$separator}== Upgrade Notice ==", self::README );
+			$label  = (string) wp_json_encode( $separator );
+
+			$this->assertSame( '* One.', cbjp_readme_release_changelog( $readme, '1.0.0' ), $label );
+			$this->assertSame( [], cbjp_readme_release_changelog_entries( $readme, '3.0.0' ), $label );
+		}
+
+		// UTF-8 でない readme もバイトの改行で読む。
+		$latin1 = str_replace( 'Description text.', "Description text \xE9.", self::README );
+		$this->assertSame( [], cbjp_readme_release_problems( $latin1, '2.0.0' ) );
+
+		// `##` だけの行は節の中の見出しで、Changelog の後の版も Changelog のまま読む。
+		$bare = str_replace( "= 1.0.0 =\n", "##\n\n= 1.0.0 =\n", self::README );
+		$this->assertSame( '* One.', cbjp_readme_release_changelog( $bare, '1.0.0' ) );
+	}
+
+	/**
 	 * 同じヘッダーが 2 つあると wordpress.org は後の値を使う。どちらを配るつもりか分からないので止める。
 	 */
 	public function test_a_duplicated_stable_tag_stops_the_release(): void {
