@@ -32,6 +32,12 @@ final class Sender {
 	public const FAILURE_RESET_KEY = 'reset_key';
 	public const FAILURE_MAIL      = 'mail';
 
+	/** 送る前の記録を書けなかった（送らない。最大 1 通を守れないため。PR #135 G1-6）。 */
+	public const FAILURE_RECORD = 'record';
+
+	/** このリクエストが持っている排他のハンドル（借りを延ばすたびに替わる。shutdown で解放する）。 */
+	private static ?string $held = null;
+
 	private function __construct() {}
 
 	public static function register(): void {
@@ -107,17 +113,71 @@ final class Sender {
 			return;
 		}
 
-		register_shutdown_function( [ SendLock::class, 'release' ], $lock );
+		self::$held = $lock;
+		register_shutdown_function( [ self::class, 'release_held' ] );
 
 		try {
 			self::run_batch( $run_id, $token, $lock );
 		} finally {
-			SendLock::release( $lock );
+			self::release_held();
 		}
 	}
 
 	/**
-	 * 1 バッチ（{@see self::handle()} が排他を取ってから呼ぶ）。テストが期限の近い排他で呼ぶために public にしている。
+	 * このリクエストが持っている排他を解放する（終わったとき・致命的エラーの shutdown）。
+	 */
+	public static function release_held(): void {
+		if ( null !== self::$held ) {
+			SendLock::release( self::$held );
+			self::$held = null;
+		}
+	}
+
+	/**
+	 * 取り消した run の予約だけを外す（取消の後にほぼ同時に始まった別の run の予約は残す。PR #135 G1-1）。
+	 */
+	public static function unschedule_run( string $run_id ): void {
+		if ( '' === $run_id || ! function_exists( 'as_get_scheduled_actions' ) || ! function_exists( 'as_unschedule_action' ) ) {
+			return;
+		}
+
+		$actions = as_get_scheduled_actions(
+			[
+				'hook'     => self::HOOK,
+				'group'    => self::GROUP,
+				'status'   => 'pending', // `ActionScheduler_Store::STATUS_PENDING`（静的解析が Action Scheduler のクラスを知らないので文字列で書く）。
+				'per_page' => 100,
+			]
+		);
+
+		foreach ( is_array( $actions ) ? $actions : [] as $action ) {
+			if ( ! is_object( $action ) || ! method_exists( $action, 'get_args' ) ) {
+				continue;
+			}
+
+			$args = $action->get_args();
+
+			if ( is_array( $args ) && ( $args[0] ?? null ) === $run_id ) {
+				as_unschedule_action( self::HOOK, $args, self::GROUP );
+			}
+		}
+	}
+
+	/**
+	 * 借りを延ばし、このリクエストが持つハンドルも替える。延ばせなければ null（他のバッチが取った）。
+	 */
+	private static function renew( string $lock ): ?string {
+		$renewed = SendLock::renew( $lock );
+
+		if ( null !== $renewed && self::$held === $lock ) {
+			self::$held = $renewed;
+		}
+
+		return $renewed;
+	}
+
+	/**
+	 * 1 バッチ（{@see self::handle()} が排他を取ってから呼ぶ）。テストが持っていない排他で呼ぶために public にしている。
 	 *
 	 * @internal
 	 */
@@ -152,7 +212,7 @@ final class Sender {
 		$stopped  = null;
 
 		foreach ( $ids as $user_id ) {
-			if ( $sent_now >= self::batch_size() || time() - $started >= self::TIME_BUDGET_SECONDS || ! SendLock::still_held( $lock ) ) {
+			if ( $sent_now >= self::batch_size() || time() - $started >= self::TIME_BUDGET_SECONDS ) {
 				break;
 			}
 
@@ -181,6 +241,14 @@ final class Sender {
 				continue;
 			}
 
+			// 送る前に借りを延ばす。延ばせなければ他のバッチが動いているので、何も書かずに止まる（G1-4）。
+			$renewed = self::renew( $lock );
+
+			if ( null === $renewed ) {
+				return;
+			}
+
+			$lock    = $renewed;
 			$outcome = self::send_one( $email, $user, $run_id );
 			++$sent_now;
 
@@ -194,14 +262,19 @@ final class Sender {
 
 			++$progress['failed'];
 
-			if ( self::FAILURE_MAIL === $outcome ) {
+			if ( in_array( $outcome, [ self::FAILURE_MAIL, self::FAILURE_RECORD ], true ) ) {
 				++$progress['consecutive_failures'];
 
 				if ( $progress['consecutive_failures'] >= self::MAX_CONSECUTIVE_FAILURES ) {
-					$stopped = Campaign::STOP_MAIL_FAILING;
+					$stopped = self::FAILURE_RECORD === $outcome ? Campaign::STOP_RECORD_FAILING : Campaign::STOP_MAIL_FAILING;
 					break;
 				}
 			}
+		}
+
+		// 状態を書く前にも借りを延ばす（最後の送信が長引いて他のバッチが取っていれば、進捗も引継ぎも書かない。G1-4）。
+		if ( null === self::renew( $lock ) ) {
+			return;
 		}
 
 		$progress['last_batch_at'] = time();
@@ -210,8 +283,8 @@ final class Sender {
 			return;
 		}
 
-		if ( Campaign::STOP_MAIL_FAILING === $stopped ) {
-			Campaign::stop( $run_id, $token, Campaign::STOP_MAIL_FAILING );
+		if ( null !== $stopped ) {
+			Campaign::stop( $run_id, $token, $stopped );
 			return;
 		}
 
@@ -234,8 +307,10 @@ final class Sender {
 	 * 1 人へ送る。送れたら null、送れなければ理由（`SendRecord::mark_failed()` に書いた理由）。
 	 */
 	private static function send_one( PasswordSetupEmail $email, WP_User $user, string $run_id ): ?string {
-		// 送る前に記録する（この後で処理が落ちても、次のバッチ・次の run がこの顧客へ 2 通目を送らない）。
-		SendRecord::mark_sending( $user->ID, $run_id );
+		// 送る前に記録する（この後で処理が落ちても、次のバッチ・次の run がこの顧客へ 2 通目を送らない）。記録を確かめられなければ送らない（G1-6）。
+		if ( ! SendRecord::mark_sending( $user->ID, $run_id ) ) {
+			return self::FAILURE_RECORD;
+		}
 
 		$key = get_password_reset_key( $user );
 

@@ -279,6 +279,36 @@ final class PasswordEmailPageTest extends WooTestCase {
 	}
 
 	/**
+	 * 「未送信に戻す」は、読んだ後にバッチが `sent` に書き換えた記録を消さない（値が一致するときだけ消す。PR #135 G1-2）。
+	 */
+	public function test_does_not_clear_a_record_that_was_just_marked_sent(): void {
+		global $wpdb;
+
+		$this->as_shop_manager();
+		$user_id = $this->imported_customer( '1' );
+		SendRecord::mark_sending( $user_id, str_repeat( 'a', 32 ) );
+		$sent = 'sent:' . str_repeat( 'a', 32 ) . ':1700000000';
+		$done = false;
+		add_filter(
+			'query',
+			static function ( string $sql ) use ( &$done, $wpdb, $user_id, $sent ): string {
+				if ( ! $done && str_starts_with( $sql, "DELETE FROM {$wpdb->usermeta}" ) && str_contains( $sql, SendRecord::META ) ) {
+					$done = true;
+					$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->usermeta} SET meta_value = %s WHERE user_id = %d AND meta_key = %s", $sent, $user_id, SendRecord::META ) );
+				}
+
+				return $sql;
+			}
+		);
+
+		$this->assertFalse( SendRecord::clear_sending( $user_id ) );
+
+		$this->assertTrue( $done, '削除の直前に書き換えた' );
+		wp_cache_delete( $user_id, 'user_meta' );
+		$this->assertSame( $sent, get_user_meta( $user_id, SendRecord::META, true ) );
+	}
+
+	/**
 	 * 中断した run（進行中なのに予約が無く、最後のバッチから排他の期限より長く経った）は再開でき、中断の間は「未送信に戻す」もできる（R1-4）。
 	 */
 	public function test_resumes_an_interrupted_run(): void {

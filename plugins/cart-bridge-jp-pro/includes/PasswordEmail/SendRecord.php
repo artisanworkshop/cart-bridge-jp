@@ -54,8 +54,16 @@ final class SendRecord {
 		];
 	}
 
-	public static function mark_sending( int $user_id, string $run_id ): void {
-		update_user_meta( $user_id, self::META, self::STATE_SENDING . ':' . $run_id . ':' . time() );
+	/**
+	 * 送る前の記録を書き、DB から読み直して書けたかを返す（メタのフィルターに断られた・DB の失敗で書けないまま送ると、最大 1 通を守れない。PR #135 G1-6）。
+	 */
+	public static function mark_sending( int $user_id, string $run_id ): bool {
+		$value = self::STATE_SENDING . ':' . $run_id . ':' . time();
+
+		update_user_meta( $user_id, self::META, $value );
+		wp_cache_delete( $user_id, 'user_meta' );
+
+		return get_user_meta( $user_id, self::META, true ) === $value;
 	}
 
 	public static function mark_sent( int $user_id, string $run_id ): void {
@@ -111,12 +119,22 @@ final class SendRecord {
 	 * @return bool 消したか。
 	 */
 	public static function clear_sending( int $user_id ): bool {
+		global $wpdb;
+
+		wp_cache_delete( $user_id, 'user_meta' );
 		$record = self::get( $user_id );
 
 		if ( null === $record || self::STATE_SENDING !== $record['state'] ) {
 			return false;
 		}
 
-		return delete_user_meta( $user_id, self::META );
+		// 読んだ値のままのときだけ消す（読んだ後にバッチが `sent` に書き換えていれば消さない。`delete_user_meta()` は行を選んでから ID で消すので、
+		// その間の書換えも消してしまう。PR #135 G1-2）。
+		$raw = maybe_serialize( get_user_meta( $user_id, self::META, true ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.SlowDBQuery.slow_db_query_meta_key, WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- 読んだ値のときだけ消す（CAS）。直後にキャッシュを捨てる。
+		$deleted = $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE user_id = %d AND meta_key = %s AND meta_value = %s", $user_id, self::META, $raw ) );
+		wp_cache_delete( $user_id, 'user_meta' );
+
+		return is_int( $deleted ) && $deleted > 0;
 	}
 }

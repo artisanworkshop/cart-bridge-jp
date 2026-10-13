@@ -34,6 +34,9 @@ final class Campaign {
 	/** 続けて送れなかった（SMTP の上限・送信の設定の誤りなど）。 */
 	public const STOP_MAIL_FAILING = 'mail_failing';
 
+	/** 送る前の記録を続けて書けなかった（2 通目を送らないために止める。PR #135 G1-6）。 */
+	public const STOP_RECORD_FAILING = 'record_failing';
+
 	/** メールが無効・登録されていない（WooCommerce > 設定 > メール）。 */
 	public const STOP_EMAIL_UNAVAILABLE = 'email_unavailable';
 

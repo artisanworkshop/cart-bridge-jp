@@ -103,16 +103,109 @@ final class SenderTest extends WooTestCase {
 	/**
 	 * 排他の期限が近ければ送らずに引き継ぐ（期限の後は他のバッチが奪いうる。R1-3）。
 	 */
-	public function test_does_not_send_when_the_lock_is_about_to_expire(): void {
+	public function test_does_not_send_without_holding_the_lock(): void {
 		$this->imported_customer( '1' );
 		$run = $this->start();
 
-		Sender::run_batch( $run['run_id'], $run['token'], ( time() + SendLock::MARGIN ) . '|' . str_repeat( 'a', 32 ) );
+		Sender::run_batch( $run['run_id'], $run['token'], ( time() + SendLock::TTL ) . '|' . str_repeat( 'a', 32 ) );
 
 		$this->assertSame( [], $this->recipients() );
 		$this->assertSame( 0, Campaign::progress()['cursor'] );
-		$next = Campaign::control()['token'];
-		$this->assertNotFalse( as_next_scheduled_action( Sender::HOOK, [ $run['run_id'], $next ], Sender::GROUP ) );
+		$this->assertSame( $run['token'], Campaign::control()['token'], '引き継がない（排他を持つバッチが続ける）' );
+		$this->assertFalse( as_has_scheduled_action( Sender::HOOK ) );
+	}
+
+	/**
+	 * 送信が長引いて排他を他のバッチに取られたら、次の宛先へ送らず、進捗も引継ぎも書かない（2 つのバッチが同じカーソルを進めない。PR #135 G1-4）。
+	 */
+	public function test_stops_writing_when_another_batch_takes_the_lock(): void {
+		global $wpdb;
+
+		$this->imported_customer( '1' );
+		$this->imported_customer( '2' );
+		$run = $this->start();
+		add_filter(
+			'pre_wp_mail',
+			static function ( $short_circuit ) use ( $wpdb ) {
+				$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", ( time() + 300 ) . '|' . str_repeat( 'd', 32 ), SendLock::OPTION ) );
+
+				return $short_circuit;
+			}
+		);
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		$this->assertSame( [ 'customer1@example.com' ], $this->recipients() );
+		$this->assertSame( 0, Campaign::progress()['sent'], '進捗を書かない' );
+		$this->assertSame( $run['token'], Campaign::control()['token'], '引き継がない' );
+		$this->assertFalse( as_has_scheduled_action( Sender::HOOK ) );
+		$this->assertSame( ( time() + 300 ) . '|' . str_repeat( 'd', 32 ), $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", SendLock::OPTION ) ), '他のバッチの排他を消さない' );
+	}
+
+	/**
+	 * 最後の 1 通の送信中に排他を取られたら、完了も進捗も書かない（状態を書く前にも借りを確かめる。PR #135 G1-4）。
+	 */
+	public function test_does_not_finish_when_the_lock_is_lost_during_the_last_send(): void {
+		global $wpdb;
+
+		$this->imported_customer( '1' );
+		$run = $this->start();
+		add_filter(
+			'pre_wp_mail',
+			static function ( $short_circuit ) use ( $wpdb ) {
+				$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", ( time() + 300 ) . '|' . str_repeat( 'd', 32 ), SendLock::OPTION ) );
+
+				return $short_circuit;
+			}
+		);
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		$this->assertCount( 1, $this->recipients() );
+		$this->assertSame( Campaign::STATUS_RUNNING, Campaign::control()['status'], '完了にしない（排他を持つバッチが続ける）' );
+		$this->assertSame( 0, Campaign::progress()['sent'] );
+	}
+
+	/**
+	 * 送る前の記録を書けなければ送らず、続けて 3 人書けなければ止める（最大 1 通を守れないので。PR #135 G1-6）。
+	 */
+	public function test_does_not_send_when_the_record_cannot_be_saved(): void {
+		foreach ( [ '1', '2', '3', '4' ] as $remote ) {
+			$this->imported_customer( $remote );
+		}
+		$run = $this->start();
+		add_filter(
+			'update_user_metadata',
+			static function ( $check, $object_id, $meta_key ) {
+				return SendRecord::META === $meta_key ? true : $check;
+			},
+			10,
+			3
+		);
+
+		Sender::handle( $run['run_id'], $run['token'] );
+
+		$this->assertSame( [], $this->recipients() );
+		$this->assertSame( Campaign::STATUS_STOPPED, Campaign::control()['status'] );
+		$this->assertSame( Campaign::STOP_RECORD_FAILING, Campaign::control()['reason'] );
+		$this->assertSame( 3, Campaign::progress()['failed'] );
+	}
+
+	/**
+	 * 取消は取り消した run の予約だけを外す（取消の直後に始まった別の run の予約は残す。PR #135 G1-1）。
+	 */
+	public function test_unschedules_only_the_named_run(): void {
+		$cancelled = str_repeat( 'a', 32 );
+		$other     = str_repeat( 'b', 32 );
+		Sender::schedule( $cancelled, str_repeat( 'c', 32 ), 60 );
+		Sender::schedule( $cancelled, str_repeat( 'd', 32 ), 120 );
+		Sender::schedule( $other, str_repeat( 'e', 32 ), 60 );
+
+		Sender::unschedule_run( $cancelled );
+
+		$this->assertFalse( as_has_scheduled_action( Sender::HOOK, [ $cancelled, str_repeat( 'c', 32 ) ], Sender::GROUP ) );
+		$this->assertFalse( as_has_scheduled_action( Sender::HOOK, [ $cancelled, str_repeat( 'd', 32 ) ], Sender::GROUP ) );
+		$this->assertTrue( as_has_scheduled_action( Sender::HOOK, [ $other, str_repeat( 'e', 32 ) ], Sender::GROUP ) );
 	}
 
 	/**

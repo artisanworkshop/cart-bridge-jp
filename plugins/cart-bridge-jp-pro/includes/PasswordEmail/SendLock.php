@@ -11,6 +11,8 @@ namespace CartBridgeJP\Pro\PasswordEmail;
  * パスワード設定メールの 1 バッチの排他（R3-10）。同じ run のバッチが 2 つ同時に動かないようにする（Action Scheduler の 2 つのランナー・再開の
  * 直後に前のチェーンのバッチが残っていた、など）。無料版の `Support\PlatformLock` と同じ「options への一意な `INSERT IGNORE`」で、
  * 値は `"{期限の UNIX 時刻}|{乱数}"`。期限切れの行は値を比べて奪い（CAS）、解放は値が自分のものと一致するときだけ消す。
+ * バッチは送る前と状態を書く前に {@see self::renew()} で借りを延ばし、延ばせなければ（期限切れで他のバッチが取った）何も書かずに止まる
+ * （1 通の送信が期限より長引いても、2 つのバッチが同じカーソル・進捗を書かない。PR #135 G1-4）。
  */
 final class SendLock {
 
@@ -69,12 +71,22 @@ final class SendLock {
 	}
 
 	/**
-	 * 送ってよいだけの期限が残っているか（期限の後は他のバッチが奪いうる）。
+	 * 借りを延ばす: 行の値がまだ `$handle` のときだけ、新しい期限の値に替える（CAS）。他のバッチが取っていれば（期限切れで奪われた）null。
+	 *
+	 * @return string|null 新しいハンドル。
 	 */
-	public static function still_held( string $handle ): bool {
-		$expires_at = self::expires_at( $handle );
+	public static function renew( string $handle ): ?string {
+		global $wpdb;
 
-		return null !== $expires_at && time() + self::MARGIN < $expires_at;
+		$next = ( time() + self::TTL ) . '|' . bin2hex( random_bytes( 16 ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- 自分の排他のときだけ期限を延ばす（CAS）。
+		$updated = $wpdb->query(
+			$wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s", $next, self::OPTION, $handle )
+		);
+		wp_cache_delete( self::OPTION, 'options' );
+
+		return 1 === $updated ? $next : null;
 	}
 
 	public static function release( string $handle ): void {

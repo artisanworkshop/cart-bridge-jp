@@ -59,12 +59,23 @@ final class SendLockTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * 期限の手前（余裕より短い）では、もう送らない（期限の後は他のバッチが奪いうる）。
+	 * 借りを延ばせるのは、行の値がまだ自分のハンドルのときだけ（期限切れで他のバッチが取っていれば延ばせない。PR #135 G1-4）。
 	 */
-	public function test_tells_whether_enough_time_is_left(): void {
-		$this->assertTrue( SendLock::still_held( ( time() + SendLock::TTL ) . '|' . str_repeat( 'a', 32 ) ) );
-		$this->assertFalse( SendLock::still_held( ( time() + SendLock::MARGIN ) . '|' . str_repeat( 'a', 32 ) ) );
-		$this->assertFalse( SendLock::still_held( 'broken' ) );
+	public function test_renews_only_its_own_lock(): void {
+		global $wpdb;
+
+		$held    = (string) SendLock::acquire();
+		$renewed = SendLock::renew( $held );
+
+		$this->assertNotNull( $renewed );
+		$this->assertNotSame( $held, $renewed );
+		$this->assertSame( $renewed, $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", SendLock::OPTION ) ) );
+		$this->assertNull( SendLock::renew( $held ), '古いハンドルではもう延ばせない' );
+		$this->assertNull( SendLock::renew( time() . '|' . str_repeat( 'b', 32 ) ) );
+
+		$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", ( time() + 60 ) . '|' . str_repeat( 'c', 32 ), SendLock::OPTION ) );
+
+		$this->assertNull( SendLock::renew( (string) $renewed ), '他のバッチが取った' );
 	}
 
 	private function write_lock( string $value ): void {

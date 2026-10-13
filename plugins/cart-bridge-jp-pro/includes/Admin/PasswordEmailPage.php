@@ -197,9 +197,8 @@ final class PasswordEmailPage {
 			return __( 'The sending could not be canceled. It may have finished or changed. Check the status below.', 'cart-bridge-jp-pro' );
 		}
 
-		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( Sender::HOOK );
-		}
+		// 取り消した run の予約だけを外す（取消の直後に始まった別の run の予約は残す。PR #135 G1-1）。
+		Sender::unschedule_run( self::posted_id( self::FIELD_RUN_ID ) );
 
 		$this->notice->set( 'success', __( 'Sending password setup emails was canceled. Emails already sent cannot be recalled.', 'cart-bridge-jp-pro' ) );
 
@@ -594,6 +593,7 @@ final class PasswordEmailPage {
 			Campaign::STOP_EMAIL_UNAVAILABLE => __( 'The password setup email is disabled. Enable it in the WooCommerce email settings.', 'cart-bridge-jp-pro' ),
 			Campaign::STOP_ACCOUNT_PAGE      => __( 'The link in the email needs the My account page and its lost password endpoint. Publish the My account page and set the endpoint in the WooCommerce settings.', 'cart-bridge-jp-pro' ),
 			Campaign::STOP_MAIL_FAILING      => __( 'Several emails in a row could not be sent. Check the email settings of this site, such as an SMTP plugin or the sending limit of your hosting, and then resume.', 'cart-bridge-jp-pro' ),
+			Campaign::STOP_RECORD_FAILING    => __( 'The send records could not be saved on this site, so sending stopped to avoid sending anyone the email twice. Check the database and any plugin that changes how user data is saved, and then resume.', 'cart-bridge-jp-pro' ),
 			Campaign::STOP_SCHEDULE_FAILED   => __( 'The background task could not be scheduled. Try again.', 'cart-bridge-jp-pro' ),
 			default                          => __( 'The sending state changed unexpectedly. Check the status and start again if needed.', 'cart-bridge-jp-pro' ),
 		};
