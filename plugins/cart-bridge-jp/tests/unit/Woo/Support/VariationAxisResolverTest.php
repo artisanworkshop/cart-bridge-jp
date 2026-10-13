@@ -191,4 +191,30 @@ final class VariationAxisResolverTest extends WP_UnitTestCase {
 
 		$this->assertFalse( VariationAxisResolver::has_any_attribute( $this->variation( $variation ), [] ) );
 	}
+
+	/**
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function stored_name_cases(): array {
+		return [
+			// 取込みが保存する形（`HtmlText::from_plain()`。R3-5b）。
+			'imported markup'           => [ 'Size&lt;script&gt;alert(1)&lt;/script&gt;', 'Size<script>alert(1)</script>' ],
+			// WooCommerce の管理画面が保存する形（`wc_clean( esc_html() )`）。
+			'admin ampersand and quote' => [ 'S&amp;M &#039;fit&#039;', "S&M 'fit'" ],
+			'plain name is unchanged'   => [ 'サイズ', 'サイズ' ],
+		];
+	}
+
+	/**
+	 * R3-5b: Woo は属性の名前を HTML として保存するので、ASP へ送る名前・ASP の名前と比べる名前は平文に戻す。
+	 *
+	 * @dataProvider stored_name_cases
+	 */
+	public function test_attribute_label_is_the_plain_name( string $stored, string $plain ): void {
+		$attribute = new \WC_Product_Attribute();
+		$attribute->set_id( 0 );
+		$attribute->set_name( $stored );
+
+		$this->assertSame( $plain, VariationAxisResolver::attribute_label( $attribute ) );
+	}
 }

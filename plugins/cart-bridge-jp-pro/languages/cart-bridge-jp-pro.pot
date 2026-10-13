@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-12T12:41:17+00:00\n"
+"POT-Creation-Date: 2026-10-13T03:32:28+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp-pro\n"
@@ -44,19 +44,19 @@ msgstr ""
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:439
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:440
 msgid "Unpaid"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:443
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:444
 msgid "Paid (not shipped)"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:447
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:448
 msgid "Shipped"
 msgstr ""
 
-#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:451
+#: includes/Adapters/ColorMe/ColorMeCommerceAdapter.php:452
 msgid "Cancelled"
 msgstr ""
 
@@ -425,63 +425,71 @@ msgstr ""
 msgid "Customers"
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:51
-msgid "A WordPress user with the same email address already exists, so that account is linked and updated with the platform’s details instead of creating a new one."
+#: includes/Entities/CustomerWarnings.php:54
+msgid "A WordPress user that this plugin did not create for this customer has the same email address, so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:52
-msgid "Check that the existing account belongs to the same person."
+#: includes/Entities/CustomerWarnings.php:55
+msgid "Check that the existing account belongs to the same person. To use the platform’s details, update the account in WordPress by hand."
 msgstr ""
 
 #. translators: %s: the WordPress ID of a user.
-#: includes/Entities/CustomerWarnings.php:54
+#: includes/Entities/CustomerWarnings.php:57
 #, php-format
-msgid "A WordPress user with the same email address already exists (user ID %s), so that account is linked and updated with the platform’s details instead of creating a new one."
+msgid "A WordPress user that this plugin did not create for this customer has the same email address (user ID %s), so the customer is linked to that account instead of creating a new one. The account’s name, addresses, and email address are not changed, and the customer’s orders are assigned to it."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:61
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+#: includes/Entities/CustomerWarnings.php:64
+msgid "This WordPress user is not a regular customer account on this site (it has a staff role or capability, such as a shop manager), so it is not exported."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:62
+#: includes/Entities/CustomerWarnings.php:65
+msgid "No action is needed. If the account really is a customer, remove the staff role or capability, then export again."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:69
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so the customer’s details are not imported and that account is not changed. Orders from this customer are imported as guest orders."
+msgstr ""
+
+#: includes/Entities/CustomerWarnings.php:70
 msgid "If the account really is the buyer’s, assign the orders to it in WooCommerce by hand after you finish importing (an order that is imported again becomes a guest order again)."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:66
+#: includes/Entities/CustomerWarnings.php:75
 msgid "The customer’s email address on the platform is already used by another WordPress user, so the customer is not updated."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:67
+#: includes/Entities/CustomerWarnings.php:76
 msgid "Change or remove the email address on the other WordPress user, or correct it on the platform, then import again."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:71
+#: includes/Entities/CustomerWarnings.php:80
 msgid "WooCommerce could not create the customer account (for example, the email address is not valid, or another plugin blocked the registration), so the customer is not imported."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:72
+#: includes/Entities/CustomerWarnings.php:81
 msgid "Check the customer’s email address on the platform. If a plugin blocks registrations (such as CAPTCHA or anti-spam), turn it off during the import. Then import again."
 msgstr ""
 
 #. translators: %s: a WordPress error code.
-#: includes/Entities/CustomerWarnings.php:74
+#: includes/Entities/CustomerWarnings.php:83
 #, php-format
 msgid "WooCommerce could not create the customer account (%s), so the customer is not imported."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:78
+#: includes/Entities/CustomerWarnings.php:87
 msgid "The customer’s address is outside Japan, and the platform does not say which country, so the country and state are left empty."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:79
+#: includes/Entities/CustomerWarnings.php:88
 msgid "Set the country (and state) of the customer’s billing and shipping addresses in WooCommerce."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:83
+#: includes/Entities/CustomerWarnings.php:92
 msgid "The customer is missing details the platform requires, so the customer is not exported: a name of 50 characters or fewer, and a billing postcode, prefecture and address (and, for a new customer, a phone number using only digits and hyphens)."
 msgstr ""
 
-#: includes/Entities/CustomerWarnings.php:84
+#: includes/Entities/CustomerWarnings.php:93
 msgid "Fill in the customer’s name, billing address and phone number in WooCommerce, then export again."
 msgstr ""
 
@@ -529,7 +537,7 @@ msgid "date unknown"
 msgstr ""
 
 #: includes/Entities/OrderWarnings.php:125
-msgid "The customer’s email address belongs to an administrator or staff account (such as a shop manager), so this order is imported as a guest order instead of being assigned to that account."
+msgid "The customer’s email address belongs to a WordPress user that is not a regular customer account on this site (such as an administrator, a shop manager, or another staff account), so this order is imported as a guest order instead of being assigned to that account."
 msgstr ""
 
 #: includes/Entities/OrderWarnings.php:126

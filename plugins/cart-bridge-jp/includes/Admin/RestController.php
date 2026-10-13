@@ -11,15 +11,18 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Adapters\OAuthCredentialsException;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Core\Uninstaller;
 use CartBridgeJP\Entities\EntityType;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Entities\MappingKind;
+use CartBridgeJP\Support\ApiException;
 use CartBridgeJP\Support\ExportOptions;
 use CartBridgeJP\Support\Logger;
 use CartBridgeJP\Support\PlatformBusyException;
 use CartBridgeJP\Support\PlatformLock;
+use CartBridgeJP\Support\RateLimitExhaustedException;
 use CartBridgeJP\Support\TokenStore;
 use CartBridgeJP\Sync\DryRunItemRepository;
 use CartBridgeJP\Sync\DryRunOnlyException;
@@ -57,6 +60,22 @@ use WP_REST_Response;
 final class RestController {
 
 	private const NAMESPACE = 'cbjp/v1';
+
+	/**
+	 * OAuth のコールバックが渡す失敗のコード。`src/oauth-status.ts` の `OAUTH_ERROR_CODES` と同じ一覧にする
+	 * （画面が知らないコードは汎用の文になる）。
+	 */
+	public const OAUTH_ERROR_CODES = [
+		'unknown_platform',
+		'state_invalid',
+		'denied',
+		'rejected',
+		'network',
+		'unavailable',
+		'credentials_changed',
+		'credentials_unreadable',
+		'unexpected',
+	];
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -205,6 +224,7 @@ final class RestController {
 					'run_id'        => [
 						'type'              => 'string',
 						'required'          => true,
+						'validate_callback' => 'rest_validate_request_arg',
 						'sanitize_callback' => 'sanitize_text_field',
 					],
 					// 登録済みの実体の種類（`rest_api_init` の時点。Pro アドオンの種類も入る）。知らない値は 400。
@@ -1247,13 +1267,17 @@ final class RestController {
 	 * `state` ワンタイムトークンのみで検証する（03 §6）。302 + Locationヘッダーで
 	 * 管理画面のConnectionsタブへ戻す（`exit`を伴う`wp_safe_redirect()`は使わず、
 	 * REST応答として返すことでユニットテスト可能にしている）。
+	 *
+	 * 失敗は文ではなくコード（{@see self::OAUTH_ERROR_CODES}）で渡し、Connections タブが訳す（R3-5b）。URL に載せた文を
+	 * 画面がそのまま通知に出すと、誰でも任意の文を出させる管理画面のリンクを作れ（偽の通知）、文もこの要求の言語〔ログインの
+	 * 無い REST なのでサイトの言語〕で訳される（backlog `r3-2-i18n/plan-X2`）。
 	 */
 	public function handle_oauth_callback( WP_REST_Request $request ): WP_REST_Response {
 		$platform = $this->platform_param( $request );
 		$oauth    = $this->oauth_for( $platform );
 
 		if ( null === $oauth ) {
-			return $this->redirect_to_connections( [ 'cbjp_connect_error' => __( 'Unknown platform.', 'cart-bridge-jp' ) ] );
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => 'unknown_platform' ] );
 		}
 
 		$code  = (string) ( $this->scalar_query_param( $request, 'code' ) ?? '' );
@@ -1261,21 +1285,69 @@ final class RestController {
 
 		// stateはcodeの有無より先に検証・消費する。ユーザーが認可を拒否した等の
 		// code無しコールバックでstateを放置すると、TTLが切れるまで再利用可能なまま残る。
-		$state_valid = '' !== $state && $oauth->verify_state( $state );
+		if ( '' === $state || ! $oauth->verify_state( $state ) ) {
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => 'state_invalid' ] );
+		}
 
-		if ( '' === $code || ! $state_valid ) {
-			return $this->redirect_to_connections(
-				[ 'cbjp_connect_error' => __( 'The connection request could not be verified. Please try again, or use the manual code entry fallback.', 'cart-bridge-jp' ) ]
-			);
+		// state は正しいがコードが無い: ショップの側で認可が拒否・取り消された（OAuth の `error=access_denied` など）。
+		if ( '' === $code ) {
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => 'denied' ] );
 		}
 
 		try {
 			$oauth->exchange_code( $code, $this->oauth_callback_url( $platform ), $state );
 		} catch ( Throwable $exception ) {
-			return $this->redirect_to_connections( [ 'cbjp_connect_error' => $exception->getMessage() ] );
+			$error = self::oauth_error_code( $exception );
+
+			// 保存した資格情報を復号できない（要再接続）と、資格情報の保存も失敗するので「保存し直す」は行き止まりの案内になる。
+			// 唯一の復旧手段の消去へ案内する（CLAUDE.md の `TokenStore` の項。review-loop R1-L8）。
+			if ( 'credentials_changed' === $error && ( new TokenStore( $platform ) )->needs_reconnect() ) {
+				$error = 'credentials_unreadable';
+			}
+
+			return $this->redirect_to_connections( [ 'cbjp_connect_error' => $error ] );
 		}
 
 		return $this->redirect_to_connections( [ 'cbjp_connected' => $platform ] );
+	}
+
+	/**
+	 * トークン交換の例外を、コールバックが渡すコードにする（{@see self::OAUTH_ERROR_CODES}）。例外の文では判定しない。
+	 *
+	 * - `credentials_changed`: 資格情報が無い・交換の途中で変わった（`OAuthCredentialsException`）。
+	 * - `unavailable`: ショップの API が混んでいる・障害（429・5xx、プラグインのレート制限の待ちが尽きた）。
+	 * - `rejected`: ショップが要求を拒んだ（429 以外の 4xx。資格情報の誤り・認可コードの期限切れ・リダイレクト URL の不一致）。
+	 * - `network`: 応答が無い（WordPress の HTTP API のエラー。status 0 で `wp_error_code` がある）。
+	 * - `unexpected`: それ以外（2xx の読めない応答・3xx〔リダイレクトには追従しない〕・ほかの例外）。
+	 */
+	public static function oauth_error_code( Throwable $exception ): string {
+		if ( $exception instanceof OAuthCredentialsException ) {
+			return 'credentials_changed';
+		}
+
+		if ( $exception instanceof RateLimitExhaustedException ) {
+			return 'unavailable';
+		}
+
+		if ( ! $exception instanceof ApiException ) {
+			return 'unexpected';
+		}
+
+		$status = $exception->status_code();
+
+		if ( 429 === $status || $exception->is_rate_limited() || ( $status >= 500 && $status < 600 ) ) {
+			return 'unavailable';
+		}
+
+		if ( $status >= 400 && $status < 500 ) {
+			return 'rejected';
+		}
+
+		if ( 0 === $status && isset( $exception->context()['wp_error_code'] ) ) {
+			return 'network';
+		}
+
+		return 'unexpected';
 	}
 
 	/**
@@ -1327,7 +1399,8 @@ final class RestController {
 	 * @param array<string,string> $query_args
 	 */
 	private function redirect_to_connections( array $query_args ): WP_REST_Response {
-		$url = add_query_arg( $query_args, admin_url( 'admin.php?page=' . Menu::PAGE_SLUG ) ) . '#/connections';
+		// `add_query_arg()` は値を URL エンコードしない（R3-5b）。
+		$url = add_query_arg( array_map( 'rawurlencode', $query_args ), admin_url( 'admin.php?page=' . Menu::PAGE_SLUG ) ) . '#/connections';
 
 		$response = new WP_REST_Response( null, 302 );
 		$response->header( 'Location', $url );

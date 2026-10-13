@@ -79,7 +79,7 @@ abstract class EntityType {
 	 * @throws RuntimeException 取り込めない種類（`supports_import()` が偽の種類はジョブにならないので、通常は届かない）。
 	 */
 	public function fetch_page( PlatformAdapter $adapter, Cursor $cursor ): Page {
-		throw new RuntimeException( "Entity \"{$this->key()}\" is not a cursor-walk entity." );
+		throw new RuntimeException( sprintf( 'Entity "%s" is not a cursor-walk entity.', esc_html( $this->key() ) ) );
 	}
 
 	/**
@@ -142,6 +142,7 @@ abstract class EntityType {
 	 * @throws RateLimitExhaustedException クライアント側のスロットル。
 	 */
 	public function fetch_by_remote_id( PlatformAdapter $adapter, string $remote_id ): ?CanonicalModel {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $adapter->id(), 'fetch_' . $this->key() . '_by_remote_id' );
 	}
 

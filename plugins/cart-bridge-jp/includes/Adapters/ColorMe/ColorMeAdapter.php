@@ -323,6 +323,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function fetch_reviews( Cursor $cursor ): Page {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
 	}
 
@@ -415,6 +416,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 			// 作成（POST）が確定してremote_idが分かった後の例外（`RateLimitExhaustedException`を含む）は、
 			// 素のまま出すと`Sync\Exporter`がmappingを書けず、次回exportが同じ商品をもう一度POSTして
 			// 重複させる（D21-A。issue #72）。remote_idを`PartialPushException`で運び、次回はPUTにする。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は作成した remote_id と元の例外（文ではない）。
 			throw new PartialPushException( $product_remote_id, $exception );
 		}
 	}
@@ -1058,6 +1060,7 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 	}
 
 	public function push_category( CanonicalCategory $category ): PushResult {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( self::ID, __FUNCTION__ );
 	}
 

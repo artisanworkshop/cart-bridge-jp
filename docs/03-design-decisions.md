@@ -2320,7 +2320,7 @@ D25「実体は作られた向きにだけ更新する」の実装。判定は�
 - **往復を想定しないため対応しないもの**（2026-10-06 ユーザー決定。上の「前提」）:
   1. エクスポートで結ばれた実体が mapping を失う（クリーンアップ等）と、取込みの向きからは Woo で手作りした実体と区別できない。
      リンク再構築（`MappingRebuilder`）は取込みの印からしか復元しないので、再取込みで商品・受注・クーポンは Woo に作り直され（重複）、
-     顧客はメール突合で採用・上書きされうる。
+     顧客はメール突合で採用される（R3-5b 以後は紐づけだけで、プロフィールは上書きしない。§10.9）。
   2. 保護ロールが絡むアカウントは印で判定しない（取込みが印を書かない）: 保護ロールで採用された後に `customer` へ降格したアカウントは
      取込みの印が無いのでエクスポートで更新として送られうる。逆にエクスポートで作った顧客が後から保護ロールを持つと、ガードを通らず
      `CustomerWriter` が保護ロールとしてスキップし（local_id はそのユーザー）、`Importer` がその行に取込みの checksum を書く（値は書かない）。
@@ -2703,6 +2703,7 @@ Pro アドオンに、取込みで作った顧客へパスワード設定の案�
    一斉に送ると後から開く顧客の多くで切れるので、メールにパスワード忘れのページ（`wc_get_account_endpoint_url( 'lost-password' )`）を「期限が切れたら再発行」として添える。
    期限をサイト全体で延ばさない（全ユーザーの再設定リンクが長く有効になる）。
 2. **送る相手**: 取込みで作った顧客（`_cbjp_created_by_import`）だけ。メールの一致で結んだ既存のアカウント（自分のパスワードがある）と保護ロール（管理者・ショップマネージャー）には送らない。
+   R3-5b 以後は「その顧客のために作ったアカウント」（`CustomerWriter::owns_profile()`。作成時の顧客 ID `_cbjp_created_remote_id` も一致）に絞る（§10.9）。
    送った日時をユーザーごとに記録し、二重送信を防いで途中から再開できるようにする。すでにパスワードを設定し直した顧客を除くかは実装で決める。
 3. **送る時期**: 新しいストアに切り替えた後に管理者が手動で始める。先に管理者宛てのテスト送信と文面の確認ができるようにする。
 4. **送り方**: Action Scheduler で少しずつ送り、失敗した宛先を記録する。レンタルサーバーの送信数の上限に当たりやすいので、SMTP プラグインの利用を案内する。
@@ -2983,3 +2984,68 @@ API Manager の製品の版・`tested` などの入力と 0 円の商品に同�
 Pro に、カラーミーの受注の `after` と、期間内の受注の購入者から顧客を集める取り方を足す。BASE の受注・顧客（B4-4・B4-5）も同じ口を使う。
 
 **要検証**（v2.0 の計画の前にテストショップで。§9 #23）: `customers.json?ids=` で一度に取れる件数と、日付の制限が掛からないか（受注の `ids` は直近 7 日の制限を受けた。§9 #18）。`after` に渡す日時の形式とタイムゾーン。
+
+### 10.9 セキュリティ最終監査（R3-5b・2026-10-13。ブランチ `feat/r3-5b-security-audit`）
+
+R3-4（wordpress.org 申請）の前に、無料版と Pro をまとめて監査した（2026-10-11 決定。R3-8a・c のライセンスキーの保存・API Manager との通信・更新の配信が新しい攻撃面になったので R3-8 の後）。
+
+**方法**: 計画時に読み取りだけで監査し、指摘はこの環境の WooCommerce 11.2.0・WordPress のソースで裏取りした。
+- 独立のエージェント 3 体で分担: (1) 無料版の入口（全 REST ルートの権限・`args`・`get_url_params()`・スカラー検査、OAuth のコールバック、CSV、`$_GET` 等・`admin_post`・出力のエスケープ、アンインストール）、
+  (2) 無料版のデータ経路（外向きの HTTP・SSRF、秘密の保存、SQL、ログの個人情報、ASP のデータを保存するときの浄化〔保存型 XSS〕、CSV、画面の React）、
+  (3) Pro（ライセンスの画面・クライアント・保存・更新の配信・ゲート、顧客・受注・クーポンの writer/reader、ログ、メインファイル）。計画は別のエージェントが敵対的に確かめた。
+- Plugin Check 2.1.0（dev サイト。全チェック）、`composer audit`（実行時の依存なし）、`npm audit --omit=dev`（moderate 7 件は `@wordpress/*` の依存で、wp-scripts の externals により WP 本体のものを使うので同梱されない。`build/index.js` に含まれないことを確認）。
+
+**直したもの**（ユーザー決定 2026-10-13 を含む）:
+
+| 重大度 | 場所 | 内容 | 対処 |
+|---|---|---|---|
+| Medium | 無料版 `Woo\Support\SkuGuard` | ASP の型番が無害化されずに SKU になり、WooCommerce の `single-product/meta.php`・SKU のブロックがエスケープせずに出す（保存型 XSS。WooCommerce 自身の管理画面・REST は `wc_clean()` を掛ける） | `SkuGuard::normalize()`（`wc_clean()`）で保存する。SKU で引く `ProductResolver` は整形で変わらない型番だけを SKU で引く（`lookup_key()`。整形した値で引くと `AB` と `AB ` が同じ商品に当たり、空の値で引くと SKU の無い商品に当たる。review-loop R1-2・R1-L5） |
+| Medium | 無料版 `Woo\Writer\ProductWriter` | バリエーションの軸名が生のまま属性の名前になり、`single-product/add-to-cart/variable.php` がエスケープせずに出す（WooCommerce の管理画面は `wc_clean( esc_html() )` で保存する前提） | 属性の名前を `HtmlText::from_plain()` で保存し、同じ値をバリエーションの属性のキーにも使う。エクスポートは `VariationAxisResolver::attribute_label()` が平文へ戻す（WooCommerce の管理画面で作った名前の `&amp;` が送られていた既存の問題も直る） |
+| Medium | Pro `CustomerWriter` | メールが一致した既存の WP ユーザーを採用して氏名・住所を上書きし、以後の取込み（mapping 経由）でログイン用のメールまで ASP の値に同期した。ASP の会員登録がメールの持ち主を確かめないと、他人のメールで登録した顧客が既存のアカウントの住所を差し替え（チェックアウトの初期値）、ASP 側でメールを変えて乗っ取れる（パスワードの再設定） | **採用は紐づけだけ**（ユーザー決定）: プロフィール・住所・extras・メールを書くのは「取込みがその顧客のために作ったアカウント」だけ（`owns_profile()`: `_cbjp_created_by_import` がこのプラットフォームで、作成時の顧客 ID〔新しい不変の印 `_cbjp_created_remote_id`〕が一致）。それ以外は mapping と紐づけの印だけを書いて `skipped`（`unchanged` には数えない）、書いた結果に `customer_reused_existing`（保護したアカウント・その顧客のために作ったアカウントには付けない。review-loop R1-1）。メールは `is_email()` のときだけ同期。extras の印と同じ名前のキー（`platform`・`created_by_import`・`created_remote_id`）は書かない（アダプタは信頼境界。review-loop R2） |
+| Medium | Pro `CustomerWriter::has_protected_role()` | 保護をロール名の固定の一覧（administrator など 5 つ）で判定し、`manage_woocommerce` を持つカスタムロールのスタッフ・ユーザーに直接付いた能力・マルチサイトの非メンバーが漏れた（受注がスタッフのアカウントに結び付き、エクスポートでスタッフの個人情報が送られうる） | 許可リストにした: このサイトのロールが空でなく `customer`・`subscriber` だけ、特権管理者でない、`STAFF_CAPABILITIES`（`manage_options`・`manage_woocommerce`・`edit_posts`・`view_admin_dashboard`・`edit_shop_orders`・`list_users`・`edit_users`）を持たない。`CustomerReader` はクエリ（`role__not_in`・`capability__not_in`・マルチサイトの `login__not_in`）で絞り、`user_has_cap` で足される能力（クエリでは見えない）で保護したアカウントは、送らない理由 `customer_account_protected`（エクスポートを止める印を足した）を付けて返す（review-loop R1-L7。結果から外すと件数と処理した数がずれ、理由も残らない。G2-2） |
+| Low-Med | 無料版 `MediaImporter` | 画像の取得のフォールバックが、画像の拡張子でない URL のファイルも、実行するユーザーに許された種類として保存した（管理者の Cookie で動く非同期ランナーでは `x.html` も通り、サイトと同じオリジンに置かれる） | `image/` の種類で、`wp_get_image_mime()` も画像と答えるときだけ保存する（SVG は `wp_get_image_mime()` が判定できず、SVG を許すプラグインのあるサイトでは fileinfo の判定で通る。review-loop R1-L6）。取得は `download_url()`＋この判定＋`media_handle_sideload()` の 1 つの経路だけにした（`media_sideload_image()` は `image_sideload_extensions` の拡張子なら中身を確かめずに保存しうる。G1-1・G3-1） |
+| Low | 無料版 `Support\HttpClient` | API の呼び出しがリダイレクトに追従し、WordPress の HTTP API は転送先へ Bearer トークン・トークン交換の client_secret を送り直す | `redirection => 0`（呼び出し元の引数でも変えられない）。3xx は実際の status の `ApiException`（context は `redirect` だけ） |
+| Low | 無料版 `ColorMeOAuth::verify_state()` | 読んでから消すまでの間に同じ state の要求が重なると両方が通る | `delete_transient()` が消せた要求だけを通す。state は `bin2hex( random_bytes( 16 ) )`（`random_password` フィルターで変わらない）で、形の違う state は引かない |
+| Low | 無料版 OAuth のコールバック・`ConnectionsTab` | エラーの文を URL のクエリ（`cbjp_connect_error`）に載せ、画面がそのまま通知に出した（誰でも任意の文を出させる管理画面のリンクを作れる。URL エンコードも無し） | **コードで渡す**（ユーザー決定。`RestController::OAUTH_ERROR_CODES` ＝ `src/oauth-status.ts`。一致はテストで確かめる）。例外の種類・status で分類し（`oauth_error_code()`）、画面がユーザーの言語で訳す（backlog `r3-2-i18n/plan-X2` も解消）。要再接続なら消去へ案内する（`credentials_unreadable`。review-loop R1-L8）。`cbjp_connected` も接続一覧に無い値は出さない |
+| Low | 無料版 `PushIntentPresenter` | 拡張の種類が返す `edit_url` を文字列かどうかだけで画面の `href` にした | http(s) で host のある URL だけ（`wp_parse_url()` で確かめてから `esc_url_raw()`） |
+| 規約 | 無料版 `/runs/{run_id}/report` | `run_id` が `sanitize_callback` だけで `validate_callback` が無かった（CLAUDE.md） | `rest_validate_request_arg` を足した |
+| Plugin Check の ERROR | 無料版 45・Pro 11 | `WordPress.Security.EscapeOutput.ExceptionNotEscaped`（`phpcs.xml.dist` が除外していたので `composer lint` では出なかった。申請の Plugin Check では ERROR） | **この PR で直す**（ユーザー決定）: 式展開した文は `sprintf()` と `esc_html()`、文でない引数（コード・ID・context・元の例外）と ASP・WP の HTTP API の文（`esc_html()` すると画面に実体参照の文字のまま出る）は理由つきの `phpcs:ignore`/`disable`。`phpcs.xml.dist` の除外を外した（テスト・`bin`・`.claude` は除く。`bin/check-pro-zip.php` は WP を読み込まずに動く） |
+
+**確認**: 品質チェック一式、直したガードの変異（修正前の形に戻す。実装時 38 か所のうち 37 か所が検出。残る 1 か所〔`edit_url` の scheme の許可リスト〕は直後の `esc_url_raw()` が同じ許可リストで弾く重複だったので外した。
+review-loop R1 の修正 9 か所はすべて検出。backfill の条件を「空なら」に戻す変異は、作成時の顧客 ID を空でも読むようになったため等価〔同じ値を書き直すだけ〕で、backfill を外す変異で確かめた）、
+dev サイトのストアフロント（Twenty Twenty-Five。店舗は「近日公開」なので管理者のセッションで取得）: 修正前と同じ値を CRUD で書いた商品は SKU のブロックが `<script>` をそのまま出し、`ProductWriter` で書いた商品は出さない
+（軸名はこのブロックテーマでは除かれるが、クラシックのテンプレートは生のまま出す。単体テストで描いて確認）。配布 zip（`bin/build-zip.sh`）を展開して Plugin Check: 無料版は ERROR 0
+（警告は自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP・`load_plugin_textdomain()`・`missing_composer_json_file`。後の 2 つは R3-4 で判断）、Pro は `no_plugin_readme` だけ（wordpress.org で配らない）。
+
+**採らなかった・受け入れたもの**:
+- OAuth の state をログイン中のユーザーに結び付ける: コールバックは REST の Cookie 認証の外（nonce が無いので現在のユーザーは 0）。ログインの Cookie を直接読めば結び付けられるが、`secure` の Cookie と http の home の組み合わせなどで正しい接続が壊れうる。前提（10 分以内に state が漏れる）が厳しいので受け入れた。
+- CSV のリンクの URL に nonce が載る（WP の標準。アクセスログに残る）／`includes/` のクラスだけのファイルに ABSPATH のガードが無い（直接開いても何も実行しない。Plugin Check の `direct_file_access` は 0 件）／
+  アンインストール時に既定でトークン（暗号文）を残す（readme の FAQ に記載。データを消す設定で消える）。
+- Pro のライセンス操作（有効化・無効化・キーの差し替え）は `manage_woocommerce` のまま（ユーザー決定。取込み・エクスポートと同じ権限）。
+- Pro の更新の package の host を固定しない（API Manager の外部ストレージと両立させる。TLS の検証は既定のまま）。ライセンスのゲートは run の作成と Retry だけ（§10.7「守ること」4）。
+- エクスポートは Woo の説明の HTML を ColorMe へ送る（店舗の説明の移行そのもの）。OOB のコード入力・接続テストのエラーは自由文のまま（認証済みの経路で、REST の JSON を画面がテキストとして表示する）。
+- 取込み済みの商品の SKU・属性の名前は、checksum が変わるまで書き直されない（v1.0 の公開版は無い。0.1.0 で取り込んだ店舗は ColorMe 側を変えるか、mapping を外して取り込み直す）。
+- 0.1.0（作成の印 `_cbjp_created_by_import` は F1-7〔2026-09-11〕からで、0.1.0〔2026-09-08〕より後）で取り込んだ顧客は、Pro では紐づけだけになり更新されない（安全側。review-loop R1-L1）。
+  作成の印があって作成時の顧客 ID の無いアカウント（F1-7〜R3-5b の未公開のビルド）だけ、`_cbjp_remote_id` を作成時の値とみなす（紐づけだけの経路は書き換える前に控える。空でも控え、空は誰のものでもない。R1-L2）。
+- 残るリスク（review-loop R1-L3）: 取込みがその顧客のために作ったアカウントは、今もログイン用のメールを ASP の値に同期する。ASP がメールの持ち主を確かめないと、他人のメールで先に登録した ASP の顧客が
+  「作成者」になり、後から来た本人（同じメールの別の ASP の顧客）は紐づけだけになって注文がそのアカウントに割り当たる。ColorMe の会員のメールはショップの中で一意で、取り込むのは会員だけなので、
+  本人が既に会員なら起きない。
+- SKU で引くのは整形で変わらない型番だけなので、整形で変わる型番（前後・連続の空白・`%XX`・`<`）のバリエーションの受注の明細は、オプション値が今の商品と合わない古い受注（R3-0n）だと
+  SKU で救えず、`order_line_variation_unmatched` の行になる（警告つき。フェイルクローズ。review-loop R2-3）。
+- 許可リストのトレードオフ（review-loop R1-L4）: ログインのときにロールを足すプラグイン（例: bbPress の `bbp_participant`）を使うサイトでは、その顧客も保護になる（プロフィールを更新しない・受注はゲスト・
+  エクスポートの対象外）。そのプラグインを止めるとロールが未登録になって `WP_User::$roles` から消え、保護が外れる（その後は通常の顧客として扱う）。
+
+**backlog へ送ったもの**（`docs/review-backlog.md` の `r3-5b-security-audit/*`）: 画像の取得の応答サイズとタイムアウト、エクスポートの画像の取得の `wp_remote_get`（`wp_safe_remote_get` は dev サイトの localhost:10010 を拒否する）、
+API のパスの remote_id のエンコード（管理者の入力の経路は既にエンコード済み）、`TokenStore` の鍵の用途分離（変えると既存の暗号文が読めない）、CSV の双方向制御文字・全角の `＝`、Pro の uninstall が無い、
+Pro の応答サイズの上限、Woo で作った属性の値の `&amp;` が送られる、名前に `<` を含む既存の商品の書き直しで価格不正で見送ったバリエーションだけ古いキーが残る。
+
+**安全と確かめた範囲**:
+- REST: 全 24 エンドポイントが `manage_woocommerce`（`PUT /settings/uninstall` はさらに `delete_plugins`）。認証の要らないのは OAuth のコールバックだけで、state が正しいときだけ外部 API を呼ぶ。パスのリソースは全ハンドラーが `get_url_params()` で読み、スカラーを確かめる。転送先は `admin_url()` に固定。
+- 入力・出力: `$_GET`・`$_POST`・`$_REQUEST`・`$_COOKIE`・`$_SERVER`・`filter_input` は無料版に無い。Pro のライセンス画面は権限 → 操作の許可リスト → nonce（`check_admin_referer`）の順で、転送先は固定、キーは `\z` の正規表現で確かめ、末尾 4 文字しか出さない。
+  PHP の出力はすべてエスケープ済み。React に `dangerouslySetInnerHTML`・`RawHTML` は無い。
+- SQL: 全件 `prepare()`（IN 句はプレースホルダーを並べる。LIKE は `esc_like()`。ORDER BY は固定。DROP は定数のテーブル名）。
+- 秘密: トークン・ライセンスキーは `sodium_crypto_secretbox`（改ざん検知つき、nonce は毎回 `random_bytes`）。REST はマスクした値だけを返す。option は autoload なし。`sslverify` を無効にする箇所は無い。
+- 外向きの HTTP: ColorMe の URL は固定。取込みの画像は `download_url()`（`wp_safe_remote_get`。内部アドレス・`file://`・リダイレクト先を検証）。Pro の `LicenseClient` は `wp_safe_remote_post`・`redirection => 0`・応答をフェイルクローズで解釈。
+  `UpdateChecker` はキーを有効化していないサイトでは通信せず、WP へ渡す項目を検証済みのものに絞る（節は `wp_kses_post`）。
+- 保存型 XSS: 商品名（実体参照）・説明（`sanitize_post_html()`）・ターム（WP が常に浄化）・画像のメタ（WP が kses）。Pro の受注の明細名・住所・クーポンの説明は WooCommerce が出力時に kses・`esc_html` する（HTML のタグは残りうる。既存の backlog）。
+- ログ: `cbjp_logs` の context は ID・例外クラス・件数だけで、HTTP の本文・個人情報を記録しない。HPOS: Pro は受注を CRUD だけで扱い、`get_post_meta` を使わない。

@@ -21,6 +21,16 @@ final class CustomerWriterTest extends WooTestCase {
 		return new CustomerWriter( 'colorme' );
 	}
 
+	/**
+	 * 取込みが ASP の顧客 `$remote_id` のために作ったアカウントの印（`CustomerWriter::write()` が作成時に書く）。
+	 */
+	private function mark_created_by_import( int $user_id, string $remote_id ): void {
+		update_user_meta( $user_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+		update_user_meta( $user_id, CustomerWriter::CREATED_REMOTE_ID_META, $remote_id );
+		update_user_meta( $user_id, '_cbjp_platform', 'colorme' );
+		update_user_meta( $user_id, '_cbjp_remote_id', $remote_id );
+	}
+
 	public function test_creates_new_customer_with_name_split(): void {
 		$customer = new CanonicalCustomer(
 			'taro@example.com',
@@ -57,29 +67,289 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertNotEmpty( $user->user_pass );
 	}
 
-	public function test_reuses_existing_customer_user_by_email(): void {
+	public function test_email_match_links_existing_account_without_changing_it(): void {
+		// R3-5b: ASP の会員登録がメールの持ち主を確かめないと、他人のメールで登録した顧客が既存のアカウントの住所を書き換えうる。
+		// 取込みが作っていないアカウントは紐づけ（mapping と印）だけにし、プロフィール・住所に触れない。
 		$existing_id = wp_insert_user(
 			[
 				'user_login' => 'taro',
 				'user_email' => 'taro@example.com',
 				'user_pass'  => 'x',
 				'role'       => 'customer',
+				'first_name' => 'Own',
 			]
 		);
+		update_user_meta( $existing_id, 'billing_address_1', 'Own address' );
 
-		$customer = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$customer = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [ 'address1' => 'Other address' ], null, null, null, null, [ 'remote_id' => '1' ] );
 		$result   = $this->make_writer()->write( $customer, null );
 
+		// mapping（受注の顧客の解決）は残すので local_id はそのアカウント。何も書き換えていないので skipped。
 		$this->assertSame( $existing_id, $result->local_id );
-		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
-		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $result->warnings );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ) ], $result->warnings );
 
 		$user = get_userdata( $existing_id );
 		$this->assertContains( 'customer', $user->roles );
-		$this->assertSame( 'Yamada', $user->first_name );
-		// email突合で採用した既存アカウントには「本プラグインが作成した」マーカーを付けない
-		// （このプラグインが作ったアカウントと区別するため。R3-6a で削除したサンプルクリーンアップが削除の判定に使っていた）。
+		$this->assertSame( 'Own', $user->first_name );
+		$this->assertSame( 'Own address', get_user_meta( $existing_id, 'billing_address_1', true ) );
+		$this->assertSame( '', get_user_meta( $existing_id, '_cbjp_kana', true ) );
+		// 紐づけの印（D25・リンク再構築）は書く。作成の印は付けない。
+		$this->assertSame( 'colorme', get_user_meta( $existing_id, '_cbjp_platform', true ) );
+		$this->assertSame( '1', get_user_meta( $existing_id, '_cbjp_remote_id', true ) );
 		$this->assertSame( '', get_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '', get_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+	}
+
+	public function test_mapped_account_not_created_for_this_customer_never_takes_the_email(): void {
+		// 乗っ取りの流れ: メールで紐づけた後、ASP 側でメールを攻撃者のものに変えると、mapping 経由の取込みが
+		// ログイン用のメールを書き換えていた（パスワードの再設定で乗っ取れる）。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'victim',
+				'user_email' => 'victim@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+		update_user_meta( $existing_id, '_cbjp_platform', 'colorme' );
+		update_user_meta( $existing_id, '_cbjp_remote_id', '1' );
+
+		$customer = new CanonicalCustomer( 'attacker@example.com', 'Attacker', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( $existing_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		// mapping で結んだときも毎回理由を残す。
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ) ], $result->warnings );
+		$this->assertSame( 'victim@example.com', get_userdata( $existing_id )->user_email );
+		$this->assertNotSame( 'Attacker', get_userdata( $existing_id )->display_name );
+	}
+
+	public function test_account_created_for_another_customer_is_only_linked(): void {
+		// 取込みが別の顧客（5）のために作ったアカウントに、同じメールの別の顧客（1）が当たった。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'hanako',
+				'user_email' => 'hanako@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Hanako',
+			]
+		);
+		$this->mark_created_by_import( $existing_id, '5' );
+
+		$customer = new CanonicalCustomer( 'hanako@example.com', 'Someone Else', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$first    = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $first->operation );
+		$this->assertSame( 'Hanako', get_userdata( $existing_id )->first_name );
+		// 作成時の顧客 ID は変わらない（紐づけの印は書き換わる）。
+		$this->assertSame( '5', get_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+		$this->assertSame( '1', get_user_meta( $existing_id, '_cbjp_remote_id', true ) );
+
+		// 次の取込み（mapping 経由）でも、顧客 1 のためのアカウントではないので書かない。
+		$second = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $second->operation );
+		$this->assertSame( 'Hanako', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_account_created_before_r3_5b_remembers_its_customer_before_relinking(): void {
+		// R3-5b より前に作ったアカウントは作成時の顧客 ID を持たず、`_cbjp_remote_id` を作成時の値とみなす。紐づけだけの経路が
+		// `_cbjp_remote_id` を書き換える前に控えないと、次の取込みが別の顧客を作成時の顧客と読み、プロフィールを書いてしまう。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'legacy',
+				'user_email' => 'legacy@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Legacy',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+		update_user_meta( $existing_id, '_cbjp_platform', 'colorme' );
+		update_user_meta( $existing_id, '_cbjp_remote_id', '5' );
+
+		$other = new CanonicalCustomer( 'legacy@example.com', 'Someone Else', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$this->make_writer()->write( $other, null );
+
+		$this->assertSame( '5', get_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+
+		$again = $this->make_writer()->write( $other, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $again->operation );
+		$this->assertSame( 'Legacy', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_account_created_before_r3_5b_is_still_updated_for_its_own_customer(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'legacy',
+				'user_email' => 'legacy@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+		update_user_meta( $existing_id, '_cbjp_remote_id', '1' );
+
+		$customer = new CanonicalCustomer( 'legacy@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( 'Yamada', get_userdata( $existing_id )->first_name );
+	}
+
+	/**
+	 * 取込みがこの顧客のために作ったアカウントを、mapping を失った後にメールで見つけ直したときは更新し、紐づけだけの理由を付けない
+	 * （説明文は「この顧客のために作ったのではない…変更しない」。review-loop R1-1）。
+	 */
+	public function test_own_account_found_again_by_email_is_updated_without_the_link_only_reason(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'own',
+				'user_email' => 'own@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+		$this->mark_created_by_import( $existing_id, '1' );
+
+		$customer   = new CanonicalCustomer( 'own@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+		$result     = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertSame( $existing_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( 'Yamada', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_protected_account_is_not_reported_as_linked(): void {
+		$admin_id = wp_insert_user(
+			[
+				'user_login' => 'admin-own',
+				'user_email' => 'admin-own@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'administrator',
+			]
+		);
+
+		$customer = new CanonicalCustomer( 'admin-own@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+
+		// 保護したアカウントには受注を結ばない（ゲスト）ので、「受注をそのアカウントに割り当てる」理由は付けない。
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->write( $customer, null )->warnings );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->validate( $customer, null )->warnings );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->validate( $customer, $admin_id )->warnings );
+	}
+
+	/**
+	 * extras は `_cbjp_{key}` のメタになるので、印と同じ名前のキーで所有の判定に使う印を書き換えさせない（アダプタは信頼境界。review-loop R2）。
+	 */
+	public function test_extras_cannot_overwrite_the_link_and_creation_markers(): void {
+		$customer = new CanonicalCustomer(
+			'markers@example.com',
+			'Taro Yamada',
+			null,
+			null,
+			null,
+			[],
+			null,
+			null,
+			null,
+			null,
+			[
+				'remote_id'         => '7',
+				'platform'          => 'other',
+				'created_by_import' => 'other',
+				'created_remote_id' => '99',
+				'fax'               => '03-0000-0000',
+			]
+		);
+
+		$result = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, '_cbjp_platform', true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, '_cbjp_remote_id', true ) );
+		// ほかの extras は今どおり書く。
+		$this->assertSame( '03-0000-0000', get_user_meta( $result->local_id, '_cbjp_fax', true ) );
+
+		// 次の取込み（mapping 経由）でも、印を書き換えさせない（作ったアカウントのまま更新される）。
+		$again = $this->make_writer()->write( $customer, $result->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $again->operation );
+		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ) );
+		$this->assertSame( '7', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ) );
+	}
+
+	public function test_account_created_before_r3_5b_without_a_remote_id_is_never_owned_after_relinking(): void {
+		// 古いアカウントで `_cbjp_remote_id` が空（または無い）なら、作成時の顧客 ID は空のまま控える（空は誰のものでもない。R1-L2）。
+		// 控えた値を「無い」と読むと、紐づけだけの経路が書いた別の顧客の ID を次の取込みが作成時の値と読んでしまう。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'legacy-empty',
+				'user_email' => 'legacy-empty@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Legacy',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+
+		$other = new CanonicalCustomer( 'legacy-empty@example.com', 'Someone Else', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $this->make_writer()->write( $other, null )->operation );
+		$this->assertTrue( metadata_exists( 'user', $existing_id, CustomerWriter::CREATED_REMOTE_ID_META ) );
+
+		$again = $this->make_writer()->write( $other, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $again->operation );
+		$this->assertSame( 'Legacy', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_a_customer_without_a_remote_id_owns_no_account(): void {
+		// 作成時の顧客 ID が空で ASP の顧客 ID が無いときに一致と読まない（`owns_profile()` の厳密な比較。R1-L11）。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'no-remote',
+				'user_email' => 'no-remote@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Kept',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+		update_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, '' );
+
+		$customer = new CanonicalCustomer( 'no-remote@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( 'Kept', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_account_created_by_another_platform_is_only_linked(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'base',
+				'user_email' => 'base@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Base',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'base' );
+		update_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, '1' );
+
+		$customer = new CanonicalCustomer( 'base@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( 'Base', get_userdata( $existing_id )->first_name );
 	}
 
 	public function test_newly_created_customer_is_marked_as_created_by_import(): void {
@@ -88,7 +358,15 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$this->assertSame( WriteResult::OPERATION_CREATED, $result->operation );
 		$this->assertSame( 'colorme', get_user_meta( $result->local_id, CustomerWriter::CREATED_BY_IMPORT_META, true ), 'マーカーは作成したプラットフォームを保持する' );
+		$this->assertSame( '2', get_user_meta( $result->local_id, CustomerWriter::CREATED_REMOTE_ID_META, true ), '作成時の顧客 ID を保持する' );
 		$this->assertSame( 'colorme', get_user_meta( $result->local_id, '_cbjp_platform', true ) );
+
+		// 作ったアカウントは、次の取込み（mapping 経由）で更新される。
+		$renamed = new CanonicalCustomer( 'hanako@example.com', 'Hanako Suzuki', null, null, null, [], null, null, null, null, [ 'remote_id' => '2' ] );
+		$update  = $this->make_writer()->write( $renamed, $result->local_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $update->operation );
+		$this->assertSame( 'Suzuki', get_userdata( $result->local_id )->first_name );
 	}
 
 	public function test_reusing_administrator_account_does_not_overwrite_profile(): void {
@@ -165,6 +443,8 @@ final class CustomerWriterTest extends WooTestCase {
 			]
 		);
 
+		$this->mark_created_by_import( $existing_id, '1' );
+
 		$customer = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$result   = $this->make_writer()->write( $customer, $existing_id );
 
@@ -172,6 +452,31 @@ final class CustomerWriterTest extends WooTestCase {
 
 		$user = get_userdata( $existing_id );
 		$this->assertSame( 'new@example.com', $user->user_email );
+	}
+
+	public function test_update_does_not_sync_a_malformed_email(): void {
+		// `wp_update_user()` は形の正しくないメールを `sanitize_email()` で空にして保存しうる。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+		$this->mark_created_by_import( $existing_id, '1' );
+
+		$customer = new CanonicalCustomer( 'not-an-email', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+		$this->assertSame( 'Yamada', get_userdata( $existing_id )->first_name );
+
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
 	}
 
 	public function test_update_email_conflict_with_another_user_warns_without_overwriting(): void {
@@ -192,6 +497,8 @@ final class CustomerWriterTest extends WooTestCase {
 				'role'       => 'customer',
 			]
 		);
+
+		$this->mark_created_by_import( $existing_id, '1' );
 
 		$customer = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$result   = $this->make_writer()->write( $customer, $existing_id );
@@ -305,8 +612,9 @@ final class CustomerWriterTest extends WooTestCase {
 		$customer   = new CanonicalCustomer( 'taro@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$validation = $this->make_writer()->validate( $customer, null );
 
-		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
-		$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ), $validation->warnings );
+		// write() と同じく紐づけだけ（R3-5b）。
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ) ], $validation->warnings );
 
 		// 何も永続化していない（氏名は未反映のまま）。
 		$user = get_userdata( $existing_id );
@@ -339,6 +647,8 @@ final class CustomerWriterTest extends WooTestCase {
 				'role'       => 'customer',
 			]
 		);
+
+		$this->mark_created_by_import( $existing_id, '1' );
 
 		$customer   = new CanonicalCustomer( 'new@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$validation = $this->make_writer()->validate( $customer, $existing_id );
@@ -400,6 +710,8 @@ final class CustomerWriterTest extends WooTestCase {
 			]
 		);
 
+		$this->mark_created_by_import( $existing_id, '1' );
+
 		$customer   = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
 		$validation = $this->make_writer()->validate( $customer, $existing_id );
 
@@ -409,5 +721,132 @@ final class CustomerWriterTest extends WooTestCase {
 
 		// 何も永続化していない。
 		$this->assertSame( 'old@example.com', get_userdata( $existing_id )->user_email );
+	}
+
+	public function test_validate_links_a_mapped_account_without_checking_its_email(): void {
+		// 紐づけだけのアカウントはメールを書かないので、write() と同じく衝突を判定しない（dry-run と本番をそろえる）。
+		wp_insert_user(
+			[
+				'user_login' => 'other',
+				'user_email' => 'taken@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'taro',
+				'user_email' => 'old@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+
+		$customer   = new CanonicalCustomer( 'taken@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, $existing_id );
+		$result     = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $validation->operation );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_id ) ], $validation->warnings );
+		$this->assertSame( $validation->operation, $result->operation );
+		$this->assertSame( $validation->warnings, $result->warnings );
+	}
+
+	/**
+	 * @return array<string,array{0:array<int,string>,1:array<int,string>,2:bool}>
+	 */
+	public static function protection_cases(): array {
+		return [
+			'customer'                                  => [ [ 'customer' ], [], false ],
+			'subscriber'                                => [ [ 'subscriber' ], [], false ],
+			'customer and subscriber'                   => [ [ 'customer', 'subscriber' ], [], false ],
+			'administrator'                             => [ [ 'administrator' ], [], true ],
+			'shop manager with customer'                => [ [ 'customer', 'shop_manager' ], [], true ],
+			'custom staff role'                         => [ [ 'cbjp_test_staff' ], [], true ],
+			'customer with a custom forum role'         => [ [ 'customer', 'cbjp_test_member' ], [], true ],
+			'no role on this site'                      => [ [], [], true ],
+			'customer with a staff capability directly' => [ [ 'customer' ], [ 'manage_woocommerce' ], true ],
+			'customer with edit_posts directly'         => [ [ 'customer' ], [ 'edit_posts' ], true ],
+		];
+	}
+
+	/**
+	 * R3-5b: 保護はロール名の拒否リストではなく許可リスト（顧客のロールだけ・スタッフの能力なし）。
+	 *
+	 * @dataProvider protection_cases
+	 * @param array<int,string> $roles
+	 * @param array<int,string> $caps
+	 */
+	public function test_has_protected_role_allows_only_plain_customer_accounts( array $roles, array $caps, bool $expected ): void {
+		add_role(
+			'cbjp_test_staff',
+			'Test staff',
+			[
+				'read'               => true,
+				'manage_woocommerce' => true,
+			]
+		);
+		add_role( 'cbjp_test_member', 'Test member', [ 'read' => true ] );
+
+		$user_id = wp_insert_user(
+			[
+				'user_login' => 'probe',
+				'user_email' => 'probe@example.com',
+				'user_pass'  => 'x',
+				'role'       => '',
+			]
+		);
+		$user    = new WP_User( $user_id );
+		$user->set_role( '' );
+
+		foreach ( $roles as $role ) {
+			$user->add_role( $role );
+		}
+
+		foreach ( $caps as $cap ) {
+			$user->add_cap( $cap );
+		}
+
+		try {
+			$this->assertSame( $expected, CustomerWriter::has_protected_role( $user_id ) );
+		} finally {
+			remove_role( 'cbjp_test_staff' );
+			remove_role( 'cbjp_test_member' );
+		}
+	}
+
+	public function test_custom_staff_account_is_not_overwritten(): void {
+		add_role(
+			'cbjp_test_staff',
+			'Test staff',
+			[
+				'read'               => true,
+				'manage_woocommerce' => true,
+			]
+		);
+
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'staff',
+				'user_email' => 'staff@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'cbjp_test_staff',
+				'first_name' => 'Staff',
+			]
+		);
+
+		try {
+			$customer = new CanonicalCustomer( 'staff@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+			$result   = $this->make_writer()->write( $customer, null );
+
+			$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+			$this->assertContains( WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ), $result->warnings );
+			$this->assertSame( 'Staff', get_userdata( $existing_id )->first_name );
+			// 保護したアカウントには紐づけの印も書かない（D25: 取込みが印を書かない）。
+			$this->assertSame( '', get_user_meta( $existing_id, '_cbjp_platform', true ) );
+		} finally {
+			remove_role( 'cbjp_test_staff' );
+		}
 	}
 }

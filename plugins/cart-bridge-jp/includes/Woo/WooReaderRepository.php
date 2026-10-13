@@ -32,7 +32,7 @@ final class WooReaderRepository implements WooReader {
 			// Reader を持つ契約なので、通常はここに到達しない。到達した場合は種類の実装の誤り（Reader を返さない・
 			// 組み立てに失敗した。後者は`WooReaderRepositoryFactory`が記録する）であり、空ページ（skippedにもならない）で
 			// 誤魔化さずここで気付けるようにする。
-			throw new RuntimeException( "No Woo reader registered for entity \"{$entity}\"." );
+			throw new RuntimeException( sprintf( 'No Woo reader registered for entity "%s".', esc_html( $entity ) ) );
 		}
 
 		return $reader->query( $cursor, null );

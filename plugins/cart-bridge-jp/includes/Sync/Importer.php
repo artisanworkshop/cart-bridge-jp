@@ -285,7 +285,7 @@ final class Importer {
 		$type = EntityTypeRegistry::get( $entity );
 
 		if ( null === $type ) {
-			throw new RuntimeException( "Entity \"{$entity}\" is not a cursor-walk entity." );
+			throw new RuntimeException( sprintf( 'Entity "%s" is not a cursor-walk entity.', esc_html( $entity ) ) );
 		}
 
 		$page = $type->fetch_page( $adapter, $cursor );

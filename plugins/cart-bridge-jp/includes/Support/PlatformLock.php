@@ -80,6 +80,7 @@ final class PlatformLock {
 		$handle = $this->acquire( $platform, $ttl_seconds );
 
 		if ( null === $handle ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID（例外が文を組み立てる）。例外の文は HTML に出さない。
 			throw new PlatformBusyException( $platform );
 		}
 

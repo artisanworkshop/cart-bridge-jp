@@ -54,10 +54,31 @@ final class PushIntentPresenter {
 
 		return [
 			'exists'   => $description['exists'],
-			'edit_url' => is_string( $edit_url ) ? $edit_url : null,
+			'edit_url' => self::web_url( $edit_url ),
 			// 画面に出す 1 行（R3-6b2）。実体が無いときは出さない（画面が「削除済み」と書く）。
 			'summary'  => $description['exists'] && is_string( $summary ) ? $summary : '',
 			'details'  => $description['details'],
 		];
+	}
+
+	/**
+	 * 画面のリンク（`href`）にする URL を、http(s) で host のあるものだけにする（R3-5b。外部の種類の戻り値。原則 8）。
+	 * `esc_url_raw()` だけでは scheme の無い値に `http://` を補い、host の無い `https:example.com` も通すので、先に scheme と host が
+	 * あることを確かめる（http(s) 以外の scheme は `esc_url_raw()` の許可リストが空にする）。
+	 */
+	private static function web_url( mixed $url ): ?string {
+		if ( ! is_string( $url ) || '' === $url ) {
+			return null;
+		}
+
+		$parts = wp_parse_url( $url );
+
+		if ( ! is_array( $parts ) || ! isset( $parts['scheme'], $parts['host'] ) ) {
+			return null;
+		}
+
+		$clean = esc_url_raw( $url, [ 'http', 'https' ] );
+
+		return '' !== $clean ? $clean : null;
 	}
 }

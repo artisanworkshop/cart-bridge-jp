@@ -40,7 +40,7 @@ final class HttpClient {
 	 * @param array<string,mixed> $args wp_remote_request() に渡す追加引数（headers/body等）。
 	 * @return array{status:int,headers:array<string,string>,body:string}
 	 *
-	 * @throws ApiException リトライ上限到達、または4xx（429以外）の場合。
+	 * @throws ApiException リトライ上限到達、3xx（リダイレクトには追従しない）、または4xx（429以外）の場合。
 	 */
 	public function request( string $method, string $url, array $args = [] ): array {
 		$attempt = 0;
@@ -54,6 +54,8 @@ final class HttpClient {
 		while ( true ) {
 			$this->rate_limiter->wait();
 
+			// リダイレクトには追従しない（R3-5b）。WordPress の HTTP API は転送先へ元のヘッダー・本文を送り直すので、追従すると
+			// Bearer トークンやトークン交換の client_secret を別の host へ渡しうる。呼び出し元の `$args` でも変えられないよう最後に置く。
 			$response = wp_remote_request(
 				$url,
 				array_merge(
@@ -62,7 +64,8 @@ final class HttpClient {
 						'timeout'    => self::DEFAULT_TIMEOUT_SECONDS,
 						'user-agent' => 'CartBridgeJP/' . CBJP_VERSION,
 					],
-					$args
+					$args,
+					[ 'redirection' => 0 ]
 				)
 			);
 
@@ -73,11 +76,13 @@ final class HttpClient {
 					continue;
 				}
 
+				// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 例外の文は HTML に出さない（REST の JSON を画面がテキストとして表示する）。WP の HTTP API の文を esc_html() すると、画面に実体参照の文字のまま出る。
 				throw new ApiException(
 					$response->get_error_message(),
 					0,
 					[ 'wp_error_code' => $response->get_error_code() ]
 				);
+				// phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			}
 
 			$status  = (int) wp_remote_retrieve_response_code( $response );
@@ -95,6 +100,7 @@ final class HttpClient {
 					continue;
 				}
 
+				// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 文は数値だけの書式で、ほかの引数は status と context（文ではない）。
 				throw new ApiException(
 					sprintf( 'Request failed with status %d after %d retries.', $status, $attempt ),
 					$status,
@@ -103,14 +109,30 @@ final class HttpClient {
 						'retry_after'  => $this->retry_after_seconds( $headers ),
 					]
 				);
+				// phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+
+			// リダイレクト（追従しない。上の `redirection`）は失敗として扱う。status は実際の 3xx のまま（0 にすると通信断と区別できない。
+			// POST の 303 は処理済みでありうるので、4xx だけを「送っていない」と確定する呼び出し元〔`Sync\Exporter`〕の判定から外れる）。
+			// 転送先（Location）と本文は context に入れない。
+			if ( $status >= 300 && $status < 400 ) {
+				// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 文は数値だけの書式で、ほかの引数は status と context（文ではない）。
+				throw new ApiException(
+					sprintf( 'Request was redirected with status %d.', $status ),
+					$status,
+					[ 'redirect' => true ]
+				);
+				// phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			}
 
 			if ( $status >= 400 ) {
+				// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 文は数値だけの書式で、ほかの引数は status と context（文ではない）。
 				throw new ApiException(
 					sprintf( 'Request failed with status %d.', $status ),
 					$status,
 					[ 'body' => $body ]
 				);
+				// phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			}
 
 			return [

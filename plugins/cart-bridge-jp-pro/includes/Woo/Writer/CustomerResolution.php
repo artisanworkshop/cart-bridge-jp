@@ -20,7 +20,6 @@ final readonly class CustomerResolution {
 	public function __construct(
 		public ?int $user_id,
 		public string $operation,
-		public bool $is_new,
-		public ?string $reuse_warning
+		public bool $is_new
 	) {}
 }

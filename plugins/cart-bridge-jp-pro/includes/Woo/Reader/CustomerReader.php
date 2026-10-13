@@ -9,11 +9,13 @@ namespace CartBridgeJP\Pro\Woo\Reader;
 
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
+use CartBridgeJP\Pro\Woo\CommerceWarningCode;
 use CartBridgeJP\Pro\Woo\Support\CommerceOrigin;
 use CartBridgeJP\Pro\Woo\Writer\CustomerWriter;
 use CartBridgeJP\Woo\Reader\EntityReader;
 use CartBridgeJP\Woo\Reader\ReadItem;
 use CartBridgeJP\Woo\Reader\ReadPage;
+use CartBridgeJP\Woo\WarningCode;
 use WP_User;
 use WP_User_Query;
 
@@ -36,17 +38,23 @@ final class CustomerReader implements EntityReader {
 
 	public function query( Cursor $cursor, ?array $only_local_ids ): ReadPage {
 		$args = [
-			'role'         => 'customer',
+			'role'               => 'customer',
 			// `role => 'customer'`は「customerロールを持つ」の意味で、他ロールを併せ持つことを
 			// 否定しない。店舗の管理者・スタッフアカウントに（WooCommerceが自動付与する等で）
 			// `customer`ロールも付いている場合、それらのPII（氏名・住所）が無警告でASP側へ
-			// exportされうる。importの`CustomerWriter::PROTECTED_ROLES`と同じ一覧を除外する。
-			'role__not_in' => CustomerWriter::PROTECTED_ROLES,
-			'orderby'      => 'ID',
-			'order'        => 'ASC',
-			'number'       => self::PAGE_SIZE,
-			'paged'        => (int) $cursor->get( 'page', 1 ),
+			// exportされうる。importの`CustomerWriter::has_protected_role()`と同じ条件で除外する（R3-5b: ロール名の
+			// 固定の一覧ではカスタムロールのスタッフが漏れたので、顧客のロール以外の全ロール・スタッフの能力・特権管理者を外す）。
+			'role__not_in'       => self::non_customer_roles(),
+			'capability__not_in' => CustomerWriter::STAFF_CAPABILITIES,
+			'orderby'            => 'ID',
+			'order'              => 'ASC',
+			'number'             => self::PAGE_SIZE,
+			'paged'              => (int) $cursor->get( 'page', 1 ),
 		];
+
+		if ( is_multisite() ) {
+			$args['login__not_in'] = get_super_admins();
+		}
 
 		if ( null !== $only_local_ids ) {
 			if ( [] === $only_local_ids ) {
@@ -62,13 +70,45 @@ final class CustomerReader implements EntityReader {
 		}
 
 		$query = new WP_User_Query( $args );
-		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->to_read_item( $user ), $query->get_results() ) );
+		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->read_item( $user ), $query->get_results() ) );
 
 		$page          = (int) ( $args['paged'] ?? 1 );
 		$total_pages   = null !== $only_local_ids ? 1 : (int) ceil( $query->get_total() / self::PAGE_SIZE );
 		$has_next_page = null === $only_local_ids && $page < $total_pages;
 
 		return new ReadPage( $items, $has_next_page ? new Cursor( [ 'page' => $page + 1 ] ) : null, null !== $only_local_ids ? null : (int) $query->get_total() );
+	}
+
+	/**
+	 * このサイトに登録されたロールのうち、顧客のロール（`CustomerWriter::CUSTOMER_ROLES`）以外のもの。
+	 *
+	 * @return array<int,string>
+	 */
+	private static function non_customer_roles(): array {
+		return array_values( array_diff( array_keys( wp_roles()->get_names() ), CustomerWriter::CUSTOMER_ROLES ) );
+	}
+
+	/**
+	 * クエリは保存したロール・能力のメタでしか絞れない（`capability__not_in` は権限のメタの NOT LIKE で、`user_has_cap` などで足される能力は
+	 * 見えない）。取込みと同じ判定（`CustomerWriter::has_protected_role()`）で保護するアカウントは、送らない理由（`CUSTOMER_ACCOUNT_PROTECTED`。
+	 * エクスポートを止める印つき。detail はユーザー ID）を付けて返す（R3-5b review-loop R1-L7）。結果から外すと件数（total）と処理した数が
+	 * ずれ、送らなかった理由も残らない（G2）。
+	 */
+	private function read_item( WP_User $user ): ReadItem {
+		$read_item = $this->to_read_item( $user );
+
+		if ( ! CustomerWriter::has_protected_role( $user->ID ) ) {
+			return $read_item;
+		}
+
+		return new ReadItem(
+			$read_item->local_id,
+			$read_item->item,
+			[ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, (string) $user->ID ) ],
+			true,
+			[],
+			$read_item->linked_by_import
+		);
 	}
 
 	private function to_read_item( WP_User $user ): ReadItem {

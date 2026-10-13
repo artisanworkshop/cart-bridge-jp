@@ -346,6 +346,155 @@ final class ProductWriterTest extends WooTestCase {
 		$this->assertSame( 5, $variation->get_stock_quantity() );
 	}
 
+	/**
+	 * 商品ページを WooCommerce のテンプレートで描く（`global $product` を差し替える）。
+	 *
+	 * @param array<string,mixed> $args
+	 */
+	private function render_product_template( int $product_id, string $template, array $args = [] ): string {
+		$previous = $GLOBALS['product'] ?? null;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WooCommerce のテンプレートは `global $product` を読む（テストの間だけ差し替えて戻す）。
+		$GLOBALS['product'] = wc_get_product( $product_id );
+
+		try {
+			return wc_get_template_html( $template, $args );
+		} finally {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- 差し替えた値を戻す。
+			$GLOBALS['product'] = $previous;
+		}
+	}
+
+	/**
+	 * R3-5b: WooCommerce は SKU（`single-product/meta.php`）をエスケープせずに出すので、ASP の型番のタグを保存しない（`wc_clean()`）。
+	 */
+	public function test_markup_in_the_sku_is_not_rendered_on_the_product_page(): void {
+		$product = new CanonicalProduct( 'Mug', '<script>alert(1)</script>MUG-1<b>x</b>', '1000', null, null, [], [], [], [], 1, 'publish', [ 'remote_id' => '81' ] );
+
+		$result = $this->make_writer()->write( $product, null );
+
+		$this->assertSame( 'MUG-1x', wc_get_product( $result->local_id )->get_sku() );
+
+		$html = $this->render_product_template( $result->local_id, 'single-product/meta.php' );
+
+		$this->assertStringContainsString( 'MUG-1x', $html );
+		$this->assertStringNotContainsString( '<script', $html );
+		$this->assertStringNotContainsString( '<b>', $html );
+	}
+
+	/**
+	 * R3-5b: 可変商品のテンプレート（`single-product/add-to-cart/variable.php`）は軸の名前をエスケープせずに出す。属性の名前は実体参照で
+	 * 保存し、変換後の名前でバリエーションの属性を結ぶ（`<` を含む名前は変換の前後で `sanitize_title()` が変わる）。
+	 */
+	public function test_markup_in_attribute_names_is_shown_as_text_and_variations_still_match(): void {
+		$axis   = 'Size<script>alert(1)</script>';
+		$option = '<img src=x onerror=alert(2)>Material & Care';
+
+		$product = new CanonicalProduct(
+			'Shirt',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'xv1',
+					'sku'           => 'XS-1',
+					'option1_name'  => $axis,
+					'option1_value' => 'S',
+					'price'         => '2000',
+					'stock'         => 5,
+				],
+				[
+					'remote_id'     => 'xv2',
+					'sku'           => 'XS-2',
+					'option1_name'  => $axis,
+					'option1_value' => 'M',
+					'price'         => '2000',
+					'stock'         => 3,
+				],
+			],
+			[
+				[
+					'name'   => $option,
+					'values' => [ 'Cotton' ],
+				],
+			],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '82' ]
+		);
+
+		$result     = $this->make_writer()->write( $product, null );
+		$wc_product = wc_get_product( $result->local_id );
+
+		$this->assertInstanceOf( WC_Product_Variable::class, $wc_product );
+
+		$names = array_map( static fn ( $attribute ) => $attribute->get_name(), array_values( $wc_product->get_attributes() ) );
+		$this->assertSame( [ HtmlText::from_plain( $axis ), HtmlText::from_plain( $option ) ], $names );
+
+		foreach ( $names as $name ) {
+			$this->assertStringNotContainsString( '<', $name );
+		}
+
+		// バリエーションの属性のキーは保存した軸の名前から作られ、商品の属性と一致する（店頭で選べる）。
+		$available = $wc_product->get_available_variations();
+		$this->assertCount( 2, $available );
+
+		foreach ( $available as $variation ) {
+			$this->assertSame( [ 'attribute_' . sanitize_title( HtmlText::from_plain( $axis ) ) ], array_keys( $variation['attributes'] ) );
+		}
+
+		$html = $this->render_product_template(
+			$result->local_id,
+			'single-product/add-to-cart/variable.php',
+			[
+				'available_variations' => $available,
+				'attributes'           => $wc_product->get_variation_attributes(),
+				'selected_attributes'  => $wc_product->get_default_attributes(),
+			]
+		);
+
+		$this->assertStringContainsString( 'Size&lt;script&gt;', $html );
+		$this->assertStringNotContainsString( '<script>alert(1)', $html );
+	}
+
+	public function test_attribute_name_collision_is_detected_with_entities_and_reported_in_plain_text(): void {
+		$product = new CanonicalProduct(
+			'Shirt',
+			null,
+			'0',
+			null,
+			null,
+			[],
+			[
+				[
+					'remote_id'     => 'cv1',
+					'option1_name'  => 'S&M',
+					'option1_value' => 'S',
+					'price'         => '2000',
+					'stock'         => 1,
+				],
+			],
+			[
+				[
+					'name'   => 'S&M',
+					'values' => [ 'x' ],
+				],
+			],
+			[],
+			null,
+			'publish',
+			[ 'remote_id' => '83' ]
+		);
+
+		$result = $this->make_writer()->write( $product, null );
+
+		$this->assertContains( WarningCode::with_detail( WarningCode::ATTRIBUTE_NAME_COLLISION, 'S&M' ), $result->warnings );
+		$this->assertCount( 1, wc_get_product( $result->local_id )->get_attributes() );
+	}
+
 	public function test_variable_product_with_only_option2_populated_uses_option2_value(): void {
 		// ColorMeのoption1/option2は独立フィールドで、全variantでoption1_nameがnullかつ
 		// option2_nameのみ存在するケースが構造的にありうる。`variation_axis_names()`が

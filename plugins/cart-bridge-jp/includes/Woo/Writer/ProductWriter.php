@@ -332,6 +332,13 @@ final class ProductWriter implements EntityWriter {
 	 * （`variants[].option1_name`/`option2_name`）を先に確定し、`options[]`（非バリエーション属性）と
 	 * 名前が衝突する場合は軸を優先する。
 	 *
+	 * 属性の名前は `HtmlText::from_plain()` で実体参照にして保存する（R3-5b）。WooCommerce は名前を HTML として扱い、
+	 * 可変商品のテンプレート（`single-product/add-to-cart/variable.php`）は軸の名前をエスケープせずに出す（WooCommerce の
+	 * 管理画面は `wc_clean( esc_html() )` で保存する前提）。生のまま保存すると、ASP のオプション名の `<script>` が商品ページで実行される。
+	 * 軸の名前は変換した後の値をバリエーションの属性のキー（`sanitize_title()`）にも使うので、ここで 1 回だけ変換して渡す
+	 * （`A<B` は変換の前後で `sanitize_title()` が変わる）。エクスポートは `VariationAxisResolver::attribute_label()` が平文へ戻す。
+	 * 属性の値は WooCommerce が出力のたびにエスケープするので変えない。
+	 *
 	 * @return array{0:array<int,WC_Product_Attribute>,1:array<int,string>,2:array<int,string>} 属性配列・軸名（順序保持）・警告
 	 */
 	private function build_attributes( CanonicalProduct $item ): array {
@@ -361,7 +368,10 @@ final class ProductWriter implements EntityWriter {
 				continue;
 			}
 
-			if ( in_array( $name, $axis_names, true ) ) {
+			$stored_name = HtmlText::from_plain( $name );
+
+			// 軸の名前（変換後）と比べる。警告の detail は平文のまま（結果の画面・CSV に実体参照を出さない）。
+			if ( in_array( $stored_name, $axis_names, true ) ) {
 				$warnings[] = WarningCode::with_detail( WarningCode::ATTRIBUTE_NAME_COLLISION, $name );
 				continue;
 			}
@@ -372,7 +382,7 @@ final class ProductWriter implements EntityWriter {
 
 			$attribute = new WC_Product_Attribute();
 			$attribute->set_id( 0 );
-			$attribute->set_name( $name );
+			$attribute->set_name( $stored_name );
 			$attribute->set_options( $values );
 			$attribute->set_position( $position++ );
 			$attribute->set_visible( true );
@@ -393,6 +403,8 @@ final class ProductWriter implements EntityWriter {
 	 * option1_valueを読んでしまう（値が空またはoption1のものになり、variationが
 	 * ストア上で区別できなくなる）。
 	 *
+	 * 名前は保存する形（`HtmlText::from_plain()`。{@see self::build_attributes()}）で返す。
+	 *
 	 * @param array<int,array<string,mixed>> $variants
 	 * @return array<int,string>
 	 */
@@ -405,7 +417,10 @@ final class ProductWriter implements EntityWriter {
 			$axis2 = $axis2 ?? Value::string( $variant['option2_name'] ?? null );
 		}
 
-		return array_filter( [ $axis1, $axis2 ], static fn ( ?string $name ): bool => null !== $name );
+		return array_map(
+			[ HtmlText::class, 'from_plain' ],
+			array_filter( [ $axis1, $axis2 ], static fn ( ?string $name ): bool => null !== $name )
+		);
 	}
 
 	/**

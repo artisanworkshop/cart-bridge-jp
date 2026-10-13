@@ -11,8 +11,10 @@ use CartBridgeJP\Adapters\AdapterRegistry;
 use CartBridgeJP\Adapters\Capabilities;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
+use CartBridgeJP\Adapters\OAuthCredentialsException;
 use CartBridgeJP\Adapters\OAuthScopes;
 use CartBridgeJP\Adapters\ConnectionField;
+use CartBridgeJP\Admin\RestController;
 use CartBridgeJP\Canonical\CanonicalProduct;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
@@ -1253,7 +1255,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 302, $response->get_status() );
 		$headers = $response->get_headers();
 		$this->assertStringContainsString( '#/connections', $headers['Location'] );
-		$this->assertStringContainsString( 'cbjp_connect_error', $headers['Location'] );
+		$this->assertSame( 'state_invalid', $this->connect_error_of( $response ) );
 	}
 
 	public function test_oauth_callback_treats_array_valued_query_params_as_missing(): void {
@@ -1272,8 +1274,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 
 		$this->assertSame( 302, $response->get_status() );
-		$headers = $response->get_headers();
-		$this->assertStringContainsString( 'cbjp_connect_error', $headers['Location'] );
+		$this->assertSame( 'state_invalid', $this->connect_error_of( $response ) );
 	}
 
 	public function test_oauth_callback_consumes_the_state_even_when_the_code_is_missing(): void {
@@ -1297,7 +1298,8 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$denied_response = $this->server->dispatch( $denied_request );
 
 		$this->assertSame( 302, $denied_response->get_status() );
-		$this->assertStringContainsString( 'cbjp_connect_error', $denied_response->get_headers()['Location'] );
+		// state は正しいがコードが無い: ショップで拒否された（R3-5b でコードにした）。
+		$this->assertSame( 'denied', $this->connect_error_of( $denied_response ) );
 
 		// 同じstateをcode付きで再送しても、既に消費済みのため接続は成立しない。
 		$replay_request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
@@ -1310,7 +1312,7 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$replay_response = $this->server->dispatch( $replay_request );
 
 		$this->assertSame( 302, $replay_response->get_status() );
-		$this->assertStringContainsString( 'cbjp_connect_error', $replay_response->get_headers()['Location'] );
+		$this->assertSame( 'state_invalid', $this->connect_error_of( $replay_response ) );
 		$this->assertFalse( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
 	}
 
@@ -1356,6 +1358,167 @@ final class RestControllerTest extends WP_UnitTestCase {
 		$this->assertSame( ColorMeOAuth::BASE_SCOPES, ( new TokenStore( ColorMeAdapter::ID ) )->granted_scopes() );
 
 		remove_all_filters( 'pre_http_request' );
+	}
+
+	/**
+	 * コールバックが Connections タブへ戻す URL の `cbjp_connect_error`（無ければ null）。
+	 */
+	private function connect_error_of( WP_REST_Response $response ): ?string {
+		wp_parse_str( (string) wp_parse_url( (string) ( $response->get_headers()['Location'] ?? '' ), PHP_URL_QUERY ), $query );
+
+		return isset( $query['cbjp_connect_error'] ) && is_string( $query['cbjp_connect_error'] ) ? $query['cbjp_connect_error'] : null;
+	}
+
+	public function test_oauth_callback_for_an_unknown_platform_sends_a_code(): void {
+		$request  = new WP_REST_Request( 'GET', '/cbjp/v1/connect/nowhere/callback' );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 302, $response->get_status() );
+		$this->assertSame( 'unknown_platform', $this->connect_error_of( $response ) );
+	}
+
+	/**
+	 * R3-5b: 交換の失敗は例外の文ではなくコードで戻す（URL に載せた文を画面がそのまま通知に出すと、誰でも任意の文を出させるリンクを作れる）。
+	 */
+	public function test_oauth_callback_sends_a_code_instead_of_the_error_text(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(
+			[
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'wrong-secret',
+			]
+		);
+
+		$authorize_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' ) );
+		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+
+		add_filter(
+			'pre_http_request',
+			static fn() => [
+				'response' => [ 'code' => 401 ],
+				'headers'  => [],
+				'body'     => wp_json_encode(
+					[
+						'errors' => [
+							[
+								'code'    => 401,
+								'message' => 'Bad client & secret #frag',
+							],
+						],
+					]
+				),
+			],
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$request->set_query_params(
+			[
+				'code'  => 'some-code',
+				'state' => $params['state'],
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 302, $response->get_status() );
+		$this->assertSame( 'rejected', $this->connect_error_of( $response ) );
+		$this->assertStringNotContainsString( 'secret', $response->get_headers()['Location'] );
+		$this->assertStringEndsWith( '#/connections', $response->get_headers()['Location'] );
+		$this->assertFalse( ( new TokenStore( ColorMeAdapter::ID ) )->is_connected() );
+
+		remove_all_filters( 'pre_http_request' );
+	}
+
+	/**
+	 * 認可の後に保存した資格情報を復号できなくなった（AUTH_KEY の変更など）ときは「保存し直す」ではなく消去へ案内する（保存も失敗する。review-loop R1-L8）。
+	 */
+	public function test_oauth_callback_points_to_clearing_credentials_that_cannot_be_read(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save_settings(
+			[
+				'client_id'     => 'my-client-id',
+				'client_secret' => 'my-client-secret',
+			]
+		);
+
+		$authorize_response = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/connections/colorme/authorize-url' ) );
+		wp_parse_str( (string) wp_parse_url( $authorize_response->get_data()['url'], PHP_URL_QUERY ), $params );
+
+		update_option( 'cbjp_token_colorme', 'not-decryptable' );
+		$this->assertTrue( ( new TokenStore( 'colorme' ) )->needs_reconnect() );
+
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/connect/colorme/callback' );
+		$request->set_query_params(
+			[
+				'code'  => 'some-code',
+				'state' => $params['state'],
+			]
+		);
+
+		$this->assertSame( 'credentials_unreadable', $this->connect_error_of( $this->server->dispatch( $request ) ) );
+	}
+
+	/**
+	 * 画面（`src/oauth-status.ts`）が訳すコードの一覧は、サーバーが渡す一覧と同じ（ずれると汎用の文になる。review-loop R1-L11）。
+	 */
+	public function test_the_admin_screen_knows_every_oauth_error_code(): void {
+		$source = (string) file_get_contents( dirname( __DIR__, 3 ) . '/src/oauth-status.ts' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- テストがリポジトリのソースを読む。
+
+		$this->assertSame( 1, preg_match( '/export const OAUTH_ERROR_CODES = \[(.*?)\] as const;/s', $source, $list ) );
+		preg_match_all( "/'([a-z_]+)'/", $list[1], $codes );
+
+		$this->assertSame( RestController::OAUTH_ERROR_CODES, $codes[1] );
+
+		// 汎用の文（switch の default）になる unexpected 以外は、それぞれの文を持つ。
+		foreach ( array_diff( RestController::OAUTH_ERROR_CODES, [ 'unexpected' ] ) as $code ) {
+			$this->assertStringContainsString( "case '{$code}':", $source, $code );
+		}
+	}
+
+	/**
+	 * @return array<string,array{0:\Throwable,1:string}>
+	 */
+	public static function oauth_error_cases(): array {
+		return [
+			'credentials missing or changed' => [ new OAuthCredentialsException( 'x' ), 'credentials_changed' ],
+			'plugin rate limit exhausted'    => [ new RateLimitExhaustedException( 'colorme' ), 'unavailable' ],
+			'429'                            => [ new ApiException( 'x', 429 ), 'unavailable' ],
+			'rate limited by the detector'   => [ new ApiException( 'x', 400, [ 'rate_limited' => true ] ), 'unavailable' ],
+			'500'                            => [ new ApiException( 'x', 500 ), 'unavailable' ],
+			'503'                            => [ new ApiException( 'x', 503 ), 'unavailable' ],
+			'400'                            => [ new ApiException( 'x', 400 ), 'rejected' ],
+			'401'                            => [ new ApiException( 'x', 401 ), 'rejected' ],
+			'404'                            => [ new ApiException( 'x', 404 ), 'rejected' ],
+			'499'                            => [ new ApiException( 'x', 499 ), 'rejected' ],
+			'no response'                    => [ new ApiException( 'x', 0, [ 'wp_error_code' => 'http_request_failed' ] ), 'network' ],
+			'status 0 without a WP error'    => [ new ApiException( 'x', 0 ), 'unexpected' ],
+			'unreadable 200'                 => [ new ApiException( 'x', 200 ), 'unexpected' ],
+			'redirect'                       => [ new ApiException( 'x', 302, [ 'redirect' => true ] ), 'unexpected' ],
+			'600'                            => [ new ApiException( 'x', 600 ), 'unexpected' ],
+			'other exception'                => [ new \RuntimeException( 'x' ), 'unexpected' ],
+		];
+	}
+
+	/**
+	 * @dataProvider oauth_error_cases
+	 */
+	public function test_oauth_error_code_classifies_the_exchange_failure( \Throwable $exception, string $code ): void {
+		$this->assertSame( $code, RestController::oauth_error_code( $exception ) );
+		$this->assertContains( $code, RestController::OAUTH_ERROR_CODES );
+	}
+
+	/**
+	 * `run_id` は `sanitize_callback` を持つので、`validate_callback` が無いと型の検証が働かない（CLAUDE.md。R3-5b）。
+	 */
+	public function test_get_run_report_rejects_an_array_run_id(): void {
+		$request = new WP_REST_Request( 'GET', '/cbjp/v1/runs/does-not-exist/report' );
+		$request->set_query_params( [ 'run_id' => [ 'x' ] ] );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'rest_invalid_param', $response->get_data()['code'] );
 	}
 
 	public function test_get_run_report_returns_404_for_unknown_run(): void {

@@ -30,11 +30,18 @@
 		<exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
 		<!-- PHP 8.2+ 前提のため短縮配列構文を許可する。 -->
 		<exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
-		<!-- 例外メッセージは内部ログ・catch側での利用が前提でHTML出力ではないため、エスケープ要求の対象外とする。 -->
-		<exclude name="WordPress.Security.EscapeOutput.ExceptionNotEscaped"/>
 		<!-- CLAUDE.md の規約でフィルター名は cbjp/{domain}/{action} 形式（スラッシュ区切り）と定めているため。 -->
 		<exclude name="WordPress.NamingConventions.ValidHookName.UseUnderscores"/>
 		<exclude name="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound"/>
+	</rule>
+
+	<!-- 例外の文のエスケープ（R3-5b）。wordpress.org の申請で Plugin Check が ERROR にするので、プラグインのコードでは守る（式展開した文は
+	     sprintf() と esc_html()、文でない引数・ASP や WP の HTTP API の文は理由つきの phpcs:ignore。CLAUDE.md）。テストと開発用（bin・.claude）は
+	     配布物ではなく、bin/check-pro-zip.php は WP を読み込まずに動くので esc_html() を使えない。 -->
+	<rule ref="WordPress.Security.EscapeOutput.ExceptionNotEscaped">
+		<exclude-pattern>*/tests/*</exclude-pattern>
+		<exclude-pattern>/bin/*</exclude-pattern>
+		<exclude-pattern>/.claude/*</exclude-pattern>
 	</rule>
 
 	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">

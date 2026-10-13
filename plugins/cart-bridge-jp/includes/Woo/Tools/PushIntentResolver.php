@@ -38,6 +38,7 @@ final class PushIntentResolver {
 		$intent = $this->intents->find( $id, $platform );
 
 		if ( null === $intent ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::NOT_FOUND );
 		}
 
@@ -55,6 +56,7 @@ final class PushIntentResolver {
 		$intent = $this->intents->find( $id, $platform );
 
 		if ( null === $intent ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::NOT_FOUND );
 		}
 
@@ -69,15 +71,19 @@ final class PushIntentResolver {
 			// 返ってきたモデルの ID も同じ例外の境界の中で読む（外部の種類のモデルの `remote_id()` が例外を投げても 500 にしない）。
 			$fetched_id = $remote_entity?->remote_id();
 		} catch ( UnsupportedOperationException ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
 		} catch ( RateLimitExhaustedException ) {
 			// クライアント側スロットル。待てば再開できる（`classify_api_failure()`のASP側429と同じ区分）。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::RATE_LIMITED );
 		} catch ( ApiException $exception ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( $this->classify_api_failure( $exception ) );
 		} catch ( Throwable $exception ) {
 			// 200応答でも想定した形でない等、アダプタの契約違反。個人情報を含みうるメッセージは
 			// 記録せず、REST層へは理由コードのみ渡す。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 
@@ -86,12 +92,14 @@ final class PushIntentResolver {
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
 		// `$remote_id`と一致することまで確認する。
 		if ( null === $remote_entity || $fetched_id !== $remote_id ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
 		}
 
 		$existing_local_id = $this->mappings->find_local_id( $platform, $entity_type, $remote_id );
 
 		if ( null !== $existing_local_id && $existing_local_id !== $intent['local_id'] ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_ID_IN_USE );
 		}
 
@@ -115,6 +123,7 @@ final class PushIntentResolver {
 		// 本当に書けたことを読み直して確認してからintentを消す（先に消すと、書けていないのに
 		// 「解決済み」を返し、次回exportが未送信の実体をもう一度作成しうる）。
 		if ( $intent['local_id'] !== $this->mappings->find_local_id( $platform, $entity_type, $remote_id ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 

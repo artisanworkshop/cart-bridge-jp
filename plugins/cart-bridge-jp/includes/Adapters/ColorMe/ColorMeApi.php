@@ -78,7 +78,7 @@ final class ColorMeApi {
 		// 区別が付かなくなる。呼び出し側（`Woo\Tools\PushIntentResolver`）はnullを「リモートに実体が
 		// 無い」と解釈するため、そのままだと実在する実体を無いものとして扱ってしまう。例外を投げて
 		// 呼び出し側に失敗として知らせる（`list_from()`と同じ方針）。
-		throw new RuntimeException( "ColorMe \"{$path}\" returned a 200 response but its \"{$envelope_key}\" envelope was missing or not an array." );
+		throw new RuntimeException( sprintf( 'ColorMe "%s" returned a 200 response but its "%s" envelope was missing or not an array.', esc_html( $path ), esc_html( $envelope_key ) ) );
 	}
 
 	/**
@@ -117,7 +117,7 @@ final class ColorMeApi {
 		$list = $body[ $key ] ?? null;
 
 		if ( ! is_array( $list ) ) {
-			throw new RuntimeException( "ColorMe API response is missing the expected \"{$key}\" list envelope." );
+			throw new RuntimeException( sprintf( 'ColorMe API response is missing the expected "%s" list envelope.', esc_html( $key ) ) );
 		}
 
 		return array_values( array_filter( $list, 'is_array' ) );

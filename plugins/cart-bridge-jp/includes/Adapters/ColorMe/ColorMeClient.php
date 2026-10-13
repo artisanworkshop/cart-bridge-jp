@@ -101,6 +101,7 @@ final class ColorMeClient {
 		try {
 			$response = $this->http_client->request( 'POST', $this->build_url( $path, [] ), $args );
 		} catch ( ApiException $exception ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は捕まえた例外（ColorMe のエラーの文に読み替える）。ColorMe の文は esc_html() すると画面に実体参照の文字のまま出る（例外の文は HTML に出さず、REST の JSON を画面がテキストとして表示する）。
 			throw $this->translate_exception( $exception );
 		}
 
@@ -167,6 +168,7 @@ final class ColorMeClient {
 		try {
 			$response = $this->http_client->request( $method, $url, $args );
 		} catch ( ApiException $exception ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は捕まえた例外（ColorMe のエラーの文に読み替える）。ColorMe の文は esc_html() すると画面に実体参照の文字のまま出る（例外の文は HTML に出さず、REST の JSON を画面がテキストとして表示する）。
 			throw $this->translate_exception( $exception );
 		}
 
@@ -201,11 +203,13 @@ final class ColorMeClient {
 		$decoded = json_decode( $body, true );
 
 		if ( ! is_array( $decoded ) ) {
+			// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 文は固定で、ほかの引数は status と context（文ではない）。
 			throw new ApiException(
 				'Failed to decode ColorMe API response as JSON.',
 				0,
 				[ 'body' => $body ]
 			);
+			// phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
 		}
 
 		return $decoded;
