@@ -201,6 +201,95 @@ final class CustomerWriterTest extends WooTestCase {
 		$this->assertSame( 'Yamada', get_userdata( $existing_id )->first_name );
 	}
 
+	/**
+	 * 取込みがこの顧客のために作ったアカウントを、mapping を失った後にメールで見つけ直したときは更新し、紐づけだけの理由を付けない
+	 * （説明文は「この顧客のために作ったのではない…変更しない」。review-loop R1-1）。
+	 */
+	public function test_own_account_found_again_by_email_is_updated_without_the_link_only_reason(): void {
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'own',
+				'user_email' => 'own@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+			]
+		);
+		$this->mark_created_by_import( $existing_id, '1' );
+
+		$customer   = new CanonicalCustomer( 'own@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$validation = $this->make_writer()->validate( $customer, null );
+		$result     = $this->make_writer()->write( $customer, null );
+
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $validation->operation );
+		$this->assertSame( [], $validation->warnings );
+		$this->assertSame( $existing_id, $result->local_id );
+		$this->assertSame( WriteResult::OPERATION_UPDATED, $result->operation );
+		$this->assertSame( [], $result->warnings );
+		$this->assertSame( 'Yamada', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_protected_account_is_not_reported_as_linked(): void {
+		$admin_id = wp_insert_user(
+			[
+				'user_login' => 'admin-own',
+				'user_email' => 'admin-own@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'administrator',
+			]
+		);
+
+		$customer = new CanonicalCustomer( 'admin-own@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+
+		// 保護したアカウントには受注を結ばない（ゲスト）ので、「受注をそのアカウントに割り当てる」理由は付けない。
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->write( $customer, null )->warnings );
+		$this->assertSame( [ WarningCode::with_detail( CommerceWarningCode::CUSTOMER_ACCOUNT_PROTECTED, '1' ) ], $this->make_writer()->validate( $customer, $admin_id )->warnings );
+	}
+
+	public function test_account_created_before_r3_5b_without_a_remote_id_is_never_owned_after_relinking(): void {
+		// 古いアカウントで `_cbjp_remote_id` が空（または無い）なら、作成時の顧客 ID は空のまま控える（空は誰のものでもない。R1-L2）。
+		// 控えた値を「無い」と読むと、紐づけだけの経路が書いた別の顧客の ID を次の取込みが作成時の値と読んでしまう。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'legacy-empty',
+				'user_email' => 'legacy-empty@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Legacy',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+
+		$other = new CanonicalCustomer( 'legacy-empty@example.com', 'Someone Else', null, null, null, [], null, null, null, null, [ 'remote_id' => '1' ] );
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $this->make_writer()->write( $other, null )->operation );
+		$this->assertTrue( metadata_exists( 'user', $existing_id, CustomerWriter::CREATED_REMOTE_ID_META ) );
+
+		$again = $this->make_writer()->write( $other, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $again->operation );
+		$this->assertSame( 'Legacy', get_userdata( $existing_id )->first_name );
+	}
+
+	public function test_a_customer_without_a_remote_id_owns_no_account(): void {
+		// 作成時の顧客 ID が空で ASP の顧客 ID が無いときに一致と読まない（`owns_profile()` の厳密な比較。R1-L11）。
+		$existing_id = wp_insert_user(
+			[
+				'user_login' => 'no-remote',
+				'user_email' => 'no-remote@example.com',
+				'user_pass'  => 'x',
+				'role'       => 'customer',
+				'first_name' => 'Kept',
+			]
+		);
+		update_user_meta( $existing_id, CustomerWriter::CREATED_BY_IMPORT_META, 'colorme' );
+		update_user_meta( $existing_id, CustomerWriter::CREATED_REMOTE_ID_META, '' );
+
+		$customer = new CanonicalCustomer( 'no-remote@example.com', 'Taro Yamada', null, null, null, [], null, null, null, null, [] );
+		$result   = $this->make_writer()->write( $customer, $existing_id );
+
+		$this->assertSame( WriteResult::OPERATION_SKIPPED, $result->operation );
+		$this->assertSame( 'Kept', get_userdata( $existing_id )->first_name );
+	}
+
 	public function test_account_created_by_another_platform_is_only_linked(): void {
 		$existing_id = wp_insert_user(
 			[

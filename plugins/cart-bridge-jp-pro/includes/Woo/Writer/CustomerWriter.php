@@ -79,12 +79,7 @@ final class CustomerWriter implements EntityWriter {
 		$warnings = [];
 		$billing  = AddressMapper::to_woo( $this->platform, $item->address, $item->name, $item->email, $item->phone, $item->company );
 		$resolved = $this->resolve_target( $item, $existing_local_id );
-
-		if ( null !== $resolved->reuse_warning ) {
-			$warnings[] = $resolved->reuse_warning;
-		}
-
-		$user_id = $resolved->user_id;
+		$user_id  = $resolved->user_id;
 
 		if ( $resolved->is_new ) {
 			$created = wc_create_new_customer(
@@ -196,10 +191,6 @@ final class CustomerWriter implements EntityWriter {
 		$resolved = $this->resolve_target( $item, $existing_local_id );
 		$warnings = [];
 
-		if ( null !== $resolved->reuse_warning ) {
-			$warnings[] = $resolved->reuse_warning;
-		}
-
 		if ( ! $resolved->is_new ) {
 			// 新規作成フラグがfalseの経路では resolve_target の契約上ユーザーIDは必ず非null。
 			// 保護ロール判定は新規作成パスには存在しない（新規WPユーザーが最初から
@@ -295,20 +286,23 @@ final class CustomerWriter implements EntityWriter {
 	 * （紐づけだけの経路は書き換える前に作成時の顧客 ID を控える。{@see self::link_only()}）。
 	 */
 	private function owns_profile( int $user_id, CanonicalCustomer $item ): bool {
-		$remote_id = $item->remote_id();
-
-		if ( null === $remote_id || '' === $remote_id || get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) !== $this->platform ) {
+		if ( get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) !== $this->platform ) {
 			return false;
 		}
 
-		return $this->created_remote_id( $user_id ) === $remote_id;
+		// 厳密に比べる（ASP の顧客 ID が無い〔null〕ときに、空の作成時の顧客 ID と一致と読まない）。
+		return $this->created_remote_id( $user_id ) === $item->remote_id();
 	}
 
+	/**
+	 * 作成時の顧客 ID。印が有れば空でもそれを使う（控えた値が空なら、どの顧客のものでもない）。R3-5b より前に作ったアカウント
+	 * （印が無い）だけ `_cbjp_remote_id` を作成時の値とみなす。
+	 */
 	private function created_remote_id( int $user_id ): string {
-		$created = get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true );
+		if ( metadata_exists( 'user', $user_id, self::CREATED_REMOTE_ID_META ) ) {
+			$created = get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true );
 
-		if ( is_string( $created ) && '' !== $created ) {
-			return $created;
+			return is_string( $created ) ? $created : '';
 		}
 
 		$linked = get_user_meta( $user_id, '_cbjp_remote_id', true );
@@ -324,8 +318,9 @@ final class CustomerWriter implements EntityWriter {
 	 */
 	private function link_only( int $user_id, CanonicalCustomer $item, array $warnings ): WriteResult {
 		// R3-5b より前に作ったアカウントは作成時の顧客 ID を `_cbjp_remote_id` から読むので、書き換える前に控える
-		// （控えないと、ここで書く別の顧客の ID を次の取込みが作成時の値と読み、プロフィールを書いてしまう）。
-		if ( '' !== get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) && '' === get_user_meta( $user_id, self::CREATED_REMOTE_ID_META, true ) ) {
+		// （控えないと、ここで書く別の顧客の ID を次の取込みが作成時の値と読み、プロフィールを書いてしまう）。`_cbjp_remote_id` が
+		// 空でも空のまま控える（印が有れば空でも使う。{@see self::created_remote_id()}。review-loop R1-L2）。
+		if ( '' !== get_user_meta( $user_id, self::CREATED_BY_IMPORT_META, true ) && ! metadata_exists( 'user', $user_id, self::CREATED_REMOTE_ID_META ) ) {
 			update_user_meta( $user_id, self::CREATED_REMOTE_ID_META, $this->created_remote_id( $user_id ) );
 		}
 
@@ -335,8 +330,7 @@ final class CustomerWriter implements EntityWriter {
 	}
 
 	/**
-	 * 紐づけだけの理由（`CUSTOMER_REUSED_EXISTING`。detail はユーザー ID）を 1 つだけ積む。メールで採用したときは
-	 * `resolve_target()` が既に積んでいる。mapping で結んだときは積まれていないので、毎回の結果に理由が残るよう足す。
+	 * 紐づけだけの理由（`CUSTOMER_REUSED_EXISTING`。detail はユーザー ID）を 1 つだけ積む（メールの一致・mapping のどちらで結んだときも）。
 	 *
 	 * @param array<int,string> $warnings
 	 * @return array<int,string>
@@ -378,21 +372,18 @@ final class CustomerWriter implements EntityWriter {
 		}
 
 		if ( null !== $existing_local_id ) {
-			return new CustomerResolution( $existing_local_id, WriteResult::OPERATION_UPDATED, false, null );
+			return new CustomerResolution( $existing_local_id, WriteResult::OPERATION_UPDATED, false );
 		}
 
 		$existing_user = get_user_by( 'email', $item->email );
 
 		if ( $existing_user instanceof WP_User ) {
-			return new CustomerResolution(
-				$existing_user->ID,
-				WriteResult::OPERATION_UPDATED,
-				false,
-				WarningCode::with_detail( CommerceWarningCode::CUSTOMER_REUSED_EXISTING, (string) $existing_user->ID )
-			);
+			// 理由（`CUSTOMER_REUSED_EXISTING`）は紐づけだけにしたときだけ積む（`link_only()`）。保護したアカウント・取込みがこの顧客の
+			// ために作ったアカウント（mapping を失った後にメールで見つけ直した）には付けない（R3-5b review-loop R1-1）。
+			return new CustomerResolution( $existing_user->ID, WriteResult::OPERATION_UPDATED, false );
 		}
 
-		return new CustomerResolution( null, WriteResult::OPERATION_CREATED, true, null );
+		return new CustomerResolution( null, WriteResult::OPERATION_CREATED, true );
 	}
 
 	/**

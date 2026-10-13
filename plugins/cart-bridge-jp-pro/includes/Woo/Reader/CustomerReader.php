@@ -68,7 +68,11 @@ final class CustomerReader implements EntityReader {
 		}
 
 		$query = new WP_User_Query( $args );
-		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->to_read_item( $user ), $query->get_results() ) );
+		// クエリは保存したロール・能力のメタでしか絞れない（`capability__not_in` は権限のメタの NOT LIKE で、`user_has_cap` などで
+		// 足される能力は見えない）。取得した後に取込みと同じ判定で外す（R3-5b review-loop R1-L7）。外した分は件数〔total〕に残るので、
+		// 進捗が 100% に届く前に終わることがある（まれ。スタッフに動的な能力を足すプラグインのサイトだけ）。
+		$users = array_filter( $query->get_results(), static fn ( WP_User $user ): bool => ! CustomerWriter::has_protected_role( $user->ID ) );
+		$items = array_values( array_map( fn ( WP_User $user ): ReadItem => $this->to_read_item( $user ), $users ) );
 
 		$page          = (int) ( $args['paged'] ?? 1 );
 		$total_pages   = null !== $only_local_ids ? 1 : (int) ceil( $query->get_total() / self::PAGE_SIZE );

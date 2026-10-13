@@ -221,6 +221,31 @@ final class CustomerReaderTest extends WooTestCase {
 	}
 
 	/**
+	 * `user_has_cap` で足される能力（権限のメタに無い）はクエリでは絞れないので、取得した後に取込みと同じ判定で外す（R3-5b review-loop R1-L7）。
+	 */
+	public function test_query_excludes_customers_given_a_staff_capability_at_runtime(): void {
+		$plain_customer_id = $this->create_customer( 'plain@example.com' );
+		$dynamic_staff_id  = $this->create_customer( 'dynamic@example.com' );
+
+		add_filter(
+			'user_has_cap',
+			static function ( array $allcaps, array $caps, array $args, \WP_User $user ) use ( $dynamic_staff_id ): array {
+				if ( $user->ID === $dynamic_staff_id ) {
+					$allcaps['manage_woocommerce'] = true;
+				}
+
+				return $allcaps;
+			},
+			10,
+			4
+		);
+
+		$page = $this->make_reader()->query( Cursor::start(), null );
+
+		$this->assertSame( [ $plain_customer_id ], array_map( static fn ( $item ) => $item->local_id, $page->items ) );
+	}
+
+	/**
 	 * ColorMeの氏名は「姓 名」の単一文字列で、`Woo\Support\AddressMapper::split_name()`が
 	 * 最初のトークンを`last_name`、残りを`first_name`としてWooへ保存する
 	 * （`Woo\Writer\CustomerWriter`）。`first_name . ' ' . last_name`で単純に組み直すと
