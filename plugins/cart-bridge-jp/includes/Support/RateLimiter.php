@@ -95,6 +95,7 @@ final class RateLimiter {
 
 		while ( ! $this->try_consume( $tokens ) ) {
 			if ( microtime( true ) - $start >= $max_wait_seconds ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID（例外が文を組み立てる）。例外の文は HTML に出さない。
 				throw new RateLimitExhaustedException( $this->platform );
 			}
 

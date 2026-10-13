@@ -89,7 +89,7 @@ final class JobManager {
 		$known_types = [ self::TYPE_DRY_RUN, self::TYPE_IMPORT, self::TYPE_EXPORT, self::TYPE_DRY_RUN_EXPORT ];
 
 		if ( ! in_array( $type, $known_types, true ) ) {
-			throw new RuntimeException( "Unknown run type: {$type}" );
+			throw new RuntimeException( sprintf( 'Unknown run type: %s', esc_html( $type ) ) );
 		}
 
 		return $this->lock->run(
@@ -107,13 +107,14 @@ final class JobManager {
 		$this->recovery()->recover( $platform );
 
 		if ( $this->jobs->is_platform_busy( $platform ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID（例外が文を組み立てる）。例外の文は HTML に出さない。
 			throw new RunAlreadyInProgressException( $platform );
 		}
 
 		$adapter = AdapterRegistry::get( $platform );
 
 		if ( null === $adapter ) {
-			throw new RuntimeException( "Unknown platform: {$platform}" );
+			throw new RuntimeException( sprintf( 'Unknown platform: %s', esc_html( $platform ) ) );
 		}
 
 		// 実行順と能力の判定は実体の種類が持つ（`Entities\EntityType::position()`・`supports_import()`/`supports_export()`。R3-6b1）。
@@ -136,6 +137,7 @@ final class JobManager {
 			$restricted = EntityTypeRegistry::dry_run_only( $adapter, $ordered_entities );
 
 			if ( [] !== $restricted ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と、種類ごとの理由（拡張が渡す文。画面は REST の JSON をテキストとして表示する）。例外の文は HTML に出さない。
 				throw new DryRunOnlyException( $platform, $restricted );
 			}
 		}
@@ -195,6 +197,7 @@ final class JobManager {
 				$this->recovery()->recover( $platform );
 
 				if ( $this->jobs->is_platform_busy( $platform, $run_id ) ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID（例外が文を組み立てる）。例外の文は HTML に出さない。
 					throw new RunAlreadyInProgressException( $platform );
 				}
 
@@ -247,6 +250,7 @@ final class JobManager {
 		$reason = EntityTypeRegistry::dry_run_only_reason( $entity_type, $adapter );
 
 		if ( null !== $reason ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と、種類ごとの理由（拡張が渡す文。画面は REST の JSON をテキストとして表示する）。例外の文は HTML に出さない。
 			throw new DryRunOnlyException( $platform, [ $entity => $reason ] );
 		}
 	}

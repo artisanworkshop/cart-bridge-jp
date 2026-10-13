@@ -39,14 +39,17 @@ abstract class CommerceAdapter {
 	 * 顧客の全量走査。`CommerceCapabilities::$can_fetch_customers` が偽の接続先は UnsupportedOperationException。
 	 */
 	public function fetch_customers( Cursor $cursor ): Page {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
 	public function fetch_orders( Cursor $cursor ): Page {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
 	public function fetch_coupons( Cursor $cursor ): Page {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
@@ -55,6 +58,7 @@ abstract class CommerceAdapter {
 	 * base: UnsupportedOperationException（D12。受注購入者から抽出）。
 	 */
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
@@ -64,6 +68,7 @@ abstract class CommerceAdapter {
 	 * （`Support\PlatformLock::TTL_LONG` の見積もり）。
 	 */
 	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
@@ -72,6 +77,7 @@ abstract class CommerceAdapter {
 	 * `PlatformAdapter::push_product()` の docblock）。
 	 */
 	public function push_customer( CanonicalCustomer $customer, ?string $remote_id ): PushResult {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
@@ -80,10 +86,12 @@ abstract class CommerceAdapter {
 	 * `PushResult( '', PushResult::OPERATION_SKIPPED, [...] )` を返すこと（再作成すると重複した受注ができるため）。
 	 */
 	public function push_order( CanonicalOrder $order, ?string $remote_id ): PushResult {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
 	public function push_coupon( CanonicalCoupon $coupon, ?string $remote_id ): PushResult {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
 		throw new UnsupportedOperationException( $this->id(), __FUNCTION__ );
 	}
 
