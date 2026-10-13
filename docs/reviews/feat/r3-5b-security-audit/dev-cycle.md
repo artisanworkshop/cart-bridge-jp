@@ -3,10 +3,10 @@
 - タスク: R3-5b — セキュリティ最終監査（無料版 + Pro）。監査で確かめた脆弱性・Plugin Check の ERROR の修正と、監査の記録
 - 開始: 2026-10-13
 - 指定: `next auto-commit`（ゲートラウンドの確認ゲートを飛ばす）
-- PR: 作成後に番号を記入
-- 現在のステップ: 4〜5（PR 作成・CI 待ち）
-- Copilot: 依頼 0 回
-- Codex: 依頼 0 回
+- PR: #132 https://github.com/artisanworkshop/cart-bridge-jp/pull/132
+- 現在のステップ: 7（G1 の修正を push。Copilot の応答待ち → G2）
+- Copilot: 依頼 1 回（スクリプトの依頼が登録されず、ユーザーが UI から依頼）/ 未応答
+- Codex: 依頼 1 回 / 未収束（G1 で 1 件）
 
 ## ログ
 
@@ -16,3 +16,4 @@
 | 2026-10-13 10:45 | 2 | 実装コミット 5 件（`b40df86` 無料版の修正・`8cefd12` 例外の文・`fa478f1` Pro の顧客・`d9c8245` 画面と翻訳・`f80fe80` 重複した判定の削除）＋ docs。品質チェック green（無料版 PHPUnit 1362 件・Pro 861 件・Jest 111 件）。ガード 38 か所の変異のうち 37 か所が検出、残る 1 か所は `esc_url_raw()` と重複した判定だったので外した。dev サイトのストアフロントで、修正前と同じ値の商品は SKU のブロックが `<script>` を出し、修正後は出ないことを確認（商品・mapping・CLI のセッションは撤去済み）。配布 zip を展開して Plugin Check: 無料版 ERROR 0、Pro は `no_plugin_readme` だけ |
 | 2026-10-13 12:20 | 3 | review-loop R1（自己レビュー＋独立サブエージェント opus）: Critical/High 0。Medium 2 件（紐づけだけでないアカウントにも `customer_reused_existing` を付けた・SKU が空になる型番のテストがトートロジー）と Low 7 件（古いアカウントの空の印・整形で同じ SKU になる型番・SVG・動的な能力のスタッフのエクスポート・要再接続のコールバックの案内・文言・PHP/TS の一覧）を修正（`b43287e`・`c68a9a3`。PO の末尾の改行 `ed1cd87`）。変異 9 件が検出（1 件は等価） |
 | 2026-10-13 12:20 | 3 | review-loop R2（独立サブエージェントの検証。変異 6 件）: **APPROVE**（R1 はすべて解消・新規の Critical/High 0）。新規 Low 3 件と、extras のキーが紐づけ・作成の印を書き換えうる点（作成の印を書く位置を移したので新規作成でも起きる形だった）を修正（`da83123`）。品質チェック green（無料版 1365 件・Pro 867 件・Jest 111 件） |
+| 2026-10-13 12:29 | 4〜7 | 初回 push（T=2026-10-13T02:32:16Z）→ PR #132 → CI green。Copilot の依頼は `gh pr edit` と REST の両方で登録されず（timeline・GraphQL に依頼なし）、ユーザーが UI から依頼（決定）。Codex は自動レビューが 5 分で来ず nudge で再依頼 → G1: 1 件（P2。SVG を許すサイトで最初の `media_sideload_image()` が SVG を保存しうる）を修正（`96663c1`。auto-commit）。Copilot は 25 分待っても未応答・未登録 → ユーザーが UI から依頼して待つ（決定）。Copilot の応答は G2 で扱う |
