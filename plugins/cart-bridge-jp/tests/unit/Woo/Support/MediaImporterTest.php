@@ -156,6 +156,66 @@ final class MediaImporterTest extends WooTestCase {
 		$this->assertSame( $before, (int) wp_count_posts( 'attachment' )->inherit );
 	}
 
+	/**
+	 * サイトが `image_sideload_extensions` に SVG を足していても、最初の `media_sideload_image()` で SVG を保存しない（R3-5b G1-1）。
+	 */
+	public function test_does_not_save_svg_even_if_the_site_allows_svg_sideloads(): void {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$svg = "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><script>alert(1)</script></svg>\n";
+
+		add_filter(
+			'upload_mimes',
+			static function ( array $mimes ): array {
+				$mimes['svg'] = 'image/svg+xml';
+
+				return $mimes;
+			}
+		);
+		add_filter(
+			'image_sideload_extensions',
+			static function ( array $extensions ): array {
+				$extensions[] = 'svg';
+
+				return $extensions;
+			}
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, array $parsed_args ) use ( $svg ) {
+				if ( ! empty( $parsed_args['filename'] ) ) {
+					file_put_contents( $parsed_args['filename'], $svg ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- テストのHTTPスタブ用一時ファイル書込。
+				}
+
+				return [
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'headers'  => [ 'content-type' => 'image/svg+xml' ],
+					'body'     => empty( $parsed_args['filename'] ) ? $svg : '',
+				];
+			},
+			10,
+			2
+		);
+
+		$product = new WC_Product_Simple();
+		$product->set_name( 'P' );
+		$product_id = $product->save();
+
+		$before = (int) wp_count_posts( 'attachment' )->inherit;
+
+		$this->assertNull( ( new MediaImporter( 'colorme' ) )->import( 'https://example.test/icon.svg', $product_id ) );
+		$this->assertSame( $before, (int) wp_count_posts( 'attachment' )->inherit );
+		// 絞り込みはこの呼び出しの間だけ（サイトの設定はそのまま）。
+		$this->assertContains( 'svg', apply_filters( 'image_sideload_extensions', [ 'jpg' ], '' ) );
+	}
+
+	public function test_raster_extensions_only_keeps_raster_types(): void {
+		$this->assertSame( [ 'jpg', 'png', 'webp' ], MediaImporter::raster_extensions_only( [ 'jpg', 'svg', 'png', 'html', 'webp' ] ) );
+		$this->assertSame( [], MediaImporter::raster_extensions_only( 'jpg' ) );
+	}
+
 	public function test_returns_null_on_http_failure(): void {
 		add_filter(
 			'pre_http_request',

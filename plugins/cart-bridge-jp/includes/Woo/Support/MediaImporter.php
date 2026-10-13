@@ -22,6 +22,13 @@ final class MediaImporter {
 	 */
 	private array $resolved = [];
 
+	/**
+	 * `media_sideload_image()` に許す拡張子（WP の既定の一覧と、`wp_get_image_mime()` が判定できる AVIF・HEIC）。
+	 *
+	 * @var array<int,string>
+	 */
+	private const RASTER_EXTENSIONS = [ 'jpg', 'jpeg', 'jpe', 'png', 'gif', 'webp', 'avif', 'heic' ];
+
 	public function __construct( private readonly string $platform ) {}
 
 	/**
@@ -41,7 +48,16 @@ final class MediaImporter {
 			require_once ABSPATH . 'wp-admin/includes/image.php';
 		}
 
-		$attachment_id = media_sideload_image( $url, $post_id, null, 'id' );
+		// `media_sideload_image()` は URL の拡張子が `image_sideload_extensions` にあれば、中身を画像として確かめずに保存しうる
+		// （サイトが SVG を足していると、スクリプトを含む SVG がサイトと同じオリジンに置かれる）。この呼び出しの間だけ、
+		// ラスター画像の拡張子に絞る（R3-5b。ほかの拡張子はフォールバックが中身を確かめる）。
+		add_filter( 'image_sideload_extensions', [ self::class, 'raster_extensions_only' ], PHP_INT_MAX );
+
+		try {
+			$attachment_id = media_sideload_image( $url, $post_id, null, 'id' );
+		} finally {
+			remove_filter( 'image_sideload_extensions', [ self::class, 'raster_extensions_only' ], PHP_INT_MAX );
+		}
 
 		if ( $attachment_id instanceof WP_Error ) {
 			$attachment_id = $this->fallback_sideload( $url, $post_id );
@@ -59,6 +75,16 @@ final class MediaImporter {
 		$this->resolved[ $url ] = $attachment_id;
 
 		return $attachment_id;
+	}
+
+	/**
+	 * `image_sideload_extensions` を、`wp_get_image_mime()` が中身を判定できるラスター画像の拡張子だけに絞る（{@see self::import()}）。
+	 *
+	 * @param mixed $extensions サイト・他のプラグインが渡した拡張子。
+	 * @return array<int,string>
+	 */
+	public static function raster_extensions_only( mixed $extensions ): array {
+		return array_values( array_intersect( is_array( $extensions ) ? $extensions : [], self::RASTER_EXTENSIONS ) );
 	}
 
 	/**
