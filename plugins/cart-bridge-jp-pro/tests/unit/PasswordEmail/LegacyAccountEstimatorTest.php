@@ -103,6 +103,20 @@ final class LegacyAccountEstimatorTest extends WooTestCase {
 	}
 
 	/**
+	 * 何も作らなかったジョブの窓は使わない（安全網〔作った件数の合計〕だけに頼らない: 別のジョブが作った件数で合計が足りると、窓の外のアカウントが入る）。
+	 */
+	public function test_does_not_use_the_window_of_a_job_that_created_nothing(): void {
+		$this->legacy_import_job( self::START, self::END, [ 'created' => 1 ] );
+		$this->legacy_import_job( '2026-09-02 10:00:00', '2026-09-02 10:05:00', [ 'created' => 0 ] );
+		$this->legacy_import_job( '2026-09-03 10:00:00', '2026-09-03 10:05:00', [ 'processed' => 1 ] );
+		$created = $this->legacy_customer( '1', '2026-09-01 10:01:00' );
+		$this->legacy_customer( '2', '2026-09-02 10:01:00' );
+		$this->legacy_customer( '3', '2026-09-03 10:01:00' );
+
+		$this->assertSame( [ $created ], LegacyAccountEstimator::create()->estimate()['ids'] );
+	}
+
+	/**
 	 * 0.1.0 の失敗したジョブ（回復のエラーでない）も、失敗までに作ったアカウントの窓になる。
 	 */
 	public function test_uses_a_legacy_job_that_failed_by_itself(): void {

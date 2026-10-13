@@ -65,6 +65,8 @@ final class PasswordSetupEmailTest extends WooTestCase {
 	 * CC・BCC は付けない（設定・フィルターのどちらでも。付けると全員の有効なリンクが他の宛先に届く）。設定の欄も出さない。
 	 */
 	public function test_never_adds_cc_or_bcc(): void {
+		// CC・BCC の見出しは WooCommerce の「メールの改善」が有効なときだけ付く。
+		update_option( 'woocommerce_feature_email_improvements_enabled', 'yes' );
 		add_filter( 'woocommerce_email_cc_recipient_' . EmailRegistry::EMAIL_ID, static fn () => 'cc@example.com' );
 		add_filter( 'woocommerce_email_bcc_recipient_' . EmailRegistry::EMAIL_ID, static fn () => 'bcc@example.com' );
 		$user = get_userdata( $this->imported_customer( '1' ) );
@@ -78,7 +80,16 @@ final class PasswordSetupEmailTest extends WooTestCase {
 		$this->assertStringNotContainsString( 'cc@example.com', $mail['header'] );
 		$this->assertStringNotContainsString( 'bcc@example.com', $mail['header'] );
 
-		$this->email->init_form_fields();
+		$this->assertSame( '', $this->email->get_cc_recipient() );
+		$this->assertSame( '', $this->email->get_bcc_recipient() );
+
+		// WooCommerce 11.1 まで（`supports_cc_bcc` が無い版）は、すべてのメールに CC・BCC の欄を足す。その版を真似ても欄を出さない。
+		$this->email->supports_cc_bcc = true;
+		try {
+			$this->email->init_form_fields();
+		} finally {
+			$this->email->supports_cc_bcc = false;
+		}
 		$this->assertArrayNotHasKey( 'cc', $this->email->form_fields );
 		$this->assertArrayNotHasKey( 'bcc', $this->email->form_fields );
 	}

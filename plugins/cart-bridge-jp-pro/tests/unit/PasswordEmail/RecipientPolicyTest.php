@@ -173,6 +173,17 @@ final class RecipientPolicyTest extends WooTestCase {
 		$this->assertSame( Verdict::NOT_CREATED_BY_IMPORT, ( new RecipientPolicy( [ $legacy ], true ) )->evaluate( $legacy )->outcome );
 	}
 
+	/**
+	 * 紐づけの顧客 ID が空のアカウントは、作成時の顧客 ID も空なら一致してしまうので、取込みで作ったとみなさない（どの顧客のものでもない）。
+	 */
+	public function test_leaves_out_an_account_without_a_linked_customer_id(): void {
+		$user_id = $this->imported_customer( '1' );
+		update_user_meta( $user_id, '_cbjp_remote_id', '' );
+		update_user_meta( $user_id, CustomerWriter::CREATED_REMOTE_ID_META, '' );
+
+		$this->assertSame( Verdict::NOT_CREATED_BY_IMPORT, ( new RecipientPolicy() )->evaluate( $user_id )->outcome );
+	}
+
 	public function test_leaves_out_an_invalid_email_address(): void {
 		global $wpdb;
 
