@@ -94,6 +94,9 @@ description: >
 - **検証中だけ効かせたいフィルター**は、ブラウザからの REST にも効かせる必要があるなら mu-plugin に置く（CLI の検証スクリプト内の `add_filter()` はそのプロセスにしか効かない）。別の一時 mu-plugin に書いて `mu-plugins/` に置き、撤去で消す。テンプレートは商品を seed しないので、Export の確認は Woo 側に `ZZV-` の商品を作る。
 - **DB を直接変えた後の目視は必ず `cmd+r`**。同じ URL への `navigate` は再読込にならず（performance entries も引き継がれる）、マウント時に1回だけ取得するコンポーネントは古い応答のまま残る。今回は「データが消えた」と誤診して長時間の調査になった。
 - **dev サイトには配送ゾーンが無く、Woo 側の配送候補（Pro の `OrderMappingCandidates::shipping_methods()`）が 0 件**（R3-0m）。配送マッピングの解消まで確かめるなら、名前に `ZZV` を含む一時ゾーンに `flat_rate` を足し（`WC_Shipping_Zone` → `add_shipping_method()`）、撤去時にゾーン名を確かめてから `delete()` する。候補 0 件の表示（「先に WooCommerce 側で設定を」）を見たいならゾーンを作る前に確認する
+- **ストアフロントの商品ページを HTTP で確かめるときは、管理者の短いセッションで取得する**（R3-5b）。dev サイトは WooCommerce の「近日公開」モードで、未ログインの要求には商品ページの代わりに
+  近日公開のページが返る（店舗の設定は変えない）。一時の PHP で `WP_Session_Tokens::get_instance( 1 )->create( time() + 900 )` と `wp_generate_auth_cookie( 1, $exp, 'logged_in', $token )` を作り、
+  `curl --cookie "<LOGGED_IN_COOKIE>=<値>"` で取得する（Cookie の値は URL エンコードしない。`|` を含む）。終わったら UA が `WP CLI` で作ったばかりのセッションを `session_tokens` から消す
 - **`npx wp-env run cli wp eval '<複数行の PHP>' | tail -N` は結果行が切れる**（wp-env が実行コマンドの全文を前後に出すため、`tail` が結果ではなくコマンドの echo だけを拾う）。`tail` を付けないか、`echo "RESULT: …"` の目印行を出して `grep` する。
 
 - **`http://localhost:<port>/wp-admin/...` が別ホスト（例: `*.wp.local`）のログイン画面へ飛ぶときは、wp-env ではなく別のローカル環境が応答している**

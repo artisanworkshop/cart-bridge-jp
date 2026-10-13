@@ -93,7 +93,7 @@ rateLimitPerMinute: 100
 | `price`（定価） | price（定価>販売価格時。extras.list_priceにも生値を退避） | **実装済み（要検証#16確定分）**: `price`は`sales_price`と同じ税基準（`tax_type=excluded`の店舗では税抜）で、店頭は税込換算して表示する（実測: `price=8000`→店頭「¥8,800」）。`_including_tax`版フィールドが無いため、`ProductTransformer`が`shop.json`の`tax_type`/`tax`/`reduce_tax_rate`/`tax_rounding_method`と商品の`tax_reduced`から税込換算し、定価税込額が販売価格（税込）より高い場合のみWooの`regular_price`（定価）/`sale_price`（販売価格）へ出し分ける。それ以外（定価未設定・定価≦販売価格・税設定未取得や未知のenum値で換算不可）は`regular_price = sales_price_including_tax` / `sale_price = null`にフォールバックする |
 | `members_price` | extras.members_price | メタ保存（会員価格はWooコアに無い） |
 | `simple_expl` / `expl` | shortDescription / description | 抜粋 / 本文（HTMLは`Cast::sanitize_html()`〔`<script>`・`<style>`を中身ごと除いてから`wp_kses_post`〕で浄化。R3-1c） |
-| `image_url`, `another_image_url*` | images[]（URL） | `media_sideload_image` でメディア取込 |
+| `image_url`, `another_image_url*` | images[]（URL） | `download_url()` で取得し、中身が画像のときだけ `media_handle_sideload()` でメディア取込（R3-5b で `media_sideload_image` から変えた。`MediaImporter`） |
 | `variants[]`（type1/type2軸） | variants[] | Variable product + variation（属性2軸まで） |
 | `options[]` | options[] | 属性（非variation）またはメタ |
 | `category_id_big/small` | categoryRefs[] | 商品カテゴリー（親子） |

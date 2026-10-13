@@ -83,3 +83,7 @@ paths:
   （扱えないと答えると push intent が「未作成」での解除へ案内され、再接続後に重複して作られうる。R3-6c2 review-loop R1-1）。投げるのは**同梱の組み立てがスコープの不足で
   組み立てなかったときだけ**（`MissingScopesException` → キャッシュの理由 `missing_scopes`）。外部の登録が組み立てを外した・失敗したときは、接続し直しても戻らないので
   「扱えない」のまま（PR #118 G2-B1）。未接続は組み立てる
+- **OAuth の state を一度きりにするのは `delete_transient()` の結果**（`ColorMeOAuth::verify_state()`。R3-5b）: `get_transient()` で読めても、`delete_transient()` が true の要求だけを通す。
+  `delete_option()` は DELETE の影響行数で返す（0 行なら false。`wp-includes/option.php`）ので、同じ state の 2 つのコールバックが重なっても通るのは片方だけ。Copilot はこれを
+  「読み取りと削除が別の操作なので並行で両方通る」と High で指摘する（PR #132 G2-1・G4 で再掲。誤検知）。答えるテストは、1 つ目の DELETE の直前に `query` フィルターで 2 つ目の検証を最後まで走らせる
+  （`ColorMeOAuthTest::test_only_one_of_two_overlapping_callbacks_passes`）
