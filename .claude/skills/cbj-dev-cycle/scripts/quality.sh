@@ -17,6 +17,8 @@ npm run i18n:check
 .claude/skills/cbj-dev-cycle/scripts/test-gate-turn.sh
 .claude/skills/cbj-dev-cycle/scripts/test-gate-record.sh
 .claude/skills/cbj-dev-cycle/scripts/test-bot-wait.sh
+# 配布 zip の Plugin Check の集計（bin/plugin-check-zip.sh --summarize）の回帰テスト。wp-env 不要
+bin/test-plugin-check-zip.sh
 # API Manager の実測の匿名化・フィクスチャとの比較（measure-api-manager。ホストの php。wp-env 不要）
 php .claude/skills/measure-api-manager/php/test-anon.php
 echo "quality: all green"
