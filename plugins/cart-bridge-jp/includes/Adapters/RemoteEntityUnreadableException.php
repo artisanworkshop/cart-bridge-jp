@@ -29,7 +29,8 @@ final class RemoteEntityUnreadableException extends Exception {
 	 * @param ?Throwable $previous 変換を止めた例外（取り込まない種類の行で例外が無いときは null）。
 	 */
 	public function __construct( string $platform, string $entity, ?Throwable $previous = null ) {
-		// 例外の文に ID・応答の本文を含めない（個人情報を含みうる。`PartialPushException` と同じ）。
-		parent::__construct( sprintf( 'Platform "%s" returned the "%s" item for the given ID, but it could not be read.', $platform, $entity ), 0, $previous );
+		// 例外の文に ID・応答の本文を含めない（個人情報を含みうる。`PartialPushException` と同じ）。式展開する値は外部の拡張が渡しうるので
+		// エスケープする（CLAUDE.md「例外のメッセージもエスケープの対象」。PR #136 G1-1）。
+		parent::__construct( sprintf( 'Platform "%s" returned the "%s" item for the given ID, but it could not be read.', esc_html( $platform ), esc_html( $entity ) ), 0, $previous );
 	}
 }
