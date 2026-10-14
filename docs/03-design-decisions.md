@@ -3206,6 +3206,11 @@ dev サイトのストアフロント（Twenty Twenty-Five。店舗は「近日�
   SKU で救えず、`order_line_variation_unmatched` の行になる（警告つき。フェイルクローズ。review-loop R2-3）。
 - 許可リストのトレードオフ（review-loop R1-L4）: ログインのときにロールを足すプラグイン（例: bbPress の `bbp_participant`）を使うサイトでは、その顧客も保護になる（プロフィールを更新しない・受注はゲスト・
   エクスポートの対象外）。そのプラグインを止めるとロールが未登録になって `WP_User::$roles` から消え、保護が外れる（その後は通常の顧客として扱う）。
+- Pro 0.1.0 の zip の Plugin Check の警告 9 件（2026-10-14、`bin/plugin-check-zip.sh --plugin cart-bridge-jp-pro`。R3-5b の記録は無料版だけだった。ERROR は `no_plugin_readme` を除いて 0）は、いずれも設計どおりで受け入れた:
+  `LicensePage::posted_key()` の `InputNotSanitized`・`MissingUnslash`（キーは `wp_unslash()` の後に `normalize_key()` の正規表現で確かめ、`sanitize_text_field()` を通さない。PR #123 R1-6）、
+  `CustomerLinkSource::scan()` の `slow_db_query_meta_value`（管理者が明示的に実行する一回限りのツール）、`AccountLinks::expiration_seconds()` の `NonPrefixedHooknameFound`（WP コアの `password_reset_expiration` を適用しているだけ）、
+  `cbjp/pro/commerce_adapters/register`・`cbjp/pro/password` の `NonPrefixedHooknameFound`・`InvalidPrefixPassed`（`cbjp/pro/…` は §10.0 の拡張点の命名）、`load_plugin_textdomainFound`（wordpress.org で配らないので自分で読む。R3-8d）、
+  `missing_composer_json_file`（Pro の `.distignore` が除く。`bin/build-zip.sh`）、`plugin_header_requires_plugins_not_in_directory`（`Requires Plugins: cart-bridge-jp` が未公開。wordpress.org の承認後に消える）。
 
 **backlog へ送ったもの**（`docs/review-backlog.md` の `r3-5b-security-audit/*`）: 画像の取得の応答サイズとタイムアウト、エクスポートの画像の取得の `wp_remote_get`（`wp_safe_remote_get` は dev サイトの localhost:10010 を拒否する）、
 API のパスの remote_id のエンコード（管理者の入力の経路は既にエンコード済み）、`TokenStore` の鍵の用途分離（変えると既存の暗号文が読めない）、CSV の双方向制御文字・全角の `＝`、Pro の uninstall が無い、

@@ -109,6 +109,9 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   コンテナの中でファイルに受けて jq で読み、読めない形・知らない種類は「確かめられない」として止める（`bin/plugin-check-zip.sh`）。
   `--ignore-errors`・`--ignore-warnings` は `empty( $assoc_args[…] )` で見るので `--ignore-errors=false` でも隠す（WP-CLI は `false` を文字列のまま渡す。`=0`・`=`・`--no-ignore-errors` は隠さない。実測）。
   渡さない引数を `case` で拒否するときは `--flag | --flag=*` と値付きの形まで書く（`--ignore-errors` だけだと `--ignore-errors=true` が素通りする。PR #141 Codex）
+- **zip を展開するスクリプトは、展開の前に `unzip -Z1` で名前を検査する**（絶対パス・`..` の要素・最上位が 1 つか）。`unzip` は展開先の外へ出る名前を黙って飛ばし、
+  シンボリックリンクはそのまま作る（展開後に `find -type l` で拒否する）。作業ディレクトリは実行ごとに `mktemp -d dist/<name>.XXXXXX` で作り、消すのは自分のものだけにする
+  （共有の固定名だと、同時に回した別の実行の展開物・結果を消す。PR #141 Codex）
 - **中断で壊れると復旧できないファイル**（mu-plugin・追跡しているファイル・状態ファイル）**はその場で書き戻さない**（`cat tmp > file`・`file_put_contents( $path )` は途中で止まると空や途中までのファイルを残す。
   読みかけの mu-plugin は dev サイトの全要求を fatal にし、teardown も動かなくなる）。同じディレクトリの一時ファイル（`cp -p` で権限を引き継ぐ。mu-plugins の中では拡張子を `.php` にしない。WordPress が読み込むため）に書き、
   中身（目印・`php -l`）を確かめてから `mv -f`／`rename()` で置き換える。中断で残った一時ファイルは後片付けが消す（PR #127 G1-5・G2-3・G3-3・G3-4）
