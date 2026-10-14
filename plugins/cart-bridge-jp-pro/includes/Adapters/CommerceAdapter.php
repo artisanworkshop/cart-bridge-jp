@@ -10,6 +10,7 @@ namespace CartBridgeJP\Pro\Adapters;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Pro\Canonical\CanonicalCoupon;
 use CartBridgeJP\Pro\Canonical\CanonicalCustomer;
@@ -23,6 +24,7 @@ use CartBridgeJP\Pro\Canonical\CanonicalOrder;
  * `CommerceAdapters::get()` で引くだけで、プラットフォームで分岐しない（原則 1）。
  *
  * 各メソッドの契約は移す前の `PlatformAdapter` と同じ（push の D21-A、ID 指定取得の 404 は null、受注の更新は送らずにスキップ…）。
+ * ID 指定取得の null は 404 だけの意味で、接続先が返した項目を Canonical にできないときは `RemoteEntityUnreadableException` を投げる（R3-11）。
  * 既定実装は `UnsupportedOperationException`（D20 と同じ書き方。null・空配列など正常な結果と区別できない値を既定にしない）。
  * 候補（`*_candidates()`）は画面の選択肢なので、既定は空（候補なし）。
  */
@@ -56,6 +58,8 @@ abstract class CommerceAdapter {
 	/**
 	 * 顧客を ID で 1 件取得する。404 は null（例外にしない）。送信の結果が不明な実体の確定（`Woo\Tools\PushIntentResolver`。D21-B）が使う。
 	 * base: UnsupportedOperationException（D12。受注購入者から抽出）。
+	 *
+	 * @throws RemoteEntityUnreadableException 接続先が返した顧客を Canonical にできない（取り込まない種類の行を含む。R3-11）。
 	 */
 	public function fetch_customer_by_remote_id( string $remote_id ): ?CanonicalCustomer {
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。
@@ -66,6 +70,8 @@ abstract class CommerceAdapter {
 	 * 受注を ID で 1 件取得する。404 は null。期間指定付きの一覧取得と違い、ID 指定の単一取得は日付範囲の暗黙の絞り込み
 	 * （カラーミー: 直近 7 日。03 §9 #14）の影響を受けない。HTTP の本数は `Entities\EntityType::fetch_by_remote_id()` の上限に収める
 	 * （`Support\PlatformLock::TTL_LONG` の見積もり）。
+	 *
+	 * @throws RemoteEntityUnreadableException 接続先が返した受注を Canonical にできない（R3-11）。
 	 */
 	public function fetch_order_by_remote_id( string $remote_id ): ?CanonicalOrder {
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と操作の名前（例外が文を組み立てる）。例外の文は HTML に出さない。

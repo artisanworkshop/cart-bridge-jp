@@ -18,6 +18,9 @@
  *   経路（`PartialPushException`。mapping は書くが checksum は null、後者はレート制限でジョブが paused になる）を再現する。
  *   remote_id は固定の `ZZV-PARTIAL-API`／`ZZV-PARTIAL-RL`（`examples/partial-push/`）。別の形のデータが要るなら、この関数を検証用に書き換えてよい
  *   （テンプレートなので）。
+ * - `fetch_by_id_failure`（文字列。任意）が `'unreadable'` なら、mock の ID 指定取得（商品・顧客・受注）が `RemoteEntityUnreadableException` を投げる
+ *   （R3-11。接続先は項目を返したが読めない経路。push intent の「リンクして解除」が 422 `cbjp_remote_entity_unreadable` になる。
+ *   `examples/push-intent-resolution/`）。それ以外の値・キーが無いときは既定（`products`・`customers`・`orders` から引く）。
  * - `capabilities`（配列。任意）があれば mock の `capabilities()` を上書きする（D24。Export タブの Beta 表示・
  *   既定オフ・非プレミアム相当の出し分けの確認用）。形は { can_create_order: bool, can_push_images: bool,
  *   beta_features: string[] }。省略したキーは mock の既定（`can_*` は true、`beta_features` は空）。`can_push_images` と
@@ -144,6 +147,14 @@ add_action(
 					default => null,
 				};
 
+				// R3-11 検証用: `fetch_by_id_failure === 'unreadable'` のときだけ、ID 指定取得が「読めない」例外を投げる（それ以外の値は既定）。
+				// 例外のクラスが無い古い無料版では何もしない（mu-plugin の fatal を避ける既存方針）。
+				$unreadable_seed  = is_array( $seed ) && 'unreadable' === ( $seed['fetch_by_id_failure'] ?? null )
+					&& class_exists( 'CartBridgeJP\\Adapters\\RemoteEntityUnreadableException' );
+				$fetch_by_id_fail = static fn ( string $entity ): ?Throwable => $unreadable_seed
+					? new CartBridgeJP\Adapters\RemoteEntityUnreadableException( '__PLATFORM_KEY__', $entity )
+					: null;
+
 				// D24 検証用: `capabilities` が配列のときだけ上書きする（配列でなければ既定の mock。mu-plugin の fatal を
 				// 避ける既存方針）。`can_*` は**キーが無いときだけ**既定の true、キーがあれば厳密な
 				// `true ===` 比較で、真偽値以外（`'true'`・`1`・`null` など）は false（型違いを「できる」と読まない側に倒す。
@@ -191,6 +202,7 @@ add_action(
 					create_push_failure: $create_push_fail,
 					capabilities_override: $caps_override,
 					mapping_candidates_override: null === $candidates_seed ? null : array_intersect_key( $candidates_seed, [ 'category' => true ] ),
+					fetch_by_id_failure: $fetch_by_id_fail( 'product' ),
 					platform_id: '__PLATFORM_KEY__'
 				);
 
@@ -201,6 +213,8 @@ add_action(
 						push_supported: $push_enabled,
 						capabilities_override: $commerce_caps,
 						create_push_failure: $create_push_fail,
+						// Pro の mock は顧客・受注の ID 指定取得で同じ例外を投げる（受注でも例外の文は "customer"。判定には使わない）。
+						fetch_by_id_failure: $fetch_by_id_fail( 'customer' ),
 						platform_id: '__PLATFORM_KEY__',
 						candidates: null === $candidates_seed ? [] : array_intersect_key( $candidates_seed, array_flip( [ 'payment', 'shipping', 'status' ] ) )
 					);

@@ -423,7 +423,11 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 		$this->assertNotContains( WarningCode::PRICES_INCLUDE_TAX_DISABLED, $second->warnings );
 	}
 
-	public function test_unknown_push_intent_entity_is_reported_as_remote_not_found(): void {
+	/**
+	 * R3-11 で意図して変えた（以前は REMOTE_NOT_FOUND）: 登録の無い種類は ASP に問い合わせられないので「接続先に無い」とは答えず、
+	 * 種類が戻るまで解除を断る（`Woo\Tools\PushIntentResolver`）。
+	 */
+	public function test_unknown_push_intent_entity_is_reported_as_type_unavailable(): void {
 		$intents = new PushIntentRepository();
 		$intents->begin( 'mock', 'widget', 303, null, null );
 		$id = $intents->find_unresolved( 'mock' )[0]['id'];
@@ -432,7 +436,7 @@ final class CommerceDispatchCharacterizationTest extends WP_UnitTestCase {
 			( new PushIntentResolver( $intents, new MappingRepository() ) )->resolve_link( 'mock', $id, new MockPlatformAdapter(), 'anything' );
 			$this->fail( '例外が出ませんでした。' );
 		} catch ( PushIntentResolutionException $exception ) {
-			$this->assertSame( PushIntentResolutionException::REMOTE_NOT_FOUND, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::TYPE_UNAVAILABLE, $exception->reason() );
 		}
 	}
 

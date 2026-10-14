@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\ColorMe\Transform\Cast;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Pro\Adapters\ColorMe\Transform\CouponTransformer;
 use CartBridgeJP\Pro\Adapters\ColorMe\Transform\CustomerTransformer;
@@ -197,12 +198,23 @@ final class ColorMeCommerceAdapter extends CommerceAdapter {
 		}
 
 		try {
-			return ( new CustomerTransformer() )->transform( $customer );
+			$model = ( new CustomerTransformer() )->transform( $customer );
 		} catch ( Throwable $exception ) {
 			$this->api()->log_transform_failure( 'customer', $customer, $exception );
 
-			return null;
+			// null は 404 だけの意味にする（実在する顧客を「無い」と案内しない。`CommerceAdapter::fetch_customer_by_remote_id()`。R3-11）。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID・種類のキーと元の例外（文ではない）。例外が文を組み立てる。
+			throw new RemoteEntityUnreadableException( $this->id(), 'customer', $exception );
 		}
+
+		// 非会員（ゲストの購入のスナップショット）・メールの無い会員は取り込まない行（`CustomerTransformer::transform()`）で、変換は null を返す。
+		// 顧客は実在するので「無い」にしない。try の外で投げる（中で投げると上の catch が変換の失敗として記録し直す）。
+		if ( null === $model ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID と種類のキー（文ではない）。例外が文を組み立てる。
+			throw new RemoteEntityUnreadableException( $this->id(), 'customer' );
+		}
+
+		return $model;
 	}
 
 	/**
@@ -227,7 +239,9 @@ final class ColorMeCommerceAdapter extends CommerceAdapter {
 		} catch ( Throwable $exception ) {
 			$this->api()->log_transform_failure( 'order', $sale, $exception );
 
-			return null;
+			// null は 404 だけの意味にする（実在する受注を「無い」と案内しない。R3-11）。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID・種類のキーと元の例外（文ではない）。例外が文を組み立てる。
+			throw new RemoteEntityUnreadableException( $this->id(), 'order', $exception );
 		}
 	}
 

@@ -23,43 +23,43 @@ msgstr "Cart Bridge JP – Migrate for WooCommerce"
 msgid "Artisan Workshop"
 msgstr "Artisan Workshop"
 
-#: cart-bridge-jp.php:89
+#: cart-bridge-jp.php:96
 msgid "Cart Bridge JP requires WooCommerce to be installed and active."
 msgstr "Cart Bridge JP を使うには、WooCommerce をインストールして有効化してください。"
 
-#: cart-bridge-jp.php:102
+#: cart-bridge-jp.php:109
 msgid "Cart Bridge JP could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:86
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:87
 msgid "Color Me Shop"
 msgstr "カラーミーショップ"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:148
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:149
 msgid "Client ID"
 msgstr "クライアント ID"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:151
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:152
 msgid "From your Color Me Shop developer app registration."
 msgstr "カラーミーショップのデベロッパーアカウントで登録したアプリの情報です。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:155
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:156
 msgid "Client Secret"
 msgstr "クライアントシークレット"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:162
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:163
 msgid "Connect to Color Me Shop"
 msgstr "カラーミーショップに接続"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:175
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:176
 msgid "Not connected yet."
 msgstr "まだ接続していません。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:188
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:189
 msgid "The platform returned an unexpected response. Please try again."
 msgstr "プラットフォームから想定外の応答がありました。もう一度お試しください。"
 
-#: includes/Adapters/ColorMe/ColorMeAdapter.php:219
+#: includes/Adapters/ColorMe/ColorMeAdapter.php:220
 msgid "The connection changed while testing. Please try again."
 msgstr "テスト中に接続が変わりました。もう一度お試しください。"
 
@@ -153,48 +153,48 @@ msgstr "検証レポートはインポートの実行でのみ使えます。"
 msgid "The rebuild cursor is invalid."
 msgstr "紐づけの再構築の位置情報が正しくありません。"
 
-#: includes/Admin/RestController.php:1795
+#: includes/Admin/RestController.php:1801
 msgid "A remote_id is required to link this item."
 msgstr "この項目を紐づけるには remote_id が必要です。"
 
-#: includes/Admin/RestController.php:1840
+#: includes/Admin/RestController.php:1861
 msgid "Push intent not found."
 msgstr "送信結果が不明な記録が見つかりません。"
 
-#: includes/Admin/RestController.php:1845
+#: includes/Admin/RestController.php:1866
 msgid "The given remote_id does not exist on the connected platform."
 msgstr "指定した remote_id は接続したプラットフォームにありません。"
 
-#: includes/Admin/RestController.php:1850
+#: includes/Admin/RestController.php:1884
 msgid "The given remote_id is already linked to a different local item."
 msgstr "指定した remote_id はすでに別のローカルの項目に紐づいています。"
 
-#: includes/Admin/RestController.php:1855
+#: includes/Admin/RestController.php:1889
 msgid "This item type cannot be looked up by remote_id, so it can only be resolved as not created."
 msgstr "この種類の項目は remote_id で照会できないため、「未作成」としてのみ解決できます。"
 
-#: includes/Admin/RestController.php:1868
+#: includes/Admin/RestController.php:1902
 msgid "The platform API returned an error. Try again in a moment."
 msgstr "プラットフォームの API がエラーを返しました。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1873
+#: includes/Admin/RestController.php:1907
 msgid "The push intent could not be resolved."
 msgstr "送信結果が不明な記録を解決できませんでした。"
 
-#: includes/Admin/RestController.php:1883
+#: includes/Admin/RestController.php:1917
 msgid "The platform API rate limit was reached. Wait a minute, then try again."
 msgstr "プラットフォームの API の利用制限に達しました。1 分ほど待ってからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1964
+#: includes/Admin/RestController.php:1998
 msgid "Another operation is still in progress for this platform. Try again in a moment."
 msgstr "このプラットフォームでは別の操作がまだ進行中です。しばらくしてからもう一度お試しください。"
 
-#: includes/Admin/RestController.php:1965
+#: includes/Admin/RestController.php:1999
 msgid "A run is already in progress for this platform."
 msgstr "このプラットフォームではすでに実行が進行中です。"
 
 #. translators: %s: platform id
-#: includes/Admin/RestController.php:2009
+#: includes/Admin/RestController.php:2043
 #, php-format
 msgid "Unknown or unregistered platform \"%s\"."
 msgstr "不明なプラットフォーム、または登録されていないプラットフォームです（%s）。"
@@ -886,7 +886,7 @@ msgid "No platforms are available."
 msgstr "使えるプラットフォームがありません。"
 
 #. translators: 1: a sentence, 2: the sentence that follows it. Languages that do not separate sentences with a space can drop the space.
-#: includes/Admin/RestController.php:1992
+#: includes/Admin/RestController.php:2026
 #: build/index.js:2
 #, js-format,php-format
 msgid "%1$s %2$s"
@@ -1559,7 +1559,7 @@ msgstr "この接続には、一部の種類の記録に必要な権限（%1$s�
 msgid "The connection to %s does not have the permissions that some kinds of records need. They may not be shown or may not work until you reconnect."
 msgstr "%sへの接続に一部の種類の記録に必要な権限が無いため、接続し直すまでそれらの種類は表示されないか、動作しないことがあります。"
 
-#: includes/Admin/RestController.php:1862
+#: includes/Admin/RestController.php:1896
 msgid "The platform connection is missing, has expired, or lacks a permission. Reconnect it on the Connections tab, then continue."
 msgstr "プラットフォームとの接続が無いか、期限が切れているか、権限が足りません。「接続」タブで接続し直してから続けてください。"
 
@@ -1601,7 +1601,7 @@ msgid "When this is on, uninstalling the plugin deletes its own data: the saved 
 msgstr "オンにすると、プラグインをアンインストールしたときに、プラグイン自身のデータ（保存した接続、ストア間の紐づけ、ジョブの履歴とプレビューのレポート、ログ、設定、その他の記録）を削除します。移行したデータは WooCommerce に残ります。"
 
 #. translators: %s: list of the kinds of records, e.g. "Customers and Orders".
-#: includes/Admin/RestController.php:1987
+#: includes/Admin/RestController.php:2021
 #, php-format
 msgid "Only a dry run is available for %s on this site."
 msgstr "このサイトでは、%sはプレビュー（書き込みなし）だけを実行できます。"
@@ -1659,3 +1659,11 @@ msgstr "プラットフォームでアクセスが許可されませんでした
 #: build/index.js:7
 msgid "The saved Client ID and Client Secret are missing or were changed while connecting. Save them again, then connect."
 msgstr "保存したクライアント ID とクライアントシークレットが無いか、接続の途中で変わりました。もう一度保存してから、接続してください。"
+
+#: includes/Admin/RestController.php:1872
+msgid "The connected platform returned an item for this ID, but it could not be read or confirmed, so it was not linked. Check that the ID is correct, and see the Logs tab for details. If the export did create this item, “Mark as not created” would create it again."
+msgstr "接続したプラットフォームはこの ID の項目を返しましたが、読み取れない（または確かめられない）ため紐づけませんでした。ID が正しいか確かめ、詳しくは「ログ」タブを見てください。この項目がエクスポートで作られていた場合、「未作成として解決」を選ぶともう一度作られます。"
+
+#: includes/Admin/RestController.php:1879
+msgid "The add-on that handles this item type is not active on this site, or it could not be loaded. Check the add-on, then resolve this item."
+msgstr "この種類の項目を扱うアドオンが、このサイトで有効になっていないか読み込めていません。アドオンを確かめてから解決してください。"

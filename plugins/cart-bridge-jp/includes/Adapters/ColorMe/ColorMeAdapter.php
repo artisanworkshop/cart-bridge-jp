@@ -20,6 +20,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PartialPushException;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalCategory;
 use CartBridgeJP\Canonical\CanonicalProduct;
@@ -345,7 +346,9 @@ final class ColorMeAdapter extends AbstractPlatformAdapter {
 		} catch ( Throwable $exception ) {
 			$this->api()->log_transform_failure( 'product', $product, $exception );
 
-			return null;
+			// null は 404 だけの意味にする（実在する商品を「無い」と案内しない。`PlatformAdapter::fetch_product_by_remote_id()`。R3-11）。
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数はプラットフォーム ID・種類のキーと元の例外（文ではない）。例外が文を組み立てる。
+			throw new RemoteEntityUnreadableException( self::ID, 'product', $exception );
 		}
 	}
 

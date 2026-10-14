@@ -33,7 +33,8 @@ define( 'CBJP_URL', plugin_dir_url( __FILE__ ) );
 // Pro は起動しない（R3-6c1）。Pro が使う拡張点を足したら 1 つ上げる（プラグインの版とは別。版の文字列は公開前の 0.x では比べられないため）。
 // Pro は下限しか見ないので、拡張点の互換を壊す変更（メソッドの削除・シグネチャの変更）はしない（D20 と同じ。v1.0 前は Pro も同じ PR で直す）。
 // 2: R3-6c2（`Adapters\OAuthScopes`・`ColorMeAdapter::granted_scopes()`）。3: R3-8b（`EntityType::dry_run_only_reason()`）。4: R3-10（`Sync\JobHistory`）。
-define( 'CBJP_EXTENSION_API_VERSION', 4 );
+// 5: R3-11（`Adapters\RemoteEntityUnreadableException`。ID 指定取得で読めない項目を null にしない契約）。
+define( 'CBJP_EXTENSION_API_VERSION', 5 );
 
 if ( file_exists( CBJP_PATH . 'vendor/autoload.php' ) ) {
 	require_once CBJP_PATH . 'vendor/autoload.php';

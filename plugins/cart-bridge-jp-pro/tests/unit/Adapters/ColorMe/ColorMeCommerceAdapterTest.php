@@ -10,6 +10,7 @@ namespace CartBridgeJP\Pro\Tests\Adapters\ColorMe;
 use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Pro\Adapters\ColorMe\ColorMeCommerceAdapter;
@@ -723,6 +724,44 @@ final class ColorMeCommerceAdapterTest extends WP_UnitTestCase {
 		$adapter->fetch_order_by_remote_id( '219293424' );
 	}
 
+	/**
+	 * R3-11: 接続先が返した受注を変換できないとき（`make_date` の欠けた行）は null（＝404）にせず例外にし、変換の失敗をログに残す。
+	 */
+	public function test_fetch_order_by_remote_id_throws_when_the_returned_order_cannot_be_transformed(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$detail = FixtureLoader::load( 'colorme', 'sale_bank_detail' );
+		unset( $detail['sale']['make_date'] ); // `OrderTransformer::transform()` は欠けた `make_date` で RuntimeException を投げる。
+
+		$this->respond_from_map(
+			array_merge(
+				$this->order_lookup_stubs(),
+				[
+					'sales/219293424.json' => [
+						'status' => 200,
+						'body'   => $detail,
+					],
+				]
+			)
+		);
+
+		try {
+			$adapter->fetch_order_by_remote_id( '219293424' );
+			$this->fail( 'RemoteEntityUnreadableException was not thrown' );
+		} catch ( RemoteEntityUnreadableException $exception ) {
+			$previous = $exception->getPrevious();
+			$this->assertNotNull( $previous );
+			$this->assertSame( RuntimeException::class, $previous::class );
+		}
+
+		$logs = array_filter(
+			( new LogRepository() )->list( null, 'error' ),
+			static fn ( array $log ): bool => 'Failed to transform a ColorMe "order" row.' === $log['message']
+		);
+		$this->assertCount( 1, $logs );
+	}
+
 	public function test_fetch_orders_walks_full_history_with_an_explicit_after_floor(): void {
 		[ $adapter, $token_store ] = $this->make_adapter();
 		$token_store->save( [ 'access_token' => 'token' ] );
@@ -867,6 +906,96 @@ final class ColorMeCommerceAdapterTest extends WP_UnitTestCase {
 		);
 
 		$this->assertNull( $adapter->fetch_customer_by_remote_id( '999' ) );
+	}
+
+	/**
+	 * R3-11: 非会員（ゲストの購入のスナップショット）・メールの無い会員は取り込まない行で、変換は null を返す。顧客は実在するので
+	 * null（＝404）にせず例外にする（null にすると push intent の解除が「接続先に存在しない」と答え、「未作成として解除」が重複を招く）。
+	 *
+	 * @dataProvider unreadable_customer_rows
+	 *
+	 * @param callable(array<string,mixed>):array<string,mixed> $mutate
+	 */
+	public function test_fetch_customer_by_remote_id_throws_for_a_customer_that_is_not_imported( callable $mutate ): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$detail             = FixtureLoader::load( 'colorme', 'customer_corporate_detail' );
+		$detail['customer'] = $mutate( $detail['customer'] );
+
+		$this->respond_from_map(
+			[
+				'customers/174712086.json' => [
+					'status' => 200,
+					'body'   => $detail,
+				],
+			]
+		);
+
+		try {
+			$adapter->fetch_customer_by_remote_id( '174712086' );
+			$this->fail( 'RemoteEntityUnreadableException was not thrown' );
+		} catch ( RemoteEntityUnreadableException $exception ) {
+			$this->assertNull( $exception->getPrevious() );
+			$this->assertStringNotContainsString( '174712086', $exception->getMessage() );
+		}
+
+		// 変換の例外ではないので、変換の失敗のログは残さない。
+		$this->assertSame(
+			[],
+			array_filter(
+				( new LogRepository() )->list( null, 'error' ),
+				static fn ( array $log ): bool => str_contains( $log['message'], 'Failed to transform' )
+			)
+		);
+	}
+
+	/**
+	 * @return array<string,array{0:callable(array<string,mixed>):array<string,mixed>}>
+	 */
+	public static function unreadable_customer_rows(): array {
+		return [
+			'non-member'            => [
+				static function ( array $customer ): array {
+					$customer['member'] = false;
+
+					return $customer;
+				},
+			],
+			'member without a mail' => [
+				static function ( array $customer ): array {
+					$customer['member'] = true;
+					unset( $customer['mail'] );
+
+					return $customer;
+				},
+			],
+		];
+	}
+
+	/**
+	 * 同じフィクスチャを会員にすると読める（上のテストが、行の取得ではなく取り込まない種類の判定で例外になっていることの対照）。
+	 */
+	public function test_fetch_customer_by_remote_id_returns_a_member_customer(): void {
+		[ $adapter, $token_store ] = $this->make_adapter();
+		$token_store->save( [ 'access_token' => 'token' ] );
+
+		$detail                       = FixtureLoader::load( 'colorme', 'customer_corporate_detail' );
+		$detail['customer']['member'] = true;
+
+		$this->respond_from_map(
+			[
+				'customers/174712086.json' => [
+					'status' => 200,
+					'body'   => $detail,
+				],
+			]
+		);
+
+		$customer = $adapter->fetch_customer_by_remote_id( '174712086' );
+
+		$this->assertNotNull( $customer );
+		$this->assertSame( '174712086', $customer->remote_id() );
 	}
 
 	private function exported_order( string $discount = '0', string $shipping_fee = '0' ): CanonicalOrder {

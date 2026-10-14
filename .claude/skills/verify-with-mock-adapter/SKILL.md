@@ -42,6 +42,8 @@ description: >
    `UnsupportedOperationException`）、`create_failure` は作成 POST が 5xx（結果不明）になる経路（D21-B）か、作成は確定したが後続で止まった経路
    （`PartialPushException`。D21-A。`partial_rate_limit` はレート制限でジョブを一時停止させる）を再現する。後の 2 つは remote_id が固定なので、1 回の export で
    作成経路を通る商品を 1 件に絞る（`examples/partial-push/`）。
+   `cbjp_verify_seed.fetch_by_id_failure`（`'unreadable'` だけを読む）は、両方の mock の ID 指定取得を「接続先は返したが読めない」
+   （`RemoteEntityUnreadableException`。R3-11）にし、push intent の「リンクして解除」を 422 `cbjp_remote_entity_unreadable` にする（`examples/push-intent-resolution/` の 4b）。
    Export タブの Beta 表示・既定オフ・能力による項目の出し分け（D24）を見るときは、`cbjp_verify_seed.capabilities`
    （`{ can_create_order, can_push_images, beta_features }`。省略したキーは mock の既定）で mock の `capabilities()` を上書きできる
    （プレミアム相当は `can_*=true`＋`beta_features=['order_export','image_push']`、非プレミアム相当は `can_*=false`。`can_create_order` と `order_export` は
@@ -130,11 +132,12 @@ description: >
 - `scripts/mock-adapter.sh` — `inspect` / `install <key>` / `run <php>` / `uninstall`（wp-env のパスは `npx wp-env install-path`）
 - `templates/mu-plugin-mock-adapter.php` — mock アダプタを登録する mu-plugin（キーと seed オプション名を置換して使う）
 - `examples/push-intent-resolution/` — export の作成結果が不明（5xx）→ 印（push intent）が残る → 再 export はブロック → `not_created` 解除 → 再 export で作成、
-  と `link` の失敗系（404）を `rest_do_request()` で通す検証（issue #73 / D21-B。R3-1 の「R3-0a/b の確認をモックで」にも使う）。`verify-rest.php`
+  と `link` の失敗系（404。R3-11 で、接続先は返したが読めない項目の 422〔seed の `fetch_by_id_failure: 'unreadable'` を一時的に書く〕と、登録の無い種類の印〔一覧に出ず、
+  link・not_created とも 409〕を足した）を `rest_do_request()` で通す検証（issue #73 / D21-B。R3-1 の「R3-0a/b の確認をモックで」にも使う）。`verify-rest.php`
   は各ステップを PASS/FAIL で出し、失敗があれば非ゼロで終了する（seed は不要で、`cbjp_verify_seed.push` は自分で切り替える）。**前提**: `install mockv` 済み・
   Woo に export できる商品が 1 件以上・前回の残りが無い（あれば先頭で中止するので `cleanup.php` を流す）。export できる商品はすべて対象になる
   （作成が 5xx になるので、それぞれに印が残る）。`cleanup.php` は `mockv` の intent・mapping・job・ログ（resolve の操作ログは context の platform で特定）と、この example が書く
-  オプションだけを消す（`cbjp_verify_seed` は `push` キーだけを外し、他の example と共有するキーと `cbjp_verify_ids` は残す）。**mock アダプタが登録されているときだけ実行する**
+  オプションだけを消す（`cbjp_verify_seed` は `push`・`fetch_by_id_failure` キーだけを外し、他の example と共有するキーと `cbjp_verify_ids` は残す）。**mock アダプタが登録されているときだけ実行する**
   （OAuth トークンを持つ・mock 以外のアダプタが登録されている・アダプタが未登録〔uninstall 後など〕の platform は拒否。uninstall 後の掃除は `install` し直してから）。終わりに `left:` で 0 件を確認する（`inspect` は logs・jobs・intents を数えない）。
   `link` の成功系統（実在確認・別実体で使用中の remote_id の 409）は、mock が商品を保持しないため対象外（単体テストが担当）
 - `examples/partial-push/` — export の作成は確定したが後続の処理で止まった（`PartialPushException`。R3-0a / D21-A）経路の検証（R3-1 で追加）。`verify-rest.php` は

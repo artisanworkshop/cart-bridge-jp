@@ -43,12 +43,12 @@ $deleted['jobs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix
 $deleted['logs']     = (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$prefix}cbjp_logs WHERE job_id IS NULL AND context_json LIKE %s", $like ) );
 // phpcs:enable
 
-// `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push` キーだけを外す。
-// `cbjp_verify_ids` はこの example が書かない（seed を投入する example が書く）ので触らない。
+// `cbjp_verify_seed` は他の example とも共有する（customers/orders など）ので、この example が書く `push`・`fetch_by_id_failure`（R3-11 の 4b。
+// 途中で止まると残る）キーだけを外す。`cbjp_verify_ids` はこの example が書かない（seed を投入する example が書く）ので触らない。
 $seed = get_option( 'cbjp_verify_seed', null );
 
 if ( is_array( $seed ) ) {
-	unset( $seed['push'] );
+	unset( $seed['push'], $seed['fetch_by_id_failure'] );
 
 	if ( [] === $seed ) {
 		delete_option( 'cbjp_verify_seed' );
@@ -71,6 +71,28 @@ $left = [
 	'jobs'     => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_jobs WHERE platform = %s", $platform ) ),
 	'logs'     => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_logs WHERE context_json LIKE %s", $like ) ),
 	'dry_run_items' => '' !== $job_in ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$job_in})" ) : 0,
+	// 上で外した seed のキーと消した platform 単位のオプションは、**DB から**読み直して数える（`get_option()` では確かめられない:
+	// `delete_option()` は DB の削除に失敗してもキャッシュを消して notoptions に載せるので、同じリクエストの `get_option()` は「無い」と答える。
+	// `wp-includes/option.php`。PR #136 G3-B1）。配列でない壊れた seed は丸ごと消したはずなので、残っていれば 1 と数える（review-loop R2-1）。
+	'seed_keys'     => ( static function () use ( $wpdb ): int {
+		$raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'cbjp_verify_seed' ) );
+
+		if ( null === $raw ) {
+			return 0;
+		}
+
+		$after = maybe_unserialize( $raw );
+
+		return is_array( $after ) ? count( array_intersect_key( $after, [ 'push' => true, 'fetch_by_id_failure' => true ] ) ) : 1;
+	} )(),
+	'options'       => (int) $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN (%s, %s, %s)",
+			'cbjp_export_sample_' . $platform,
+			'cbjp_sample_' . $platform,
+			'cbjp_rate_limit_' . $platform
+		)
+	),
 ];
 // phpcs:enable
 echo 'left: ' . wp_json_encode( $left ) . "\n";

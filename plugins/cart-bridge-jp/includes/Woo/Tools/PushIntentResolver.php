@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace CartBridgeJP\Woo\Tools;
 
 use CartBridgeJP\Adapters\PlatformAdapter;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Entities\EntityTypeRegistry;
 use CartBridgeJP\Support\ApiException;
@@ -32,7 +33,7 @@ final class PushIntentResolver {
 	 * 「ColorMeに作成されていなかった」ことを店舗が確認した場合の解除。intentを消すだけで、
 	 * mappingは書かない（次回exportが改めて作成を試みる）。
 	 *
-	 * @throws PushIntentResolutionException NOT_FOUND
+	 * @throws PushIntentResolutionException NOT_FOUND / TYPE_UNAVAILABLE
 	 */
 	public function resolve_not_created( string $platform, int $id ): void {
 		$intent = $this->intents->find( $id, $platform );
@@ -40,6 +41,13 @@ final class PushIntentResolver {
 		if ( null === $intent ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::NOT_FOUND );
+		}
+
+		// 登録の無い種類（拡張を停止した後に残った intent）は、未作成として消すと拡張を戻した後のエクスポートが
+		// 作成済みだった実体をもう一度作りうる。種類が戻るまで解除させない（R3-11。一覧にも出さない）。
+		if ( null === EntityTypeRegistry::get( $intent['entity_type'] ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::TYPE_UNAVAILABLE );
 		}
 
 		$this->intents->delete_by_id( $id );
@@ -50,7 +58,7 @@ final class PushIntentResolver {
 	 * 実在・種別・重複を確認してから checksum=null で mapping を書き、intentを消す
 	 * （D21-Aと同じくchecksum=nullで次回exportに残りの詳細を再試行させる）。
 	 *
-	 * @throws PushIntentResolutionException NOT_FOUND / LINK_UNSUPPORTED / REMOTE_NOT_FOUND / REMOTE_ID_IN_USE
+	 * @throws PushIntentResolutionException NOT_FOUND / TYPE_UNAVAILABLE / LINK_UNSUPPORTED / REMOTE_NOT_FOUND / REMOTE_UNREADABLE / REMOTE_ID_IN_USE
 	 */
 	public function resolve_link( string $platform, int $id, PlatformAdapter $adapter, string $remote_id ): void {
 		$intent = $this->intents->find( $id, $platform );
@@ -63,16 +71,29 @@ final class PushIntentResolver {
 		$entity_type = $intent['entity_type'];
 		$type        = EntityTypeRegistry::get( $entity_type );
 
+		// 登録の無い種類は ASP に問い合わせられない。「リモートに無い」と答えると、それを信じた「未作成として解除」が
+		// 拡張を戻した後の重複を招くので、種類が戻るまで断る（R3-11。R3-6b1〜R3-10 は REMOTE_NOT_FOUND だった）。
+		if ( null === $type ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::TYPE_UNAVAILABLE );
+		}
+
 		try {
 			// ID 指定取得は実体の種類が持つ（`Entities\EntityType::fetch_by_remote_id()`。R3-6b1）。取得できない種類（クーポンは
 			// ColorMe 側が読取専用で元々非対応。`docs/03` §10.2「エクスポートの重複作成防止」参照）は既定の
-			// `UnsupportedOperationException` で LINK_UNSUPPORTED になる。登録の無い種類は今までどおり「リモートに無い」扱い。
-			$remote_entity = null === $type ? null : $type->fetch_by_remote_id( $adapter, $remote_id );
+			// `UnsupportedOperationException` で LINK_UNSUPPORTED になる。
+			$remote_entity = $type->fetch_by_remote_id( $adapter, $remote_id );
 			// 返ってきたモデルの ID も同じ例外の境界の中で読む（外部の種類のモデルの `remote_id()` が例外を投げても 500 にしない）。
 			$fetched_id = $remote_entity?->remote_id();
 		} catch ( UnsupportedOperationException ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
 			throw new PushIntentResolutionException( PushIntentResolutionException::LINK_UNSUPPORTED );
+		} catch ( RemoteEntityUnreadableException $exception ) {
+			// 接続先は項目を返したが読めない（変換の失敗・取り込まない種類の行）。実在しないとは言えない（R3-11）。
+			// 原因はログの context に書く（店舗が ID の打ち間違いと接続先の行の問題を見分けるため。R3-11 review-loop R1-L2）。
+			$cause = null === $exception->getPrevious() ? PushIntentResolutionException::CAUSE_UNREADABLE_ROW : PushIntentResolutionException::CAUSE_TRANSFORM_FAILED;
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由と原因のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE, $cause );
 		} catch ( RateLimitExhaustedException ) {
 			// クライアント側スロットル。待てば再開できる（`classify_api_failure()`のASP側429と同じ区分）。
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
@@ -87,13 +108,19 @@ final class PushIntentResolver {
 			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNAVAILABLE );
 		}
 
+		// null は接続先が「無い」と答えたとき（404）だけ（`EntityType::fetch_by_remote_id()` の契約。R3-11）。
+		if ( null === $remote_entity ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
+		}
+
 		// 外部アダプタの戻り値は信用しない（アーキテクチャ原則8）。契約違反のアダプタが要求と異なる実体を返すと、要求した`remote_id`が
 		// あたかも実在するかのように見え、無関係な別のローカル実体へ紐付いてしまう
 		// （レビュー指摘: Copilot/Codex共通）。返ってきたモデル自身の`remote_id()`が要求した
-		// `$remote_id`と一致することまで確認する。
-		if ( null === $remote_entity || $fetched_id !== $remote_id ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由のコード（定数。例外が文を組み立てる）。
-			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_NOT_FOUND );
+		// `$remote_id`と一致することまで確認する。接続先は何かを返しているので「無い」とは答えない（`0123` を要求して `123` が返る等。R3-11）。
+		if ( $fetched_id !== $remote_id ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- 引数は理由と原因のコード（定数。例外が文を組み立てる）。
+			throw new PushIntentResolutionException( PushIntentResolutionException::REMOTE_UNREADABLE, PushIntentResolutionException::CAUSE_ID_MISMATCH );
 		}
 
 		$existing_local_id = $this->mappings->find_local_id( $platform, $entity_type, $remote_id );

@@ -11,6 +11,7 @@ use CartBridgeJP\Adapters\Cursor;
 use CartBridgeJP\Adapters\Page;
 use CartBridgeJP\Adapters\PlatformAdapter;
 use CartBridgeJP\Adapters\PushResult;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Canonical\CanonicalModel;
 use CartBridgeJP\Support\ApiException;
@@ -136,8 +137,11 @@ abstract class EntityType {
 
 	/**
 	 * リモートの実体を ID で 1 件取得する（push intent の「リンクして解除」が実在を確かめる。404 は null）。
+	 * null は「接続先に無い」の意味だけにする。接続先が返した実体を Canonical にできないときは null にせず例外にする
+	 * （null にすると解除が「無い」と案内し、それを信じた「未作成として解除」が重複を作る。R3-11）。
 	 *
 	 * @throws UnsupportedOperationException 取得できない種類（解除は LINK_UNSUPPORTED になる）。
+	 * @throws RemoteEntityUnreadableException 接続先が返した実体を読めない（解除は REMOTE_UNREADABLE になる）。
 	 * @throws ApiException 接続先のエラー（未接続・レート制限・5xx。解除はその区分で失敗する）。
 	 * @throws RateLimitExhaustedException クライアント側のスロットル。
 	 */

@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Woo\Tools;
 
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\UnsupportedOperationException;
 use CartBridgeJP\Core\Activator;
 use CartBridgeJP\Support\ApiException;
@@ -101,6 +102,7 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 	 * レビュー指摘（Copilot/Codex）: 外部アダプタの戻り値は信用しない（アーキテクチャ原則8）。
 	 * 契約違反アダプタが要求と異なる実体を返した場合、
 	 * 実在確認をすり抜けて無関係な別のローカル実体へ紐付けてしまわないことを確認する。
+	 * R3-11: 接続先は何かを返しているので「存在しない」（REMOTE_NOT_FOUND）ではなく REMOTE_UNREADABLE で断る（以前は REMOTE_NOT_FOUND）。
 	 */
 	public function test_resolve_link_rejects_a_remote_entity_whose_remote_id_does_not_match_the_request(): void {
 		$this->intents->begin( 'mock', 'product', 101, null, null );
@@ -113,12 +115,106 @@ final class PushIntentResolverTest extends WP_UnitTestCase {
 		try {
 			$this->resolver->resolve_link( 'mock', $id, $adapter, 'requested-remote-id' );
 		} catch ( PushIntentResolutionException $exception ) {
-			$this->assertSame( PushIntentResolutionException::REMOTE_NOT_FOUND, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::CAUSE_ID_MISMATCH, $exception->cause() );
 
 			throw $exception;
 		} finally {
 			$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'requested-remote-id' ) );
+			$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'different-remote-id' ) );
+			$this->assertTrue( $this->intents->has_unresolved( 'mock', 'product', 101 ) );
 		}
+	}
+
+	/**
+	 * R3-11: ID 指定取得の null は「接続先に無い」（404）の意味なので、REMOTE_NOT_FOUND のまま。印は残し、mapping も書かない。
+	 */
+	public function test_resolve_link_reports_remote_not_found_only_when_the_lookup_returns_null(): void {
+		$id = $this->begin_product_intent();
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, new MockPlatformAdapter(), 'absent-remote-id' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_NOT_FOUND, $exception->reason() );
+		}
+
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'absent-remote-id' ) );
+		$this->assertTrue( $this->intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * R3-11（backlog `r3-0b-push-intent-backend/R1-X1`）: 接続先は項目を返したが読めない（変換の失敗・取り込まない種類の行）ときは、
+	 * 「存在しない」と答えない。答えると、それを信じた「未作成として解除」の次のエクスポートが実在する実体をもう一度作る。
+	 */
+	public function test_resolve_link_reports_an_unreadable_remote_entity_instead_of_not_found(): void {
+		$id      = $this->begin_product_intent();
+		$adapter = new MockPlatformAdapter( fetch_by_id_failure: new RemoteEntityUnreadableException( 'mock', 'product', new RuntimeException( 'broken row' ) ) );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'remote-c1' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			// 変換の例外があれば、原因は「変換の失敗」（ログの context。review-loop R1-L2）。
+			$this->assertSame( PushIntentResolutionException::CAUSE_TRANSFORM_FAILED, $exception->cause() );
+		}
+
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'product', 'remote-c1' ) );
+		$this->assertTrue( $this->intents->has_unresolved( 'mock', 'product', 101 ) );
+	}
+
+	/**
+	 * 変換の例外の無い「読めない」（取り込まない種類の行。Pro の顧客の非会員など）は、原因を「取り込まない行」にする（review-loop R1-L2）。
+	 */
+	public function test_resolve_link_reports_an_unreadable_row_without_a_transform_failure_as_its_cause(): void {
+		$id      = $this->begin_product_intent();
+		$adapter = new MockPlatformAdapter( fetch_by_id_failure: new RemoteEntityUnreadableException( 'mock', 'product' ) );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'remote-c1' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::REMOTE_UNREADABLE, $exception->reason() );
+			$this->assertSame( PushIntentResolutionException::CAUSE_UNREADABLE_ROW, $exception->cause() );
+		}
+	}
+
+	/**
+	 * R3-11: 登録の無い種類（拡張を停止した後に残った intent）は ASP に問い合わせずに TYPE_UNAVAILABLE で断る（以前は REMOTE_NOT_FOUND）。
+	 * 「無い」と答えると、それを信じた「未作成として解除」が拡張を戻した後の重複を招く。
+	 */
+	public function test_resolve_link_rejects_an_unregistered_type_without_calling_the_adapter(): void {
+		$this->intents->begin( 'mock', 'zzv_gone', 303, null, null );
+		$id      = $this->intents->find_unresolved( 'mock' )[0]['id'];
+		$adapter = new MockPlatformAdapter( fetch_by_id_failure: new RuntimeException( 'should not be called' ) );
+
+		try {
+			$this->resolver->resolve_link( 'mock', $id, $adapter, 'anything' );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::TYPE_UNAVAILABLE, $exception->reason() );
+		}
+
+		$this->assertNull( $this->mappings->find_local_id( 'mock', 'zzv_gone', 'anything' ) );
+		$this->assertTrue( $this->intents->has_unresolved( 'mock', 'zzv_gone', 303 ) );
+	}
+
+	/**
+	 * R3-11（ユーザー決定〔案 C〕）: 登録の無い種類は「未作成として解除」も断る。消すと拡張を戻した後のエクスポートが、作成済みだった実体をもう一度作りうる。
+	 */
+	public function test_resolve_not_created_rejects_an_unregistered_type_and_keeps_the_intent(): void {
+		$this->intents->begin( 'mock', 'zzv_gone', 303, null, null );
+		$id = $this->intents->find_unresolved( 'mock' )[0]['id'];
+
+		try {
+			$this->resolver->resolve_not_created( 'mock', $id );
+			$this->fail( 'PushIntentResolutionException was not thrown' );
+		} catch ( PushIntentResolutionException $exception ) {
+			$this->assertSame( PushIntentResolutionException::TYPE_UNAVAILABLE, $exception->reason() );
+		}
+
+		$this->assertTrue( $this->intents->has_unresolved( 'mock', 'zzv_gone', 303 ) );
 	}
 
 	public function test_resolve_link_rejects_a_remote_id_already_linked_to_a_different_local_id(): void {

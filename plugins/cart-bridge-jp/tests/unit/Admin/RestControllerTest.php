@@ -13,6 +13,7 @@ use CartBridgeJP\Adapters\ColorMe\ColorMeAdapter;
 use CartBridgeJP\Adapters\ColorMe\ColorMeOAuth;
 use CartBridgeJP\Adapters\OAuthCredentialsException;
 use CartBridgeJP\Adapters\OAuthScopes;
+use CartBridgeJP\Adapters\RemoteEntityUnreadableException;
 use CartBridgeJP\Adapters\ConnectionField;
 use CartBridgeJP\Admin\RestController;
 use CartBridgeJP\Canonical\CanonicalProduct;
@@ -28,6 +29,7 @@ use CartBridgeJP\Sync\LogRepository;
 use CartBridgeJP\Sync\MappingRepository;
 use CartBridgeJP\Sync\PushIntentRepository;
 use CartBridgeJP\Tests\Fixtures\CanonicalFactory;
+use CartBridgeJP\Tests\Fixtures\FixtureLoader;
 use CartBridgeJP\Tests\Fixtures\Gizmo\GizmoType;
 use CartBridgeJP\Tests\Fixtures\MockPlatformAdapter;
 use CartBridgeJP\Tests\Fixtures\RegistersEntityTypes;
@@ -2161,6 +2163,25 @@ final class RestControllerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * R3-11（ユーザー決定〔案 C〕）: 登録の無い種類（拡張を停止した後に残った intent）の行は一覧に出さない。解除は link・not_created とも
+	 * 断るので、店舗にできることが無い。行は DB に残し、種類が戻れば出る。
+	 */
+	public function test_list_push_intents_omits_intents_of_an_unregistered_type(): void {
+		$this->register_mock_adapter();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'zzv_gone', 303, null, null );
+		$intents->begin( 'mock', 'product', 101, null, null );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', '/cbjp/v1/push-intents/mock' ) )->get_data();
+
+		$this->assertSame( [ 'product' ], array_column( $data['intents'], 'entity_type' ) );
+		// 絞り込んだ後も JSON の配列のまま（キーが飛ぶとオブジェクトになり、画面の `.map()` が落ちる）。
+		$this->assertSame( [ 0 ], array_keys( $data['intents'] ) );
+		$this->assertTrue( $intents->has_unresolved( 'mock', 'zzv_gone', 303 ) );
+	}
+
+	/**
 	 * 画面がマッピングの節を組み立てる文言（R3-6b2。以前は `MappingSettings.tsx` にあった英文を種類へ移した）。
 	 */
 	public function test_get_settings_mappings_describes_each_kind_for_the_screen(): void {
@@ -2303,6 +2324,139 @@ final class RestControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 404, $response->get_status() );
 		$this->assertSame( 'cbjp_remote_entity_not_found', $response->as_error()->get_error_code() );
+	}
+
+	/**
+	 * R3-11（backlog `r3-0b-push-intent-backend/R1-X1`）: 接続先が返した項目を読めないときは 404（「存在しない」）でなく 422 で断り、
+	 * 印を残し、mapping を書かない。断りの文が案内する Logs タブに 1 行残す（remote_id は記録しない）。
+	 */
+	public function test_resolve_push_intent_link_returns_422_when_the_remote_entity_cannot_be_read(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter( fetch_by_id_failure: new RemoteEntityUnreadableException( 'mock', 'product' ) );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'product', 101, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => 'remote-unreadable-1',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 422, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_entity_unreadable', $response->as_error()->get_error_code() );
+		$this->assertTrue( $intents->has_unresolved( 'mock', 'product', 101 ) );
+		$this->assertNull( ( new MappingRepository() )->find_local_id( 'mock', 'product', 'remote-unreadable-1' ) );
+
+		$logs = array_values(
+			array_filter(
+				( new LogRepository() )->list( null, 'warning' ),
+				static fn ( array $log ): bool => str_contains( $log['message'], 'A push intent could not be linked' )
+			)
+		);
+		$this->assertCount( 1, $logs );
+		$this->assertStringNotContainsString( 'remote-unreadable-1', (string) wp_json_encode( $logs[0] ) );
+		$this->assertStringContainsString( '"local_id":101', (string) $logs[0]['context_json'] );
+		// 原因（取り込まない行・変換の失敗・ID の不一致）で、店舗が ID の打ち間違いと接続先の行の問題を見分けられる（review-loop R1-L2）。
+		$this->assertStringContainsString( '"cause":"unreadable_row"', (string) $logs[0]['context_json'] );
+	}
+
+	/**
+	 * R3-11: 同梱の `ColorMeAdapter` を通しても、変換できない商品（`variants` の欠けた行）は 422 になる（アダプタが null に戻る退行を REST の層で止める）。
+	 */
+	public function test_resolve_push_intent_link_returns_422_for_a_colorme_product_that_cannot_be_transformed(): void {
+		$this->register_colorme_adapter();
+		( new TokenStore( ColorMeAdapter::ID ) )->save( [ 'access_token' => 'token' ] );
+
+		$product       = FixtureLoader::load( 'colorme', 'products' )['products'][0];
+		$product['id'] = 4242;
+		unset( $product['variants'] );
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $product ) {
+				$body = match ( true ) {
+					str_contains( $url, 'products/4242.json' ) => [ 'product' => $product ],
+					str_contains( $url, 'shop.json' )          => [ 'shop' => [] ],
+					default                                    => null,
+				};
+
+				if ( null === $body ) {
+					return new \WP_Error( 'unexpected_request', "Unhandled ColorMe API request: {$url}" );
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'headers'  => [],
+					'body'     => (string) wp_json_encode( $body ),
+				];
+			},
+			10,
+			3
+		);
+
+		$intents = new PushIntentRepository();
+		$intents->begin( ColorMeAdapter::ID, 'product', 101, null, null );
+		$id = $intents->find_unresolved( ColorMeAdapter::ID )[0]['id'];
+
+		$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/colorme/{$id}/resolve" );
+		$request->set_body_params(
+			[
+				'action'    => 'link',
+				'remote_id' => '4242',
+			]
+		);
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 422, $response->get_status() );
+		$this->assertSame( 'cbjp_remote_entity_unreadable', $response->as_error()->get_error_code() );
+		$this->assertTrue( $intents->has_unresolved( ColorMeAdapter::ID, 'product', 101 ) );
+		$this->assertNull( ( new MappingRepository() )->find_local_id( ColorMeAdapter::ID, 'product', '4242' ) );
+	}
+
+	/**
+	 * R3-11（ユーザー決定〔案 C〕）: 登録の無い種類の intent は、link も not_created も 409 で断り（ASP に問い合わせない）、印を残す。
+	 */
+	public function test_resolve_push_intent_returns_409_for_an_unregistered_type(): void {
+		add_filter(
+			'cbjp/adapters/register',
+			static function ( array $adapters ) {
+				$adapters['mock'] = new MockPlatformAdapter( fetch_by_id_failure: new \RuntimeException( 'should not be called' ) );
+
+				return $adapters;
+			}
+		);
+		AdapterRegistry::reset_cache();
+
+		$intents = new PushIntentRepository();
+		$intents->begin( 'mock', 'zzv_gone', 303, null, null );
+		$id = $intents->find_unresolved( 'mock' )[0]['id'];
+
+		foreach ( [ 'link', 'not_created' ] as $action ) {
+			$request = new WP_REST_Request( 'POST', "/cbjp/v1/push-intents/mock/{$id}/resolve" );
+			$request->set_body_params(
+				[
+					'action'    => $action,
+					'remote_id' => 'anything',
+				]
+			);
+			$response = $this->server->dispatch( $request );
+
+			$this->assertSame( 409, $response->get_status(), $action );
+			$this->assertSame( 'cbjp_entity_type_unavailable', $response->as_error()->get_error_code(), $action );
+			$this->assertTrue( $intents->has_unresolved( 'mock', 'zzv_gone', 303 ), $action );
+		}
 	}
 
 	public function test_resolve_push_intent_link_returns_409_when_the_remote_id_is_already_linked_elsewhere(): void {
