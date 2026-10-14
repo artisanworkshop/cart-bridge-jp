@@ -72,11 +72,23 @@ $left = [
 	'logs'     => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$prefix}cbjp_logs WHERE context_json LIKE %s", $like ) ),
 	'dry_run_items' => '' !== $job_in ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$prefix}cbjp_dry_run_items WHERE job_id IN ({$job_in})" ) : 0,
 	// 上で外した seed のキー（読み直して数える。`update_option()` の失敗を「完全に戻った」と報告しない。R3-11 review-loop R1-L1）。
+	// 配列でない壊れた値は丸ごと消したはずなので、残っていれば 1 と数える（R2-1）。
 	'seed_keys'     => ( static function (): int {
 		$after = get_option( 'cbjp_verify_seed', null );
 
-		return is_array( $after ) ? count( array_intersect_key( $after, [ 'push' => true, 'fetch_by_id_failure' => true ] ) ) : 0;
+		if ( null === $after ) {
+			return 0;
+		}
+
+		return is_array( $after ) ? count( array_intersect_key( $after, [ 'push' => true, 'fetch_by_id_failure' => true ] ) ) : 1;
 	} )(),
+	// 上で消した platform 単位のオプション（R3-11 review-loop R2 の対象外の指摘。消したものと同じ範囲を数える）。
+	'options'       => count(
+		array_filter(
+			[ 'cbjp_export_sample_' . $platform, 'cbjp_sample_' . $platform, 'cbjp_rate_limit_' . $platform ],
+			static fn ( string $option ): bool => false !== get_option( $option, false )
+		)
+	),
 ];
 // phpcs:enable
 echo 'left: ' . wp_json_encode( $left ) . "\n";

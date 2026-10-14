@@ -1874,7 +1874,7 @@ final class RestController {
 			),
 			PushIntentResolutionException::TYPE_UNAVAILABLE  => new WP_Error(
 				'cbjp_entity_type_unavailable',
-				// 状態を直せば（拡張を有効にすれば）解除できるので、接続切れと同じ 409（R3-11）。
+				// 状態を直せば（拡張を有効にする・読み込めるようにすれば）解除できるので、接続切れと同じ 409（R3-11）。
 				// 有効でも読み込めない場合（無料版より新しい拡張点の版を要る拡張・登録の失敗）もここに来るので、「有効にせよ」と決めつけない（review-loop R1-L3）。
 				__( 'The add-on that handles this item type is not active on this site, or it could not be loaded. Check the add-on, then resolve this item.', 'cart-bridge-jp' ),
 				[ 'status' => 409 ]
