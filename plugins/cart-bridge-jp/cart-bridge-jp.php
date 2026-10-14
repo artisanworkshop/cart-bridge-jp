@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
  * Description: Migrate products and stock between Color Me Shop and WooCommerce.
- * Version: 0.1.0
+ * Version: 1.0.0
  * Requires at least: 6.9
  * Requires PHP: 8.2
  * Requires Plugins: woocommerce
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CBJP_VERSION', '0.1.0' );
+define( 'CBJP_VERSION', '1.0.0' );
 define( 'CBJP_FILE', __FILE__ );
 define( 'CBJP_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CBJP_URL', plugin_dir_url( __FILE__ ) );
