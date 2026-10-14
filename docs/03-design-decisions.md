@@ -2139,7 +2139,7 @@ POST 自体の応答喪失は (2) に属し、remote_id を運ぶ方式では直
     |---|---|---|
     | ID 指定取得が null（404） | REMOTE_NOT_FOUND | 404 `cbjp_remote_entity_not_found`（今のまま） |
     | 読めない（上の例外）・返った実体の remote_id が要求と違う（契約違反。`0123` を要求して `123` が返る等） | REMOTE_UNREADABLE | 422 `cbjp_remote_entity_unreadable`（再試行では直らないので 502 にしない） |
-    | 登録の無い種類（拡張を停止した後に残った intent） | TYPE_UNAVAILABLE | 409 `cbjp_entity_type_unavailable`（拡張を有効にすれば解除できる） |
+    | 登録の無い種類（拡張を停止した後に残った intent） | TYPE_UNAVAILABLE | 409 `cbjp_entity_type_unavailable`（拡張を有効にする・読み込めるようにすれば解除できる） |
 
     REMOTE_UNREADABLE の文は、ID と Logs タブを確かめること、エクスポートが作った項目なら「Mark as not created」でもう一度作られることを書く。
     非会員の顧客・ID の不一致ではアダプタのログが残らないので、REST が warning を 1 行残す（platform・entity_type・local_id と原因 `cause`〔`unreadable_row`＝取り込まない行・
