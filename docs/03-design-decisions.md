@@ -746,7 +746,7 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
 /**
  * Plugin Name: Cart Bridge JP – Migrate for WooCommerce
  * Description: Migrate products and stock between Color Me Shop and WooCommerce.
- * Version: 0.1.0
+ * Version: 1.0.0
  * Requires at least: 6.9
  * Requires PHP: 8.2
  * Requires Plugins: woocommerce
