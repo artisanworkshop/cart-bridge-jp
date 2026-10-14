@@ -77,6 +77,13 @@ $run_export = static function ( array $seed ) use ( $call, $platform ): array {
 	update_option( 'cbjp_verify_seed', $current );
 	AdapterRegistry::reset_cache();
 
+	// 書けたかを読み直す（`$set_fetch_by_id_failure` と同じ。seed が古いままだと、別の push の設定で export する。PR #136 G2-B1 の横展開）。
+	$after = get_option( 'cbjp_verify_seed', [] );
+
+	if ( ! is_array( $after ) || ( $after['push'] ?? null ) !== ( $current['push'] ?? null ) ) {
+		return [ 'error' => 'could not write the push key of cbjp_verify_seed' ];
+	}
+
 	$started = $call(
 		'POST',
 		'/cbjp/v1/runs',
@@ -150,7 +157,9 @@ if ( array_key_exists( 'fetch_by_id_failure', get_option( 'cbjp_verify_seed', []
 }
 
 // 4b の seed のキーを差し替える（他のキーは残す。`$run_export` の `push` と同じ）。null で外す。
-$set_fetch_by_id_failure = static function ( ?string $value ): void {
+// 書けたかを読み直して確かめる（`update_option()` は同じ値でも false を返すので戻り値では判断しない）。外す書込みが失敗したまま進むと、
+// 後続の確認が通れば ALL PASS のまま「読めない」の seed が残る（PR #136 G2-B1）。
+$set_fetch_by_id_failure = static function ( ?string $value ) use ( $abort ): void {
 	$current = get_option( 'cbjp_verify_seed', [] );
 	$current = is_array( $current ) ? $current : [];
 	unset( $current['fetch_by_id_failure'] );
@@ -161,6 +170,12 @@ $set_fetch_by_id_failure = static function ( ?string $value ): void {
 
 	update_option( 'cbjp_verify_seed', $current );
 	AdapterRegistry::reset_cache();
+
+	$after = get_option( 'cbjp_verify_seed', [] );
+
+	if ( ! is_array( $after ) || ( $after['fetch_by_id_failure'] ?? null ) !== $value ) {
+		$abort( 'could not ' . ( null === $value ? 'remove' : 'write' ) . " the 'fetch_by_id_failure' key of cbjp_verify_seed — run cleanup.php, then retry", 1 );
+	}
 };
 
 global $wpdb;
