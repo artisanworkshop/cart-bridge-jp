@@ -106,7 +106,9 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **Plugin Check の CLI（2.1.0）はディレクトリのパスと `--slug=` を受ける**（`is_dir()` → `Plugin_Request_Utility::is_directory_valid_plugin()`。1.1.0+）。配布 zip の検査は `wp-content/plugins/` に別名で置かず、
   ルートのマウント（`wp-content/cbjp-dev`）の下に展開してパスで渡す（別名だとフォルダ名由来の `WordPress.WP.I18n.TextDomainMismatch`・`textdomain_mismatch` が混ざる）。結果は `--format=strict-json --fields=file,line,…` で受ける
   （既定の fields に `file` が無く、`json` は `FILE:` の行が混ざる）。見つかったものが無いと JSON ではなく `Success: Checks complete. No errors found.` の行になり、終了コードは ERROR があっても 0。
-  コンテナの中でファイルに受けて jq で読み、読めない形・知らない種類は「確かめられない」として止める（`bin/plugin-check-zip.sh`）
+  コンテナの中でファイルに受けて jq で読み、読めない形・知らない種類は「確かめられない」として止める（`bin/plugin-check-zip.sh`）。
+  `--ignore-errors`・`--ignore-warnings` は `empty( $assoc_args[…] )` で見るので `--ignore-errors=false` でも隠す（WP-CLI は `false` を文字列のまま渡す。`=0`・`=`・`--no-ignore-errors` は隠さない。実測）。
+  渡さない引数を `case` で拒否するときは `--flag | --flag=*` と値付きの形まで書く（`--ignore-errors` だけだと `--ignore-errors=true` が素通りする。PR #141 Codex）
 - **中断で壊れると復旧できないファイル**（mu-plugin・追跡しているファイル・状態ファイル）**はその場で書き戻さない**（`cat tmp > file`・`file_put_contents( $path )` は途中で止まると空や途中までのファイルを残す。
   読みかけの mu-plugin は dev サイトの全要求を fatal にし、teardown も動かなくなる）。同じディレクトリの一時ファイル（`cp -p` で権限を引き継ぐ。mu-plugins の中では拡張子を `.php` にしない。WordPress が読み込むため）に書き、
   中身（目印・`php -l`）を確かめてから `mv -f`／`rename()` で置き換える。中断で残った一時ファイルは後片付けが消す（PR #127 G1-5・G2-3・G3-3・G3-4）

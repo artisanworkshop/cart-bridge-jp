@@ -18,7 +18,7 @@
 # Pro は readme.txt を同梱しない（wordpress.org で配らない。R3-5b）ので、no_plugin_readme だけを --ignore-codes で除く。
 # 受け入れた警告（無料版: 自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP。docs/03 §10.9）は数えるだけで止めない。
 # コードの一覧に見覚えの無いものが増えていないかを集計で見る。-- の後の引数は wp plugin check にそのまま渡す（--include-experimental・--mode=update・--checks=… など）。
-# 結果を隠す引数（--ignore-errors・--ignore-warnings・--severity・--exclude-*）は受けない。渡した引数は見出しに出す（全チェックの結果と取り違えない）。
+# 結果を隠す引数（--ignore-errors・--ignore-warnings・--severity・--exclude-*。値付きの --ignore-errors=false も: Plugin Check は値が空でなければ隠す）は受けない。渡した引数は見出しに出す（全チェックの結果と取り違えない）。
 set -euo pipefail
 
 INVOKED_FROM=$PWD
@@ -170,13 +170,13 @@ case "$ENV_NAME" in
 	*) die "unknown env: ${ENV_NAME} (expected cli or tests-cli)" ;;
 esac
 [ -z "$ZIP" ] || [ "$BUILD" = 0 ] || die "use either --zip or --build"
-# --format・--fields・--slug・--ignore-codes はこのスクリプトが決める（二重に渡さない）。結果を隠す引数は受けない（ERROR を隠した結果を「ERROR 0」と報告しない）。
+# --format・--fields・--slug・--ignore-codes はこのスクリプトが決める（二重に渡さない）。結果を隠す引数は値の有無によらず受けない（ERROR を隠した結果を「ERROR 0」と報告しない。Plugin Check は --ignore-errors を empty() で見るので =false でも隠す。PR #141 Codex）。
 for arg in ${EXTRA[@]+"${EXTRA[@]}"}; do
 	case "$arg" in
 		--format | --format=* | --fields | --fields=* | --slug | --slug=* | --ignore-codes | --ignore-codes=*)
 			die "${arg} is set by this script (see --plugin); pass only other wp plugin check options after --"
 			;;
-		--ignore-errors | --ignore-warnings | --severity | --severity=* | --error-severity | --error-severity=* | --warning-severity | --warning-severity=* | --exclude-checks | --exclude-checks=* | --exclude-directories | --exclude-directories=* | --exclude-files | --exclude-files=*)
+		--ignore-errors | --ignore-errors=* | --ignore-warnings | --ignore-warnings=* | --severity | --severity=* | --error-severity | --error-severity=* | --warning-severity | --warning-severity=* | --exclude-checks | --exclude-checks=* | --exclude-directories | --exclude-directories=* | --exclude-files | --exclude-files=*)
 			die "${arg} hides results; this script reports everything Plugin Check finds"
 			;;
 	esac

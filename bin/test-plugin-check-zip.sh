@@ -150,6 +150,15 @@ run --zip "$WORK/none.zip" -- --ignore-errors
 assert_rc "passthrough --ignore-errors: exit 1" 1
 assert_has "passthrough --ignore-errors: reason" "--ignore-errors hides results"
 
+# 値付きの形も拒否する（Plugin Check は --ignore-errors を empty() で見るので、=true はもちろん =false でも ERROR を隠す。PR #141 Codex）。
+run --zip "$WORK/none.zip" -- --ignore-errors=true
+assert_rc "passthrough --ignore-errors=true: exit 1" 1
+assert_has "passthrough --ignore-errors=true: reason" "--ignore-errors=true hides results"
+
+run --zip "$WORK/none.zip" -- --ignore-warnings=false
+assert_rc "passthrough --ignore-warnings=false: exit 1" 1
+assert_has "passthrough --ignore-warnings=false: reason" "--ignore-warnings=false hides results"
+
 run --zip "$WORK/none.zip" -- --severity=7
 assert_rc "passthrough --severity: exit 1" 1
 assert_has "passthrough --severity: reason" "--severity=7 hides results"
