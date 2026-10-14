@@ -832,7 +832,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   zip の `vendor/` は実行時の依存の無い PSR-4 の autoloader だけ。`composer.lock` は除いたまま。Pro の zip は wordpress.org で配らないので変えない。
 - **Plugin Check（2.1.0、配布 zip を展開して全チェック）**: R3-5b の残りの警告 2 つ（`missing_composer_json_file`・`load_plugin_textdomainFound`〔§6「翻訳（R3-2）」〕）が消え、
   残るのは自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP の警告（§10.9）と、展開したフォルダ名がスラッグと違うことによる TextDomainMismatch だけ。
-  **`bin/plugin-check-zip.sh`（2026-10-14）**: この手順のスクリプト。zip を `dist/plugin-check/` に展開し（ルートのマウント `wp-content/cbjp-dev` 経由でコンテナから読める）、cli コンテナで
+  **`bin/plugin-check-zip.sh`（2026-10-14）**: この手順のスクリプト。zip を実行ごとの `dist/plugin-check.XXXXXX/` に展開し（ルートのマウント `wp-content/cbjp-dev` 経由でコンテナから読める。無料版と Pro を同時に回しても互いを消さない〔PR #141 Codex〕。
+  `..`・絶対パス・シンボリックリンクを含む zip と、結果を隠す `--ignore-*`・`--severity`・`--exclude-*` の引数は拒否する）、cli コンテナで
   `wp plugin check <ディレクトリ> --slug=<slug> --format=strict-json` を実行してコードごとに数える（ERROR があれば非ゼロ。Pro は `no_plugin_readme` を `--ignore-codes` で除く。`--build` は先に `bin/build-zip.sh`）。
   Plugin Check の CLI はディレクトリのパスと `--slug` を受ける（1.1.0+）ので、`wp-content/plugins/` に別名で置いたときのフォルダ名由来の 2 つ（`WordPress.WP.I18n.TextDomainMismatch`・ヘッダーの `textdomain_mismatch`）が出ず、
   ほかに見つかるものは同じ（無料版 1.0.0・Pro 0.1.0 の zip で両方を比べた）。ランタイムのチェックは `is_plugin_active()` のプラグインにしか走らないので、どちらの置き方でも静的なチェックだけ。

@@ -10,6 +10,13 @@ if ! HERE=$(cd "$(dirname "$0")" && pwd) || [ -z "$HERE" ]; then
 fi
 PCZ="$HERE/plugin-check-zip.sh"
 FAILS=0
+# jq は集計、unzip はスクリプト自身の一覧、python3 は zip の fixture の合成（`..`・絶対パス・シンボリックリンクは zip コマンドでは作りにくい）。
+for tool in jq unzip python3; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "test-plugin-check-zip: ${tool} is required" >&2
+    exit 1
+  fi
+done
 if ! WORK=$(mktemp -d) || [ -z "$WORK" ]; then
   echo "test-plugin-check-zip: could not create a temporary directory (mktemp failed)" >&2
   exit 1
@@ -69,9 +76,10 @@ assert_line "errors: totals" "ERROR 2 / WARNING 1"
 assert_line "errors: TextDomainMismatch row" "      1  ERROR    WordPress.WP.I18n.TextDomainMismatch"
 assert_line "errors: no_plugin_readme row" "      1  ERROR    no_plugin_readme"
 assert_line "errors: composer row" "      1  WARNING  missing_composer_json_file"
-assert_line "errors: readme error listed with file:line" "  ERROR  readme.txt:0  no_plugin_readme  The plugin readme.txt does not exist."
+assert_line "errors: file-level error listed without a line number" "  ERROR  readme.txt  no_plugin_readme  The plugin readme.txt does not exist."
+assert_line "errors: error with a line number listed as file:line" "  ERROR  includes/Admin/RestController.php:496  WordPress.WP.I18n.TextDomainMismatch  Mismatched text domain. Expected 'a' but got 'b'."
 assert_line "errors: verdict" "plugin-check-zip: 2 error(s); fix them before releasing"
-assert_no_line "errors: warning not listed without --verbose" "  WARNING  composer.json:0  missing_composer_json_file  The composer.json file is missing."
+assert_no_line "errors: warning not listed without --verbose" "  WARNING  composer.json  missing_composer_json_file  The composer.json file is missing."
 assert_no_line "errors: no 'no errors' verdict" "plugin-check-zip: no errors"
 
 # --- 見つかったものが無いとき Plugin Check は JSON ではなく Success の行を出す ---
@@ -107,16 +115,96 @@ run --summarize "$WORK/missing.json"
 assert_rc "missing file: exit 1" 1
 assert_has "missing file: reason" "results file not found"
 
-# --- 引数の検査 ---
+# --- 引数の検査（wp-env に出る前に止まるもの） ---
 run --summarize "$WORK/warnings.json" --zip x.zip
 assert_rc "summarize with --zip: exit 1" 1
 assert_has "summarize with --zip: reason" "--summarize takes no other options"
+
+run --summarize "$WORK/warnings.json" --keep
+assert_rc "summarize with --keep: exit 1" 1
+assert_has "summarize with --keep: reason" "--summarize takes no other options"
 
 run --bogus
 assert_rc "unknown option: usage (exit 2)" 2
 
 run --plugin cart-bridge-jp --zip "$WORK/none.zip" --summarize "$WORK/warnings.json" -- --format=json
 assert_rc "summarize with passthrough: exit 1" 1
+
+run --plugin foo --zip "$WORK/none.zip"
+assert_rc "unknown plugin: exit 1" 1
+assert_has "unknown plugin: reason" "unknown plugin: foo"
+
+run --env web --zip "$WORK/none.zip"
+assert_rc "unknown env: exit 1" 1
+assert_has "unknown env: reason" "unknown env: web"
+
+run --zip "$WORK/none.zip" --build
+assert_rc "--zip with --build: exit 1" 1
+assert_has "--zip with --build: reason" "use either --zip or --build"
+
+run --zip "$WORK/none.zip" -- --format=json
+assert_rc "passthrough --format: exit 1" 1
+assert_has "passthrough --format: reason" "--format=json is set by this script"
+
+run --zip "$WORK/none.zip" -- --ignore-errors
+assert_rc "passthrough --ignore-errors: exit 1" 1
+assert_has "passthrough --ignore-errors: reason" "--ignore-errors hides results"
+
+run --zip "$WORK/none.zip" -- --severity=7
+assert_rc "passthrough --severity: exit 1" 1
+assert_has "passthrough --severity: reason" "--severity=7 hides results"
+
+run --zip "$WORK/none.zip"
+assert_rc "missing zip: exit 1" 1
+assert_has "missing zip: reason" "zip not found"
+
+# --- zip の中身の検査（python3 の zipfile で合成。一覧で止まるものと、展開してから止まるもの） ---
+python3 - "$WORK" <<'PY'
+import os, sys, zipfile
+w = sys.argv[1]
+def make(name, entries):
+    with zipfile.ZipFile(os.path.join(w, name), 'w') as z:
+        for n, body in entries:
+            z.writestr(n, body)
+make('wrong-top.zip', [('other-name/other-name.php', '<?php\n')])
+make('two-tops.zip', [('cart-bridge-jp/cart-bridge-jp.php', '<?php\n'), ('extra.txt', 'x\n')])
+make('slip.zip', [('cart-bridge-jp/cart-bridge-jp.php', '<?php\n'), ('cart-bridge-jp/../evil.php', '<?php\n')])
+make('absolute.zip', [('cart-bridge-jp/cart-bridge-jp.php', '<?php\n'), ('/tmp/evil.php', '<?php\n')])
+with zipfile.ZipFile(os.path.join(w, 'symlink.zip'), 'w') as z:
+    z.writestr('cart-bridge-jp/cart-bridge-jp.php', '<?php\n')
+    info = zipfile.ZipInfo('cart-bridge-jp/link')
+    info.create_system = 3
+    info.external_attr = 0o120777 << 16
+    z.writestr(info, 'cart-bridge-jp.php')
+PY
+
+run --zip "$WORK/wrong-top.zip"
+assert_rc "wrong top-level dir: exit 1" 1
+assert_has "wrong top-level dir: reason" "must contain exactly one top-level directory 'cart-bridge-jp/'"
+assert_has "wrong top-level dir: names it" "(found: other-name"
+
+run --zip "$WORK/two-tops.zip"
+assert_rc "two top-level entries: exit 1" 1
+assert_has "two top-level entries: reason" "must contain exactly one top-level directory 'cart-bridge-jp/'"
+
+run --zip "$WORK/slip.zip"
+assert_rc "path traversal entry: exit 1" 1
+assert_has "path traversal entry: reason" "has entries outside its own directory"
+assert_has "path traversal entry: names it" "cart-bridge-jp/../evil.php"
+
+run --zip "$WORK/absolute.zip"
+assert_rc "absolute entry: exit 1" 1
+assert_has "absolute entry: reason" "has entries outside its own directory"
+
+# シンボリックリンクは展開してからしか分からない。止めた後に作業ディレクトリ（dist/plugin-check.XXXXXX）を残さない。
+ROOT_DIR=$(git -C "$HERE" rev-parse --show-toplevel)
+before=$(ls -d "$ROOT_DIR"/dist/plugin-check.* 2>/dev/null || true)
+run --zip "$WORK/symlink.zip"
+assert_rc "symbolic link: exit 1" 1
+assert_has "symbolic link: reason" "contains symbolic links"
+assert_has "symbolic link: names it" "cart-bridge-jp/link"
+after=$(ls -d "$ROOT_DIR"/dist/plugin-check.* 2>/dev/null || true)
+if [ "$before" = "$after" ]; then ok "symbolic link: work directory removed"; else fail "symbolic link: work directory left behind: ${after}"; fi
 
 DONE=1
 if [ "$FAILS" -ne 0 ]; then

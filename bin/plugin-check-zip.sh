@@ -5,9 +5,9 @@
 #   bin/plugin-check-zip.sh [--plugin cart-bridge-jp|cart-bridge-jp-pro] [--zip FILE | --build] [--env cli|tests-cli] [--verbose] [--keep] [-- <wp plugin check の引数>]
 #   bin/plugin-check-zip.sh --summarize FILE [--verbose]
 #
-# 1. zip の最上位が <slug>/ だけであることを確かめ、dist/plugin-check/<slug>/ へ展開する（既定の zip は dist/<slug>-<ヘッダーの Version>.zip。
-#    --build は先に bin/build-zip.sh --plugin <slug> で作る）。wp-env はリポジトリのルートを wp-content/cbjp-dev にマウントしているので、
-#    コンテナはこのディレクトリをそのまま読める
+# 1. zip の最上位が <slug>/ だけで、展開先の外へ出る名前（絶対パス・`..`）とシンボリックリンクが無いことを確かめ、実行ごとの dist/plugin-check.XXXXXX/<slug>/ へ
+#    展開する（既定の zip は dist/<slug>-<ヘッダーの Version>.zip。--build は先に bin/build-zip.sh --plugin <slug> で作る）。wp-env はリポジトリのルートを
+#    wp-content/cbjp-dev にマウントしているので、コンテナはこのディレクトリをそのまま読める。無料版と Pro を同時に回しても互いの展開物・結果を消さない
 # 2. wp-env の cli コンテナ（--env tests-cli で tests サイト）で `wp plugin check <展開したディレクトリ> --slug=<slug> --format=strict-json` を実行する。
 #    Plugin Check の CLI はディレクトリのパスを受け（1.1.0+）、--slug が期待するテキストドメインになるので、wp-content/plugins/ に別名で置いたときの
 #    フォルダ名由来の指摘（WordPress.WP.I18n.TextDomainMismatch・ヘッダーの textdomain_mismatch）が出ない。それ以外に見つかるものは別名で置いたときと同じ
@@ -18,6 +18,7 @@
 # Pro は readme.txt を同梱しない（wordpress.org で配らない。R3-5b）ので、no_plugin_readme だけを --ignore-codes で除く。
 # 受け入れた警告（無料版: 自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP。docs/03 §10.9）は数えるだけで止めない。
 # コードの一覧に見覚えの無いものが増えていないかを集計で見る。-- の後の引数は wp plugin check にそのまま渡す（--include-experimental・--mode=update・--checks=… など）。
+# 結果を隠す引数（--ignore-errors・--ignore-warnings・--severity・--exclude-*）は受けない。渡した引数は見出しに出す（全チェックの結果と取り違えない）。
 set -euo pipefail
 
 INVOKED_FROM=$PWD
@@ -33,6 +34,7 @@ KEEP=0
 SUMMARIZE=
 EXTRA=()
 WORK=
+MAIN_OPTS=0
 
 usage() {
 	echo "usage: bin/plugin-check-zip.sh [--plugin cart-bridge-jp|cart-bridge-jp-pro] [--zip FILE | --build] [--env cli|tests-cli] [--verbose] [--keep] [-- <wp plugin check args>]" >&2
@@ -58,21 +60,30 @@ while [ $# -gt 0 ]; do
 		--plugin)
 			[ $# -ge 2 ] || usage
 			SLUG=$2
+			MAIN_OPTS=1
 			shift
 			;;
 		--zip)
 			[ $# -ge 2 ] || usage
 			ZIP=$(abs_path "$2")
+			MAIN_OPTS=1
 			shift
 			;;
-		--build) BUILD=1 ;;
+		--build)
+			BUILD=1
+			MAIN_OPTS=1
+			;;
 		--env)
 			[ $# -ge 2 ] || usage
 			ENV_NAME=$2
+			MAIN_OPTS=1
 			shift
 			;;
 		--verbose) VERBOSE=1 ;;
-		--keep) KEEP=1 ;;
+		--keep)
+			KEEP=1
+			MAIN_OPTS=1
+			;;
 		--summarize)
 			[ $# -ge 2 ] || usage
 			SUMMARIZE=$(abs_path "$2")
@@ -81,6 +92,7 @@ while [ $# -gt 0 ]; do
 		--)
 			shift
 			EXTRA=("$@")
+			MAIN_OPTS=1
 			break
 			;;
 		*) usage ;;
@@ -127,7 +139,8 @@ summarize() {
 	else
 		filter='.[] | select(.type == "ERROR")'
 	fi
-	if rows=$(jq -r "${filter}"' | "  \(.type)  \(.file):\(.line)  \(.code)  \(.message)"' "$file"); then :; else die "could not list the results in ${file}"; fi
+	# ファイル全体への指摘（readme の無い ERROR など）は line が 0 なので、行番号を付けない。
+	if rows=$(jq -r "${filter}"' | "  \(.type)  \(.file)\(if (.line | type) == "number" and .line > 0 then ":\(.line)" else "" end)  \(.code)  \(.message)"' "$file"); then :; else die "could not list the results in ${file}"; fi
 	[ -z "$rows" ] || printf '%s\n' "$rows"
 
 	if [ "$errors" -gt 0 ]; then
@@ -139,7 +152,7 @@ summarize() {
 }
 
 if [ -n "$SUMMARIZE" ]; then
-	[ -z "$ZIP" ] && [ "$BUILD" = 0 ] && [ ${#EXTRA[@]} -eq 0 ] || die "--summarize takes no other options than --verbose"
+	[ "$MAIN_OPTS" = 0 ] || die "--summarize takes no other options than --verbose"
 	echo "plugin-check-zip: ${SUMMARIZE}"
 	rc=0
 	summarize "$SUMMARIZE" || rc=$?
@@ -157,11 +170,14 @@ case "$ENV_NAME" in
 	*) die "unknown env: ${ENV_NAME} (expected cli or tests-cli)" ;;
 esac
 [ -z "$ZIP" ] || [ "$BUILD" = 0 ] || die "use either --zip or --build"
-# --format・--fields・--slug・--ignore-codes はこのスクリプトが決める（二重に渡さない）。
+# --format・--fields・--slug・--ignore-codes はこのスクリプトが決める（二重に渡さない）。結果を隠す引数は受けない（ERROR を隠した結果を「ERROR 0」と報告しない）。
 for arg in ${EXTRA[@]+"${EXTRA[@]}"}; do
 	case "$arg" in
 		--format | --format=* | --fields | --fields=* | --slug | --slug=* | --ignore-codes | --ignore-codes=*)
 			die "${arg} is set by this script (see --plugin); pass only other wp plugin check options after --"
+			;;
+		--ignore-errors | --ignore-warnings | --severity | --severity=* | --error-severity | --error-severity=* | --warning-severity | --warning-severity=* | --exclude-checks | --exclude-checks=* | --exclude-directories | --exclude-directories=* | --exclude-files | --exclude-files=*)
+			die "${arg} hides results; this script reports everything Plugin Check finds"
 			;;
 	esac
 done
@@ -181,14 +197,28 @@ case "$ZIP" in
 	*) zip_display=$ZIP ;;
 esac
 
-# zip の最上位は <slug>/ だけ（build-zip.sh の出力の形。別の zip を渡されたときに、別の名前のディレクトリを検査しない）。
-if top=$(unzip -Z1 "$ZIP" | cut -d/ -f1 | sort -u); then :; else die "could not list ${zip_display} (is it a zip?)"; fi
+# zip の中身の名前を検査する。展開先の外へ出る名前（絶対パス・`..` の要素）が無いこと（unzip は既定で飛ばすが、飛ばした zip を「検査した」と言わない）、
+# 最上位は <slug>/ だけ（build-zip.sh の出力の形。別の zip を渡されたときに、別の名前のディレクトリを検査しない）。
+if entries=$(unzip -Z1 "$ZIP"); then :; else die "could not list ${zip_display} (is it a zip?)"; fi
+if bad=$(printf '%s\n' "$entries" | grep -E '^/|(^|/)\.\.(/|$)'); then
+	die "${zip_display} has entries outside its own directory: $(printf '%s' "$bad" | head -n 3 | tr '\n' ' ')"
+else
+	rc=$?
+	[ "$rc" = 1 ] || die "could not scan the entries of ${zip_display} (grep exit ${rc})"
+fi
+top=$(printf '%s\n' "$entries" | cut -d/ -f1 | sort -u)
 [ "$top" = "$SLUG" ] || die "${zip_display} must contain exactly one top-level directory '${SLUG}/' (found: $(printf '%s' "$top" | tr '\n' ' '))"
-nfiles=$(unzip -Z1 "$ZIP" | grep -c -v '/$' || true)
+nfiles=$(printf '%s\n' "$entries" | grep -c -v '/$' || true)
 
-# 展開先はリポジトリのルートの dist/（gitignore 済みのローカル出力。wp-env のマウントでコンテナから wp-content/cbjp-dev/dist/plugin-check と見える）。
-# 前回の中断で残ったものは、このスクリプトだけが作る名前なので消してから使う。終わったら消す（--keep で残す）。消せなかったら成功と言わない。
-WORK="${ROOT}/dist/plugin-check"
+# 展開先はリポジトリのルートの dist/ の下の、この実行だけのディレクトリ（gitignore 済みのローカル出力。wp-env のマウントでコンテナから
+# wp-content/cbjp-dev/dist/plugin-check.XXXXXX と見える）。無料版と Pro を同時に回しても互いの展開物・結果を消さない（PR #141 Codex）。
+# 消すのは自分の作ったディレクトリだけで、終わったら消す（--keep で残す）。消せなかったら成功と言わない。
+# 中断で残った前回のディレクトリは、別の実行が使っている最中かもしれないので消さず、名前を知らせる。
+mkdir -p "${ROOT}/dist"
+if ! WORK=$(mktemp -d "${ROOT}/dist/plugin-check.XXXXXX") || [ -z "$WORK" ] || [ ! -d "$WORK" ]; then
+	die "could not create a work directory under dist/"
+fi
+WORK_REL=${WORK#"${ROOT}"/}
 # shellcheck disable=SC2329  # trap から呼ぶ
 cleanup() {
 	if [ "$KEEP" = 1 ] || [ -z "$WORK" ] || [ ! -e "$WORK" ]; then
@@ -201,29 +231,29 @@ cleanup() {
 	fi
 }
 trap cleanup EXIT
-if [ -e "$WORK" ]; then
-	echo "plugin-check-zip: removing a leftover ${WORK#"${ROOT}"/} from an earlier run"
-	rm -rf "$WORK"
-	[ ! -e "$WORK" ] || die "could not remove the leftover ${WORK}"
-fi
-mkdir -p "$WORK"
+if others=$(find "${ROOT}/dist" -mindepth 1 -maxdepth 1 -type d -name 'plugin-check.*' ! -path "$WORK" | sed "s#^${ROOT}/##" | sort | tr '\n' ' '); then :; else others=; fi
+[ -z "$others" ] || echo "plugin-check-zip: note: other work directories exist (an interrupted earlier run, or a run in progress; remove by hand when no run is active): ${others}"
 if unzip_out=$(unzip -q "$ZIP" -d "$WORK" 2>&1); then :; else
 	printf '%s\n' "$unzip_out" >&2
 	die "could not extract ${zip_display}"
 fi
 [ -f "${WORK}/${SLUG}/${SLUG}.php" ] || die "${zip_display} does not contain ${SLUG}/${SLUG}.php"
+# シンボリックリンクは展開先の外を読ませうるので受けない（build-zip.sh の zip は実体しか持たない）。
+if links=$(find "$WORK" -type l); then :; else die "could not scan ${zip_display} for symbolic links"; fi
+[ -z "$links" ] || die "${zip_display} contains symbolic links: $(printf '%s' "$links" | sed "s#^${WORK}/##" | head -n 3 | tr '\n' ' ')"
 
-# コンテナの中で実行するコマンド。カレントはルートのマウント（--env-cwd）なので、展開先は dist/plugin-check のまま指せる。
+# コンテナの中で実行するコマンド。カレントはルートのマウント（--env-cwd）なので、展開先は dist/plugin-check.XXXXXX の相対パスのまま指せる。
 # 結果は同じディレクトリのファイルに受ける（wp-env run の標準出力には自身の表示が混ざるので、そこから JSON を拾わない）。
-# -- の後の引数は printf %q で引用して埋め込む。
+# パスと -- の後の引数は printf %q で引用して埋め込む。
 extra_q=
 for arg in ${EXTRA[@]+"${EXTRA[@]}"}; do
 	extra_q="${extra_q} $(printf '%q' "$arg")"
 done
 ignore_q=
 [ -z "$IGNORE_CODES" ] || ignore_q=" --ignore-codes=${IGNORE_CODES}"
+work_q=$(printf '%q' "$WORK_REL")
 inner="set -euo pipefail
-cd dist/plugin-check
+cd ${work_q}
 wp plugin get plugin-check --field=version > version.txt
 wp plugin check \"\$PWD/${SLUG}\" --slug=${SLUG} --format=strict-json --fields=file,line,column,type,code,message${ignore_q}${extra_q} > results.json 2> stderr.txt
 "
@@ -238,12 +268,13 @@ if [ -s "${WORK}/stderr.txt" ]; then
 	die "wp plugin check printed warnings (above); the results may be incomplete"
 fi
 if pc_version=$(tr -d '[:space:]' <"${WORK}/version.txt") && [ -n "$pc_version" ]; then :; else
-	die "could not read the Plugin Check version (dist/plugin-check/version.txt)"
+	die "could not read the Plugin Check version (${WORK_REL}/version.txt)"
 fi
 
 echo "plugin-check-zip: ${zip_display} (${nfiles} files) checked as ${SLUG} with Plugin Check ${pc_version} on wp-env ${ENV_NAME}"
 [ -z "$IGNORE_CODES" ] || echo "plugin-check-zip: ignored codes: ${IGNORE_CODES} (Pro ships no readme.txt; it is not distributed on wordpress.org)"
+[ -z "$extra_q" ] || echo "plugin-check-zip: extra wp plugin check options:${extra_q} (not the default full run)"
 rc=0
 summarize "${WORK}/results.json" || rc=$?
-[ "$KEEP" = 0 ] || echo "plugin-check-zip: kept ${WORK#"${ROOT}"/} (extracted plugin, results.json, stderr.txt)"
+[ "$KEEP" = 0 ] || echo "plugin-check-zip: kept ${WORK_REL} (extracted plugin, results.json, stderr.txt)"
 exit "$rc"
