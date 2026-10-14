@@ -4,7 +4,7 @@ Tags: migration, import, export, woocommerce, japan
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 0.1.0
+Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,7 +85,7 @@ No. The plugin is built for a one-way migration. Items imported from Color Me Sh
 
 = Can it migrate customers, orders, and coupons? =
 
-Not this plugin. Customers, orders, and coupons are migrated by a separate add-on, Cart Bridge JP Pro, which is not available from WordPress.org. This plugin works on its own for products, categories, groups, and stock.
+Not this plugin. Customers, orders, and coupons are migrated by a separate add-on, Cart Bridge JP Pro, which is sold at https://wc.artws.info/ and is not available from WordPress.org. This plugin works on its own for products, categories, groups, and stock.
 
 = What is the Beta feature? =
 
