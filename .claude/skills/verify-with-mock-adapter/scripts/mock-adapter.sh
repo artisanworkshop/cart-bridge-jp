@@ -50,22 +50,29 @@ wp() {
   return "$rc"
 }
 
-# 置く途中で止まったときの一時ファイル（拡張子が .php でないので WordPress は読み込まない）。
-mu_tmp_path() {
-  printf '%s/.%s.tmp\n' "$(dirname "$1")" "$(basename "$1")"
+# `wp eval-file` に渡す一時の PHP をリポジトリのルートに作る（コンテナからは wp-content/cbjp-dev に見える）: eval_tmp <名前>。
+# 名前は呼び出しごとに mktemp で作る（固定の名前だと、同時に走った別の呼び出しが書きかけのファイルを実行し、相手の `rm` で消される。PR #143 Codex）。
+eval_tmp() {
+  mktemp "./.tmp-verify-$1.XXXXXX"
+}
+# mu-plugin を置く途中の一時ファイルの名前の頭（置き先と同じディレクトリの `.<置き先の名前>.`。拡張子が .php でないので WordPress は読み込まない）。
+# 名前の残りは呼び出しごとに mktemp で作る（固定の名前だと、同時に走った別の呼び出しの書いた中身を検査して置き、残しておいた目印の無い
+# ファイルも上書きする。PR #143 Codex）。
+mu_tmp_prefix() {
+  printf '%s/.%s.\n' "$(dirname "$1")" "$(basename "$1")"
 }
 # 管理する mu-plugin を置く: install_mu <置き先> <目印> <生成コマンド...>（生成コマンドの標準出力を書く）。
 # 置き先へ直接書かない。書いている途中で止まると、読みかけの PHP で dev サイトの全要求が fatal になり、WP を起動する
 # `run`・`inspect` も動かなくなる（.claude/rules/skill-scripts.md「中断で壊れると復旧できないファイル」。PR #143）。
-# 隣の一時ファイルに書き、目印と `php -l` を確かめてから `mv -f` で置き換える。目印の無い既存のファイルは上書きしない
+# この呼び出しだけの一時ファイルを隣に作って書き、目印と `php -l` を確かめてから `mv -f` で置き換える。目印の無い既存のファイルは上書きしない
 # （他セッション由来の mu-plugin を壊さない）。`f || exit` の形で呼ぶので、中の失敗は `return 1` で返す（set -e は効かない）。
 install_mu() {
   local dest=$1 marker=$2 tmp lint_out=''
   shift 2
-  tmp=$(mu_tmp_path "$dest")
   if [ -e "$dest" ] && ! grep -qF "$marker" "$dest"; then
     echo "refusing to overwrite $dest (not managed by this skill)" >&2; return 1
   fi
+  tmp=$(mktemp "$(mu_tmp_prefix "$dest")XXXXXX") || { echo "could not create a temporary file next to $dest" >&2; return 1; }
   "$@" > "$tmp" || { rm -f "$tmp"; echo "could not write $tmp" >&2; return 1; }
   if ! grep -qF "$marker" "$tmp" || ! lint_out=$(php -l "$tmp" 2>&1); then
     printf '%s\n' "$lint_out" >&2
@@ -76,31 +83,32 @@ install_mu() {
   { chmod 644 "$tmp" && mv -f "$tmp" "$dest"; } || { rm -f "$tmp"; echo "could not install $dest" >&2; return 1; }
   echo "installed $dest"
 }
-# 管理する mu-plugin を消す: remove_mu <置き先> <目印>。目印の無いファイルは消さない。置く途中で止まって残った一時ファイルも、
-# 目印があれば消す（目印の無い一時ファイルは WordPress が読み込まないので、知らせて残す）。
+# 管理する mu-plugin を消す: remove_mu <置き先> <目印>。目印の無いファイルは消さない。置く途中で止まって残った一時ファイル
+# （`.<置き先の名前>.*`。前の版の `.tmp` も含む）も、目印があれば消す（目印の無い一時ファイルは WordPress が読み込まないので、知らせて残す）。
+# 同時に走っている install_mu の一時ファイルも消しうるが、そのときの install_mu は目印・`php -l`・`mv` のどこかで失敗し、何も置かない。
 remove_mu() {
   local dest=$1 marker=$2 tmp removed=0
-  tmp=$(mu_tmp_path "$dest")
   if [ -e "$dest" ]; then
     grep -qF "$marker" "$dest" || { echo "not managed by this skill; left in place: $dest" >&2; return 1; }
     rm -f "$dest" && [ ! -e "$dest" ] || { echo "could not remove $dest" >&2; return 1; }
     echo "removed $dest"; removed=1
   fi
-  if [ -e "$tmp" ]; then
+  for tmp in "$(mu_tmp_prefix "$dest")"*; do
+    [ -e "$tmp" ] || continue
     if grep -qF "$marker" "$tmp"; then
       rm -f "$tmp" && [ ! -e "$tmp" ] || { echo "could not remove $tmp" >&2; return 1; }
       echo "removed $tmp"; removed=1
     else
       echo "left in place (not managed by this skill; WordPress does not load it): $tmp" >&2
     fi
-  fi
+  done
   [ "$removed" -eq 1 ] || echo "nothing to remove ($dest does not exist)"
 }
 
 cmd=${1:-}
 case "$cmd" in
   inspect)
-    tmp=".tmp-verify-inspect.php"
+    tmp=$(eval_tmp inspect) || exit 1
     cat > "$tmp" <<'PHP'
 <?php
 global $wpdb;
@@ -113,8 +121,9 @@ echo 'cbjp_* options: ' . implode( ' ', $wpdb->get_col( "SELECT option_name FROM
 echo 'users: ' . count_users()['total_users'] . ' | orders: ' . count( wc_get_orders( [ 'limit' => -1, 'return' => 'ids' ] ) ) . "\n";
 echo 'ZZV- mappings left: ' . (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} WHERE remote_id LIKE 'ZZV-%'" ) . "\n";
 PHP
-    wp eval-file "$tmp"
+    if wp eval-file "$tmp"; then rc=0; else rc=$?; fi
     rm -f "$tmp"
+    [ "$rc" -eq 0 ] || exit "$rc"
     dir=$(mu_dir) || exit 1
     echo "mu-plugins: $(ls "$dir" 2>/dev/null | tr '\n' ' ')"
     ;;
@@ -143,7 +152,7 @@ PHP
     dir=$(mu_dir) || exit 1
     mkdir -p "$dir"
     install_mu "$dir/$UNLOCK_FILE_NAME" "$UNLOCK_MARKER" cat "$UNLOCK_TEMPLATE" || exit 1
-    tmp=".tmp-verify-pro-unlock.php"
+    tmp=$(eval_tmp pro-unlock) || exit 1
     cat > "$tmp" <<'PHP'
 <?php
 $env    = wp_get_environment_type();
