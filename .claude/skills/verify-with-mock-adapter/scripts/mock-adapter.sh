@@ -4,14 +4,19 @@
 #   mock-adapter.sh inspect                  開発サイトの既存データを表示する（検証の前後で比較する）
 #   mock-adapter.sh install <platform-key>   mock アダプタを <platform-key> に登録する mu-plugin を置く
 #   mock-adapter.sh run <php-file>           リポジトリ内の PHP を wp eval-file で実行する（seed / verify / cleanup）
-#   mock-adapter.sh uninstall                このスクリプトが置いた mu-plugin だけを削除する
+#   mock-adapter.sh uninstall                このスクリプトが置いた mock アダプタの mu-plugin だけを削除する
+#   mock-adapter.sh pro-unlock               Pro をキー無しで「有効化済み」と読ませる mu-plugin を置く（社内テスト用。production では効かない）
+#   mock-adapter.sh pro-lock                 pro-unlock が置いた mu-plugin だけを削除する
 # wp-env は `npx wp-env`（グローバルの wp-env は使わない）。Node は .nvmrc の版を PATH に通しておくこと。
 set -euo pipefail
 
 MU_FILE_NAME="cbjp-verify-mock-adapter.php"
 MARKER="cbjp-verify-mock-adapter: managed by .claude/skills/verify-with-mock-adapter"
+UNLOCK_FILE_NAME="cbjp-verify-pro-unlock.php"
+UNLOCK_MARKER="cbjp-verify-pro-unlock: managed by .claude/skills/verify-with-mock-adapter"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$HERE/../templates/mu-plugin-mock-adapter.php"
+UNLOCK_TEMPLATE="$HERE/../templates/mu-plugin-pro-unlock.php"
 
 # `wp-env install-path` はこのリポジトリのインスタンスの場所（~/.wp-env/<hash>）を返す。
 # 他プロジェクトの wp-env と取り違えないため、`docker ps` や hash の総当たりではなくこれを使う。
@@ -93,8 +98,50 @@ PHP
       echo "nothing to remove ($dest does not exist)"
     fi
     ;;
+  pro-unlock)
+    # Pro の有効化の記録を option の読み出し（`pre_option_cbjp_pro_license_state`）で「有効化済み」に差し替える mu-plugin を置く。
+    # DB には書かない（詳細は templates/mu-plugin-pro-unlock.php の冒頭）。置いた後に、Pro が実際に「有効化済み」と読むかを肯定形で確かめる
+    # （production のサイト・Pro が無効のサイトでは効かないので、置けても失敗で終わる。ファイルは残す: 環境を直せばそのまま効く）。
+    dir=$(mu_dir) || exit 1
+    dest="$dir/$UNLOCK_FILE_NAME"
+    mkdir -p "$dir"
+    if [ -e "$dest" ] && ! grep -q "$UNLOCK_MARKER" "$dest"; then
+      echo "refusing to overwrite $dest (not managed by this skill)" >&2; exit 1
+    fi
+    cp "$UNLOCK_TEMPLATE" "$dest"
+    echo "installed $dest"
+    tmp=".tmp-verify-pro-unlock.php"
+    cat > "$tmp" <<'PHP'
+<?php
+echo 'environment: ' . wp_get_environment_type() . "\n";
+if ( ! class_exists( \CartBridgeJP\Pro\License\LicenseStore::class ) ) {
+	echo "pro activated: pro-not-active\n";
+} else {
+	echo 'pro activated: ' . ( ( new \CartBridgeJP\Pro\License\LicenseStore() )->is_activated() ? 'yes' : 'no' ) . "\n";
+}
+PHP
+    if out=$(wp eval-file "$tmp"); then rc=0; else rc=$?; fi
+    rm -f "$tmp"
+    printf '%s\n' "$out"
+    [ "$rc" -eq 0 ] || exit "$rc"
+    if printf '%s\n' "$out" | grep -qx 'pro activated: yes'; then
+      echo "Pro now treats this site as activated without a key (customers/orders/coupons and password emails run). Remove with: mock-adapter.sh pro-lock"
+    else
+      echo "installed but NOT effective (environment is production, or the Pro add-on is not active). Fix the environment or remove with: mock-adapter.sh pro-lock" >&2
+      exit 1
+    fi
+    ;;
+  pro-lock)
+    dir=$(mu_dir) || exit 1
+    dest="$dir/$UNLOCK_FILE_NAME"
+    if [ -e "$dest" ]; then
+      if grep -q "$UNLOCK_MARKER" "$dest"; then rm -f "$dest"; echo "removed $dest"; else echo "not managed by this skill; left in place: $dest" >&2; exit 1; fi
+    else
+      echo "nothing to remove ($dest does not exist)"
+    fi
+    ;;
   *)
-    sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
     ;;
 esac
