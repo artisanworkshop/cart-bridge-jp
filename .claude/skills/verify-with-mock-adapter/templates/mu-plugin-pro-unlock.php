@@ -14,9 +14,11 @@
  * - `wp_get_environment_type()` が `production` のサイトでは何もしない。`WP_ENVIRONMENT_TYPE` を設定していないサイトは production になるので、
  *   明示的に local・development・staging にしたサイトでだけ効く（wp-env は local）。効いている間と、production で効いていないときは
  *   管理画面に通知を出し、置いたままにしたことに気付けるようにする。
- * - キーは保存されないので、Pro の設定画面（WooCommerce > Cart Bridge JP Pro）は「保存したキーを読めない」の表示になり、「Save license key」の欄が出る。
- *   **この間にキーを保存しない**（保存すると `UpdateChecker` がそのキーと instance で販売サイトへ問い合わせる）。更新の確認はキーが無いので
- *   販売サイトへ出ない（期待どおり。テストサイトには Pro の更新は届かない）。
+ * - キーの読み出し（option `cbjp_pro_license_key`）も空にし、保存も止める。差し替えで `is_activated()` が真になると、`UpdateChecker` は読めるキーが
+ *   あれば、そのキーと instance で販売サイトへ問い合わせる。前に有効化した・保存の途中で失敗したサイトには DB にキーが残りうるので、読み出しを
+ *   空にして外へ出さない（PR #143）。保存を止めるのは、外した後にキーだけが DB に残らないようにするため。DB の値は消さないので、外せば元に戻る。
+ * - そのため Pro の設定画面（WooCommerce > Cart Bridge JP Pro）は「保存したキーを読めない」の表示になり、「Save license key」の欄が出るが、
+ *   保存は失敗する。更新の確認は販売サイトへ出ない（テストサイトには Pro の更新は届かない）。
  * - 致命的エラーを出さない（mu-plugin の fatal は開発サイトの全リクエストを落とす）。Pro のクラスを参照しない。
  */
 
@@ -48,6 +50,17 @@ add_filter(
 	]
 );
 
+// キーを空と読ませる（`LicenseStore::key()` が null になり、`UpdateChecker` は問い合わせない）。`get_option()` は false 以外を返すと DB を読まない。
+add_filter( 'pre_option_cbjp_pro_license_key', static fn () => '' );
+
+// キーを保存させない。`update_option()` は、このフィルターが返した値が古い値（上の差し替えで空）と同じなら書かない。
+add_filter(
+	'pre_update_option_cbjp_pro_license_key',
+	static fn ( $value, $old_value ) => $old_value,
+	10,
+	2
+);
+
 add_action(
 	'admin_notices',
 	static function () {
@@ -57,7 +70,7 @@ add_action(
 
 		printf(
 			'<div class="notice notice-warning"><p>%s</p></div>',
-			esc_html( 'Cart Bridge JP Pro is unlocked for testing by the mu-plugin cbjp-verify-pro-unlock.php (no license key). Do not save a license key while it is installed. Remove it with mock-adapter.sh pro-lock.' )
+			esc_html( 'Cart Bridge JP Pro is unlocked for testing by the mu-plugin cbjp-verify-pro-unlock.php (no license key). While it is installed, the saved license key is hidden and a new one cannot be saved. Remove it with mock-adapter.sh pro-lock.' )
 		);
 	}
 );

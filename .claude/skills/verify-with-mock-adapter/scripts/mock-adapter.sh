@@ -50,6 +50,53 @@ wp() {
   return "$rc"
 }
 
+# 置く途中で止まったときの一時ファイル（拡張子が .php でないので WordPress は読み込まない）。
+mu_tmp_path() {
+  printf '%s/.%s.tmp\n' "$(dirname "$1")" "$(basename "$1")"
+}
+# 管理する mu-plugin を置く: install_mu <置き先> <目印> <生成コマンド...>（生成コマンドの標準出力を書く）。
+# 置き先へ直接書かない。書いている途中で止まると、読みかけの PHP で dev サイトの全要求が fatal になり、WP を起動する
+# `run`・`inspect` も動かなくなる（.claude/rules/skill-scripts.md「中断で壊れると復旧できないファイル」。PR #143）。
+# 隣の一時ファイルに書き、目印と `php -l` を確かめてから `mv -f` で置き換える。目印の無い既存のファイルは上書きしない
+# （他セッション由来の mu-plugin を壊さない）。`f || exit` の形で呼ぶので、中の失敗は `return 1` で返す（set -e は効かない）。
+install_mu() {
+  local dest=$1 marker=$2 tmp lint_out=''
+  shift 2
+  tmp=$(mu_tmp_path "$dest")
+  if [ -e "$dest" ] && ! grep -qF "$marker" "$dest"; then
+    echo "refusing to overwrite $dest (not managed by this skill)" >&2; return 1
+  fi
+  "$@" > "$tmp" || { rm -f "$tmp"; echo "could not write $tmp" >&2; return 1; }
+  if ! grep -qF "$marker" "$tmp" || ! lint_out=$(php -l "$tmp" 2>&1); then
+    printf '%s\n' "$lint_out" >&2
+    rm -f "$tmp"
+    echo "the mu-plugin was not written as expected; nothing was installed" >&2
+    return 1
+  fi
+  { chmod 644 "$tmp" && mv -f "$tmp" "$dest"; } || { rm -f "$tmp"; echo "could not install $dest" >&2; return 1; }
+  echo "installed $dest"
+}
+# 管理する mu-plugin を消す: remove_mu <置き先> <目印>。目印の無いファイルは消さない。置く途中で止まって残った一時ファイルも、
+# 目印があれば消す（目印の無い一時ファイルは WordPress が読み込まないので、知らせて残す）。
+remove_mu() {
+  local dest=$1 marker=$2 tmp removed=0
+  tmp=$(mu_tmp_path "$dest")
+  if [ -e "$dest" ]; then
+    grep -qF "$marker" "$dest" || { echo "not managed by this skill; left in place: $dest" >&2; return 1; }
+    rm -f "$dest" && [ ! -e "$dest" ] || { echo "could not remove $dest" >&2; return 1; }
+    echo "removed $dest"; removed=1
+  fi
+  if [ -e "$tmp" ]; then
+    if grep -qF "$marker" "$tmp"; then
+      rm -f "$tmp" && [ ! -e "$tmp" ] || { echo "could not remove $tmp" >&2; return 1; }
+      echo "removed $tmp"; removed=1
+    else
+      echo "left in place (not managed by this skill; WordPress does not load it): $tmp" >&2
+    fi
+  fi
+  [ "$removed" -eq 1 ] || echo "nothing to remove ($dest does not exist)"
+}
+
 cmd=${1:-}
 case "$cmd" in
   inspect)
@@ -75,14 +122,9 @@ PHP
     key=${2:?usage: mock-adapter.sh install <platform-key>}
     case "$key" in *[!a-z0-9_-]*|'') echo "invalid platform key: $key" >&2; exit 2 ;; esac
     dir=$(mu_dir) || exit 1
-    dest="$dir/$MU_FILE_NAME"
     mkdir -p "$dir"
-    # 自分が置いたファイル以外は上書きしない（他セッション由来の mu-plugin を壊さない）。
-    if [ -e "$dest" ] && ! grep -q "$MARKER" "$dest"; then
-      echo "refusing to overwrite $dest (not managed by this skill)" >&2; exit 1
-    fi
-    sed "s/__PLATFORM_KEY__/$key/g" "$TEMPLATE" > "$dest"
-    echo "installed $dest (mock adapter registered as '$key')"
+    install_mu "$dir/$MU_FILE_NAME" "$MARKER" sed "s/__PLATFORM_KEY__/$key/g" "$TEMPLATE" || exit 1
+    echo "mock adapter registered as '$key'"
     ;;
   run)
     file=${2:?usage: mock-adapter.sh run <php-file>}
@@ -91,54 +133,48 @@ PHP
     ;;
   uninstall)
     dir=$(mu_dir) || exit 1
-    dest="$dir/$MU_FILE_NAME"
-    if [ -e "$dest" ]; then
-      if grep -q "$MARKER" "$dest"; then rm -f "$dest"; echo "removed $dest"; else echo "not managed by this skill; left in place: $dest" >&2; exit 1; fi
-    else
-      echo "nothing to remove ($dest does not exist)"
-    fi
+    remove_mu "$dir/$MU_FILE_NAME" "$MARKER" || exit 1
     ;;
   pro-unlock)
-    # Pro の有効化の記録を option の読み出し（`pre_option_cbjp_pro_license_state`）で「有効化済み」に差し替える mu-plugin を置く。
-    # DB には書かない（詳細は templates/mu-plugin-pro-unlock.php の冒頭）。置いた後に、Pro が実際に「有効化済み」と読むかを肯定形で確かめる
-    # （production のサイト・Pro が無効のサイトでは効かないので、置けても失敗で終わる。ファイルは残す: 環境を直せばそのまま効く）。
+    # Pro の有効化の記録を option の読み出し（`pre_option_cbjp_pro_license_state`）で「有効化済み」に差し替え、キーは空と読ませる
+    # mu-plugin を置く。DB には書かない（詳細は templates/mu-plugin-pro-unlock.php の冒頭）。置いた後に、差し替えが実際に効いているかを
+    # 肯定形で確かめる: 環境種別が production でない・Pro が起動している・差し替えのフィルターが登録された・Pro が「有効化済み」と読み、
+    # キーを読めない。どれかが欠ければ失敗で終わる（ファイルは残す: 環境を直せばそのまま効く。外すときは pro-lock）。
     dir=$(mu_dir) || exit 1
-    dest="$dir/$UNLOCK_FILE_NAME"
     mkdir -p "$dir"
-    if [ -e "$dest" ] && ! grep -q "$UNLOCK_MARKER" "$dest"; then
-      echo "refusing to overwrite $dest (not managed by this skill)" >&2; exit 1
-    fi
-    cp "$UNLOCK_TEMPLATE" "$dest"
-    echo "installed $dest"
+    install_mu "$dir/$UNLOCK_FILE_NAME" "$UNLOCK_MARKER" cat "$UNLOCK_TEMPLATE" || exit 1
     tmp=".tmp-verify-pro-unlock.php"
     cat > "$tmp" <<'PHP'
 <?php
-echo 'environment: ' . wp_get_environment_type() . "\n";
-if ( ! class_exists( \CartBridgeJP\Pro\License\LicenseStore::class ) ) {
-	echo "pro activated: pro-not-active\n";
-} else {
-	echo 'pro activated: ' . ( ( new \CartBridgeJP\Pro\License\LicenseStore() )->is_activated() ? 'yes' : 'no' ) . "\n";
-}
+$env    = wp_get_environment_type();
+// Pro が無効なら autoload が無いので class_exists() は偽。有効でも前提（WooCommerce・無料版の版）が欠ければ起動しない。
+// Core\Plugin と LicenseStore は何も継承しないので、起動していないサイトで読み込んでも fatal にならない。
+$booted = class_exists( \CartBridgeJP\Pro\Core\Plugin::class ) && \CartBridgeJP\Pro\Core\Plugin::instance()->is_booted();
+$filter = false !== has_filter( 'pre_option_cbjp_pro_license_state' ) && false !== has_filter( 'pre_option_cbjp_pro_license_key' );
+$store  = $booted ? new \CartBridgeJP\Pro\License\LicenseStore() : null;
+$active = null !== $store && $store->is_activated();
+$hidden = null !== $store && null === $store->key();
+echo "environment: {$env}\n";
+echo 'pro booted: ' . ( $booted ? 'yes' : 'no' ) . "\n";
+echo 'unlock filters: ' . ( $filter ? 'yes' : 'no' ) . "\n";
+echo 'pro activated: ' . ( $active ? 'yes' : 'no' ) . "\n";
+echo 'license key hidden: ' . ( $hidden ? 'yes' : 'no' ) . "\n";
+echo 'unlock effective: ' . ( 'production' !== $env && $booted && $filter && $active && $hidden ? 'yes' : 'no' ) . "\n";
 PHP
     if out=$(wp eval-file "$tmp"); then rc=0; else rc=$?; fi
     rm -f "$tmp"
     printf '%s\n' "$out"
     [ "$rc" -eq 0 ] || exit "$rc"
-    if printf '%s\n' "$out" | grep -qx 'pro activated: yes'; then
+    if printf '%s\n' "$out" | grep -qx 'unlock effective: yes'; then
       echo "Pro now treats this site as activated without a key (customers/orders/coupons and password emails run). Remove with: mock-adapter.sh pro-lock"
     else
-      echo "installed but NOT effective (environment is production, or the Pro add-on is not active). Fix the environment or remove with: mock-adapter.sh pro-lock" >&2
+      echo "installed but NOT effective (see the lines above: production site, Pro not booted, or the filters are not registered). Fix the environment or remove with: mock-adapter.sh pro-lock" >&2
       exit 1
     fi
     ;;
   pro-lock)
     dir=$(mu_dir) || exit 1
-    dest="$dir/$UNLOCK_FILE_NAME"
-    if [ -e "$dest" ]; then
-      if grep -q "$UNLOCK_MARKER" "$dest"; then rm -f "$dest"; echo "removed $dest"; else echo "not managed by this skill; left in place: $dest" >&2; exit 1; fi
-    else
-      echo "nothing to remove ($dest does not exist)"
-    fi
+    remove_mu "$dir/$UNLOCK_FILE_NAME" "$UNLOCK_MARKER" || exit 1
     ;;
   *)
     sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
