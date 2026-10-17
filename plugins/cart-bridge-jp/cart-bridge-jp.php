@@ -72,10 +72,24 @@ function cbjp_bootstrap(): void {
 }
 
 /**
+ * 前提条件が欠けたときの通知を出す画面か。「プラグイン」画面と、このプラグインの画面（WooCommerce メニューの下。`Admin\Assets::enqueue()` と同じ判定）
+ * だけにする（ガイドライン 11: 通知は範囲を絞る。issue #144）。オートロードが無くても使えるようメインファイルに置く。
+ */
+function cbjp_is_requirement_notice_screen(): bool {
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+	if ( ! $screen instanceof \WP_Screen ) {
+		return false;
+	}
+
+	return 'plugins' === $screen->id || str_ends_with( $screen->id, '_page_cart-bridge-jp' );
+}
+
+/**
  * WooCommerce未有効時の管理画面通知。
  */
 function cbjp_render_missing_woocommerce_notice(): void {
-	if ( ! current_user_can( 'activate_plugins' ) ) {
+	if ( ! current_user_can( 'activate_plugins' ) || ! cbjp_is_requirement_notice_screen() ) {
 		return;
 	}
 	printf(
@@ -88,7 +102,7 @@ function cbjp_render_missing_woocommerce_notice(): void {
  * Composerオートロード未生成時（開発環境）の管理画面通知。
  */
 function cbjp_render_missing_autoload_notice(): void {
-	if ( ! current_user_can( 'activate_plugins' ) ) {
+	if ( ! current_user_can( 'activate_plugins' ) || ! cbjp_is_requirement_notice_screen() ) {
 		return;
 	}
 	printf(
