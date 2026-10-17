@@ -697,7 +697,7 @@ wordpress.org で配るプラグインの訳は translate.wordpress.org の言�
 |---|---|---|
 | `cart-bridge-jp.pot` | `npm run i18n:pot`（ビルド → `wp i18n make-pot`） | 翻訳の元。`bin/i18n.sh check` が鮮度を確かめる |
 | `cart-bridge-jp-ja.po` | `npm run i18n:po`（`wp i18n update-po`。無ければ `Plural-Forms: nplurals=1` のヘッダから作る）→ 訳す | 人が編集する唯一のファイル。translate.wordpress.org へ取り込む元 |
-| ~~`cart-bridge-jp-ja.mo`・`.l10n.php`・`cart-bridge-jp-ja-<md5>.json`~~ | issue #144 で削除（`npm run i18n:compile` は無料版では何もしない） | 言語パックの同じ名前のファイル（`WP_LANG_DIR/plugins/`）を WordPress が読む。管理画面の JS は `Admin\Assets::enqueue()` の `wp_set_script_translations( 'cart-bridge-jp-admin', 'cart-bridge-jp' )`（パスを渡さない） |
+| ~~`cart-bridge-jp-ja.mo`・`.l10n.php`・`cart-bridge-jp-ja-<md5>.json`~~ | issue #144 で削除（`npm run i18n:compile` は無料版では何もしない） | 言語パックの同じ名前のファイル（`WP_LANG_DIR/plugins/`）を WordPress が読む。管理画面の JS は `Admin\Assets::set_script_translations()` の `wp_set_script_translations( 'cart-bridge-jp-admin', 'cart-bridge-jp' )`（パスを渡さない） |
 
 - **JS の文字列は `build/index.js` から抜く**（WP-CLI 2.12 の make-pot は TypeScript を読まない）。参照が `build/index.js` になるので、JSON の名前
   （`cart-bridge-jp-ja-` + `md5( 'build/index.js' )`）が `wp_set_script_translations()` の探す名前と一致する。`src/*.tsx` を参照にすると名前が食い違い、管理画面が英語のままになる。
@@ -717,7 +717,8 @@ wordpress.org で配るプラグインの訳は translate.wordpress.org の言�
   `WP_Textdomain_Registry::get_path_from_lang_dir()` が見つけるので、ネットワークで有効にしたプラグインでも読まれる。ヘッダーの `Domain Path` も外した（zip に無いフォルダを指す）。
   WordPress は Domain Path の無いプラグインにはプラグインのフォルダをカスタムパスとして登録するが、言語パックが優先される。`TranslationsTest` が、ヘッダーに Domain Path が無いこと・
   無料版の PHP（メインファイル・`includes/`・`uninstall.php`）が `load_plugin_textdomain()` などを呼ばず `wp_set_script_translations()` にパスを渡さないこと（`token_get_all()`）・
-  `languages/` が POT と `ja.po` だけであることを確かめる
+  `languages/` が POT と `ja.po` だけであることを確かめる。管理画面の JS の訳の登録は `Admin\Assets::set_script_translations()`（テキストドメインだけ。`enqueue()` から呼ぶ）で、
+  登録したドメイン・パスが空であること・言語パックの JSON（`WP_LANG_DIR/plugins/cart-bridge-jp-ja-<md5( 'build/index.js' )>.json`）を探すことも `TranslationsTest` が確かめる（PR #145 G1-B1）
 - **検査**: `TranslationsTest`（PHPUnit）が、PO と POT の文字列（msgctxt・msgid・msgid_plural と JS から参照されるか）の一致・訳の漏れと fuzzy・プレースホルダ
   （`%s`・`%1$s`・`%d`・`%%`）の一致を確かめる（~~生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）~~ は issue #144 で生成物と一緒に外した。Pro の `TranslationsTest` は今も確かめる）。`bin/i18n.sh check`（CI の PHPUnit ジョブと
   `quality.sh`）がビルド済みのソースから POT をコンテナの中で作り直し、コミット済みの POT と同じ項目で比べる（行番号・翻訳者コメント・作成日時は比べない）。make-pot の

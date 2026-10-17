@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Core;
 
+use CartBridgeJP\Admin\Assets;
 use PO;
 use Translation_Entry;
 use WP_UnitTestCase;
@@ -28,6 +29,11 @@ final class TranslationsTest extends WP_UnitTestCase {
 	private static ?PO $po = null;
 
 	private static ?PO $pot = null;
+
+	public function tear_down(): void {
+		wp_deregister_script( 'cart-bridge-jp-admin' );
+		parent::tear_down();
+	}
 
 	public function test_po_has_the_same_strings_as_the_pot(): void {
 		$this->assertSame( $this->string_keys( self::pot() ), $this->string_keys( self::po() ) );
@@ -107,6 +113,35 @@ final class TranslationsTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( [], $found );
+	}
+
+	/**
+	 * 管理画面の JS の訳はテキストドメインだけで登録し（パスなし）、言語パックの JSON
+	 * （`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）を探す（issue #144）。
+	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
+	 */
+	public function test_admin_script_translations_are_read_from_the_language_pack(): void {
+		wp_register_script( 'cart-bridge-jp-admin', CBJP_URL . 'build/index.js', [], '1', true );
+		Assets::set_script_translations();
+
+		$script = wp_scripts()->registered['cart-bridge-jp-admin'];
+		$this->assertSame( 'cart-bridge-jp', $script->textdomain );
+		$this->assertSame( '', $script->translations_path );
+
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+		$searched = [];
+		add_filter(
+			'load_script_translation_file',
+			static function ( $file ) use ( &$searched ) {
+				$searched[] = $file;
+
+				return $file;
+			}
+		);
+
+		wp_scripts()->print_translations( 'cart-bridge-jp-admin', false );
+
+		$this->assertContains( WP_LANG_DIR . '/plugins/cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json', $searched );
 	}
 
 	/**
