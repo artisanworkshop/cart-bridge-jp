@@ -66,6 +66,7 @@ README;
 
 	/**
 	 * 同梱の readme の 1.0.0 の節（R3-3・R3-6d で用意した 7 項目）。Upgrade Notice の同じ版の文を含まない。
+	 * 1.0.0 は公開せず 1.0.1 が wordpress.org の最初の版になったので、「First release on WordPress.org」は 1.0.1 の節の 1 行目にある（PR #146）。
 	 */
 	public function test_extracts_the_1_0_0_entry_of_the_readme(): void {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- リポジトリ内のテキストファイルを読む（JSON ではない）。
@@ -75,7 +76,9 @@ README;
 		$this->assertIsString( $entry );
 		$lines = explode( "\n", $entry );
 		$this->assertCount( 7, $lines );
-		$this->assertStringStartsWith( '* First release on WordPress.org: ', $lines[0] );
+		$this->assertStringStartsWith( '* Import categories, groups, products, and stock from Color Me Shop', $lines[0] );
+		$this->assertStringNotContainsString( 'First release on WordPress.org', $entry );
+		$this->assertStringStartsWith( '* First release on WordPress.org. ', (string) cbjp_readme_release_changelog( $readme, '1.0.1' ) );
 
 		foreach ( $lines as $line ) {
 			$this->assertStringStartsWith( '* ', $line );
