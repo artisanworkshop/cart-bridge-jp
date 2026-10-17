@@ -137,7 +137,7 @@ To delete the plugin's own data as well, turn on “Delete this plugin’s data 
 
 = 1.0.1 =
 * Translations are no longer bundled with the plugin; WordPress installs them from translate.wordpress.org as language packs. Until a Japanese language pack is available, the plugin's screens are shown in English on Japanese sites.
-* The notices shown when WooCommerce is not active or the PHP sodium extension is missing now appear only on the Plugins screen and the Cart Bridge JP screen, instead of on every admin screen.
+* The notices shown when a requirement is missing (WooCommerce is not active, the PHP sodium extension is missing, or the plugin cannot load its dependencies) now appear only on the Plugins screen and the Cart Bridge JP screen, instead of on every admin screen.
 
 = 1.0.0 =
 * First release on WordPress.org: import categories, groups, products, and stock from Color Me Shop, and export products and stock to Color Me Shop. Product image upload is Beta.
