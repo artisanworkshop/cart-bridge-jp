@@ -10,6 +10,8 @@ namespace CartBridgeJP\Tests\Core;
 use CartBridgeJP\Admin\Assets;
 use PO;
 use Translation_Entry;
+use WP_Textdomain_Registry;
+use WP_Translation_Controller;
 use WP_UnitTestCase;
 
 /**
@@ -30,8 +32,28 @@ final class TranslationsTest extends WP_UnitTestCase {
 
 	private static ?PO $pot = null;
 
+	/**
+	 * 言語パックのテストで差し替える前の `$wp_textdomain_registry`。
+	 */
+	private ?WP_Textdomain_Registry $registry = null;
+
+	/**
+	 * 言語パックのテストで読ませる一時ファイル。
+	 */
+	private string $pack_file = '';
+
 	public function tear_down(): void {
 		wp_deregister_script( 'cart-bridge-jp-admin' );
+
+		if ( null !== $this->registry ) {
+			$GLOBALS['wp_textdomain_registry'] = $this->registry; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- テストで差し替えた登録を戻す。
+		}
+		if ( '' !== $this->pack_file ) {
+			WP_Translation_Controller::get_instance()->unload_textdomain( 'cart-bridge-jp', 'ja' );
+			unload_textdomain( 'cart-bridge-jp', true );
+			wp_delete_file( $this->pack_file );
+		}
+
 		parent::tear_down();
 	}
 
@@ -113,6 +135,52 @@ final class TranslationsTest extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( [], $found );
+	}
+
+	/**
+	 * PHP の訳は、WordPress が言語パック（`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>.l10n.php`）から必要なときに読む（issue #144）。
+	 * 言語パックがある状態は `pre_get_language_files_from_path` で作り、読むファイルは `load_translation_file` で一時ファイルへ差し替える
+	 * （`WP_LANG_DIR` には書かない）。前のテストが覚えた言語の場所に左右されないよう、`$wp_textdomain_registry` は新しくする。
+	 */
+	public function test_php_strings_are_read_from_the_language_pack(): void {
+		$msgid    = 'Save the Client ID and Client Secret first, then connect.';
+		$expected = self::po()->entries[ $msgid ]->translations[0];
+		$this->assertNotSame( $msgid, $expected );
+
+		$pack            = WP_LANG_DIR . '/plugins/cart-bridge-jp-ja.l10n.php';
+		$this->pack_file = get_temp_dir() . 'cbjp-language-pack-' . wp_generate_uuid4() . '.l10n.php';
+		$contents        = '<?php return ' . var_export( [ 'messages' => [ $msgid => $expected ] ], true ) . ';'; // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Writes a PHP translation file.
+		$this->assertNotFalse( file_put_contents( $this->pack_file, $contents ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
+
+		$this->registry                    = $GLOBALS['wp_textdomain_registry'];
+		$GLOBALS['wp_textdomain_registry'] = new WP_Textdomain_Registry(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- tear_down() で戻す。
+		unload_textdomain( 'cart-bridge-jp', true );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+
+		add_filter(
+			'pre_get_language_files_from_path',
+			static fn ( $files, $path ) => WP_LANG_DIR . '/plugins/' === $path ? [ $pack ] : $files,
+			10,
+			2
+		);
+		$requested = [];
+		$temp      = $this->pack_file;
+		add_filter(
+			'load_translation_file',
+			static function ( $file, $domain ) use ( &$requested, $pack, $temp ) {
+				if ( 'cart-bridge-jp' !== $domain ) {
+					return $file;
+				}
+				$requested[] = $file;
+
+				return $pack === $file ? $temp : $file;
+			},
+			10,
+			2
+		);
+
+		$this->assertSame( $expected, __( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ) );
+		$this->assertContains( $pack, $requested );
 	}
 
 	/**

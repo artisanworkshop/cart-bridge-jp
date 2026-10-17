@@ -718,7 +718,8 @@ wordpress.org で配るプラグインの訳は translate.wordpress.org の言�
   WordPress は Domain Path の無いプラグインにはプラグインのフォルダをカスタムパスとして登録するが、言語パックが優先される。`TranslationsTest` が、ヘッダーに Domain Path が無いこと・
   無料版の PHP（メインファイル・`includes/`・`uninstall.php`）が `load_plugin_textdomain()` などを呼ばず `wp_set_script_translations()` にパスを渡さないこと（`token_get_all()`）・
   `languages/` が POT と `ja.po` だけであることを確かめる。管理画面の JS の訳の登録は `Admin\Assets::set_script_translations()`（テキストドメインだけ。`enqueue()` から呼ぶ）で、
-  登録したドメイン・パスが空であること・言語パックの JSON（`WP_LANG_DIR/plugins/cart-bridge-jp-ja-<md5( 'build/index.js' )>.json`）を探すことも `TranslationsTest` が確かめる（PR #145 G1-B1）
+  登録したドメイン・パスが空であること・言語パックの JSON（`WP_LANG_DIR/plugins/cart-bridge-jp-ja-<md5( 'build/index.js' )>.json`）を探すことも `TranslationsTest` が確かめる（PR #145 G1-B1）。
+  PHP の `__()` が言語パック（`WP_LANG_DIR/plugins/cart-bridge-jp-ja.l10n.php`）から読まれることも、`pre_get_language_files_from_path`（言語パックがある状態を作る）と `load_translation_file`（一時ファイルへ差し替える）で `WP_LANG_DIR` に書かずに確かめる（G2-B2）
 - **検査**: `TranslationsTest`（PHPUnit）が、PO と POT の文字列（msgctxt・msgid・msgid_plural と JS から参照されるか）の一致・訳の漏れと fuzzy・プレースホルダ
   （`%s`・`%1$s`・`%d`・`%%`）の一致を確かめる（~~生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）~~ は issue #144 で生成物と一緒に外した。Pro の `TranslationsTest` は今も確かめる）。`bin/i18n.sh check`（CI の PHPUnit ジョブと
   `quality.sh`）がビルド済みのソースから POT をコンテナの中で作り直し、コミット済みの POT と同じ項目で比べる（行番号・翻訳者コメント・作成日時は比べない）。make-pot の
