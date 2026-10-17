@@ -73,8 +73,9 @@ description: >
    - ネイティブの `window.confirm()` を出すボタン（Import タブの Run import 等）をブラウザ自動操作で押さない（タブがフリーズする）。
    - 確認後にコンソールエラーを見る（`read_console_messages` の `onlyErrors`）。
 6. **完全に撤去する**（必須）: `$S/scripts/mock-adapter.sh run <cleanup.php>`（投入したユーザー・受注・mapping・オプションを削除。
-   `examples/push-intent-resolution/cleanup.php`）→ `$S/scripts/mock-adapter.sh uninstall`（mu-plugin を削除）→ `inspect` で
-   手順 1 の状態に戻ったことを確認 → リポジトリ内の一時ファイルを削除。**一時ファイルはコミットしない**（`git status` で確認）。
+   `examples/push-intent-resolution/cleanup.php`）→ `$S/scripts/mock-adapter.sh uninstall`（mu-plugin を削除）→ `pro-unlock` を使ったなら
+   `$S/scripts/mock-adapter.sh pro-lock`（Pro をキー無しで動かす mu-plugin を削除。残すと Pro は「有効化済み」のまま。PR #143 Codex）→ `inspect` で
+   手順 1 の状態に戻ったことを確認（`mu-plugins:` の行に `cbjp-verify-*` が無い）→ リポジトリ内の一時ファイルを削除。**一時ファイルはコミットしない**（`git status` で確認）。
 
 ## 落とし穴（PR #80 の Export タブ UI 検証で実際に踏んだもの）
 
@@ -83,7 +84,16 @@ description: >
 - **`cbjp_process_job`（Action Scheduler）は CLI では自走しない**。`start_run` の後、検証スクリプト内で pending を処理する（`as_get_scheduled_actions( [ 'hook' => 'cbjp_process_job', 'status' => 'pending' ] )` → `do_action_ref_array( $action->get_hook(), $action->get_args() )` → `ActionScheduler_Store::instance()->mark_complete()`）。
 - **mock のキー（例 `mockv`）は既定では `connected` ではないので、Export/Import タブの platform 選択に出ない**（`ExportTab` は `c.connected` の platform だけを扱う）。タブに出すには、検証スクリプトで偽のトークンを保存して connected にする: `( new CartBridgeJP\Support\TokenStore( 'mockv' ) )->save( [ 'access_token' => 'verify-<作業名>' ] )`（実 `colorme` を汚さない。R3-0h）。撤去時は値を確かめてから `cbjp_token_mockv` を消す（`push-intent-resolution/cleanup.php` はトークンが残っていると拒否する）。`push` 系の挙動は `cbjp_verify_seed.push`（`enabled`/`create_failure`）で切り替える。
 - **REST（`rest_do_request()`）で走らせた run を管理画面に出すには**: 進行中（未終了のジョブがある）run は、各タブが `GET /runs?platform=` で見つけて自動で取り込む・案内する（R3-0i）ので何もしなくてよい。**終了済みの run** を出すときだけ、localStorage の `cbjp_run_{type}_{platform}`（type は `dry_run`／`import`／`dry_run_export`／`export`）に run_id を入れて `cmd+r` する（タブは直前の run_id をここから復元してポーリングする）。確認後はキーを消す。
-- **Pro の顧客・受注・クーポンを実際に取り込む・エクスポートするには、Pro のキーの有効化の記録が要る**（D30・R3-8b）。記録が無いと Pro はこの 3 種類を dry-run だけにし、`POST /runs` の import/export は 400（`cbjp_dry_run_only`）、画面は「Preview only」の注記を出して Run import/export で送らない（dry-run は通る）。販売サイトが決まるまでのビルドでは画面から有効化できないので、記録だけを書く: `npx wp-env run cli wp option update cbjp_pro_license_state '{"activated":"yes","activated_at":0,"product_id":0}' --format=json`。撤去のときに `npx wp-env run cli wp option delete cbjp_pro_license_state` で戻す（R3-8a の確認で有効化していた開発サイトなら、元の値を控えてから書き換え、撤去で戻す）。制限の表示そのものを確かめるときは記録を書かない
+- **Pro の顧客・受注・クーポンを実際に取り込む・エクスポートするには、Pro のキーの有効化の記録が要る**（D30・R3-8b）。記録が無いと Pro はこの 3 種類を dry-run だけにし、`POST /runs` の import/export は 400（`cbjp_dry_run_only`）、画面は「Preview only」の注記を出して Run import/export で送らない（dry-run は通る）。パスワード設定メールの一斉送信の開始・再開も同じ記録で止まる（R3-10）。
+  社内のテストでは **`$S/scripts/mock-adapter.sh pro-unlock`** で外す: `templates/mu-plugin-pro-unlock.php` を `mu-plugins/` に置き、WordPress コアの `pre_option_cbjp_pro_license_state` フィルターで
+  option の読み出しを「有効化済み」に差し替える（Pro の判定は `LicenseStore::is_activated()` の 1 点で、この option の `activated` が `'yes'` かだけを見る。`docs/03` §10.7「守ること」4 のとおり破られない仕組みではない）。
+  DB には書かないので、`pro-lock` でファイルを消せば即座に戻る。`wp_get_environment_type()` が `production` のサイトでは何もしない（wp-env は `local`）。
+  **キーの読み出し（`cbjp_pro_license_key`）も空にし、保存も止める**: 差し替えで `is_activated()` が真になると、`UpdateChecker` は読めるキーがあればそれを販売サイトへ送る。前に有効化した・保存の途中で失敗したサイトは
+  DB にキーが残りうるので、読ませない（PR #143 Copilot）。DB の値は消さない。置いた後に `wp eval-file` で、production でない・Pro が起動している（`Core\Plugin::instance()->is_booted()`）・差し替えのフィルターが登録された・
+  「有効化済み」と読み、キーを読めない、のすべてを確かめ、どれかが欠ければ非ゼロで終わる（ファイルは残す。`wp eval-file` 自体が失敗して確かめられないときも、残ったことを知らせて非ゼロ）。効いている間は管理画面に通知を出す。**副作用**: Pro の設定画面は「保存したキーを読めない」の表示と
+  「Save license key」の欄になるが、保存は失敗する。更新の確認は外へ出ない。mu-plugin は呼び出しごとに作る隣の一時ファイル（`.<名前>.XXXXXX`。WordPress は読み込まない。同時に走った別の呼び出しと混ざらない）に書き、目印と `php -l` を確かめてから `mv` で置く（`install` も同じ。`pro-lock`・`uninstall` は残った目印つきの一時ファイルも消す）。
+  mu-plugin を置かずに記録そのものを書く方法（`npx wp-env run cli wp option update cbjp_pro_license_state '{"activated":"yes","activated_at":0,"product_id":0}' --format=json`。
+  撤去は `wp option delete cbjp_pro_license_state`。R3-8a の確認で有効化していた開発サイトなら元の値を控えてから書き換え、撤去で戻す）は `rehearse-colorme` が使っている。制限の表示そのものを確かめるときはどちらもしない
 - **「見失った run」（run_id がブラウザに届かなかった run）を再現するには**、`JobRepository::create()` でジョブを直接作り、`update_status()`/`mark_failed()` で running・paused・失敗で停止（先頭 failed＋兄弟 pending）にする。Action Scheduler の action を作らないので run は動かず、画面を開いても進まない（`JobManager::start_run()` だと管理画面を開いた時点で async runner が処理してしまう）。撤去は `cbjp_jobs` の該当 platform の行を消す（R3-0i）。
 - **画面で run の途中の状態（Running・失敗の説明・Retry）を見るときは、キューを止める一時の mu-plugin を置いてから画面で run を始める**（R3-9）。
   `add_filter( 'action_scheduler_allow_async_request_runner', '__return_false' )` と `add_filter( 'action_scheduler_queue_runner_concurrent_batches', static fn () => 0 )`
@@ -126,11 +136,14 @@ description: >
 - 実 platform の既存行を消す/上書きする。撤去は自分が投入した ID・`ZZV-` の remote_id だけを対象にする。
 - WooCommerce の HPOS 設定を切り替えない（同期外れの受注があると WC が拒否する。開発サイトの共有設定を変えない）。
 - 他のセッション由来の mu-plugin（例: `cbjp-e2-3-customer`）を消さない。
+- `pro-unlock` で置いた mu-plugin（Pro をキー無しで動かす）を社内のテストサイト以外に置かない。テンプレートをプラグインの配布物（`plugins/*/`）に入れない。
 
 ## ファイル
 
-- `scripts/mock-adapter.sh` — `inspect` / `install <key>` / `run <php>` / `uninstall`（wp-env のパスは `npx wp-env install-path`）
+- `scripts/mock-adapter.sh` — `inspect` / `install <key>` / `run <php>` / `uninstall` / `pro-unlock` / `pro-lock`（wp-env のパスは `npx wp-env install-path`）
 - `templates/mu-plugin-mock-adapter.php` — mock アダプタを登録する mu-plugin（キーと seed オプション名を置換して使う）
+- `templates/mu-plugin-pro-unlock.php` — Pro のキーの有効化の記録を `pre_option_cbjp_pro_license_state` で「有効化済み」に差し替え、キー（`cbjp_pro_license_key`）は空と読ませて保存も止める mu-plugin
+  （社内テスト用。`pro-unlock` が置き、`pro-lock` が消す。production の環境種別では何もしない。DB に書かず、Pro のコードも変えない。「落とし穴」の Pro の有効化の項を参照）
 - `examples/push-intent-resolution/` — export の作成結果が不明（5xx）→ 印（push intent）が残る → 再 export はブロック → `not_created` 解除 → 再 export で作成、
   と `link` の失敗系（404。R3-11 で、接続先は返したが読めない項目の 422〔seed の `fetch_by_id_failure: 'unreadable'` を一時的に書く〕と、登録の無い種類の印〔一覧に出ず、
   link・not_created とも 409〕を足した）を `rest_do_request()` で通す検証（issue #73 / D21-B。R3-1 の「R3-0a/b の確認をモックで」にも使う）。`verify-rest.php`
