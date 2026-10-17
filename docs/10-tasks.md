@@ -786,7 +786,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
     🟡 翻訳ファイルの同梱は不要 → 無料版の配布 zip から `languages/` とヘッダーの `Domain Path` を外し、`.mo`・`.l10n.php`・JSON はリポジトリからも消した（POT と `ja.po` は translate.wordpress.org へ取り込む元として残す。ユーザー決定）。
     ガイドライン 11（通知の節度）の確認 → 前提条件の通知 3 つを「プラグイン」画面と Cart Bridge JP の画面だけに出すようにした（ユーザー決定。`docs/03` §7「前提条件の通知」）。~~版は 1.0.0 のまま（未公開の申請の差し替え）。~~
     ~~マージの後、`bin/build-zip.sh` の `dist/cart-bridge-jp-1.0.0.zip` を「Add your plugin」のページから上げ直し、同じメールのスレッドに短く返信する~~ → 1.0.0 では上げ直さず、1.0.1 に上げてから上げ直す（次の「1.0.1」）
-    **1.0.1（2026-10-17、ブランチ `release/1.0.1`）**: 審査対応（PR #145）を入れた版を 1.0.1 として出すことにした（ユーザー決定。1.0.0 は wordpress.org にも GitHub Release にも出さない）。プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag` を 1.0.1 にし、changelog に 1.0.1 の節（訳を同梱しない・前提条件の通知の画面）を足した。
+    **1.0.1（2026-10-17、ブランチ `release/1.0.1`。PR #146 でマージ）**: 審査対応（PR #145）を入れた版を 1.0.1 として出すことにした（ユーザー決定。1.0.0 は wordpress.org にも GitHub Release にも出さない）。プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag` を 1.0.1 にし、changelog に 1.0.1 の節（訳を同梱しない・前提条件の通知の画面）を足した。
     0.1.0 のサイトは 1.0.0 を経ずに 1.0.1 へ更新し、wordpress.org は更新先の版の通知しか出さないので、Upgrade Notice に 1.0.0 の注意を引き継ぐ 1.0.1 の文を足した。マージの後は `bin/build-zip.sh` の `dist/cart-bridge-jp-1.0.1.zip` を上げ直し、承認後のタグは `v1.0.1`
 - [x] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル。UI を足したら readme の FAQ「What happens to my data when I uninstall the plugin?」も改める）。
   **進め方（2026-10-11）**: アンインストールの UI は無料版だけで閉じ、R3-8 に依存しないので先に進めてよい。セキュリティ監査は R3-8 の後（R3-4 の前）に回し、無料版と Pro をまとめて対象にする（R3-8a・c のライセンスキーの保存・API Manager との通信・更新の配信が新しく攻撃面になるため）。→ R3-5a と R3-5b に分けた
