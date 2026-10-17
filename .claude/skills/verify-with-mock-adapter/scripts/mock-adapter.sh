@@ -52,8 +52,13 @@ wp() {
 
 # `wp eval-file` に渡す一時の PHP をリポジトリのルートに作る（コンテナからは wp-content/cbjp-dev に見える）: eval_tmp <名前>。
 # 名前は呼び出しごとに mktemp で作る（固定の名前だと、同時に走った別の呼び出しが書きかけのファイルを実行し、相手の `rm` で消される。PR #143 Codex）。
+# mktemp は 0600 で作るので 644 にする（wp-env の cli はホストの uid で動くが、rootless Docker・userns-remap ではコンテナの uid が
+# ホストの別の uid に写り、0600 だと `wp eval-file` が読めない。PR #143 Codex）。
 eval_tmp() {
-  mktemp "./.tmp-verify-$1.XXXXXX"
+  local f
+  f=$(mktemp "./.tmp-verify-$1.XXXXXX") || return 1
+  chmod 644 "$f" || { rm -f "$f"; return 1; }
+  printf '%s\n' "$f"
 }
 # mu-plugin を置く途中の一時ファイルの名前の頭（置き先と同じディレクトリの `.<置き先の名前>.`。拡張子が .php でないので WordPress は読み込まない）。
 # 名前の残りは呼び出しごとに mktemp で作る（固定の名前だと、同時に走った別の呼び出しの書いた中身を検査して置き、残しておいた目印の無い
@@ -109,7 +114,7 @@ cmd=${1:-}
 case "$cmd" in
   inspect)
     tmp=$(eval_tmp inspect) || exit 1
-    cat > "$tmp" <<'PHP'
+    cat > "$tmp" <<'PHP' || { rm -f "$tmp"; echo "could not write $tmp" >&2; exit 1; }
 <?php
 global $wpdb;
 $t = $wpdb->prefix . 'cbjp_mappings';
@@ -149,11 +154,11 @@ PHP
     # mu-plugin を置く。DB には書かない（詳細は templates/mu-plugin-pro-unlock.php の冒頭）。置いた後に、差し替えが実際に効いているかを
     # 肯定形で確かめる: 環境種別が production でない・Pro が起動している・差し替えのフィルターが登録された・Pro が「有効化済み」と読み、
     # キーを読めない。どれかが欠ければ失敗で終わる（ファイルは残す: 環境を直せばそのまま効く。外すときは pro-lock）。
+    # 確かめる PHP は mu-plugin を置く前に作る（作れなければ何も置かずに終わる）。置いた後の失敗は、mu-plugin が残っていることを必ず知らせる。
     dir=$(mu_dir) || exit 1
     mkdir -p "$dir"
-    install_mu "$dir/$UNLOCK_FILE_NAME" "$UNLOCK_MARKER" cat "$UNLOCK_TEMPLATE" || exit 1
     tmp=$(eval_tmp pro-unlock) || exit 1
-    cat > "$tmp" <<'PHP'
+    cat > "$tmp" <<'PHP' || { rm -f "$tmp"; echo "could not write $tmp" >&2; exit 1; }
 <?php
 $env    = wp_get_environment_type();
 // Pro が無効なら autoload が無いので class_exists() は偽。有効でも前提（WooCommerce・無料版の版）が欠ければ起動しない。
@@ -170,10 +175,14 @@ echo 'pro activated: ' . ( $active ? 'yes' : 'no' ) . "\n";
 echo 'license key hidden: ' . ( $hidden ? 'yes' : 'no' ) . "\n";
 echo 'unlock effective: ' . ( 'production' !== $env && $booted && $filter && $active && $hidden ? 'yes' : 'no' ) . "\n";
 PHP
+    install_mu "$dir/$UNLOCK_FILE_NAME" "$UNLOCK_MARKER" cat "$UNLOCK_TEMPLATE" || { rm -f "$tmp"; exit 1; }
     if out=$(wp eval-file "$tmp"); then rc=0; else rc=$?; fi
     rm -f "$tmp"
     printf '%s\n' "$out"
-    [ "$rc" -eq 0 ] || exit "$rc"
+    if [ "$rc" -ne 0 ]; then
+      echo "installed but could not check whether the unlock is effective (wp eval-file failed). The mu-plugin is still installed; remove it with: mock-adapter.sh pro-lock" >&2
+      exit "$rc"
+    fi
     if printf '%s\n' "$out" | grep -qx 'unlock effective: yes'; then
       echo "Pro now treats this site as activated without a key (customers/orders/coupons and password emails run). Remove with: mock-adapter.sh pro-lock"
     else

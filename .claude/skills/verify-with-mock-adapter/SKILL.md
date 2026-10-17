@@ -90,7 +90,7 @@ description: >
   DB には書かないので、`pro-lock` でファイルを消せば即座に戻る。`wp_get_environment_type()` が `production` のサイトでは何もしない（wp-env は `local`）。
   **キーの読み出し（`cbjp_pro_license_key`）も空にし、保存も止める**: 差し替えで `is_activated()` が真になると、`UpdateChecker` は読めるキーがあればそれを販売サイトへ送る。前に有効化した・保存の途中で失敗したサイトは
   DB にキーが残りうるので、読ませない（PR #143 Copilot）。DB の値は消さない。置いた後に `wp eval-file` で、production でない・Pro が起動している（`Core\Plugin::instance()->is_booted()`）・差し替えのフィルターが登録された・
-  「有効化済み」と読み、キーを読めない、のすべてを確かめ、どれかが欠ければ非ゼロで終わる（ファイルは残す）。効いている間は管理画面に通知を出す。**副作用**: Pro の設定画面は「保存したキーを読めない」の表示と
+  「有効化済み」と読み、キーを読めない、のすべてを確かめ、どれかが欠ければ非ゼロで終わる（ファイルは残す。`wp eval-file` 自体が失敗して確かめられないときも、残ったことを知らせて非ゼロ）。効いている間は管理画面に通知を出す。**副作用**: Pro の設定画面は「保存したキーを読めない」の表示と
   「Save license key」の欄になるが、保存は失敗する。更新の確認は外へ出ない。mu-plugin は呼び出しごとに作る隣の一時ファイル（`.<名前>.XXXXXX`。WordPress は読み込まない。同時に走った別の呼び出しと混ざらない）に書き、目印と `php -l` を確かめてから `mv` で置く（`install` も同じ。`pro-lock`・`uninstall` は残った目印つきの一時ファイルも消す）。
   mu-plugin を置かずに記録そのものを書く方法（`npx wp-env run cli wp option update cbjp_pro_license_state '{"activated":"yes","activated_at":0,"product_id":0}' --format=json`。
   撤去は `wp option delete cbjp_pro_license_state`。R3-8a の確認で有効化していた開発サイトなら元の値を控えてから書き換え、撤去で戻す）は `rehearse-colorme` が使っている。制限の表示そのものを確かめるときはどちらもしない
