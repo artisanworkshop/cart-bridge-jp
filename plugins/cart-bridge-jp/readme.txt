@@ -136,11 +136,12 @@ To delete the plugin's own data as well, turn on “Delete this plugin’s data 
 == Changelog ==
 
 = 1.0.1 =
-* Translations are no longer bundled with the plugin; WordPress installs them from translate.wordpress.org as language packs. Until a Japanese language pack is available, the plugin's screens are shown in English on Japanese sites.
+* First release on WordPress.org. It includes the changes listed under 1.0.0, which was not published.
+* Translations are not bundled with the plugin; WordPress installs them from translate.wordpress.org as language packs. Until a Japanese language pack is available, the plugin's screens are shown in English on Japanese sites.
 * The notices shown when a requirement is missing (WooCommerce is not active, the PHP sodium extension is missing, or the plugin cannot load its dependencies) now appear only on the Plugins screen and the Cart Bridge JP screen, instead of on every admin screen.
 
 = 1.0.0 =
-* First release on WordPress.org: import categories, groups, products, and stock from Color Me Shop, and export products and stock to Color Me Shop. Product image upload is Beta.
+* Import categories, groups, products, and stock from Color Me Shop, and export products and stock to Color Me Shop. Product image upload is Beta.
 * If you used 0.1.0 from GitHub: the import is no longer limited to a sample. It now includes every item, as the dry run already did.
 * If you used 0.1.0 from GitHub: this plugin no longer migrates customers, orders, or coupons. They are migrated by the separate add-on Cart Bridge JP Pro. The customers, orders, and coupons that 0.1.0 imported stay in WooCommerce, and this plugin does not change them.
 * If you used 0.1.0 from GitHub: customers and orders that 0.1.0 imported may have the wrong prefecture. For addresses in 23 of the 47 prefectures, 0.1.0 saved a different prefecture (for example, Miyagi for an address in Akita). Importing them again may not correct it, so check the prefecture (state) of those customers' addresses and of those orders' billing and shipping addresses, and correct it by hand.
