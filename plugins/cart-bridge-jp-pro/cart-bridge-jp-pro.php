@@ -59,7 +59,7 @@ add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_pro_load_textdomain' );
 
 /**
  * 同梱の翻訳（languages/。R3-8d）のパスを登録する。WooCommerce・無料版を確かめる `cbjp_pro_bootstrap()` とは別に行う
- * （前提が欠けた・無料版が古いときの通知も訳すため。無料版の `cbjp_load_textdomain()` と同じ。Pro は wordpress.org の言語パックの対象外）。
+ * （前提が欠けた・無料版が古いときの通知も訳すため。Pro は wordpress.org の言語パックの対象外。無料版は issue #144 から訳を同梱せず、言語パックだけを読む）。
  */
 function cbjp_pro_load_textdomain(): void {
 	load_plugin_textdomain( 'cart-bridge-jp-pro', false, dirname( plugin_basename( CBJP_PRO_FILE ) ) . '/languages' );

@@ -792,7 +792,7 @@ wordpress.org で配るプラグインの訳は translate.wordpress.org の言�
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
 - **前提条件の通知**（WooCommerce が無い・オートロードが無い〔開発環境〕・PHP の sodium 拡張が無い）は、`activate_plugins` の権限のある利用者に、「プラグイン」画面（`plugins`）と
-  Cart Bridge JP の画面（画面 ID が `_page_cart-bridge-jp` で終わる。`Admin\Assets::enqueue()` と同じ判定）でだけ出す（ガイドライン 11「通知は範囲を絞り節度を持って」。wordpress.org の
+  Cart Bridge JP の画面（画面 ID が `_page_cart-bridge-jp` で終わる。`Admin\Assets::enqueue()` と同じ判定。WooCommerce・オートロードが無いときは `Plugin::boot()` が走らず画面が登録されないので、その 2 つは実際には「プラグイン」画面だけ）でだけ出す（ガイドライン 11「通知は範囲を絞り節度を持って」。wordpress.org の
   初回レビューの確認事項。issue #144・2026-10-17 ユーザー決定。以前は全管理画面）。判定はオートロードが無くても使えるようメインファイルの `cbjp_is_requirement_notice_screen()` に置く。
   どれも条件が解消すれば消え、対処の方法を書く。`RequirementNoticesTest` が 3 つの通知の画面と権限を確かめる。Pro の通知（wordpress.org で配らない）は全管理画面のまま
 - アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:
