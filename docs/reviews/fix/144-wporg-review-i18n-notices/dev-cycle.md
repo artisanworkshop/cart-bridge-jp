@@ -3,8 +3,8 @@
 - タスク: issue #144 — wordpress.org の初回レビュー（2026-10-16）への対応: `load_plugin_textdomain()` を外す、配布物に翻訳を同梱しない、前提条件の通知を「プラグイン」画面と自画面に絞る（ガイドライン 11）
 - 開始: 2026-10-17
 - PR: #145 https://github.com/artisanworkshop/cart-bridge-jp/pull/145
-- 現在のステップ: 7（G3 の Copilot 待ち）
-- Copilot: 依頼 2 回 / 未収束（G2 で本文の新規 3 件。修正 1・対応不要 1・重複 1）
+- 現在のステップ: 7〜8（G3 の修正の CI 待ち → 最終報告）
+- Copilot: 依頼 3 回 / 上限（G3 で本文の新規 2 件。修正 2。4 回目は依頼しない）
 - Codex: 依頼 1 回 / 収束（G1 で Didn't find any major issues）
 
 ## ログ
@@ -18,3 +18,4 @@
 | 2026-10-17 10:25 | 4〜5 | 初回 push（T=2026-10-17T01:24:58Z）→ PR #145 → CI green → Copilot 依頼（timeline で登録確認。PR 作成時にも自動で登録されていた）。Codex は自動レビューが 5 分で来ず `--codex-nudge` が依頼 |
 | 2026-10-17 11:16 | 7 | G1: Codex は Didn't find any major issues（収束）。Copilot は 🔵 の本文 2 件（インライン 0）: G1-B1（テストの網羅 = R1-L3）を修正（`2b5f616`。`Assets::set_script_translations()` に切り出し、言語パックの JSON を探すことをテストで固定。変異 3 件を検出）、G1-B2（ネットワーク管理画面の `plugins-network`。`admin_notices` が発火しない・main から同じ）は保留して backlog。確認ゲートで承認。quality green（無料版 PHPUnit 1411 件） |
 | 2026-10-17 11:58 | 7 | G2（Copilot 2 回目、T=2026-10-17T02:22:18Z）: 🔵 の本文の一文に 3 件。G2-B1（生成物の片付け。`.mo` は削除済みで Copilot がバイナリを読めない誤検知）は対応不要、G2-B2（PHP の言語パックのテスト）を修正（`2eed0c2`。本体のフィルターで言語パックを模擬し `WP_LANG_DIR` に書かない）、G2-B3（通知の画面。G1-B2 の再掲）は保留のまま。確認ゲートで承認。quality green（無料版 PHPUnit 1412 件） |
+| 2026-10-17 12:38 | 7 | G3（Copilot 3 回目・最後、T=2026-10-17T03:03:40Z）: 🔵 の本文の一文に 2 件（`enqueue()` のテスト・JS の訳の出力のテスト）を修正（`4dc6bdb`。`Assets` のコンストラクタが資産の一覧のパスを受け、一時ファイルで `enqueue()` を通す。JSON を一時ファイルへ差し替えて出力まで確かめる。変異 4 件を検出、dev サイトで既定の読み込みを確認）。確認ゲートで承認。quality green（無料版 PHPUnit 1413 件）。再依頼はしない |
