@@ -3,14 +3,15 @@
 #
 #   bin/i18n.sh pot      POT を作り直す（先に npm run build。npm run i18n:pot はビルドしてから呼ぶ）
 #   bin/i18n.sh po       日本語の PO を POT に合わせる（無ければヘッダだけの PO を作ってから合わせる）。足された文字列は訳が空になる
-#   bin/i18n.sh compile  PO から .mo・.l10n.php・JSON（無料版の管理画面の JS 用）を作り直す
+#   bin/i18n.sh compile  PO から .mo・.l10n.php を作り直す（Pro だけ。無料版は翻訳を同梱しないので何もしない）
 #   bin/i18n.sh check    ビルド済みのソースから POT を作り直し、コミット済みの POT と文字列が同じか確かめる（CI。npm run i18n:check はビルドしてから呼ぶ）
 #
 #   --plugin cart-bridge-jp|cart-bridge-jp-pro を付けると片方だけ。付けなければ無料版 → Pro の順に両方（npm の i18n:* は両方）。
 #
 # 無料版の JS の文字列は src/*.tsx ではなく build/index.js から抜く（WP-CLI の make-pot は TypeScript を読まない）。参照が build/index.js になるので、
-# make-json の JSON 名（cart-bridge-jp-ja-<md5("build/index.js")>.json）が wp_set_script_translations() の探す名前と一致する。
-# Pro は JS を持たない（設定画面は PHP で描く）ので、build/index.js を要求せず、JSON も作らない。
+# translate.wordpress.org の言語パックの JSON 名（cart-bridge-jp-ja-<md5("build/index.js")>.json）が wp_set_script_translations() の探す名前と一致する。
+# 無料版は翻訳を同梱しない（言語パックで配られる。wordpress.org の審査の指摘。issue #144）。リポジトリの POT と ja.po は translate.wordpress.org へ
+# 取り込む元として保ち、.mo・.l10n.php・JSON は作らない。Pro は JS を持たない（設定画面は PHP で描く）ので、build/index.js を要求しない。
 set -euo pipefail
 # プラグインのディレクトリで作る（POT の参照パスが build/index.js・includes/… のままになり、JSON の名前も変わらない。D29 の配置）。
 # wp-env は呼び出したディレクトリから .wp-env.json を探すので、npx wp-env だけはリポジトリのルートから呼ぶ（wp_env）。
@@ -27,7 +28,7 @@ usage() {
 # プラグインごとの設定。DOMAIN はスラッグ・テキストドメイン・wp-env のマウント名を兼ねる。
 # EXCLUDE は抽出しないパス。無料版の src は build/index.js と二重になるうえ参照が JSON 名と食い違う。node_modules・vendor は make-pot が常に除外する。
 # POT_ARGS は make-pot に足す引数（コンテナの bash -c にそのまま入る）。Pro は wordpress.org に無いので、make-pot が既定で入れる wordpress.org の
-# サポートフォーラムの URL（Report-Msgid-Bugs-To）を空にする。
+# サポートフォーラムの URL（Report-Msgid-Bugs-To）を空にする。COMPILE は配布物に入れる .mo・.l10n.php を作るか（Pro だけ）。
 use_plugin() {
 	DOMAIN=$1
 	case "$DOMAIN" in
@@ -36,12 +37,14 @@ use_plugin() {
 			EXCLUDE='src,tests,languages'
 			POT_ARGS=''
 			HAS_JS=1
+			COMPILE=0
 			;;
 		cart-bridge-jp-pro)
 			PROJECT='Cart Bridge JP Pro'
 			EXCLUDE='tests,languages'
 			POT_ARGS="--headers='{\"Report-Msgid-Bugs-To\":\"\"}'"
 			HAS_JS=0
+			COMPILE=1
 			;;
 		*)
 			echo "i18n: unknown plugin: ${DOMAIN}" >&2
@@ -139,22 +142,19 @@ HEADER
 }
 
 cmd_compile() {
+	if [ "$COMPILE" != 1 ]; then
+		echo "i18n: ${DOMAIN}: 翻訳を同梱しないので作りません（translate.wordpress.org の言語パック。issue #144）"
+		return 0
+	fi
+
 	if [ ! -f "$PO" ]; then
 		echo "i18n: ${DOMAIN}: ${PO} がありません" >&2
 		exit 1
 	fi
 
-	# 消えたソースの JSON が残らないよう、作り直す前に消す（JS の無い Pro では、置き忘れた JSON を消すだけ）。
-	rm -f "languages/${DOMAIN}-${LOCALE}"-*.json
 	wpcli i18n make-mo "$PO" languages >/dev/null
 	wpcli i18n make-php "$PO" languages >/dev/null
-	if [ "$HAS_JS" = 1 ]; then
-		# --no-purge: 既定の --purge は PO から JS の文字列を消してしまう。
-		wpcli i18n make-json "$PO" languages --no-purge --pretty-print >/dev/null
-		echo "i18n: ${DOMAIN}: .mo・.l10n.php・JSON を作り直しました"
-	else
-		echo "i18n: ${DOMAIN}: .mo・.l10n.php を作り直しました"
-	fi
+	echo "i18n: ${DOMAIN}: .mo・.l10n.php を作り直しました"
 }
 
 cmd_check() {

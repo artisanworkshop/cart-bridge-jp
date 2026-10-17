@@ -13,6 +13,10 @@ phpunit.xml.dist
 # the WordPress.org Plugin Check warns (missing_composer_json_file) when vendor/ ships without it.
 composer.lock
 
+# Translations are not bundled: WordPress.org delivers them as language packs from translate.wordpress.org (issue #144).
+# languages/ keeps the POT and the Japanese PO in the repository as the source to import there.
+languages/
+
 # WordPress.org directory assets (screenshots, banners, icons) go to the SVN assets/ directory, not the plugin zip
 .wordpress-org/
 

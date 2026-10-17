@@ -37,8 +37,10 @@ final class Assets {
 			true
 		);
 
+		// 訳は translate.wordpress.org の言語パック（`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）から読む。
+		// プラグインの中に訳を同梱しないのでパスは渡さない（issue #144・`docs/03` §6「翻訳（R3-2）」）。
 		if ( function_exists( 'wp_set_script_translations' ) ) {
-			wp_set_script_translations( self::HANDLE, 'cart-bridge-jp', CBJP_PATH . 'languages' );
+			wp_set_script_translations( self::HANDLE, 'cart-bridge-jp' );
 		}
 
 		// wp-scriptsのビルドはJSエントリー「index」に対応するCSSを

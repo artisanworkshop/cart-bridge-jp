@@ -11,10 +11,11 @@
 #    backlog r3-7-monorepo/R1-L2〕）
 #
 # 検査（どれかが外れたら zip を作らず非ゼロで終わる）:
-# - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・composer.json・includes/・build/・languages/・vendor/、
-#   Pro: 本体・includes/・languages/・vendor/）。無料版は vendor/ の autoloader を同梱するので composer.json も同梱する（無ければ wordpress.org の
-#   Plugin Check が missing_composer_json_file を警告する。R3-4a）。Pro は wordpress.org で配らないので除いたまま
-# - includes/・languages/ は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
+# - 最上位は許可したものだけで、すべてそろっている（無料版: 本体・uninstall.php・readme.txt・composer.json・includes/・build/・vendor/、
+#   Pro: 本体・includes/・languages/・templates/・vendor/）。無料版は vendor/ の autoloader を同梱するので composer.json も同梱する（無ければ wordpress.org の
+#   Plugin Check が missing_composer_json_file を警告する。R3-4a）。Pro は wordpress.org で配らないので除いたまま。無料版は翻訳を同梱しない
+#   （translate.wordpress.org の言語パックで配られる。wordpress.org の審査の指摘。issue #144）ので languages/ を許さない
+# - includes/（Pro は languages/・templates/ も）は git が追跡しているファイルとちょうど同じ（作業ツリーの置き忘れを載せない）
 # - vendor/ は autoload だけで、テストの autoload を含まない（--no-dev が効いている）。無料版は build/ に管理画面の JS とその依存の一覧がある
 # - 無料版: Pro アドオンのコード上の識別子（名前空間・定数・関数とフックの接頭辞・テキストドメイン）が PHP・JS に無い（Pro のコードを無料版に載せない。D29）
 # - Pro: bin/check-pro-zip.php が、無料版の名前空間（CartBridgeJP\ で Pro\ でないもの）を宣言する PHP が無いこと（無料版のコードを Pro に同梱しない。
@@ -60,8 +61,8 @@ done
 # プラグインごとの違い: JS のビルド・許可する最上位・追跡と一致させるディレクトリ・必ずあるファイル。
 case "$SLUG" in
 	cart-bridge-jp)
-		allowed='build cart-bridge-jp.php composer.json includes languages readme.txt uninstall.php vendor'
-		tracked_dirs='includes languages'
+		allowed='build cart-bridge-jp.php composer.json includes readme.txt uninstall.php vendor'
+		tracked_dirs='includes'
 		required_files='build/index.js build/index.asset.php vendor/autoload.php'
 		;;
 	cart-bridge-jp-pro)
@@ -119,7 +120,7 @@ problem() {
 actual=$(cd "$FINAL" && ls -A | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$actual" = "$allowed" ] || problem "top-level entries are '${actual}', expected '${allowed}'"
 
-# includes/・languages/ は追跡しているファイルと同じ。
+# includes/（Pro は languages/・templates/ も）は追跡しているファイルと同じ。
 for dir in $tracked_dirs; do
 	expected=$(git ls-files "${SRC}/${dir}" | sed "s#^${SRC}/##" | sort)
 	shipped=$(cd "$FINAL" && find "$dir" -type f | sort)
