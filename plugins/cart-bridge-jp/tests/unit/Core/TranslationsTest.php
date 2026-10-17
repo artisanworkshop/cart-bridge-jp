@@ -42,8 +42,22 @@ final class TranslationsTest extends WP_UnitTestCase {
 	 */
 	private string $pack_file = '';
 
+	/**
+	 * テストで作ったほかの一時ファイル。
+	 *
+	 * @var array<int,string>
+	 */
+	private array $temp_files = [];
+
 	public function tear_down(): void {
+		wp_dequeue_script( 'cart-bridge-jp-admin' );
 		wp_deregister_script( 'cart-bridge-jp-admin' );
+		wp_dequeue_style( 'cart-bridge-jp-admin' );
+		wp_deregister_style( 'cart-bridge-jp-admin' );
+
+		foreach ( $this->temp_files as $file ) {
+			wp_delete_file( $file );
+		}
 
 		if ( null !== $this->registry ) {
 			$GLOBALS['wp_textdomain_registry'] = $this->registry; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- テストで差し替えた登録を戻す。
@@ -185,7 +199,8 @@ final class TranslationsTest extends WP_UnitTestCase {
 
 	/**
 	 * 管理画面の JS の訳はテキストドメインだけで登録し（パスなし）、言語パックの JSON
-	 * （`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）を探す（issue #144）。
+	 * （`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）の訳を出力する（issue #144・PR #145 G3）。
+	 * 言語パックは `load_script_translation_file` で一時ファイルへ差し替える（`WP_LANG_DIR` には書かない）。
 	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
 	 */
 	public function test_admin_script_translations_are_read_from_the_language_pack(): void {
@@ -196,20 +211,25 @@ final class TranslationsTest extends WP_UnitTestCase {
 		$this->assertSame( 'cart-bridge-jp', $script->textdomain );
 		$this->assertSame( '', $script->translations_path );
 
-		add_filter( 'locale', static fn (): string => 'ja', 1 );
-		$searched = [];
-		add_filter(
-			'load_script_translation_file',
-			static function ( $file ) use ( &$searched ) {
-				$searched[] = $file;
+		$this->assert_translated_script_output();
+	}
 
-				return $file;
-			}
-		);
+	/**
+	 * 管理画面のページで `enqueue()` が訳を登録する（`build/index.asset.php` の代わりに一時の資産の一覧を渡す。PR #145 G3）。
+	 */
+	public function test_admin_page_enqueue_registers_the_script_translations(): void {
+		$asset_file         = get_temp_dir() . 'cbjp-index-asset-' . wp_generate_uuid4() . '.php';
+		$this->temp_files[] = $asset_file;
+		$this->assertNotFalse( file_put_contents( $asset_file, "<?php return array( 'dependencies' => array(), 'version' => '1' );" ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
 
-		wp_scripts()->print_translations( 'cart-bridge-jp-admin', false );
+		( new Assets( $asset_file ) )->enqueue( 'woocommerce_page_cart-bridge-jp' );
 
-		$this->assertContains( WP_LANG_DIR . '/plugins/cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json', $searched );
+		$this->assertTrue( wp_script_is( 'cart-bridge-jp-admin', 'enqueued' ) );
+		$script = wp_scripts()->registered['cart-bridge-jp-admin'];
+		$this->assertSame( 'cart-bridge-jp', $script->textdomain );
+		$this->assertSame( '', $script->translations_path );
+
+		$this->assert_translated_script_output();
 	}
 
 	/**
@@ -292,6 +312,47 @@ final class TranslationsTest extends WP_UnitTestCase {
 		}
 
 		return 0;
+	}
+
+	/**
+	 * `ja` で登録済みのスクリプトの訳を出力し、言語パックの JSON（一時ファイルへ差し替える）の訳が入ることを確かめる。
+	 */
+	private function assert_translated_script_output(): void {
+		$expected = self::po()->entries['Save settings']->translations[0];
+		$this->assertNotSame( 'Save settings', $expected );
+
+		$pack               = WP_LANG_DIR . '/plugins/cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json';
+		$json_file          = get_temp_dir() . 'cbjp-language-pack-' . wp_generate_uuid4() . '.json';
+		$this->temp_files[] = $json_file;
+		$json               = (string) wp_json_encode(
+			[
+				'domain'      => 'messages',
+				'locale_data' => [
+					'messages' => [
+						''              => [ 'domain' => 'messages' ],
+						'Save settings' => [ $expected ],
+					],
+				],
+			],
+			JSON_UNESCAPED_UNICODE
+		);
+		$this->assertNotFalse( file_put_contents( $json_file, $json ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
+
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+		$searched = [];
+		add_filter(
+			'load_script_translation_file',
+			static function ( $file ) use ( &$searched, $pack, $json_file ) {
+				$searched[] = $file;
+
+				return $pack === $file ? $json_file : $file;
+			}
+		);
+
+		$output = (string) wp_scripts()->print_translations( 'cart-bridge-jp-admin', false );
+
+		$this->assertContains( $pack, $searched );
+		$this->assertStringContainsString( '"Save settings":["' . $expected . '"]', $output );
 	}
 
 	private function path( string $file ): string {

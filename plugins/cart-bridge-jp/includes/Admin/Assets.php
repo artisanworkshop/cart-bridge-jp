@@ -16,12 +16,25 @@ final class Assets {
 
 	private const HANDLE = 'cart-bridge-jp-admin';
 
+	/**
+	 * ビルドが書く資産の一覧（依存と版）のパス。
+	 */
+	private string $asset_file;
+
+	/**
+	 * @param string|null $asset_file 資産の一覧のパス（既定は `build/index.asset.php`）。CI の PHPUnit はビルドの前に走るので、
+	 *                                テストは一時ファイルを渡して `enqueue()` を通す（PR #145 G3）。
+	 */
+	public function __construct( ?string $asset_file = null ) {
+		$this->asset_file = $asset_file ?? CBJP_PATH . 'build/index.asset.php';
+	}
+
 	public function enqueue( string $hook_suffix ): void {
 		if ( ! str_ends_with( $hook_suffix, '_page_' . Menu::PAGE_SLUG ) ) {
 			return;
 		}
 
-		$asset_file = CBJP_PATH . 'build/index.asset.php';
+		$asset_file = $this->asset_file;
 
 		if ( ! file_exists( $asset_file ) ) {
 			return;
