@@ -65,7 +65,8 @@ final class RequirementNoticesTest extends WP_UnitTestCase {
 	 * @dataProvider provide_notices
 	 */
 	public function test_notice_is_not_shown_on_other_screens( string $notice ): void {
-		foreach ( [ 'dashboard', 'edit-post', 'woocommerce_page_wc-settings' ] as $screen ) {
+		// Pro の設定画面（`woocommerce_page_cart-bridge-jp-pro`）は、ID の頭が同じでも無料版の画面ではない。
+		foreach ( [ 'dashboard', 'edit-post', 'woocommerce_page_wc-settings', 'woocommerce_page_cart-bridge-jp-pro' ] as $screen ) {
 			set_current_screen( $screen );
 			$this->assertSame( '', $this->render( $notice ), $screen );
 		}
@@ -88,6 +89,17 @@ final class RequirementNoticesTest extends WP_UnitTestCase {
 		set_current_screen( 'plugins' );
 
 		$this->assertSame( '', $this->capture( static fn () => Plugin::instance()->render_sodium_notice( true ) ) );
+	}
+
+	/**
+	 * `admin_notices` に登録した入口は、拡張の有無を `extension_loaded( 'sodium' )` で渡す（テストの環境には sodium がある）。
+	 */
+	public function test_registered_sodium_notice_is_not_shown_where_the_extension_is_loaded(): void {
+		$this->assertTrue( extension_loaded( 'sodium' ), 'テストの環境には sodium 拡張がある前提' );
+		$this->assertNotFalse( has_action( 'admin_notices', [ Plugin::instance(), 'render_missing_sodium_notice' ] ) );
+		set_current_screen( 'plugins' );
+
+		$this->assertSame( '', $this->capture( static fn () => Plugin::instance()->render_missing_sodium_notice() ) );
 	}
 
 	private function render( string $notice ): string {
