@@ -1,22 +1,24 @@
 <?php
 /**
- * wordpress.org 用スクリーンショットの準備。wp-env の tests サイトだけで、`capture.sh` が `wp eval-file` で実行する。
+ * wordpress.org 用スクリーンショットの準備（共有スキル wporg-screenshots の setup フック）。wp-env の tests サイトだけで、
+ * スキルの `capture.sh` が tests サイトの mu-plugins の下へ写して `wp eval-file` で実行する。設定は同じディレクトリの `shots.json`。
  *
- * 引数: <tests サイトの home_url> <dry-run するエンティティ（カンマ区切り）>
+ * 引数: <tests サイトの home_url> <dry-run するエンティティ（カンマ区切り。`shots.json` の `setup_args`）>
  *
  * 1. 前提を肯定形で確かめる: home_url が引数と一致する（＝ tests サイト）／撮影用 mu-plugin が読み込まれている（＝ Color Me Shop API へは
  *    出ていかずフィクスチャが返る）／`colorme` が実 `ColorMeAdapter` で登録されている／Pro アドオンが読み込まれておらず、登録された実体の
- *    種類が無料版のものだけ（readme の画面は無料版だけ。`capture.sh` が Pro を無効にする。R3-6d）／ユーザー 1 が `manage_woocommerce` を持つ／
+ *    種類が無料版のものだけ（readme の画面は無料版だけ。`shots.json` の `deactivate` で Pro を無効にする。R3-6d）／ユーザー 1 が `manage_woocommerce` を持つ／
  *    `colorme` のトークンが無いか、このスキルの偽のトークンである（別のトークンなら何も変えずに止まる。上書きすると元の接続が失われる）。
- * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す、
- *    ユーザー 1 の言語を英語にする（`wait_for` は英語の文言）。
+ * 2. サイトを撮影向けにする: サイト名 `Example Store`、通貨 JPY、ストアの国 JP:JP13、オンボーディングとストアの「近日公開」を外す
+ *    （ユーザー 1 の言語は `capture.sh` が `shots.json` の `locale`〔既定 en_US〕で先に英語にする。`wait_for` は英語の文言）。
  * 3. 偽のトークンで `colorme` に接続した状態にする（`TokenStore`。tests サイトだけ）。
  * 4. Mappings タブに出す対応を、REST の候補一覧から作って保存する（フィクスチャの ID は書き写さない）。無料版のマッピングはカテゴリだけで、
  *    Woo のカテゴリ `Apparel`・`Accessories` を作って Color Me Shop の先頭 2 つに対応させる（決済・配送・注文ステータスは Pro の節。R3-6d）。
  * 5. 開いたままの `colorme` の run（前回の撮影が途中で止まったもの）をキャンセルしてから dry-run を始め、Action Scheduler の
  *    ジョブをここで処理し（規約は `.claude/rules/skill-scripts.md`）、すべてのジョブが完了したことを確かめる。途中で止まるときは
  *    自分の run をキャンセルしてから終わる（開いた run が残ると、次の撮影と、同じ DB を使う PHPUnit の一部が 409 になる）。
- * 6. 最後に `RUN_ID=<run_id>` と `COOKIES=<JSON>`（ユーザー 1 のログイン Cookie。1 時間で切れる）を出力する。
+ * 6. 最後に `RUN_ID=<run_id>` を出力する（`capture.sh` が `shots.json` の `{RUN_ID}`〔Import タブが開く run の localStorage〕に入れる。
+ *    ログイン Cookie は `capture.sh` が作る）。
  *
  * 何度実行してもよい（カテゴリは名前で再利用し、マッピングは丸ごと置き換え、dry-run は毎回新しく始める）。
  * PHPUnit は tests サイトと同じ DB・同じ接頭辞を使い、起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけ。
@@ -75,7 +77,7 @@ if ( ! AdapterRegistry::get( 'colorme' ) instanceof ColorMeAdapter ) {
 // 種類の一覧が無料版の種類に収まることも確かめる（Pro 以外の拡張が種類を足していても、無料版の画面ではなくなる）。
 $cbjp_shot_free_types = [ 'category', 'tag', 'product', 'stock', 'review' ];
 if ( defined( 'CBJP_PRO_VERSION' ) ) {
-	$cbjp_shot_fail( 'the Pro add-on is loaded. The screenshots show the free plugin alone (capture.sh deactivates cart-bridge-jp-pro).' );
+	$cbjp_shot_fail( 'the Pro add-on is loaded. The screenshots show the free plugin alone (shots.json deactivates cart-bridge-jp-pro).' );
 }
 if ( [] !== array_diff( EntityTypeRegistry::keys(), $cbjp_shot_free_types ) ) {
 	$cbjp_shot_fail( 'entity types other than the free plugin\'s are registered: ' . implode( ', ', array_diff( EntityTypeRegistry::keys(), $cbjp_shot_free_types ) ) . '.' );
@@ -119,8 +121,6 @@ update_option( 'woocommerce_default_country', 'JP:JP13' );
 update_option( 'woocommerce_onboarding_profile', [ 'skipped' => true ] );
 update_option( 'woocommerce_coming_soon', 'no' );
 update_option( 'woocommerce_store_pages_only', 'no' );
-// 管理画面の言語はユーザー 1 の設定で決まる（ブラウザの言語ではない）。`wait_for` は英語なので英語に固定する（PR #112 G2-B1）。
-update_user_meta( 1, 'locale', 'en_US' );
 
 // 3. 偽のトークンで接続した状態にする。
 ( new TokenStore( 'colorme' ) )->save(
@@ -284,26 +284,11 @@ foreach ( $cbjp_shot_jobs as $cbjp_shot_job ) {
 $cbjp_shot_job_entities = array_map( static fn( array $job ): string => (string) ( $job['entity'] ?? '' ), $cbjp_shot_jobs );
 $cbjp_shot_missing      = array_diff( $cbjp_shot_entities, $cbjp_shot_job_entities );
 if ( [] !== $cbjp_shot_missing ) {
-	$cbjp_shot_fail( 'no job was created for: ' . implode( ', ', $cbjp_shot_missing ) . ' (requested: ' . implode( ', ', $cbjp_shot_entities ) . '). Check dry_run_entities in shots.json.' );
+	$cbjp_shot_fail( 'no job was created for: ' . implode( ', ', $cbjp_shot_missing ) . ' (requested: ' . implode( ', ', $cbjp_shot_entities ) . '). Check setup_args in shots.json.' );
 }
 if ( [] !== $cbjp_shot_not_done || '' !== $cbjp_shot_stopped ) {
 	$cbjp_shot_fail( 'the dry run did not complete for every entity: ' . implode( ', ', $cbjp_shot_not_done ) . ( '' !== $cbjp_shot_stopped ? " ({$cbjp_shot_stopped})" : '' ) . '.' );
 }
 
 // 6. 撮影に使う値を出す。
-$cbjp_shot_expires = time() + HOUR_IN_SECONDS;
 echo "RUN_ID={$cbjp_shot_run_id}\n";
-echo 'COOKIES=' . wp_json_encode(
-	[
-		[
-			'name'  => AUTH_COOKIE,
-			'value' => wp_generate_auth_cookie( 1, $cbjp_shot_expires, 'auth' ),
-			'path'  => ADMIN_COOKIE_PATH,
-		],
-		[
-			'name'  => LOGGED_IN_COOKIE,
-			'value' => wp_generate_auth_cookie( 1, $cbjp_shot_expires, 'logged_in' ),
-			'path'  => COOKIEPATH,
-		],
-	]
-) . "\n";
