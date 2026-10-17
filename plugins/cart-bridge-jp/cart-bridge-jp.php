@@ -10,7 +10,6 @@
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: cart-bridge-jp
- * Domain Path: /languages
  *
  * WC requires at least: 10.0
  * WC tested up to: 11.2
@@ -51,21 +50,9 @@ add_action(
 
 register_activation_hook( CBJP_FILE, array( Core\Activator::class, 'activate' ) );
 
-add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_load_textdomain' );
+// 翻訳は同梱せず、translate.wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）を WordPress が必要なときに読む（`load_plugin_textdomain()` は
+// 呼ばない。wordpress.org の審査の指摘。issue #144・`docs/03` §6「翻訳（R3-2）」）。
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\cbjp_bootstrap' );
-
-/**
- * 同梱の翻訳（languages/）のパスを登録する。WooCommerce・オートロードの有無を確かめる前に、`cbjp_bootstrap()` とは別に行う
- * （前提条件が欠けたときの通知も訳すため。WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、言語パックがあればそちらが優先）。
- *
- * WordPress はサイトで有効なプラグインのパスをヘッダーの Domain Path から自動で登録するが、7.1 まではマルチサイトのネットワークで有効にした
- * プラグインを登録しない（`wp-settings.php`。7.0〜7.1.3 で確認し、7.2-alpha は登録する）。wordpress.org の言語パックができるまでは、そのサイトでも
- * 同梱の日本語訳を読むためにここで登録する（R3-4a。Plugin Check の「不要」の警告は注釈で抑える）。
- */
-function cbjp_load_textdomain(): void {
-	// phpcs:ignore PluginCheck.CodeAnalysis.DiscouragedFunctions.load_plugin_textdomainFound -- Up to WordPress 7.1, network-activated plugins get no automatic translation path, and the bundled Japanese translation must load before a language pack exists.
-	load_plugin_textdomain( 'cart-bridge-jp', false, dirname( plugin_basename( CBJP_FILE ) ) . '/languages' );
-}
 
 /**
  * プラグインを起動する。WooCommerce未有効時は管理画面通知のみ出しfatalにしない。
@@ -85,10 +72,24 @@ function cbjp_bootstrap(): void {
 }
 
 /**
+ * 前提条件が欠けたときの通知を出す画面か。「プラグイン」画面と、このプラグインの画面（WooCommerce メニューの下。`Admin\Assets::enqueue()` と同じ判定）
+ * だけにする（ガイドライン 11: 通知は範囲を絞る。issue #144）。オートロードが無くても使えるようメインファイルに置く。
+ */
+function cbjp_is_requirement_notice_screen(): bool {
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+	if ( ! $screen instanceof \WP_Screen ) {
+		return false;
+	}
+
+	return 'plugins' === $screen->id || str_ends_with( $screen->id, '_page_cart-bridge-jp' );
+}
+
+/**
  * WooCommerce未有効時の管理画面通知。
  */
 function cbjp_render_missing_woocommerce_notice(): void {
-	if ( ! current_user_can( 'activate_plugins' ) ) {
+	if ( ! current_user_can( 'activate_plugins' ) || ! cbjp_is_requirement_notice_screen() ) {
 		return;
 	}
 	printf(
@@ -101,7 +102,7 @@ function cbjp_render_missing_woocommerce_notice(): void {
  * Composerオートロード未生成時（開発環境）の管理画面通知。
  */
 function cbjp_render_missing_autoload_notice(): void {
-	if ( ! current_user_can( 'activate_plugins' ) ) {
+	if ( ! current_user_can( 'activate_plugins' ) || ! cbjp_is_requirement_notice_screen() ) {
 		return;
 	}
 	printf(

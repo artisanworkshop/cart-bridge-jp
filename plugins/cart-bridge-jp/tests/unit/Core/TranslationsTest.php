@@ -7,18 +7,21 @@ declare( strict_types=1 );
 
 namespace CartBridgeJP\Tests\Core;
 
-use MO;
+use CartBridgeJP\Admin\Assets;
 use PO;
 use Translation_Entry;
+use WP_Textdomain_Registry;
+use WP_Translation_Controller;
 use WP_UnitTestCase;
 
 /**
- * R3-2: 同梱の日本語訳（`languages/`）の整合。POT がソースと同じかは `bin/i18n.sh check`（CI）が確かめ、ここでは
- * PO が POT に揃っていること・訳の漏れと壊れ・生成物（.mo / .l10n.php / JSON）が PO と同じこと・実行時に読み込まれることを確かめる。
+ * R3-2: 日本語訳（`languages/`）の整合。POT がソースと同じかは `bin/i18n.sh check`（CI）が確かめ、ここでは
+ * PO が POT に揃っていること・訳の漏れと壊れを確かめる。
+ *
+ * 訳は配布物に同梱せず、translate.wordpress.org の言語パックで配る（wordpress.org の審査の指摘。issue #144）。リポジトリの POT と PO は
+ * そこへ取り込む元で、無料版のコードが自分の訳を読まないこともここで確かめる。
  */
 final class TranslationsTest extends WP_UnitTestCase {
-
-	private const DOMAIN = 'cart-bridge-jp';
 
 	/**
 	 * PHP の `sprintf()` と `@wordpress/i18n` の `sprintf()` が解釈する書式（`%%` を含む）。WP-CLI の make-pot が `php-format` と判定する形と同じ。
@@ -29,10 +32,42 @@ final class TranslationsTest extends WP_UnitTestCase {
 
 	private static ?PO $pot = null;
 
+	/**
+	 * 言語パックのテストで差し替える前の `$wp_textdomain_registry`。
+	 */
+	private ?WP_Textdomain_Registry $registry = null;
+
+	/**
+	 * 言語パックのテストで読ませる一時ファイル。
+	 */
+	private string $pack_file = '';
+
+	/**
+	 * テストで作ったほかの一時ファイル。
+	 *
+	 * @var array<int,string>
+	 */
+	private array $temp_files = [];
+
 	public function tear_down(): void {
-		remove_all_filters( 'locale' );
-		unload_textdomain( self::DOMAIN, true );
-		wp_deregister_script( 'cbjp-translations-test' );
+		wp_dequeue_script( 'cart-bridge-jp-admin' );
+		wp_deregister_script( 'cart-bridge-jp-admin' );
+		wp_dequeue_style( 'cart-bridge-jp-admin' );
+		wp_deregister_style( 'cart-bridge-jp-admin' );
+
+		foreach ( $this->temp_files as $file ) {
+			wp_delete_file( $file );
+		}
+
+		if ( null !== $this->registry ) {
+			$GLOBALS['wp_textdomain_registry'] = $this->registry; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- テストで差し替えた登録を戻す。
+		}
+		if ( '' !== $this->pack_file ) {
+			WP_Translation_Controller::get_instance()->unload_textdomain( 'cart-bridge-jp', 'ja' );
+			unload_textdomain( 'cart-bridge-jp', true );
+			wp_delete_file( $this->pack_file );
+		}
+
 		parent::tear_down();
 	}
 
@@ -80,109 +115,244 @@ final class TranslationsTest extends WP_UnitTestCase {
 		$this->assertSame( [], $broken );
 	}
 
-	public function test_mo_matches_the_po(): void {
-		$mo = new MO();
-		$this->assertTrue( $mo->import_from_file( $this->path( 'cart-bridge-jp-ja.mo' ) ) );
-
-		// make-mo も複数形の原文を単数形だけで書く（`php_file_key()` と同じく WP は単数形で引き直す）ので、キーに複数形を含めない。
-		$this->assertSame( $this->translations( self::po()->entries ), $this->translations( $mo->entries ) );
-	}
-
-	public function test_php_translation_file_matches_the_po(): void {
-		$data = include $this->path( 'cart-bridge-jp-ja.l10n.php' );
-
-		$this->assertIsArray( $data );
-		$this->assertIsArray( $data['messages'] ?? null );
-
-		$expected = [];
-
-		foreach ( self::po()->entries as $entry ) {
-			$expected[ self::php_file_key( $entry ) ] = implode( "\0", $entry->translations );
-		}
-
-		ksort( $expected );
-		$actual = $data['messages'];
-		ksort( $actual );
-
-		$this->assertSame( $expected, $actual );
+	/**
+	 * 翻訳は同梱せず、translate.wordpress.org の言語パックを WordPress が読む（wordpress.org の審査の指摘。issue #144）。
+	 * ヘッダーの Domain Path は配布物に無いフォルダを指すことになる（Plugin Check の `plugin_header_nonexistent_domain_path`）。
+	 */
+	public function test_plugin_header_has_no_domain_path(): void {
+		$this->assertSame( '', get_file_data( CBJP_FILE, [ 'domain_path' => 'Domain Path' ] )['domain_path'] );
 	}
 
 	/**
-	 * `wp_set_script_translations()` は、スクリプトの相対パス（`build/index.js`）の md5 を名前に持つ JSON を探す。
-	 * `src/*.tsx` から抜いた参照で作ると名前が食い違い、管理画面が英語のままになる（R3-2）。
+	 * 無料版のコードは自分の訳を読まない: `load_plugin_textdomain()` などを呼ばず、`wp_set_script_translations()` にパスを渡さない
+	 * （審査は `phpcs:ignore` の注釈を見ずに `load_plugin_textdomain()` を指摘した。issue #144）。
 	 */
-	public function test_script_translations_are_a_single_json_named_after_the_build(): void {
-		$files = glob( $this->path( 'cart-bridge-jp-ja-*.json' ) );
+	public function test_plugin_code_does_not_load_bundled_translations(): void {
+		$files = [ CBJP_FILE, CBJP_PATH . 'uninstall.php' ];
 
-		$this->assertSame( [ $this->path( 'cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json' ) ], $files );
-	}
+		$iterator = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( CBJP_PATH . 'includes', \FilesystemIterator::SKIP_DOTS ) );
 
-	public function test_script_translations_match_the_js_strings_of_the_po(): void {
-		$json = wp_json_file_decode( $this->path( 'cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json' ), [ 'associative' => true ] );
-
-		// make-json は Jed の既定のドメイン `messages` で書く（WP の `wp_set_script_translations()` の読込みはどちらも扱う）。
-		$this->assertIsArray( $json );
-		$this->assertSame( 'messages', $json['domain'] ?? null );
-
-		$messages = $json['locale_data']['messages'] ?? null;
-		$this->assertIsArray( $messages );
-		unset( $messages[''] );
-
-		$expected = [];
-
-		foreach ( self::po()->entries as $entry ) {
-			if ( self::is_js( $entry ) ) {
-				$expected[ ( null !== $entry->context ? $entry->context . "\4" : '' ) . $entry->singular ] = array_values( $entry->translations );
+		foreach ( $iterator as $file ) {
+			if ( $file instanceof \SplFileInfo && 'php' === $file->getExtension() ) {
+				$files[] = $file->getPathname();
 			}
 		}
 
-		ksort( $expected );
-		ksort( $messages );
+		$this->assertGreaterThan( 50, count( $files ), 'includes/ の PHP を読めていない' );
 
-		$this->assertNotSame( [], $expected );
-		$this->assertSame( $expected, $messages );
+		$found = [];
+
+		foreach ( $files as $path ) {
+			foreach ( self::translation_loading_calls( (string) file_get_contents( $path ) ) as $call ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a local source file of the plugin.
+				$found[] = str_replace( CBJP_PATH, '', $path ) . ': ' . $call;
+			}
+		}
+
+		$this->assertSame( [], $found );
 	}
 
 	/**
-	 * 訳のパスは `cbjp_bootstrap()`（WooCommerce・オートロードが無ければ早く戻る）とは別の `plugins_loaded` で登録する。
-	 * ガードの中で登録すると、前提条件が欠けたときの通知（日本語訳を同梱している）が英語のまま出る（PR #109 G1-1）。
+	 * PHP の訳は、WordPress が言語パック（`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>.l10n.php`）から必要なときに読む（issue #144）。
+	 * 言語パックがある状態は `pre_get_language_files_from_path` で作り、読むファイルは `load_translation_file` で一時ファイルへ差し替える
+	 * （`WP_LANG_DIR` には書かない）。前のテストが覚えた言語の場所に左右されないよう、`$wp_textdomain_registry` は新しくする。
 	 */
-	public function test_text_domain_is_registered_outside_the_guarded_bootstrap(): void {
-		$this->assertNotFalse( has_action( 'plugins_loaded', 'CartBridgeJP\\cbjp_load_textdomain' ) );
-		$this->assertNotFalse( has_action( 'plugins_loaded', 'CartBridgeJP\\cbjp_bootstrap' ) );
-	}
-
-	/**
-	 * `cbjp_load_textdomain()` の `load_plugin_textdomain()` が登録したパスから、日本語の訳が読み込まれる（.l10n.php か .mo）。
-	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
-	 */
-	public function test_php_strings_are_translated_when_the_locale_is_japanese(): void {
-		// PHP だけが使う文字列（R3-5b で 'Unknown platform.' を消したので替えた）。
+	public function test_php_strings_are_read_from_the_language_pack(): void {
 		$msgid    = 'Save the Client ID and Client Secret first, then connect.';
 		$expected = self::po()->entries[ $msgid ]->translations[0];
 		$this->assertNotSame( $msgid, $expected );
 
-		$this->use_japanese();
+		$pack            = WP_LANG_DIR . '/plugins/cart-bridge-jp-ja.l10n.php';
+		$this->pack_file = get_temp_dir() . 'cbjp-language-pack-' . wp_generate_uuid4() . '.l10n.php';
+		$contents        = '<?php return ' . var_export( [ 'messages' => [ $msgid => $expected ] ], true ) . ';'; // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Writes a PHP translation file.
+		$this->assertNotFalse( file_put_contents( $this->pack_file, $contents ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
+
+		$this->registry                    = $GLOBALS['wp_textdomain_registry'];
+		$GLOBALS['wp_textdomain_registry'] = new WP_Textdomain_Registry(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- tear_down() で戻す。
+		unload_textdomain( 'cart-bridge-jp', true );
+		add_filter( 'locale', static fn (): string => 'ja', 1 );
+
+		add_filter(
+			'pre_get_language_files_from_path',
+			static fn ( $files, $path ) => WP_LANG_DIR . '/plugins/' === $path ? [ $pack ] : $files,
+			10,
+			2
+		);
+		$requested = [];
+		$temp      = $this->pack_file;
+		add_filter(
+			'load_translation_file',
+			static function ( $file, $domain ) use ( &$requested, $pack, $temp ) {
+				if ( 'cart-bridge-jp' !== $domain ) {
+					return $file;
+				}
+				$requested[] = $file;
+
+				return $pack === $file ? $temp : $file;
+			},
+			10,
+			2
+		);
 
 		$this->assertSame( $expected, __( 'Save the Client ID and Client Secret first, then connect.', 'cart-bridge-jp' ) );
+		$this->assertContains( $pack, $requested );
 	}
 
-	public function test_admin_script_translations_load_when_the_locale_is_japanese(): void {
+	/**
+	 * 管理画面の JS の訳はテキストドメインだけで登録し（パスなし）、言語パックの JSON
+	 * （`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）の訳を出力する（issue #144・PR #145 G3）。
+	 * 言語パックは `load_script_translation_file` で一時ファイルへ差し替える（`WP_LANG_DIR` には書かない）。
+	 * サイトの言語の `locale` フィルターは優先度 1 で足す（CLAUDE.md。`WP_Locale_Switcher` の切替を上書きしないため）。
+	 */
+	public function test_admin_script_translations_are_read_from_the_language_pack(): void {
+		wp_register_script( 'cart-bridge-jp-admin', CBJP_URL . 'build/index.js', [], '1', true );
+		Assets::set_script_translations();
+
+		$script = wp_scripts()->registered['cart-bridge-jp-admin'];
+		$this->assertSame( 'cart-bridge-jp', $script->textdomain );
+		$this->assertSame( '', $script->translations_path );
+
+		$this->assert_translated_script_output();
+	}
+
+	/**
+	 * 管理画面のページで `enqueue()` が訳を登録する（`build/index.asset.php` の代わりに一時の資産の一覧を渡す。PR #145 G3）。
+	 */
+	public function test_admin_page_enqueue_registers_the_script_translations(): void {
+		$asset_file         = get_temp_dir() . 'cbjp-index-asset-' . wp_generate_uuid4() . '.php';
+		$this->temp_files[] = $asset_file;
+		$this->assertNotFalse( file_put_contents( $asset_file, "<?php return array( 'dependencies' => array(), 'version' => '1' );" ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
+
+		( new Assets( $asset_file ) )->enqueue( 'woocommerce_page_cart-bridge-jp' );
+
+		$this->assertTrue( wp_script_is( 'cart-bridge-jp-admin', 'enqueued' ) );
+		$script = wp_scripts()->registered['cart-bridge-jp-admin'];
+		$this->assertSame( 'cart-bridge-jp', $script->textdomain );
+		$this->assertSame( '', $script->translations_path );
+
+		$this->assert_translated_script_output();
+	}
+
+	/**
+	 * `languages/` に残すのは、translate.wordpress.org へ取り込む元の POT と日本語の PO だけ（配布物には入らない。`.distignore`・`bin/build-zip.sh`）。
+	 */
+	public function test_languages_directory_holds_only_the_import_sources(): void {
+		$files = array_map( 'basename', (array) glob( $this->path( '*' ) ) );
+		sort( $files );
+
+		$this->assertSame( [ 'cart-bridge-jp-ja.po', 'cart-bridge-jp.pot' ], $files );
+	}
+
+	/**
+	 * 訳を読む関数の呼び出しと、パスを渡した `wp_set_script_translations()`（引数が 3 つ以上）を返す。
+	 *
+	 * @return array<int,string>
+	 */
+	private static function translation_loading_calls( string $source ): array {
+		$tokens = token_get_all( $source, TOKEN_PARSE );
+		$calls  = [];
+
+		foreach ( $tokens as $index => $token ) {
+			if ( ! is_array( $token ) || ! in_array( $token[0], [ T_STRING, T_NAME_FULLY_QUALIFIED ], true ) ) {
+				continue;
+			}
+
+			$name = strtolower( ltrim( $token[1], '\\' ) );
+
+			if ( in_array( $name, [ 'load_plugin_textdomain', 'load_textdomain', 'load_script_textdomain', 'load_muplugin_textdomain' ], true ) ) {
+				$calls[] = $name;
+			} elseif ( 'wp_set_script_translations' === $name && self::argument_count( $tokens, $index ) > 2 ) {
+				$calls[] = $name . ' with a path';
+			}
+		}
+
+		return $calls;
+	}
+
+	/**
+	 * `$tokens[ $index ]` の関数名に続く呼び出しの引数の数（いちばん外の括弧の中のカンマで数える）。呼び出しでなければ 0。
+	 *
+	 * @param array<int,array{0:int,1:string,2:int}|string> $tokens
+	 */
+	private static function argument_count( array $tokens, int $index ): int {
+		$ignored = [ T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ];
+		$depth   = 0;
+		$commas  = 0;
+		$empty   = true;
+
+		for ( $i = $index + 1, $n = count( $tokens ); $i < $n; $i++ ) {
+			$token = $tokens[ $i ];
+
+			if ( is_array( $token ) && in_array( $token[0], $ignored, true ) ) {
+				continue;
+			}
+
+			$text = is_array( $token ) ? $token[1] : $token;
+
+			if ( 0 === $depth ) {
+				if ( '(' !== $text ) {
+					return 0;
+				}
+				$depth = 1;
+				continue;
+			}
+
+			// 二重引用符の文字列の中で式を囲む波括弧の開きも、閉じの波括弧と対にして数える。
+			if ( in_array( $text, [ '(', '[', '{', '${' ], true ) ) {
+				++$depth;
+			} elseif ( in_array( $text, [ ')', ']', '}' ], true ) ) {
+				--$depth;
+				if ( 0 === $depth ) {
+					return $empty ? 0 : $commas + 1;
+				}
+			} elseif ( 1 === $depth && ',' === $text ) {
+				++$commas;
+			}
+
+			$empty = false;
+		}
+
+		return 0;
+	}
+
+	/**
+	 * `ja` で登録済みのスクリプトの訳を出力し、言語パックの JSON（一時ファイルへ差し替える）の訳が入ることを確かめる。
+	 */
+	private function assert_translated_script_output(): void {
 		$expected = self::po()->entries['Save settings']->translations[0];
+		$this->assertNotSame( 'Save settings', $expected );
 
-		$this->use_japanese();
-		wp_register_script( 'cbjp-translations-test', CBJP_URL . 'build/index.js', [], '1', true );
+		$pack               = WP_LANG_DIR . '/plugins/cart-bridge-jp-ja-' . md5( 'build/index.js' ) . '.json';
+		$json_file          = get_temp_dir() . 'cbjp-language-pack-' . wp_generate_uuid4() . '.json';
+		$this->temp_files[] = $json_file;
+		$json               = (string) wp_json_encode(
+			[
+				'domain'      => 'messages',
+				'locale_data' => [
+					'messages' => [
+						''              => [ 'domain' => 'messages' ],
+						'Save settings' => [ $expected ],
+					],
+				],
+			],
+			JSON_UNESCAPED_UNICODE
+		);
+		$this->assertNotFalse( file_put_contents( $json_file, $json ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- A temporary file outside the plugin, removed in tear_down().
 
-		$json = load_script_textdomain( 'cbjp-translations-test', self::DOMAIN, CBJP_PATH . 'languages' );
-
-		$this->assertIsString( $json );
-		$decoded = json_decode( $json, true );
-		$this->assertSame( [ $expected ], $decoded['locale_data']['messages']['Save settings'] ?? null );
-	}
-
-	private function use_japanese(): void {
 		add_filter( 'locale', static fn (): string => 'ja', 1 );
-		unload_textdomain( self::DOMAIN, true );
+		$searched = [];
+		add_filter(
+			'load_script_translation_file',
+			static function ( $file ) use ( &$searched, $pack, $json_file ) {
+				$searched[] = $file;
+
+				return $pack === $file ? $json_file : $file;
+			}
+		);
+
+		$output = (string) wp_scripts()->print_translations( 'cart-bridge-jp-admin', false );
+
+		$this->assertContains( $pack, $searched );
+		$this->assertStringContainsString( '"Save settings":["' . $expected . '"]', $output );
 	}
 
 	private function path( string $file ): string {
@@ -229,30 +399,6 @@ final class TranslationsTest extends WP_UnitTestCase {
 		ksort( $keys );
 
 		return $keys;
-	}
-
-	/**
-	 * @param array<string,Translation_Entry> $entries
-	 * @return array<string,array<int,string>>
-	 */
-	private function translations( array $entries ): array {
-		$translations = [];
-
-		foreach ( $entries as $entry ) {
-			$translations[ self::php_file_key( $entry ) ] = array_values( $entry->translations );
-		}
-
-		ksort( $translations );
-
-		return $translations;
-	}
-
-	/**
-	 * `.l10n.php` の `messages` のキー。文脈は `\4` でつなぐ。WP-CLI の make-php は複数形も単数形だけをキーにするが、
-	 * WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`）。
-	 */
-	private static function php_file_key( Translation_Entry $entry ): string {
-		return null !== $entry->context ? $entry->context . "\4" . $entry->singular : $entry->singular;
 	}
 
 	private static function is_js( Translation_Entry $entry ): bool {

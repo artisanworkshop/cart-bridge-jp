@@ -140,7 +140,17 @@ final class Plugin {
 		// sodium_crypto_secretbox() 等のユーザーランド実装を提供してしまうため、
 		// function_exists() では常にtrueになりネイティブ拡張の有無を判定できない。
 		// extension_loaded() でネイティブ拡張自体の有無を見る。
-		if ( extension_loaded( 'sodium' ) || ! current_user_can( 'activate_plugins' ) ) {
+		$this->render_sodium_notice( extension_loaded( 'sodium' ) );
+	}
+
+	/**
+	 * sodium の有無を受けて通知を出す（テストの環境には sodium があるので、残りの判定を確かめられるよう分けた）。
+	 * 出すのは「プラグイン」画面とこのプラグインの画面だけ（ガイドライン 11。`cbjp_is_requirement_notice_screen()`、issue #144）。
+	 *
+	 * @param bool $sodium_loaded ネイティブの sodium 拡張が読み込まれているか。
+	 */
+	public function render_sodium_notice( bool $sodium_loaded ): void {
+		if ( $sodium_loaded || ! current_user_can( 'activate_plugins' ) || ! \CartBridgeJP\cbjp_is_requirement_notice_screen() ) {
 			return;
 		}
 

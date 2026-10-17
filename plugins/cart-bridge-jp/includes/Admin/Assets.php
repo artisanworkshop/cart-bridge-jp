@@ -16,12 +16,25 @@ final class Assets {
 
 	private const HANDLE = 'cart-bridge-jp-admin';
 
+	/**
+	 * ビルドが書く資産の一覧（依存と版）のパス。
+	 */
+	private string $asset_file;
+
+	/**
+	 * @param string|null $asset_file 資産の一覧のパス（既定は `build/index.asset.php`）。CI の PHPUnit はビルドの前に走るので、
+	 *                                テストは一時ファイルを渡して `enqueue()` を通す（PR #145 G3）。
+	 */
+	public function __construct( ?string $asset_file = null ) {
+		$this->asset_file = $asset_file ?? CBJP_PATH . 'build/index.asset.php';
+	}
+
 	public function enqueue( string $hook_suffix ): void {
 		if ( ! str_ends_with( $hook_suffix, '_page_' . Menu::PAGE_SLUG ) ) {
 			return;
 		}
 
-		$asset_file = CBJP_PATH . 'build/index.asset.php';
+		$asset_file = $this->asset_file;
 
 		if ( ! file_exists( $asset_file ) ) {
 			return;
@@ -37,9 +50,7 @@ final class Assets {
 			true
 		);
 
-		if ( function_exists( 'wp_set_script_translations' ) ) {
-			wp_set_script_translations( self::HANDLE, 'cart-bridge-jp', CBJP_PATH . 'languages' );
-		}
+		self::set_script_translations();
 
 		// wp-scriptsのビルドはJSエントリー「index」に対応するCSSを
 		// 「index.css」ではなく「style-index.css」として出力する。
@@ -65,5 +76,16 @@ final class Assets {
 				'entityLabels' => EntityTypeRegistry::labels(),
 			]
 		);
+	}
+
+	/**
+	 * 管理画面の JS の訳を登録する。訳は translate.wordpress.org の言語パック
+	 * （`WP_LANG_DIR/plugins/cart-bridge-jp-<言語>-<md5( 'build/index.js' )>.json`）から読み、プラグインの中に訳を同梱しないのでパスは渡さない
+	 * （issue #144・`docs/03` §6「翻訳（R3-2）」）。`enqueue()` はビルドが無いと早く戻るので、テストから呼べるよう分けた。
+	 */
+	public static function set_script_translations(): void {
+		if ( function_exists( 'wp_set_script_translations' ) ) {
+			wp_set_script_translations( self::HANDLE, 'cart-bridge-jp' );
+		}
 	}
 }

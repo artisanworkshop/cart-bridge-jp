@@ -780,8 +780,12 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
   - [ ] **R3-4b: 版上げと申請**（販売サイトの後）: Pro の販売サイトの URL を readme の FAQ「Can it migrate customers, orders, and coupons?」へ（`ReadmeTest`）、1.0.0（プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag`。`ReadmeTest`・`bin/readme-release.php` が changelog の節と照合する）、
     バナーとアイコンを `plugins/cart-bridge-jp/.wordpress-org/` に置く、Plugin Check（ソースと `bin/build-zip.sh` の zip）、申請。承認の後に Environment `wordpress-org` の secrets（`SVN_USERNAME`・`SVN_PASSWORD`）を登録し
     （保護は承認者と「デプロイできるブランチ = main」）、`v1.0.0` のタグ（release.yml）→ `deploy-wporg.yml` を手動で実行（初回は `dry_run` で変更の一覧を見る）。版上げの前に、リリースの経路で `CBJP_VERSION` も照合するか判断する（backlog `r3-4a-wporg-submission-prep/R1-X1`）。
-    translate.wordpress.org へ同梱の日本語訳を取り込む（言語パックができたら `load_plugin_textdomain()` の扱いを見直せる。`docs/03` §6「翻訳（R3-2）」）。版上げに使うグローバルの release-bump スキルを `plugins/cart-bridge-jp/` に対応させる（R3-7 の申し送り）
+    ~~translate.wordpress.org へ同梱の日本語訳を取り込む（言語パックができたら `load_plugin_textdomain()` の扱いを見直せる。`docs/03` §6「翻訳（R3-2）」）。~~ → 承認後、リポジトリの `plugins/cart-bridge-jp/languages/cart-bridge-jp-ja.po` を translate.wordpress.org へ取り込む（issue #144 で無料版は訳を同梱しなくなったので、言語パックができるまで日本語のサイトでも英語の画面になる。`docs/03` §6「翻訳（R3-2）」）。版上げに使うグローバルの release-bump スキルを `plugins/cart-bridge-jp/` に対応させる（R3-7 の申し送り）
     **進行（2026-10-14）**: 販売サイトは `https://wc.artws.info/`（ユーザー決定）。readme の FAQ「Can it migrate customers, orders, and coupons?」に URL を入れ、プラグインヘッダーの Version・`CBJP_VERSION`・readme の `Stable tag` を 1.0.0 に上げ、`bin/build-zip.sh` の `dist/cart-bridge-jp-1.0.0.zip` を展開して Plugin Check 2.1.0（ERROR 0。警告は §10.9 で受け入れたものだけ）を確かめ、wordpress.org の申請フォームから提出した（2026-10-14。スラッグが `cart-bridge-jp` になっているかは申請ページで確かめる）。Pro の `CBJP_PRO_LICENSE_API_URL`・`Update URI`（同じ host）と製品 ID は Pro の版上げ（`pro-v1.0.0`）で入れる
+    **初回レビュー（2026-10-16。自動の事前レビュー）への対応（issue #144、ブランチ `fix/144-wporg-review-i18n-notices`、2026-10-17）**: 🔴 `load_plugin_textdomain()` は不要（R3-4a で `phpcs:ignore` を付けて残したが、審査のツールは注釈を見ない）→ 外した。
+    🟡 翻訳ファイルの同梱は不要 → 無料版の配布 zip から `languages/` とヘッダーの `Domain Path` を外し、`.mo`・`.l10n.php`・JSON はリポジトリからも消した（POT と `ja.po` は translate.wordpress.org へ取り込む元として残す。ユーザー決定）。
+    ガイドライン 11（通知の節度）の確認 → 前提条件の通知 3 つを「プラグイン」画面と Cart Bridge JP の画面だけに出すようにした（ユーザー決定。`docs/03` §7「前提条件の通知」）。版は 1.0.0 のまま（未公開の申請の差し替え）。
+    マージの後、`bin/build-zip.sh` の `dist/cart-bridge-jp-1.0.0.zip` を「Add your plugin」のページから上げ直し、同じメールのスレッドに短く返信する
 - [x] **R3-5: アンインストールオプションUI + セキュリティ最終監査**（wp-security-check スキル。UI を足したら readme の FAQ「What happens to my data when I uninstall the plugin?」も改める）。
   **進め方（2026-10-11）**: アンインストールの UI は無料版だけで閉じ、R3-8 に依存しないので先に進めてよい。セキュリティ監査は R3-8 の後（R3-4 の前）に回し、無料版と Pro をまとめて対象にする（R3-8a・c のライセンスキーの保存・API Manager との通信・更新の配信が新しく攻撃面になるため）。→ R3-5a と R3-5b に分けた
   - [x] **R3-5a: アンインストール時のデータ削除の設定 UI**（2026-10-11。ブランチ `feat/r3-5a-uninstall-option-ui`）: Tools タブの末尾に「Data on uninstall」のカード（`src/components/UninstallSettings.tsx`。プラットフォームの選択・接続に関係なく出す。2026-10-11 ユーザー決定）と
@@ -975,7 +979,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 - [ ] **E5-1: BASE push\***（カテゴリ自動作成（E2-1 のマッピングUIに `canCreateCategory=true` 分岐を実装、3階層まで・4階層以上は平坦化+警告）→商品upsert→画像add_image(URL方式・**要検証#13**)→在庫edit_stock。**1日1,000件制限の分割実行**（`paused`→翌日再エンキュー）、バリエーション1軸化・絵文字除去のdry-run警告。受注・顧客は対象外（capabilityでUI非表示））。
   **既知の設計課題**: 現状の `Sync\JobManager` は `RateLimitExhaustedException` を固定 `PAUSED_RESUME_DELAY_SECONDS`（60秒）後に再試行する実装のため、このままでは1日上限到達時に翌日リセットまで待たず1分おきに再試行し続ける。「翌日再エンキュー」を実現するには、E2-2（Exporterパイプライン）または本タスクで再試行遅延を可変にする拡張点（例外側で希望の再試行時刻を指定できるようにする等）をJobManagerに追加する必要がある（D18が許容するプラットフォーム非依存のコア拡張点。プラットフォーム固有分岐はアダプタ外に書かない原則自体は維持する）
-- [ ] **R5-1: v2.0 公開**（BASE往復E2Eに加え、E5-1でマッピングUI・`JobManager`のリトライ挙動を変更しているため**カラーミーの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に BASE を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`。R3-2と同じ手順）、**セキュリティ監査**（BASE OAuth・トークンリフレッシュ・`BaseClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 2.0.0、wordpress.org 更新）
+- [ ] **R5-1: v2.0 公開**（BASE往復E2Eに加え、E5-1でマッピングUI・`JobManager`のリトライ挙動を変更しているため**カラーミーの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に BASE を追記、**i18n再生成**（POT再生成 + ja.po追補 → translate.wordpress.org へ取り込む。無料版は issue #144 から訳を同梱しないので `make-json` は作らない）、**セキュリティ監査**（BASE OAuth・トークンリフレッシュ・`BaseClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 2.0.0、wordpress.org 更新）
 
 ---
 
@@ -1000,7 +1004,7 @@ MakeShop/BASE のインポートを v1.0 から外し、カラーミーのエク
 
 - [ ] **E7-1: MakeShop push\***（カテゴリ自動作成→商品→会員→注文(決済なしモード)→在庫）
 - [ ] **E7-2: importProductBulk 経路**（MakeShop 1,000商品超向けCSV一括。任意・要検証のCSV仕様確認後）
-- [ ] **R7-1: v3.0 公開**（MakeShop往復E2Eに加え、**カラーミー・BASEの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に MakeShop を追記、**i18n再生成**（ja.po追補 + POT再生成 + `make-json`）、**セキュリティ監査**（MakeShop認証・`GraphQLClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 3.0.0、wordpress.org 更新）
+- [ ] **R7-1: v3.0 公開**（MakeShop往復E2Eに加え、**カラーミー・BASEの往復E2Eも再実行**（既存プラットフォームの回帰確認）。readme.txt / プラグインヘッダー / `composer.json` の Description に MakeShop を追記、**i18n再生成**（POT再生成 + ja.po追補 → translate.wordpress.org へ取り込む。issue #144）、**セキュリティ監査**（MakeShop認証・`GraphQLClient`・接続設定UIの新規コードを対象。wp-security-checkスキル）、バージョン 3.0.0、wordpress.org 更新）
 
 ---
 

@@ -76,7 +76,8 @@ jobs:
 
       # ビルド済みの JS と PHP から POT を作り直し、コミット済みの POT（plugins/cart-bridge-jp/languages/cart-bridge-jp.pot と
       # plugins/cart-bridge-jp-pro/languages/cart-bridge-jp-pro.pot）と文字列が同じか確かめる（R3-2・R3-8d）。
-      # PO・生成物（.mo / .l10n.php / 無料版の JSON）が POT と揃っているかは、両プラグインの PHPUnit の TranslationsTest が確かめる。
+      # PO（と Pro の生成物 .mo / .l10n.php）が POT と揃っているかは、両プラグインの PHPUnit の TranslationsTest が確かめる。
+      # 無料版は翻訳を同梱せず（translate.wordpress.org の言語パック。issue #144）、ja.po はそこへ取り込む元として保つ。
       - name: Check that translations are up to date
         run: npm run i18n:check
 
