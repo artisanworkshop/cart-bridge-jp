@@ -271,6 +271,7 @@ pending/running/paused → failed （Action Scheduler のアクションを失�
 ### TokenStore
 
 - 暗号化: `sodium_crypto_secretbox`（PHP 7.2+ 標準バンドルのため fallback 不要。念のため activation 時に `function_exists('sodium_crypto_secretbox')` を検査し、無ければ管理画面通知）
+  （実装は `Core\Plugin::render_missing_sodium_notice()` が `extension_loaded( 'sodium' )` で見る。通知は「プラグイン」画面と Cart Bridge JP の画面だけに出す〔ガイドライン 11。issue #144。§7「前提条件の通知」〕）
 - 鍵導出: `sodium_crypto_generichash( AUTH_KEY . AUTH_SALT, '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES )`
 - nonce は保存ごとにランダム生成し `base64( nonce . ciphertext )` をオプション `cbjp_token_{platform}`（autoload無効）に保存
 - **保存単位は構造化ペイロード（D13）**: `{access_token, refresh_token?, expires_at?, extras?}` のJSONを暗号化。
@@ -682,24 +683,28 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   事前チェックにも数えられない（backlog `e2-1-mapping-ui/R2-L3` の source 側孤立と同根）。F1-8 の実店舗は決済・配送の方法すべてが現行の候補にあった。
   必要になったら、直近 dry-run の警告 detail（`cbjp_dry_run_items`）から未マッピング ID を集計して行を足す REST を検討する
 - ページ登録: WooCommerce メニュー配下 `admin.php?page=cart-bridge-jp`
-- UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）。日本語訳の同梱・生成・検査は次の「翻訳（R3-2）」
+- UI文字列は英語 + `@wordpress/i18n`（`wp_set_script_translations`）。日本語訳の生成・検査（と、無料版は同梱しないこと。issue #144）は次の「翻訳（R3-2）」
 
 ### 翻訳（R3-2、2026-10-07）
 
-**同梱する訳は日本語（`ja`）だけ**。UI・dry-run CSV の文字列は英語の `__()` のまま書き、`languages/` に次をコミットする（配布物に入る。`.distignore` は除外しない）。Pro アドオンも同じ仕組みで `plugins/cart-bridge-jp-pro/languages/` に同梱する（R3-8d。JS が無いので JSON は無い。§10.7「R3-8d の実装」）:
+**訳は日本語（`ja`）だけを用意する**。UI・dry-run CSV の文字列は英語の `__()` のまま書き、`languages/` に次をコミットする。
+~~配布物に入る。`.distignore` は除外しない。~~ → **無料版は配布物に訳を入れない**（wordpress.org の初回レビュー〔2026-10-16〕の指摘。issue #144・2026-10-17 ユーザー決定）。
+wordpress.org で配るプラグインの訳は translate.wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）で配られ、WordPress が必要なときに読む（`load_plugin_textdomain()` は呼ばない。下記）。
+リポジトリの POT と `ja.po` は、承認後に translate.wordpress.org へ取り込む元として保つ（`.distignore` が `languages/` を除き、`bin/build-zip.sh` は無料版の zip に `languages/` を許さない）。
+**承認後、日本語の言語パックができるまでは、日本語のサイトでも無料版の画面は英語になる**。Pro アドオンは wordpress.org で配らないので、今までどおり `plugins/cart-bridge-jp-pro/languages/` に .mo・.l10n.php を同梱して自分で読む（R3-8d。JS が無いので JSON は無い。§10.7「R3-8d の実装」）:
 
 | ファイル | 作り方 | 読むもの |
 |---|---|---|
 | `cart-bridge-jp.pot` | `npm run i18n:pot`（ビルド → `wp i18n make-pot`） | 翻訳の元。`bin/i18n.sh check` が鮮度を確かめる |
-| `cart-bridge-jp-ja.po` | `npm run i18n:po`（`wp i18n update-po`。無ければ `Plural-Forms: nplurals=1` のヘッダから作る）→ 訳す | 人が編集する唯一のファイル |
-| `cart-bridge-jp-ja.mo`・`.l10n.php` | `npm run i18n:compile`（`make-mo`・`make-php`） | PHP（メインファイルの `cbjp_load_textdomain()`〈`plugins_loaded`。WooCommerce・オートロードを確かめる `cbjp_bootstrap()` とは別に登録し、前提条件の通知も訳す〉の `load_plugin_textdomain()`。WP 6.5+ は `.l10n.php` を優先） |
-| `cart-bridge-jp-ja-<md5>.json` | 同上（`make-json --no-purge --pretty-print`） | 管理画面の JS（`Admin\Assets::enqueue()` の `wp_set_script_translations()`） |
+| `cart-bridge-jp-ja.po` | `npm run i18n:po`（`wp i18n update-po`。無ければ `Plural-Forms: nplurals=1` のヘッダから作る）→ 訳す | 人が編集する唯一のファイル。translate.wordpress.org へ取り込む元 |
+| ~~`cart-bridge-jp-ja.mo`・`.l10n.php`・`cart-bridge-jp-ja-<md5>.json`~~ | issue #144 で削除（`npm run i18n:compile` は無料版では何もしない） | 言語パックの同じ名前のファイル（`WP_LANG_DIR/plugins/`）を WordPress が読む。管理画面の JS は `Admin\Assets::enqueue()` の `wp_set_script_translations( 'cart-bridge-jp-admin', 'cart-bridge-jp' )`（パスを渡さない） |
 
 - **JS の文字列は `build/index.js` から抜く**（WP-CLI 2.12 の make-pot は TypeScript を読まない）。参照が `build/index.js` になるので、JSON の名前
   （`cart-bridge-jp-ja-` + `md5( 'build/index.js' )`）が `wp_set_script_translations()` の探す名前と一致する。`src/*.tsx` を参照にすると名前が食い違い、管理画面が英語のままになる。
+  translate.wordpress.org も配布物（`build/index.js`。`src/` は入らない）から文字列を抜くので、言語パックの JSON も同じ名前になる。
   make-pot の除外は `bin/i18n.sh` の `use_plugin()` の `EXCLUDE` に 1 か所で持つ（無料版は `src,tests,languages`。R3-7 からプラグインのディレクトリで抽出するので、ルートの docs・`.claude`・`dist` などは対象外）。wp-scripts の terser は `translators:` コメントを残す。
-- make-json の既定の `--purge` は PO から JS の文字列を消すので `--no-purge`。JSON は Jed の既定のドメイン `messages` で書かれ、WP の読込みはこれを扱う。
-  make-mo・make-php は複数形の原文を単数形だけのキーで書くが、WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`）。
+- （issue #144 までの無料版の JSON）make-json の既定の `--purge` は PO から JS の文字列を消すので `--no-purge`。JSON は Jed の既定のドメイン `messages` で書かれ、WP の読込みはこれを扱う。
+  make-mo・make-php は複数形の原文を単数形だけのキーで書くが、WP は「単数形\0複数形」で見つからなければ単数形で引き直す（`WP_Translation_Controller::translate_plural()`。Pro の .mo・.l10n.php も同じ）。
 - WP 6.7+ の `load_plugin_textdomain()` はパスを登録するだけで、wordpress.org の言語パック（`WP_LANG_DIR/plugins/`）があればそちらが優先される。翻訳ファイルを置くと、
   `init` より前の `__()` が「too early」通知を出す条件になるが、プラグインの `__()` は `admin_notices` 以降でしか走らない（サイトの言語を `ja` にして実測）。
   ~~Plugin Check が wordpress.org 向けに `load_plugin_textdomain()` を「不要」と警告するかは R3-4 で確かめる。~~
@@ -707,8 +712,14 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   `phpcs:ignore` で抑えた**: WordPress はサイトで有効なプラグインの翻訳のパスをヘッダーの `Domain Path` から自動で登録するが、7.1 まではマルチサイトのネットワークで有効にしたプラグインを
   登録しない（`wp-settings.php` のネットワークのプラグインのループ。7.0〜7.1.3 で確認し、7.2-alpha は登録する）。wordpress.org の言語パックができるまでは、そのサイトでは同梱の日本語訳が
   読まれなくなるため。言語パックが出る・最低の WordPress が 7.2 以上になったら外せる。Pro（wordpress.org で配らない）の `cbjp_pro_load_textdomain()` は対象外のまま
+  → **issue #144（2026-10-17）で外した**: wordpress.org の初回レビューが `cart-bridge-jp.php:67` の `load_plugin_textdomain()` を 🔴 で指摘した（**審査のツールは `phpcs:ignore` の注釈を見ない**。
+  Plugin Check の警告が消えていても審査では指摘される）。訳を同梱しないので、言語パックだけを読めばよい。言語パックは `WP_LANG_DIR/plugins/` にあり、カスタムパスの登録に関係なく
+  `WP_Textdomain_Registry::get_path_from_lang_dir()` が見つけるので、ネットワークで有効にしたプラグインでも読まれる。ヘッダーの `Domain Path` も外した（zip に無いフォルダを指す）。
+  WordPress は Domain Path の無いプラグインにはプラグインのフォルダをカスタムパスとして登録するが、言語パックが優先される。`TranslationsTest` が、ヘッダーに Domain Path が無いこと・
+  無料版の PHP（メインファイル・`includes/`・`uninstall.php`）が `load_plugin_textdomain()` などを呼ばず `wp_set_script_translations()` にパスを渡さないこと（`token_get_all()`）・
+  `languages/` が POT と `ja.po` だけであることを確かめる
 - **検査**: `TranslationsTest`（PHPUnit）が、PO と POT の文字列（msgctxt・msgid・msgid_plural と JS から参照されるか）の一致・訳の漏れと fuzzy・プレースホルダ
-  （`%s`・`%1$s`・`%d`・`%%`）の一致・生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）を確かめる。`bin/i18n.sh check`（CI の PHPUnit ジョブと
+  （`%s`・`%1$s`・`%d`・`%%`）の一致を確かめる（~~生成物と PO の一致・JSON の名前・実行時の読み込み（PHP と管理画面の JS）~~ は issue #144 で生成物と一緒に外した。Pro の `TranslationsTest` は今も確かめる）。`bin/i18n.sh check`（CI の PHPUnit ジョブと
   `quality.sh`）がビルド済みのソースから POT をコンテナの中で作り直し、コミット済みの POT と同じ項目で比べる（行番号・翻訳者コメント・作成日時は比べない）。make-pot の
   監査の警告（同じ msgid の翻訳者コメントの食い違い・番号の無い複数のプレースホルダ）も失敗にする。**文字列を変える PR は POT と ja.po の更新が必須**（2026-10-07 ユーザー決定）。
 - **書き方の決まり**（`.claude/rules/frontend.md`）: 文をつなぐときは `joinSentences()`（msgid `%1$s %2$s`）、語の列挙は `joinList()`（msgctxt `list of items` の `%1$s, %2$s`）を使う
@@ -754,12 +765,13 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: cart-bridge-jp
- * Domain Path: /languages
  *
  * WC requires at least: 10.0
  * WC tested up to: 11.2
  */
 ```
+
+- **`Domain Path` は書かない**（issue #144。以前は `/languages`）: 無料版は訳を同梱せず（§6「翻訳（R3-2）」）、配布 zip に `languages/` が無い。Domain Path が無いフォルダを指すと Plugin Check の `plugin_header_nonexistent_domain_path` になる
 
 - **`WC tested up to`（R3-4a、2026-10-13。backlog `r3-3-readme-v1/R1-X2`）**: CI・wp-env の WooCommerce（11.2.0）に合わせて `11.2`。WooCommerce は major・major.minor で比べて、
   それより新しい WooCommerce へ更新するときに「試していない」と案内する（`WC_Plugin_Updates::get_untested_plugins()`）。WooCommerce の新しい版で動作を確かめたら上げる（`ReadmeTest` は形と `WC requires at least` 以上であることを確かめる）
@@ -779,6 +791,10 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   **`= Source code =`（R3-4a の追加、2026-10-13）**: 配布 zip の `build/`（管理画面の JS・CSS）は圧縮しているので、ガイドライン 4（人が読めるコード）に沿って、ソースの場所（GitHub の公開リポジトリ・`plugins/cart-bridge-jp/src/`）と作り方（ルートで `npm install` → `npm run build`）、`vendor/` が Composer の autoloader だけであることを書いた。`ReadmeTest` が節の内容と、ルートの `package.json` の `build` の `--source-path`・`--output-path` を照合する（ビルドの設定を変えたら readme も直す）
 - HPOS: `before_woocommerce_init` で `FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true )`
 - WooCommerce 未有効時は管理画面通知を出して機能を無効化（fatalにしない）
+- **前提条件の通知**（WooCommerce が無い・オートロードが無い〔開発環境〕・PHP の sodium 拡張が無い）は、`activate_plugins` の権限のある利用者に、「プラグイン」画面（`plugins`）と
+  Cart Bridge JP の画面（画面 ID が `_page_cart-bridge-jp` で終わる。`Admin\Assets::enqueue()` と同じ判定）でだけ出す（ガイドライン 11「通知は範囲を絞り節度を持って」。wordpress.org の
+  初回レビューの確認事項。issue #144・2026-10-17 ユーザー決定。以前は全管理画面）。判定はオートロードが無くても使えるようメインファイルの `cbjp_is_requirement_notice_screen()` に置く。
+  どれも条件が解消すれば消え、対処の方法を書く。`RequirementNoticesTest` が 3 つの通知の画面と権限を確かめる。Pro の通知（wordpress.org で配らない）は全管理画面のまま
 - アンインストール: `uninstall.php` → `Core\Uninstaller::uninstall()`。オプション `cbjp_delete_data_on_uninstall` が ~~true~~ **`'yes'`** の場合のみ削除する（既定は残す。R3-5a〔2026-10-11〕で UI を足した）:
   - **設定**: Tools タブの「Delete this plugin’s data when it is uninstalled」（`GET/PUT /settings/uninstall`、§6）。値は `'yes'`/`'no'` で autoload なし（`update_option()` は値が同じなら autoload を変えずに戻るので、保存のたびに `wp_set_option_autoload()` で揃える。PR #120 G1-1）。読むときは `'yes'` だけを「消す」とみなす（フェイルクローズ。
     `update_option( true )` は DB に `'1'` で入り別のリクエストでは文字列が返るので真偽値では比べられず、truthy の判定は壊れた値まで削除に倒す。v0.1.0 には UI も readme の記載も無く、WP-CLI で `1` を入れていたサイトは削除されない＝安全側）
@@ -832,6 +848,8 @@ review-loop R1 の修正後に再確認: 同じ種別の dry-run を 2 本作る
   zip の `vendor/` は実行時の依存の無い PSR-4 の autoloader だけ。`composer.lock` は除いたまま。Pro の zip は wordpress.org で配らないので変えない。
 - **Plugin Check（2.1.0、配布 zip を展開して全チェック）**: R3-5b の残りの警告 2 つ（`missing_composer_json_file`・`load_plugin_textdomainFound`〔§6「翻訳（R3-2）」〕）が消え、
   残るのは自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP の警告（§10.9）と、展開したフォルダ名がスラッグと違うことによる TextDomainMismatch だけ。
+  **ただし `load_plugin_textdomainFound` は `phpcs:ignore` で抑えただけで、wordpress.org の審査のツールは注釈を見ずに指摘した**（初回レビュー。issue #144 で呼び出しごと外した）。
+  審査に備えて Plugin Check の警告を注釈で抑えるときは、審査でも同じ指摘を受けうるものとして扱う。
   **`bin/plugin-check-zip.sh`（2026-10-14）**: この手順のスクリプト。zip を実行ごとの `dist/plugin-check.XXXXXX/` に展開し（ルートのマウント `wp-content/cbjp-dev` 経由でコンテナから読める。無料版と Pro を同時に回しても互いを消さない〔PR #141 Codex〕。
   `..`・絶対パス・シンボリックリンクを含む zip と、結果を隠す `--ignore-*`・`--severity`・`--exclude-*` の引数は値の有無によらず拒否する〔Plugin Check は `--ignore-errors` を `empty()` で見るので `=false` でも隠す。PR #141 Codex〕）、cli コンテナで
   `wp plugin check <ディレクトリ> --slug=<slug> --format=strict-json` を実行してコードごとに数える（ERROR があれば非ゼロ。Pro は `no_plugin_readme` を `--ignore-codes` で除く。`--build` は先に `bin/build-zip.sh`）。
@@ -2904,7 +2922,7 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 - JS: ルートの `package.json` のまま（依存・lock は変えない）。`wp-scripts` に `--source-path`・`--output-path` を渡す。`bin/i18n.sh` はプラグインのディレクトリで POT を作り（参照パスと JSON の名前は R3-7 の前と同じ）、`npx wp-env` だけはルートから呼ぶ（wp-env は呼び出したディレクトリから `.wp-env.json` を探す）。
 
 **配布物の検査**（`bin/build-zip.sh`。CI の Distribution ジョブと `release.yml` が使う）: 無料版を `vendor/` 抜きで一時ディレクトリへ写し、そこで `composer install --no-dev -o`（開発用の vendor を壊さない。~~`.distignore` が `composer.json` を除くので、~~ 除く前の写しで実行する。R3-4a から無料版の zip は `composer.json` を含み、Pro の `.distignore` は除く）→ `.distignore` で写して検査 → zip。
-検査: 最上位は許可したものだけ（本体・`uninstall.php`・`readme.txt`・`composer.json`〔R3-4a。§8「リリースと wordpress.org への配信」〕・`includes/`・`build/`・`languages/`・`vendor/`）、`includes/`・`languages/` は git が追跡しているファイルと一致、`vendor/` は autoload だけでテストの名前空間を含まない、Pro のコード上の識別子（`CartBridgeJP\Pro`・`CBJP_PRO_`・`cbjp_pro_`・`cbjp/pro/`・`cart-bridge-jp-pro`）が PHP・JS・JSON に無い。readme などの文章は対象にしない（Pro への案内のリンクを書ける。ガイドライン 11）。
+検査: 最上位は許可したものだけ（本体・`uninstall.php`・`readme.txt`・`composer.json`〔R3-4a。§8「リリースと wordpress.org への配信」〕・`includes/`・`build/`・`vendor/`。~~`languages/`~~ は issue #144 で外した〔訳を同梱しない。§6「翻訳（R3-2）」〕）、`includes/` は git が追跡しているファイルと一致、`vendor/` は autoload だけでテストの名前空間を含まない、Pro のコード上の識別子（`CartBridgeJP\Pro`・`CBJP_PRO_`・`cbjp_pro_`・`cbjp/pro/`・`cart-bridge-jp-pro`）が PHP・JS・JSON に無い。readme などの文章は対象にしない（Pro への案内のリンクを書ける。ガイドライン 11）。
 
 **Pro アドオンの骨組み**: `Requires Plugins: woocommerce, cart-bridge-jp`、`plugins_loaded` の優先度 20（無料版の 10 の後）で WooCommerce と無料版を確かめ、無ければ管理画面に通知を出して起動しない（fatal にしない）。HPOS 互換を宣言する。
 名前空間 `CartBridgeJP\Pro\`、接頭辞 `cbjp_pro_`・`CBJP_PRO_`、フック `cbjp/pro/...`、テキストドメイン `cart-bridge-jp-pro`。配布物（zip）・翻訳・ライセンス・リリースのタグは Pro の公開準備で決める。
