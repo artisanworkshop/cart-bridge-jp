@@ -4,7 +4,7 @@ Tags: migration, import, export, woocommerce, japan
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -135,6 +135,10 @@ To delete the plugin's own data as well, turn on “Delete this plugin’s data 
 
 == Changelog ==
 
+= 1.0.1 =
+* Translations are no longer bundled with the plugin; WordPress installs them from translate.wordpress.org as language packs. Until a Japanese language pack is available, the plugin's screens are shown in English on Japanese sites.
+* The notices shown when WooCommerce is not active or the PHP sodium extension is missing now appear only on the Plugins screen and the Cart Bridge JP screen, instead of on every admin screen.
+
 = 1.0.0 =
 * First release on WordPress.org: import categories, groups, products, and stock from Color Me Shop, and export products and stock to Color Me Shop. Product image upload is Beta.
 * If you used 0.1.0 from GitHub: the import is no longer limited to a sample. It now includes every item, as the dry run already did.
@@ -145,6 +149,9 @@ To delete the plugin's own data as well, turn on “Delete this plugin’s data 
 * If you used a 0.x version from GitHub: imported product names are now saved as Color Me Shop's storefront shows them. A previously imported product whose name contains tags or character references (such as `<br>` or `&amp;`) may be updated once by the next import, which also replaces changes you made to that product in WooCommerce with the values from Color Me Shop.
 
 == Upgrade Notice ==
+
+= 1.0.1 =
+If you are updating from 0.1.0: this plugin no longer migrates customers, orders, or coupons (the Cart Bridge JP Pro add-on does), and data imported with 0.1.0 may have wrong prefectures or tax classes. See the changelog for 1.0.0.
 
 = 1.0.0 =
 This plugin no longer migrates customers, orders, or coupons (the Cart Bridge JP Pro add-on does). Data imported with 0.1.0 may have wrong prefectures or tax classes: see the changelog.
