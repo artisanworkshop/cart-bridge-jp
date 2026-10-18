@@ -144,7 +144,7 @@ bin/plugin-check-zip.sh [--plugin cart-bridge-jp-pro] [--build] [--verbose]   # 
 | `.claude/rules/sync-export-tools.md` | Importer/Exporter/JobManager・実体の種類のレジストリ（R3-6b1）・`cbjp_mappings`（checksum・upsert）・リンク再構築等のツールの設計上の罠 | `includes/Sync/**`, `includes/Entities/**`, `includes/Woo/Tools/**`, `includes/Woo/Export/**`, `includes/Woo/Reader/**` |
 | `.claude/rules/frontend.md` | React の非同期ガード（世代カウンタ）・ポーリング hook・OAuth ポップアップ・タブ/CSS・ネイティブ `confirm()` | `src/**`, `includes/Admin/Assets.php` |
 | `.claude/rules/pro-license.md` | Pro のライセンス・更新の配信: WooCommerce API Manager の応答の癖（訳された節の名前・package の条件）と WP の更新 API（`plugins_api`・`update_plugins_{host}`・`disable_autoupdate`・transient） | Pro の `includes/License/**`, `includes/Admin/LicensePage.php`, `tests/unit/License/**`, `tests/fixtures/api-manager/**` |
-| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim）、`bin/` のリリースの検査と GitHub Actions のワークフロー（secrets を使うジョブの分け方） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**`, `.github/workflows/**` |
+| `.claude/rules/skill-scripts.md` | `.claude/skills/` 配下の bash スクリプトのフェイルクローズ（`\|\| true` の握りつぶし・`set -e` 下の出力消失）と、検証用 PHP（example・リハーサル）の書き方（本番の実行条件の再現・Action Scheduler の claim）、`bin/` のリリースの検査と GitHub Actions のワークフロー（secrets を使うジョブの分け方） | `.claude/skills/**/scripts/**`, `.claude/skills/**/templates/**`, `bin/**`, `.claude/skills/**/examples/**`, `.claude/skills/**/php/**`, `.claude/wporg-screenshots/**`, `.github/workflows/**` |
 
 ## テスト方針
 
@@ -181,7 +181,7 @@ bin/plugin-check-zip.sh [--plugin cart-bridge-jp-pro] [--build] [--verbose]   # 
 - 開発サイクル（計画→ブランチ→実装→review-loop→PR→CI→Codex/Copilot ゲート→最終報告）はプロジェクトスキル `/cbj-dev-cycle`（`.claude/skills/cbj-dev-cycle/`。ボットゲート用スクリプト同梱）で回す。汎用の `dev-cycle` は直接使わない
 - OAuth 接続なしで REST・管理画面を実機確認する（旧データの再現・Scan/Repair/Import/Export の配線）手順はプロジェクトスキル `/verify-with-mock-adapter`（`.claude/skills/verify-with-mock-adapter/`）。Pro をキー無しで「有効化済み」として動かす社内テスト用の `pro-unlock`／`pro-lock` も同じスキル（撤去で必ず `pro-lock`。PR #143）
 - カラーミーのテストショップと開発サイトの間で全件リハーサル（インポート全般 → 同じショップへの往復エクスポート → Woo 生まれの作成エクスポート。ColorMe 側のスナップショットを往復の前後で比べる）を回す手順はプロジェクトスキル `/rehearse-colorme`（`.claude/skills/rehearse-colorme/`。R3-1 で作成。店舗の login_id が一致しなければ何もしない）
-- wordpress.org 用のスクリーンショット（`.wordpress-org/screenshot-N.png`）を撮り直す手順はプロジェクトスキル `/wporg-screenshots`（`.claude/skills/wporg-screenshots/`。tests サイトで、実 API に出ず匿名化済みフィクスチャから画面を作る。撮る画面は `shots.json`）
+- wordpress.org 用のスクリーンショット（`.wordpress-org/screenshot-N.png`）を撮り直す手順は共有スキル `/wporg-screenshots`（claude-skills。tests サイトで撮る）で、このプラグインの設定とフックは `.claude/wporg-screenshots/`（撮る画面は `shots.json`。ColorMe API のモック・偽のトークン・dry-run の準備と片付け。実 API に出ず匿名化済みフィクスチャから画面を作る。手順と注意は同じディレクトリの `README.md`）
 - 販売サイトのライセンスサーバー（WooCommerce API Manager）を dev サイトに一時的に入れ、Pro が使う API の応答を測ってフィクスチャと比べ、更新の配信を実機で確かめ、完全に消す手順はプロジェクトスキル `/measure-api-manager`（`.claude/skills/measure-api-manager/`。issue #126。API Manager の zip はリポジトリの外。E2E の間だけ Pro のヘッダーに `Update URI` を足す）
 - 各フェーズ完了時に `composer lint && composer analyze && composer test:wpenv` を通すこと（上の「コマンド」参照）
 - 不明なAPI仕様は推測で実装せず、`docs/` の「要検証」項目として記録し、フィクスチャを用意してから実装

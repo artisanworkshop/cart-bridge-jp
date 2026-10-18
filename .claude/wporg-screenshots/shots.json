@@ -1,0 +1,16 @@
+{
+	"plugin_dir": "plugins/cart-bridge-jp",
+	"build": [ "npm", "run", "build" ],
+	"deactivate": [ "cart-bridge-jp-pro" ],
+	"activate": [ "woocommerce", "cart-bridge-jp" ],
+	"permalink": "/%postname%/",
+	"setup_args": [ "category,tag,product" ],
+	"local_storage": { "cbjp_run_dry_run_colorme": "{RUN_ID}" },
+	"shots": [
+		{ "name": "connections", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/connections", "wait_for": "Test connection" },
+		{ "name": "import", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/import", "wait_for": "Download full report", "uncheck": [ "Stock" ] },
+		{ "name": "mappings", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/mappings", "wait_for": "Category mapping" },
+		{ "name": "export", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/export", "wait_for": "Upload product images (Beta)" },
+		{ "name": "tools", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/tools", "wait_for": "Rebuild links" }
+	]
+}

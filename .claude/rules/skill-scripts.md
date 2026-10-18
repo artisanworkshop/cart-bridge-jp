@@ -4,6 +4,7 @@ paths:
   - ".claude/skills/**/templates/**"
   - ".claude/skills/**/examples/**"
   - ".claude/skills/**/php/**"
+  - ".claude/wporg-screenshots/**"
   - "bin/**"
   - ".github/workflows/**"
 ---
@@ -26,7 +27,7 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   `--env-cwd=wp-content/cbjp-dev`（ルートのマウント。プラグインのマウントからは `../../cbjp-dev/…`）。R3-7
 - **`f || rc=1` の形で呼ぶ関数の中では `set -e` が効かない**（`||` の左辺は errexit が外れる）。関数の中の失敗は `cmd || return 1` で明示的に返す。
   逆に EXIT トラップの中では `set -e` が効くので、片付けを並べると最初の失敗で残りが走らない。1 つずつ `|| rc=1` で受けて最後まで続ける
-  （`wporg-screenshots` の `capture.sh` の `remove_mu`・`finish`。`rm` が失敗しても「removed」と 0 を返していた。PR #112 R1-2）
+  （共有スキル `wporg-screenshots` の `capture.sh` の `remove_installed`・`finish`。PR #112 のプロジェクトスキルだったころ、`rm` が失敗しても「removed」と 0 を返していた。R1-2）
 - **mu-plugin テンプレートは致命的エラーを出さない**。mu-plugin の fatal は開発サイトの全リクエストと、WP を起動する
   `mock-adapter.sh run`/`inspect`（＝ seed の cleanup）を落とす（`uninstall` はホスト側の `rm` なので効く）。
   オプション等から読む値は型を確認し、想定外の値は読み飛ばす（`templates/mu-plugin-mock-adapter.php` の `$rows()` 参照）。
@@ -35,7 +36,7 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **API のモック（mu-plugin）を外すのは、外すと実 API に出うる状態を片付けた後にする**。偽のトークン・開いた run・キューに残ったアクションが
   あると、モックを外した後で管理画面・WP-Cron・プラグインの再有効化から実 API へ通信が出る。片付けられないとき（プラグインが無効など。無効化はデータを消さない）は
   モックを残して失敗する。片付けは自分の作ったものだけにし、他人のトークン・run には触れない（トークンは生の option で持ち主を肯定形で確かめる。
-  復号できない値は `TokenStore::get()` が null を返すので、null を「無い」と読まない）。`wporg-screenshots` の `php/teardown.php`。PR #112 の G1〜G3 で 1 段ずつ指摘された
+  復号できない値は `TokenStore::get()` が null を返すので、null を「無い」と読まない）。`.claude/wporg-screenshots/teardown.php`。PR #112 の G1〜G3 で 1 段ずつ指摘された
 - **wp-env の tests サイト（10011）と PHPUnit は同じ DB・同じ接頭辞を使う**。PHPUnit が起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけで、
   プラグイン・WooCommerce の独自テーブル（`cbjp_jobs` などと Action Scheduler・配送ゾーン）の行は残る。tests サイトで検証の run を開いたまま残すと、
   `colorme` で run の排他を通るテストが 409 になりうる（PR #112 R1-3・R1-4）

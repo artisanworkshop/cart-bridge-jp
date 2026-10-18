@@ -1,10 +1,10 @@
 <?php
 /**
- * cbjp-wporg-screenshots: managed by .claude/skills/wporg-screenshots
+ * wordpress.org 用スクリーンショットの撮影専用のモック（共有スキル wporg-screenshots の mu-plugin フック）。
  *
- * TEMPORARY. wordpress.org 用スクリーンショットの撮影専用。wp-env の tests サイトだけに置き、Color Me Shop API
- * （api.shop-pro.jp）への HTTP を匿名化済みフィクスチャ（tests/fixtures/colorme/）で返す。実店舗・テストショップへは接続しない。
- * 撮影が終わると `capture.sh` が削除する（tests サイトの mu-plugin は PHPUnit にも読み込まれるので、残さない。コミットしない）。
+ * TEMPORARY. スキルの `capture.sh` が wp-env の tests サイトの mu-plugins の下へ写し、目印つきの包みの mu-plugin から読み込む。
+ * Color Me Shop API（api.shop-pro.jp）への HTTP を匿名化済みフィクスチャ（tests/fixtures/colorme/）で返す。実店舗・テストショップへは接続しない。
+ * 撮影が終わると `capture.sh` が削除する（tests サイトの mu-plugin は PHPUnit にも読み込まれるので、残さない）。
  *
  * - GET はパスの末尾のファイル名（`products.json` など）と同じ名前のフィクスチャを返す。商品の一覧は 2 ページ目以降を空の一覧で返す。
  *   GET 以外と、フィクスチャの無い取得は WP_Error にする（撮るのは無料版だけの画面で、顧客・受注・クーポンの API は呼ばない。

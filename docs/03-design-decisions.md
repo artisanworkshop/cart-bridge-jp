@@ -1238,7 +1238,7 @@ UI の文字列に顧客・受注を名指しするものは残っていない�
 Pro の FAQ が Cart Bridge JP Pro を名指しし Description も名指しする・1.0.0 以上では `https://` の URL を含む、Upgrade Notice の各版が 300 字以内・マークアップなしで 1.0.0 の通知がある。
 変異（顧客の行・External services の決済と配送・FAQ の質問・Description の Pro・通知の長さ・マークアップ・1.0.0 の通知と、R1-4 で広げた各箇所に旧文言を戻すもの）がすべて検出された。
 
-**スクリーンショット**（`wporg-screenshots`）: Pro を無効にして撮る（`capture.sh` が `cart-bridge-jp-pro` を無効にし、`setup.php` が Pro の定数が無いこと・登録された種類が無料版のものだけであることを確かめる。Pro を有効にしたまま実行すると止まることを確認）。
+**スクリーンショット**（`wporg-screenshots`）: Pro を無効にして撮る（`.claude/wporg-screenshots/shots.json` の `deactivate` で `cart-bridge-jp-pro` を無効にし、`setup.php` が Pro の定数が無いこと・登録された種類が無料版のものだけであることを確かめる。Pro を有効にしたまま実行すると止まることを確認）。
 マッピングはカテゴリだけを作り、mu-plugin から顧客の差し替えと顧客・受注・クーポンの一覧を外した。在庫は dry-run に含めない（商品を書かない dry-run では在庫が全件「商品がまだ無い」でスキップと写る。試し撮りで確認）。
 撮り直して変わったのは 2（Import: 顧客・受注・クーポンの選択肢と結果が消えた）・3（Mappings: カテゴリの節だけ）・4（Export: 受注のベータが消えた）。1・5 はメニューのバッジ（WooCommerce 側の状態）だけの差なので元の画像のまま。
 

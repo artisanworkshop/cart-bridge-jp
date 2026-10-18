@@ -1,7 +1,7 @@
 <?php
 /**
- * wordpress.org 用スクリーンショットの後片付け。wp-env の tests サイトだけで、`capture.sh` が mu-plugin を消す**前**に
- * `wp eval-file` で実行する（撮影の終わり・`capture.sh cleanup`）。
+ * wordpress.org 用スクリーンショットの後片付け（共有スキル wporg-screenshots の teardown フック）。wp-env の tests サイトだけで、
+ * スキルの `capture.sh` が mu-plugin を消す**前**に `wp eval-file` で実行する（撮影の終わり・`capture.sh cleanup`）。
  *
  * 引数: <tests サイトの home_url>
  *
@@ -16,7 +16,7 @@
  * プラグインか WooCommerce が無効なら、片付けられないので、`colorme` のトークンか開いた `colorme` のジョブが残っていれば失敗する
  * （無効化はデータを消さない。モックを消した後で有効に戻すと、残った run が実 API へ出うる。PR #112 G3）。何も残っていなければ何もしない
  * （PHPUnit の後はオプションが戻ってプラグインが無効になり、トークンもオプションごと消えている）。
- * 失敗したら終了コード 1。`capture.sh` は mu-plugin を残して止まる。
+ * 失敗したら終了コード 1。`capture.sh` は mu-plugin とフックを残して止まる。
  *
  * @package CartBridgeJP
  */
