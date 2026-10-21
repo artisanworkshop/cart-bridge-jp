@@ -285,7 +285,7 @@ cart-bridge-jp/                     # リポジトリのルート = 開発ツー
     │   ├── languages/
     │   ├── tests/                  # bootstrap.php・unit/・fixtures/（実APIレスポンスのサンプルJSON）
     │   ├── phpunit.xml.dist
-    │   └── .wordpress-org/         # wordpress.org のスクリーンショット（SVN の assets/ へ置く）
+    │   └── .wordpress-org/         # wordpress.org のスクリーンショット・バナー・アイコン（SVN の assets/ へ置く）
     └── cart-bridge-jp-pro/         # Pro アドオン（自社サイト）。顧客・受注・クーポン（R3-6c1 で無料版から移した）
         ├── cart-bridge-jp-pro.php / composer.json / phpunit.xml.dist
         ├── includes/
