@@ -215,6 +215,13 @@ assert_has "symbolic link: names it" "cart-bridge-jp/link"
 after=$(ls -d "$ROOT_DIR"/dist/plugin-check.* 2>/dev/null || true)
 if [ "$before" = "$after" ]; then ok "symbolic link: work directory removed"; else fail "symbolic link: work directory left behind: ${after}"; fi
 
+# --- プラグインごとの --ignore-codes（Plugin Check 自身が除くので集計には現れない。スクリプトの宣言を読んで固定する） ---
+# 無料版は wordpress.org の審査と同じ結果を見るので何も除かない。Pro は wordpress.org で配らないので、無い readme（R3-5b）と
+# `Update URI` の更新の仕組み（R3-8c。1.0.0 から）の ERROR だけを除く。ここが広がる・縮む変更は意図したものか確かめる。
+if grep -xF -- '	cart-bridge-jp) IGNORE_CODES= ;;' "$PCZ" >/dev/null; then ok "ignore codes: the free plugin ignores nothing"; else fail "ignore codes: the free plugin must not ignore any code"; fi
+if grep -xF -- '	cart-bridge-jp-pro) IGNORE_CODES=no_plugin_readme,plugin_updater_detected ;;' "$PCZ" >/dev/null; then ok "ignore codes: the Pro ignores only no_plugin_readme and plugin_updater_detected"; else fail "ignore codes: the Pro's list changed (expected no_plugin_readme,plugin_updater_detected)"; fi
+if [ "$(grep -c 'IGNORE_CODES=' "$PCZ")" = 2 ]; then ok "ignore codes: declared once per plugin"; else fail "ignore codes: IGNORE_CODES is assigned somewhere other than the per-plugin case"; fi
+
 DONE=1
 if [ "$FAILS" -ne 0 ]; then
   echo "test-plugin-check-zip: $FAILS 件失敗"

@@ -855,7 +855,7 @@ wordpress.org で配るプラグインの訳は translate.wordpress.org の言�
   審査に備えて Plugin Check の警告を注釈で抑えるときは、審査でも同じ指摘を受けうるものとして扱う。
   **`bin/plugin-check-zip.sh`（2026-10-14）**: この手順のスクリプト。zip を実行ごとの `dist/plugin-check.XXXXXX/` に展開し（ルートのマウント `wp-content/cbjp-dev` 経由でコンテナから読める。無料版と Pro を同時に回しても互いを消さない〔PR #141 Codex〕。
   `..`・絶対パス・シンボリックリンクを含む zip と、結果を隠す `--ignore-*`・`--severity`・`--exclude-*` の引数は値の有無によらず拒否する〔Plugin Check は `--ignore-errors` を `empty()` で見るので `=false` でも隠す。PR #141 Codex〕）、cli コンテナで
-  `wp plugin check <ディレクトリ> --slug=<slug> --format=strict-json` を実行してコードごとに数える（ERROR があれば非ゼロ。Pro は `no_plugin_readme` を `--ignore-codes` で除く。`--build` は先に `bin/build-zip.sh`）。
+  `wp plugin check <ディレクトリ> --slug=<slug> --format=strict-json` を実行してコードごとに数える（ERROR があれば非ゼロ。Pro は `no_plugin_readme` と、`Update URI` ヘッダーに Plugin Check が出す `plugin_updater_detected`〔wordpress.org のプラグインに更新の仕組みを持たせない検査。Pro は販売サイトから配る〕を `--ignore-codes` で除く。2026-10-23。`--build` は先に `bin/build-zip.sh`）。
   Plugin Check の CLI はディレクトリのパスと `--slug` を受ける（1.1.0+）ので、`wp-content/plugins/` に別名で置いたときのフォルダ名由来の 2 つ（`WordPress.WP.I18n.TextDomainMismatch`・ヘッダーの `textdomain_mismatch`）が出ず、
   ほかに見つかるものは同じ（無料版 1.0.0・Pro 0.1.0 の zip で両方を比べた）。ランタイムのチェックは `is_plugin_active()` のプラグインにしか走らないので、どちらの置き方でも静的なチェックだけ。
   見つかったものが無いと JSON ではなく `Success: Checks complete. No errors found.` を出し、終了コードは ERROR があっても 0（スクリプトが集計して決める）。
@@ -3000,7 +3000,7 @@ R3-7 より前はルートをプラグインとしてマウントしていたた
 
 **形**（Pro だけ。無料版は変えない。`CartBridgeJP\Pro\License\`・`Pro\Admin\LicensePage`）:
 - `LicenseConfig`: 接続先の URL と製品 ID は定数 `CBJP_PRO_LICENSE_API_URL`・`CBJP_PRO_LICENSE_PRODUCT_ID`（メインファイルで `if ( ! defined() )`。既定は `''`・`0` で「未設定」。wp-config.php で上書きできる）。
-  URL は `wp_parse_url()` で scheme（http/https）と host を確かめ、資格情報を含む URL は受けない。製品 ID は正の整数だけ（数字の列は `PHP_INT_MAX` を超えないものだけ。PR #123 G1-2）。**販売サイトが決まるまで空のまま**で、`LicenseConfigTest` が `CBJP_PRO_VERSION` 1.0.0 以上で空のまま・https でないままの公開を止める（実行時の定数ではなく、メインファイルの `define()` の既定値を読む。wp-config.php で定数を定義した環境でも配る zip の値で判定するため。review-loop R1-4）
+  URL は `wp_parse_url()` で scheme（http/https）と host を確かめ、資格情報を含む URL は受けない。製品 ID は正の整数だけ（数字の列は `PHP_INT_MAX` を超えないものだけ。PR #123 G1-2）。**販売サイトが決まるまで空のまま**（→ 2026-10-23 の Pro 1.0.0 で `https://wc.artws.info/`・41019 を入れた）で、`LicenseConfigTest` が `CBJP_PRO_VERSION` 1.0.0 以上で空のまま・https でないままの公開を止める（実行時の定数ではなく、メインファイルの `define()` の既定値を読む。wp-config.php で定数を定義した環境でも配る zip の値で判定するため。review-loop R1-4）
 - `LicenseClient`: `wp_safe_remote_post()`（timeout 15 秒・**転送しない**〔`redirection` 0。転送先へキーを運ばない〕）。パラメータは本文（`wc_am_action`・`api_key`・`product_id`・`instance`・`object`〔scheme を外した `home_url()`〕・有効化だけ `software_version`）。
   応答はフェイルクローズ: HTTP 200・JSON のオブジェクト・`success === true`（実 bool）・操作ごとの印（実 bool）がそろったときだけ成功。状態確認は `status_check` と `data.activated` が食い違えば解釈しない。サーバーの文はタグ・制御文字を除いて 300 文字まで
 - `LicenseStore`（2026-10-11 ユーザー決定: **キーは暗号化・有効化の状態は平文**）: option `cbjp_pro_license_key`（`sodium_crypto_secretbox`。鍵は `wp_salt( 'auth' )` に Pro 固有の文脈を足して導く。無料版の `TokenStore` と同じ方式だが、`TokenStore` は Pro が使ってよい API に無いので Pro に持つ）、
@@ -3208,7 +3208,7 @@ R3-4（wordpress.org 申請）の前に、無料版と Pro をまとめて監査
 review-loop R1 の修正 9 か所はすべて検出。backfill の条件を「空なら」に戻す変異は、作成時の顧客 ID を空でも読むようになったため等価〔同じ値を書き直すだけ〕で、backfill を外す変異で確かめた）、
 dev サイトのストアフロント（Twenty Twenty-Five。店舗は「近日公開」なので管理者のセッションで取得）: 修正前と同じ値を CRUD で書いた商品は SKU のブロックが `<script>` をそのまま出し、`ProductWriter` で書いた商品は出さない
 （軸名はこのブロックテーマでは除かれるが、クラシックのテンプレートは生のまま出す。単体テストで描いて確認）。配布 zip（`bin/build-zip.sh`）を展開して Plugin Check: 無料版は ERROR 0
-（警告は自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP・`load_plugin_textdomain()`・`missing_composer_json_file`。後の 2 つは R3-4 で判断 → R3-4a で消した。§8「リリースと wordpress.org への配信」）、Pro は `no_plugin_readme` だけ（wordpress.org で配らない）。
+（警告は自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP・`load_plugin_textdomain()`・`missing_composer_json_file`。後の 2 つは R3-4 で判断 → R3-4a で消した。§8「リリースと wordpress.org への配信」）、Pro は `no_plugin_readme` だけ（wordpress.org で配らない。1.0.0 で `Update URI` を入れてからは `plugin_updater_detected` も出るので、`bin/plugin-check-zip.sh` が両方を除く）。
 
 **採らなかった・受け入れたもの**:
 - OAuth の state をログイン中のユーザーに結び付ける: コールバックは REST の Cookie 認証の外（nonce が無いので現在のユーザーは 0）。ログインの Cookie を直接読めば結び付けられるが、`secure` の Cookie と http の home の組み合わせなどで正しい接続が壊れうる。前提（10 分以内に state が漏れる）が厳しいので受け入れた。
