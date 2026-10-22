@@ -125,10 +125,12 @@ final class SenderTest extends WooTestCase {
 		$this->imported_customer( '1' );
 		$this->imported_customer( '2' );
 		$run = $this->start();
+		// 相手の排他の値は 1 度だけ作る（書くときと比べるときで time() を別々に呼ぶと、秒をまたいだときに違う値になる。PR #150 の CI で 1 度落ちた）。
+		$other_lock = ( time() + 300 ) . '|' . str_repeat( 'd', 32 );
 		add_filter(
 			'pre_wp_mail',
-			static function ( $short_circuit ) use ( $wpdb ) {
-				$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", ( time() + 300 ) . '|' . str_repeat( 'd', 32 ), SendLock::OPTION ) );
+			static function ( $short_circuit ) use ( $wpdb, $other_lock ) {
+				$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", $other_lock, SendLock::OPTION ) );
 
 				return $short_circuit;
 			}
@@ -140,7 +142,7 @@ final class SenderTest extends WooTestCase {
 		$this->assertSame( 0, Campaign::progress()['sent'], '進捗を書かない' );
 		$this->assertSame( $run['token'], Campaign::control()['token'], '引き継がない' );
 		$this->assertFalse( as_has_scheduled_action( Sender::HOOK ) );
-		$this->assertSame( ( time() + 300 ) . '|' . str_repeat( 'd', 32 ), $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", SendLock::OPTION ) ), '他のバッチの排他を消さない' );
+		$this->assertSame( $other_lock, $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", SendLock::OPTION ) ), '他のバッチの排他を消さない' );
 	}
 
 	/**
