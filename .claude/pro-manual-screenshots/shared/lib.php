@@ -611,6 +611,11 @@ function cbjp_pm_remove_shipping_zone(): void {
 }
 
 /**
+ * 対応付けのために作る商品のカテゴリーの名前（片付けは、記録の ID の term がこの名前のときだけ消す）。
+ */
+const CBJP_PM_TERM_NAMES = [ 'ギフト', '季節のおすすめ' ];
+
+/**
  * 対応付け（カテゴリ・決済・配送・注文ステータス）を、REST の候補一覧から作って保存する（フィクスチャの ID を書き写さない）。
  * カテゴリはエクスポートの向き（Woo → カラーミー）なので、Woo のカテゴリを 2 つ作って先頭 2 つに対応させ、作ったタームを記録する。
  * 保存先の option の前の値（tests サイトに対応付けがあれば）を控え、片付けが戻す。
@@ -635,7 +640,7 @@ function cbjp_pm_save_mappings(): void {
 	$terms     = cbjp_pm_state_list( $state, 'terms' );
 	$asp_cats  = $rows( $asp['category'] ?? null );
 	$categorys = [];
-	foreach ( [ 'ギフト', '季節のおすすめ' ] as $i => $name ) {
+	foreach ( CBJP_PM_TERM_NAMES as $i => $name ) {
 		if ( ! isset( $asp_cats[ $i ] ) ) {
 			break;
 		}
@@ -708,11 +713,26 @@ function cbjp_pm_save_mappings(): void {
  * 作ったカテゴリを消し、対応付けを撮影の前の値に戻す。
  */
 function cbjp_pm_remove_mappings(): void {
-	$state = cbjp_pm_state();
+	$state   = cbjp_pm_state();
+	$terms   = cbjp_pm_state_list( $state, 'terms' );
+	$default = (int) get_option( 'default_product_cat', 0 );
 
-	foreach ( cbjp_pm_state_list( $state, 'terms' ) as $term_id ) {
-		if ( get_term( (int) $term_id, 'product_cat' ) instanceof WP_Term ) {
-			$deleted = wp_delete_term( (int) $term_id, 'product_cat' );
+	// 消す前にすべて確かめる。壊れた ID・撮影が作った名前でない term・WooCommerce の既定のカテゴリー（`wp_delete_term()` は product_cat の既定を守らない）は、1 つも消さずに止まる。
+	foreach ( $terms as $term_id ) {
+		if ( ! is_int( $term_id ) || $term_id <= 0 ) {
+			cbjp_pm_fail( 'the record of the product categories the screenshots made is broken: ' . wp_json_encode( $terms ) . '. Not deleting anything.' );
+		}
+
+		$term = get_term( $term_id, 'product_cat' );
+
+		if ( $term instanceof WP_Term && ( $default === $term_id || ! in_array( $term->name, CBJP_PM_TERM_NAMES, true ) ) ) {
+			cbjp_pm_fail( "the product category {$term_id} ({$term->name}) is not one the screenshots made. Not deleting anything." );
+		}
+	}
+
+	foreach ( $terms as $term_id ) {
+		if ( get_term( $term_id, 'product_cat' ) instanceof WP_Term ) {
+			$deleted = wp_delete_term( $term_id, 'product_cat' );
 			if ( true !== $deleted ) {
 				cbjp_pm_fail( "could not delete the product category {$term_id}." );
 			}
