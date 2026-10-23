@@ -91,6 +91,23 @@ function cbjp_pm_state(): array {
 }
 
 /**
+ * 記録の一覧（`i18n`・`terms`・`runs`）。無ければ空。配列でなければ空と読まずに止まる（読み替えると、setup が上書きし、teardown が置いたもの・作ったものを残して成功と報告する）。
+ *
+ * @param array<string,mixed> $state
+ * @return array<int|string,mixed>
+ */
+function cbjp_pm_state_list( array $state, string $key ): array {
+	if ( ! array_key_exists( $key, $state ) ) {
+		return [];
+	}
+	if ( ! is_array( $state[ $key ] ) ) {
+		cbjp_pm_fail( "the record of the manual screenshots ({$key}) is broken: " . wp_json_encode( $state[ $key ] ) . '. Not touching anything; check the tests site by hand.' );
+	}
+
+	return $state[ $key ];
+}
+
+/**
  * option の DB の生の値。行が無ければ null。`get_option()` はこのリクエストのキャッシュに頼る（`delete_option()` は DB の削除が失敗しても
  * 「無い」と記録する）ので、消せた・戻せたことの確認には使わない。照会が失敗したら止まる。
  */
@@ -356,7 +373,8 @@ function cbjp_pm_remove_account_page(): void {
 
 /**
  * 無料版の日本語訳（build.sh が dist/pro-manual-i18n/ に作ったもの）を、言語パックの置き場所（WP_LANG_DIR/plugins/）に置く。
- * 同じ名前のファイルが記録に無いまま有れば（本物の言語パックなど）止まる。置いたファイルは記録し、片付けが SHA-256 の一致を確かめてから消す。
+ * 同じ名前のファイルが記録に無いまま有れば（本物の言語パックなど）、記録にあっても中身が置いたときと違えば（言語パックの更新が置き換えた）止まる。
+ * 置いたファイルは記録し、片付けが SHA-256 の一致を確かめてから消す。
  */
 function cbjp_pm_install_translations(): void {
 	$sources = glob( CBJP_PM_I18N_DIR . 'cart-bridge-jp-ja*' );
@@ -373,7 +391,7 @@ function cbjp_pm_install_translations(): void {
 	}
 
 	$state = cbjp_pm_state();
-	$i18n  = is_array( $state['i18n'] ?? null ) ? $state['i18n'] : [];
+	$i18n  = cbjp_pm_state_list( $state, 'i18n' );
 
 	foreach ( $sources as $source ) {
 		$name = basename( $source );
@@ -381,6 +399,10 @@ function cbjp_pm_install_translations(): void {
 
 		if ( file_exists( $dest ) && ! isset( $i18n[ $name ] ) ) {
 			cbjp_pm_fail( "{$dest} exists but was not placed by these screenshots (a language pack?). Refusing to overwrite it." );
+		}
+		// 前の撮影が置いたまま止まった後に、言語パックの更新などが置き換えていれば上書きしない（片付けも同じ確かめで止まる）。
+		if ( file_exists( $dest ) && hash_file( 'sha256', $dest ) !== $i18n[ $name ] ) {
+			cbjp_pm_fail( "{$dest} changed after the screenshots placed it (a language pack update?). Refusing to overwrite it." );
 		}
 
 		// 先に記録する（コピーの途中で止まっても片付けが探せるように）。値は置いた後の中身で書き直す。
@@ -401,7 +423,7 @@ function cbjp_pm_install_translations(): void {
  */
 function cbjp_pm_remove_translations(): void {
 	$state = cbjp_pm_state();
-	$i18n  = is_array( $state['i18n'] ?? null ) ? $state['i18n'] : [];
+	$i18n  = cbjp_pm_state_list( $state, 'i18n' );
 	$count = count( $i18n );
 
 	foreach ( $i18n as $name => $hash ) {
@@ -517,6 +539,10 @@ function cbjp_pm_clear_license(): void {
 function cbjp_pm_ensure_shipping_zone(): void {
 	$state = cbjp_pm_state();
 
+	// 壊れた ID を「無い」と読んで新しいゾーンの ID で上書きすると、前に作ったゾーンを片付けが見失う。
+	if ( array_key_exists( 'zone_id', $state ) && ! is_int( $state['zone_id'] ) ) {
+		cbjp_pm_fail( 'the record of the shipping zone is broken: ' . wp_json_encode( $state['zone_id'] ) . '. Not touching anything; check the tests site by hand.' );
+	}
 	if ( is_int( $state['zone_id'] ?? null ) ) {
 		$existing = WC_Shipping_Zones::get_zone( $state['zone_id'] );
 
@@ -606,7 +632,7 @@ function cbjp_pm_save_mappings(): void {
 
 	// カテゴリ: Woo で作ったカテゴリ → カラーミーのカテゴリ。
 	$state     = cbjp_pm_state();
-	$terms     = is_array( $state['terms'] ?? null ) ? $state['terms'] : [];
+	$terms     = cbjp_pm_state_list( $state, 'terms' );
 	$asp_cats  = $rows( $asp['category'] ?? null );
 	$categorys = [];
 	foreach ( [ 'ギフト', '季節のおすすめ' ] as $i => $name ) {
@@ -684,7 +710,7 @@ function cbjp_pm_save_mappings(): void {
 function cbjp_pm_remove_mappings(): void {
 	$state = cbjp_pm_state();
 
-	foreach ( is_array( $state['terms'] ?? null ) ? $state['terms'] : [] as $term_id ) {
+	foreach ( cbjp_pm_state_list( $state, 'terms' ) as $term_id ) {
 		if ( get_term( (int) $term_id, 'product_cat' ) instanceof WP_Term ) {
 			$deleted = wp_delete_term( (int) $term_id, 'product_cat' );
 			if ( true !== $deleted ) {
@@ -714,13 +740,8 @@ function cbjp_pm_cancel_open_runs(): void {
 	}
 
 	$state = cbjp_pm_state();
-	$ours  = $state['runs'] ?? [];
-
-	if ( ! is_array( $ours ) ) {
-		cbjp_pm_fail( 'the record of the runs the screenshots started is broken: ' . wp_json_encode( $ours ) . '.' );
-	}
-
-	$open = [];
+	$ours  = cbjp_pm_state_list( $state, 'runs' );
+	$open  = [];
 	foreach ( $active['data']['runs'] as $run ) {
 		$run_id = is_array( $run ) && is_string( $run['run_id'] ?? null ) ? $run['run_id'] : '';
 
@@ -776,7 +797,7 @@ function cbjp_pm_run( string $type, array $entities ): string {
 
 	// 始めた run を記録する（強制終了で開いたまま残っても、次の撮影・片付けが自分の run と見分けてキャンセルする）。
 	$state           = cbjp_pm_state();
-	$state['runs']   = is_array( $state['runs'] ?? null ) ? $state['runs'] : [];
+	$state['runs']   = cbjp_pm_state_list( $state, 'runs' );
 	$state['runs'][] = $run_id;
 	cbjp_pm_save_state( $state );
 
@@ -1040,8 +1061,53 @@ function cbjp_pm_remove_imported(): void {
 }
 
 /**
+ * プラグインが無効なときに、撮影の記録・トークン・ライセンスのキーか有効化の記録・開いた `colorme` の job が DB に残っているか
+ * （クラスが読み込まれていないので、行を直接読む）。残っていれば、モックを外した後にプラグインを有効化すると、
+ * 予定済みのアクションや更新の確認が本物の Color Me Shop API・販売サイトに届きうる。
+ *
+ * @return array<int,string> 残っているもの。
+ */
+function cbjp_pm_inactive_leftovers(): array {
+	global $wpdb;
+
+	$left = [];
+
+	if ( null !== cbjp_pm_option_raw( CBJP_PM_STATE ) ) {
+		$left[] = 'the record of the manual screenshots';
+	}
+	if ( null !== cbjp_pm_option_raw( 'cbjp_token_colorme' ) ) {
+		$left[] = 'a colorme token';
+	}
+
+	// `LicenseStore::KEY_OPTION`・`STATE_OPTION`（Pro が無効だとクラスが無い）。撮影の前は無いか未有効化だった（setup の前提）。
+	$key   = cbjp_pm_option_raw( 'cbjp_pro_license_key' );
+	$state = cbjp_pm_option_raw( 'cbjp_pro_license_state' );
+	$state = null === $state ? null : maybe_unserialize( $state );
+	if ( ( null !== $key && '' !== $key ) || ( is_array( $state ) && 'yes' === ( $state['activated'] ?? null ) ) ) {
+		$left[] = 'a Pro license key or activation';
+	}
+
+	$table  = $wpdb->prefix . 'cbjp_jobs';
+	$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) );
+	if ( '' !== $wpdb->last_error ) {
+		cbjp_pm_fail( "could not look for the table {$table}: " . $wpdb->last_error );
+	}
+	if ( $table === $exists ) {
+		$open = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE platform = %s AND status IN ('pending', 'running', 'paused')", 'colorme' ) );
+		if ( '' !== $wpdb->last_error || null === $open ) {
+			cbjp_pm_fail( 'could not count the open colorme jobs: ' . $wpdb->last_error );
+		}
+		if ( (int) $open > 0 ) {
+			$left[] = "{$open} open colorme job(s)";
+		}
+	}
+
+	return $left;
+}
+
+/**
  * 片付けの前提。tests サイトで、トークンとライセンスが撮影のものか無いことを確かめる。プラグインか WooCommerce が無効なら、
- * 片付けられないので、撮影の記録・トークンが残っていれば止まる（無効化はデータを消さない）。
+ * 片付けられないので、撮影の記録・トークン・ライセンス・開いた job が残っていれば止まる（無効化はデータを消さない）。
  *
  * @param array<int,mixed> $args
  * @return bool 片付けを続けるか（false なら何も残っていない）。
@@ -1058,8 +1124,9 @@ function cbjp_pm_guard_teardown( array $args ): bool {
 
 	if ( ! $active ) {
 		// 壊れた記録も「残っている」と読む（DB の行の有無で見る）。
-		if ( null !== cbjp_pm_option_raw( 'cbjp_token_colorme' ) || null !== cbjp_pm_option_raw( CBJP_PM_STATE ) ) {
-			cbjp_pm_fail( 'WooCommerce, the free plugin or the Pro add-on is inactive on the tests site, but a colorme token or the record of the manual screenshots remains. Activate them (npx wp-env run tests-cli wp plugin activate woocommerce cart-bridge-jp cart-bridge-jp-pro) while the mock is still installed, then run capture.sh cleanup again.' );
+		$left = cbjp_pm_inactive_leftovers();
+		if ( [] !== $left ) {
+			cbjp_pm_fail( 'WooCommerce, the free plugin or the Pro add-on is inactive on the tests site, but ' . implode( ', ', $left ) . ' remain(s). Activate them (npx wp-env run tests-cli wp plugin activate woocommerce cart-bridge-jp cart-bridge-jp-pro) while the mock is still installed, then run capture.sh cleanup again.' );
 		}
 		echo "teardown: the plugins are not active and nothing of the manual screenshots remains\n";
 		return false;
