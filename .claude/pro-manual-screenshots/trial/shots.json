@@ -1,0 +1,13 @@
+{
+	"plugin_dir": ".claude/pro-manual-screenshots/trial",
+	"build": [ "bash", ".claude/pro-manual-screenshots/build.sh" ],
+	"activate": [ "woocommerce", "cart-bridge-jp", "cart-bridge-jp-pro" ],
+	"permalink": "/%postname%/",
+	"locale": "ja",
+	"local_storage": { "cbjp_run_dry_run_colorme": "{RUN_ID}" },
+	"shots": [
+		{ "name": "connections", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/connections", "wait_for": "接続をテスト" },
+		{ "name": "license-not-activated", "path": "/wp-admin/admin.php?page=cart-bridge-jp-pro", "wait_for": "ライセンスの有効化" },
+		{ "name": "import-dry-run", "path": "/wp-admin/admin.php?page=cart-bridge-jp#/import", "wait_for": "プレビューの結果", "uncheck": [ "在庫" ] }
+	]
+}
