@@ -5,7 +5,8 @@
  * マウント（wp-content/cbjp-dev）から読み込む。tests サイトだけで動く。
  *
  * 撮影で作ったものは option `cbjp_pro_manual_screenshots`（autoload なし）に記録し、片付けは記録にあるものと、記録の印（偽のトークン・
- * 偽のライセンスキー）が自分のものと確かめられたものだけを消す。他人のトークン・ライセンス・言語パックには触れずに止まる。
+ * 偽のライセンスキー）が自分のものと確かめられたものだけを消す。他人のトークン・ライセンス・言語パック・run には触れずに止まる。
+ * 書き換える option（サイトの表示・対応付け・ライセンスの記録）は、書き換える前の DB の値を記録に控え、片付けがそのまま戻す。
  *
  * PHPUnit は tests サイトと同じ DB・同じ接頭辞を使い、起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけ。
  * 受注（HPOS）・配送ゾーン・プラグインの表の行は残るので、取り込んだ受注・作った配送ゾーン・紐づけ（cbjp_mappings）は必ず消す。
@@ -71,13 +72,115 @@ function cbjp_pm_rest( string $method, string $route, array $params = [] ): arra
 }
 
 /**
+ * 撮影の記録。無ければ空。壊れた値（配列でない）は空と読まずに止まる（読み替えると、片付けに要る記録を setup が上書きし、teardown が成功と報告する）。
+ *
  * @return array<string,mixed>
  */
 function cbjp_pm_state(): array {
 	wp_cache_delete( CBJP_PM_STATE, 'options' );
-	$state = get_option( CBJP_PM_STATE, [] );
+	$state = get_option( CBJP_PM_STATE, null );
 
-	return is_array( $state ) ? $state : [];
+	if ( null === $state ) {
+		return [];
+	}
+	if ( ! is_array( $state ) ) {
+		cbjp_pm_fail( 'the record of the manual screenshots (option ' . CBJP_PM_STATE . ') is broken: ' . wp_json_encode( $state ) . '. Not touching anything; check the tests site by hand.' );
+	}
+
+	return $state;
+}
+
+/**
+ * option の DB の生の値。行が無ければ null。`get_option()` はこのリクエストのキャッシュに頼る（`delete_option()` は DB の削除が失敗しても
+ * 「無い」と記録する）ので、消せた・戻せたことの確認には使わない。照会が失敗したら止まる。
+ */
+function cbjp_pm_option_raw( string $name ): ?string {
+	global $wpdb;
+
+	$row = $wpdb->get_row( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name ), ARRAY_A );
+
+	if ( '' !== $wpdb->last_error ) {
+		cbjp_pm_fail( "could not read the option {$name}: " . $wpdb->last_error );
+	}
+
+	return is_array( $row ) ? (string) $row['option_value'] : null;
+}
+
+/**
+ * option を消し、DB から行が消えたことを確かめる。
+ */
+function cbjp_pm_delete_option( string $name ): void {
+	delete_option( $name );
+
+	if ( null !== cbjp_pm_option_raw( $name ) ) {
+		cbjp_pm_fail( "the option {$name} is still saved after deleting it." );
+	}
+}
+
+/**
+ * option を控えた値（`cbjp_pm_option_raw()` の値。null は「無かった」）に戻し、DB の値で確かめる。
+ */
+function cbjp_pm_restore_option( string $name, ?string $raw ): void {
+	if ( null === $raw ) {
+		cbjp_pm_delete_option( $name );
+		return;
+	}
+
+	update_option( $name, maybe_unserialize( $raw ) );
+
+	if ( cbjp_pm_option_raw( $name ) !== $raw ) {
+		cbjp_pm_fail( "could not restore the option {$name} to its value before the screenshots." );
+	}
+}
+
+/**
+ * 書き換える前の option の値を、記録の `$key` に控える。控えが既にあれば（前の撮影が途中で止まった）、撮影の前の値を残すために書き換えない。
+ *
+ * @param array<int,string> $names 戻す順（片付けはこの順で戻す）。
+ */
+function cbjp_pm_remember_options( string $key, array $names ): void {
+	$state = cbjp_pm_state();
+
+	if ( array_key_exists( $key, $state ) ) {
+		return;
+	}
+
+	$previous = [];
+	foreach ( $names as $name ) {
+		$previous[ $name ] = cbjp_pm_option_raw( $name );
+	}
+
+	$state[ $key ] = $previous;
+	cbjp_pm_save_state( $state );
+}
+
+/**
+ * 記録の `$key` に控えた option を戻し、控えを消す。控えが無ければ（書き換える前に止まった）何もしない。
+ */
+function cbjp_pm_restore_options( string $key ): void {
+	$state = cbjp_pm_state();
+
+	if ( ! array_key_exists( $key, $state ) ) {
+		return;
+	}
+
+	$previous = $state[ $key ];
+
+	if ( ! is_array( $previous ) ) {
+		cbjp_pm_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
+	}
+	foreach ( $previous as $name => $raw ) {
+		if ( ! is_string( $name ) || ( null !== $raw && ! is_string( $raw ) ) ) {
+			cbjp_pm_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
+		}
+	}
+
+	foreach ( $previous as $name => $raw ) {
+		cbjp_pm_restore_option( $name, $raw );
+	}
+
+	unset( $state[ $key ] );
+	cbjp_pm_save_state( $state );
 }
 
 /**
@@ -85,7 +188,7 @@ function cbjp_pm_state(): array {
  */
 function cbjp_pm_save_state( array $state ): void {
 	if ( [] === $state ) {
-		delete_option( CBJP_PM_STATE );
+		cbjp_pm_delete_option( CBJP_PM_STATE );
 	} else {
 		update_option( CBJP_PM_STATE, $state, false );
 		wp_set_option_autoload( CBJP_PM_STATE, false );
@@ -164,19 +267,29 @@ function cbjp_pm_guard_setup( array $args ): void {
 }
 
 /**
- * サイト名・通貨・国など、写る値を撮影向けにする（無料版の撮影と同じ）。
+ * 撮影の間だけ書き換えるサイトの option（サイト名・通貨・国など。無料版の撮影と同じ値に、日本の店舗の表示〔ライセンスの画面の有効化の日時など〕を足した）。
+ */
+const CBJP_PM_SITE_OPTIONS = [
+	'blogname'                       => 'Example Store',
+	'woocommerce_currency'           => 'JPY',
+	'woocommerce_default_country'    => 'JP:JP13',
+	'woocommerce_onboarding_profile' => [ 'skipped' => true ],
+	'woocommerce_coming_soon'        => 'no',
+	'woocommerce_store_pages_only'   => 'no',
+	'timezone_string'                => 'Asia/Tokyo',
+	'date_format'                    => 'Y年n月j日',
+	'time_format'                    => 'H:i',
+];
+
+/**
+ * 写る値を撮影向けにする。前の値を控え、片付けが戻す。
  */
 function cbjp_pm_prepare_site(): void {
-	update_option( 'blogname', 'Example Store' );
-	update_option( 'woocommerce_currency', 'JPY' );
-	update_option( 'woocommerce_default_country', 'JP:JP13' );
-	update_option( 'woocommerce_onboarding_profile', [ 'skipped' => true ] );
-	update_option( 'woocommerce_coming_soon', 'no' );
-	update_option( 'woocommerce_store_pages_only', 'no' );
-	// 日本の店舗の表示（ライセンスの画面の有効化の日時など）。
-	update_option( 'timezone_string', 'Asia/Tokyo' );
-	update_option( 'date_format', 'Y年n月j日' );
-	update_option( 'time_format', 'H:i' );
+	cbjp_pm_remember_options( 'site', array_keys( CBJP_PM_SITE_OPTIONS ) );
+
+	foreach ( CBJP_PM_SITE_OPTIONS as $name => $value ) {
+		update_option( $name, $value );
+	}
 }
 
 /**
@@ -191,7 +304,7 @@ function cbjp_pm_ensure_account_page(): void {
 	}
 
 	$state            = cbjp_pm_state();
-	$state['account'] = [ 'previous' => get_option( 'woocommerce_myaccount_page_id', null ) ];
+	$state['account'] = [ 'previous' => cbjp_pm_option_raw( 'woocommerce_myaccount_page_id' ) ];
 	cbjp_pm_save_state( $state );
 
 	$created = wp_insert_post(
@@ -222,15 +335,19 @@ function cbjp_pm_remove_account_page(): void {
 		return;
 	}
 
-	if ( is_int( $account['page_id'] ?? null ) && 'page' === get_post_type( $account['page_id'] ) ) {
-		wp_delete_post( $account['page_id'], true );
+	$previous = $account['previous'] ?? null;
+
+	if ( null !== $previous && ! is_string( $previous ) ) {
+		cbjp_pm_fail( 'the record of the My account page is broken: ' . wp_json_encode( $account ) . '.' );
 	}
 
-	if ( null === ( $account['previous'] ?? null ) ) {
-		delete_option( 'woocommerce_myaccount_page_id' );
-	} else {
-		update_option( 'woocommerce_myaccount_page_id', $account['previous'] );
+	if ( is_int( $account['page_id'] ?? null ) && 'page' === get_post_type( $account['page_id'] ) ) {
+		if ( ! wp_delete_post( $account['page_id'], true ) ) {
+			cbjp_pm_fail( "could not delete the My account page {$account['page_id']}." );
+		}
 	}
+
+	cbjp_pm_restore_option( 'woocommerce_myaccount_page_id', $previous );
 
 	unset( $state['account'] );
 	cbjp_pm_save_state( $state );
@@ -329,34 +446,45 @@ function cbjp_pm_save_token(): void {
 	}
 }
 
+/**
+ * 偽のトークンを消す（片付けの前提で、撮影用か無いことを確かめてから呼ぶ）。`TokenStore::delete()` が消す 2 つの option が DB から消えたことを確かめる。
+ */
 function cbjp_pm_delete_token(): void {
-	$raw = get_option( 'cbjp_token_colorme', null );
-
-	if ( null === $raw || '' === $raw ) {
+	if ( null === cbjp_pm_option_raw( 'cbjp_token_colorme' ) ) {
 		echo "token: none\n";
 		return;
 	}
 
 	( new TokenStore( 'colorme' ) )->delete();
 
-	if ( null !== ( new TokenStore( 'colorme' ) )->get() ) {
-		cbjp_pm_fail( 'the dummy token is still saved after deleting it.' );
+	foreach ( [ 'cbjp_token_colorme', 'cbjp_token_lock_colorme' ] as $name ) {
+		if ( null !== cbjp_pm_option_raw( $name ) ) {
+			cbjp_pm_fail( "the option {$name} is still saved after deleting the dummy token." );
+		}
 	}
 
 	echo "token: deleted the dummy token\n";
 }
 
 /**
+ * Pro のライセンスの option。片付けはこの順で戻す（状態を先に戻し、キーを最後に消す。途中で止まっても「キーの無い有効化」を残さない）。
+ *
+ * @return array<int,string>
+ */
+function cbjp_pm_license_options(): array {
+	return [ LicenseStore::STATE_OPTION, LicenseStore::LAST_CHECK_OPTION, LicenseStore::INSTANCE_OPTION, LicenseStore::KEY_OPTION ];
+}
+
+/**
  * licensed の撮影: 偽のキーで有効化の記録を作る（サーバーには問い合わせない。更新の確認はモックが止める）。
  */
 function cbjp_pm_activate_license(): void {
-	// 有効化の前に無かった option（状態・instance）は、片付けで消す（Pro の無効化は「未有効化」の状態と instance を残すので、そのままだと撮影の前と違う）。
-	$state            = cbjp_pm_state();
-	$state['license'] = [
-		'had_state'    => null !== get_option( LicenseStore::STATE_OPTION, null ),
-		'had_instance' => null !== get_option( LicenseStore::INSTANCE_OPTION, null ),
-	];
-	cbjp_pm_save_state( $state );
+	// 有効化の前の option の値を控え、片付けがそのまま戻す（Pro の無効化は「未有効化」の状態と instance を残すので、そのままだと撮影の前と違う）。
+	// 控えが無いのに偽のキーがある（記録を失った）なら、撮影の前の値が分からないので止まる。
+	if ( ! array_key_exists( 'license', cbjp_pm_state() ) && null !== cbjp_pm_option_raw( LicenseStore::KEY_OPTION ) ) {
+		cbjp_pm_fail( 'the dummy license key is saved but the record of the manual screenshots does not list it, so the license options before the screenshots are unknown. Delete the ' . implode( ', ', cbjp_pm_license_options() ) . ' options on the tests site first.' );
+	}
+	cbjp_pm_remember_options( 'license', cbjp_pm_license_options() );
 
 	if ( ! ( new LicenseStore() )->save_activation( CBJP_PM_LICENSE_KEY, defined( 'CBJP_PRO_LICENSE_PRODUCT_ID' ) ? (int) CBJP_PRO_LICENSE_PRODUCT_ID : 0 ) ) {
 		cbjp_pm_fail( 'could not save the dummy license activation.' );
@@ -368,37 +496,18 @@ function cbjp_pm_activate_license(): void {
 }
 
 /**
- * 偽のキーの記録を消し、有効化の前に無かった option（状態・instance）も消す。キーが撮影用でなければ止まる。
+ * 偽のキーの有効化を消し、ライセンスの option を有効化の前の値に戻す。キーが撮影用でなければ止まる。
  */
 function cbjp_pm_clear_license(): void {
-	$state   = cbjp_pm_state();
-	$license = $state['license'] ?? null;
-
-	if ( ! is_array( $license ) ) {
+	if ( ! array_key_exists( 'license', cbjp_pm_state() ) ) {
 		return;
 	}
 	if ( ! cbjp_pm_license_is_ours_or_absent() ) {
 		cbjp_pm_fail( 'the saved Pro license is not the manual screenshot dummy. Not clearing it.' );
 	}
 
-	$store = new LicenseStore();
-
-	if ( $store->is_activated() && ! $store->clear_activation() ) {
-		cbjp_pm_fail( 'could not clear the dummy license activation.' );
-	}
-
-	delete_option( LicenseStore::KEY_OPTION );
-	delete_option( LicenseStore::LAST_CHECK_OPTION );
-	if ( false === ( $license['had_state'] ?? null ) ) {
-		delete_option( LicenseStore::STATE_OPTION );
-	}
-	if ( false === ( $license['had_instance'] ?? null ) ) {
-		delete_option( LicenseStore::INSTANCE_OPTION );
-	}
+	cbjp_pm_restore_options( 'license' );
 	delete_site_transient( 'update_plugins' );
-
-	unset( $state['license'] );
-	cbjp_pm_save_state( $state );
 	echo "license: cleared the dummy activation\n";
 }
 
@@ -460,9 +569,14 @@ function cbjp_pm_remove_shipping_zone(): void {
 			cbjp_pm_fail( "the shipping zone {$state['zone_id']} is not the one the screenshots made. Not deleting it." );
 		}
 		foreach ( $zone->get_shipping_methods() as $method ) {
-			delete_option( "woocommerce_{$method->id}_{$method->instance_id}_settings" );
+			cbjp_pm_delete_option( "woocommerce_{$method->id}_{$method->instance_id}_settings" );
 		}
 		$zone->delete();
+
+		$left = WC_Shipping_Zones::get_zone( $state['zone_id'] );
+		if ( $left instanceof WC_Shipping_Zone && $left->get_id() > 0 ) {
+			cbjp_pm_fail( "could not delete the shipping zone {$state['zone_id']}." );
+		}
 	}
 
 	unset( $state['zone_id'] );
@@ -473,8 +587,11 @@ function cbjp_pm_remove_shipping_zone(): void {
 /**
  * 対応付け（カテゴリ・決済・配送・注文ステータス）を、REST の候補一覧から作って保存する（フィクスチャの ID を書き写さない）。
  * カテゴリはエクスポートの向き（Woo → カラーミー）なので、Woo のカテゴリを 2 つ作って先頭 2 つに対応させ、作ったタームを記録する。
+ * 保存先の option の前の値（tests サイトに対応付けがあれば）を控え、片付けが戻す。
  */
 function cbjp_pm_save_mappings(): void {
+	cbjp_pm_remember_options( 'mappings', [ 'cbjp_settings_colorme' ] );
+
 	$candidates = cbjp_pm_rest( 'GET', '/cbjp/v1/settings/mappings/colorme' );
 
 	if ( 200 !== $candidates['status'] || ! is_array( $candidates['data'] ) ) {
@@ -562,7 +679,7 @@ function cbjp_pm_save_mappings(): void {
 }
 
 /**
- * 作ったカテゴリと、保存した対応付けを消す。
+ * 作ったカテゴリを消し、対応付けを撮影の前の値に戻す。
  */
 function cbjp_pm_remove_mappings(): void {
 	$state = cbjp_pm_state();
@@ -576,14 +693,18 @@ function cbjp_pm_remove_mappings(): void {
 		}
 	}
 
-	unset( $state['terms'] );
-	cbjp_pm_save_state( $state );
-	delete_option( 'cbjp_settings_colorme' );
+	if ( array_key_exists( 'terms', $state ) ) {
+		unset( $state['terms'] );
+		cbjp_pm_save_state( $state );
+	}
+
+	cbjp_pm_restore_options( 'mappings' );
 	echo "mappings: removed\n";
 }
 
 /**
- * 開いたままの `colorme` の run（前回の撮影が途中で止まったもの）をキャンセルする。
+ * 開いたままの `colorme` の run のうち、撮影が始めたもの（記録にある run。前の撮影が途中で止まった）をキャンセルし、記録から外す。
+ * 記録に無い run が開いていれば、他の人・テストの run なので、1 つもキャンセルせずに止まる。
  */
 function cbjp_pm_cancel_open_runs(): void {
 	$active = cbjp_pm_rest( 'GET', '/cbjp/v1/runs', [ 'platform' => 'colorme' ] );
@@ -592,15 +713,37 @@ function cbjp_pm_cancel_open_runs(): void {
 		cbjp_pm_fail( 'GET /runs returned HTTP ' . $active['status'] . ': ' . wp_json_encode( $active['data'] ) );
 	}
 
+	$state = cbjp_pm_state();
+	$ours  = $state['runs'] ?? [];
+
+	if ( ! is_array( $ours ) ) {
+		cbjp_pm_fail( 'the record of the runs the screenshots started is broken: ' . wp_json_encode( $ours ) . '.' );
+	}
+
+	$open = [];
 	foreach ( $active['data']['runs'] as $run ) {
 		$run_id = is_array( $run ) && is_string( $run['run_id'] ?? null ) ? $run['run_id'] : '';
-		$cancel = '' === $run_id ? null : cbjp_pm_rest( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
 
-		if ( null === $cancel || 200 !== $cancel['status'] ) {
-			cbjp_pm_fail( 'could not cancel the open run ' . wp_json_encode( $run ) . '.' );
+		if ( '' === $run_id || ! in_array( $run_id, $ours, true ) ) {
+			cbjp_pm_fail( 'a colorme run that the manual screenshots did not start is open: ' . wp_json_encode( $run ) . '. Not cancelling it; let it finish or cancel it on the Tools tab first.' );
+		}
+
+		$open[] = $run_id;
+	}
+
+	foreach ( $open as $run_id ) {
+		$cancel = cbjp_pm_rest( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
+
+		if ( 200 !== $cancel['status'] ) {
+			cbjp_pm_fail( "could not cancel the open run {$run_id} (HTTP {$cancel['status']})." );
 		}
 
 		echo "cancelled the open run {$run_id}\n";
+	}
+
+	if ( array_key_exists( 'runs', $state ) ) {
+		unset( $state['runs'] );
+		cbjp_pm_save_state( $state );
 	}
 }
 
@@ -630,6 +773,12 @@ function cbjp_pm_run( string $type, array $entities ): string {
 	}
 
 	$GLOBALS['cbjp_pm_run_id'] = $run_id;
+
+	// 始めた run を記録する（強制終了で開いたまま残っても、次の撮影・片付けが自分の run と見分けてキャンセルする）。
+	$state           = cbjp_pm_state();
+	$state['runs']   = is_array( $state['runs'] ?? null ) ? $state['runs'] : [];
+	$state['runs'][] = $run_id;
+	cbjp_pm_save_state( $state );
 
 	$jobs_of_run = static function () use ( $run_id ): array {
 		$result = cbjp_pm_rest( 'GET', "/cbjp/v1/runs/{$run_id}" );
@@ -672,6 +821,11 @@ function cbjp_pm_run( string $type, array $entities ): string {
 
 			if ( ! in_array( $job_id, $job_ids, true ) ) {
 				$other = $wpdb->get_row( $wpdb->prepare( "SELECT status FROM {$wpdb->prefix}cbjp_jobs WHERE id = %d", $job_id ), ARRAY_A );
+				// 照会の失敗は「行が無い（古いアクション）」と区別できないので、他の run のアクションを処理しないよう止まる。
+				if ( '' !== $wpdb->last_error ) {
+					$store->release_claim( $claim );
+					cbjp_pm_fail( "could not read the job {$job_id} of a claimed action: " . $wpdb->last_error );
+				}
 				if ( null === $other || in_array( $other['status'] ?? null, [ 'completed', 'failed', 'cancelled' ], true ) ) {
 					$runner->process_action( (int) $action_id, 'CBJP manual screenshots (stale)' );
 				} else {
@@ -735,59 +889,50 @@ function cbjp_pm_run( string $type, array $entities ): string {
 }
 
 /**
- * licensed の取込みの前提: 取り込んだものを片付けで「`colorme` の紐づけが指す実体」として消すので、紐づけ・商品・クーポン・顧客が
- * 1 件も無い（＝消すのは撮影で作ったものだけ）ことを確かめる。PHPUnit の後の tests サイトはこの状態。
+ * ストアの件数（取込みの前提と、取り込んだものを消した後の確かめに使う）。`get_posts()`・`get_users()`・`wc_get_orders()` は照会の失敗を
+ * 空の結果で返すので使わず、件数を SQL で数える。照会が失敗したら止まる（空と読まない）。状態（ゴミ箱・下書き）を問わずに数える。
+ *
+ * @return array<string,int>
  */
-function cbjp_pm_guard_import(): void {
+function cbjp_pm_store_counts(): array {
 	global $wpdb;
 
-	$links = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", 'colorme' ) );
-	if ( '' !== $wpdb->last_error || null === $links ) {
-		cbjp_pm_fail( 'could not count the colorme links: ' . $wpdb->last_error );
+	$count = static function ( string $what, string $sql ) use ( $wpdb ): int {
+		$value = $wpdb->get_var( $sql );
+
+		if ( '' !== $wpdb->last_error || null === $value ) {
+			cbjp_pm_fail( "could not count the {$what}: " . $wpdb->last_error );
+		}
+
+		return (int) $value;
+	};
+
+	// 受注は HPOS の表と投稿の表（同期・旧来の保存先）の両方。HPOS の表が無いサイトでは投稿の表だけ。
+	$orders_table = \Automattic\WooCommerce\Internal\DataStores\Orders\OrdersTableDataStore::get_orders_table_name();
+	$has_hpos     = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $orders_table ) ) );
+	if ( '' !== $wpdb->last_error ) {
+		cbjp_pm_fail( 'could not look for the HPOS orders table: ' . $wpdb->last_error );
 	}
 
-	$counts = [
-		'colorme links' => (int) $links,
-		'products'      => count(
-			get_posts(
-				[
-					'post_type'   => [ 'product', 'product_variation' ],
-					'post_status' => 'any',
-					'numberposts' => 1,
-					'fields'      => 'ids',
-				]
-			)
-		),
-		'coupons'       => count(
-			get_posts(
-				[
-					'post_type'   => 'shop_coupon',
-					'post_status' => 'any',
-					'numberposts' => 1,
-					'fields'      => 'ids',
-				]
-			)
-		),
-		'customers'     => count(
-			get_users(
-				[
-					'role'   => 'customer',
-					'number' => 1,
-					'fields' => 'ID',
-				]
-			)
-		),
-		'orders'        => count(
-			wc_get_orders(
-				[
-					'limit'  => 1,
-					'return' => 'ids',
-					'status' => array_keys( wc_get_order_statuses() ),
-				]
-			)
-		),
+	return [
+		'colorme links'      => $count( 'colorme links', $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}cbjp_mappings WHERE platform = %s", 'colorme' ) ),
+		'products'           => $count( 'products', "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')" ),
+		'coupons'            => $count( 'coupons', "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'shop_coupon'" ),
+		'customers'          => $count( 'customers', $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = %s AND meta_value LIKE %s", $wpdb->get_blog_prefix() . 'capabilities', '%' . $wpdb->esc_like( '"customer"' ) . '%' ) ),
+		'orders'             => $count( 'orders', "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'shop_order'" )
+			+ ( null === $has_hpos ? 0 : $count( 'HPOS orders', "SELECT COUNT(*) FROM {$orders_table} WHERE type = 'shop_order'" ) ),
+		// 既定のカテゴリ（未分類）は WooCommerce が持つものなので数えない。
+		'product categories' => $count( 'product categories', $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'product_cat' AND term_id <> %d", (int) get_option( 'default_product_cat', 0 ) ) ),
+		'product tags'       => $count( 'product tags', "SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'product_tag'" ),
 	];
-	$found  = array_filter( $counts );
+}
+
+/**
+ * licensed の取込みの前提: 取り込んだものを片付けで「`colorme` の紐づけが指す実体」として消すので、紐づけ・商品・クーポン・顧客・受注・
+ * 商品のカテゴリーとタグが 1 件も無い（＝消すのは撮影で作ったものだけ）ことを確かめる。PHPUnit の後の tests サイトはこの状態。
+ */
+function cbjp_pm_guard_import(): void {
+	$found = array_filter( cbjp_pm_store_counts() );
 
 	if ( [] !== $found ) {
 		cbjp_pm_fail( 'the tests site already has ' . implode( ', ', array_keys( $found ) ) . '. The licensed screenshots import into an empty store and delete what they import afterwards, so they do not start here (run PHPUnit or clean the tests site first).' );
@@ -829,16 +974,17 @@ function cbjp_pm_remove_imported(): void {
 	$deleted = [];
 	foreach ( $order as $type ) {
 		foreach ( array_unique( $by_type[ $type ] ?? [] ) as $id ) {
+			$ok = true;
 			switch ( $type ) {
 				case 'order':
 					$object = wc_get_order( $id );
 					if ( $object ) {
-						$object->delete( true );
+						$ok = $object->delete( true );
 					}
 					break;
 				case 'coupon':
 					if ( 'shop_coupon' === get_post_type( $id ) ) {
-						wp_delete_post( $id, true );
+						$ok = (bool) wp_delete_post( $id, true );
 					}
 					break;
 				case 'customer':
@@ -847,7 +993,7 @@ function cbjp_pm_remove_imported(): void {
 						if ( [ 'customer' ] !== array_values( $user->roles ) ) {
 							cbjp_pm_fail( "the linked user {$id} is not only a customer. Not deleting it." );
 						}
-						wp_delete_user( $id );
+						$ok = wp_delete_user( $id );
 					}
 					break;
 				case 'stock':
@@ -855,16 +1001,19 @@ function cbjp_pm_remove_imported(): void {
 				case 'product':
 					$object = wc_get_product( $id );
 					if ( $object && get_post( $id ) instanceof WP_Post ) {
-						$object->delete( true );
+						$ok = $object->delete( true );
 					}
 					break;
 				case 'tag':
 				case 'category':
 					$taxonomy = 'tag' === $type ? 'product_tag' : 'product_cat';
 					if ( get_term( $id, $taxonomy ) instanceof WP_Term ) {
-						wp_delete_term( $id, $taxonomy );
+						$ok = true === wp_delete_term( $id, $taxonomy );
 					}
 					break;
+			}
+			if ( true !== $ok ) {
+				cbjp_pm_fail( "could not delete the imported {$type} {$id}. The colorme links are kept so that cleanup can run again." );
 			}
 			$deleted[ $type ] = ( $deleted[ $type ] ?? 0 ) + 1;
 		}
@@ -879,49 +1028,10 @@ function cbjp_pm_remove_imported(): void {
 		cbjp_pm_fail( 'could not delete the colorme links: ' . $wpdb->last_error );
 	}
 
-	// 消し残しを数え直す（取込みの前提と同じ範囲）。
-	$left = [
-		'products'  => count(
-			get_posts(
-				[
-					'post_type'   => [ 'product', 'product_variation' ],
-					'post_status' => 'any',
-					'numberposts' => 1,
-					'fields'      => 'ids',
-				]
-			)
-		),
-		'coupons'   => count(
-			get_posts(
-				[
-					'post_type'   => 'shop_coupon',
-					'post_status' => 'any',
-					'numberposts' => 1,
-					'fields'      => 'ids',
-				]
-			)
-		),
-		'customers' => count(
-			get_users(
-				[
-					'role'   => 'customer',
-					'number' => 1,
-					'fields' => 'ID',
-				]
-			)
-		),
-		'orders'    => count(
-			wc_get_orders(
-				[
-					'limit'  => 1,
-					'return' => 'ids',
-					'status' => array_keys( wc_get_order_statuses() ),
-				]
-			)
-		),
-	];
-	if ( [] !== array_filter( $left ) ) {
-		cbjp_pm_fail( 'after deleting the imported data, these remain: ' . implode( ', ', array_keys( array_filter( $left ) ) ) . '.' );
+	// 消し残しを数え直す（取込みの前提と同じ範囲。対応付けのために作ったカテゴリは、片付けがこれより前に消す）。
+	$left = array_filter( cbjp_pm_store_counts() );
+	if ( [] !== $left ) {
+		cbjp_pm_fail( 'after deleting the imported data, these remain: ' . wp_json_encode( $left ) . '.' );
 	}
 
 	unset( $state['imported'] );
@@ -947,17 +1057,20 @@ function cbjp_pm_guard_teardown( array $args ): bool {
 	$active = function_exists( 'WC' ) && class_exists( TokenStore::class ) && class_exists( LicenseStore::class );
 
 	if ( ! $active ) {
-		$raw   = get_option( 'cbjp_token_colorme', null );
-		$state = get_option( CBJP_PM_STATE, [] );
-		if ( ( null !== $raw && '' !== $raw ) || ( is_array( $state ) && [] !== $state ) ) {
+		// 壊れた記録も「残っている」と読む（DB の行の有無で見る）。
+		if ( null !== cbjp_pm_option_raw( 'cbjp_token_colorme' ) || null !== cbjp_pm_option_raw( CBJP_PM_STATE ) ) {
 			cbjp_pm_fail( 'WooCommerce, the free plugin or the Pro add-on is inactive on the tests site, but a colorme token or the record of the manual screenshots remains. Activate them (npx wp-env run tests-cli wp plugin activate woocommerce cart-bridge-jp cart-bridge-jp-pro) while the mock is still installed, then run capture.sh cleanup again.' );
 		}
 		echo "teardown: the plugins are not active and nothing of the manual screenshots remains\n";
 		return false;
 	}
 
+	// 何かを消す・キャンセルする前に、トークンとライセンスの両方が撮影のものか無いことを確かめる。
 	if ( ! cbjp_pm_token_is_ours_or_absent() ) {
 		cbjp_pm_fail( 'a colorme token other than the manual screenshot dummy is saved on the tests site. Not cancelling runs or deleting it.' );
+	}
+	if ( ! cbjp_pm_license_is_ours_or_absent() ) {
+		cbjp_pm_fail( 'a Pro license other than the manual screenshot dummy is saved on the tests site. Not cancelling runs or deleting anything.' );
 	}
 
 	wp_set_current_user( 1 );
@@ -1037,13 +1150,15 @@ function cbjp_pm_teardown( array $args ): void {
 	}
 
 	cbjp_pm_cancel_open_runs();
-	cbjp_pm_remove_imported();
+	// 対応付けのために作ったカテゴリを先に消す（取り込んだものを消した後の確かめが、商品のカテゴリーを 0 件と数えるように）。
 	cbjp_pm_remove_mappings();
+	cbjp_pm_remove_imported();
 	cbjp_pm_remove_account_page();
 	cbjp_pm_remove_shipping_zone();
 	cbjp_pm_clear_license();
 	cbjp_pm_delete_token();
 	cbjp_pm_remove_translations();
+	cbjp_pm_restore_options( 'site' );
 
 	$left = cbjp_pm_state();
 	if ( [] !== $left ) {
