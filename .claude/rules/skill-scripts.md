@@ -131,4 +131,5 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **GitHub Actions のワークフロー**（R3-4a の `deploy-wporg.yml`）: (1) 入力・タグ名は `env:` で渡し、`run:` に `${{ }}` で埋め込まない。
   (2) secrets を使う step は `npm ci`（依存のスクリプトが動く）と同じジョブに置かない（同じジョブの前の step は、取得済みの action のスクリプトを書き換えて資格情報を読める）。
   secrets の無いジョブで作った物を artifact で渡し（v4 は既定でドットで始まるファイルを落とすので `include-hidden-files: true`）、checkout は `persist-credentials: false`。
-  (3) Environment の「デプロイできるブランチ・タグ」の制限は、ワークフローを実行した ref に掛かり、入力で選んで checkout したタグには掛からない（タグだけを許すと main からの手動実行が拒否される。R3-4a R2-3）
+  (3) Environment の「デプロイできるブランチ・タグ」の制限は、ワークフローを実行した ref に掛かり、入力で選んで checkout したタグには掛からない（タグだけを許すと main からの手動実行が拒否される。R3-4a R2-3）。
+  (4) `deploy-wporg.yml` は `.wordpress-org/` の assets をタグの commit から取り、10up の action は SVN に `tags/<版>` が既にあると assets も送らずに終わる。画像を変えたら次の版のタグで送る（手動実行では届かない。PR #148）
