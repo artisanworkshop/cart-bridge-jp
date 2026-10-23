@@ -1,0 +1,49 @@
+{
+  "shop_coupons": [
+    {
+      "id": 900001,
+      "name": "はじめてのご注文 500円引き",
+      "code": "WELCOME500",
+      "coupon_type": "amount",
+      "discount_amount": 500,
+      "minimum_amount": 3000,
+      "starts_at": 1774969200,
+      "ends_at": 1806418800,
+      "total_usage_limit": 0,
+      "usage_limit": "disposable",
+      "group_limit_type": "none",
+      "status": "available",
+      "group_ids": []
+    },
+    {
+      "id": 900002,
+      "name": "秋の感謝祭 10%オフ",
+      "code": "AUTUMN10",
+      "coupon_type": "rate",
+      "discount_amount": 10,
+      "minimum_amount": 0,
+      "starts_at": 1788188400,
+      "ends_at": 1798642800,
+      "total_usage_limit": 100,
+      "usage_limit": "indisposable",
+      "group_limit_type": "none",
+      "status": "available",
+      "group_ids": []
+    },
+    {
+      "id": 900003,
+      "name": "送料無料",
+      "code": "FREESHIP",
+      "coupon_type": "delivery_charge",
+      "discount_amount": 0,
+      "minimum_amount": 5000,
+      "starts_at": 1774969200,
+      "ends_at": 1806418800,
+      "total_usage_limit": 0,
+      "usage_limit": "indisposable",
+      "group_limit_type": "none",
+      "status": "available",
+      "group_ids": []
+    }
+  ]
+}

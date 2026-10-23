@@ -9,6 +9,10 @@
 	<file>.claude/skills</file>
 	<!-- wordpress.org 用スクリーンショットの mu-plugin（共有スキル wporg-screenshots のフック）。setup.php・teardown.php は echo・exit を使う使い捨ての補助なので対象にしない。 -->
 	<file>.claude/wporg-screenshots/mu-plugin.php</file>
+	<!-- Pro のマニュアル用スクリーンショットのモックと mu-plugin（同じく wporg-screenshots のフック）。shared/lib.php・setup.php・teardown.php は echo・exit を使う撮影用の補助なので対象にしない。 -->
+	<file>.claude/pro-manual-screenshots/shared/mock.php</file>
+	<file>.claude/pro-manual-screenshots/trial/mu-plugin.php</file>
+	<file>.claude/pro-manual-screenshots/licensed/mu-plugin.php</file>
 
 	<exclude-pattern>/vendor/*</exclude-pattern>
 	<exclude-pattern>/node_modules/*</exclude-pattern>

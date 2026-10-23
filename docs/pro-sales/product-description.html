@@ -1,0 +1,255 @@
+<!-- wp:group {"style":{"color":{"background":"#1b2e5b","text":"#ffffff"},"spacing":{"padding":{"top":"2.5rem","right":"2rem","bottom":"2.5rem","left":"2rem"}},"border":{"radius":"12px"}},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group has-text-color has-background" style="border-radius:12px;color:#ffffff;background-color:#1b2e5b;padding-top:2.5rem;padding-right:2rem;padding-bottom:2.5rem;padding-left:2rem"><!-- wp:paragraph {"style":{"color":{"text":"#e9b949"},"typography":{"fontWeight":"700"}}} -->
+<p class="has-text-color" style="color:#e9b949;font-weight:700">無料プラグイン Cart Bridge JP のアドオン</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading {"level":3,"style":{"color":{"text":"#ffffff"},"typography":{"fontSize":"1.75rem","lineHeight":"1.4"}}} -->
+<h3 class="wp-block-heading has-text-color" style="color:#ffffff;font-size:1.75rem;line-height:1.4">顧客・受注・クーポンも、WooCommerce へ。</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph {"style":{"color":{"text":"#ffffff"}}} -->
+<p class="has-text-color" style="color:#ffffff">Cart Bridge JP Pro は、カラーミーショップと WooCommerce の間でデータを移す無料プラグイン「Cart Bridge JP」に、顧客・受注・クーポンの移行を加えるアドオンです。商品は無料版で、会員と注文の履歴は Pro で移せます。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph {"style":{"color":{"text":"#ffffff"}}} -->
+<p class="has-text-color" style="color:#ffffff">ライセンスキーが無くても、全件の dry-run（何も書き込まないプレビュー）を実行できます。ご自身のショップのデータで結果を確かめてからご購入ください。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:buttons -->
+<div class="wp-block-buttons"><!-- wp:button {"style":{"color":{"background":"#e0452e","text":"#ffffff"}}} -->
+<div class="wp-block-button"><a class="wp-block-button__link has-text-color has-background wp-element-button" href="{{TRIAL_URL}}" style="color:#ffffff;background-color:#e0452e">0 円の Pro で dry-run を試す</a></div>
+<!-- /wp:button -->
+
+<!-- wp:button {"className":"is-style-outline","style":{"color":{"text":"#ffffff"}}} -->
+<div class="wp-block-button is-style-outline"><a class="wp-block-button__link has-text-color wp-element-button" href="https://wordpress.org/plugins/cart-bridge-jp/" style="color:#ffffff">無料版 Cart Bridge JP（WordPress.org）</a></div>
+<!-- /wp:button --></div>
+<!-- /wp:buttons --></div>
+<!-- /wp:group -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">無料版と Pro の分担</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Pro は単体では動きません。WordPress.org で配布している無料版 Cart Bridge JP に機能を足すアドオンです。商品まわりは無料版が、顧客・受注・クーポンは Pro が移します。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>表の「取り込み」はカラーミーショップから WooCommerce へ、「エクスポート」は WooCommerce からカラーミーショップへの移行です。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:table {"hasFixedLayout":false} -->
+<figure class="wp-block-table"><table><thead><tr><th>データ</th><th>取り込み</th><th>エクスポート</th><th>必要なもの</th></tr></thead><tbody><tr><td>カテゴリ・グループ</td><td>○</td><td>—（※1）</td><td>無料版</td></tr><tr><td>商品（オプション・画像を含む）</td><td>○</td><td>○（画像のアップロードは Beta。※2）</td><td>無料版</td></tr><tr><td>在庫</td><td>○</td><td>○</td><td>無料版</td></tr><tr><td><strong>顧客</strong></td><td>○</td><td>○</td><td><strong>Pro</strong></td></tr><tr><td><strong>受注</strong></td><td>○</td><td>Beta（※2）</td><td><strong>Pro</strong></td></tr><tr><td><strong>クーポン</strong></td><td>○</td><td>—（※3）</td><td><strong>Pro</strong></td></tr></tbody></table></figure>
+<!-- /wp:table -->
+
+<!-- wp:paragraph {"style":{"typography":{"fontSize":"0.875rem"}}} -->
+<p style="font-size:0.875rem">※1 カラーミーショップの API ではカテゴリを作れないため、WooCommerce のカテゴリをカラーミーショップの既存のカテゴリに対応付けて送ります。<br>※2 カラーミーショップのプレミアムプランでだけ使える API を使います。プレミアムプランの実店舗ではまだ確かめていないため Beta として提供し、既定ではオフです。<br>※3 カラーミーショップの API では、クーポンは読み取ることしかできません。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Pro でできること</h3>
+<!-- /wp:heading -->
+
+<!-- wp:columns -->
+<div class="wp-block-columns"><!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">顧客を移す</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>氏名・メールアドレス・住所・電話番号・会社名などを、WooCommerce の顧客として取り込みます。WooCommerce に項目の無いフリガナ・生年月日・メールマガジンの購読の有無も、顧客のデータとして残します。同じメールアドレスのアカウントがすでにあれば、新しく作らずに結び付けます。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column -->
+
+<!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">受注を移す</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>注文番号・注文日時・明細・金額・決済方法・配送先・ステータスを、WooCommerce の注文として取り込み、購入した顧客と結び付けます。HPOS（高性能な注文の保存）に対応しています。取り込んだ注文で在庫が減ったり、注文のメールが送られたりはしません。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column --></div>
+<!-- /wp:columns -->
+
+<!-- wp:columns -->
+<div class="wp-block-columns"><!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">クーポンを移す</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>コード・割引の種類と額・最低購入金額・有効期限・利用回数の上限・送料無料の設定を、WooCommerce のクーポンとして取り込みます。WooCommerce で表せない条件を持つクーポンは、条件を落として作ることはせず、警告を付けて取り込みを見送ります。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column -->
+
+<!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">決済・配送・ステータスを対応付ける</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>カラーミーショップの決済方法・配送方法・注文ステータスを、WooCommerce のどれに当てるかを設定画面で選べます。対応付けた内容で受注を取り込みます。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column --></div>
+<!-- /wp:columns -->
+
+<!-- wp:columns -->
+<div class="wp-block-columns"><!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">パスワード設定メールを送る</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>取り込んだ顧客へ、新しいストアでパスワードを設定するための案内を一斉に送れます。管理者宛てのテスト送信で文面を確かめてから、少しずつ送ります。止めても続きから再開でき、すでにパスワードを設定し直した顧客には送りません。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column -->
+
+<!-- wp:column {"style":{"color":{"background":"#f4f6fb"},"spacing":{"padding":{"top":"1.25rem","right":"1.25rem","bottom":"1.25rem","left":"1.25rem"}},"border":{"radius":"10px"}}} -->
+<div class="wp-block-column has-background" style="border-radius:10px;background-color:#f4f6fb;padding-top:1.25rem;padding-right:1.25rem;padding-bottom:1.25rem;padding-left:1.25rem"><!-- wp:heading {"level":4} -->
+<h4 class="wp-block-heading">移行の前後に確かめる</h4>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>dry-run の警告レポート（CSV）に、顧客・受注・クーポンの警告の原因と直し方が並びます。取り込みの後は、検証レポートで件数と受注の金額をカラーミーショップと突き合わせられます。</p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:column --></div>
+<!-- /wp:columns -->
+
+<!-- wp:group {"style":{"color":{"background":"#fdf6e3"},"spacing":{"padding":{"top":"1.75rem","right":"1.75rem","bottom":"1.75rem","left":"1.75rem"}},"border":{"radius":"12px"}},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group has-background" style="border-radius:12px;background-color:#fdf6e3;padding-top:1.75rem;padding-right:1.75rem;padding-bottom:1.75rem;padding-left:1.75rem"><!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">購入の前に、全件を dry-run で確かめられます</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>ライセンスキーを有効化していない Pro でも、顧客・受注・クーポンの dry-run を件数の制限なく実行できます。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list {"ordered":true} -->
+<ol class="wp-block-list"><!-- wp:list-item -->
+<li>0 円の「Cart Bridge JP Pro」を注文して、プラグインをダウンロードします。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>無料版 Cart Bridge JP と Pro をインストールし、カラーミーショップに接続して dry-run を実行します。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>警告レポート（CSV）で、全件の変換結果と警告を確かめます。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>問題が無ければライセンスキーを購入し、Pro の設定画面で有効化します。プラグインを入れ直す必要はありません。</li>
+<!-- /wp:list-item --></ol>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>キーを有効化するまでは、実際の取り込み・エクスポートと、パスワード設定メールの一斉送信はできません。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p><strong>購入後の返金には対応していません。必ず dry-run の結果を確かめてからご購入ください。</strong></p>
+<!-- /wp:paragraph --></div>
+<!-- /wp:group -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">ライセンス</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list"><!-- wp:list-item -->
+<li>1 つのライセンスキーを、本番・ステージング・検証用など、サイトの数に制限なく有効化できます。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>初回の有効化から 3 か月間、アップデートとメールでのサポートをご利用いただけます。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>期限が過ぎても、有効化済みのサイトではそのまま使い続けられます。新しいサイトでの有効化とアップデートの受け取りはできなくなるため、新しい移行の案件では改めてご購入ください。</li>
+<!-- /wp:list-item -->
+
+<!-- wp:list-item -->
+<li>定期的な差分の同期や在庫の双方向の同期など、継続的な同期には対応していません。一度きりの移行のためのアドオンです。</li>
+<!-- /wp:list-item --></ul>
+<!-- /wp:list -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">動作環境</h3>
+<!-- /wp:heading -->
+
+<!-- wp:table {"hasFixedLayout":false} -->
+<figure class="wp-block-table"><table><tbody><tr><td>WordPress</td><td>6.9 以上</td></tr><tr><td>PHP</td><td>8.2 以上（sodium 拡張が必要です。多くの環境に含まれています）</td></tr><tr><td>WooCommerce</td><td>10.0 以上（HPOS に対応）</td></tr><tr><td>Cart Bridge JP（無料版）</td><td>最新版（WordPress.org から無料でインストールできます）</td></tr><tr><td>カラーミーショップ</td><td>ショップと、カラーミーショップのデベロッパーセンターに登録したご自身のアプリ。アプリの承認にはショップのオーナーのアカウントが必要です（副管理者のアカウントでは承認できません）。</td></tr></tbody></table></figure>
+<!-- /wp:table -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">よくある質問</h3>
+<!-- /wp:heading -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>無料版だけで移行できますか？</summary><!-- wp:paragraph -->
+<p>商品・カテゴリ・グループ・在庫は、無料版だけで移せます。顧客・受注・クーポンを移すときに Pro が必要です。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>ライセンスキーが無いと、何ができますか？</summary><!-- wp:paragraph -->
+<p>顧客・受注・クーポンの dry-run（件数の制限なし）と警告レポートの確認、パスワード設定メールの送り先の確認とテスト送信ができます。実際の取り込み・エクスポート、メールの一斉送信、アップデートの受け取りは、キーを有効化した後に使えます。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>取り込んだ顧客は、新しいストアにログインできますか？</summary><!-- wp:paragraph -->
+<p>カラーミーショップのパスワードは移せないため、取り込みでは顧客のアカウントをランダムなパスワードで作ります。新しいストアに切り替えた後、Pro のパスワード設定メールで、パスワードを設定するためのリンクを送ってください。リンクの有効期限は 24 時間で、期限が切れたときのためにパスワードの再設定のページも案内します。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>移行の途中で、顧客にメールが届きますか？</summary><!-- wp:paragraph -->
+<p>届きません。顧客や注文を取り込むときに、アカウント作成や注文のメールは送りません。顧客へのメールは、管理者がパスワード設定メールの送信を始めたときだけ送られます。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>無料版で接続済みです。Pro を入れた後に必要なことはありますか？</summary><!-- wp:paragraph -->
+<p>無料版は、商品の読み書きの権限だけを求めてカラーミーショップに接続します。Pro を有効にすると顧客・受注・クーポンの権限も必要になるため、接続の画面の案内に従ってカラーミーショップに接続し直してください。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>受注をカラーミーショップへ送れますか？</summary><!-- wp:paragraph -->
+<p>プレミアムプランのショップでは、Beta として送れます（既定はオフです）。カラーミーショップに受注を作る操作で、プレミアムプランの実店舗ではまだ確かめていないため、テスト用のショップで試してからお使いください。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>カラーミーショップと WooCommerce を同期できますか？</summary><!-- wp:paragraph -->
+<p>できません。カラーミーショップから WooCommerce へ、または WooCommerce からカラーミーショップへの、一方向の移行のためのプラグインです。同じデータを行き来させる使い方には対応していません。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>BASE や MakeShop には対応していますか？</summary><!-- wp:paragraph -->
+<p>現在はカラーミーショップだけに対応しています。BASE・MakeShop は、今後のバージョンで対応する予定です。</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
+
+<!-- wp:group {"style":{"color":{"background":"#1b2e5b","text":"#ffffff"},"spacing":{"padding":{"top":"2rem","right":"2rem","bottom":"2rem","left":"2rem"}},"border":{"radius":"12px"}},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group has-text-color has-background" style="border-radius:12px;color:#ffffff;background-color:#1b2e5b;padding-top:2rem;padding-right:2rem;padding-bottom:2rem;padding-left:2rem"><!-- wp:heading {"level":3,"style":{"color":{"text":"#ffffff"}}} -->
+<h3 class="wp-block-heading has-text-color" style="color:#ffffff">まずは 0 円の Pro で、全件の dry-run を。</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph {"style":{"color":{"text":"#ffffff"}}} -->
+<p class="has-text-color" style="color:#ffffff">ご自身のショップのデータで、移せるものと直すものを確かめてからご購入いただけます。</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:buttons -->
+<div class="wp-block-buttons"><!-- wp:button {"style":{"color":{"background":"#e0452e","text":"#ffffff"}}} -->
+<div class="wp-block-button"><a class="wp-block-button__link has-text-color has-background wp-element-button" href="{{TRIAL_URL}}" style="color:#ffffff;background-color:#e0452e">0 円の Pro で dry-run を試す</a></div>
+<!-- /wp:button --></div>
+<!-- /wp:buttons --></div>
+<!-- /wp:group -->
+
+<!-- wp:paragraph {"style":{"color":{"text":"#6b7280"},"typography":{"fontSize":"0.8125rem"}}} -->
+<p class="has-text-color" style="color:#6b7280;font-size:0.8125rem">WooCommerce は Automattic Inc. の商標です。カラーミーショップは GMO ペパボ株式会社の商標です。Cart Bridge JP は、Automattic Inc. および GMO ペパボ株式会社とは関係がなく、両社が推奨するものでもありません。</p>
+<!-- /wp:paragraph -->
