@@ -5,6 +5,7 @@ paths:
   - ".claude/skills/**/examples/**"
   - ".claude/skills/**/php/**"
   - ".claude/wporg-screenshots/**"
+  - ".claude/pro-manual-screenshots/**"
   - "bin/**"
   - ".github/workflows/**"
 ---
@@ -37,11 +38,17 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   あると、モックを外した後で管理画面・WP-Cron・プラグインの再有効化から実 API へ通信が出る。片付けられないとき（プラグインが無効など。無効化はデータを消さない）は
   モックを残して失敗する。片付けは自分の作ったものだけにし、他人のトークン・run には触れない（トークンは生の option で持ち主を肯定形で確かめる。
   復号できない値は `TokenStore::get()` が null を返すので、null を「無い」と読まない）。`.claude/wporg-screenshots/teardown.php`。PR #112 の G1〜G3 で 1 段ずつ指摘された
+- **tests サイトを書き換えるフック（setup・teardown）は、記録してから変え、記録と照合できたものだけを戻す**（PR #152 で Copilot が 3 ラウンド・13 件、すべてこの形）。
+  書き換える option は前の DB の生の値を控えて戻し、消した・戻したことも DB の行で確かめる（`delete_option()` は DB の削除が失敗しても `notoptions` に「無い」と書く）。
+  消す・上書きするのは、記録にあり持ち主の印（偽のトークン・名前・SHA-256・自分が始めた run の ID）が一致するものだけ（記録の名前だけでは、言語パックの更新が置き換えたファイルを上書きする。
+  `wp_delete_term()` が既定を守るのは `category` と `default_term` を登録したタクソノミーだけで、WooCommerce の既定の商品カテゴリー〔`default_product_cat`〕は消える）。
+  記録（中の一覧・ID も）が壊れていれば空と読まずに止まり、照会の失敗（`$wpdb->last_error`）でも止まる。プラグインが無効で片付けられない経路も、トークン・ライセンス・開いた job の行を直接読み、残っていれば止まる。
+  `.claude/pro-manual-screenshots/shared/lib.php`。無料版の `.claude/wporg-screenshots/` の setup・teardown（開いた run をすべてキャンセルする・サイトの option を戻さない）はまだこの形になっていない
 - **wp-env の tests サイト（10011）と PHPUnit は同じ DB・同じ接頭辞を使う**。PHPUnit が起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけで、
   プラグイン・WooCommerce の独自テーブル（`cbjp_jobs` などと Action Scheduler・配送ゾーン）の行は残る。tests サイトで検証の run を開いたまま残すと、
   `colorme` で run の排他を通るテストが 409 になりうる（PR #112 R1-3・R1-4）
 - **bot レビュー本文の整形（`gate-bodies.sh`）は、本文の形式が変わっても指摘を握りつぶさない側に倒す**。Copilot の本文は旧形式（`Suppressed comments`）と新形式（`ccr-overview-v2`: `Open`/`Previously missed`/`What changed in this PR` の `<details>`）が混在し、`Previously missed` はスレッドの無い新規指摘なのに旧版は整形出力に出さず、`--raw` で読まなければ見落とすところだった（PR #61 G2）。未知の `<details>` 節は出す側に倒し、ノイズと分かっている節（ファイル要約の表）だけ明示的に除外する。整形ロジックの回帰テストは `scripts/test-gate-bodies.sh`（`--format` に fixtures の本文を流す。ネットワーク不要。`quality.sh` と CI の `dev-tooling` ジョブで実行される）
-- スクリプトは手元の macOS（bash 3.2・BSD awk）と CI の `dev-tooling` ジョブ（Ubuntu の bash 5・mawk）の**両方で動く**書き方にする。`test-gate-bodies.sh`・`test-gate-turn.sh`・`test-gate-record.sh` は `quality.sh` の末尾と CI で実行される（PR #64・#66・#68）。他の補助スクリプトにテストを足すときも同ジョブに追加する。手元で Ubuntu の挙動を確かめるには `docker run --rm -v "$PWD":/repo:ro -w /repo ubuntu:24.04 bash -c '…'`（`jq perl git` を入れ、`git config --global --add safe.directory /repo`）
+- スクリプトは手元の macOS（bash 3.2・BSD awk）と CI の `dev-tooling` ジョブ（Ubuntu の bash 5・mawk）の**両方で動く**書き方にする。`test-gate-bodies.sh`・`test-gate-turn.sh`・`test-gate-record.sh` は `quality.sh` の末尾と CI で実行される（PR #64・#66・#68）。他の補助スクリプトにテストを足すときも同ジョブに追加する。手元で Ubuntu の挙動を確かめるには `docker run --rm -v "$PWD":/repo:ro -w /repo ubuntu:24.04 bash -c '…'`（`jq perl git` を入れ、`git config --global --add safe.directory /repo`）。Copilot は macOS の BSD `find` に `-maxdepth` が無いと誤って指摘する（ある。`man find` と実行で確かめて返信する。PR #152）
 - **bash のダブルクォート内で `$変数` の直後に全角文字（`（` など）を置かない**（`$RC（期待…）` は `unbound variable` で `set -u` 下のスクリプトを FAIL も出さずに異常終了させる。`${RC}` と書く）。テスト自身のメッセージで起きやすく、`test-gate-turn.sh` とフックのテストで実際に踏んだ。ミューテーションで「FAIL が明示的に報告されること」まで確かめると気付ける。
   **さらに、`set -e` と `trap … EXIT` の両方を持つテストスクリプトは、macOS の bash 3.2 だとこの異常終了が終了コード 0 になる**（`set -euo pipefail` +
   トラップ〔中身は `:` でも `rm -rf` でも〕=0、トラップ無し=1、`set -uo pipefail`〔`-e` なし〕+ トラップ=1 を実測。`rc=$?` を保存する書き方でも 0）。
