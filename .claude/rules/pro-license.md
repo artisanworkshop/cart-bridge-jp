@@ -25,6 +25,7 @@ paths:
 - `wp_update_plugins()` は wordpress.org への要求が失敗する（WP_Error・200 以外）と、`update_plugins_{host}` を呼ぶ前に戻る（`wp-includes/update.php`）。wordpress.org に届かないサイトには Pro の更新も出ない（コアの仕様）。`checked` は wordpress.org の応答の後に全プラグインへ入るので、確かめる側は `checked` に Pro があるか（とヘッダーの `Update URI` が空でないか）で、WP が Update URI の段まで進んだかを見分ける（`measure-api-manager` の `e2e check`。PR #127 R1-2・R2-2）
 - `wp_update_plugins()` を通すテストは、`wp_cache_set( 'plugins', [ '' => $plugins ], 'plugins' )` で `get_plugins()` の結果に `UpdateURI` を持つ Pro を入れ、wordpress.org への要求（`pre_http_request`）には `plugins`・`translations`・`no_update` が空の 200 応答を返す
   （上の早期の return を避ける。`UpdateCheckerTest`）。更新の実行（`Plugin_Upgrader`）は dev・tests サイトでも行わない（CLAUDE.md のコマンド欄）
+- **測った版の応答のフィクスチャ（`update_*` の `new_version` など）を、今の版との大小に頼るテストでそのまま使わない**。WP は今の版より新しい版しか `response` に入れないので、Pro の版を上げるとフィクスチャの版が追い越されて落ちる（PR #150: 0.1.0 で測った 0.1.1 が 1.0.0 で古くなった）。`CBJP_PRO_VERSION` から 1 つ上の版を作って差し替える（`UpdateCheckerTest::newer_version()`）
 - **有効化の記録だけを「有効化済み」と読ませると（`pre_option_cbjp_pro_license_state` のフィルターなど）、`UpdateChecker` は DB に残ったキーで販売サイトに問い合わせる**
   （`credentials()` は `is_activated()`・読めるキー・`instance()` を使い、`instance()` は option が無ければ作る）。前に有効化した・保存の途中で失敗したサイトにはキーが残りうる。
   キー無しで Pro を動かすときは、キーの読み出しも空にして保存も止める（`verify-with-mock-adapter` の `pro-unlock`。PR #143 Copilot。修正前の形で dev から実際に送られることを再現した）
