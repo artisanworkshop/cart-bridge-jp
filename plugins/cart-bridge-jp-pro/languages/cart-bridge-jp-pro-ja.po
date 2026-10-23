@@ -31,15 +31,15 @@ msgstr "Cart Bridge JP – Migrate for WooCommerce の Pro アドオンです。
 msgid "Artisan Workshop"
 msgstr "Artisan Workshop"
 
-#: cart-bridge-jp-pro.php:139
+#: cart-bridge-jp-pro.php:140
 msgid "Cart Bridge JP Pro requires WooCommerce and Cart Bridge JP to be installed and active."
 msgstr "Cart Bridge JP Pro を使うには、WooCommerce と Cart Bridge JP をインストールして有効化してください。"
 
-#: cart-bridge-jp-pro.php:152
+#: cart-bridge-jp-pro.php:153
 msgid "Cart Bridge JP Pro requires a newer version of Cart Bridge JP. Update Cart Bridge JP to use the Pro add-on."
 msgstr "Cart Bridge JP Pro には、より新しいバージョンの Cart Bridge JP が必要です。Pro アドオンを使うには、Cart Bridge JP を更新してください。"
 
-#: cart-bridge-jp-pro.php:165
+#: cart-bridge-jp-pro.php:166
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr "Cart Bridge JP Pro の依存ファイルを読み込めませんでした。プラグインのディレクトリで「composer install」を実行してください。"
 

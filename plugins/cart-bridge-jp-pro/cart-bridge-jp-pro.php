@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Cart Bridge JP Pro
  * Description: Pro add-on for Cart Bridge JP – Migrate for WooCommerce.
- * Version: 0.1.0
+ * Version: 1.0.0
  * Requires at least: 6.9
  * Requires PHP: 8.2
  * Requires Plugins: woocommerce, cart-bridge-jp
@@ -11,6 +11,7 @@
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: cart-bridge-jp-pro
  * Domain Path: /languages
+ * Update URI: https://wc.artws.info/
  *
  * WC requires at least: 10.0
  *
@@ -23,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CBJP_PRO_VERSION', '0.1.0' );
+define( 'CBJP_PRO_VERSION', '1.0.0' );
 define( 'CBJP_PRO_FILE', __FILE__ );
 define( 'CBJP_PRO_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CBJP_PRO_URL', plugin_dir_url( __FILE__ ) );
@@ -31,13 +32,13 @@ define( 'CBJP_PRO_URL', plugin_dir_url( __FILE__ ) );
 // Pro が使う無料版の拡張点の版（無料版の `CBJP_EXTENSION_API_VERSION`。R3-6c1。R3-6c2 で 2、R3-8b で 3、R3-10 で 4、R3-11 で 5）。無料版のこれより古い版では起動しない。
 define( 'CBJP_PRO_REQUIRED_EXTENSION_API', 5 );
 
-// ライセンスの接続先（販売サイトの WooCommerce API Manager。R3-8a）。販売サイトが決まるまで空で、`LicenseConfigTest` が版 1.0.0 以上で空のまま・https でないままの公開を止める（ここの既定値を読む）。
+// ライセンスの接続先（販売サイトの WooCommerce API Manager。R3-8a。入口は `<接続先>?wc-api=wc-am-api`）。`LicenseConfigTest` と `bin/check-pro-zip.php` が、版 1.0.0 以上で空・https でない・ヘッダーの `Update URI` と host が違うままの公開を止める（ここの既定値を読む）。
 // wp-config.php で先に定義すると上書きできる（開発・検証用）。
 if ( ! defined( 'CBJP_PRO_LICENSE_API_URL' ) ) {
-	define( 'CBJP_PRO_LICENSE_API_URL', '' );
+	define( 'CBJP_PRO_LICENSE_API_URL', 'https://wc.artws.info/' );
 }
 if ( ! defined( 'CBJP_PRO_LICENSE_PRODUCT_ID' ) ) {
-	define( 'CBJP_PRO_LICENSE_PRODUCT_ID', 0 );
+	define( 'CBJP_PRO_LICENSE_PRODUCT_ID', 41019 );
 }
 
 if ( file_exists( CBJP_PRO_PATH . 'vendor/autoload.php' ) ) {

@@ -15,7 +15,8 @@
 # 3. 種類（ERROR・WARNING）とコードごとに数えて出し、ERROR が 1 つでもあれば非ゼロで終わる。展開したディレクトリと結果は消す（--keep で残す）。
 #    --summarize は取ってある結果（strict-json）を集計だけする（回帰テスト bin/test-plugin-check-zip.sh・再表示）
 #
-# Pro は readme.txt を同梱しない（wordpress.org で配らない。R3-5b）ので、no_plugin_readme だけを --ignore-codes で除く。
+# Pro は readme.txt を同梱せず（wordpress.org で配らない。R3-5b）、更新は販売サイトから `Update URI` ヘッダーで配る（R3-8c。wordpress.org のプラグインには許されない）ので、
+# no_plugin_readme と plugin_updater_detected だけを --ignore-codes で除く。
 # 受け入れた警告（無料版: 自前のテーブルへの直接のクエリ・prepare 済みの動的な WHERE・アンインストールの DROP。docs/03 §10.9）は数えるだけで止めない。
 # コードの一覧に見覚えの無いものが増えていないかを集計で見る。-- の後の引数は wp plugin check にそのまま渡す（--include-experimental・--mode=update・--checks=… など）。
 # 結果を隠す引数（--ignore-errors・--ignore-warnings・--severity・--exclude-*。値付きの --ignore-errors=false も: Plugin Check は値が空でなければ隠す）は受けない。渡した引数は見出しに出す（全チェックの結果と取り違えない）。
@@ -159,10 +160,10 @@ if [ -n "$SUMMARIZE" ]; then
 	exit "$rc"
 fi
 
-# プラグインごとの違い: Pro は readme.txt を同梱しない（wordpress.org で配らない）ので、無い readme の ERROR だけを除く。
+# プラグインごとの違い: Pro は readme.txt を同梱せず、`Update URI` で販売サイトから更新を配る（wordpress.org で配らない）ので、無い readme と更新の仕組みの ERROR だけを除く。
 case "$SLUG" in
 	cart-bridge-jp) IGNORE_CODES= ;;
-	cart-bridge-jp-pro) IGNORE_CODES=no_plugin_readme ;;
+	cart-bridge-jp-pro) IGNORE_CODES=no_plugin_readme,plugin_updater_detected ;;
 	*) die "unknown plugin: ${SLUG} (expected cart-bridge-jp or cart-bridge-jp-pro)" ;;
 esac
 case "$ENV_NAME" in
@@ -272,7 +273,7 @@ if pc_version=$(tr -d '[:space:]' <"${WORK}/version.txt") && [ -n "$pc_version" 
 fi
 
 echo "plugin-check-zip: ${zip_display} (${nfiles} files) checked as ${SLUG} with Plugin Check ${pc_version} on wp-env ${ENV_NAME}"
-[ -z "$IGNORE_CODES" ] || echo "plugin-check-zip: ignored codes: ${IGNORE_CODES} (Pro ships no readme.txt; it is not distributed on wordpress.org)"
+[ -z "$IGNORE_CODES" ] || echo "plugin-check-zip: ignored codes: ${IGNORE_CODES} (Pro ships no readme.txt and updates through its Update URI header; it is not distributed on wordpress.org)"
 [ -z "$extra_q" ] || echo "plugin-check-zip: extra wp plugin check options:${extra_q} (not the default full run)"
 rc=0
 summarize "${WORK}/results.json" || rc=$?

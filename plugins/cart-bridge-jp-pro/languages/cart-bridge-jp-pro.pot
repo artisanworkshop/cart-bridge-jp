@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Cart Bridge JP Pro 0.1.0\n"
+"Project-Id-Version: Cart Bridge JP Pro 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T23:27:59+00:00\n"
+"POT-Creation-Date: 2026-10-22T21:45:10+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cart-bridge-jp-pro\n"
@@ -32,15 +32,15 @@ msgstr ""
 msgid "Artisan Workshop"
 msgstr ""
 
-#: cart-bridge-jp-pro.php:139
+#: cart-bridge-jp-pro.php:140
 msgid "Cart Bridge JP Pro requires WooCommerce and Cart Bridge JP to be installed and active."
 msgstr ""
 
-#: cart-bridge-jp-pro.php:152
+#: cart-bridge-jp-pro.php:153
 msgid "Cart Bridge JP Pro requires a newer version of Cart Bridge JP. Update Cart Bridge JP to use the Pro add-on."
 msgstr ""
 
-#: cart-bridge-jp-pro.php:165
+#: cart-bridge-jp-pro.php:166
 msgid "Cart Bridge JP Pro could not load its dependencies. Run \"composer install\" in the plugin directory."
 msgstr ""
 

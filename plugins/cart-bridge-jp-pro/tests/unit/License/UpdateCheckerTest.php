@@ -176,12 +176,16 @@ final class UpdateCheckerTest extends WP_UnitTestCase {
 	public function test_wp_update_plugins_offers_the_update(): void {
 		$this->store->save_activation( self::KEY, 1000 );
 		$this->checker->register();
-		$this->server->json( self::wordpress_org_response() )->fixture( 'update_active' );
+		// フィクスチャの new_version（0.1.1。0.1.0 のときに測った）は今の版より古いことがあり、WP は今の版より新しいものしか `response` に入れない。
+		$body = FixtureLoader::load( 'api-manager', 'update_active' );
+
+		$body['data']['package']['new_version'] = self::newer_version();
+		$this->server->json( self::wordpress_org_response() )->json( $body );
 
 		$item = $this->run_wp_update_plugins()->response[ self::PLUGIN_FILE ] ?? null;
 
 		$this->assertIsObject( $item );
-		$this->assertSame( '0.1.1', $item->new_version, 'WP は version を new_version に写す' );
+		$this->assertSame( self::newer_version(), $item->new_version, 'WP は version を new_version に写す' );
 		$this->assertSame( self::UPDATE_URI, $item->id, 'id はヘッダーの値' );
 		$this->assertSame( self::PLUGIN_FILE, $item->plugin );
 		$this->assertSame( 'cart-bridge-jp-pro', $item->slug, '詳細のリンクはこのスラッグで plugins_api を引く' );
@@ -261,7 +265,19 @@ final class UpdateCheckerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * `get_plugins()` のキャッシュでこのプラグインに `Update URI` を与えてから `wp_update_plugins()` を走らせ、保存された更新の情報を返す。
+	 * 今の版の最後の数字を 1 つ上げた版（WP の `wp_update_plugins()` が `response` に入れる、今より新しい版）。
+	 */
+	private static function newer_version(): string {
+		$parts = explode( '.', CBJP_PRO_VERSION );
+
+		$parts[ count( $parts ) - 1 ] = (string) ( (int) end( $parts ) + 1 );
+
+		return implode( '.', $parts );
+	}
+
+	/**
+	 * `get_plugins()` のキャッシュでこのプラグインの `Update URI` をテストの値（`self::UPDATE_URI`。チェッカーも同じ値で作る）にしてから
+	 * `wp_update_plugins()` を走らせ、保存された更新の情報を返す。
 	 */
 	private function run_wp_update_plugins(): object {
 		$plugins = get_plugins();
