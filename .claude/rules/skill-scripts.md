@@ -43,8 +43,8 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
   消す・上書きするのは、記録にあり持ち主の印（偽のトークン・名前・SHA-256・自分が始めた run の ID）が一致するものだけ（記録の名前だけでは、言語パックの更新が置き換えたファイルを上書きする。
   `wp_delete_term()` が既定を守るのは `category` と `default_term` を登録したタクソノミーだけで、WooCommerce の既定の商品カテゴリー〔`default_product_cat`〕は消える。
   その option にはインストールが term_taxonomy_id を、管理画面の「既定にする」が term_id を書くので、両方と比べる）。
-  記録（中の一覧・ID も。option の控えは名前の集合まで）が壊れていれば空と読まずに止まり、照会の失敗（`$wpdb->last_error`）でも止まる。
-  run のキャンセルの REST（`POST /runs/{id}/cancel`）は DB の書き換えの結果を見ずに 200 を返すので、ジョブが閉じたことを照会し直してから記録を消す（PR #154）。プラグインが無効で片付けられない経路も、トークン・ライセンス・開いた job の行を直接読み、残っていれば止まる。
+  記録（中の一覧・ID も。option の控えは名前の集合まで）が壊れていれば空と読まずに止まり、照会の失敗（`$wpdb->last_error`）でも止まる（記録の option も `get_option()` でなく DB の行で読む。`get_option()` は失敗も「無い」と返す）。
+  run のキャンセルの REST（`POST /runs/{id}/cancel`）は DB の書き換えの結果を見ずに 200 を返すので、ジョブが閉じたことを照会し直してから記録を消す。開いた run の一覧の REST（`GET /runs`）は照会の失敗も空の一覧として 200 で返すので、記録を消す判定には jobs の行を直接読む（PR #154）。プラグインが無効で片付けられない経路も、トークン（と更新のロック）・ライセンス・開いた job の行を直接読み、残っていれば止まる。
   `.claude/pro-manual-screenshots/shared/lib.php`・`.claude/wporg-screenshots/lib.php`（無料版の撮影も同じ形にした）
 - **wp-env の tests サイト（10011）と PHPUnit は同じ DB・同じ接頭辞を使う**。PHPUnit が起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけで、
   プラグイン・WooCommerce の独自テーブル（`cbjp_jobs` などと Action Scheduler・配送ゾーン）の行は残る。tests サイトで検証の run を開いたまま残すと、

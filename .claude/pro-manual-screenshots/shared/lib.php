@@ -36,14 +36,15 @@ $GLOBALS['cbjp_pm_run_id'] = null;
 
 /**
  * 止める。自分が始めた run があれば、キャンセルしてから終わる（開いた run が残ると、次の撮影と PHPUnit の一部が 409 になる）。
+ * キャンセルできたと確かめられなければ、そう書いて終わる（記録にある run は cleanup がキャンセルし直す。記録する前に止まった run は Tools タブで）。
  */
 function cbjp_pm_fail( string $message ): void {
 	$run = $GLOBALS['cbjp_pm_run_id'] ?? null;
 
 	if ( is_string( $run ) ) {
 		$GLOBALS['cbjp_pm_run_id'] = null;
-		$cancel                    = cbjp_pm_rest( 'POST', "/cbjp/v1/runs/{$run}/cancel" );
-		$message                  .= " The run {$run} was cancelled (HTTP {$cancel['status']}).";
+		$problem                   = cbjp_pm_cancel_run( $run );
+		$message                  .= '' === $problem ? " The run {$run} was cancelled." : " Could not confirm that the run {$run} was cancelled: {$problem}. Run capture.sh cleanup or cancel it on the Tools tab.";
 	}
 
 	fwrite( STDERR, $GLOBALS['cbjp_pm_who'] . ": {$message}\n" );
@@ -72,17 +73,19 @@ function cbjp_pm_rest( string $method, string $route, array $params = [] ): arra
 }
 
 /**
- * 撮影の記録。無ければ空。壊れた値（配列でない）は空と読まずに止まる（読み替えると、片付けに要る記録を setup が上書きし、teardown が成功と報告する）。
+ * 撮影の記録（DB の行で読む）。無ければ空。`get_option()` は照会の失敗も「無い」と返すので使わない（照会が失敗したら止まる）。
+ * 壊れた値（配列でない）は空と読まずに止まる（読み替えると、片付けに要る記録を setup が上書きし、teardown が成功と報告する）。
  *
  * @return array<string,mixed>
  */
 function cbjp_pm_state(): array {
-	wp_cache_delete( CBJP_PM_STATE, 'options' );
-	$state = get_option( CBJP_PM_STATE, null );
+	$raw = cbjp_pm_option_raw( CBJP_PM_STATE );
 
-	if ( null === $state ) {
+	if ( null === $raw ) {
 		return [];
 	}
+
+	$state = maybe_unserialize( $raw );
 	if ( ! is_array( $state ) ) {
 		cbjp_pm_fail( 'the record of the manual screenshots (option ' . CBJP_PM_STATE . ') is broken: ' . wp_json_encode( $state ) . '. Not touching anything; check the tests site by hand.' );
 	}
@@ -312,6 +315,9 @@ function cbjp_pm_restore_options( string $key ): void {
  * @param array<string,mixed> $state
  */
 function cbjp_pm_save_state( array $state ): void {
+	// `update_option()` は新しい値をこのリクエストのキャッシュの値と比べ、同じなら書かない。DB の値と比べさせる。
+	wp_cache_delete( CBJP_PM_STATE, 'options' );
+
 	if ( [] === $state ) {
 		cbjp_pm_delete_option( CBJP_PM_STATE );
 	} else {
@@ -877,7 +883,7 @@ function cbjp_pm_remove_mappings(): void {
 		$cat = cbjp_pm_product_cat( $term_id );
 
 		if ( null !== $cat && ( in_array( $default, [ $term_id, $cat['term_taxonomy_id'] ], true ) || ! in_array( $cat['name'], CBJP_PM_TERM_NAMES, true ) ) ) {
-			cbjp_pm_fail( "the product category {$term_id} ({$cat['name']}) is not one the screenshots made. Not deleting anything." );
+			cbjp_pm_fail( "the product category {$term_id} ({$cat['name']}) is not one that the screenshots made. Not deleting anything." );
 		}
 	}
 
@@ -900,45 +906,69 @@ function cbjp_pm_remove_mappings(): void {
 }
 
 /**
- * 開いたままの `colorme` の run のうち、撮影が始めたもの（記録にある run。前の撮影が途中で止まった）をキャンセルし、記録から外す。
- * 記録に無い run が開いていれば、他の人・テストの run なので、1 つもキャンセルせずに止まる。
- * キャンセルの REST は DB の書き換えの結果を見ずに 200 を返すので、run のジョブが閉じたことを照会し直してから記録から外す
- * （開いたジョブを残したまま記録を消すと、片付けがモックを外した後にジョブが実 API へ進みうる）。
+ * 開いた（pending・running・paused のジョブを持つ）`colorme` の run の ID（DB の行で読む。古い順）。`GET /runs` の一覧
+ * （`JobRepository::find_active_runs_for_platform()`）は照会の失敗も空の一覧として 200 で返すので、「開いた run は無い」と読んで記録を消さないよう使わない。
+ * 照会が失敗したら止まる。
+ *
+ * @return array<int,string>
  */
-function cbjp_pm_cancel_open_runs(): void {
-	$active = cbjp_pm_rest( 'GET', '/cbjp/v1/runs', [ 'platform' => 'colorme' ] );
+function cbjp_pm_open_run_ids(): array {
+	global $wpdb;
 
-	if ( 200 !== $active['status'] || ! is_array( $active['data']['runs'] ?? null ) ) {
-		cbjp_pm_fail( 'GET /runs returned HTTP ' . $active['status'] . ': ' . wp_json_encode( $active['data'] ) );
+	$run_ids = $wpdb->get_col( $wpdb->prepare( "SELECT run_id FROM {$wpdb->prefix}cbjp_jobs WHERE platform = %s AND status IN ('pending', 'running', 'paused') GROUP BY run_id ORDER BY MIN(id) ASC", 'colorme' ) );
+
+	if ( '' !== $wpdb->last_error || ! is_array( $run_ids ) ) {
+		cbjp_pm_fail( 'could not read the open colorme runs: ' . $wpdb->last_error );
 	}
 
+	return array_map( 'strval', $run_ids );
+}
+
+/**
+ * run をキャンセルし、ジョブがすべて閉じた（完了・失敗・キャンセル）ことを照会し直して確かめる。キャンセルの REST は DB の書き換えの結果を見ずに
+ * 200 を返すので、200 だけでは成功とみなさない（開いたジョブを残したまま記録を消すと、片付けがモックを外した後にジョブが実 API へ進みうる）。
+ * `cbjp_pm_fail()` からも呼ぶので、止めずに結果を返す。
+ *
+ * @return string キャンセルできたと確かめられなかった理由。確かめられたら空。
+ */
+function cbjp_pm_cancel_run( string $run_id ): string {
+	$cancel = cbjp_pm_rest( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
+	if ( 200 !== $cancel['status'] ) {
+		return "the cancel request returned HTTP {$cancel['status']}";
+	}
+
+	$after = cbjp_pm_rest( 'GET', "/cbjp/v1/runs/{$run_id}" );
+	if ( 200 !== $after['status'] || ! is_array( $after['data']['jobs'] ?? null ) ) {
+		return "the run could not be read after cancelling it (HTTP {$after['status']})";
+	}
+
+	$still = array_filter( $after['data']['jobs'], static fn( $job ): bool => ! is_array( $job ) || ! in_array( $job['status'] ?? null, [ 'completed', 'failed', 'cancelled' ], true ) );
+	if ( [] !== $still ) {
+		return 'it still has open jobs after cancelling it: ' . wp_json_encode( array_values( $still ) );
+	}
+
+	return '';
+}
+
+/**
+ * 開いたままの `colorme` の run のうち、撮影が始めたもの（記録にある run。前の撮影が途中で止まった）をキャンセルし、記録から外す。
+ * 記録に無い run が開いていれば、他の人・テストの run なので、1 つもキャンセルせずに止まる。キャンセルできたと確かめられなければ、記録を残して止まる。
+ */
+function cbjp_pm_cancel_open_runs(): void {
 	$state = cbjp_pm_state();
 	$ours  = cbjp_pm_recorded_runs( $state );
-	$open  = [];
-	foreach ( $active['data']['runs'] as $run ) {
-		$run_id = is_array( $run ) && is_string( $run['run_id'] ?? null ) ? $run['run_id'] : '';
+	$open  = cbjp_pm_open_run_ids();
 
-		if ( '' === $run_id || ! in_array( $run_id, $ours, true ) ) {
-			cbjp_pm_fail( 'a colorme run that the manual screenshots did not start is open: ' . wp_json_encode( $run ) . '. Not cancelling it; let it finish or cancel it on the Tools tab first.' );
+	foreach ( $open as $run_id ) {
+		if ( ! in_array( $run_id, $ours, true ) ) {
+			cbjp_pm_fail( "a colorme run that the manual screenshots did not start is open: {$run_id}. Not cancelling it; let it finish or cancel it on the Tools tab first." );
 		}
-
-		$open[] = $run_id;
 	}
 
 	foreach ( $open as $run_id ) {
-		$cancel = cbjp_pm_rest( 'POST', "/cbjp/v1/runs/{$run_id}/cancel" );
-
-		if ( 200 !== $cancel['status'] ) {
-			cbjp_pm_fail( "could not cancel the open run {$run_id} (HTTP {$cancel['status']})." );
-		}
-
-		$after = cbjp_pm_rest( 'GET', "/cbjp/v1/runs/{$run_id}" );
-		if ( 200 !== $after['status'] || ! is_array( $after['data']['jobs'] ?? null ) ) {
-			cbjp_pm_fail( "could not read the run {$run_id} after cancelling it (HTTP {$after['status']})." );
-		}
-		$still = array_filter( $after['data']['jobs'], static fn( $job ): bool => ! is_array( $job ) || ! in_array( $job['status'] ?? null, [ 'completed', 'failed', 'cancelled' ], true ) );
-		if ( [] !== $still ) {
-			cbjp_pm_fail( "the run {$run_id} still has open jobs after cancelling it: " . wp_json_encode( array_values( $still ) ) . '.' );
+		$problem = cbjp_pm_cancel_run( $run_id );
+		if ( '' !== $problem ) {
+			cbjp_pm_fail( "could not cancel the open run {$run_id}: {$problem}." );
 		}
 
 		echo "cancelled the open run {$run_id}\n";
@@ -1044,20 +1074,23 @@ function cbjp_pm_run( string $type, array $entities ): string {
 		$store->release_claim( $claim );
 
 		if ( 0 === $processed ) {
+			// `as_get_scheduled_actions()` は照会が失敗しても空を返すので、`$wpdb->last_error` で見分けて止まる（「アクションが無い」と読まない）。
 			$live = 0;
 			foreach ( $job_ids as $job_id ) {
 				foreach ( [ ActionScheduler_Store::STATUS_PENDING, ActionScheduler_Store::STATUS_RUNNING ] as $status ) {
-					$live += count(
-						as_get_scheduled_actions(
-							[
-								'hook'     => JobManager::ACTION_HOOK,
-								'args'     => [ 'job_id' => $job_id ],
-								'status'   => $status,
-								'per_page' => 1,
-							],
-							'ids'
-						)
+					$found = as_get_scheduled_actions(
+						[
+							'hook'     => JobManager::ACTION_HOOK,
+							'args'     => [ 'job_id' => $job_id ],
+							'status'   => $status,
+							'per_page' => 1,
+						],
+						'ids'
 					);
+					if ( '' !== $wpdb->last_error || ! is_array( $found ) ) {
+						cbjp_pm_fail( "could not look for the actions of the job {$job_id}: " . $wpdb->last_error );
+					}
+					$live += count( $found );
 				}
 			}
 			$orphaned = 0 === $live ? $orphaned + 1 : 0;
@@ -1243,7 +1276,7 @@ function cbjp_pm_remove_imported(): void {
 }
 
 /**
- * プラグインが無効なときに、撮影の記録・トークン・ライセンスのキーか有効化の記録・開いた `colorme` の job が DB に残っているか
+ * プラグインが無効なときに、撮影の記録・トークン（とその更新のロック）・ライセンスのキーか有効化の記録・開いた `colorme` の job が DB に残っているか
  * （クラスが読み込まれていないので、行を直接読む）。残っていれば、モックを外した後にプラグインを有効化すると、
  * 予定済みのアクションや更新の確認が本物の Color Me Shop API・販売サイトに届きうる。
  *
@@ -1259,6 +1292,10 @@ function cbjp_pm_inactive_leftovers(): array {
 	}
 	if ( null !== cbjp_pm_option_raw( 'cbjp_token_colorme' ) ) {
 		$left[] = 'a colorme token';
+	}
+	// 有効なときの片付け（`cbjp_pm_delete_token()`）は、トークンが無くても更新のロックの行を消す。無効なときも残りとして数える。
+	if ( null !== cbjp_pm_option_raw( 'cbjp_token_lock_colorme' ) ) {
+		$left[] = 'the refresh lock of the colorme token';
 	}
 
 	// `LicenseStore::KEY_OPTION`・`STATE_OPTION`（Pro が無効だとクラスが無い）。撮影の前は無いか未有効化だった（setup の前提）。
@@ -1289,7 +1326,7 @@ function cbjp_pm_inactive_leftovers(): array {
 
 /**
  * 片付けの前提。tests サイトで、トークンとライセンスが撮影のものか無いことを確かめる。プラグインか WooCommerce が無効なら、
- * 片付けられないので、撮影の記録・トークン・ライセンス・開いた job が残っていれば止まる（無効化はデータを消さない）。
+ * 片付けられないので、撮影の記録・トークン（とその更新のロック）・ライセンス・開いた job が残っていれば止まる（無効化はデータを消さない）。
  *
  * @param array<int,mixed> $args
  * @return bool 片付けを続けるか（false なら何も残っていない）。
