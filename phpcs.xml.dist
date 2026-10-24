@@ -7,7 +7,7 @@
 	<file>plugins/cart-bridge-jp</file>
 	<file>bin</file>
 	<file>.claude/skills</file>
-	<!-- wordpress.org 用スクリーンショットの mu-plugin（共有スキル wporg-screenshots のフック）。setup.php・teardown.php は echo・exit を使う使い捨ての補助なので対象にしない。 -->
+	<!-- wordpress.org 用スクリーンショットの mu-plugin（共有スキル wporg-screenshots のフック）。lib.php・setup.php・teardown.php は echo・exit を使う撮影用の補助なので対象にしない。 -->
 	<file>.claude/wporg-screenshots/mu-plugin.php</file>
 	<!-- Pro のマニュアル用スクリーンショットのモックと mu-plugin（同じく wporg-screenshots のフック）。shared/lib.php・setup.php・teardown.php は echo・exit を使う撮影用の補助なので対象にしない。 -->
 	<file>.claude/pro-manual-screenshots/shared/mock.php</file>

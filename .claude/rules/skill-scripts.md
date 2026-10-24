@@ -37,13 +37,13 @@ PR #50 では同種の指摘を Copilot・Codex から計 4 ラウンド受け�
 - **API のモック（mu-plugin）を外すのは、外すと実 API に出うる状態を片付けた後にする**。偽のトークン・開いた run・キューに残ったアクションが
   あると、モックを外した後で管理画面・WP-Cron・プラグインの再有効化から実 API へ通信が出る。片付けられないとき（プラグインが無効など。無効化はデータを消さない）は
   モックを残して失敗する。片付けは自分の作ったものだけにし、他人のトークン・run には触れない（トークンは生の option で持ち主を肯定形で確かめる。
-  復号できない値は `TokenStore::get()` が null を返すので、null を「無い」と読まない）。`.claude/wporg-screenshots/teardown.php`。PR #112 の G1〜G3 で 1 段ずつ指摘された
+  復号できない値は `TokenStore::get()` が null を返すので、null を「無い」と読まない）。`.claude/wporg-screenshots/lib.php` の `cbjp_shot_guard_teardown()`。PR #112 の G1〜G3 で 1 段ずつ指摘された
 - **tests サイトを書き換えるフック（setup・teardown）は、記録してから変え、記録と照合できたものだけを戻す**（PR #152 で Copilot が 3 ラウンド・13 件、すべてこの形）。
   書き換える option は前の DB の生の値を控えて戻し、消した・戻したことも DB の行で確かめる（`delete_option()` は DB の削除が失敗しても `notoptions` に「無い」と書く）。
   消す・上書きするのは、記録にあり持ち主の印（偽のトークン・名前・SHA-256・自分が始めた run の ID）が一致するものだけ（記録の名前だけでは、言語パックの更新が置き換えたファイルを上書きする。
   `wp_delete_term()` が既定を守るのは `category` と `default_term` を登録したタクソノミーだけで、WooCommerce の既定の商品カテゴリー〔`default_product_cat`〕は消える）。
   記録（中の一覧・ID も）が壊れていれば空と読まずに止まり、照会の失敗（`$wpdb->last_error`）でも止まる。プラグインが無効で片付けられない経路も、トークン・ライセンス・開いた job の行を直接読み、残っていれば止まる。
-  `.claude/pro-manual-screenshots/shared/lib.php`。無料版の `.claude/wporg-screenshots/` の setup・teardown（開いた run をすべてキャンセルする・サイトの option を戻さない）はまだこの形になっていない
+  `.claude/pro-manual-screenshots/shared/lib.php`・`.claude/wporg-screenshots/lib.php`（無料版の撮影も同じ形にした）
 - **wp-env の tests サイト（10011）と PHPUnit は同じ DB・同じ接頭辞を使う**。PHPUnit が起動時に戻すのはコアのテーブル（オプション・投稿・ターム・ユーザー）だけで、
   プラグイン・WooCommerce の独自テーブル（`cbjp_jobs` などと Action Scheduler・配送ゾーン）の行は残る。tests サイトで検証の run を開いたまま残すと、
   `colorme` で run の排他を通るテストが 409 になりうる（PR #112 R1-3・R1-4）
