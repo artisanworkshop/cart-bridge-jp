@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// `php/setup.php` は、この mu-plugin が読み込まれていること（＝実 API に出ていかないこと）を確かめてから準備を始める。
+// setup（lib.php の `cbjp_shot_guard_setup()`）は、この mu-plugin が読み込まれていること（＝実 API に出ていかないこと）を確かめてから準備を始める。
 define( 'CBJP_SCREENSHOT_FIXTURES', true );
 
 add_filter(
