@@ -104,6 +104,85 @@ function cbjp_shot_state_list( array $state, string $key ): array {
 }
 
 /**
+ * 記録の run の ID（撮影が始めた run）。一覧でない・空でない文字列でない ID があれば、壊れた記録として止まる。
+ *
+ * @param array<string,mixed> $state
+ * @return array<int,string>
+ */
+function cbjp_shot_recorded_runs( array $state ): array {
+	$runs = cbjp_shot_state_list( $state, 'runs' );
+
+	foreach ( $runs as $run_id ) {
+		if ( ! is_string( $run_id ) || '' === $run_id ) {
+			cbjp_shot_fail( 'the record of the runs the screenshots started is broken: ' . wp_json_encode( $runs ) . '. Not touching anything; check the tests site by hand.' );
+		}
+	}
+
+	return array_values( $runs );
+}
+
+/**
+ * 記録の term の ID（撮影が作ったカテゴリ）。一覧でない・正の int でない ID があれば、壊れた記録として止まる。
+ *
+ * @param array<string,mixed> $state
+ * @return array<int,int>
+ */
+function cbjp_shot_recorded_terms( array $state ): array {
+	$terms = cbjp_shot_state_list( $state, 'terms' );
+
+	foreach ( $terms as $term_id ) {
+		if ( ! is_int( $term_id ) || $term_id <= 0 ) {
+			cbjp_shot_fail( 'the record of the product categories the screenshots made is broken: ' . wp_json_encode( $terms ) . '. Not touching anything; check the tests site by hand.' );
+		}
+	}
+
+	return array_values( $terms );
+}
+
+/**
+ * 記録の `$key` に控えた option の値（option の名前 => 書き換える前の DB の生の値。null は「無かった」）。控えが無ければ null。
+ * 壊れていれば止まる。
+ *
+ * @param array<string,mixed> $state
+ * @return array<string,?string>|null
+ */
+function cbjp_shot_snapshot( array $state, string $key ): ?array {
+	if ( ! array_key_exists( $key, $state ) ) {
+		return null;
+	}
+
+	$previous = $state[ $key ];
+
+	if ( ! is_array( $previous ) ) {
+		cbjp_shot_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
+	}
+	foreach ( $previous as $name => $raw ) {
+		if ( ! is_string( $name ) || ( null !== $raw && ! is_string( $raw ) ) ) {
+			cbjp_shot_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
+		}
+	}
+
+	return $previous;
+}
+
+/**
+ * 記録を、何かを変える前にまとめて確かめる（壊れた一覧・控えを、書き換えた後や片付けの途中で見つけないように）。setup と teardown の最初に呼ぶ。
+ */
+function cbjp_shot_check_state(): void {
+	$state = cbjp_shot_state();
+
+	cbjp_shot_recorded_runs( $state );
+	cbjp_shot_recorded_terms( $state );
+	cbjp_shot_snapshot( $state, 'site' );
+	cbjp_shot_snapshot( $state, 'mappings' );
+
+	$unknown = array_diff( array_keys( $state ), [ 'runs', 'terms', 'site', 'mappings' ] );
+	if ( [] !== $unknown ) {
+		cbjp_shot_fail( 'the record of the screenshots has unknown entries: ' . implode( ', ', $unknown ) . '. Not touching anything; check the tests site by hand.' );
+	}
+}
+
+/**
  * option の DB の生の値。行が無ければ null。`get_option()` はこのリクエストのキャッシュに頼る（`delete_option()` は DB の削除が失敗しても
  * 「無い」と記録する）ので、消せた・戻せたことの確認には使わない。照会が失敗したら止まる。
  */
@@ -148,13 +227,19 @@ function cbjp_shot_restore_option( string $name, ?string $raw ): void {
 
 /**
  * 書き換える前の option の値を、記録の `$key` に控える。控えが既にあれば（前の撮影が途中で止まった）、撮影の前の値を残すために書き換えない。
+ * そのときも、控えが壊れていないことと、これから書き換える option をすべて控えていることを確かめる（戻せない書き換えをしない）。
  *
  * @param array<int,string> $names 戻す順（片付けはこの順で戻す）。
  */
 function cbjp_shot_remember_options( string $key, array $names ): void {
-	$state = cbjp_shot_state();
+	$state    = cbjp_shot_state();
+	$existing = cbjp_shot_snapshot( $state, $key );
 
-	if ( array_key_exists( $key, $state ) ) {
+	if ( null !== $existing ) {
+		$missing = array_diff( $names, array_keys( $existing ) );
+		if ( [] !== $missing ) {
+			cbjp_shot_fail( "the record of the options before the screenshots ({$key}) does not list " . implode( ', ', $missing ) . '. Not changing them.' );
+		}
 		return;
 	}
 
@@ -171,21 +256,11 @@ function cbjp_shot_remember_options( string $key, array $names ): void {
  * 記録の `$key` に控えた option を戻し、控えを消す。控えが無ければ（書き換える前に止まった）何もしない。
  */
 function cbjp_shot_restore_options( string $key ): void {
-	$state = cbjp_shot_state();
+	$state    = cbjp_shot_state();
+	$previous = cbjp_shot_snapshot( $state, $key );
 
-	if ( ! array_key_exists( $key, $state ) ) {
+	if ( null === $previous ) {
 		return;
-	}
-
-	$previous = $state[ $key ];
-
-	if ( ! is_array( $previous ) ) {
-		cbjp_shot_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
-	}
-	foreach ( $previous as $name => $raw ) {
-		if ( ! is_string( $name ) || ( null !== $raw && ! is_string( $raw ) ) ) {
-			cbjp_shot_fail( "the record of the options before the screenshots ({$key}) is broken: " . wp_json_encode( $previous ) . '.' );
-		}
 	}
 
 	foreach ( $previous as $name => $raw ) {
@@ -362,7 +437,7 @@ function cbjp_shot_save_mappings(): void {
 	};
 
 	$state    = cbjp_shot_state();
-	$terms    = cbjp_shot_state_list( $state, 'terms' );
+	$terms    = cbjp_shot_recorded_terms( $state );
 	$asp_cats = $ids( $asp['category'] ?? null );
 	$category = [];
 	foreach ( CBJP_SHOT_TERM_NAMES as $i => $name ) {
@@ -399,32 +474,51 @@ function cbjp_shot_save_mappings(): void {
 }
 
 /**
+ * 商品のカテゴリーの term の名前（DB の行で読む）。無ければ null。`get_term()` は照会の失敗も「無い」（null）と返すので、
+ * 「もう無い」と読んで消すのを飛ばさないよう使わない。照会が失敗したら止まる。
+ */
+function cbjp_shot_product_cat_name( int $term_id ): ?string {
+	global $wpdb;
+
+	$row = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT t.name FROM {$wpdb->terms} AS t INNER JOIN {$wpdb->term_taxonomy} AS tt ON tt.term_id = t.term_id WHERE t.term_id = %d AND tt.taxonomy = %s",
+			$term_id,
+			'product_cat'
+		),
+		ARRAY_A
+	);
+
+	if ( '' !== $wpdb->last_error ) {
+		cbjp_shot_fail( "could not read the product category {$term_id}: " . $wpdb->last_error );
+	}
+
+	return is_array( $row ) ? (string) $row['name'] : null;
+}
+
+/**
  * 作ったカテゴリを消し、対応付けを撮影の前の値に戻す。
  */
 function cbjp_shot_remove_mappings(): void {
 	$state   = cbjp_shot_state();
-	$terms   = cbjp_shot_state_list( $state, 'terms' );
+	$terms   = cbjp_shot_recorded_terms( $state );
 	$default = (int) get_option( 'default_product_cat', 0 );
 
-	// 消す前にすべて確かめる。壊れた ID・撮影が作った名前でない term・WooCommerce の既定のカテゴリー（`wp_delete_term()` は product_cat の既定を守らない）は、1 つも消さずに止まる。
+	// 消す前にすべて確かめる。撮影が作った名前でない term・WooCommerce の既定のカテゴリー（`wp_delete_term()` は product_cat の既定を守らない）は、1 つも消さずに止まる。
 	foreach ( $terms as $term_id ) {
-		if ( ! is_int( $term_id ) || $term_id <= 0 ) {
-			cbjp_shot_fail( 'the record of the product categories the screenshots made is broken: ' . wp_json_encode( $terms ) . '. Not deleting anything.' );
-		}
+		$name = cbjp_shot_product_cat_name( $term_id );
 
-		$term = get_term( $term_id, 'product_cat' );
-
-		if ( $term instanceof WP_Term && ( $default === $term_id || ! in_array( $term->name, CBJP_SHOT_TERM_NAMES, true ) ) ) {
-			cbjp_shot_fail( "the product category {$term_id} ({$term->name}) is not one the screenshots made. Not deleting anything." );
+		if ( null !== $name && ( $default === $term_id || ! in_array( $name, CBJP_SHOT_TERM_NAMES, true ) ) ) {
+			cbjp_shot_fail( "the product category {$term_id} ({$name}) is not one the screenshots made. Not deleting anything." );
 		}
 	}
 
 	foreach ( $terms as $term_id ) {
-		if ( get_term( $term_id, 'product_cat' ) instanceof WP_Term ) {
-			$deleted = wp_delete_term( $term_id, 'product_cat' );
-			if ( true !== $deleted ) {
-				cbjp_shot_fail( "could not delete the product category {$term_id}." );
-			}
+		if ( null === cbjp_shot_product_cat_name( $term_id ) ) {
+			continue;
+		}
+		if ( true !== wp_delete_term( $term_id, 'product_cat' ) || null !== cbjp_shot_product_cat_name( $term_id ) ) {
+			cbjp_shot_fail( "could not delete the product category {$term_id}." );
 		}
 	}
 
@@ -449,7 +543,7 @@ function cbjp_shot_cancel_open_runs(): void {
 	}
 
 	$state = cbjp_shot_state();
-	$ours  = cbjp_shot_state_list( $state, 'runs' );
+	$ours  = cbjp_shot_recorded_runs( $state );
 	$open  = [];
 
 	foreach ( $active['data']['runs'] as $run ) {
@@ -508,7 +602,7 @@ function cbjp_shot_run( array $entities ): string {
 
 	// 始めた run を記録する（強制終了で開いたまま残っても、次の撮影・片付けが自分の run と見分けてキャンセルする）。
 	$state           = cbjp_shot_state();
-	$state['runs']   = cbjp_shot_state_list( $state, 'runs' );
+	$state['runs']   = cbjp_shot_recorded_runs( $state );
 	$state['runs'][] = $run_id;
 	cbjp_shot_save_state( $state );
 
@@ -707,6 +801,7 @@ function cbjp_shot_guard_teardown( array $args ): bool {
 function cbjp_shot_setup( array $args ): void {
 	$entities = cbjp_shot_guard_setup( $args );
 
+	cbjp_shot_check_state();
 	cbjp_shot_cancel_open_runs();
 	cbjp_shot_prepare_site();
 	cbjp_shot_save_token();
@@ -727,6 +822,7 @@ function cbjp_shot_teardown( array $args ): void {
 		return;
 	}
 
+	cbjp_shot_check_state();
 	cbjp_shot_cancel_open_runs();
 	cbjp_shot_remove_mappings();
 	cbjp_shot_delete_token();

@@ -33,7 +33,7 @@ composer test:wpenv:free -- --filter ReadmeTest   # キャプションと画像�
 
 撮影で作ったもの（始めた run・作ったカテゴリ）は option `cbjp_wporg_screenshots` に記録し、teardown は記録にあるものだけを消す・キャンセルする。
 書き換える option（サイト名・通貨・国・オンボーディング・ストアの公開、`cbjp_settings_colorme` の対応付け）は、書き換える前の DB の値を記録に控え、teardown がそのまま戻す（無かったものは消す）。消した・戻したことは `get_option()`（このリクエストのキャッシュ）ではなく DB の行で確かめる。
-記録（中の一覧を含む）が壊れていれば、空と読まずに止まる。カテゴリは、記録の ID の term が撮影の付けた名前（`Apparel`・`Accessories`）で、WooCommerce の既定のカテゴリーでないときだけ消す。同じ名前のカテゴリが前からあれば、記録せずに使い、消さない。
+setup・teardown は何かを変える前に記録全体（run・カテゴリの ID、option の控え、知らない項目が無いこと）を確かめ、壊れていれば空と読まずに止まる。控えが前の撮影から残っていても、これから書き換える option をすべて控えていなければ止まる。カテゴリは、記録の ID の term が撮影の付けた名前（`Apparel`・`Accessories`）で、WooCommerce の既定のカテゴリーでないときだけ消す。同じ名前のカテゴリが前からあれば、記録せずに使い、消さない。
 プラグインか WooCommerce が無効なら片付けられないので、撮影の記録・`colorme` のトークン・開いた `colorme` のジョブのどれかが DB に残っていれば失敗する（有効にしてから `cleanup`）。何も残っていなければ何もしない（PHPUnit の後など）。
 
 2026-10-24 より前の setup は、書き換えた option・対応付け・作ったカテゴリを戻さなかった。tests サイトのサイト名などが `Example Store` のままなのはその名残で、今の teardown は撮影の前の値（その名残を含む）に戻す。
